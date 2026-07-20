@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- WHY: 문장을 위에 두고 읽기 — 그림은 아래 (docs/UX.md) -->
+  <title>A-sentence-reading</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1 class="brand">A-sentence-reading</h1>
+    <p class="stage-badge" id="stageBadge">skeleton · mock</p>
+  </header>
+
+  <!-- WHY: 세로 공간을 문장에 양보 — 아래 그림은 스플리터로 접음 (docs/design/11) -->
+  <main class="layout" id="layout">
+    <!-- ========== 상단: 한 문장 (Immersive Reader식) ========== -->
+    <section class="panel panel-sentence" aria-label="한 문장">
+      <div class="panel-meta">
+        <span class="panel-label">한 문장</span>
+        <span class="panel-count" id="sentenceCount">Sent — / —</span>
+      </div>
+      <div class="carousel">
+        <button type="button" class="nav-btn" id="sentPrev" aria-label="이전 문장">‹</button>
+        <div class="sentence-frame" id="sentenceFrame" tabindex="0" title="클릭: 문장 확대 / 다시 클릭: 원래 크기">
+          <p class="sentence-text" id="sentenceText"></p>
+        </div>
+        <button type="button" class="nav-btn" id="sentNext" aria-label="다음 문장">›</button>
+      </div>
+      <p class="hint">← / → 문장 · ↑↓ 글/그림 몰입(F에서) · F 전체화면</p>
+    </section>
+
+    <!-- 드래그 핸들: 아래로 끌면 아래 그림 접힘 -->
+    <div
+      class="split"
+      id="splitter"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-controls="figurePanel"
+      aria-label="문장·그림 구분 — 아래로 드래그하면 그림 접기"
+      tabindex="0"
+    >
+      <span class="split-grip" aria-hidden="true"></span>
+    </div>
+
+    <!-- ========== 하단: 그림 ========== -->
+    <section class="panel panel-figure" id="figurePanel" aria-label="그림">
+      <div class="figure-body" id="figureBody">
+        <div class="panel-meta">
+          <span class="panel-label">그림</span>
+          <span class="panel-count" id="figureCount">Fig — / —</span>
+        </div>
+        <div class="carousel">
+          <button type="button" class="nav-btn" id="figPrev" aria-label="이전 그림">‹</button>
+          <figure class="figure-frame" id="figureFrame" title="클릭하면 그림 영역 확대">
+            <img id="figureImage" alt="논문 그림" />
+            <figcaption id="figureCaption"></figcaption>
+          </figure>
+          <button type="button" class="nav-btn" id="figNext" aria-label="다음 그림">›</button>
+        </div>
+        <p class="hint">Shift+←/→ 그림 · 전체화면에서는 ←/→ · ↓ 그림 전체화면</p>
+      </div>
+
+      <!-- 접혔을 때 하단 바 — 위로 드래그/클릭하면 펼침 -->
+      <button type="button" class="figure-strip" id="figureStrip" hidden aria-label="그림 프레임 — 위로 끌어 펼치기">
+        <span class="figure-strip-label">그림 프레임</span>
+        <span class="panel-count" id="figureCountCollapsed">Fig — / —</span>
+        <span class="figure-strip-hint">↑ 당겨서 펼치기</span>
+      </button>
+    </section>
+  </main>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

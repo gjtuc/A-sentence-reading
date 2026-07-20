@@ -1,0 +1,28 @@
+[project]
+name = "sentence-reading"
+version = "0.0.1"
+description = "One-sentence academic PDF reader with independent figure navigation"
+readme = "README.md"
+requires-python = ">=3.11"
+# WHY: 스켈레톤 단계 — 서버만 기동. PDF 파이프라인은 다음 단계에서 켠다.
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    # NEXT: "pymupdf>=1.24.0",   # figures + text extract
+    # NEXT: "pysbd>=0.3.4",      # sentence boundary (논문 약어 주의)
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sentence_reading = ["static/*"]

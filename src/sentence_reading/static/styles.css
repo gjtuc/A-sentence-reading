@@ -1,0 +1,738 @@
+/*
+ * Immersive Reader–inspired reading surface.
+ * WHY: Azure SDK 없이 CSS만으로 고대비·좁은 열·넓은 간격을 고정한다.
+ * See docs/UX.md, docs/RESEARCH.md, docs/design/11-figure-collapse.md.
+ */
+
+:root {
+  --bg: #0f0f0f;
+  --bg-panel: #121212;
+  --fg: #e3e3e3;
+  --fg-muted: #9a9a9a;
+  --accent: #c8c8c8;
+  --border: #2a2a2a;
+  --sentence-max-ch: 27ch;
+  --sentence-size: 1.45rem;
+  --sentence-line: 2.2;
+  --letter-space: 0.04em;
+  --word-space: 0.12em;
+  --font: "Segoe UI", "Sitka Text", Calibri, "Malgun Gothic", sans-serif;
+  --figure-collapsed: 48px;
+  --figure-height: 340px;
+  --header-h: 3rem;
+  --layout-ms: 0.45s;
+  --layout-ease: cubic-bezier(0.33, 1, 0.68, 1);
+  --chrome-fade-ms: 0.4s;
+  --layout-grow-ms: 0.75s;
+  --layout-grow-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  /* 브라우저 FS ↑/↓ 만 약 3× */
+  --immersive-grow-ms: 2.25s;
+  --immersive-grow-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --scroll-size: 6px;
+  --scroll-track: transparent;
+  --scroll-thumb: #3a3a3a;
+  --scroll-thumb-hover: #555555;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* 스크롤바 — 다크 미니멀 (Firefox) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+
+/* 스크롤바 — Chromium / Safari */
+*::-webkit-scrollbar {
+  width: var(--scroll-size);
+  height: var(--scroll-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scroll-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 999px;
+  border: 1px solid var(--bg);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+  border: 1px solid var(--bg);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.app-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  max-height: 4.5rem;
+  overflow: hidden;
+  transition:
+    opacity var(--layout-ms) var(--layout-ease),
+    max-height var(--layout-ms) var(--layout-ease),
+    padding var(--layout-ms) var(--layout-ease),
+    border-color var(--layout-ms) var(--layout-ease);
+}
+
+.brand {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.stage-badge {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+
+/* 브라우저 전체화면: 앱 헤더도 숨겨 몰입 */
+:fullscreen .app-header,
+body.is-browser-fullscreen .app-header {
+  display: none;
+}
+
+:fullscreen .layout,
+body.is-browser-fullscreen .layout {
+  padding-top: 0.5rem;
+}
+
+/*
+ * 브라우저 전체화면 + 문장 확대:
+ * 글만 보이게. 문장 패널에 hover 하면 라벨·화살표·힌트·그림 프레임 복귀.
+ */
+:fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .panel-meta,
+:fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .hint,
+:fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .nav-btn,
+body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .panel-meta,
+body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .hint,
+body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .nav-btn {
+  opacity: 0;
+  pointer-events: none;
+  max-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: none;
+}
+
+:fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .carousel,
+body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .carousel {
+  grid-template-columns: 1fr;
+}
+
+:fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .nav-btn,
+body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .nav-btn {
+  display: none;
+}
+
+:fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .split,
+:fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-figure,
+body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .split,
+body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-figure {
+  opacity: 0;
+  pointer-events: none;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  margin: 0;
+  overflow: hidden;
+  flex: 0 0 0 !important;
+}
+
+:fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence,
+body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence {
+  flex: 1 1 auto;
+}
+
+:fullscreen .layout.is-sentence-focus .panel-sentence .panel-meta,
+:fullscreen .layout.is-sentence-focus .panel-sentence .hint,
+:fullscreen .layout.is-sentence-focus .panel-sentence .nav-btn,
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence .panel-meta,
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence .hint,
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence .nav-btn,
+:fullscreen .layout.is-sentence-focus .split,
+:fullscreen .layout.is-sentence-focus .panel-figure,
+body.is-browser-fullscreen .layout.is-sentence-focus .split,
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-figure {
+  transition:
+    opacity 0.25s var(--layout-ease),
+    max-height 0.25s var(--layout-ease);
+}
+
+.layout {
+  flex: 1 1 auto;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0.75rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0;
+  transition:
+    max-width var(--layout-ms) var(--layout-ease),
+    padding var(--layout-ms) var(--layout-ease);
+}
+
+/* 크롬(헤더·문장·스플리터) 페이드 — fullscreen / chrome-out 공통 */
+body.is-figure-chrome-out .app-header,
+body.is-figure-fullscreen .app-header {
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom-color: transparent;
+  pointer-events: none;
+  transition:
+    opacity var(--chrome-fade-ms) var(--layout-ease),
+    max-height var(--chrome-fade-ms) var(--layout-ease),
+    padding var(--chrome-fade-ms) var(--layout-ease),
+    border-color var(--chrome-fade-ms) var(--layout-ease);
+}
+
+body.is-figure-chrome-out .panel-sentence,
+body.is-figure-fullscreen .panel-sentence {
+  opacity: 0;
+  flex: 0 0 0 !important;
+  max-height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden;
+  pointer-events: none;
+  margin: 0;
+  transition:
+    opacity var(--chrome-fade-ms) var(--layout-ease),
+    max-height var(--chrome-fade-ms) var(--layout-ease),
+    flex-grow var(--chrome-fade-ms) var(--layout-ease);
+}
+
+body.is-figure-chrome-out .split,
+body.is-figure-fullscreen .split {
+  opacity: 0;
+  height: 0;
+  margin: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--chrome-fade-ms) var(--layout-ease),
+    height var(--chrome-fade-ms) var(--layout-ease),
+    margin var(--chrome-fade-ms) var(--layout-ease);
+}
+
+body.is-figure-chrome-out .layout,
+body.is-figure-fullscreen .layout {
+  max-width: none;
+  padding: 0.5rem;
+}
+
+/* 전체화면에서도 height는 px 변수로 — % 점프 없이 성장 애니 */
+body.is-figure-chrome-out .panel-figure,
+body.is-figure-fullscreen .panel-figure {
+  flex: 0 0 auto;
+  height: var(--figure-height);
+  max-height: none;
+}
+
+body.is-figure-growing .panel-figure {
+  transition: height var(--layout-grow-ms) var(--layout-grow-ease);
+  /* 높이 증가가 아래에서 위로 차오르도록 */
+  justify-content: flex-end;
+}
+
+body.is-figure-growing .figure-frame {
+  justify-content: flex-end;
+}
+
+body.is-figure-growing .figure-frame img {
+  object-position: center bottom;
+}
+
+.layout.is-overflow-clip {
+  overflow: hidden;
+}
+
+/* 브라우저 FS ↑/↓: 레이아웃(글 펼침·그림 높이)만 ~3× — 선행 대기 없음 */
+body.is-immersive-transition .panel-figure {
+  transition: height var(--immersive-grow-ms) var(--immersive-grow-ease);
+}
+
+body.is-immersive-transition .panel-sentence {
+  transition:
+    opacity 0.35s var(--layout-ease),
+    flex-grow var(--immersive-grow-ms) var(--immersive-grow-ease),
+    max-height var(--immersive-grow-ms) var(--immersive-grow-ease),
+    min-height var(--immersive-grow-ms) var(--immersive-grow-ease);
+}
+
+body.is-immersive-transition .split {
+  transition:
+    opacity 0.3s var(--layout-ease),
+    height var(--immersive-grow-ms) var(--immersive-grow-ease),
+    margin var(--immersive-grow-ms) var(--immersive-grow-ease);
+}
+
+body.is-immersive-transition .sentence-frame {
+  transition:
+    max-width var(--immersive-grow-ms) var(--immersive-grow-ease),
+    width var(--immersive-grow-ms) var(--immersive-grow-ease);
+}
+
+/* 그림 전체화면 진입: 이미 전체 크기 → 아래에서 위로만 이동 (높이 스케일·선행 채움 금지) */
+body.is-figure-rising .panel-figure {
+  transition: none !important;
+  animation: figure-rise-up var(--layout-grow-ms) var(--layout-grow-ease) both;
+}
+
+body.is-browser-fullscreen.is-figure-rising .panel-figure {
+  animation-duration: var(--immersive-grow-ms);
+  animation-timing-function: var(--immersive-grow-ease);
+}
+
+@keyframes figure-rise-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* 그림 전체화면 종료: 아래로 내려가며 사라짐 (위에서 줄어들지 않음) */
+body.is-figure-sinking .panel-figure {
+  transition: none !important;
+  animation: figure-sink-down var(--layout-grow-ms) var(--layout-grow-ease) both;
+}
+
+body.is-browser-fullscreen.is-figure-sinking .panel-figure {
+  animation-duration: var(--immersive-grow-ms);
+  animation-timing-function: var(--immersive-grow-ease);
+}
+
+@keyframes figure-sink-down {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+body.is-figure-fullscreen .figure-body,
+body.is-figure-chrome-out .figure-body {
+  height: 100%;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+body.is-figure-fullscreen .figure-body .panel-meta,
+body.is-figure-chrome-out .figure-body .panel-meta {
+  flex: 0 0 auto;
+}
+
+body.is-figure-fullscreen .figure-body .carousel,
+body.is-figure-chrome-out .figure-body .carousel {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+body.is-figure-fullscreen .panel-figure .hint,
+body.is-figure-chrome-out .panel-figure .hint {
+  opacity: 0;
+  max-height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+body.is-figure-fullscreen .figure-frame,
+body.is-figure-chrome-out .figure-frame {
+  border-color: var(--accent);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  align-self: stretch;
+}
+
+body.is-figure-fullscreen .figure-frame img,
+body.is-figure-chrome-out .figure-frame img {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+}
+
+/* --- Figure panel: height driven by --figure-height (수동/확대 시) --- */
+.panel-figure {
+  flex: 0 0 auto;
+  height: var(--figure-height);
+  overflow: hidden;
+  transition: height var(--layout-ms) var(--layout-ease);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 기본: 문장은 내용 높이만, 그림이 나머지 — 문장 스크롤 방지 */
+.layout.is-default-split .panel-sentence {
+  flex: 0 0 auto;
+  overflow: hidden;
+  max-height: none;
+  min-height: 0;
+  scrollbar-gutter: auto;
+}
+
+.layout.is-default-split .panel-sentence .carousel {
+  flex: 0 0 auto;
+}
+
+.layout.is-default-split .sentence-frame {
+  height: auto;
+  min-height: 0;
+}
+
+.layout.is-default-split .sentence-text {
+  /* 기본에선 translateY로 스크롤 유발하지 않음 — 확대 모드에서만 올림 */
+  transform: none;
+}
+
+.layout.is-default-split .panel-figure {
+  flex: 1 1 auto;
+  height: auto !important;
+  min-height: 160px;
+}
+
+.layout.is-default-split .figure-frame {
+  min-height: 120px;
+}
+
+.layout.is-dragging .panel-figure {
+  transition: none;
+}
+
+.panel-figure.is-collapsed {
+  height: var(--figure-collapsed);
+}
+
+.figure-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-figure.is-collapsed .figure-body {
+  display: none;
+}
+
+.figure-strip {
+  display: none;
+  width: 100%;
+  height: var(--figure-collapsed);
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 0.75rem;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel);
+  color: var(--fg);
+  cursor: ns-resize;
+  font: inherit;
+}
+
+.panel-figure.is-collapsed .figure-strip {
+  display: flex;
+}
+
+.figure-strip-label {
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted);
+}
+
+.figure-strip-hint {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+}
+
+.panel-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.35rem;
+  padding: 0 0.5rem;
+  flex: 0 0 auto;
+}
+
+.panel-label {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  letter-spacing: 0.08em;
+}
+
+.panel-count {
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.carousel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 2.5rem 1fr 2.5rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.nav-btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--fg);
+  font-size: 1.75rem;
+  line-height: 1;
+  height: 3rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.nav-btn:hover {
+  border-color: var(--accent);
+}
+
+.nav-btn:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+
+.figure-frame {
+  margin: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.figure-frame:hover {
+  border-color: var(--accent);
+}
+
+.figure-frame:focus-visible {
+  outline: 2px solid var(--fg-muted);
+  outline-offset: 2px;
+}
+
+.figure-frame img {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.figure-frame figcaption {
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  text-align: center;
+  flex: 0 0 auto;
+}
+
+/* --- Splitter --- */
+.split {
+  flex: 0 0 auto;
+  height: 1.1rem;
+  margin: 0.35rem 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+  border: none;
+  background: transparent;
+  overflow: hidden;
+  transition:
+    opacity 0.3s var(--layout-ease),
+    height var(--layout-ms) var(--layout-ease),
+    margin var(--layout-ms) var(--layout-ease);
+}
+
+.split:focus-visible {
+  outline: 2px solid var(--fg-muted);
+  outline-offset: 2px;
+}
+
+.split-grip {
+  display: block;
+  width: 3.5rem;
+  height: 0;
+  border-top: 2px dashed var(--border);
+}
+
+.split:hover .split-grip,
+.split:focus-visible .split-grip {
+  border-top-color: var(--accent);
+}
+
+/* --- Sentence takes remaining space --- */
+.panel-sentence {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  /* WHY: 우측 스크롤바만 생기면 박스·글이 왼쪽으로 치우쳐 보임 */
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges;
+  opacity: 1;
+  transition:
+    opacity 0.35s var(--layout-ease),
+    flex-grow var(--layout-ms) var(--layout-ease),
+    max-height var(--layout-ms) var(--layout-ease),
+    min-height var(--layout-ms) var(--layout-ease);
+}
+
+.panel-sentence .carousel {
+  flex: 1 1 auto;
+}
+
+/* --- One sentence: Immersive-like --- */
+.sentence-frame {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  min-height: 10rem;
+  height: 100%;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem 1.5rem;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition:
+    max-width var(--layout-ms) var(--layout-ease),
+    width var(--layout-ms) var(--layout-ease);
+}
+
+/* 문장 확대(그림 접힘): 프레임 테두리·배경 제거 (거슬림) */
+.layout.is-sentence-focus .sentence-frame {
+  width: calc(var(--sentence-max-ch) + 3rem);
+  max-width: calc(100% - 0.5rem);
+  justify-self: center;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.layout.is-sentence-focus .sentence-frame:hover,
+.layout.is-sentence-focus .sentence-frame:focus {
+  border-color: transparent;
+  outline: none;
+}
+
+.layout.is-sentence-focus .panel-sentence .carousel {
+  /* 가운데 칸에서 프레임이 좁아져도 화살표는 양옆 유지 */
+  justify-items: center;
+}
+
+.layout.is-sentence-focus .panel-sentence .carousel .nav-btn {
+  justify-self: stretch;
+}
+
+.sentence-frame:hover {
+  border-color: var(--accent);
+}
+
+.sentence-frame:focus {
+  outline: 2px solid var(--fg-muted);
+  outline-offset: 2px;
+}
+
+.sentence-text {
+  margin: 0 auto;
+  width: min(var(--sentence-max-ch), 100%);
+  box-sizing: border-box;
+  font-size: var(--sentence-size);
+  line-height: var(--sentence-line);
+  letter-spacing: var(--letter-space);
+  word-spacing: var(--word-space);
+  text-align: center;
+  color: var(--fg);
+}
+
+.layout.is-sentence-focus .sentence-text {
+  transform: translateY(calc(-2 * 1em * var(--sentence-line)));
+}
+
+.hint {
+  margin: 0.35rem 0.5rem 0;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  flex: 0 0 auto;
+}
+
+@media (max-width: 560px) {
+  .carousel {
+    grid-template-columns: 2rem 1fr 2rem;
+  }
+
+  :root {
+    --sentence-size: 1.25rem;
+    --sentence-max-ch: 22ch;
+  }
+
+  .figure-strip-hint {
+    display: none;
+  }
+}
