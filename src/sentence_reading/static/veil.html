@@ -31,7 +31,13 @@
       font-weight: 600;
     }
     html.is-blank .hint { display: none; }
-    html.is-blank { cursor: none; }
+    /* 안내 숨긴 뒤: 검정 십자 (본창 전체화면과 동일) */
+    html.is-blank,
+    html.is-blank * {
+      cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17'%3E%3Cpath stroke='%23000000' stroke-width='1.25' d='M8.5 0v17M0 8.5h17'/%3E%3C/svg%3E")
+          8 8,
+        crosshair !important;
+    }
   </style>
 </head>
 <body>
@@ -57,8 +63,7 @@
       try { window.close(); } catch (e) {}
       return;
     }
-    if (ev.key === "F11") blank();
-    else blank();
+    blank();
   });
 })();
 </script>

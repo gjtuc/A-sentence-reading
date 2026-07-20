@@ -1244,8 +1244,9 @@
     openVeilWindow();
   }
 
-  // 더블클릭 = 가림창 버튼과 동일 (스플리터·헤더 버튼 제외)
+  // 더블클릭 = 가림창 (브라우저 전체화면 F 에서는 비활성)
   document.addEventListener("dblclick", (ev) => {
+    if (isBrowserFullscreen()) return;
     if (ev.target && ev.target.closest) {
       if (ev.target.closest("#splitter")) return;
       if (ev.target.closest(".upload-bar")) return;

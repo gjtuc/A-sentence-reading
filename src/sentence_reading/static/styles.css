@@ -55,6 +55,24 @@ body {
   min-height: 100%;
 }
 
+/* 브라우저 전체화면: 흰 화살표 대신 검정 십자. 그림 위는 기본 십자 */
+body.is-browser-fullscreen,
+body.is-browser-fullscreen * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17'%3E%3Cpath stroke='%23000000' stroke-width='1.25' d='M8.5 0v17M0 8.5h17'/%3E%3C/svg%3E")
+      8 8,
+    crosshair !important;
+}
+
+body.is-browser-fullscreen .figure-frame,
+body.is-browser-fullscreen .figure-frame * {
+  cursor: crosshair !important;
+}
+
+body.is-browser-fullscreen .figure-frame.is-crop-zoomed,
+body.is-browser-fullscreen .figure-frame.is-crop-zoomed * {
+  cursor: zoom-out !important;
+}
+
 /* 스크롤바 — 다크 미니멀 (Firefox) */
 * {
   scrollbar-width: thin;
