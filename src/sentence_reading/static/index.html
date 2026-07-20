@@ -9,16 +9,46 @@
 </head>
 <body>
   <header class="app-header">
-    <h1 class="brand">A-sentence-reading</h1>
-    <p class="stage-badge" id="stageBadge">skeleton · mock</p>
+    <p class="stage-badge" id="stageBadge"></p>
+    <div class="upload-bar" id="uploadBar">
+      <button type="button" class="upload-btn" id="uploadBtn" title="PDF 또는 Word(.docx) 열기 (여러 개 가능)">
+        파일 열기
+      </button>
+      <button
+        type="button"
+        class="upload-btn upload-btn-ghost"
+        id="veilBtn"
+        title="가림창 → 옆 모니터로 이동 → F11 전체화면 (더블클릭도 동일)"
+      >
+        가림창
+      </button>
+      <button
+        type="button"
+        class="upload-btn upload-btn-danger"
+        id="cacheDeleteBtn"
+        title="현재 논문의 보관(증류)본 삭제 — 다음에 다시 분석"
+        hidden
+      >
+        보관 삭제
+      </button>
+      <input
+        type="file"
+        id="pdfInput"
+        class="upload-input"
+        accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"
+        multiple
+        hidden
+      />
+      <span class="upload-status" id="uploadStatus" aria-live="polite"></span>
+    </div>
   </header>
+  <nav class="paper-tabs" id="paperTabs" aria-label="열린 논문" hidden></nav>
 
   <!-- WHY: 세로 공간을 문장에 양보 — 아래 그림은 스플리터로 접음 (docs/design/11) -->
   <main class="layout" id="layout">
     <!-- ========== 상단: 한 문장 (Immersive Reader식) ========== -->
     <section class="panel panel-sentence" aria-label="한 문장">
       <div class="panel-meta">
-        <span class="panel-label">한 문장</span>
         <span class="panel-count" id="sentenceCount">Sent — / —</span>
       </div>
       <div class="carousel">
@@ -28,7 +58,7 @@
         </div>
         <button type="button" class="nav-btn" id="sentNext" aria-label="다음 문장">›</button>
       </div>
-      <p class="hint">← / → 문장 · ↑↓ 글/그림 몰입(F에서) · F 전체화면</p>
+      <p class="hint">←/→ 문장 · Tab 논문 · 1–9 탭 · ↑↓ 글/그림 · F 전체화면 · 가림창/더블클릭→옆→F11</p>
     </section>
 
     <!-- 드래그 핸들: 아래로 끌면 아래 그림 접힘 -->
@@ -48,18 +78,20 @@
     <section class="panel panel-figure" id="figurePanel" aria-label="그림">
       <div class="figure-body" id="figureBody">
         <div class="panel-meta">
-          <span class="panel-label">그림</span>
           <span class="panel-count" id="figureCount">Fig — / —</span>
         </div>
         <div class="carousel">
           <button type="button" class="nav-btn" id="figPrev" aria-label="이전 그림">‹</button>
           <figure class="figure-frame" id="figureFrame" title="클릭하면 그림 영역 확대">
-            <img id="figureImage" alt="논문 그림" />
+            <div class="figure-viewport" id="figureViewport">
+              <img id="figureImage" alt="논문 그림" draggable="false" />
+              <div class="figure-rubberband" id="figureRubberband" hidden></div>
+            </div>
             <figcaption id="figureCaption"></figcaption>
           </figure>
           <button type="button" class="nav-btn" id="figNext" aria-label="다음 그림">›</button>
         </div>
-        <p class="hint">Shift+←/→ 그림 · 전체화면에서는 ←/→ · ↓ 그림 전체화면</p>
+        <p class="hint">Shift+←/→ 그림 · 전체화면 ←/→ · 드래그 확대 · ↓ 그림 전체화면</p>
       </div>
 
       <!-- 접혔을 때 하단 바 — 위로 드래그/클릭하면 펼침 -->

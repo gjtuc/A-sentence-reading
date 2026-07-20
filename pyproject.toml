@@ -8,8 +8,11 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
-    # NEXT: "pymupdf>=1.24.0",   # figures + text extract
-    # NEXT: "pysbd>=0.3.4",      # sentence boundary (논문 약어 주의)
+    "python-multipart>=0.0.9",
+    "pymupdf>=1.24.0",
+    "google-genai>=1.0.0",
+    "python-docx>=1.1.0",
+    "pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]

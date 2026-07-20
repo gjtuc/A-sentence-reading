@@ -22,13 +22,15 @@ class Figure:
 
 @dataclass(frozen=True)
 class Sentence:
-    """본문에서 잘라 낸 문장 하나 — UI 아래 패널의 유일한 표시 단위."""
+    """본문에서 잘라 낸 문장 하나 — UI 패널의 유일한 표시 단위."""
 
     id: str
     text: str
     # NOTE: 원문 오프셋은 하이라이트/검증용. stub에선 생략 가능.
     start_char: int | None = None
     end_char: int | None = None
+    # WHY: Gemini 정제 후 title / abstract / body 구분 (네비는 단일 리스트)
+    section: str | None = None
 
 
 @dataclass
@@ -99,12 +101,14 @@ class PaperSession:
             },
             "sentence": None
             if sent is None
-            else {"id": sent.id, "text": sent.text},
+            else {"id": sent.id, "text": sent.text, "section": sent.section},
             "figures": [
                 {"id": f.id, "image_src": f.image_src, "caption": f.caption}
                 for f in self.figures
             ],
-            "sentences": [{"id": s.id, "text": s.text} for s in self.sentences],
+            "sentences": [
+                {"id": s.id, "text": s.text, "section": s.section} for s in self.sentences
+            ],
         }
 
 

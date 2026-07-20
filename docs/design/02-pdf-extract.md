@@ -53,8 +53,12 @@ OCR: **1차 범위 밖.**
 
 ### caption
 
-1차: `caption = ""`  
-선택 휴리스틱(시간 남으면): 이미지 bbox 아래 80pt 안 텍스트 중 `Fig`/`Figure`/`Scheme`/`Table`로 시작하는 첫 줄.
+- **그림:** 이미지 bbox **아래 ~110pt** 안 `Fig`/`Figure`/`Scheme` 시작 블록.
+- **표:** `page.find_tables()` 로 표 bbox를 잡고, **위 ~90pt** 안 `Table N` 캡션과 합쳐 페이지 클립 PNG로 캐러셀에 넣는다.
+
+(Gemini가 아니라 **PDF 좌표**로 짝 맞춤.)
+
+매칭 실패 시 그림은 `caption=""`, 표는 `Table (p.N)` 플레이스홀더.
 
 ### raster fallback (1차 안 함)
 

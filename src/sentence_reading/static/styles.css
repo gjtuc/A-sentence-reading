@@ -91,11 +91,12 @@ body {
 .app-header {
   flex: 0 0 auto;
   display: flex;
-  align-items: baseline;
-  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid var(--border);
-  max-height: 4.5rem;
+  max-height: 5.5rem;
   overflow: hidden;
   transition:
     opacity var(--layout-ms) var(--layout-ease),
@@ -117,9 +118,139 @@ body {
   color: var(--fg-muted);
 }
 
-/* 브라우저 전체화면: 앱 헤더도 숨겨 몰입 */
+.upload-bar {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.upload-btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  padding: 0.35rem 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.upload-btn:hover {
+  border-color: var(--accent);
+}
+
+.upload-btn:focus-visible {
+  outline: 2px solid var(--fg-muted);
+  outline-offset: 2px;
+}
+
+.upload-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.upload-btn-ghost {
+  color: var(--fg-muted);
+}
+
+.upload-btn-danger {
+  color: #c98989;
+  border-color: #5a3333;
+}
+
+.upload-btn-danger:hover {
+  border-color: #c98989;
+  color: #e3b0b0;
+}
+
+.upload-btn-danger[hidden] {
+  display: none !important;
+}
+
+.upload-status {
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-status.is-error {
+  color: #c98989;
+}
+
+.upload-status.is-busy {
+  color: var(--accent);
+}
+
+.paper-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+  padding: 0.35rem 1rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  flex: 0 0 auto;
+  background: var(--bg);
+}
+
+.paper-tabs[hidden] {
+  display: none !important;
+}
+
+.paper-tab {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  padding: 0.3rem 0.55rem;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.paper-tab:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+.paper-tab.is-active {
+  border-color: var(--accent);
+  color: var(--fg);
+  background: #1a1a1a;
+}
+
+.paper-tab-num {
+  display: inline-block;
+  min-width: 0.9em;
+  margin-right: 0.35rem;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+body.is-loading .nav-btn {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* 브라우저 전체화면: 앱 헤더·탭도 숨겨 몰입 */
 :fullscreen .app-header,
-body.is-browser-fullscreen .app-header {
+:fullscreen .paper-tabs,
+body.is-browser-fullscreen .app-header,
+body.is-browser-fullscreen .paper-tabs {
   display: none;
 }
 
@@ -385,8 +516,14 @@ body.is-figure-chrome-out .figure-frame {
   align-self: stretch;
 }
 
-body.is-figure-fullscreen .figure-frame img,
-body.is-figure-chrome-out .figure-frame img {
+body.is-figure-fullscreen .figure-viewport,
+body.is-figure-chrome-out .figure-viewport {
+  width: 100%;
+  height: 100%;
+}
+
+body.is-figure-fullscreen .figure-viewport:not(.is-cropped) img,
+body.is-figure-chrome-out .figure-viewport:not(.is-cropped) img {
   flex: 1 1 auto;
   width: 100%;
   height: 100%;
@@ -569,21 +706,82 @@ body.is-figure-chrome-out .figure-frame img {
   outline-offset: 2px;
 }
 
-.figure-frame img {
+.figure-viewport {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  user-select: none;
+  /* WHY: 투명 PNG/TIFF 위 검정 축·글자가 다크 UI에 묻히지 않게 */
+  background: #ffffff;
+  border-radius: 2px;
+}
+
+.figure-viewport img {
   flex: 1 1 auto;
   width: 100%;
   height: 100%;
   min-height: 0;
   max-width: 100%;
   object-fit: contain;
+  pointer-events: none;
+  background: #ffffff;
+}
+
+/* 드래그 크롭 확대: 절대 배치로 선택 영역이 뷰포트를 채움 */
+.figure-viewport.is-cropped img {
+  position: absolute;
+  flex: none;
+  max-width: none;
+  max-height: none;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+.figure-rubberband {
+  position: absolute;
+  border: 1.5px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  pointer-events: none;
+  z-index: 2;
+  box-sizing: border-box;
 }
 
 .figure-frame figcaption {
-  margin-top: 0.35rem;
-  font-size: 0.8rem;
+  margin-top: 0.5rem;
+  padding: 0 0.75rem 0.35rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
   color: var(--fg-muted);
   text-align: center;
   flex: 0 0 auto;
+  max-width: 52rem;
+  align-self: center;
+}
+
+/* 그림 전체화면: 캡션을 이미지 아래에 읽기 좋게 */
+body.is-figure-fullscreen .figure-frame,
+body.is-figure-chrome-out .figure-frame {
+  justify-content: center;
+  cursor: crosshair;
+}
+
+body.is-figure-fullscreen .figure-frame.is-crop-zoomed,
+body.is-figure-chrome-out .figure-frame.is-crop-zoomed {
+  cursor: zoom-out;
+}
+
+body.is-figure-fullscreen .figure-frame figcaption,
+body.is-figure-chrome-out .figure-frame figcaption {
+  margin-top: 0.75rem;
+  font-size: 0.95rem;
+  color: var(--fg);
+  max-width: min(52rem, 92%);
 }
 
 /* --- Splitter --- */
@@ -709,6 +907,13 @@ body.is-figure-chrome-out .figure-frame img {
   word-spacing: var(--word-space);
   text-align: center;
   color: var(--fg);
+}
+
+/* 안내 문구: 의도한 줄바꿈 + 균형 잡힌 줄 (외톨이 ‘요.’ 방지) */
+.sentence-text.is-status {
+  white-space: pre-line;
+  text-wrap: balance;
+  max-width: 18em;
 }
 
 .layout.is-sentence-focus .sentence-text {

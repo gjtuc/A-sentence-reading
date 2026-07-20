@@ -2,7 +2,7 @@
 
 논문 PDF를 **위: 문장 하나**, **아래: 그림 하나**로 쪼개어, 각각 화살표로 넘기며 읽는 로컬 리더.
 
-> 현재 단계: **가이드 + 주석 스켈레톤**. mock UI는 동작하고, 실제 PDF 파싱은 아직 stub입니다.
+> 현재 단계: **mock UI + PDF 업로드/추출**. 헤더에서 PDF를 열면 문장·embedded 그림을 세션으로 로드합니다.
 
 ## 왜 있나
 
@@ -33,7 +33,7 @@
 - “Fig. 1” 언급 → 그림 자동 점프 (수동 동기화가 제품 핵심)
 - Azure Immersive Reader SDK 임베드 (룩만 CSS로 재현)
 
-## 로컬 실행 (스켈레톤)
+## 로컬 실행
 
 ```bash
 cd /c/Users/user/Desktop/.cursor/A-sentence-reading
@@ -44,6 +44,9 @@ python -m venv venv
 
 브라우저: [http://127.0.0.1:8770/](http://127.0.0.1:8770/)  
 상태: [http://127.0.0.1:8770/api/status](http://127.0.0.1:8770/api/status)
+
+- **PDF 열기** — 파일 선택 또는 창에 PDF 드롭
+- **mock** — 데모 세션으로 되돌리기
 
 ## 문서
 

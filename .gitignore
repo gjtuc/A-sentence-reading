@@ -19,9 +19,10 @@ venv/
 Thumbs.db
 Desktop.ini
 
-# Local uploads / extracted assets (future)
+# Local uploads / extracted assets / title-keyed paper cache
 data/uploads/
 data/extracted/
+data/cache/
 *.pdf
 
 # Logs

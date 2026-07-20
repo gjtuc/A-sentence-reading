@@ -17,6 +17,7 @@
 | 09 | [09-testing.md](09-testing.md) | 단위/계약 테스트·픽스처 |
 | 10 | [10-security-limits.md](10-security-limits.md) | 업로드·경로·리소스 한도 |
 | 11 | [11-figure-collapse.md](11-figure-collapse.md) | 스플리터 드래그로 그림 접기·문장 상단화 |
+| 12 | [12-gemini-debone.md](12-gemini-debone.md) | Gemini로 저자·인용 가시 제거 · Title/Abstract/Body |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).

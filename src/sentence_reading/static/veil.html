@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>가림창</title>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      cursor: default;
+      user-select: none;
+      background: #0f0f0f;
+      color: #888;
+      font: 14px/1.5 system-ui, sans-serif;
+    }
+    .hint {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px;
+      opacity: 0.85;
+    }
+    .hint kbd {
+      color: #ccc;
+      font-weight: 600;
+    }
+    html.is-blank .hint { display: none; }
+    html.is-blank { cursor: none; }
+  </style>
+</head>
+<body>
+  <p class="hint" id="hint">
+    이 창을 <kbd>옆 모니터</kbd>로 옮긴 뒤<br/>
+    <kbd>F11</kbd> 로 전체화면 하세요.<br/>
+    <span style="opacity:0.7">클릭하면 안내가 사라집니다 · Esc 로 창 닫기</span>
+  </p>
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  const bg = q.get("bg");
+  if (bg && /^#[0-9A-Fa-f]{3,8}$/.test(bg)) {
+    document.documentElement.style.background = bg;
+    document.body.style.background = bg;
+  }
+  function blank() {
+    document.documentElement.classList.add("is-blank");
+  }
+  document.addEventListener("click", blank);
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") {
+      try { window.close(); } catch (e) {}
+      return;
+    }
+    if (ev.key === "F11") blank();
+    else blank();
+  });
+})();
+</script>
+</body>
+</html>
