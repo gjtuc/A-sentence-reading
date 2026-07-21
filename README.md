@@ -48,6 +48,18 @@ python -m venv venv
 - **PDF 열기** — 파일 선택 또는 창에 PDF 드롭
 - **mock** — 데모 세션으로 되돌리기
 
+## 자동 시작 (Windows, 관리자 권한 불필요)
+
+로그인·잠금 해제·절전 해제 후 서버가 꺼져 있으면 다시 켭니다.
+
+```bash
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/register_autostart.ps1
+```
+
+- 확인만: `./scripts/ensure_server.ps1`
+- 로그: `logs/autostart.log`
+- 작업 스케줄러 이름: `A-sentence-reading Ensure Server`
+
 ## 문서
 
 | 문서 | 내용 |
