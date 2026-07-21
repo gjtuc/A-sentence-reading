@@ -42,23 +42,27 @@ python -m venv venv
 ./venv/Scripts/python.exe -m uvicorn sentence_reading.api.app:app --reload --host 127.0.0.1 --port 8770
 ```
 
+`pip install -e .` 때 **Windows 자동 시작**도 같이 등록됩니다 (관리자 권한 불필요).  
+로그인·잠금 해제·절전 해제 후 서버가 꺼져 있으면 다시 켭니다.
+
 브라우저: [http://127.0.0.1:8770/](http://127.0.0.1:8770/)  
 상태: [http://127.0.0.1:8770/api/status](http://127.0.0.1:8770/api/status)
 
 - **PDF 열기** — 파일 선택 또는 창에 PDF 드롭
 - **mock** — 데모 세션으로 되돌리기
 
-## 자동 시작 (Windows, 관리자 권한 불필요)
-
-로그인·잠금 해제·절전 해제 후 서버가 꺼져 있으면 다시 켭니다.
+### 자동 시작 명령
 
 ```bash
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/register_autostart.ps1
+./venv/Scripts/python.exe -m sentence_reading.autostart register   # 재등록
+./venv/Scripts/python.exe -m sentence_reading.autostart ensure     # 지금 서버 보장
+./venv/Scripts/python.exe -m sentence_reading.autostart status
+./venv/Scripts/python.exe -m sentence_reading.autostart unregister
 ```
 
-- 확인만: `./scripts/ensure_server.ps1`
 - 로그: `logs/autostart.log`
 - 작업 스케줄러 이름: `A-sentence-reading Ensure Server`
+- 콘솔 엔트리: `sentence-reading-autostart`
 
 ## 문서
 

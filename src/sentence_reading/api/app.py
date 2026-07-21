@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, UploadFile
@@ -38,10 +39,24 @@ _JOBS: dict[str, dict] = {}
 
 load_asr_env()
 
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # WHY: pip 설치 훅이 빠진 PEP660 editable도, 서버 한 번 뜨면 스케줄러가 붙는다.
+    try:
+        from sentence_reading.autostart import ensure_registered
+
+        ensure_registered(quiet=True)
+    except Exception:
+        pass
+    yield
+
+
 app = FastAPI(
     title="A-sentence-reading",
     version="0.2.3",
     description="One-sentence PDF/DOCX reader with Gemini debone + title cache.",
+    lifespan=_lifespan,
 )
 
 

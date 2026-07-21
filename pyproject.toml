@@ -20,6 +20,9 @@ dev = [
     "ruff>=0.8.0",
 ]
 
+[project.scripts]
+sentence-reading-autostart = "sentence_reading.autostart:entrypoint"
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
