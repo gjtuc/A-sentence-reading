@@ -1056,6 +1056,108 @@ body.is-figure-chrome-out .figure-frame figcaption {
   outline-offset: 2px;
 }
 
+/* —— Sentence reflection note (docs/design/16) —— */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.note-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  /* WHY: 시트 전체를 위로 — 뒤 읽기 문장만 가림 (길쭉하게 늘리지 않음) */
+  align-items: flex-start;
+  justify-content: center;
+  padding: 6vh 1.25rem 2rem;
+  background: rgba(0, 0, 0, 0.88);
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.note-overlay[hidden] {
+  display: none !important;
+}
+
+.note-sheet {
+  width: min(36rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1.35rem 1.4rem 1.1rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.note-sheet:focus {
+  outline: none;
+}
+
+.note-sheet:focus-visible {
+  outline: 2px solid var(--fg-muted);
+  outline-offset: 2px;
+}
+
+.note-sheet.is-speaking {
+  border-color: var(--fg-muted);
+}
+
+.note-prompt {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.55;
+  font-weight: 500;
+  color: var(--fg);
+  letter-spacing: 0.01em;
+}
+
+.note-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  letter-spacing: 0.02em;
+}
+
+.note-label {
+  display: block;
+  min-height: 10rem;
+  cursor: text;
+}
+
+.note-textarea {
+  display: block;
+  width: 100%;
+  min-height: 10rem;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 1.05rem;
+  line-height: 1.7;
+  letter-spacing: 0.02em;
+  border-radius: 0;
+  cursor: text;
+}
+
+.note-textarea:focus {
+  outline: 2px solid var(--fg-muted);
+  outline-offset: 1px;
+}
+
 .tts-dialog {
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1107,8 +1209,50 @@ body.is-figure-chrome-out .figure-frame figcaption {
   font: inherit;
 }
 
+.tts-mode-hint {
+  margin: -0.35rem 0 0;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  line-height: 1.35;
+}
+
+.tts-field.is-dimmed {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.tts-sample-label {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  letter-spacing: 0.03em;
+}
+
+.tts-sample-text {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.tts-sample-status {
+  margin: 0;
+  min-height: 1.1em;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+}
+
+.tts-sample-status.is-error {
+  color: #c98888;
+}
+
 .tts-dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.25rem;
 }

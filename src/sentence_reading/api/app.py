@@ -128,7 +128,7 @@ def tts_voices() -> dict:
         "default_voice": "en-US-Neural2-D",
         "default_rate": 1.0,
         "rate_min": 0.5,
-        "rate_max": 2.0,
+        "rate_max": 2.2,
     }
 
 
@@ -146,6 +146,8 @@ async def tts_synthesize(payload: dict = Body(...)) -> Response:
         )
     text = plain_text(str(payload.get("text") or ""))
     voice = str(payload.get("voice") or "").strip() or None
+    if voice in ("undefined", "null", "None"):
+        voice = None
     try:
         rate = float(payload.get("speaking_rate", 1.0))
     except (TypeError, ValueError):

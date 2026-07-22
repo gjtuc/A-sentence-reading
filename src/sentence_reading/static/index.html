@@ -66,7 +66,7 @@
         </div>
         <button type="button" class="nav-btn" id="sentNext" aria-label="다음 문장">›</button>
       </div>
-      <p class="hint">←/→ 문장 · 문장 클릭 TTS · Tab 논문 · 1–9 탭 · ↓ 그림 전체화면(크롭) · F 전체화면 · 가림창</p>
+      <p class="hint">←/→ 문장 · Enter 노트 · 문장 클릭 TTS · ↑ 글 확대 · Tab 논문 · F 전체화면</p>
     </section>
 
     <!-- 구분선 (드래그 접기 비활성 — 시각만) -->
@@ -98,7 +98,7 @@
           </figure>
           <button type="button" class="nav-btn" id="figNext" aria-label="다음 그림">›</button>
         </div>
-        <p class="hint">Shift+←/→ 그림 · ↓ 전체화면 · 드래그 크롭 · Esc 종료</p>
+        <p class="hint">Shift+←/→ 이전·다음 그림으로 이동 · ↓ 그림 전체화면 · 드래그 크롭 · Esc 종료</p>
       </div>
 
       <!-- 접힌 스트립: 비활성(숨김 유지) -->
@@ -110,18 +110,65 @@
     </section>
   </main>
 
+  <!-- WHY: 듣고 적기 — 문장 텍스트 없음 · 시트 클릭=TTS · 입력칸만 예외 (docs/design/16) -->
+  <div
+    id="noteOverlay"
+    class="note-overlay"
+    hidden
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="notePrompt"
+  >
+    <div class="note-sheet" id="noteSheet" tabindex="-1">
+      <p class="note-prompt" id="notePrompt">
+        이 문장에서 알아차린 것을, 마치 여러 사람에게 들려준다고 생각하고, 주어 없이 적어보세요.
+      </p>
+      <p class="note-hint">클릭·Space 듣기 · Esc 커서 해제 · ←/→ 문장 · 배경 클릭 닫기 · Enter×3 닫기</p>
+      <label class="note-label" for="noteTextarea">
+        <span class="visually-hidden">노트</span>
+        <textarea
+          id="noteTextarea"
+          class="note-textarea"
+          rows="8"
+          autocomplete="off"
+          spellcheck="true"
+        ></textarea>
+      </label>
+    </div>
+  </div>
+
   <dialog class="tts-dialog" id="ttsDialog">
     <form method="dialog" class="tts-dialog-form" id="ttsForm">
       <h2 class="tts-dialog-title">TTS 설정</h2>
       <label class="tts-field">
+        <span>모드</span>
+        <select id="ttsMode" name="mode">
+          <option value="fixed">고정 (아래 목소리·속도)</option>
+          <option value="random_normal">랜덤 · 보통</option>
+          <option value="random_hard">랜덤 · 어려움</option>
+          <option value="random_very_hard">랜덤 · 많이 어려움</option>
+        </select>
+      </label>
+      <p class="tts-mode-hint" id="ttsModeHint">
+        랜덤은 재생할 때마다 목소리와 속도가 바뀝니다.
+      </p>
+      <label class="tts-field" id="ttsVoiceField">
         <span>목소리</span>
         <select id="ttsVoice" name="voice"></select>
       </label>
-      <label class="tts-field">
+      <label class="tts-field" id="ttsRateField">
         <span>속도 <output id="ttsRateOut">1.00</output></span>
-        <input type="range" id="ttsRate" name="rate" min="0.5" max="2" step="0.05" value="1" />
+        <input type="range" id="ttsRate" name="rate" min="0.5" max="2.2" step="0.05" value="1" />
       </label>
+      <p class="tts-sample-label">미리듣기 예시</p>
+      <p class="tts-sample-text" id="ttsSampleText">
+        The Ni catalyst remains stable after pretreatment.
+      </p>
+      <p class="tts-sample-status" id="ttsSampleStatus" aria-live="polite"></p>
       <div class="tts-dialog-actions">
+        <button type="button" class="upload-btn upload-btn-ghost" id="ttsPreviewBtn">
+          예시 듣기
+        </button>
         <button type="submit" class="upload-btn" value="ok">저장</button>
         <button type="button" class="upload-btn upload-btn-ghost" id="ttsDialogClose">닫기</button>
       </div>
