@@ -306,22 +306,66 @@ def extract_figures(pdf_path: Path) -> list[Figure]:
         doc.close()
 
 
-def extract_text(pdf_path: Path) -> str:
-    """페이지 순서 텍스트. 1차는 단순 get_text (다단 미보정)."""
+def _normalize_page_text(raw: str) -> str:
+    raw = re.sub(r"(\w)-\n(\w)", r"\1\2", raw or "")
+    raw = re.sub(r"(?<!\n)\n(?!\n)", " ", raw)
+    raw = re.sub(r"[ \t]+", " ", raw)
+    return raw.strip()
+
+
+def extract_text_by_page(pdf_path: Path) -> list[str]:
+    """페이지별 텍스트 (0-based). 단순 get_text — 다단 미보정."""
     import fitz
 
     doc = fitz.open(pdf_path)
     try:
         if doc.is_encrypted:
             raise ValueError("encrypted_pdf")
+        return [_normalize_page_text(page.get_text("text") or "") for page in doc]
+    finally:
+        doc.close()
 
-        parts: list[str] = []
-        for page in doc:
-            parts.append(page.get_text("text") or "")
-        raw = "\n\n".join(parts)
-        raw = re.sub(r"(\w)-\n(\w)", r"\1\2", raw)
-        raw = re.sub(r"(?<!\n)\n(?!\n)", " ", raw)
-        raw = re.sub(r"[ \t]+", " ", raw)
-        return raw.strip()
+
+def join_page_texts(pages: list[str]) -> str:
+    """페이지 텍스트를 본문 한 덩어리로."""
+    return "\n\n".join(p for p in pages if (p or "").strip()).strip()
+
+
+def extract_text(pdf_path: Path) -> str:
+    """페이지 순서 텍스트. 1차는 단순 get_text (다단 미보정)."""
+    return join_page_texts(extract_text_by_page(pdf_path))
+
+
+def render_page_png(
+    pdf_path: Path,
+    page_index: int,
+    *,
+    dpi: float = 150.0,
+    max_side_px: int = 1600,
+) -> bytes:
+    """
+    페이지를 PNG 바이트로 렌더.
+    WHY: Gemini vision OCR — 긴 변 max_side_px 로 비용·한도 완화.
+    """
+    import fitz
+
+    doc = fitz.open(pdf_path)
+    try:
+        if doc.is_encrypted:
+            raise ValueError("encrypted_pdf")
+        if page_index < 0 or page_index >= doc.page_count:
+            raise IndexError(f"page_index out of range: {page_index}")
+        page = doc.load_page(page_index)
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        # 긴 변이 너무 크면 한 번 더 축소
+        w, h = pix.width, pix.height
+        long_side = max(w, h)
+        if long_side > max_side_px and long_side > 0:
+            scale = max_side_px / long_side
+            mat2 = fitz.Matrix(zoom * scale, zoom * scale)
+            pix = page.get_pixmap(matrix=mat2, alpha=False)
+        return pix.tobytes("png")
     finally:
         doc.close()

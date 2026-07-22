@@ -48,10 +48,13 @@
 ## 명시적 연기 (M5 이후)
 
 - compound figure (1a/1b) 분해
-- OCR 스캔본
 - Fig. N → 그림 자동 점프 힌트
 - TTS / 음절 / 품사 색
-- 다단 reading-order ML
+- 다단 reading-order ML (전면; 의심 페이지 vision 우회는 [14](14-vision-ocr-router.md)로 일부 커버)
+
+### 구현됨 (참고)
+
+- OCR 스캔본 → **적응형 Gemini vision** ([14-vision-ocr-router.md](14-vision-ocr-router.md), `rich-v3`)
 
 ## 한 줄 규칙
 

@@ -11,7 +11,7 @@ import re
 from sentence_reading.llm.richtext import sanitize_sentence_html
 
 # 캐시 무효화 — 이 값이 다르면 ingest가 보관본을 건너뛰고 다시 다듬음
-PIPELINE_VERSION = "rich-v2"
+PIPELINE_VERSION = "rich-v3"
 
 # PDF가 도(°) 대신 자주 내보내는 원형 lookalike
 # U+25E6 ◦ white bullet, U+2218 ∘ ring operator, U+02DA ˚ ring above,

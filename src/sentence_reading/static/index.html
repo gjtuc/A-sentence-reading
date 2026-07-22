@@ -17,6 +17,14 @@
       <button
         type="button"
         class="upload-btn upload-btn-ghost"
+        id="ttsSettingsBtn"
+        title="TTS 목소리·속도"
+      >
+        TTS
+      </button>
+      <button
+        type="button"
+        class="upload-btn upload-btn-ghost"
         id="veilBtn"
         title="가림창 → 옆 모니터로 이동 → F11 전체화면 (창 모드에서 더블클릭도 동일)"
       >
@@ -53,23 +61,22 @@
       </div>
       <div class="carousel">
         <button type="button" class="nav-btn" id="sentPrev" aria-label="이전 문장">‹</button>
-        <div class="sentence-frame" id="sentenceFrame" tabindex="0" title="클릭: 문장 확대 / 다시 클릭: 원래 크기">
+        <div class="sentence-frame" id="sentenceFrame" tabindex="0" title="클릭: 문장 읽기 (TTS)">
           <p class="sentence-text" id="sentenceText"></p>
         </div>
         <button type="button" class="nav-btn" id="sentNext" aria-label="다음 문장">›</button>
       </div>
-      <p class="hint">←/→ 문장 · Tab 논문 · 1–9 탭 · ↑↓ 글/그림 · F 전체화면 · 가림창/더블클릭(창모드)→옆→F11</p>
+      <p class="hint">←/→ 문장 · 문장 클릭 TTS · Tab 논문 · 1–9 탭 · ↓ 그림 전체화면(크롭) · F 전체화면 · 가림창</p>
     </section>
 
-    <!-- 드래그 핸들: 아래로 끌면 아래 그림 접힘 -->
+    <!-- 구분선 (드래그 접기 비활성 — 시각만) -->
     <div
-      class="split"
+      class="split split-static"
       id="splitter"
       role="separator"
       aria-orientation="horizontal"
       aria-controls="figurePanel"
-      aria-label="문장·그림 구분 — 아래로 드래그하면 그림 접기"
-      tabindex="0"
+      aria-hidden="true"
     >
       <span class="split-grip" aria-hidden="true"></span>
     </div>
@@ -82,7 +89,7 @@
         </div>
         <div class="carousel">
           <button type="button" class="nav-btn" id="figPrev" aria-label="이전 그림">‹</button>
-          <figure class="figure-frame" id="figureFrame" title="클릭하면 그림 영역 확대">
+          <figure class="figure-frame" id="figureFrame" title="↓ 그림 전체화면 · 전체화면에서 드래그 크롭">
             <div class="figure-viewport" id="figureViewport">
               <img id="figureImage" alt="논문 그림" draggable="false" />
               <div class="figure-rubberband" id="figureRubberband" hidden></div>
@@ -91,17 +98,35 @@
           </figure>
           <button type="button" class="nav-btn" id="figNext" aria-label="다음 그림">›</button>
         </div>
-        <p class="hint">Shift+←/→ 그림 · 전체화면 ←/→ · 드래그 확대 · ↓ 그림 전체화면</p>
+        <p class="hint">Shift+←/→ 그림 · ↓ 전체화면 · 드래그 크롭 · Esc 종료</p>
       </div>
 
-      <!-- 접혔을 때 하단 바 — 위로 드래그/클릭하면 펼침 -->
-      <button type="button" class="figure-strip" id="figureStrip" hidden aria-label="그림 프레임 — 위로 끌어 펼치기">
+      <!-- 접힌 스트립: 비활성(숨김 유지) -->
+      <button type="button" class="figure-strip" id="figureStrip" hidden aria-hidden="true" tabindex="-1">
         <span class="figure-strip-label">그림 프레임</span>
         <span class="panel-count" id="figureCountCollapsed">Fig — / —</span>
-        <span class="figure-strip-hint">↑ 당겨서 펼치기</span>
+        <span class="figure-strip-hint"></span>
       </button>
     </section>
   </main>
+
+  <dialog class="tts-dialog" id="ttsDialog">
+    <form method="dialog" class="tts-dialog-form" id="ttsForm">
+      <h2 class="tts-dialog-title">TTS 설정</h2>
+      <label class="tts-field">
+        <span>목소리</span>
+        <select id="ttsVoice" name="voice"></select>
+      </label>
+      <label class="tts-field">
+        <span>속도 <output id="ttsRateOut">1.00</output></span>
+        <input type="range" id="ttsRate" name="rate" min="0.5" max="2" step="0.05" value="1" />
+      </label>
+      <div class="tts-dialog-actions">
+        <button type="submit" class="upload-btn" value="ok">저장</button>
+        <button type="button" class="upload-btn upload-btn-ghost" id="ttsDialogClose">닫기</button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- 뽀모도로: 알림·휴식만 표시 (읽기 중에는 숨김) -->
   <div id="pomoAlert" class="pomo-alert" hidden aria-live="assertive">

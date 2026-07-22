@@ -7,6 +7,9 @@
 
 ```
 extract_text(pdf_path) -> str
+extract_text_by_page(pdf_path) -> list[str]
+join_page_texts(pages) -> str
+render_page_png(pdf_path, page_index, dpi=150, max_side_px=1600) -> bytes
 extract_figures(pdf_path, out_dir) -> list[Figure]
 ```
 
@@ -18,25 +21,28 @@ extract_figures(pdf_path, out_dir) -> list[Figure]
 ### 알고리즘 (1차)
 
 1. `doc = fitz.open(pdf_path)`
-2. 페이지 순서대로 `page.get_text("text")` 연결, 페이지 사이에 `\n\n`
+2. 페이지 순서대로 `page.get_text("text")` (페이지별 리스트 또는 `\n\n` join)
 3. 연속 공백 정리: 줄바꿈이 hyphenation(`-\n`)이면 연결, 그 외 `\n` → 공백
-4. 반환 문자열
+4. 반환 문자열 / 페이지 리스트
 
 ### 다단 (two-column)
 
 1차는 **무시** (단순 get_text).  
-`warnings`에 `reading_order_unverified` 추가.  
-개선은 M5 이후 (`blocks` + x좌표 정렬 실험).
+심한 순서 손상은 [14-vision-ocr-router.md](14-vision-ocr-router.md) 가 의 페이지만 vision으로 우회.  
+전면 ML 재정렬은 M5 이후.
 
 ### 실패
 
 | 상황 | 동작 |
 |------|------|
 | 암호 PDF | `encrypted_pdf` 에러, ingest 실패 |
-| 텍스트 길이 < 50 | `warnings: sparse_text` — 스캔본 가능, 문장 0이어도 세션 생성 가능 |
+| 텍스트 길이 &lt; 50 (alnum) | 규칙 게이트 → `full_vision` (Gemini 키 있을 때) |
 | 열기 실패 | `invalid_pdf` |
 
-OCR: **1차 범위 밖.**
+### OCR / vision
+
+스캔·손상 페이지: **적응형 Gemini vision** — [14-vision-ocr-router.md](14-vision-ocr-router.md).  
+Tesseract 로컬 OCR은 쓰지 않음.
 
 ## 그림 (§M3)
 

@@ -1,5 +1,5 @@
 """
-무엇을: 로컬 HTTP — 정적 UI + status/mock/ingest(+Gemini debone, 제목 캐시, 진행률 폴링).
+무엇을: 로컬 HTTP — 정적 UI + status/mock/ingest(+debone·vision OCR 라우터·제목 캐시).
 왜: 브라우저에서 Immersive식 문장 패널을 바로 검증한다.
 다음에: 세션 LRU·caption 보강.
 """
@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from sentence_reading.cache.paper_cache import (
@@ -27,7 +27,13 @@ from sentence_reading.docx import extract as docx_extract
 from sentence_reading.llm.debone import DeboneResult, debone_sentences
 from sentence_reading.llm.env import gemini_available, load_asr_env
 from sentence_reading.llm.richtext import plain_text
+from sentence_reading.llm.tts import (
+    CURATED_VOICES,
+    synthesize_mp3,
+    tts_available,
+)
 from sentence_reading.llm.typography import PIPELINE_VERSION, normalize_scientific_glyphs
+from sentence_reading.llm.vision_ocr import recover_pdf_text
 from sentence_reading.models import Figure, PaperSession, Sentence, build_mock_session
 from sentence_reading.pdf import extract as pdf_extract
 from sentence_reading.pdf.sentences import split_into_sentences
@@ -56,8 +62,8 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.3",
-    description="One-sentence PDF/DOCX reader with Gemini debone + title cache.",
+    version="0.2.5",
+    description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
 
@@ -104,10 +110,75 @@ def status() -> dict:
         "pdf_extract": True,
         "sentence_split": True,
         "gemini_debone": gemini_available(),
+        "vision_ocr": gemini_available(),
+        "tts": tts_available(),
         "paper_cache": True,
         "docx_extract": True,
-        "version": "0.2.3",
+        "version": "0.2.5",
     }
+
+
+@app.get("/api/tts/voices")
+def tts_voices() -> dict:
+    """UI용 추천 보이스 목록."""
+    return {
+        "ok": True,
+        "available": tts_available(),
+        "voices": CURATED_VOICES,
+        "default_voice": "en-US-Neural2-D",
+        "default_rate": 1.0,
+        "rate_min": 0.5,
+        "rate_max": 2.0,
+    }
+
+
+@app.post("/api/tts")
+async def tts_synthesize(payload: dict = Body(...)) -> Response:
+    """현재 문장 plain text → MP3."""
+    if not tts_available():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "tts_unavailable",
+                "message": "Cloud TTS 자격 증명이 없습니다.",
+            },
+        )
+    text = plain_text(str(payload.get("text") or ""))
+    voice = str(payload.get("voice") or "").strip() or None
+    try:
+        rate = float(payload.get("speaking_rate", 1.0))
+    except (TypeError, ValueError):
+        rate = 1.0
+    if not text.strip():
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "empty_text",
+                "message": "읽을 문장이 없습니다.",
+            },
+        )
+    try:
+        audio = await asyncio.to_thread(
+            synthesize_mp3, text, voice=voice, speaking_rate=rate
+        )
+    except ValueError as exc:
+        code = str(exc) or "bad_request"
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": code, "message": str(exc)},
+        )
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "error": "tts_failed",
+                "message": str(exc),
+            },
+        )
+    return Response(content=audio, media_type="audio/mpeg")
 
 
 @app.get("/api/session/mock")
@@ -274,14 +345,36 @@ def _source_kind(filename: str) -> str | None:
     return None
 
 
+def _try_cache_hit(
+    text: str, kind: str
+) -> tuple[PaperSession, dict, dict] | None:
+    """보관본 히트 시 (session, info, hit_entry)."""
+    hit = find_cached_by_text(text, source=kind)
+    if not hit or not hit.get("id"):
+        return None
+    if str(hit.get("pipeline_version") or "") != PIPELINE_VERSION:
+        return None
+    loaded = load_cached_session(str(hit["id"]))
+    if loaded is None:
+        return None
+    session, info = loaded
+    if kind == "docx" and len(session.figures) == 0:
+        return None
+    return session, info, hit
+
+
 async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str) -> None:
     warnings: list[str] = []
     try:
         label = "PDF" if kind == "pdf" else "Word"
         _job_set(job_id, percent=5, stage="extract", message=f"{label} 읽는 중")
+        pdf_pages: list[str] | None = None
         try:
             if kind == "pdf":
-                text = await asyncio.to_thread(pdf_extract.extract_text, tmp_path)
+                pdf_pages = await asyncio.to_thread(
+                    pdf_extract.extract_text_by_page, tmp_path
+                )
+                text = pdf_extract.join_page_texts(pdf_pages)
             else:
                 text = await asyncio.to_thread(docx_extract.extract_text, tmp_path)
         except ValueError as exc:
@@ -292,18 +385,48 @@ async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str)
             raise RuntimeError(f"{label} 텍스트 추출 실패: {exc}") from exc
 
         # WHY: 파일명 말고 논문 제목 — 원문 앞부분에 캐시 제목이 있으면 즉시 로드
-        _job_set(job_id, percent=12, stage="cache", message="제목으로 보관본 찾는 중")
-        hit = await asyncio.to_thread(find_cached_by_text, text, source=kind)
-        if hit and hit.get("id"):
-            # WHY: rich-v1 이전 보관본은 첨자 없음 → 건너뛰고 다시 다듬음
-            if str(hit.get("pipeline_version") or "") != PIPELINE_VERSION:
-                hit = None
-        if hit and hit.get("id"):
-            loaded = await asyncio.to_thread(load_cached_session, str(hit["id"]))
-            if loaded is not None:
-                session, info = loaded
-                # WHY: 옛 docx 캐시가 그림 0장으로 저장된 경우 재추출
-                if not (kind == "docx" and len(session.figures) == 0):
+        _job_set(job_id, percent=10, stage="cache", message="제목으로 보관본 찾는 중")
+        cached = await asyncio.to_thread(_try_cache_hit, text, kind)
+        if cached is not None:
+            session, info, hit = cached
+            session_id = _remember_session(session)
+            data = session.to_public_dict()
+            data["ok"] = True
+            data["session_id"] = session_id
+            data["debone"] = bool(info.get("debone"))
+            data["from_cache"] = True
+            data["cache_id"] = hit["id"]
+            data["source"] = kind
+            data["warnings"] = []
+            _finish_job(job_id, data, message="보관본에서 불러옴")
+            return
+
+        # WHY: PDF만 적응형 vision — 스캔·손상 페이지 복구 후 캐시 재조회
+        if kind == "pdf" and pdf_pages is not None:
+
+            def on_recover(
+                stage: str, done: int, total: int, message: str
+            ) -> None:
+                if stage == "quality":
+                    pct = 12 + (8 if total and done >= total else 4)
+                elif stage == "vision" and total > 0:
+                    pct = 20 + int(18 * (done / total))
+                else:
+                    pct = 18
+                _job_set(job_id, percent=pct, stage=stage, message=message)
+
+            _job_set(job_id, percent=12, stage="quality", message="추출 품질 보는 중")
+            recovered = await asyncio.to_thread(
+                recover_pdf_text, tmp_path, pdf_pages, on_progress=on_recover
+            )
+            text = recovered.text
+            warnings.extend(recovered.warnings)
+            if recovered.vision_pages:
+                # 복구 후 제목이 보이면 보관본 재사용
+                _job_set(job_id, percent=40, stage="cache", message="복구 후 보관본 확인")
+                cached = await asyncio.to_thread(_try_cache_hit, text, kind)
+                if cached is not None:
+                    session, info, hit = cached
                     session_id = _remember_session(session)
                     data = session.to_public_dict()
                     data["ok"] = True
@@ -312,11 +435,11 @@ async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str)
                     data["from_cache"] = True
                     data["cache_id"] = hit["id"]
                     data["source"] = kind
-                    data["warnings"] = []
+                    data["warnings"] = list(warnings)
                     _finish_job(job_id, data, message="보관본에서 불러옴")
                     return
 
-        _job_set(job_id, percent=15, stage="figures", message="그림 찾는 중")
+        _job_set(job_id, percent=42, stage="figures", message="그림 찾는 중")
         try:
             if kind == "pdf":
                 figures = await asyncio.to_thread(pdf_extract.extract_figures, tmp_path)
@@ -346,14 +469,13 @@ async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str)
             def on_progress(done: int, total: int) -> None:
                 if total <= 0:
                     return
-                # 25% ~ 92% 구간 — survey(1단위) + 청크
-                pct = 25 + int(67 * (done / total))
+                # 48% ~ 92% 구간 — survey(1단위) + 청크 (앞에 quality/vision 예약)
+                pct = 48 + int(44 * (done / total))
                 if done <= 0:
                     msg = "논문 훑는 중"
                 elif done == 1 and total > 1:
                     msg = "다듬기 시작"
                 else:
-                    # done=1 is after survey; chunk index ≈ done-1
                     chunk_done = max(0, done - 1)
                     chunk_total = max(1, total - 1)
                     msg = f"다듬는 중 {chunk_done}/{chunk_total}"
@@ -364,7 +486,7 @@ async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str)
                     message=msg,
                 )
 
-            _job_set(job_id, percent=25, stage="debone", message="논문 훑는 중")
+            _job_set(job_id, percent=48, stage="debone", message="논문 훑는 중")
             result: DeboneResult = await asyncio.to_thread(
                 debone_sentences, text, on_progress
             )
@@ -378,7 +500,7 @@ async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str)
                 _job_set(job_id, percent=90, stage="split", message="기본 문장 나누기")
                 sentences = await asyncio.to_thread(split_into_sentences, text)
         else:
-            if not gemini_available():
+            if not gemini_available() and "gemini_key_missing" not in warnings:
                 warnings.append("gemini_key_missing")
             _job_set(job_id, percent=70, stage="split", message="문장 나누는 중")
             sentences = await asyncio.to_thread(split_into_sentences, text)

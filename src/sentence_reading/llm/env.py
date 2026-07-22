@@ -55,3 +55,12 @@ def gemini_model() -> str:
 
 def gemini_available() -> bool:
     return gemini_api_key() is not None
+
+
+def tts_credentials_available() -> bool:
+    """Cloud Text-to-Speech 서비스 계정 JSON 경로가 유효한지."""
+    load_asr_env()
+    raw = (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
+    if not raw:
+        return False
+    return Path(raw).is_file()

@@ -1,8 +1,7 @@
 /**
- * 프론트 네비 + 그림 접기 스플리터.
+ * 프론트 네비 + 그림 크롭 + TTS.
  * INVARIANT: figureIndex 와 sentenceIndex 는 서로 갱신하지 않는다.
- * INVARIANT: 접기/펼치기는 레이아웃만 바꾸고 인덱스는 건드리지 않는다.
- * WHY: 문장을 화면 위로 올려 읽기 — docs/design/11-figure-collapse.md
+ * WHY: 접기/펴기·박스 선택 제스처는 제거하고 TTS·크롭을 우선한다.
  */
 
 (() => {
@@ -107,6 +106,13 @@
     uploadBtn: document.getElementById("uploadBtn"),
     veilBtn: document.getElementById("veilBtn"),
     cacheDeleteBtn: document.getElementById("cacheDeleteBtn"),
+    ttsSettingsBtn: document.getElementById("ttsSettingsBtn"),
+    ttsDialog: document.getElementById("ttsDialog"),
+    ttsForm: document.getElementById("ttsForm"),
+    ttsVoice: document.getElementById("ttsVoice"),
+    ttsRate: document.getElementById("ttsRate"),
+    ttsRateOut: document.getElementById("ttsRateOut"),
+    ttsDialogClose: document.getElementById("ttsDialogClose"),
     uploadStatus: document.getElementById("uploadStatus"),
     paperTabs: document.getElementById("paperTabs"),
     pomoAlert: document.getElementById("pomoAlert"),
@@ -116,6 +122,16 @@
     pomoBreakTime: document.getElementById("pomoBreakTime"),
     pomoBreakHint: document.getElementById("pomoBreakHint"),
   };
+
+  const TTS_STORAGE_KEY = "asr.tts.v1";
+  const ttsSettings = {
+    voice: "en-US-Neural2-D",
+    speakingRate: 1,
+  };
+  /** @type {HTMLAudioElement | null} */
+  let ttsAudio = null;
+  let ttsObjectUrl = null;
+  let ttsFetchGen = 0;
 
   function clamp(i, n) {
     if (n <= 0) return 0;
@@ -316,18 +332,20 @@
       el.splitter.setAttribute("aria-valuenow", layout.fullscreen ? "100" : "90");
       el.figureFrame.setAttribute(
         "title",
-        layout.fullscreen ? "클릭하거나 Esc — 전체화면 종료" : "클릭하면 그림 영역 확대 · 한 번 더 누르면 전체화면"
+        layout.fullscreen
+          ? "드래그: 크롭 확대 · Esc: 종료 · 크롭 중 클릭: 축소"
+          : "↓ : 그림 전체화면 (크롭)"
       );
       el.splitter.setAttribute("aria-valuemin", "0");
       el.splitter.setAttribute("aria-valuemax", "100");
       return;
     }
 
-    el.figureFrame.setAttribute("title", "클릭하면 그림 영역 확대 · 한 번 더 누르면 전체화면");
+    el.figureFrame.setAttribute("title", "↓ : 그림 전체화면 · 전체화면에서 드래그 크롭");
 
     if (layout.mode === "collapsed") {
       el.figurePanel.classList.add("is-collapsed");
-      el.figureStrip.hidden = false;
+      el.figureStrip.hidden = true;
       root.style.setProperty("--figure-height", `${COLLAPSED_PX}px`);
       el.splitter.setAttribute("aria-valuenow", "0");
     } else if (defaultSplit) {
@@ -471,42 +489,30 @@
     enterFigureFullscreen();
   }
 
-  /** 문장 박스 클릭: 접힘 ↔ 기본(문장 최소) 토글 */
+  /** 문장 포커스: 접기 토글 없음 — 그림 FS만 해제하고 기본 분할 */
   function focusSentence() {
-    if (isBrowserFullscreen()) {
-      showImmersiveText();
-      return;
-    }
     if (layout.fullscreen) {
       exitFigureFullscreen();
       return;
     }
-    if (layout.mode === "collapsed") {
-      expand();
-      return;
-    }
-    collapse();
+    layout.mode = "expanded";
+    layout.contentSplit = true;
+    layout.fullscreen = false;
+    setChromeOut(false);
+    applyLayout();
+    persistLayout();
   }
 
   /**
-   * 그림 박스 클릭 / ↓:
-   * - 글 확대(그림 접힘) → 초기 분할 화면
-   * - 기본 → 그림 전체화면(아래에서 상승)
-   * - 그림 전체화면 → 초기 분할
-   * - 브라우저 FS → 그림 몰입
+   * 그림 ↓/클릭: 기본 ↔ 그림 전체화면(크롭용). 중간 78%·접기 토글 없음.
    */
   function focusFigure() {
-    if (isBrowserFullscreen()) {
-      showImmersiveFigure();
+    if (isBrowserFullscreen() && !layout.fullscreen) {
+      enterFigureFullscreen();
       return;
     }
     if (layout.fullscreen) {
       exitFigureFullscreen();
-      return;
-    }
-    // WHY: 전체화면 아닐 때 글 박스 확대 상태에서는 그림 FS가 아니라 초기 화면으로
-    if (layout.mode === "collapsed") {
-      expand();
       return;
     }
     enterFigureFullscreen();
@@ -522,6 +528,7 @@
 
   function advanceSentence(delta) {
     if (!state.sentences.length) return;
+    stopTts();
     state.sentenceIndex = clamp(state.sentenceIndex + delta, state.sentences.length);
     render();
     snapshotActivePaper();
@@ -641,6 +648,7 @@
     const i = clamp(index, papers.length);
     if (isMockPaper(papers[i])) return;
     if (i !== activePaperIndex) {
+      stopTts();
       snapshotActivePaper();
       activePaperIndex = i;
       hydrateStateFromPaper(papers[i]);
@@ -998,118 +1006,186 @@
     }
   }
 
-  /* ---------- Splitter drag ---------- */
-  let drag = null;
-
-  function onPointerDown(ev, fromCollapsedStrip) {
-    if (ev.button != null && ev.button !== 0) return;
-    ev.preventDefault();
-    layout.contentSplit = false;
-    const startY = ev.clientY;
-    const startH =
-      layout.mode === "collapsed" ? COLLAPSED_PX : el.figurePanel.getBoundingClientRect().height;
-
-    drag = {
-      pointerId: ev.pointerId,
-      startY,
-      startH,
-      fromCollapsedStrip: !!fromCollapsedStrip,
-      moved: false,
-    };
-
-    el.layout.classList.add("is-dragging");
-    const target = ev.currentTarget;
-    if (target.setPointerCapture) {
-      try {
-        target.setPointerCapture(ev.pointerId);
-      } catch (_) {
-        /* ignore */
-      }
-    }
-  }
-
-  function onPointerMove(ev) {
-    if (!drag || ev.pointerId !== drag.pointerId) return;
-    const dy = ev.clientY - drag.startY;
-    if (Math.abs(dy) > 3) drag.moved = true;
-
-    // 그림이 아래: 스플리터를 아래로(dy>0) 끌면 그림 높이 감소
-    let next = drag.startH - dy;
-    const maxH = maxFigureHeight();
-
-    if (next <= SNAP_COLLAPSE_PX) {
-      layout.mode = "collapsed";
-      applyLayout();
-      return;
-    }
-
-    layout.mode = "expanded";
-    layout.heightPx = Math.min(Math.max(next, MIN_EXPANDED_PX), maxH);
-    applyLayout();
-  }
-
-  function onPointerUp(ev) {
-    if (!drag || ev.pointerId !== drag.pointerId) return;
-    el.layout.classList.remove("is-dragging");
-
-    // 접힌 스트립에서 거의 안 움직이면 클릭으로 펼침
-    if (drag.fromCollapsedStrip && !drag.moved) {
-      expand();
-    } else if (layout.mode === "expanded" && layout.heightPx < SNAP_COLLAPSE_PX) {
-      collapse();
-    } else {
-      persistLayout();
-    }
-    drag = null;
-  }
-
-  function bindDrag(node, fromCollapsedStrip) {
-    node.addEventListener("pointerdown", (ev) => onPointerDown(ev, fromCollapsedStrip));
-    node.addEventListener("pointermove", onPointerMove);
-    node.addEventListener("pointerup", onPointerUp);
-    node.addEventListener("pointercancel", onPointerUp);
-  }
-
-  bindDrag(el.splitter, false);
-  bindDrag(el.figureStrip, true);
-
-  el.splitter.addEventListener("dblclick", (ev) => {
-    ev.preventDefault();
-    if (layout.mode === "collapsed") expand();
-    else collapse();
-  });
-
-  el.splitter.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter" || ev.key === " ") {
-      ev.preventDefault();
-      if (layout.mode === "collapsed") expand();
-      else collapse();
-      return;
-    }
-    // ↑/↓ = 문장/그림 프레임 클릭과 동일 (전역 핸들러와 맞춤)
-    if (ev.key === "ArrowUp") {
-      ev.preventDefault();
-      focusSentence();
-      return;
-    }
-    if (ev.key === "ArrowDown") {
-      ev.preventDefault();
-      focusFigure();
-    }
-  });
+  /* ---------- Splitter: 드래그 접기 비활성 ---------- */
+  // WHY: TTS·크롭 우선 — 스플리터/스트립으로 접기·펴기 하지 않음
+  el.figureStrip.hidden = true;
+  el.splitter.removeAttribute("tabindex");
 
   el.figPrev.addEventListener("click", () => advanceFigure(-1));
   el.figNext.addEventListener("click", () => advanceFigure(1));
   el.sentPrev.addEventListener("click", () => advanceSentence(-1));
   el.sentNext.addEventListener("click", () => advanceSentence(1));
 
-  // WHY: 프레임 클릭으로 해당 패널을 크게 — 인덱스는 그대로 (docs/design/11)
+  function plainSentenceText(html) {
+    const d = document.createElement("div");
+    d.innerHTML = html || "";
+    return (d.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  function stopTts() {
+    ttsFetchGen += 1;
+    if (ttsAudio) {
+      try {
+        ttsAudio.pause();
+      } catch (_) {
+        /* ignore */
+      }
+      ttsAudio = null;
+    }
+    if (ttsObjectUrl) {
+      try {
+        URL.revokeObjectURL(ttsObjectUrl);
+      } catch (_) {
+        /* ignore */
+      }
+      ttsObjectUrl = null;
+    }
+    if (el.sentenceFrame) el.sentenceFrame.classList.remove("is-speaking");
+  }
+
+  function loadTtsSettings() {
+    try {
+      const raw = localStorage.getItem(TTS_STORAGE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (data && typeof data.voice === "string" && data.voice) {
+        ttsSettings.voice = data.voice;
+      }
+      if (data && typeof data.speakingRate === "number") {
+        ttsSettings.speakingRate = Math.min(
+          2,
+          Math.max(0.5, data.speakingRate)
+        );
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function saveTtsSettings() {
+    try {
+      localStorage.setItem(
+        TTS_STORAGE_KEY,
+        JSON.stringify({
+          voice: ttsSettings.voice,
+          speakingRate: ttsSettings.speakingRate,
+        })
+      );
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  async function ensureTtsVoicesLoaded() {
+    if (!el.ttsVoice || el.ttsVoice.options.length > 0) return;
+    try {
+      const res = await fetch("/api/tts/voices");
+      const data = await res.json();
+      const voices = (data && data.voices) || [];
+      el.ttsVoice.innerHTML = "";
+      for (const v of voices) {
+        const opt = document.createElement("option");
+        opt.value = v.name;
+        opt.textContent = v.label || v.name;
+        el.ttsVoice.appendChild(opt);
+      }
+      if (!voices.length) {
+        const opt = document.createElement("option");
+        opt.value = ttsSettings.voice;
+        opt.textContent = ttsSettings.voice;
+        el.ttsVoice.appendChild(opt);
+      }
+    } catch (_) {
+      const opt = document.createElement("option");
+      opt.value = ttsSettings.voice;
+      opt.textContent = ttsSettings.voice;
+      el.ttsVoice.appendChild(opt);
+    }
+  }
+
+  function syncTtsForm() {
+    if (el.ttsVoice) el.ttsVoice.value = ttsSettings.voice;
+    if (el.ttsRate) el.ttsRate.value = String(ttsSettings.speakingRate);
+    if (el.ttsRateOut) {
+      el.ttsRateOut.textContent = Number(ttsSettings.speakingRate).toFixed(2);
+    }
+  }
+
+  async function openTtsSettings() {
+    await ensureTtsVoicesLoaded();
+    syncTtsForm();
+    if (el.ttsDialog && typeof el.ttsDialog.showModal === "function") {
+      el.ttsDialog.showModal();
+    }
+  }
+
+  async function speakCurrentSentence() {
+    const nS = state.sentences.length;
+    if (!nS) return;
+    const sent = state.sentences[state.sentenceIndex];
+    const text = plainSentenceText(sent && sent.text);
+    if (!text) {
+      setUploadStatus("읽을 문장이 없습니다.", "error");
+      return;
+    }
+
+    // WHY: 다시 클릭 = 처음부터 다시 — 먼저 끊고 재요청
+    stopTts();
+    const gen = ttsFetchGen;
+    el.sentenceFrame.classList.add("is-speaking");
+    setUploadStatus("읽는 중…", "busy");
+
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          voice: ttsSettings.voice,
+          speaking_rate: ttsSettings.speakingRate,
+        }),
+      });
+      if (gen !== ttsFetchGen) return;
+      if (!res.ok) {
+        let msg = "TTS 실패";
+        try {
+          const err = await res.json();
+          msg = (err && err.message) || msg;
+        } catch (_) {
+          /* ignore */
+        }
+        el.sentenceFrame.classList.remove("is-speaking");
+        setUploadStatus(msg, "error");
+        return;
+      }
+      const buf = await res.arrayBuffer();
+      if (gen !== ttsFetchGen) return;
+      const blob = new Blob([buf], { type: "audio/mpeg" });
+      ttsObjectUrl = URL.createObjectURL(blob);
+      ttsAudio = new Audio(ttsObjectUrl);
+      ttsAudio.onended = () => {
+        if (el.sentenceFrame) el.sentenceFrame.classList.remove("is-speaking");
+        setUploadStatus("");
+      };
+      ttsAudio.onerror = () => {
+        if (el.sentenceFrame) el.sentenceFrame.classList.remove("is-speaking");
+        setUploadStatus("재생 실패", "error");
+      };
+      await ttsAudio.play();
+      setUploadStatus("");
+    } catch (err) {
+      if (gen !== ttsFetchGen) return;
+      el.sentenceFrame.classList.remove("is-speaking");
+      setUploadStatus("TTS 오류: " + (err && err.message ? err.message : err), "error");
+    }
+  }
+
+  // WHY: 문장 클릭 = TTS (확대/접기 아님)
   el.sentenceFrame.addEventListener("click", (ev) => {
-    // 텍스트 드래그 선택 중이면 무시
     const sel = window.getSelection && window.getSelection();
     if (sel && String(sel).length > 0) return;
     ev.preventDefault();
-    focusSentence();
+    speakCurrentSentence();
   });
 
   /* ---------- 그림 전체화면: 드래그 크롭 확대 ---------- */
@@ -1200,9 +1276,40 @@
   el.sentenceFrame.addEventListener("keydown", (ev) => {
     if (ev.key === "Enter") {
       ev.preventDefault();
-      focusSentence();
+      speakCurrentSentence();
     }
   });
+
+  if (el.ttsSettingsBtn) {
+    el.ttsSettingsBtn.addEventListener("click", () => openTtsSettings());
+  }
+  if (el.ttsRate) {
+    el.ttsRate.addEventListener("input", () => {
+      if (el.ttsRateOut) {
+        el.ttsRateOut.textContent = Number(el.ttsRate.value).toFixed(2);
+      }
+    });
+  }
+  if (el.ttsForm) {
+    el.ttsForm.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      if (el.ttsVoice && el.ttsVoice.value) {
+        ttsSettings.voice = el.ttsVoice.value;
+      }
+      if (el.ttsRate) {
+        ttsSettings.speakingRate = Number(el.ttsRate.value) || 1;
+      }
+      saveTtsSettings();
+      if (el.ttsDialog) el.ttsDialog.close();
+      setUploadStatus("TTS 설정 저장됨");
+      window.setTimeout(() => setUploadStatus(""), 1500);
+    });
+  }
+  if (el.ttsDialogClose) {
+    el.ttsDialogClose.addEventListener("click", () => {
+      if (el.ttsDialog) el.ttsDialog.close();
+    });
+  }
 
   /* ---------- 가림창: 사용자가 옆 모니터로 옮긴 뒤 F11 ---------- */
   let veilWin = null;
@@ -1553,17 +1660,15 @@
       return;
     }
 
-    // WHY: 브라우저 FS에서는 ↑글 몰입 / ↓그림 몰입 (중간 단계 없음)
+    // WHY: ↓ 그림 전체화면(크롭) / ↑ 기본 분할로 복귀 — 접기·박스 선택 제스처 없음
     if (ev.key === "ArrowUp") {
       ev.preventDefault();
-      if (isBrowserFullscreen()) showImmersiveText();
-      else focusSentence();
+      focusSentence();
       return;
     }
     if (ev.key === "ArrowDown") {
       ev.preventDefault();
-      if (isBrowserFullscreen()) showImmersiveFigure();
-      else focusFigure();
+      focusFigure();
       return;
     }
 
@@ -1609,7 +1714,12 @@
   });
 
   restoreLayout();
+  // WHY: 접기 UI 제거 — 항상 기본 분할로 시작
+  layout.mode = "expanded";
+  layout.contentSplit = true;
+  layout.fullscreen = false;
   applyLayout();
+  loadTtsSettings();
 
   el.uploadBtn.addEventListener("click", () => el.pdfInput.click());
   if (el.veilBtn) {

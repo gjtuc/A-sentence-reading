@@ -101,7 +101,7 @@ Gemini도 그 평문만 받는다. 다만 도메인 지식 + **논문 전역 맥
 | 2차가 첨자 HTML 생략 | **용어집 강제 치환** (`typography.apply_glossary`)으로 보정 |
 | 2차 일부 실패 | 기존 partial_debone |
 | 키 없음 | split 폴백, plain |
-| 옛 캐시 (`pipeline_version` ≠ `rich-v2`) | 캐시 무시하고 다시 다듬음 |
+| 옛 캐시 (`pipeline_version` ≠ `rich-v3`) | 캐시 무시하고 다시 다듬음 |
 
 ## 과학 기호 정규화 (`normalize_scientific_glyphs`)
 
