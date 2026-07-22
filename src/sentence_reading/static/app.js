@@ -109,6 +109,12 @@
     cacheDeleteBtn: document.getElementById("cacheDeleteBtn"),
     uploadStatus: document.getElementById("uploadStatus"),
     paperTabs: document.getElementById("paperTabs"),
+    pomoAlert: document.getElementById("pomoAlert"),
+    pomoAlertTime: document.getElementById("pomoAlertTime"),
+    pomoBreak: document.getElementById("pomoBreak"),
+    pomoBreakLabel: document.getElementById("pomoBreakLabel"),
+    pomoBreakTime: document.getElementById("pomoBreakTime"),
+    pomoBreakHint: document.getElementById("pomoBreakHint"),
   };
 
   function clamp(i, n) {
@@ -580,8 +586,15 @@
     cropZoom.norm = p.crop && p.crop.norm ? { ...p.crop.norm } : null;
   }
 
+  function stripTags(html) {
+    if (!html) return "";
+    const d = document.createElement("div");
+    d.innerHTML = String(html);
+    return (d.textContent || "").trim();
+  }
+
   function shortTitle(title, maxLen) {
-    const t = String(title || "").trim() || "Untitled";
+    const t = stripTags(title) || "Untitled";
     const n = maxLen || 28;
     return t.length > n ? `${t.slice(0, n - 1)}…` : t;
   }
@@ -733,7 +746,12 @@
 
   function setSentenceDisplay(text, isStatus) {
     el.sentenceText.classList.toggle("is-status", !!isStatus);
-    el.sentenceText.textContent = text || "";
+    if (isStatus) {
+      el.sentenceText.textContent = text || "";
+    } else {
+      // WHY: design/13 — 서버 sanitize된 <sub>/<sup>/<i> 렌더
+      el.sentenceText.innerHTML = text || "";
+    }
   }
 
   function render() {
@@ -1265,9 +1283,205 @@
     );
   }
 
+  /* ---------- 뽀모도로: 25분 읽기 / 5분 휴식 (UI는 알림·휴식만) ---------- */
+  const POMO_WORK_MS = 25 * 60 * 1000;
+  const POMO_BREAK_MS = 5 * 60 * 1000;
+  const POMO_ALERT_MS = 30 * 1000;
+  /** @type {"idle"|"work"|"alert"|"breakPending"|"break"|"breakDone"} */
+  let pomoPhase = "idle";
+  let pomoDeadline = 0;
+  let pomoTickId = 0;
+  let pomoAudioCtx = null;
+
+  function formatPomoMmSs(ms) {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return m + ":" + String(r).padStart(2, "0");
+  }
+
+  function ensurePomoAudio() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    if (!pomoAudioCtx) pomoAudioCtx = new AC();
+    if (pomoAudioCtx.state === "suspended") {
+      pomoAudioCtx.resume().catch(() => {});
+    }
+    return pomoAudioCtx;
+  }
+
+  function playPomoTone(freqs, durSec) {
+    try {
+      const ctx = ensurePomoAudio();
+      if (!ctx) return;
+      const t0 = ctx.currentTime;
+      freqs.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(0.08, t0 + 0.02 + i * 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + durSec + i * 0.08);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t0 + i * 0.08);
+        osc.stop(t0 + durSec + i * 0.12 + 0.05);
+      });
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function playPomoAlertSound() {
+    playPomoTone([523.25, 659.25, 783.99], 0.35);
+  }
+
+  function playPomoBreakDoneSound() {
+    playPomoTone([392, 523.25], 0.45);
+  }
+
+  function clearPomoTick() {
+    if (pomoTickId) {
+      window.clearInterval(pomoTickId);
+      pomoTickId = 0;
+    }
+  }
+
+  function hidePomoAlert() {
+    if (el.pomoAlert) el.pomoAlert.hidden = true;
+  }
+
+  function hidePomoBreak() {
+    if (el.pomoBreak) el.pomoBreak.hidden = true;
+  }
+
+  function showPomoAlert() {
+    if (!el.pomoAlert) return;
+    el.pomoAlert.hidden = false;
+    updatePomoAlertUi();
+  }
+
+  function showPomoBreakPanel(kind) {
+    if (!el.pomoBreak) return;
+    el.pomoBreak.hidden = false;
+    if (kind === "done") {
+      if (el.pomoBreakLabel) el.pomoBreakLabel.textContent = "휴식 끝";
+      if (el.pomoBreakTime) el.pomoBreakTime.textContent = "0:00";
+      if (el.pomoBreakHint) el.pomoBreakHint.textContent = "F — 읽기 시작";
+    } else {
+      if (el.pomoBreakLabel) el.pomoBreakLabel.textContent = "휴식";
+      if (el.pomoBreakHint) el.pomoBreakHint.textContent = "F — 바로 읽기 재개";
+      updatePomoBreakUi();
+    }
+  }
+
+  function updatePomoAlertUi() {
+    if (!el.pomoAlertTime) return;
+    el.pomoAlertTime.textContent = formatPomoMmSs(pomoDeadline - Date.now());
+  }
+
+  function updatePomoBreakUi() {
+    if (!el.pomoBreakTime) return;
+    el.pomoBreakTime.textContent = formatPomoMmSs(pomoDeadline - Date.now());
+  }
+
+  function stopPomoWorkOnly() {
+    clearPomoTick();
+    hidePomoAlert();
+    if (pomoPhase === "work" || pomoPhase === "alert" || pomoPhase === "breakPending") {
+      pomoPhase = "idle";
+      pomoDeadline = 0;
+    }
+  }
+
+  function startPomoWork() {
+    clearPomoTick();
+    hidePomoAlert();
+    hidePomoBreak();
+    ensurePomoAudio();
+    pomoPhase = "work";
+    pomoDeadline = Date.now() + POMO_WORK_MS;
+    pomoTickId = window.setInterval(onPomoTick, 250);
+  }
+
+  function startPomoAlert() {
+    clearPomoTick();
+    hidePomoBreak();
+    pomoPhase = "alert";
+    pomoDeadline = Date.now() + POMO_ALERT_MS;
+    showPomoAlert();
+    playPomoAlertSound();
+    pomoTickId = window.setInterval(onPomoTick, 250);
+  }
+
+  function startPomoBreak() {
+    clearPomoTick();
+    hidePomoAlert();
+    pomoPhase = "break";
+    pomoDeadline = Date.now() + POMO_BREAK_MS;
+    showPomoBreakPanel("active");
+    pomoTickId = window.setInterval(onPomoTick, 250);
+  }
+
+  function finishPomoBreak() {
+    clearPomoTick();
+    pomoPhase = "breakDone";
+    pomoDeadline = 0;
+    showPomoBreakPanel("done");
+    playPomoBreakDoneSound();
+  }
+
+  function onPomoTick() {
+    const left = pomoDeadline - Date.now();
+    if (pomoPhase === "work") {
+      if (left <= 0) startPomoAlert();
+      return;
+    }
+    if (pomoPhase === "alert") {
+      updatePomoAlertUi();
+      if (left <= 0) {
+        hidePomoAlert();
+        // 알림만 종료 — 아직 FS 면 휴식 대기, 이미 창모드면 휴식 시작
+        if (isBrowserFullscreen()) {
+          pomoPhase = "breakPending";
+          clearPomoTick();
+        } else {
+          startPomoBreak();
+        }
+      }
+      return;
+    }
+    if (pomoPhase === "break") {
+      updatePomoBreakUi();
+      if (left <= 0) finishPomoBreak();
+    }
+  }
+
+  function onPomoEnterFullscreen() {
+    // 휴식 중 F → 휴식 취소 후 읽기 / 휴식 끝·idle → 읽기 시작
+    if (pomoPhase === "break" || pomoPhase === "breakDone" || pomoPhase === "idle") {
+      startPomoWork();
+      return;
+    }
+    // alert / breakPending / work 중 재진입은 유지
+  }
+
+  function onPomoExitFullscreen() {
+    if (pomoPhase === "work") {
+      // 읽기 미완료 해제 → 휴식 없음
+      stopPomoWorkOnly();
+      return;
+    }
+    if (pomoPhase === "alert" || pomoPhase === "breakPending") {
+      startPomoBreak();
+    }
+  }
+
   async function toggleBrowserFullscreen() {
     // F = 본창만. 가림창은 건드리지 않음.
     try {
+      ensurePomoAudio();
       if (isBrowserFullscreen()) {
         const exit =
           document.exitFullscreen ||
@@ -1372,9 +1586,11 @@
     const fs = isBrowserFullscreen();
     document.body.classList.toggle("is-browser-fullscreen", fs);
     if (fs) {
+      onPomoEnterFullscreen();
       if (layout.mode === "expanded") applyLayout();
       return;
     }
+    onPomoExitFullscreen();
     // 브라우저 FS 종료 → 기본 읽기 비율(문장 무스크롤)로 (가림창은 유지)
     if (layout.fullscreen) {
       exitFigureFullscreen();

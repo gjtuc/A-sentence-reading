@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from sentence_reading.llm.typography import PIPELINE_VERSION
 from sentence_reading.models import Figure, PaperSession, Sentence
 
 _INDEX_NAME = "index.json"
@@ -384,6 +385,7 @@ def save_paper_session(
 
     payload = {
         "version": 1,
+        "pipeline_version": PIPELINE_VERSION,
         "title": title,
         "title_key": key,
         "source": src,
@@ -412,6 +414,7 @@ def save_paper_session(
         "sentence_count": len(session.sentences),
         "figure_count": len(fig_meta),
         "debone": bool(debone),
+        "pipeline_version": PIPELINE_VERSION,
     }
     entries = [e for e in entries if not (isinstance(e, dict) and e.get("id") == cache_id)]
     entries = [
