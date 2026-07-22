@@ -26,7 +26,9 @@ from sentence_reading.cache.paper_cache import (
 from sentence_reading.docx import extract as docx_extract
 from sentence_reading.llm.debone import DeboneResult, debone_sentences
 from sentence_reading.llm.env import gemini_available, load_asr_env
-from sentence_reading.models import PaperSession, build_mock_session
+from sentence_reading.llm.richtext import plain_text
+from sentence_reading.llm.typography import PIPELINE_VERSION, normalize_scientific_glyphs
+from sentence_reading.models import Figure, PaperSession, Sentence, build_mock_session
 from sentence_reading.pdf import extract as pdf_extract
 from sentence_reading.pdf.sentences import split_into_sentences
 
@@ -293,6 +295,10 @@ async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str)
         _job_set(job_id, percent=12, stage="cache", message="제목으로 보관본 찾는 중")
         hit = await asyncio.to_thread(find_cached_by_text, text, source=kind)
         if hit and hit.get("id"):
+            # WHY: rich-v1 이전 보관본은 첨자 없음 → 건너뛰고 다시 다듬음
+            if str(hit.get("pipeline_version") or "") != PIPELINE_VERSION:
+                hit = None
+        if hit and hit.get("id"):
             loaded = await asyncio.to_thread(load_cached_session, str(hit["id"]))
             if loaded is not None:
                 session, info = loaded
@@ -321,6 +327,18 @@ async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str)
             if kind == "docx":
                 warnings.append("docx_figures_partial")
 
+        # WHY: 캡션의 ◦C 등 lookalike — 문장 경로와 동일 정규화
+        if figures:
+            figures = [
+                Figure(
+                    id=f.id,
+                    image_src=f.image_src,
+                    caption=normalize_scientific_glyphs(f.caption),
+                    page_index=f.page_index,
+                )
+                for f in figures
+            ]
+
         debone_ok = False
         sentences = []
         if gemini_available() and text.strip():
@@ -328,16 +346,25 @@ async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str)
             def on_progress(done: int, total: int) -> None:
                 if total <= 0:
                     return
-                # 25% ~ 92% 구간을 청크 진행에 사용
+                # 25% ~ 92% 구간 — survey(1단위) + 청크
                 pct = 25 + int(67 * (done / total))
+                if done <= 0:
+                    msg = "논문 훑는 중"
+                elif done == 1 and total > 1:
+                    msg = "다듬기 시작"
+                else:
+                    # done=1 is after survey; chunk index ≈ done-1
+                    chunk_done = max(0, done - 1)
+                    chunk_total = max(1, total - 1)
+                    msg = f"다듬는 중 {chunk_done}/{chunk_total}"
                 _job_set(
                     job_id,
                     percent=pct,
                     stage="debone",
-                    message=f"다듬는 중 {done}/{total}",
+                    message=msg,
                 )
 
-            _job_set(job_id, percent=25, stage="debone", message="다듬기 시작")
+            _job_set(job_id, percent=25, stage="debone", message="논문 훑는 중")
             result: DeboneResult = await asyncio.to_thread(
                 debone_sentences, text, on_progress
             )
@@ -356,11 +383,23 @@ async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str)
             _job_set(job_id, percent=70, stage="split", message="문장 나누는 중")
             sentences = await asyncio.to_thread(split_into_sentences, text)
 
+        # WHY: debone 경로도 apply_glossary가 이미 정규화함 — 폴백·누락 lookalike 한 번 더
+        sentences = [
+            Sentence(
+                id=s.id,
+                text=normalize_scientific_glyphs(s.text),
+                section=s.section,
+                start_char=s.start_char,
+                end_char=s.end_char,
+            )
+            for s in sentences
+        ]
+
         _job_set(job_id, percent=95, stage="save", message="거의 끝")
         title = Path(filename).stem or "Untitled"
         for s in sentences:
-            if s.section == "title" and s.text.strip():
-                title = s.text.strip()
+            if s.section == "title" and plain_text(s.text):
+                title = plain_text(s.text)
                 break
 
         session = PaperSession(

@@ -103,6 +103,20 @@
     </section>
   </main>
 
+  <!-- 뽀모도로: 알림·휴식만 표시 (읽기 중에는 숨김) -->
+  <div id="pomoAlert" class="pomo-alert" hidden aria-live="assertive">
+    <div class="pomo-alert-card">
+      <p class="pomo-alert-title">휴식할 시간입니다</p>
+      <p class="pomo-alert-sub">전체화면을 해제하면 휴식 타이머가 시작됩니다</p>
+      <p class="pomo-alert-time" id="pomoAlertTime">0:30</p>
+    </div>
+  </div>
+  <aside id="pomoBreak" class="pomo-break" hidden aria-live="polite">
+    <p class="pomo-break-label" id="pomoBreakLabel">휴식</p>
+    <p class="pomo-break-time" id="pomoBreakTime">5:00</p>
+    <p class="pomo-break-hint" id="pomoBreakHint">F — 바로 읽기 재개</p>
+  </aside>
+
   <script src="/static/app.js" defer></script>
 </body>
 </html>

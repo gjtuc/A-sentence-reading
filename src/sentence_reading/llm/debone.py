@@ -1,6 +1,6 @@
 """
-무엇을: PDF raw 텍스트 → Gemini로 ‘가시 제거’ → Title/Abstract/Body 문장.
-왜: 단순 분할은 저자·인용·각주 번호를 본문으로 남긴다.
+무엇을: PDF/DOCX raw 텍스트 → (survey) → Gemini 가시 제거 + rich 첨자 → 문장.
+왜: 단순 분할은 저자·인용·각주 번호를 본문으로 남긴다. 청크만으로는 섹션·화학식 맥락이 약하다.
 다음에: 스트리밍 진행률, 캐시, 모델 선택 UI.
 """
 
@@ -12,10 +12,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from sentence_reading.llm.env import gemini_api_key, gemini_model
+from sentence_reading.llm.richtext import plain_text, sanitize_sentence_html
+from sentence_reading.llm.typography import PIPELINE_VERSION, apply_glossary
 from sentence_reading.models import Sentence
 
 _CHUNK_CHARS = 5000
 _MAX_CHUNK_RETRIES = 3
+# WHY: design/13 — survey에 넣을 평문 상한 (모델 한도·지연 여유)
+_SURVEY_MAX_CHARS = 120_000
 # WHY: UI에 Title / Abstract / Introduction / Results … 표시 (docs/design/12)
 _SECTION_ORDER = {
     "title": 0,
@@ -48,8 +52,39 @@ _SECTION_ALIASES = {
     "body": "body",
 }
 
-_SYSTEM = """You clean academic PDF text for a one-sentence-at-a-time reader.
+_SURVEY_SYSTEM = """You survey one academic paper's extracted plain text.
+PDF/DOCX extraction often flattens subscripts (BaZr0.9Y0.1O3-δ), superscripts (cm-1, 10-3),
+and italics (variables, Greek letters). Build a compact map for a later cleaning pass.
+
+Output JSON only, no markdown fences.
+Do not invent chemistry that is not suggested by the text; prefer items that appear repeatedly.
+"""
+
+_SURVEY_USER = """Survey this paper text and return JSON:
+{{
+  "title_guess": "plain title if visible",
+  "section_order": ["title","abstract","introduction","methods","results","discussion","conclusion"],
+  "section_notes": "Short map of where sections are and odd headings.",
+  "formulas": [
+    {{"raw": "flattened form as in text", "rich": "same with <sub> <sup> only"}}
+  ],
+  "symbols": [
+    {{"raw": "as in text", "rich": "<i>σ</i> or similar", "note": "optional"}}
+  ]
+}}
+Use only tags <sub> <sup> <i> <em> in rich fields. Keep formulas/symbols lists short (max ~40 each).
+
+PAPER TEXT:
+---
+{text}
+---
+"""
+
+_SYSTEM = """You clean academic PDF/DOCX text for a one-sentence-at-a-time reader.
 Remove "fish bones" (noise), keep only readable prose sentences.
+
+You receive PAPER CONTEXT from a prior full-paper survey (section map + formula/symbol glossary).
+Use it for section tagging and for restoring typography consistently.
 
 DROP entirely (do not output):
 - Author names, affiliations, emails, ORCID, corresponding-author lines
@@ -71,6 +106,14 @@ KEEP and classify each sentence with ONE section tag:
 - conclusion: Conclusion / Conclusions / Summary
 - body: only if section is unclear but it is still main-text prose
 
+TYPOGRAPHY (critical for science):
+- Restore subscripts with <sub>…</sub> (e.g. H<sub>2</sub>O, BaZr<sub>0.9</sub>Y<sub>0.1</sub>O<sub>3−δ</sub>)
+- Restore superscripts with <sup>…</sup> (e.g. cm<sup>−1</sup>, 10<sup>−3</sup>)
+- Italicize variables / Greek symbols with <i>…</i> (e.g. <i>σ</i>, <i>T</i>) — not whole sentences
+- Prefer glossary rich forms from PAPER CONTEXT when the same raw token appears
+- Allowed tags ONLY: <sub> <sup> <i> <em> — no attributes, no other HTML
+- Do not wrap entire sentences in <i>
+
 CRITICAL:
 - Extract ALL readable prose in THIS chunk (title/abstract/intro/methods/results/…).
 - Do NOT skip early sections. An empty sentences array is ONLY for References/author-only chunks.
@@ -83,7 +126,9 @@ Rules:
 - Do NOT put author lists or citation fragments in any section.
 """
 
-_USER_TMPL = """Clean the following PDF text chunk (chunk {idx}/{total}).
+_USER_TMPL = """Clean the following PDF/DOCX text chunk (chunk {idx}/{total}).
+Use PAPER CONTEXT for section placement and formula/symbol typography.
+Each sentence "text" may include <sub> <sup> <i> <em> only.
 Return as many prose sentences as this chunk contains.
 Return JSON:
 {{
@@ -91,6 +136,9 @@ Return JSON:
     {{"text": "...", "section": "title"|"abstract"|"introduction"|"methods"|"experimental"|"results"|"discussion"|"conclusion"|"body"}}
   ]
 }}
+
+PAPER CONTEXT:
+{context}
 
 CHUNK:
 ---
@@ -106,6 +154,31 @@ class DeboneResult:
     warning: str | None = None
     chunks_ok: int = 0
     chunks_total: int = 0
+
+
+@dataclass
+class PaperContext:
+    """1차 survey 요약 — 2차 청크에 주입 (docs/design/13)."""
+
+    title_guess: str = ""
+    section_order: list[str] = field(default_factory=list)
+    section_notes: str = ""
+    formulas: list[dict[str, str]] = field(default_factory=list)
+    symbols: list[dict[str, str]] = field(default_factory=list)
+    ok: bool = False
+    warning: str | None = None
+
+    def to_prompt_block(self) -> str:
+        if not self.ok and not self.section_notes and not self.formulas:
+            return "(no survey context — infer carefully from the chunk alone)"
+        payload = {
+            "title_guess": self.title_guess,
+            "section_order": self.section_order,
+            "section_notes": self.section_notes,
+            "formulas": self.formulas[:40],
+            "symbols": self.symbols[:40],
+        }
+        return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def chunk_raw_text(text: str, size: int = _CHUNK_CHARS) -> list[str]:
@@ -225,21 +298,101 @@ def _parse_chunk_sentences(payload: dict) -> list[tuple[str, str]]:
     for row in rows:
         if not isinstance(row, dict):
             continue
-        text = str(row.get("text") or "").strip()
+        rich = sanitize_sentence_html(str(row.get("text") or ""))
         section = _normalize_section(str(row.get("section") or "body"))
-        if not text or section == "skip":
+        plain = plain_text(rich)
+        if not plain or section == "skip":
             continue
-        if len(text) < 12 and re.fullmatch(r"[\d\-–,.\s]+", text):
+        if len(plain) < 12 and re.fullmatch(r"[\d\-–,.\s]+", plain):
             continue
-        out.append((text, section))
+        out.append((rich, section))
     return out
 
 
-def _process_one_chunk(chunk: str, idx: int, total: int) -> list[tuple[str, str]]:
+def _survey_slice(raw_text: str) -> str:
+    text = (raw_text or "").strip()
+    if len(text) <= _SURVEY_MAX_CHARS:
+        return text
+    # WHY: 앞(제목·초록·서론) + 뒤(결론) 우선
+    head = _SURVEY_MAX_CHARS * 4 // 5
+    tail = _SURVEY_MAX_CHARS - head
+    return text[:head] + "\n\n[...middle omitted...]\n\n" + text[-tail:]
+
+
+def _parse_survey(payload: dict) -> PaperContext:
+    ctx = PaperContext(ok=True)
+    if not isinstance(payload, dict):
+        return PaperContext(ok=False, warning="survey_bad_json")
+    ctx.title_guess = str(payload.get("title_guess") or "").strip()[:500]
+    order = payload.get("section_order")
+    if isinstance(order, list):
+        ctx.section_order = [str(x).strip().lower() for x in order if str(x).strip()][:20]
+    ctx.section_notes = str(payload.get("section_notes") or "").strip()[:2000]
+    formulas = payload.get("formulas")
+    if isinstance(formulas, list):
+        for row in formulas[:40]:
+            if not isinstance(row, dict):
+                continue
+            raw = str(row.get("raw") or "").strip()
+            rich = sanitize_sentence_html(str(row.get("rich") or ""))
+            if raw and rich:
+                ctx.formulas.append({"raw": raw[:200], "rich": rich[:400]})
+    symbols = payload.get("symbols")
+    if isinstance(symbols, list):
+        for row in symbols[:40]:
+            if not isinstance(row, dict):
+                continue
+            raw = str(row.get("raw") or "").strip()
+            rich = sanitize_sentence_html(str(row.get("rich") or ""))
+            note = str(row.get("note") or "").strip()[:120]
+            if raw and rich:
+                item = {"raw": raw[:120], "rich": rich[:200]}
+                if note:
+                    item["note"] = note
+                ctx.symbols.append(item)
+    return ctx
+
+
+def survey_paper(raw_text: str) -> PaperContext:
+    """논문 평문 1회 훑기 — 섹션 지도 + 화학식/기호 용어집."""
+    import time
+
+    if not gemini_api_key():
+        return PaperContext(ok=False, warning="gemini_key_missing")
+    slice_text = _survey_slice(raw_text)
+    if not slice_text:
+        return PaperContext(ok=False, warning="empty_text")
+    user = _SURVEY_USER.format(text=slice_text)
+    last_err: Exception | None = None
+    for attempt in range(_MAX_CHUNK_RETRIES):
+        try:
+            raw = _call_gemini(_SURVEY_SYSTEM, user)
+            payload = _extract_json(raw)
+            return _parse_survey(payload)
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            time.sleep(0.6 * (attempt + 1))
+    return PaperContext(
+        ok=False,
+        warning=f"survey_failed:{last_err}" if last_err else "survey_failed",
+    )
+
+
+def _process_one_chunk(
+    chunk: str,
+    idx: int,
+    total: int,
+    context_block: str,
+) -> list[tuple[str, str]]:
     """청크 1개 — 재시도 + 잘린 JSON 회수."""
     import time
 
-    user = _USER_TMPL.format(idx=idx + 1, total=total, chunk=chunk)
+    user = _USER_TMPL.format(
+        idx=idx + 1,
+        total=total,
+        chunk=chunk,
+        context=context_block,
+    )
     last_err: Exception | None = None
     for attempt in range(_MAX_CHUNK_RETRIES):
         try:
@@ -297,8 +450,9 @@ def debone_sentences(
     on_progress: Callable[[int, int], None] | None = None,
 ) -> DeboneResult:
     """
-    Gemini로 raw PDF 텍스트를 정제해 Sentence 리스트를 만든다.
-    on_progress(done_chunks, total_chunks) — 각 청크 시작 시·전부 끝날 때 호출.
+    Gemini로 raw 텍스트를 정제해 Sentence 리스트를 만든다.
+    1) survey (전역) 2) 청크 debone.
+    on_progress(done, total) — survey를 1단위로 포함 (total = chunks + 1).
     """
     if not gemini_api_key():
         return DeboneResult(ok=False, warning="gemini_key_missing")
@@ -307,16 +461,29 @@ def debone_sentences(
     if not chunks:
         return DeboneResult(ok=False, warning="empty_text")
 
-    total = len(chunks)
-    results: list[list[tuple[str, str]] | None] = [None] * total
+    n_chunks = len(chunks)
+    # WHY: design/13 — survey = 진행 1단위
+    progress_total = n_chunks + 1
+    warnings: list[str] = []
+
+    if on_progress is not None:
+        on_progress(0, progress_total)
+    ctx = survey_paper(raw_text)
+    if not ctx.ok:
+        warnings.append(ctx.warning or "survey_failed")
+    context_block = ctx.to_prompt_block()
+    if on_progress is not None:
+        on_progress(1, progress_total)
+
+    results: list[list[tuple[str, str]] | None] = [None] * n_chunks
     failed: list[int] = []
     last_err: str | None = None
 
     for i, chunk in enumerate(chunks):
         if on_progress is not None:
-            on_progress(i, total)
+            on_progress(1 + i, progress_total)
         try:
-            results[i] = _process_one_chunk(chunk, i, total)
+            results[i] = _process_one_chunk(chunk, i, n_chunks, context_block)
         except Exception as exc:  # noqa: BLE001
             last_err = str(exc)
             failed.append(i)
@@ -324,13 +491,13 @@ def debone_sentences(
     # 실패한 앞쪽 청크 한 번 더 (Discussion만 남는 사고 방지)
     for i in list(failed):
         try:
-            results[i] = _process_one_chunk(chunks[i], i, total)
+            results[i] = _process_one_chunk(chunks[i], i, n_chunks, context_block)
             failed.remove(i)
         except Exception as exc:  # noqa: BLE001
             last_err = str(exc)
 
     if on_progress is not None:
-        on_progress(total, total)
+        on_progress(progress_total, progress_total)
 
     collected: list[tuple[str, str]] = []
     chunks_ok = 0
@@ -345,17 +512,32 @@ def debone_sentences(
             ok=False,
             warning=last_err or "gemini_no_sentences",
             chunks_ok=chunks_ok,
-            chunks_total=total,
+            chunks_total=n_chunks,
         )
 
     sentences = _assemble_sentences(collected)
 
+    # WHY: 청크가 첨자 HTML을 빼먹어도 survey 용어집으로 보정
+    if ctx.formulas or ctx.symbols:
+        sentences = [
+            Sentence(
+                id=s.id,
+                text=apply_glossary(
+                    s.text, formulas=ctx.formulas, symbols=ctx.symbols
+                ),
+                section=s.section,
+                start_char=s.start_char,
+                end_char=s.end_char,
+            )
+            for s in sentences
+        ]
+
     # 앞부분(제목·초록·서론)이 통째로 사라졌으면 앞 절반 청크 강제 재시도
     if _missing_front_matter(sentences, raw_text):
-        retry_upto = max(1, (total + 1) // 2)
+        retry_upto = max(1, (n_chunks + 1) // 2)
         for i in range(retry_upto):
             try:
-                results[i] = _process_one_chunk(chunks[i], i, total)
+                results[i] = _process_one_chunk(chunks[i], i, n_chunks, context_block)
             except Exception as exc:  # noqa: BLE001
                 last_err = str(exc)
         collected = []
@@ -366,27 +548,42 @@ def debone_sentences(
             chunks_ok += 1
             collected.extend(pairs)
         sentences = _assemble_sentences(collected)
+        if ctx.formulas or ctx.symbols:
+            sentences = [
+                Sentence(
+                    id=s.id,
+                    text=apply_glossary(
+                        s.text, formulas=ctx.formulas, symbols=ctx.symbols
+                    ),
+                    section=s.section,
+                    start_char=s.start_char,
+                    end_char=s.end_char,
+                )
+                for s in sentences
+            ]
 
     if not sentences:
         return DeboneResult(
             ok=False,
             warning=last_err or "gemini_no_sentences",
             chunks_ok=chunks_ok,
-            chunks_total=total,
+            chunks_total=n_chunks,
         )
 
     warning = None
-    if failed or chunks_ok < total:
-        warning = f"partial_debone:{chunks_ok}/{total}" + (
+    if failed or chunks_ok < n_chunks:
+        warning = f"partial_debone:{chunks_ok}/{n_chunks}" + (
             f":{last_err}" if last_err else ""
         )
     if _missing_front_matter(sentences, raw_text):
         warning = (warning + ";" if warning else "") + "missing_front_matter"
+    if warnings:
+        warning = (warning + ";" if warning else "") + ";".join(warnings)
 
     return DeboneResult(
         sentences=sentences,
         ok=True,
         warning=warning,
         chunks_ok=chunks_ok,
-        chunks_total=total,
+        chunks_total=n_chunks,
     )

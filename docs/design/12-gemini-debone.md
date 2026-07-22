@@ -16,7 +16,8 @@ UI에 구역을 붙여 보여 준다:
 ## 호출
 
 - ingest 시 자동. 문장 1개 = API 1회가 **아님**.
-- raw 텍스트를 ~7k자 청크로 나눈 뒤 청크마다 JSON 응답.
+- **1차 survey** (논문 전역 요약) → **2차** raw를 ~5k자 청크로 나눠 청크마다 JSON (맥락 주입).
+- 문장 `text`는 plain 또는 **허용 HTML** (`<sub>` `<sup>` `<i>` `<em>`) — 상세 [13-rich-text-two-pass.md](13-rich-text-two-pass.md).
 - 진행률: `POST /api/ingest` → `job_id` → `GET /api/ingest/jobs/{id}` 폴링 (`percent`).
 - 실패/키 없음 → `split_into_sentences(raw)` 폴백 + `warnings`.
 
@@ -26,7 +27,7 @@ UI에 구역을 붙여 보여 준다:
 {
   "sentences": [
     {
-      "text": "...",
+      "text": "BaZr<sub>0.9</sub>Y<sub>0.1</sub>O<sub>3−δ</sub> shows …",
       "section": "title"|"abstract"|"introduction"|"methods"|"experimental"|"results"|"discussion"|"conclusion"|"body"
     }
   ]

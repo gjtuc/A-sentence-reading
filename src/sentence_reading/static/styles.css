@@ -927,6 +927,17 @@ body.is-figure-chrome-out .figure-frame figcaption {
   color: var(--fg);
 }
 
+.sentence-text sub,
+.sentence-text sup {
+  font-size: 0.68em;
+  line-height: 0;
+}
+
+.sentence-text i,
+.sentence-text em {
+  font-style: italic;
+}
+
 /* 안내 문구: 의도한 줄바꿈 + 균형 잡힌 줄 (외톨이 ‘요.’ 방지) */
 .sentence-text.is-status {
   white-space: pre-line;
@@ -943,6 +954,99 @@ body.is-figure-chrome-out .figure-frame figcaption {
   font-size: 0.75rem;
   color: var(--fg-muted);
   flex: 0 0 auto;
+}
+
+/* --- 뽀모도로: 알림·휴식만 --- */
+.pomo-alert {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.pomo-alert[hidden] {
+  display: none !important;
+}
+
+.pomo-alert-card {
+  pointer-events: none;
+  min-width: 16rem;
+  max-width: min(22rem, 90vw);
+  padding: 1.35rem 1.5rem 1.2rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(18, 18, 22, 0.94);
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.pomo-alert-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.pomo-alert-sub {
+  margin: 0.45rem 0 0;
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+  line-height: 1.4;
+}
+
+.pomo-alert-time {
+  margin: 0.85rem 0 0;
+  font-size: 1.75rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--fg);
+}
+
+.pomo-break {
+  position: fixed;
+  right: 1.1rem;
+  bottom: 1.1rem;
+  z-index: 70;
+  min-width: 8.5rem;
+  padding: 0.75rem 0.95rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(18, 18, 22, 0.92);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  text-align: center;
+}
+
+.pomo-break[hidden] {
+  display: none !important;
+}
+
+.pomo-break-label {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  letter-spacing: 0.04em;
+}
+
+.pomo-break-time {
+  margin: 0.25rem 0 0;
+  font-size: 1.55rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+
+.pomo-break-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.68rem;
+  color: var(--fg-muted);
+}
+
+body.is-browser-fullscreen .pomo-break {
+  /* 전체화면 중에는 휴식 패널 숨김 (읽기 방해 금지) */
+  display: none !important;
 }
 
 @media (max-width: 560px) {
