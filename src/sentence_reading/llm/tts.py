@@ -64,7 +64,7 @@ def default_tts_settings() -> dict:
         rate = float(os.environ.get("ASR_TTS_RATE") or _DEFAULT_RATE)
     except ValueError:
         rate = _DEFAULT_RATE
-    rate = max(0.5, min(2.0, rate))
+    rate = max(0.5, min(2.2, rate))
     known = {v for v, _ in _VOICE_CHOICES}
     if voice not in known:
         voice = _DEFAULT_VOICE
@@ -106,7 +106,7 @@ def synthesize_mp3(
     settings = default_tts_settings()
     voice_name = (voice or settings["voice"]).strip() or _DEFAULT_VOICE
     rate = settings["speaking_rate"] if speaking_rate is None else float(speaking_rate)
-    rate = max(0.5, min(2.0, rate))
+    rate = max(0.5, min(2.2, rate))
 
     if not tts_available():
         raise RuntimeError("tts_credentials_missing")

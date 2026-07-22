@@ -109,10 +109,17 @@
     ttsSettingsBtn: document.getElementById("ttsSettingsBtn"),
     ttsDialog: document.getElementById("ttsDialog"),
     ttsForm: document.getElementById("ttsForm"),
+    ttsMode: document.getElementById("ttsMode"),
+    ttsModeHint: document.getElementById("ttsModeHint"),
+    ttsVoiceField: document.getElementById("ttsVoiceField"),
+    ttsRateField: document.getElementById("ttsRateField"),
     ttsVoice: document.getElementById("ttsVoice"),
     ttsRate: document.getElementById("ttsRate"),
     ttsRateOut: document.getElementById("ttsRateOut"),
     ttsDialogClose: document.getElementById("ttsDialogClose"),
+    ttsPreviewBtn: document.getElementById("ttsPreviewBtn"),
+    ttsSampleText: document.getElementById("ttsSampleText"),
+    ttsSampleStatus: document.getElementById("ttsSampleStatus"),
     uploadStatus: document.getElementById("uploadStatus"),
     paperTabs: document.getElementById("paperTabs"),
     pomoAlert: document.getElementById("pomoAlert"),
@@ -121,13 +128,37 @@
     pomoBreakLabel: document.getElementById("pomoBreakLabel"),
     pomoBreakTime: document.getElementById("pomoBreakTime"),
     pomoBreakHint: document.getElementById("pomoBreakHint"),
+    noteOverlay: document.getElementById("noteOverlay"),
+    noteSheet: document.getElementById("noteSheet"),
+    noteTextarea: document.getElementById("noteTextarea"),
   };
 
-  const TTS_STORAGE_KEY = "asr.tts.v1";
+  const NOTES_STORAGE_KEY = "asr.notes.v1";
+  const NOTE_ENTER_GAP_MS = 900;
+  const NOTE_SAVE_DEBOUNCE_MS = 300;
+  /** @type {{ open: boolean, enterStreak: number, lastEnterAt: number, saveTimer: number, boundSentenceId: string | null }} */
+  const noteUi = {
+    open: false,
+    enterStreak: 0,
+    lastEnterAt: 0,
+    saveTimer: 0,
+    boundSentenceId: null,
+  };
+
+  const TTS_STORAGE_KEY = "asr.tts.v2";
   const ttsSettings = {
+    mode: "fixed", // fixed | random_normal | random_hard | random_very_hard
     voice: "en-US-Neural2-D",
     speakingRate: 1,
   };
+  /** 랜덤 모드 속도 대역 (배속) — 중심 1 / 1.3 / 1.6, 허용폭 ±0.3 */
+  const TTS_RATE_BANDS = {
+    random_normal: { min: 0.7, max: 1.3 },
+    random_hard: { min: 1.0, max: 1.6 },
+    random_very_hard: { min: 1.3, max: 1.9 },
+  };
+  const TTS_RANDOM_MODES = new Set(Object.keys(TTS_RATE_BANDS));
+  const TTS_MODES = new Set(["fixed", ...TTS_RANDOM_MODES]);
   /** @type {HTMLAudioElement | null} */
   let ttsAudio = null;
   let ttsObjectUrl = null;
@@ -489,30 +520,41 @@
     enterFigureFullscreen();
   }
 
-  /** 문장 포커스: 접기 토글 없음 — 그림 FS만 해제하고 기본 분할 */
+  /**
+   * 키보드 ↑ : 문장 영역 키우기(그림 접기) 토글.
+   * WHY: 클릭은 TTS만 — 레이아웃은 키보드로만 (docs/design/15).
+   */
   function focusSentence() {
+    if (isBrowserFullscreen()) {
+      showImmersiveText();
+      return;
+    }
     if (layout.fullscreen) {
       exitFigureFullscreen();
       return;
     }
-    layout.mode = "expanded";
-    layout.contentSplit = true;
-    layout.fullscreen = false;
-    setChromeOut(false);
-    applyLayout();
-    persistLayout();
+    if (layout.mode === "collapsed") {
+      expand();
+      return;
+    }
+    collapse();
   }
 
   /**
-   * 그림 ↓/클릭: 기본 ↔ 그림 전체화면(크롭용). 중간 78%·접기 토글 없음.
+   * 키보드 ↓ : 그림 전체화면(크롭용) 토글.
    */
   function focusFigure() {
-    if (isBrowserFullscreen() && !layout.fullscreen) {
-      enterFigureFullscreen();
+    if (isBrowserFullscreen()) {
+      showImmersiveFigure();
       return;
     }
     if (layout.fullscreen) {
       exitFigureFullscreen();
+      return;
+    }
+    // 글 확대(그림 접힘) 중이면 먼저 기본 분할로
+    if (layout.mode === "collapsed") {
+      expand();
       return;
     }
     enterFigureFullscreen();
@@ -529,9 +571,14 @@
   function advanceSentence(delta) {
     if (!state.sentences.length) return;
     stopTts();
+    if (noteUi.open) flushNoteSave();
     state.sentenceIndex = clamp(state.sentenceIndex + delta, state.sentences.length);
     render();
     snapshotActivePaper();
+    if (noteUi.open) {
+      loadNoteForCurrentSentence();
+      playNoteSentence();
+    }
   }
 
   function figLabel() {
@@ -649,12 +696,17 @@
     if (isMockPaper(papers[i])) return;
     if (i !== activePaperIndex) {
       stopTts();
+      if (noteUi.open) flushNoteSave();
       snapshotActivePaper();
       activePaperIndex = i;
       hydrateStateFromPaper(papers[i]);
       uiPhase = "ready";
       render();
       if (layout.fullscreen) applyCropZoom();
+      if (noteUi.open) {
+        loadNoteForCurrentSentence();
+        playNoteSentence();
+      }
     }
     renderPaperTabs();
     const real = realPaperIndices();
@@ -679,6 +731,7 @@
   function applySession(data, phase, opts) {
     const options = opts || {};
     const asNewTab = options.asNewTab !== false && phase !== "mock";
+    if (noteUi.open) flushNoteSave();
     const paper = {
       id: data.session_id || `local_${Date.now().toString(36)}`,
       title: data.title || "",
@@ -733,6 +786,10 @@
       el.stageBadge.textContent = state.title || phase;
     }
     updateCacheDeleteBtn();
+    if (noteUi.open) {
+      loadNoteForCurrentSentence();
+      playNoteSentence();
+    }
   }
 
   const SECTION_LABELS = {
@@ -825,6 +882,185 @@
         true
       );
     }
+  }
+
+  function currentSentenceId() {
+    const sent = state.sentences[state.sentenceIndex];
+    return sent && sent.id ? String(sent.id) : null;
+  }
+
+  function currentPaperKey() {
+    const p = papers[activePaperIndex];
+    if (!p) return "orphan";
+    if (p.cacheId) return `cache:${p.cacheId}`;
+    if (p.sessionId) return `ses:${p.sessionId}`;
+    if (p.id) return `id:${p.id}`;
+    return "orphan";
+  }
+
+  function readNotesStore() {
+    try {
+      const raw = localStorage.getItem(NOTES_STORAGE_KEY);
+      if (!raw) return {};
+      const data = JSON.parse(raw);
+      return data && typeof data === "object" ? data : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function writeNotesStore(store) {
+    try {
+      localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(store));
+    } catch (_) {
+      /* ignore quota */
+    }
+  }
+
+  function getNoteText(paperKey, sentenceId) {
+    if (!paperKey || !sentenceId) return "";
+    const store = readNotesStore();
+    const paper = store[paperKey];
+    if (!paper || typeof paper !== "object") return "";
+    const t = paper[sentenceId];
+    return typeof t === "string" ? t : "";
+  }
+
+  function setNoteText(paperKey, sentenceId, text) {
+    if (!paperKey || !sentenceId) return;
+    const store = readNotesStore();
+    if (!store[paperKey] || typeof store[paperKey] !== "object") {
+      store[paperKey] = {};
+    }
+    if (!text) {
+      delete store[paperKey][sentenceId];
+      if (!Object.keys(store[paperKey]).length) delete store[paperKey];
+    } else {
+      store[paperKey][sentenceId] = text;
+    }
+    writeNotesStore(store);
+  }
+
+  function flushNoteSave() {
+    if (noteUi.saveTimer) {
+      window.clearTimeout(noteUi.saveTimer);
+      noteUi.saveTimer = 0;
+    }
+    if (!el.noteTextarea || !noteUi.boundSentenceId) return;
+    setNoteText(currentPaperKey(), noteUi.boundSentenceId, el.noteTextarea.value);
+  }
+
+  function scheduleNoteSave() {
+    if (noteUi.saveTimer) window.clearTimeout(noteUi.saveTimer);
+    noteUi.saveTimer = window.setTimeout(() => {
+      noteUi.saveTimer = 0;
+      flushNoteSave();
+    }, NOTE_SAVE_DEBOUNCE_MS);
+  }
+
+  function loadNoteForCurrentSentence() {
+    if (!el.noteTextarea) return;
+    const sid = currentSentenceId();
+    noteUi.boundSentenceId = sid;
+    noteUi.enterStreak = 0;
+    noteUi.lastEnterAt = 0;
+    el.noteTextarea.value = sid ? getNoteText(currentPaperKey(), sid) : "";
+  }
+
+  function isNoteOpen() {
+    return !!(noteUi.open && el.noteOverlay && !el.noteOverlay.hidden);
+  }
+
+  function playNoteSentence() {
+    // WHY: 노트는 듣고 적기 — 문장 텍스트 대신 TTS
+    speakCurrentSentence();
+  }
+
+  function openNoteOverlay() {
+    if (!el.noteOverlay || !el.noteTextarea) return;
+    if (el.ttsDialog && el.ttsDialog.open) return;
+    stopTts();
+    noteUi.open = true;
+    el.noteOverlay.hidden = false;
+    document.body.classList.add("is-note-open");
+    if (el.noteOverlay.scrollTop) el.noteOverlay.scrollTop = 0;
+    loadNoteForCurrentSentence();
+    playNoteSentence();
+    window.setTimeout(() => {
+      el.noteTextarea.focus();
+      const len = el.noteTextarea.value.length;
+      try {
+        el.noteTextarea.setSelectionRange(len, len);
+      } catch (_) {
+        /* ignore */
+      }
+    }, 0);
+  }
+
+  function closeNoteOverlay() {
+    if (!el.noteOverlay) return;
+    flushNoteSave();
+    stopTts();
+    noteUi.open = false;
+    noteUi.enterStreak = 0;
+    noteUi.lastEnterAt = 0;
+    noteUi.boundSentenceId = null;
+    el.noteOverlay.hidden = true;
+    document.body.classList.remove("is-note-open");
+  }
+
+  function stripCloseGestureNewlines() {
+    // WHY: Enter×3 닫기는 기록이 아님 — 앞 두 Enter가 남긴 \n\n 을 저장 전에 제거
+    if (!el.noteTextarea) return;
+    let v = el.noteTextarea.value;
+    let removed = 0;
+    while (removed < 2 && v.endsWith("\n")) {
+      v = v.slice(0, -1);
+      removed += 1;
+    }
+    if (removed) el.noteTextarea.value = v;
+  }
+
+  /** @returns {boolean} true if overlay closed */
+  function registerNoteEnterClose(ev) {
+    const now = Date.now();
+    if (now - noteUi.lastEnterAt <= NOTE_ENTER_GAP_MS) {
+      noteUi.enterStreak += 1;
+    } else {
+      noteUi.enterStreak = 1;
+    }
+    noteUi.lastEnterAt = now;
+    if (noteUi.enterStreak < 3) return false;
+    if (ev) ev.preventDefault();
+    noteUi.enterStreak = 0;
+    noteUi.lastEnterAt = 0;
+    stripCloseGestureNewlines();
+    closeNoteOverlay();
+    return true;
+  }
+
+  function blurNoteTextarea() {
+    // WHY: Esc = 창 닫기가 아니라 입력 커서만 빼기 → 바로 ←/→ 문장 이동
+    if (!el.noteTextarea) return;
+    el.noteTextarea.blur();
+    if (el.noteSheet) el.noteSheet.focus();
+  }
+
+  function onNoteTextareaKeydown(ev) {
+    if (ev.isComposing) return;
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      blurNoteTextarea();
+      return;
+    }
+    if (ev.key !== "Enter" || ev.shiftKey || ev.ctrlKey || ev.metaKey || ev.altKey) {
+      if (ev.key !== "Enter") {
+        noteUi.enterStreak = 0;
+      }
+      return;
+    }
+    registerNoteEnterClose(ev);
   }
 
   async function deleteActivePaperCache() {
@@ -1022,6 +1258,11 @@
     return (d.textContent || "").replace(/\s+/g, " ").trim();
   }
 
+  function setTtsSpeakingUi(on) {
+    if (el.sentenceFrame) el.sentenceFrame.classList.toggle("is-speaking", !!on);
+    if (el.noteSheet) el.noteSheet.classList.toggle("is-speaking", !!on);
+  }
+
   function stopTts() {
     ttsFetchGen += 1;
     if (ttsAudio) {
@@ -1040,20 +1281,24 @@
       }
       ttsObjectUrl = null;
     }
-    if (el.sentenceFrame) el.sentenceFrame.classList.remove("is-speaking");
+    setTtsSpeakingUi(false);
   }
 
   function loadTtsSettings() {
     try {
-      const raw = localStorage.getItem(TTS_STORAGE_KEY);
+      let raw = localStorage.getItem(TTS_STORAGE_KEY);
+      if (!raw) raw = localStorage.getItem("asr.tts.v1");
       if (!raw) return;
       const data = JSON.parse(raw);
+      if (data && typeof data.mode === "string" && TTS_MODES.has(data.mode)) {
+        ttsSettings.mode = data.mode;
+      }
       if (data && typeof data.voice === "string" && data.voice) {
         ttsSettings.voice = data.voice;
       }
       if (data && typeof data.speakingRate === "number") {
         ttsSettings.speakingRate = Math.min(
-          2,
+          2.2,
           Math.max(0.5, data.speakingRate)
         );
       }
@@ -1067,6 +1312,7 @@
       localStorage.setItem(
         TTS_STORAGE_KEY,
         JSON.stringify({
+          mode: ttsSettings.mode,
           voice: ttsSettings.voice,
           speakingRate: ttsSettings.speakingRate,
         })
@@ -1076,39 +1322,128 @@
     }
   }
 
+  function listTtsVoiceIds() {
+    if (!el.ttsVoice || !el.ttsVoice.options.length) {
+      return [ttsSettings.voice || "en-US-Neural2-D"];
+    }
+    const ids = [];
+    for (const opt of el.ttsVoice.options) {
+      const v = String(opt.value || "").trim();
+      if (v && v !== "undefined" && v !== "null") ids.push(v);
+    }
+    return ids.length ? ids : [ttsSettings.voice || "en-US-Neural2-D"];
+  }
+
+  function randomInRange(min, max) {
+    return min + Math.random() * (max - min);
+  }
+
+  /**
+   * 재생용 목소리·속도.
+   * @param {{ fromForm?: boolean }} opts fromForm=true면 다이얼로그 모드 선택 기준
+   */
+  function pickTtsPlaybackParams(opts) {
+    const fromForm = !!(opts && opts.fromForm);
+    const mode = fromForm && el.ttsMode ? el.ttsMode.value : ttsSettings.mode;
+    if (TTS_RANDOM_MODES.has(mode)) {
+      const band = TTS_RATE_BANDS[mode];
+      const voices = listTtsVoiceIds();
+      const voice = voices[Math.floor(Math.random() * voices.length)];
+      const rate = Math.round(randomInRange(band.min, band.max) * 100) / 100;
+      return { voice, speakingRate: rate, mode };
+    }
+    if (fromForm) {
+      return {
+        voice: resolveTtsVoiceFromForm(),
+        speakingRate: el.ttsRate
+          ? Number(el.ttsRate.value) || 1
+          : ttsSettings.speakingRate,
+        mode: "fixed",
+      };
+    }
+    return {
+      voice: ttsSettings.voice,
+      speakingRate: ttsSettings.speakingRate,
+      mode: "fixed",
+    };
+  }
+
+  function updateTtsModeUi() {
+    const mode = (el.ttsMode && el.ttsMode.value) || ttsSettings.mode;
+    const random = TTS_RANDOM_MODES.has(mode);
+    if (el.ttsVoiceField) el.ttsVoiceField.classList.toggle("is-dimmed", random);
+    if (el.ttsRateField) el.ttsRateField.classList.toggle("is-dimmed", random);
+    if (el.ttsModeHint) {
+      if (TTS_RANDOM_MODES.has(mode)) {
+        el.ttsModeHint.textContent =
+          "재생마다 목소리와 속도가 바뀝니다.";
+      } else {
+        el.ttsModeHint.textContent =
+          "아래에서 고른 목소리와 속도로 고정 재생합니다.";
+      }
+    }
+  }
+
   async function ensureTtsVoicesLoaded() {
-    if (!el.ttsVoice || el.ttsVoice.options.length > 0) return;
+    if (!el.ttsVoice) return;
+    // 잘못된 value="undefined" 옵션이 남아 있으면 다시 채움
+    const bad =
+      el.ttsVoice.options.length > 0 &&
+      [...el.ttsVoice.options].some(
+        (o) => !o.value || o.value === "undefined" || o.value === "null"
+      );
+    if (el.ttsVoice.options.length > 0 && !bad) return;
     try {
       const res = await fetch("/api/tts/voices");
       const data = await res.json();
       const voices = (data && data.voices) || [];
       el.ttsVoice.innerHTML = "";
       for (const v of voices) {
+        // API: { id, label } — name 아님
+        const id = (v && (v.id || v.name)) || "";
+        if (!id || id === "undefined") continue;
         const opt = document.createElement("option");
-        opt.value = v.name;
-        opt.textContent = v.label || v.name;
+        opt.value = id;
+        opt.textContent = (v && v.label) || id;
         el.ttsVoice.appendChild(opt);
       }
-      if (!voices.length) {
+      if (!el.ttsVoice.options.length) {
         const opt = document.createElement("option");
-        opt.value = ttsSettings.voice;
-        opt.textContent = ttsSettings.voice;
+        opt.value = ttsSettings.voice || "en-US-Neural2-D";
+        opt.textContent = opt.value;
         el.ttsVoice.appendChild(opt);
+      }
+      if (data && data.default_voice && typeof data.default_voice === "string") {
+        if (!ttsSettings.voice || ttsSettings.voice === "undefined") {
+          ttsSettings.voice = data.default_voice;
+        }
       }
     } catch (_) {
+      el.ttsVoice.innerHTML = "";
       const opt = document.createElement("option");
-      opt.value = ttsSettings.voice;
-      opt.textContent = ttsSettings.voice;
+      opt.value = ttsSettings.voice || "en-US-Neural2-D";
+      opt.textContent = opt.value;
       el.ttsVoice.appendChild(opt);
     }
   }
 
+  function resolveTtsVoiceFromForm() {
+    let voice = (el.ttsVoice && el.ttsVoice.value) || ttsSettings.voice || "";
+    voice = String(voice).trim();
+    if (!voice || voice === "undefined" || voice === "null") {
+      voice = "en-US-Neural2-D";
+    }
+    return voice;
+  }
+
   function syncTtsForm() {
+    if (el.ttsMode) el.ttsMode.value = ttsSettings.mode || "fixed";
     if (el.ttsVoice) el.ttsVoice.value = ttsSettings.voice;
     if (el.ttsRate) el.ttsRate.value = String(ttsSettings.speakingRate);
     if (el.ttsRateOut) {
       el.ttsRateOut.textContent = Number(ttsSettings.speakingRate).toFixed(2);
     }
+    updateTtsModeUi();
   }
 
   async function openTtsSettings() {
@@ -1132,8 +1467,13 @@
     // WHY: 다시 클릭 = 처음부터 다시 — 먼저 끊고 재요청
     stopTts();
     const gen = ttsFetchGen;
-    el.sentenceFrame.classList.add("is-speaking");
-    setUploadStatus("읽는 중…", "busy");
+    if (ttsSettings.mode !== "fixed") {
+      await ensureTtsVoicesLoaded();
+    }
+    const params = pickTtsPlaybackParams({ fromForm: false });
+    setTtsSpeakingUi(true);
+    // WHY: 랜덤 모드에서 배속·목소리를 보여 주면 예측이 생겨 난이도가 깎임
+    setUploadStatus("듣는 중…", "busy");
 
     try {
       const res = await fetch("/api/tts", {
@@ -1141,8 +1481,8 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text,
-          voice: ttsSettings.voice,
-          speaking_rate: ttsSettings.speakingRate,
+          voice: params.voice,
+          speaking_rate: params.speakingRate,
         }),
       });
       if (gen !== ttsFetchGen) return;
@@ -1154,7 +1494,7 @@
         } catch (_) {
           /* ignore */
         }
-        el.sentenceFrame.classList.remove("is-speaking");
+        setTtsSpeakingUi(false);
         setUploadStatus(msg, "error");
         return;
       }
@@ -1164,18 +1504,18 @@
       ttsObjectUrl = URL.createObjectURL(blob);
       ttsAudio = new Audio(ttsObjectUrl);
       ttsAudio.onended = () => {
-        if (el.sentenceFrame) el.sentenceFrame.classList.remove("is-speaking");
+        setTtsSpeakingUi(false);
         setUploadStatus("");
       };
       ttsAudio.onerror = () => {
-        if (el.sentenceFrame) el.sentenceFrame.classList.remove("is-speaking");
+        setTtsSpeakingUi(false);
         setUploadStatus("재생 실패", "error");
       };
       await ttsAudio.play();
       setUploadStatus("");
     } catch (err) {
       if (gen !== ttsFetchGen) return;
-      el.sentenceFrame.classList.remove("is-speaking");
+      setTtsSpeakingUi(false);
       setUploadStatus("TTS 오류: " + (err && err.message ? err.message : err), "error");
     }
   }
@@ -1273,12 +1613,7 @@
       focusFigure();
     }
   });
-  el.sentenceFrame.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter") {
-      ev.preventDefault();
-      speakCurrentSentence();
-    }
-  });
+  // WHY: Enter 는 성찰 노트 (docs/design/16). TTS 는 문장 클릭만.
 
   if (el.ttsSettingsBtn) {
     el.ttsSettingsBtn.addEventListener("click", () => openTtsSettings());
@@ -1290,11 +1625,20 @@
       }
     });
   }
+  if (el.ttsMode) {
+    el.ttsMode.addEventListener("change", () => updateTtsModeUi());
+  }
   if (el.ttsForm) {
     el.ttsForm.addEventListener("submit", (ev) => {
       ev.preventDefault();
+      if (el.ttsMode) {
+        const m = el.ttsMode.value;
+        if (TTS_MODES.has(m)) ttsSettings.mode = m;
+      }
       if (el.ttsVoice && el.ttsVoice.value) {
-        ttsSettings.voice = el.ttsVoice.value;
+        const v = resolveTtsVoiceFromForm();
+        ttsSettings.voice = v;
+        el.ttsVoice.value = v;
       }
       if (el.ttsRate) {
         ttsSettings.speakingRate = Number(el.ttsRate.value) || 1;
@@ -1307,7 +1651,78 @@
   }
   if (el.ttsDialogClose) {
     el.ttsDialogClose.addEventListener("click", () => {
+      stopTts();
       if (el.ttsDialog) el.ttsDialog.close();
+    });
+  }
+
+  function setTtsSampleStatus(text, kind) {
+    if (!el.ttsSampleStatus) return;
+    el.ttsSampleStatus.textContent = text || "";
+    el.ttsSampleStatus.classList.toggle("is-error", kind === "error");
+  }
+
+  /** 설정 폼 기준으로 예시 재생 (랜덤 모드면 그때그때 뽑음) */
+  async function playTtsPreview() {
+    const text = (
+      (el.ttsSampleText && el.ttsSampleText.textContent) ||
+      "The Ni catalyst remains stable after pretreatment."
+    )
+      .replace(/\s+/g, " ")
+      .trim();
+    await ensureTtsVoicesLoaded();
+    const params = pickTtsPlaybackParams({ fromForm: true });
+
+    stopTts();
+    const gen = ttsFetchGen;
+    setTtsSampleStatus("준비 중…");
+    if (el.ttsPreviewBtn) el.ttsPreviewBtn.disabled = true;
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          voice: params.voice,
+          speaking_rate: params.speakingRate,
+        }),
+      });
+      if (gen !== ttsFetchGen) return;
+      if (!res.ok) {
+        let msg = "미리듣기 실패";
+        try {
+          const err = await res.json();
+          msg = (err && err.message) || msg;
+        } catch (_) {
+          /* ignore */
+        }
+        setTtsSampleStatus(msg, "error");
+        return;
+      }
+      const buf = await res.arrayBuffer();
+      if (gen !== ttsFetchGen) return;
+      const blob = new Blob([buf], { type: "audio/mpeg" });
+      ttsObjectUrl = URL.createObjectURL(blob);
+      ttsAudio = new Audio(ttsObjectUrl);
+      ttsAudio.onended = () => setTtsSampleStatus("");
+      ttsAudio.onerror = () => setTtsSampleStatus("재생 실패", "error");
+      await ttsAudio.play();
+      setTtsSampleStatus("재생 중");
+    } catch (err) {
+      if (gen !== ttsFetchGen) return;
+      setTtsSampleStatus(
+        "오류: " + (err && err.message ? err.message : String(err)),
+        "error"
+      );
+    } finally {
+      if (el.ttsPreviewBtn) el.ttsPreviewBtn.disabled = false;
+    }
+  }
+
+  if (el.ttsPreviewBtn) {
+    el.ttsPreviewBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      playTtsPreview();
     });
   }
 
@@ -1369,10 +1784,12 @@
     openVeilWindow();
   }
 
-  // 더블클릭 = 가림창 (브라우저 전체화면 F 에서는 비활성)
+  // 더블클릭 = 가림창 (브라우저 전체화면 F · 노트 열린 때는 비활성)
   document.addEventListener("dblclick", (ev) => {
     if (isBrowserFullscreen()) return;
+    if (isNoteOpen()) return;
     if (ev.target && ev.target.closest) {
+      if (ev.target.closest("#noteOverlay")) return;
       if (ev.target.closest("#splitter")) return;
       if (ev.target.closest(".upload-bar")) return;
       if (ev.target.closest(".app-header")) return;
@@ -1608,9 +2025,82 @@
     }
   }
 
+  function isFocusInNoteTextarea() {
+    return !!(el.noteTextarea && document.activeElement === el.noteTextarea);
+  }
+
   document.addEventListener("keydown", (ev) => {
+    // WHY: 노트 열림 시 Esc = 입력 커서만 해제 (창은 유지 · 그림 FS Esc보다 앞)
+    if (ev.key === "Escape" && isNoteOpen()) {
+      ev.preventDefault();
+      if (isFocusInNoteTextarea()) {
+        blurNoteTextarea();
+      }
+      return;
+    }
+
+    // WHY: Enter×3 닫기는 입력칸 포커스 없어도 동작
+    if (
+      isNoteOpen() &&
+      ev.key === "Enter" &&
+      !ev.isComposing &&
+      !ev.shiftKey &&
+      !ev.ctrlKey &&
+      !ev.metaKey &&
+      !ev.altKey
+    ) {
+      if (isFocusInNoteTextarea()) {
+        // textarea 리스너가 줄바꿈 + streak 처리
+        return;
+      }
+      ev.preventDefault();
+      registerNoteEnterClose(ev);
+      return;
+    }
+
+    // WHY: 노트 열린 채 · 입력칸 커서 없음 → ←/→ 문장 · Space TTS
+    if (
+      isNoteOpen() &&
+      !isFocusInNoteTextarea() &&
+      !ev.ctrlKey &&
+      !ev.metaKey &&
+      !ev.altKey
+    ) {
+      if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+        ev.preventDefault();
+        const delta = ev.key === "ArrowRight" ? 1 : -1;
+        if (ev.shiftKey) {
+          advanceFigure(delta);
+        } else {
+          advanceSentence(delta);
+        }
+        return;
+      }
+      if (ev.key === " " || ev.code === "Space") {
+        ev.preventDefault();
+        playNoteSentence();
+        return;
+      }
+    }
+
     const tag = (ev.target && ev.target.tagName) || "";
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+    // Enter → 성찰 노트 (TTS dialog / 노트 이미 열림이면 무시)
+    if (
+      ev.key === "Enter" &&
+      !ev.isComposing &&
+      !ev.shiftKey &&
+      !ev.ctrlKey &&
+      !ev.metaKey &&
+      !ev.altKey
+    ) {
+      if (el.ttsDialog && el.ttsDialog.open) return;
+      if (isNoteOpen()) return;
+      ev.preventDefault();
+      openNoteOverlay();
+      return;
+    }
 
     // Tab / Shift+Tab = 논문 탭 전환 (mock 제외)
     if (ev.key === "Tab") {
@@ -1660,7 +2150,7 @@
       return;
     }
 
-    // WHY: ↓ 그림 전체화면(크롭) / ↑ 기본 분할로 복귀 — 접기·박스 선택 제스처 없음
+    // WHY: ↑ 문장 확대(접기 토글) · ↓ 그림 전체화면(크롭) — 클릭 확대는 없음
     if (ev.key === "ArrowUp") {
       ev.preventDefault();
       focusSentence();
@@ -1727,6 +2217,29 @@
   }
   if (el.cacheDeleteBtn) {
     el.cacheDeleteBtn.addEventListener("click", () => deleteActivePaperCache());
+  }
+  if (el.noteTextarea) {
+    el.noteTextarea.addEventListener("keydown", onNoteTextareaKeydown);
+    el.noteTextarea.addEventListener("input", () => scheduleNoteSave());
+  }
+  if (el.noteSheet) {
+    el.noteSheet.addEventListener("click", (ev) => {
+      // WHY: 입력칸(라벨 포함) 클릭 = 커서만 · 그 외 시트 클릭 = TTS
+      if (ev.target.closest && ev.target.closest(".note-label, #noteTextarea")) {
+        return;
+      }
+      ev.preventDefault();
+      playNoteSentence();
+    });
+  }
+  if (el.noteOverlay) {
+    el.noteOverlay.addEventListener("click", (ev) => {
+      // WHY: 프레임(시트) 밖 배경 클릭 = 저장 후 닫기
+      if (ev.target === el.noteOverlay) {
+        ev.preventDefault();
+        closeNoteOverlay();
+      }
+    });
   }
   el.pdfInput.addEventListener("change", () => {
     const list = el.pdfInput.files;
