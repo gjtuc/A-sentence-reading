@@ -660,27 +660,206 @@
     return /^Mock paper/i.test(t) || p.sessionId === "ses_mock";
   }
 
+  function updatePaperTabChrome() {
+    const real = realPaperIndices();
+    const n = real.length;
+    const ord = real.indexOf(activePaperIndex) + 1;
+    if (n > 1) {
+      el.stageBadge.textContent = `${ord}/${n} · ${shortTitle(state.title, 40)}`;
+    } else if (uiPhase === "ready") {
+      el.stageBadge.textContent = state.title || "ready";
+    } else if (uiPhase === "mock") {
+      el.stageBadge.textContent = "";
+    }
+    updateCacheDeleteBtn();
+  }
+
+  function paperTabKey(p, i) {
+    if (!p) return `i${i}`;
+    return String(p.sessionId || p.cacheId || p.id || `i${i}`);
+  }
+
+  function findPaperIndexByKey(key) {
+    for (let i = 0; i < papers.length; i++) {
+      if (paperTabKey(papers[i], i) === key) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * papers[] 인덱스 from → to 로 이동 (탭 줄 순서).
+   * WHY: 숫자키·Tab 은 realPaperIndices 순서를 쓰므로 시각 순서와 맞춤.
+   */
+  function reorderPaper(fromIndex, toIndex) {
+    if (fromIndex === toIndex) return false;
+    if (fromIndex < 0 || toIndex < 0) return false;
+    if (fromIndex >= papers.length || toIndex >= papers.length) return false;
+    if (isMockPaper(papers[fromIndex]) || isMockPaper(papers[toIndex])) {
+      return false;
+    }
+    const [item] = papers.splice(fromIndex, 1);
+    papers.splice(toIndex, 0, item);
+    if (activePaperIndex === fromIndex) {
+      activePaperIndex = toIndex;
+    } else if (fromIndex < activePaperIndex && toIndex >= activePaperIndex) {
+      activePaperIndex -= 1;
+    } else if (fromIndex > activePaperIndex && toIndex <= activePaperIndex) {
+      activePaperIndex += 1;
+    }
+    return true;
+  }
+
+  /** @type {{ pointerId: number, paperKey: string, startX: number, startY: number, dragging: boolean } | null} */
+  let tabDrag = null;
+  let suppressTabClickUntil = 0;
+  const TAB_DRAG_PX = 6;
+
+  function cssEscapeKey(key) {
+    if (window.CSS && typeof CSS.escape === "function") return CSS.escape(key);
+    return String(key).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  }
+
+  function endTabDrag(ev) {
+    if (!tabDrag) return;
+    if (ev && ev.pointerId !== tabDrag.pointerId) return;
+    const wasDragging = tabDrag.dragging;
+    const key = tabDrag.paperKey;
+    const pid = tabDrag.pointerId;
+    const btn =
+      (ev && ev.currentTarget) ||
+      (el.paperTabs &&
+        el.paperTabs.querySelector(
+          `.paper-tab[data-paper-key="${cssEscapeKey(key)}"]`
+        ));
+    try {
+      if (btn && btn.releasePointerCapture) btn.releasePointerCapture(pid);
+    } catch (_) {
+      /* ignore */
+    }
+    document.querySelectorAll(".paper-tab.is-dragging").forEach((node) => {
+      node.classList.remove("is-dragging");
+    });
+    tabDrag = null;
+    if (wasDragging) {
+      suppressTabClickUntil = Date.now() + 400;
+      renderPaperTabs();
+      updatePaperTabChrome();
+      return;
+    }
+    const idx = findPaperIndexByKey(key);
+    if (idx >= 0) activatePaper(idx);
+  }
+
+  function onTabPointerMove(ev) {
+    if (!tabDrag || ev.pointerId !== tabDrag.pointerId) return;
+    const dx = ev.clientX - tabDrag.startX;
+    const dy = ev.clientY - tabDrag.startY;
+    const btn = ev.currentTarget;
+    if (!tabDrag.dragging) {
+      if (Math.hypot(dx, dy) < TAB_DRAG_PX) return;
+      tabDrag.dragging = true;
+      if (btn && btn.classList) btn.classList.add("is-dragging");
+      try {
+        btn.setPointerCapture(tabDrag.pointerId);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    const bar = el.paperTabs;
+    if (!bar) return;
+    const tabs = [...bar.querySelectorAll(".paper-tab")];
+    if (tabs.length < 2) return;
+    let hoverSlot = tabs.length - 1;
+    for (let t = 0; t < tabs.length; t++) {
+      const r = tabs[t].getBoundingClientRect();
+      if (ev.clientX < r.left + r.width / 2) {
+        hoverSlot = t;
+        break;
+      }
+    }
+    const fromIndex = findPaperIndexByKey(tabDrag.paperKey);
+    const real = realPaperIndices();
+    const fromSlot = real.indexOf(fromIndex);
+    if (fromIndex < 0 || fromSlot < 0 || hoverSlot === fromSlot) return;
+    const toIndex = real[hoverSlot];
+    if (toIndex === undefined) return;
+    if (!reorderPaper(fromIndex, toIndex)) return;
+    renderPaperTabs();
+    updatePaperTabChrome();
+    const nextBtn =
+      el.paperTabs &&
+      el.paperTabs.querySelector(
+        `.paper-tab[data-paper-key="${cssEscapeKey(tabDrag.paperKey)}"]`
+      );
+    if (nextBtn) {
+      nextBtn.classList.add("is-dragging");
+      try {
+        nextBtn.setPointerCapture(tabDrag.pointerId);
+      } catch (_) {
+        /* ignore */
+      }
+      wireTabDragPointer(nextBtn);
+    }
+  }
+
+  function wireTabDragPointer(btn) {
+    btn.onpointermove = onTabPointerMove;
+    btn.onpointerup = endTabDrag;
+    btn.onpointercancel = endTabDrag;
+  }
+
   function renderPaperTabs() {
     const bar = el.paperTabs;
     if (!bar) return;
+    const dragSnap = tabDrag ? { ...tabDrag } : null;
     bar.innerHTML = "";
     const real = papers
       .map((p, i) => ({ p, i }))
       .filter(({ p }) => !isMockPaper(p));
     if (real.length <= 1) {
       bar.hidden = true;
+      tabDrag = null;
       return;
     }
     bar.hidden = false;
     real.forEach(({ p, i }, slot) => {
+      const key = paperTabKey(p, i);
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "paper-tab" + (i === activePaperIndex ? " is-active" : "");
-      btn.title = `${slot + 1}. ${p.title || "Untitled"} (키 ${slot + 1})`;
+      btn.dataset.paperKey = key;
+      btn.dataset.paperIndex = String(i);
+      btn.title = `${slot + 1}. ${stripTags(p.title) || "Untitled"} (키 ${slot + 1} · 드래그로 순서)`;
       btn.innerHTML = `<span class="paper-tab-num">${slot + 1}</span>${shortTitle(p.title)}`;
-      btn.addEventListener("click", () => activatePaper(i));
+      btn.addEventListener("pointerdown", (ev) => {
+        if (ev.button !== 0) return;
+        tabDrag = {
+          pointerId: ev.pointerId,
+          paperKey: key,
+          startX: ev.clientX,
+          startY: ev.clientY,
+          dragging: false,
+        };
+        wireTabDragPointer(btn);
+      });
+      btn.addEventListener("click", (ev) => {
+        if (Date.now() < suppressTabClickUntil) {
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
+      });
+      if (dragSnap && dragSnap.paperKey === key && dragSnap.dragging) {
+        btn.classList.add("is-dragging");
+      }
       bar.appendChild(btn);
     });
+    if (dragSnap) {
+      tabDrag = dragSnap;
+      const live = bar.querySelector(
+        `.paper-tab[data-paper-key="${cssEscapeKey(dragSnap.paperKey)}"]`
+      );
+      if (live) wireTabDragPointer(live);
+    }
   }
 
   function realPaperIndices() {
@@ -986,6 +1165,7 @@
     if (el.noteOverlay.scrollTop) el.noteOverlay.scrollTop = 0;
     loadNoteForCurrentSentence();
     playNoteSentence();
+    lockEscapeWhileNoteInFs();
     window.setTimeout(() => {
       el.noteTextarea.focus();
       const len = el.noteTextarea.value.length;
@@ -1007,6 +1187,7 @@
     noteUi.boundSentenceId = null;
     el.noteOverlay.hidden = true;
     document.body.classList.remove("is-note-open");
+    unlockEscapeKeys();
   }
 
   function stripCloseGestureNewlines() {
@@ -1040,18 +1221,84 @@
   }
 
   function blurNoteTextarea() {
-    // WHY: Esc = 창 닫기가 아니라 입력 커서만 빼기 → 바로 ←/→ 문장 이동
+    // WHY: 입력칸에서 커서만 빼기 (←/→ · Space 용)
     if (!el.noteTextarea) return;
     el.noteTextarea.blur();
     if (el.noteSheet) el.noteSheet.focus();
   }
 
+  /** Esc로 노트 닫을 때 브라우저 전체화면이 같이 풀리면 즉시 복구 */
+  let noteEscFsGuard = false;
+
+  function requestBrowserFullscreen() {
+    const root = document.documentElement;
+    const req =
+      root.requestFullscreen ||
+      root.webkitRequestFullscreen ||
+      root.msRequestFullscreen;
+    if (!req) return Promise.resolve();
+    return Promise.resolve(req.call(root)).catch(() => {});
+  }
+
+  async function lockEscapeWhileNoteInFs() {
+    // WHY: Chromium 은 FS 중 Esc 해제를 preventDefault 로 못 막는 경우가 많음
+    if (!isBrowserFullscreen()) return;
+    try {
+      if (navigator.keyboard && typeof navigator.keyboard.lock === "function") {
+        await navigator.keyboard.lock(["Escape"]);
+      }
+    } catch (_) {
+      /* ignore — fallback 은 Esc 직후 FS 재진입 */
+    }
+  }
+
+  function unlockEscapeKeys() {
+    try {
+      if (navigator.keyboard && typeof navigator.keyboard.unlock === "function") {
+        navigator.keyboard.unlock();
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function closeNoteOverlayFromEscape(ev) {
+    // WHY: 노트 열림 중 Esc = 입력창 닫기 우선 · 브라우저 FS 는 유지
+    if (!isNoteOpen()) return;
+    if (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (typeof ev.stopImmediatePropagation === "function") {
+        ev.stopImmediatePropagation();
+      }
+    }
+    const wantFs = isBrowserFullscreen();
+    if (wantFs) {
+      noteEscFsGuard = true;
+      // WHY: 같은 키 제스처로 FS 재요청 — fullscreenchange 만으로는 user gesture 없음
+      document.body.classList.add("is-browser-fullscreen");
+      requestBrowserFullscreen();
+    }
+    unlockEscapeKeys();
+    closeNoteOverlay();
+    if (wantFs) {
+      window.setTimeout(() => {
+        if (!isBrowserFullscreen()) {
+          document.body.classList.add("is-browser-fullscreen");
+          requestBrowserFullscreen().finally(() => {
+            noteEscFsGuard = false;
+          });
+        } else {
+          noteEscFsGuard = false;
+        }
+      }, 30);
+    }
+  }
+
   function onNoteTextareaKeydown(ev) {
     if (ev.isComposing) return;
     if (ev.key === "Escape") {
-      ev.preventDefault();
-      ev.stopPropagation();
-      blurNoteTextarea();
+      closeNoteOverlayFromEscape(ev);
       return;
     }
     if (ev.key !== "Enter" || ev.shiftKey || ev.ctrlKey || ev.metaKey || ev.altKey) {
@@ -1458,8 +1705,9 @@
     const nS = state.sentences.length;
     if (!nS) return;
     const sent = state.sentences[state.sentenceIndex];
-    const text = plainSentenceText(sent && sent.text);
-    if (!text) {
+    // WHY: rich HTML 을 서버로 보냄 — 첨자·Title: 은 TTS spoken 정규화 (tts_speak)
+    const text = String((sent && sent.text) || "").trim();
+    if (!plainSentenceText(text)) {
       setUploadStatus("읽을 문장이 없습니다.", "error");
       return;
     }
@@ -2029,13 +2277,19 @@
     return !!(el.noteTextarea && document.activeElement === el.noteTextarea);
   }
 
+  // WHY: window capture 가 가장 먼저 — FS Esc 와 경쟁
+  window.addEventListener(
+    "keydown",
+    (ev) => {
+      if (ev.key !== "Escape" || !isNoteOpen()) return;
+      closeNoteOverlayFromEscape(ev);
+    },
+    true
+  );
+
   document.addEventListener("keydown", (ev) => {
-    // WHY: 노트 열림 시 Esc = 입력 커서만 해제 (창은 유지 · 그림 FS Esc보다 앞)
     if (ev.key === "Escape" && isNoteOpen()) {
-      ev.preventDefault();
-      if (isFocusInNoteTextarea()) {
-        blurNoteTextarea();
-      }
+      closeNoteOverlayFromEscape(ev);
       return;
     }
 
@@ -2085,6 +2339,27 @@
 
     const tag = (ev.target && ev.target.tagName) || "";
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+    // Alt+←/→ = 활성 논문 탭을 한 칸 이동 (드래그 대안)
+    if (
+      ev.altKey &&
+      !ev.ctrlKey &&
+      !ev.metaKey &&
+      (ev.key === "ArrowLeft" || ev.key === "ArrowRight")
+    ) {
+      const real = realPaperIndices();
+      if (real.length < 2) return;
+      const fromSlot = real.indexOf(activePaperIndex);
+      if (fromSlot < 0) return;
+      const toSlot = fromSlot + (ev.key === "ArrowRight" ? 1 : -1);
+      if (toSlot < 0 || toSlot >= real.length) return;
+      ev.preventDefault();
+      if (reorderPaper(real[fromSlot], real[toSlot])) {
+        renderPaperTabs();
+        updatePaperTabChrome();
+      }
+      return;
+    }
 
     // Enter → 성찰 노트 (TTS dialog / 노트 이미 열림이면 무시)
     if (
@@ -2179,12 +2454,26 @@
 
   function onBrowserFullscreenChange() {
     const fs = isBrowserFullscreen();
+    if (!fs && noteEscFsGuard) {
+      // WHY: Esc 가 FS 를 푼 직후 — 레이아웃/뽀모 종료 副作用 없이 즉시 재진입
+      document.body.classList.add("is-browser-fullscreen");
+      requestBrowserFullscreen().finally(() => {
+        if (isBrowserFullscreen()) noteEscFsGuard = false;
+        else {
+          noteEscFsGuard = false;
+          document.body.classList.remove("is-browser-fullscreen");
+        }
+      });
+      return;
+    }
     document.body.classList.toggle("is-browser-fullscreen", fs);
     if (fs) {
       onPomoEnterFullscreen();
+      if (isNoteOpen()) lockEscapeWhileNoteInFs();
       if (layout.mode === "expanded") applyLayout();
       return;
     }
+    unlockEscapeKeys();
     onPomoExitFullscreen();
     // 브라우저 FS 종료 → 기본 읽기 비율(문장 무스크롤)로 (가림창은 유지)
     if (layout.fullscreen) {
