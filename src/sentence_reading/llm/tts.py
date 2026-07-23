@@ -25,10 +25,18 @@ _VOICE_CHOICES = (
     ("en-US-Neural2-H", "en-US Neural2 H (여성)"),
     ("en-US-Neural2-I", "en-US Neural2 I (남성)"),
     ("en-US-Neural2-J", "en-US Neural2 J (남성)"),
-    ("en-GB-Neural2-A", "en-GB Neural2 A"),
-    ("en-GB-Neural2-B", "en-GB Neural2 B"),
-    ("en-GB-Neural2-C", "en-GB Neural2 C"),
-    ("en-GB-Neural2-D", "en-GB Neural2 D"),
+    ("en-GB-Neural2-A", "en-GB Neural2 A (여성)"),
+    ("en-GB-Neural2-B", "en-GB Neural2 B (남성)"),
+    ("en-GB-Neural2-C", "en-GB Neural2 C (여성)"),
+    ("en-GB-Neural2-D", "en-GB Neural2 D (남성)"),
+    ("en-AU-Neural2-A", "en-AU Neural2 A (여성)"),
+    ("en-AU-Neural2-B", "en-AU Neural2 B (남성)"),
+    ("en-AU-Neural2-C", "en-AU Neural2 C (여성)"),
+    ("en-AU-Neural2-D", "en-AU Neural2 D (남성)"),
+    ("en-IN-Neural2-A", "en-IN Neural2 A (여성)"),
+    ("en-IN-Neural2-B", "en-IN Neural2 B (남성)"),
+    ("en-IN-Neural2-C", "en-IN Neural2 C (남성)"),
+    ("en-IN-Neural2-D", "en-IN Neural2 D (여성)"),
 )
 
 
