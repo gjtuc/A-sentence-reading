@@ -5,7 +5,8 @@
 
 ## 제품 결정
 
-- **문장 클릭** → 현재 문장만 Cloud Text-to-Speech (화면 하이라이트 없음)
+- 문장 클릭 → 현재 문장만 Cloud Text-to-Speech (화면 하이라이트 없음)
+- API는 `spoken_text_for_tts` 로 정규화 후 합성 — `<sub>`/`<sup>` 풀어 읽기, `Title:` 접두·기호 발음화 ([tts_speak.py](../src/sentence_reading/llm/tts_speak.py))
 - 다시 클릭 → **처음부터 다시**
 - `←/→` 문장 이동 · 탭 전환 시 재생 중지
 - 헤더 **TTS** → 목소리 · 속도 (`localStorage` `asr.tts.v1`)

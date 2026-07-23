@@ -1,7 +1,7 @@
 """
-무엇을: Cloud Text-to-Speech 로 문장 plain text → MP3.
+무엇을: Cloud Text-to-Speech 로 문장 → MP3.
 왜: 문장 클릭 TTS — 화면은 그대로, 소리만 (하이라이트 없음).
-다음에: 캐시 LRU, 다국어 보이스 필터 UI.
+다음에: 캐시 LRU. 말할 말 정규화는 tts_speak.spoken_text_for_tts (API에서 적용).
 """
 
 from __future__ import annotations

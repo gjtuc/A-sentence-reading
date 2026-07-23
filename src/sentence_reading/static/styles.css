@@ -73,6 +73,22 @@ body.is-browser-fullscreen .figure-frame.is-crop-zoomed * {
   cursor: zoom-out !important;
 }
 
+/* 노트 오버레이: 시트=흰 십자 · 입력칸=흰 I (텍스트) — 전체화면 검정 십자 덮음 */
+body.is-browser-fullscreen .note-overlay .note-sheet,
+body.is-browser-fullscreen .note-overlay .note-sheet * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17'%3E%3Cpath stroke='%23ffffff' stroke-width='1.25' d='M8.5 0v17M0 8.5h17'/%3E%3C/svg%3E")
+      8 8,
+    crosshair !important;
+}
+
+body.is-browser-fullscreen .note-overlay .note-label,
+body.is-browser-fullscreen .note-overlay .note-label *,
+body.is-browser-fullscreen .note-overlay .note-textarea {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='20'%3E%3Cpath stroke='%23ffffff' stroke-width='1.5' fill='none' d='M2 1h8M6 1v18M2 19h8'/%3E%3C/svg%3E")
+      6 10,
+    text !important;
+}
+
 /* 스크롤바 — 다크 미니멀 (Firefox) */
 * {
   scrollbar-width: thin;
@@ -232,7 +248,9 @@ body.is-browser-fullscreen .figure-frame.is-crop-zoomed * {
   letter-spacing: 0.02em;
   padding: 0.3rem 0.55rem;
   border-radius: 4px;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
   white-space: nowrap;
   max-width: 14rem;
   overflow: hidden;
@@ -242,6 +260,11 @@ body.is-browser-fullscreen .figure-frame.is-crop-zoomed * {
 .paper-tab:hover {
   border-color: var(--accent);
   color: var(--fg);
+}
+
+.paper-tab.is-dragging {
+  cursor: grabbing;
+  opacity: 0.55;
 }
 
 .paper-tab.is-active {

@@ -32,6 +32,7 @@ from sentence_reading.llm.tts import (
     synthesize_mp3,
     tts_available,
 )
+from sentence_reading.llm.tts_speak import spoken_text_for_tts
 from sentence_reading.llm.typography import PIPELINE_VERSION, normalize_scientific_glyphs
 from sentence_reading.llm.vision_ocr import recover_pdf_text
 from sentence_reading.models import Figure, PaperSession, Sentence, build_mock_session
@@ -144,7 +145,7 @@ async def tts_synthesize(payload: dict = Body(...)) -> Response:
                 "message": "Cloud TTS 자격 증명이 없습니다.",
             },
         )
-    text = plain_text(str(payload.get("text") or ""))
+    text = spoken_text_for_tts(str(payload.get("text") or ""))
     voice = str(payload.get("voice") or "").strip() or None
     if voice in ("undefined", "null", "None"):
         voice = None
