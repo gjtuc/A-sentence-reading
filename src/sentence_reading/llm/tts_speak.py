@@ -1,7 +1,7 @@
 """
 무엇을: TTS에 넘기기 전 말할 말로 정규화 (첨자·기호·구역 접두).
 왜: plain_text 만 쓰면 H2O·cm−1·Title: 을 글자 그대로 읽어 어색하다.
-다음에: 단위(cm−1→per centimeter) 사전 확장.
+다음에: 단위(cm−1→per centimeter) 사전 확장. 원소는 _expand_element_symbols.
 """
 
 from __future__ import annotations
@@ -28,6 +28,135 @@ _DIGIT_WORD = {
     "8": "eight",
     "9": "nine",
 }
+
+# 원소 기호 → 영어 이름 (TTS). 긴 기호 우선 치환.
+_ELEMENT_SPOKEN: dict[str, str] = {
+    "Ac": "actinium",
+    "Ag": "silver",
+    "Al": "aluminum",
+    "Am": "americium",
+    "Ar": "argon",
+    "As": "arsenic",
+    "At": "astatine",
+    "Au": "gold",
+    "B": "boron",
+    "Ba": "barium",
+    "Be": "beryllium",
+    "Bh": "bohrium",
+    "Bi": "bismuth",
+    "Bk": "berkelium",
+    "Br": "bromine",
+    "C": "carbon",
+    "Ca": "calcium",
+    "Cd": "cadmium",
+    "Ce": "cerium",
+    "Cf": "californium",
+    "Cl": "chlorine",
+    "Cm": "curium",
+    "Cn": "copernicium",
+    "Co": "cobalt",
+    "Cr": "chromium",
+    "Cs": "cesium",
+    "Cu": "copper",
+    "Db": "dubnium",
+    "Ds": "darmstadtium",
+    "Dy": "dysprosium",
+    "Er": "erbium",
+    "Es": "einsteinium",
+    "Eu": "europium",
+    "F": "fluorine",
+    "Fe": "iron",
+    "Fl": "flerovium",
+    "Fm": "fermium",
+    "Fr": "francium",
+    "Ga": "gallium",
+    "Gd": "gadolinium",
+    "Ge": "germanium",
+    "H": "hydrogen",
+    "He": "helium",
+    "Hf": "hafnium",
+    "Hg": "mercury",
+    "Ho": "holmium",
+    "Hs": "hassium",
+    "I": "iodine",
+    "In": "indium",
+    "Ir": "iridium",
+    "K": "potassium",
+    "Kr": "krypton",
+    "La": "lanthanum",
+    "Li": "lithium",
+    "Lr": "lawrencium",
+    "Lu": "lutetium",
+    "Lv": "livermorium",
+    "Mc": "moscovium",
+    "Md": "mendelevium",
+    "Mg": "magnesium",
+    "Mn": "manganese",
+    "Mo": "molybdenum",
+    "Mt": "meitnerium",
+    "N": "nitrogen",
+    "Na": "sodium",
+    "Nb": "niobium",
+    "Nd": "neodymium",
+    "Ne": "neon",
+    "Nh": "nihonium",
+    "Ni": "nickel",
+    "No": "nobelium",
+    "Np": "neptunium",
+    "O": "oxygen",
+    "Og": "oganesson",
+    "Os": "osmium",
+    "P": "phosphorus",
+    "Pa": "protactinium",
+    "Pb": "lead",
+    "Pd": "palladium",
+    "Pm": "promethium",
+    "Po": "polonium",
+    "Pr": "praseodymium",
+    "Pt": "platinum",
+    "Pu": "plutonium",
+    "Ra": "radium",
+    "Rb": "rubidium",
+    "Re": "rhenium",
+    "Rf": "rutherfordium",
+    "Rg": "roentgenium",
+    "Rh": "rhodium",
+    "Rn": "radon",
+    "Ru": "ruthenium",
+    "S": "sulfur",
+    "Sb": "antimony",
+    "Sc": "scandium",
+    "Se": "selenium",
+    "Sg": "seaborgium",
+    "Si": "silicon",
+    "Sm": "samarium",
+    "Sn": "tin",
+    "Sr": "strontium",
+    "Ta": "tantalum",
+    "Tb": "terbium",
+    "Tc": "technetium",
+    "Te": "tellurium",
+    "Th": "thorium",
+    "Ti": "titanium",
+    "Tl": "thallium",
+    "Tm": "thulium",
+    "Ts": "tennessine",
+    "U": "uranium",
+    "V": "vanadium",
+    "W": "tungsten",
+    "Xe": "xenon",
+    "Y": "yttrium",
+    "Yb": "ytterbium",
+    "Zn": "zinc",
+    "Zr": "zirconium",
+}
+
+# 영어 단어와 겹치는 기호 — 단독은 유지, 화학식(숫자·다음 원소)일 때만 이름
+_ELEMENT_BARE_SKIP = frozenset({"He", "As", "At", "Be", "In", "No", "I"})
+
+_ELEMENT_KEYS_LONGEST = tuple(
+    sorted(_ELEMENT_SPOKEN.keys(), key=len, reverse=True)
+)
 
 # 표시용 기호 → 영어 발음 (논문 빈도 높은 것만)
 _SYMBOL_SPOKEN = (
@@ -200,6 +329,25 @@ def _expand_plain_chem_digits(text: str) -> str:
     )
 
 
+def _expand_element_symbols(text: str) -> str:
+    """
+    Ni → nickel, Fe → iron.
+    WHY: Cloud TTS는 Ni를 글자·이상한 음절로 읽음.
+    He/As/In 등 영어 단어와 겹치면 화학식 맥락에서만 치환.
+    """
+    s = text
+    for sym in _ELEMENT_KEYS_LONGEST:
+        name = _ELEMENT_SPOKEN[sym]
+        if sym in _ELEMENT_BARE_SKIP:
+            # In2O3, BeO — 다음이 숫자·대문자 원소 시작
+            pat = rf"(?<![A-Za-z]){re.escape(sym)}(?=\d|[A-Z]|[₀-₉])"
+        else:
+            # Ni catalyst, NiO — 소문자로 이어지는 보통 단어는 제외
+            pat = rf"(?<![A-Za-z]){re.escape(sym)}(?![a-z])"
+        s = re.sub(pat, f" {name} ", s)
+    return s
+
+
 def spoken_text_for_tts(raw: str) -> str:
     """
     화면용 HTML/plain → TTS용 영어 말할 말.
@@ -222,12 +370,13 @@ def spoken_text_for_tts(raw: str) -> str:
         except Exception:  # noqa: BLE001
             s = re.sub(r"<[^>]+>", " ", s)
 
-    # HTML 경로 후에도 남은 평문 첨자·화학식 숫자
+    # HTML 경로 후에도 남은 평문 첨자·화학식 숫자 → 기호 → 원소 이름
+    # WHY: °C 를 원소 C보다 먼저 치환해야 degrees Celsius 가 됨
     s = _expand_unicode_scripts(s)
     s = _expand_plain_chem_digits(s)
-
     s = _SECTION_PREFIX.sub("", s)
     s = _apply_symbols(s)
+    s = _expand_element_symbols(s)
     s = re.sub(r"\s+", " ", s).strip()
     s = s.strip(" \t\"'`")
     return s

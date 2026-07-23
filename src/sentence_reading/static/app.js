@@ -157,6 +157,20 @@
     random_hard: { min: 1.0, max: 1.6 },
     random_very_hard: { min: 1.3, max: 1.9 },
   };
+  /**
+   * 랜덤 모드 locale 가중치 (익숙도 축).
+   * WHY: UI에 숫자·지역을 노출하지 않음 — 예측하면 난이도가 깎임.
+   */
+  const TTS_LOCALE_WEIGHTS = {
+    random_normal: { "en-US": 0.8, "en-GB": 0.2 },
+    random_hard: { "en-US": 0.4, "en-GB": 0.3, "en-AU": 0.3 },
+    random_very_hard: {
+      "en-US": 0.2,
+      "en-GB": 0.2,
+      "en-AU": 0.25,
+      "en-IN": 0.35,
+    },
+  };
   const TTS_RANDOM_MODES = new Set(Object.keys(TTS_RATE_BANDS));
   const TTS_MODES = new Set(["fixed", ...TTS_RANDOM_MODES]);
   /** @type {HTMLAudioElement | null} */
@@ -1581,6 +1595,28 @@
     return ids.length ? ids : [ttsSettings.voice || "en-US-Neural2-D"];
   }
 
+  function listTtsVoiceIdsForLocale(locale) {
+    const prefix = String(locale || "en-US") + "-";
+    const matched = listTtsVoiceIds().filter((id) => id.startsWith(prefix));
+    if (matched.length) return matched;
+    if (locale !== "en-US") return listTtsVoiceIdsForLocale("en-US");
+    return [ttsSettings.voice || "en-US-Neural2-D"];
+  }
+
+  function pickWeightedLocale(mode) {
+    const weights = TTS_LOCALE_WEIGHTS[mode];
+    if (!weights) return "en-US";
+    const entries = Object.entries(weights).filter(([, w]) => w > 0);
+    if (!entries.length) return "en-US";
+    let r = Math.random();
+    let acc = 0;
+    for (const [locale, w] of entries) {
+      acc += w;
+      if (r <= acc) return locale;
+    }
+    return entries[entries.length - 1][0];
+  }
+
   function randomInRange(min, max) {
     return min + Math.random() * (max - min);
   }
@@ -1594,7 +1630,8 @@
     const mode = fromForm && el.ttsMode ? el.ttsMode.value : ttsSettings.mode;
     if (TTS_RANDOM_MODES.has(mode)) {
       const band = TTS_RATE_BANDS[mode];
-      const voices = listTtsVoiceIds();
+      const locale = pickWeightedLocale(mode);
+      const voices = listTtsVoiceIdsForLocale(locale);
       const voice = voices[Math.floor(Math.random() * voices.length)];
       const rate = Math.round(randomInRange(band.min, band.max) * 100) / 100;
       return { voice, speakingRate: rate, mode };
