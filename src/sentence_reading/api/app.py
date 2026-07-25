@@ -115,10 +115,11 @@ def status() -> dict:
         "vision_ocr": gemini_available(),
         "tts": tts_available(),
         "tts_cache_native_rate": True,
+        "tts_stretch": "signalsmith",
         "gcs": gcs_status(),
         "paper_cache": True,
         "docx_extract": True,
-        "version": "0.2.6",
+        "version": "0.2.7",
     }
 
 
