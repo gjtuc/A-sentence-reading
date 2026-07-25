@@ -1,7 +1,7 @@
 """
 무엇을: Cloud Text-to-Speech 로 문장 → MP3 (+ 정속 디스크 캐시).
 왜: 문장 클릭 TTS — 화면은 그대로, 소리만 (하이라이트 없음).
-다음에: GCS 동기화. 배속은 클라이언트 Signalsmith/WSOLA (design/15·17).
+다음에: 노트·논문·voice blob GCS. 배속은 클라이언트 Signalsmith/WSOLA (design/15·17).
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ def default_tts_settings() -> dict:
 
 
 def tts_cache_dir() -> Path:
-    """정속 MP3 캐시 디렉터리 (로컬). GCS는 후속."""
+    """정속 MP3 캐시 디렉터리 (로컬). GCS는 synthesize_mp3 에서 best-effort sync."""
     load_asr_env()
     raw = (os.environ.get("ASR_TTS_CACHE_DIR") or "").strip()
     if raw:
@@ -91,6 +91,40 @@ def cache_key(text: str, voice: str, rate: float = 1.0) -> str:
     _ = rate
     raw = f"{voice}|1.00|{text}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:24]
+
+
+def _try_gcs_fetch(key: str, cache_path: Path) -> bytes | None:
+    """로컬 miss 시 GCS에서 받아 로컬에 채움."""
+    try:
+        from sentence_reading.llm.gcs_sync import download_bytes, tts_cache_object
+
+        obj = tts_cache_object(key)
+        if not obj:
+            return None
+        data = download_bytes(obj)
+        if not data:
+            return None
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_bytes(data)
+        except OSError:
+            pass
+        return data
+    except Exception:
+        return None
+
+
+def _try_gcs_put(key: str, audio: bytes) -> None:
+    """합성 후 GCS 업로드 (실패 무시)."""
+    try:
+        from sentence_reading.llm.gcs_sync import tts_cache_object, upload_bytes
+
+        obj = tts_cache_object(key)
+        if not obj:
+            return
+        upload_bytes(obj, audio, content_type="audio/mpeg")
+    except Exception:
+        pass
 
 
 @lru_cache(maxsize=1)
@@ -140,6 +174,8 @@ def synthesize_mp3(
     plain text → MP3 bytes (정속 캐시).
     speaking_rate 인자는 호환용으로 받지만 합성에는 쓰지 않음 —
     배속은 프론트 WSOLA / playbackRate.
+
+    캐시 순서: 로컬 디스크 → GCS download → Cloud 합성 → 로컬+GCS put.
     """
     _ = speaking_rate  # API 호환 — 의도적 미사용
     plain = (text or "").strip()
@@ -162,10 +198,15 @@ def synthesize_mp3(
     except OSError:
         pass
 
+    remote = _try_gcs_fetch(key, cache_path)
+    if remote:
+        return remote
+
     audio = _synthesize_uncached(plain, voice_name)
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_bytes(audio)
     except OSError:
         pass
+    _try_gcs_put(key, audio)
     return audio

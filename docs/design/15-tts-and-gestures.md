@@ -26,6 +26,7 @@
   - 우선 **Signalsmith Stretch** (vendored WASM/AudioWorklet, `static/vendor/signalsmith-stretch/`)
   - 실패·미지원 시 `HTMLAudioElement.playbackRate` + `preservesPitch` (브라우저 WSOLA)
   - `|rate−1| ≤ 0.02` 이면 stretch 생략 (정속 HTMLAudio)
+- **GCS TTS 캐시** (`ASR_GCS_BUCKET`): 로컬 miss 시 download, 합성 후 upload (best-effort). 노트·논문 sync는 후속.
 - **UI에 배속·가중치·지역 숫자를 노출하지 않는다** (예측하면 난이도가 깎임). 힌트는 “재생마다 목소리와 속도가 바뀝니다.”만.
 
 ## 제거한 상호작용
