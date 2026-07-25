@@ -46,4 +46,16 @@
 
 - ~~Signalsmith WASM으로 `tts_stretch.js` 교체~~ (0.2.7 — vendored 1.3.2, 폴백 preservesPitch)
 - ~~분기 리뷰 목록에 최신 목소리 재생 버튼~~ (0.2.8)
-- GCS 실제 upload/download (`ASR_GCS_BUCKET` 설정 시)
+- ~~GCS TTS 캐시 upload/download~~ (0.2.9 — `ASR_GCS_BUCKET` · `llm/gcs_sync.py`)
+- GCS 노트·논문·voice blob 동기화 (object 경로 `notes/` 예약됨)
+
+## GCS (TTS 캐시)
+
+| env | 의미 |
+|-----|------|
+| `ASR_GCS_BUCKET` | 버킷 (비우면 sync off) |
+| `ASR_GCS_PREFIX` | prefix (기본 `asr`) |
+| `GOOGLE_APPLICATION_CREDENTIALS` | SA JSON (TTS와 공유) |
+
+캐시 순서: **로컬** → **GCS get** → Cloud 합성 → 로컬 put + **GCS put**(best-effort).  
+object: `{prefix}/tts_cache/{sha24}.mp3`
