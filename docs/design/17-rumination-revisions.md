@@ -47,9 +47,10 @@
 - ~~Signalsmith WASM으로 `tts_stretch.js` 교체~~ (0.2.7 — vendored 1.3.2, 폴백 preservesPitch)
 - ~~분기 리뷰 목록에 최신 목소리 재생 버튼~~ (0.2.8)
 - ~~GCS TTS 캐시 upload/download~~ (0.2.9 — `ASR_GCS_BUCKET` · `llm/gcs_sync.py`)
-- GCS 노트·논문·voice blob 동기화 (object 경로 `notes/` 예약됨)
+- ~~GCS 노트 store sync~~ (0.2.10 — `GET|PUT /api/notes/sync` · `{prefix}/notes/store_v2.json`)
+- GCS 논문·voice **blob** 동기화 (노트 JSON의 voice 메타는 이미 sync · blobKey는 PC 로컬 IDB)
 
-## GCS (TTS 캐시)
+## GCS
 
 | env | 의미 |
 |-----|------|
@@ -57,5 +58,9 @@
 | `ASR_GCS_PREFIX` | prefix (기본 `asr`) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | SA JSON (TTS와 공유) |
 
-캐시 순서: **로컬** → **GCS get** → Cloud 합성 → 로컬 put + **GCS put**(best-effort).  
+**TTS 캐시:** 로컬 → GCS get → Cloud 합성 → 로컬+GCS put.  
 object: `{prefix}/tts_cache/{sha24}.mp3`
+
+**노트 store:** 부팅 시 pull · 저장 후 debounce push.  
+병합: fingerprint(`at`+`body` / `at`+`blobKey`) 합집합 → `at` 정렬 → rev 재번호 (삭제 없음).  
+object: `{prefix}/notes/store_v2.json` · 한도 2MB.

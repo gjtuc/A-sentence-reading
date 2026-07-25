@@ -1137,9 +1137,79 @@
     return AsrNotes.readRaw();
   }
 
+  let notesSyncTimer = 0;
+  let notesSyncBusy = false;
+  /** @type {boolean|null} null=미확인 */
+  let gcsNotesAvailable = null;
+
   function writeNotesStore(store) {
     if (!AsrNotes) return;
     AsrNotes.writeRaw(store);
+    scheduleNotesCloudPush();
+  }
+
+  function scheduleNotesCloudPush() {
+    if (notesSyncTimer) window.clearTimeout(notesSyncTimer);
+    notesSyncTimer = window.setTimeout(function () {
+      notesSyncTimer = 0;
+      pushNotesToCloud();
+    }, 1600);
+  }
+
+  async function pullNotesFromCloud() {
+    if (!AsrNotes || notesSyncBusy) return;
+    notesSyncBusy = true;
+    try {
+      const res = await fetch("/api/notes/sync");
+      if (!res.ok) return;
+      const data = await res.json();
+      gcsNotesAvailable = !!data.available;
+      if (!data.available || !data.store) return;
+      const local = AsrNotes.readRaw();
+      const merged = AsrNotes.mergeStores
+        ? AsrNotes.mergeStores(local, data.store)
+        : data.store;
+      AsrNotes.writeRaw(merged);
+      const put = await fetch("/api/notes/sync", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ store: merged }),
+      });
+      if (!put.ok) return;
+      const putData = await put.json();
+      if (putData && putData.available && putData.store) {
+        AsrNotes.writeRaw(putData.store);
+      }
+    } catch (_) {
+      /* offline */
+    } finally {
+      notesSyncBusy = false;
+    }
+  }
+
+  async function pushNotesToCloud() {
+    if (!AsrNotes) return;
+    if (gcsNotesAvailable === false) return;
+    if (notesSyncBusy) return;
+    notesSyncBusy = true;
+    try {
+      const store = AsrNotes.readRaw();
+      const res = await fetch("/api/notes/sync", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ store: store }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      gcsNotesAvailable = !!data.available;
+      if (data.available && data.store) {
+        AsrNotes.writeRaw(data.store);
+      }
+    } catch (_) {
+      /* offline */
+    } finally {
+      notesSyncBusy = false;
+    }
   }
 
   function getNoteText(paperKey, sentenceId) {
@@ -3081,4 +3151,6 @@
   });
 
   loadMock();
+  // WHY: GCS 노트 pull — 버킷 없으면 available:false 로 조용히 스킵
+  pullNotesFromCloud();
 })();
