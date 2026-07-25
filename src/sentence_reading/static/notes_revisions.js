@@ -1,7 +1,7 @@
 /**
  * 무엇을: 문장별 성찰 노트 append-only 리비전 (localStorage).
  * 왜: 되새김질 — 최신만 기본 표시, 과거는 보관·선택 열람 (design/17).
- * 다음에: voice[] · GCS sync.
+ * 다음에: voice blob GCS. 노트 store는 /api/notes/sync.
  *
  * 스키마 v2:
  * {
@@ -211,6 +211,108 @@
     return out;
   }
 
+  function textFp(item) {
+    return String(item && item.at != null ? item.at : "") + "\n" + String(item && item.body != null ? item.body : "");
+  }
+
+  function voiceFp(item) {
+    return (
+      String(item && item.at != null ? item.at : "") +
+      "\n" +
+      String(item && item.blobKey != null ? item.blobKey : "") +
+      "\n" +
+      String(item && item.mime != null ? item.mime : "")
+    );
+  }
+
+  /**
+   * append-only 병합 — fingerprint 합집합 후 at 정렬·rev 재번호 (서버 notes_gcs 와 동일).
+   */
+  function mergeRevLists(left, right, kind) {
+    var seen = {};
+    var out = [];
+    function add(seq) {
+      if (!Array.isArray(seq)) return;
+      for (var i = 0; i < seq.length; i++) {
+        var item = seq[i];
+        if (!item || typeof item !== "object") continue;
+        var fp;
+        var copy;
+        if (kind === "text") {
+          if (typeof item.body !== "string") continue;
+          fp = textFp(item);
+          copy = { rev: 0, at: String(item.at || ""), body: item.body };
+        } else {
+          if (!item.blobKey) continue;
+          fp = voiceFp(item);
+          copy = {
+            rev: 0,
+            at: String(item.at || ""),
+            blobKey: String(item.blobKey),
+            mime: String(item.mime || "audio/webm"),
+          };
+        }
+        if (seen[fp]) continue;
+        seen[fp] = true;
+        out.push(copy);
+      }
+    }
+    add(left);
+    add(right);
+    out.sort(function (a, b) {
+      var aa = a.at || "";
+      var bb = b.at || "";
+      if (aa < bb) return -1;
+      if (aa > bb) return 1;
+      return 0;
+    });
+    for (var j = 0; j < out.length; j++) out[j].rev = j + 1;
+    return out;
+  }
+
+  function mergeStores(a, b) {
+    var sa =
+      a && a.papers && typeof a.papers === "object"
+        ? a
+        : emptyStore();
+    var sb =
+      b && b.papers && typeof b.papers === "object"
+        ? b
+        : emptyStore();
+    var papers = {};
+    var pkeys = {};
+    Object.keys(sa.papers || {}).forEach(function (k) {
+      pkeys[k] = true;
+    });
+    Object.keys(sb.papers || {}).forEach(function (k) {
+      pkeys[k] = true;
+    });
+    Object.keys(pkeys).forEach(function (pk) {
+      if (!pk) return;
+      var pa = sa.papers[pk] && typeof sa.papers[pk] === "object" ? sa.papers[pk] : {};
+      var pb = sb.papers[pk] && typeof sb.papers[pk] === "object" ? sb.papers[pk] : {};
+      var sids = {};
+      Object.keys(pa).forEach(function (s) {
+        sids[s] = true;
+      });
+      Object.keys(pb).forEach(function (s) {
+        sids[s] = true;
+      });
+      var paper = {};
+      Object.keys(sids).forEach(function (sid) {
+        if (!sid) return;
+        var ea = pa[sid] && typeof pa[sid] === "object" ? pa[sid] : {};
+        var eb = pb[sid] && typeof pb[sid] === "object" ? pb[sid] : {};
+        paper[sid] = {
+          text: mergeRevLists(ea.text, eb.text, "text"),
+          voice: mergeRevLists(ea.voice, eb.voice, "voice"),
+        };
+      });
+      if (Object.keys(paper).length) papers[pk] = paper;
+    });
+    return { version: 2, papers: papers };
+  }
+
   global.AsrNotes = {
     STORAGE_KEY: STORAGE_KEY,
     LEGACY_KEY: LEGACY_KEY,
@@ -226,5 +328,6 @@
     listTextRevisions: listTextRevisions,
     sentenceIdsInSection: sentenceIdsInSection,
     normalizeEntry: normalizeEntry,
+    mergeStores: mergeStores,
   };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -75,7 +75,7 @@ def tts_cache_object(cache_key: str) -> str | None:
 
 
 def notes_object(paper_key: str) -> str | None:
-    """노트 JSON 예약 경로 (UI 동기화는 후속)."""
+    """논문별 노트 조각 경로(예약). 전체 store는 notes_gcs.notes_store_object."""
     raw = (paper_key or "").strip()
     if not raw:
         return None
@@ -197,7 +197,9 @@ def blob_exists(full_object_name: str) -> bool:
 def gcs_status() -> dict[str, Any]:
     cfg = gcs_config()
     ready, message = gcs_client_ready()
-    return {
+    from sentence_reading.llm.notes_gcs import notes_gcs_status_fields
+
+    out: dict[str, Any] = {
         "enabled": cfg.enabled,
         "bucket": cfg.bucket or None,
         "prefix": cfg.prefix,
@@ -205,3 +207,6 @@ def gcs_status() -> dict[str, Any]:
         "tts_cache_sync": True,
         "message": message if cfg.enabled else "set ASR_GCS_BUCKET to enable cloud sync",
     }
+    out.update(notes_gcs_status_fields())
+    return out
+

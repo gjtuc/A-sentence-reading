@@ -28,6 +28,11 @@ from sentence_reading.llm.debone import DeboneResult, debone_sentences
 from sentence_reading.llm.env import gemini_available, load_asr_env
 from sentence_reading.llm.richtext import plain_text
 from sentence_reading.llm.gcs_sync import gcs_status
+from sentence_reading.llm.notes_gcs import (
+    download_notes_store,
+    empty_notes_store,
+    push_notes_store,
+)
 from sentence_reading.llm.tts import (
     CURATED_VOICES,
     synthesize_mp3,
@@ -119,8 +124,63 @@ def status() -> dict:
         "gcs": gcs_status(),
         "paper_cache": True,
         "docx_extract": True,
-        "version": "0.2.9",
+        "version": "0.2.10",
     }
+
+
+@app.get("/api/notes/sync")
+def notes_sync_get() -> dict:
+    """GCS 노트 store pull. 버킷 미설정·미준비면 available=false."""
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready"):
+        return {
+            "ok": True,
+            "available": False,
+            "store": None,
+            "message": st.get("message"),
+        }
+    store = download_notes_store()
+    return {
+        "ok": True,
+        "available": True,
+        "store": store if store is not None else empty_notes_store(),
+        "message": "ok",
+    }
+
+
+@app.put("/api/notes/sync")
+async def notes_sync_put(payload: dict = Body(...)) -> JSONResponse:
+    """
+    로컬 store push — remote∪local 병합 후 GCS 업로드, 병합본 반환.
+    """
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready"):
+        return JSONResponse(
+            {
+                "ok": True,
+                "available": False,
+                "store": payload.get("store") if isinstance(payload, dict) else None,
+                "message": st.get("message"),
+            }
+        )
+    local = payload.get("store") if isinstance(payload, dict) else None
+    if not isinstance(local, dict):
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "bad_store", "message": "store object required"},
+        )
+    try:
+        merged = push_notes_store(local)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "error": "notes_sync_failed",
+                "message": str(exc)[:300],
+            },
+        )
+    return JSONResponse({"ok": True, "available": True, "store": merged, "message": "ok"})
 
 
 @app.get("/api/tts/voices")
