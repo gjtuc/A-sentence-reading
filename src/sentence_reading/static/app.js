@@ -1801,6 +1801,14 @@
 
   function stopTts() {
     ttsFetchGen += 1;
+    // WHY: Signalsmith / HTMLAudio 공통 중단 (tts_stretch.js)
+    if (window.AsrStretch && typeof window.AsrStretch.stop === "function") {
+      try {
+        window.AsrStretch.stop();
+      } catch (_) {
+        /* ignore */
+      }
+    }
     if (ttsAudio) {
       try {
         ttsAudio.pause();
@@ -1818,6 +1826,42 @@
       ttsObjectUrl = null;
     }
     setTtsSpeakingUi(false);
+  }
+
+  /**
+   * 정속 MP3 버퍼 → 클라이언트 배속 재생 (Signalsmith 우선).
+   * @param {ArrayBuffer} buf
+   * @param {number} speakingRate
+   * @param {{ onEnded?: function, onError?: function }} handlers
+   */
+  async function playTtsBuffer(buf, speakingRate, handlers) {
+    handlers = handlers || {};
+    if (window.AsrStretch && typeof window.AsrStretch.play === "function") {
+      await window.AsrStretch.play({
+        arrayBuffer: buf,
+        rate: speakingRate,
+        onEnded: handlers.onEnded,
+        onError: handlers.onError,
+      });
+      return;
+    }
+    // 레거시 폴백 (AsrStretch 미로드)
+    const blob = new Blob([buf], { type: "audio/mpeg" });
+    ttsObjectUrl = URL.createObjectURL(blob);
+    ttsAudio = new Audio(ttsObjectUrl);
+    try {
+      ttsAudio.preservesPitch = true;
+      ttsAudio.playbackRate = speakingRate || 1;
+    } catch (_) {
+      /* ignore */
+    }
+    ttsAudio.onended = () => {
+      if (handlers.onEnded) handlers.onEnded();
+    };
+    ttsAudio.onerror = () => {
+      if (handlers.onError) handlers.onError(new Error("play failed"));
+    };
+    await ttsAudio.play();
   }
 
   function loadTtsSettings() {
@@ -2060,29 +2104,20 @@
       }
       const buf = await res.arrayBuffer();
       if (gen !== ttsFetchGen) return;
-      const blob = new Blob([buf], { type: "audio/mpeg" });
-      ttsObjectUrl = URL.createObjectURL(blob);
-      ttsAudio = new Audio(ttsObjectUrl);
-      // WHY: 서버는 정속 캐시 — 배속은 클라이언트 피치 유지 (tts_stretch.js)
-      if (window.AsrStretch) {
-        window.AsrStretch.applyPlaybackRate(ttsAudio, params.speakingRate);
-      } else {
-        try {
-          ttsAudio.preservesPitch = true;
-          ttsAudio.playbackRate = params.speakingRate || 1;
-        } catch (_) {
-          /* ignore */
-        }
-      }
-      ttsAudio.onended = () => {
-        setTtsSpeakingUi(false);
-        setUploadStatus("");
-      };
-      ttsAudio.onerror = () => {
-        setTtsSpeakingUi(false);
-        setUploadStatus("재생 실패", "error");
-      };
-      await ttsAudio.play();
+      // WHY: 서버는 정속 캐시 — 배속은 AsrStretch (Signalsmith → preservesPitch)
+      await playTtsBuffer(buf, params.speakingRate, {
+        onEnded: () => {
+          if (gen !== ttsFetchGen) return;
+          setTtsSpeakingUi(false);
+          setUploadStatus("");
+        },
+        onError: () => {
+          if (gen !== ttsFetchGen) return;
+          setTtsSpeakingUi(false);
+          setUploadStatus("재생 실패", "error");
+        },
+      });
+      if (gen !== ttsFetchGen) return;
       setUploadStatus("");
     } catch (err) {
       if (gen !== ttsFetchGen) return;
@@ -2272,22 +2307,17 @@
       }
       const buf = await res.arrayBuffer();
       if (gen !== ttsFetchGen) return;
-      const blob = new Blob([buf], { type: "audio/mpeg" });
-      ttsObjectUrl = URL.createObjectURL(blob);
-      ttsAudio = new Audio(ttsObjectUrl);
-      if (window.AsrStretch) {
-        window.AsrStretch.applyPlaybackRate(ttsAudio, params.speakingRate);
-      } else {
-        try {
-          ttsAudio.preservesPitch = true;
-          ttsAudio.playbackRate = params.speakingRate || 1;
-        } catch (_) {
-          /* ignore */
-        }
-      }
-      ttsAudio.onended = () => setTtsSampleStatus("");
-      ttsAudio.onerror = () => setTtsSampleStatus("재생 실패", "error");
-      await ttsAudio.play();
+      await playTtsBuffer(buf, params.speakingRate, {
+        onEnded: () => {
+          if (gen !== ttsFetchGen) return;
+          setTtsSampleStatus("");
+        },
+        onError: () => {
+          if (gen !== ttsFetchGen) return;
+          setTtsSampleStatus("재생 실패", "error");
+        },
+      });
+      if (gen !== ttsFetchGen) return;
       setTtsSampleStatus("재생 중");
     } catch (err) {
       if (gen !== ttsFetchGen) return;

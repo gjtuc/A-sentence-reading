@@ -42,6 +42,6 @@
 
 ## 다음
 
-- Signalsmith WASM으로 `tts_stretch.js` 교체 (현재 preservesPitch=WSOLA)
+- ~~Signalsmith WASM으로 `tts_stretch.js` 교체~~ (0.2.7 — vendored 1.3.2, 폴백 preservesPitch)
 - GCS 실제 upload/download (`ASR_GCS_BUCKET` 설정 시)
 - 분기 리뷰 목록에 최신 목소리 재생 버튼

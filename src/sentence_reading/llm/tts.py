@@ -1,7 +1,7 @@
 """
 무엇을: Cloud Text-to-Speech 로 문장 → MP3 (+ 정속 디스크 캐시).
 왜: 문장 클릭 TTS — 화면은 그대로, 소리만 (하이라이트 없음).
-다음에: GCS 동기화. 배속은 클라이언트 WSOLA/playbackRate (design/17).
+다음에: GCS 동기화. 배속은 클라이언트 Signalsmith/WSOLA (design/15·17).
 """
 
 from __future__ import annotations

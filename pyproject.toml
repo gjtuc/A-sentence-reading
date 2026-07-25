@@ -32,4 +32,5 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-sentence_reading = ["static/*"]
+# WHY: vendor/signalsmith-stretch 등 하위 경로 포함
+sentence_reading = ["static/**/*"]
