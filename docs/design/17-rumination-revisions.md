@@ -1,0 +1,47 @@
+# 17 — Rumination revisions (텍스트 append-only + 섹션 분기 리뷰)
+
+모듈: `static/notes_revisions.js` · `static/app.js` · `static/index.html`  
+저장: `localStorage` `asr.notes.v2` (v1 자동 이관)
+
+## 제품 정의
+
+- 훈련의 목적은 **내가 쓴 글(·목소리)을 되새김질**하는 것. 논문 문장은 자극.
+- 문장마다 기록을 **전부 보관**, 기본 UI는 **최신 rev만**.
+- 섹션(분기)이 바뀔 때(다음 섹션으로 전진) 직전 섹션의 최신 기록들을 엮어 **분기 리뷰**.
+- 리뷰에서 문장을 고르면 다시 쓰고 **새 rev를 append** (이전 rev 삭제 없음).
+
+## 불변조건
+
+- INVARIANT: 리뷰·노트는 AI 채점 없음.
+- INVARIANT: 그림/문장 인덱스 독립 — 리뷰가 인덱스를 바꿀 때는 **사용자가 문장을 고른 경우만**.
+- INVARIANT: 저장은 append-only. “복원”도 새 rev.
+
+## 스키마 v2
+
+```json
+{
+  "version": 2,
+  "papers": {
+    "<paperKey>": {
+      "<sentenceId>": {
+        "text": [{ "rev": 1, "at": "ISO-8601", "body": "…" }],
+        "voice": []
+      }
+    }
+  }
+}
+```
+
+- `paperKey`: `cache:` / `ses:` / `id:` (기존과 동일)
+- 타이핑 중 debounce는 **메모리 draft만**; disk append는 닫기·문장 이동·리뷰 저장 시
+
+## 섹션 경계
+
+- `advanceSentence(+1)` 에서 `prev.section !== next.section` 이면 직전 섹션 리뷰 오픈
+- 뒤로 가기(`-1`)에서는 리뷰 안 띄움
+
+## 다음
+
+- Signalsmith WASM으로 `tts_stretch.js` 교체 (현재 preservesPitch=WSOLA)
+- GCS 실제 upload/download (`ASR_GCS_BUCKET` 설정 시)
+- 분기 리뷰 목록에 최신 목소리 재생 버튼

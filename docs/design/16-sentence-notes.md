@@ -1,7 +1,7 @@
 # 16 — Sentence reflection notes (듣고 적기)
 
 모듈: `static/index.html` · `static/styles.css` · `static/app.js`  
-저장: `localStorage` `asr.notes.v1` (서버 없음)
+저장: `localStorage` `asr.notes.v2` (v1→v2 자동 이관 · design/17 append-only)
 
 ## 제품 결정
 

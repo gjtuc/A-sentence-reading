@@ -134,6 +134,40 @@
           spellcheck="true"
         ></textarea>
       </label>
+      <div class="note-voice-row">
+        <button type="button" class="upload-btn upload-btn-ghost" id="noteVoiceBtn">
+          목소리 녹음
+        </button>
+        <button type="button" class="upload-btn upload-btn-ghost" id="noteVoicePlayBtn" hidden>
+          내 목소리 듣기
+        </button>
+        <span class="note-voice-status" id="noteVoiceStatus" aria-live="polite"></span>
+      </div>
+      <details class="note-history" id="noteHistory">
+        <summary class="note-history-summary">이전 기록</summary>
+        <ol class="note-history-list" id="noteHistoryList"></ol>
+      </details>
+    </div>
+  </div>
+
+  <!-- WHY: 섹션 분기 끝 — 최신 노트만 엮어 되새김질 (docs/design/17) -->
+  <div
+    id="sectionReviewOverlay"
+    class="section-review-overlay"
+    hidden
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="sectionReviewTitle"
+  >
+    <div class="section-review-sheet" id="sectionReviewSheet" tabindex="-1">
+      <h2 class="section-review-title" id="sectionReviewTitle">구간 되새김질</h2>
+      <p class="section-review-hint" id="sectionReviewHint">
+        최신 기록만 보입니다. 문장을 고르면 이어서 쓸 수 있습니다. 이전 기록은 노트에서 열람.
+      </p>
+      <ul class="section-review-list" id="sectionReviewList"></ul>
+      <div class="section-review-actions">
+        <button type="button" class="upload-btn" id="sectionReviewContinue">계속 읽기</button>
+      </div>
     </div>
   </div>
 
@@ -189,6 +223,9 @@
     <p class="pomo-break-hint" id="pomoBreakHint">F — 바로 읽기 재개</p>
   </aside>
 
+  <script src="/static/notes_revisions.js" defer></script>
+  <script src="/static/voice_idb.js" defer></script>
+  <script src="/static/tts_stretch.js" defer></script>
   <script src="/static/app.js" defer></script>
 </body>
 </html>

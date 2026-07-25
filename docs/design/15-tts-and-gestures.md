@@ -22,6 +22,7 @@
 | `random_very_hard` | 1.3–1.9 | en-US 0.2 · en-GB 0.2 · en-AU 0.25 · en-IN 0.35 |
 
 - curated 보이스: Neural2만 (`en-US` / `en-GB` / `en-AU` / `en-IN`). locale 고른 뒤 그 locale 안에서는 균등.
+- **서버는 정속(1.0)만 합성·디스크 캐시** (`data/tts_cache/`). 배속은 클라이언트 `AsrStretch` (preservesPitch/WSOLA).
 - **UI에 배속·가중치·지역 숫자를 노출하지 않는다** (예측하면 난이도가 깎임). 힌트는 “재생마다 목소리와 속도가 바뀝니다.”만.
 
 ## 제거한 상호작용

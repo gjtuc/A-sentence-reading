@@ -27,6 +27,7 @@ from sentence_reading.docx import extract as docx_extract
 from sentence_reading.llm.debone import DeboneResult, debone_sentences
 from sentence_reading.llm.env import gemini_available, load_asr_env
 from sentence_reading.llm.richtext import plain_text
+from sentence_reading.llm.gcs_sync import gcs_status
 from sentence_reading.llm.tts import (
     CURATED_VOICES,
     synthesize_mp3,
@@ -113,9 +114,11 @@ def status() -> dict:
         "gemini_debone": gemini_available(),
         "vision_ocr": gemini_available(),
         "tts": tts_available(),
+        "tts_cache_native_rate": True,
+        "gcs": gcs_status(),
         "paper_cache": True,
         "docx_extract": True,
-        "version": "0.2.5",
+        "version": "0.2.6",
     }
 
 

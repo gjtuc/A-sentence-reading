@@ -22,10 +22,12 @@
 | 14 | [14-vision-ocr-router.md](14-vision-ocr-router.md) | PyMuPDF 품질 판정 + 선택적 Gemini vision OCR |
 | 15 | [15-tts-and-gestures.md](15-tts-and-gestures.md) | Cloud TTS · 접기 제스처 제거 · 크롭 유지 |
 | 16 | [16-sentence-notes.md](16-sentence-notes.md) | 문장별 성찰 노트 · Enter×3 닫기 · localStorage |
+| 17 | [17-rumination-revisions.md](17-rumination-revisions.md) | append-only 리비전 · 섹션 분기 리뷰 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
 13은 12 위에 이어서 구현.  
 14는 PDF ingest에서 12/13 직전(텍스트 복구)에 붙는다.  
 15는 UI·TTS (레이아웃 접기보다 크롭·읽기 우선).  
-16은 UI만 (서버 없음 · TTS Enter와 충돌 주의).
+16은 UI만 (서버 없음 · TTS Enter와 충돌 주의).  
+17은 16 위에 리비전·분기 리뷰 (GCS·voice는 후속).
