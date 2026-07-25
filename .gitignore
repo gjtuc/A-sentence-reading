@@ -23,6 +23,7 @@ Desktop.ini
 data/uploads/
 data/extracted/
 data/cache/
+data/tts_cache/
 *.pdf
 
 # Logs

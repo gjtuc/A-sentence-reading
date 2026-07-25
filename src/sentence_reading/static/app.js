@@ -131,18 +131,36 @@
     noteOverlay: document.getElementById("noteOverlay"),
     noteSheet: document.getElementById("noteSheet"),
     noteTextarea: document.getElementById("noteTextarea"),
+    noteHistory: document.getElementById("noteHistory"),
+    noteHistoryList: document.getElementById("noteHistoryList"),
+    noteVoiceBtn: document.getElementById("noteVoiceBtn"),
+    noteVoicePlayBtn: document.getElementById("noteVoicePlayBtn"),
+    noteVoiceStatus: document.getElementById("noteVoiceStatus"),
+    sectionReviewOverlay: document.getElementById("sectionReviewOverlay"),
+    sectionReviewSheet: document.getElementById("sectionReviewSheet"),
+    sectionReviewTitle: document.getElementById("sectionReviewTitle"),
+    sectionReviewHint: document.getElementById("sectionReviewHint"),
+    sectionReviewList: document.getElementById("sectionReviewList"),
+    sectionReviewContinue: document.getElementById("sectionReviewContinue"),
   };
 
-  const NOTES_STORAGE_KEY = "asr.notes.v1";
+  // WHY: append-only 리비전 — notes_revisions.js (design/17)
+  const AsrNotes = window.AsrNotes;
   const NOTE_ENTER_GAP_MS = 900;
   const NOTE_SAVE_DEBOUNCE_MS = 300;
-  /** @type {{ open: boolean, enterStreak: number, lastEnterAt: number, saveTimer: number, boundSentenceId: string | null }} */
+  /** @type {{ open: boolean, enterStreak: number, lastEnterAt: number, saveTimer: number, boundSentenceId: string | null, draft: string, reviewOpen: boolean, reviewSection: string | null }} */
   const noteUi = {
     open: false,
     enterStreak: 0,
     lastEnterAt: 0,
     saveTimer: 0,
     boundSentenceId: null,
+    draft: "",
+    reviewOpen: false,
+    reviewSection: null,
+    recording: false,
+    mediaRecorder: null,
+    recordChunks: null,
   };
 
   const TTS_STORAGE_KEY = "asr.tts.v2";
@@ -584,11 +602,31 @@
 
   function advanceSentence(delta) {
     if (!state.sentences.length) return;
+    if (isSectionReviewOpen()) return;
     stopTts();
     if (noteUi.open) flushNoteSave();
-    state.sentenceIndex = clamp(state.sentenceIndex + delta, state.sentences.length);
+    const prev = state.sentences[state.sentenceIndex];
+    const prevSec = prev && prev.section ? String(prev.section) : "";
+    const prevIdx = state.sentenceIndex;
+    state.sentenceIndex = clamp(
+      state.sentenceIndex + delta,
+      state.sentences.length
+    );
+    const next = state.sentences[state.sentenceIndex];
+    const nextSec = next && next.section ? String(next.section) : "";
+    // WHY: 앞으로 갈 때만 섹션 경계 → 직전 구간 되새김질 (design/17)
+    const crossedForward =
+      delta > 0 &&
+      prevSec &&
+      nextSec &&
+      prevSec !== nextSec &&
+      state.sentenceIndex !== prevIdx;
     render();
     snapshotActivePaper();
+    if (crossedForward) {
+      openSectionReview(prevSec);
+      return;
+    }
     if (noteUi.open) {
       loadNoteForCurrentSentence();
       playNoteSentence();
@@ -1092,46 +1130,30 @@
   }
 
   function readNotesStore() {
-    try {
-      const raw = localStorage.getItem(NOTES_STORAGE_KEY);
-      if (!raw) return {};
-      const data = JSON.parse(raw);
-      return data && typeof data === "object" ? data : {};
-    } catch (_) {
-      return {};
-    }
+    if (!AsrNotes) return { version: 2, papers: {} };
+    return AsrNotes.readRaw();
   }
 
   function writeNotesStore(store) {
-    try {
-      localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(store));
-    } catch (_) {
-      /* ignore quota */
-    }
+    if (!AsrNotes) return;
+    AsrNotes.writeRaw(store);
   }
 
   function getNoteText(paperKey, sentenceId) {
-    if (!paperKey || !sentenceId) return "";
-    const store = readNotesStore();
-    const paper = store[paperKey];
-    if (!paper || typeof paper !== "object") return "";
-    const t = paper[sentenceId];
-    return typeof t === "string" ? t : "";
+    if (!AsrNotes) return "";
+    return AsrNotes.latestText(readNotesStore(), paperKey, sentenceId);
   }
 
-  function setNoteText(paperKey, sentenceId, text) {
-    if (!paperKey || !sentenceId) return;
-    const store = readNotesStore();
-    if (!store[paperKey] || typeof store[paperKey] !== "object") {
-      store[paperKey] = {};
-    }
-    if (!text) {
-      delete store[paperKey][sentenceId];
-      if (!Object.keys(store[paperKey]).length) delete store[paperKey];
-    } else {
-      store[paperKey][sentenceId] = text;
-    }
-    writeNotesStore(store);
+  /** 닫기·문장 이동 시에만 append (타이핑 debounce는 draft만). */
+  function commitNoteRevision(paperKey, sentenceId, text) {
+    if (!AsrNotes || !paperKey || !sentenceId) return;
+    var result = AsrNotes.appendTextRevision(
+      readNotesStore(),
+      paperKey,
+      sentenceId,
+      text
+    );
+    writeNotesStore(result.store);
   }
 
   function flushNoteSave() {
@@ -1140,28 +1162,174 @@
       noteUi.saveTimer = 0;
     }
     if (!el.noteTextarea || !noteUi.boundSentenceId) return;
-    setNoteText(currentPaperKey(), noteUi.boundSentenceId, el.noteTextarea.value);
+    noteUi.draft = el.noteTextarea.value;
+    commitNoteRevision(
+      currentPaperKey(),
+      noteUi.boundSentenceId,
+      noteUi.draft
+    );
   }
 
   function scheduleNoteSave() {
+    // WHY: disk append는 닫을 때만 — 여기서는 draft 동기화만
     if (noteUi.saveTimer) window.clearTimeout(noteUi.saveTimer);
-    noteUi.saveTimer = window.setTimeout(() => {
+    noteUi.saveTimer = window.setTimeout(function () {
       noteUi.saveTimer = 0;
-      flushNoteSave();
+      if (el.noteTextarea) noteUi.draft = el.noteTextarea.value;
     }, NOTE_SAVE_DEBOUNCE_MS);
+  }
+
+  function renderNoteHistory(paperKey, sentenceId) {
+    if (!el.noteHistoryList || !AsrNotes) return;
+    var revs = AsrNotes.listTextRevisions(
+      readNotesStore(),
+      paperKey,
+      sentenceId
+    );
+    el.noteHistoryList.innerHTML = "";
+    if (el.noteHistory) {
+      el.noteHistory.hidden = revs.length < 2;
+    }
+    // 최신 제외, 오래된 것부터 (이전 기록)
+    for (var i = 0; i < revs.length - 1; i++) {
+      var r = revs[i];
+      var li = document.createElement("li");
+      li.textContent = "#" + r.rev + " · " + (r.body || "(빈 기록)");
+      el.noteHistoryList.appendChild(li);
+    }
+    updateNoteVoiceButtons(paperKey, sentenceId);
+  }
+
+  function updateNoteVoiceButtons(paperKey, sentenceId) {
+    if (!el.noteVoicePlayBtn || !AsrNotes) return;
+    var latest = AsrNotes.latestVoice(readNotesStore(), paperKey, sentenceId);
+    el.noteVoicePlayBtn.hidden = !latest;
+  }
+
+  function setNoteVoiceStatus(msg) {
+    if (el.noteVoiceStatus) el.noteVoiceStatus.textContent = msg || "";
+  }
+
+  async function toggleNoteVoiceRecord() {
+    if (!noteUi.boundSentenceId) return;
+    if (noteUi.recording) {
+      try {
+        if (noteUi.mediaRecorder && noteUi.mediaRecorder.state !== "inactive") {
+          noteUi.mediaRecorder.stop();
+        }
+      } catch (_) {
+        /* ignore */
+      }
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setNoteVoiceStatus("이 브라우저는 녹음을 지원하지 않습니다.");
+      return;
+    }
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      var chunks = [];
+      noteUi.recordChunks = chunks;
+      var rec = new MediaRecorder(stream);
+      noteUi.mediaRecorder = rec;
+      noteUi.recording = true;
+      if (el.noteVoiceBtn) el.noteVoiceBtn.textContent = "녹음 중지";
+      setNoteVoiceStatus("녹음 중…");
+      rec.ondataavailable = function (ev) {
+        if (ev.data && ev.data.size) chunks.push(ev.data);
+      };
+      rec.onstop = async function () {
+        noteUi.recording = false;
+        if (el.noteVoiceBtn) el.noteVoiceBtn.textContent = "목소리 녹음";
+        stream.getTracks().forEach(function (t) {
+          try {
+            t.stop();
+          } catch (_) {
+            /* ignore */
+          }
+        });
+        var blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
+        noteUi.recordChunks = null;
+        noteUi.mediaRecorder = null;
+        if (!blob.size || !window.AsrVoiceIdb || !AsrNotes) {
+          setNoteVoiceStatus("녹음 실패");
+          return;
+        }
+        var pk = currentPaperKey();
+        var sid = noteUi.boundSentenceId;
+        var blobKey = pk + "|" + sid + "|" + Date.now();
+        try {
+          await window.AsrVoiceIdb.putBlob(blobKey, blob);
+          var result = AsrNotes.appendVoiceRevision(
+            readNotesStore(),
+            pk,
+            sid,
+            blobKey,
+            blob.type || "audio/webm"
+          );
+          writeNotesStore(result.store);
+          setNoteVoiceStatus("저장됨 · rev " + result.rev);
+          updateNoteVoiceButtons(pk, sid);
+        } catch (err) {
+          setNoteVoiceStatus("저장 실패");
+        }
+      };
+      rec.start();
+    } catch (err) {
+      noteUi.recording = false;
+      setNoteVoiceStatus("마이크 권한이 필요합니다.");
+    }
+  }
+
+  async function playLatestNoteVoice() {
+    if (!noteUi.boundSentenceId || !AsrNotes || !window.AsrVoiceIdb) return;
+    var latest = AsrNotes.latestVoice(
+      readNotesStore(),
+      currentPaperKey(),
+      noteUi.boundSentenceId
+    );
+    if (!latest) return;
+    try {
+      var blob = await window.AsrVoiceIdb.getBlob(latest.blobKey);
+      if (!blob) {
+        setNoteVoiceStatus("파일을 찾을 수 없습니다.");
+        return;
+      }
+      var url = URL.createObjectURL(blob);
+      var a = new Audio(url);
+      a.onended = function () {
+        URL.revokeObjectURL(url);
+      };
+      await a.play();
+      setNoteVoiceStatus("재생 중…");
+    } catch (_) {
+      setNoteVoiceStatus("재생 실패");
+    }
   }
 
   function loadNoteForCurrentSentence() {
     if (!el.noteTextarea) return;
-    const sid = currentSentenceId();
+    var sid = currentSentenceId();
     noteUi.boundSentenceId = sid;
     noteUi.enterStreak = 0;
     noteUi.lastEnterAt = 0;
-    el.noteTextarea.value = sid ? getNoteText(currentPaperKey(), sid) : "";
+    var pk = currentPaperKey();
+    var latest = sid ? getNoteText(pk, sid) : "";
+    noteUi.draft = latest;
+    el.noteTextarea.value = latest;
+    renderNoteHistory(pk, sid);
   }
 
   function isNoteOpen() {
     return !!(noteUi.open && el.noteOverlay && !el.noteOverlay.hidden);
+  }
+
+  function isSectionReviewOpen() {
+    return !!(
+      noteUi.reviewOpen &&
+      el.sectionReviewOverlay &&
+      !el.sectionReviewOverlay.hidden
+    );
   }
 
   function playNoteSentence() {
@@ -1172,6 +1340,7 @@
   function openNoteOverlay() {
     if (!el.noteOverlay || !el.noteTextarea) return;
     if (el.ttsDialog && el.ttsDialog.open) return;
+    if (isSectionReviewOpen()) closeSectionReview({ resume: false });
     stopTts();
     noteUi.open = true;
     el.noteOverlay.hidden = false;
@@ -1180,9 +1349,9 @@
     loadNoteForCurrentSentence();
     playNoteSentence();
     lockEscapeWhileNoteInFs();
-    window.setTimeout(() => {
+    window.setTimeout(function () {
       el.noteTextarea.focus();
-      const len = el.noteTextarea.value.length;
+      var len = el.noteTextarea.value.length;
       try {
         el.noteTextarea.setSelectionRange(len, len);
       } catch (_) {
@@ -1199,9 +1368,115 @@
     noteUi.enterStreak = 0;
     noteUi.lastEnterAt = 0;
     noteUi.boundSentenceId = null;
+    noteUi.draft = "";
     el.noteOverlay.hidden = true;
     document.body.classList.remove("is-note-open");
     unlockEscapeKeys();
+  }
+
+  function plainSentencePreview(sent) {
+    if (!sent) return "";
+    var body = String(sent.text || "");
+    var lab = sectionLabel(sent.section);
+    if (lab) {
+      var re = new RegExp("^" + lab + "\\s*:\\s*", "i");
+      body = body.replace(re, "");
+    }
+    return plainSentenceText(body).slice(0, 120);
+  }
+
+  function openSectionReview(section) {
+    if (!el.sectionReviewOverlay || !el.sectionReviewList || !AsrNotes) return;
+    if (noteUi.open) closeNoteOverlay();
+    stopTts();
+    noteUi.reviewOpen = true;
+    noteUi.reviewSection = section;
+    el.sectionReviewOverlay.hidden = false;
+    document.body.classList.add("is-section-review");
+    var label = sectionLabel(section) || section;
+    if (el.sectionReviewTitle) {
+      el.sectionReviewTitle.textContent = label + " · 되새김질";
+    }
+    var ids = AsrNotes.sentenceIdsInSection(state.sentences, section);
+    var pk = currentPaperKey();
+    el.sectionReviewList.innerHTML = "";
+    if (!ids.length) {
+      var empty = document.createElement("li");
+      empty.className = "section-review-item-body is-empty";
+      empty.textContent = "이 구간에 문장이 없습니다.";
+      el.sectionReviewList.appendChild(empty);
+    }
+    ids.forEach(function (sid) {
+      var sent = null;
+      for (var i = 0; i < state.sentences.length; i++) {
+        if (state.sentences[i] && String(state.sentences[i].id) === sid) {
+          sent = state.sentences[i];
+          break;
+        }
+      }
+      var latest = AsrNotes.latestText(readNotesStore(), pk, sid);
+      var li = document.createElement("li");
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "section-review-item";
+      btn.dataset.sentenceId = sid;
+      var meta = document.createElement("span");
+      meta.className = "section-review-item-meta";
+      var revs = AsrNotes.listTextRevisions(readNotesStore(), pk, sid);
+      meta.textContent =
+        "rev " +
+        (revs.length ? revs[revs.length - 1].rev : 0) +
+        " · " +
+        (plainSentencePreview(sent) || sid);
+      var body = document.createElement("span");
+      body.className =
+        "section-review-item-body" + (latest ? "" : " is-empty");
+      body.textContent = latest || "(아직 기록 없음 — 눌러서 쓰기)";
+      btn.appendChild(meta);
+      btn.appendChild(body);
+      btn.addEventListener("click", function () {
+        onSectionReviewPick(sid);
+      });
+      li.appendChild(btn);
+      el.sectionReviewList.appendChild(li);
+    });
+    if (el.sectionReviewSheet) {
+      window.setTimeout(function () {
+        el.sectionReviewSheet.focus();
+      }, 0);
+    }
+  }
+
+  function closeSectionReview(opts) {
+    opts = opts || {};
+    if (!el.sectionReviewOverlay) return;
+    noteUi.reviewOpen = false;
+    noteUi.reviewSection = null;
+    el.sectionReviewOverlay.hidden = true;
+    document.body.classList.remove("is-section-review");
+    if (opts.resume !== false && noteUi.open) {
+      loadNoteForCurrentSentence();
+    }
+  }
+
+  function onSectionReviewPick(sentenceId) {
+    // WHY: 사용자가 문장을 고름 → sentence_index 변경 허용 (design/17)
+    var idx = -1;
+    for (var i = 0; i < state.sentences.length; i++) {
+      if (
+        state.sentences[i] &&
+        String(state.sentences[i].id) === String(sentenceId)
+      ) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx < 0) return;
+    closeSectionReview({ resume: false });
+    state.sentenceIndex = idx;
+    render();
+    snapshotActivePaper();
+    openNoteOverlay();
   }
 
   function stripCloseGestureNewlines() {
@@ -1788,6 +2063,17 @@
       const blob = new Blob([buf], { type: "audio/mpeg" });
       ttsObjectUrl = URL.createObjectURL(blob);
       ttsAudio = new Audio(ttsObjectUrl);
+      // WHY: 서버는 정속 캐시 — 배속은 클라이언트 피치 유지 (tts_stretch.js)
+      if (window.AsrStretch) {
+        window.AsrStretch.applyPlaybackRate(ttsAudio, params.speakingRate);
+      } else {
+        try {
+          ttsAudio.preservesPitch = true;
+          ttsAudio.playbackRate = params.speakingRate || 1;
+        } catch (_) {
+          /* ignore */
+        }
+      }
       ttsAudio.onended = () => {
         setTtsSpeakingUi(false);
         setUploadStatus("");
@@ -1989,6 +2275,16 @@
       const blob = new Blob([buf], { type: "audio/mpeg" });
       ttsObjectUrl = URL.createObjectURL(blob);
       ttsAudio = new Audio(ttsObjectUrl);
+      if (window.AsrStretch) {
+        window.AsrStretch.applyPlaybackRate(ttsAudio, params.speakingRate);
+      } else {
+        try {
+          ttsAudio.preservesPitch = true;
+          ttsAudio.playbackRate = params.speakingRate || 1;
+        } catch (_) {
+          /* ignore */
+        }
+      }
       ttsAudio.onended = () => setTtsSampleStatus("");
       ttsAudio.onerror = () => setTtsSampleStatus("재생 실패", "error");
       await ttsAudio.play();
@@ -2318,8 +2614,16 @@
   window.addEventListener(
     "keydown",
     (ev) => {
-      if (ev.key !== "Escape" || !isNoteOpen()) return;
-      closeNoteOverlayFromEscape(ev);
+      if (ev.key !== "Escape") return;
+      if (isNoteOpen()) {
+        closeNoteOverlayFromEscape(ev);
+        return;
+      }
+      if (isSectionReviewOpen()) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeSectionReview();
+      }
     },
     true
   );
@@ -2327,6 +2631,11 @@
   document.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape" && isNoteOpen()) {
       closeNoteOverlayFromEscape(ev);
+      return;
+    }
+    if (ev.key === "Escape" && isSectionReviewOpen()) {
+      ev.preventDefault();
+      closeSectionReview();
       return;
     }
 
@@ -2548,10 +2857,24 @@
     el.noteTextarea.addEventListener("keydown", onNoteTextareaKeydown);
     el.noteTextarea.addEventListener("input", () => scheduleNoteSave());
   }
+  if (el.noteVoiceBtn) {
+    el.noteVoiceBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      toggleNoteVoiceRecord();
+    });
+  }
+  if (el.noteVoicePlayBtn) {
+    el.noteVoicePlayBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      playLatestNoteVoice();
+    });
+  }
   if (el.noteSheet) {
     el.noteSheet.addEventListener("click", (ev) => {
       // WHY: 입력칸(라벨 포함) 클릭 = 커서만 · 그 외 시트 클릭 = TTS
-      if (ev.target.closest && ev.target.closest(".note-label, #noteTextarea")) {
+      if (ev.target.closest && ev.target.closest(".note-label, #noteTextarea, .note-voice-row, .note-history")) {
         return;
       }
       ev.preventDefault();
@@ -2564,6 +2887,19 @@
       if (ev.target === el.noteOverlay) {
         ev.preventDefault();
         closeNoteOverlay();
+      }
+    });
+  }
+  if (el.sectionReviewContinue) {
+    el.sectionReviewContinue.addEventListener("click", () => {
+      closeSectionReview();
+    });
+  }
+  if (el.sectionReviewOverlay) {
+    el.sectionReviewOverlay.addEventListener("click", (ev) => {
+      if (ev.target === el.sectionReviewOverlay) {
+        ev.preventDefault();
+        closeSectionReview();
       }
     });
   }

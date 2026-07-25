@@ -1181,6 +1181,144 @@ body.is-figure-chrome-out .figure-frame figcaption {
   outline-offset: 1px;
 }
 
+.note-history {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+}
+
+.note-voice-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.note-voice-status {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+}
+
+.note-history-summary {
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+
+.note-history-list {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  max-height: 8rem;
+  overflow: auto;
+  color: var(--fg);
+  line-height: 1.45;
+}
+
+.note-history-list li {
+  margin: 0.35rem 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.section-review-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(0, 0, 0, 0.7);
+  box-sizing: border-box;
+}
+
+.section-review-overlay[hidden] {
+  display: none !important;
+}
+
+.section-review-sheet {
+  width: min(40rem, 100%);
+  max-height: min(88vh, 44rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem 1.35rem 1.1rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.section-review-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.section-review-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  line-height: 1.4;
+}
+
+.section-review-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.section-review-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.section-review-item:hover,
+.section-review-item:focus-visible {
+  outline: 2px solid var(--fg-muted);
+  outline-offset: 1px;
+}
+
+.section-review-item-meta {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  margin-bottom: 0.35rem;
+}
+
+.section-review-item-body {
+  display: block;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.section-review-item-body.is-empty {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.section-review-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+}
+
 .tts-dialog {
   border: 1px solid var(--border);
   border-radius: 10px;
