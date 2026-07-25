@@ -39,9 +39,11 @@
 
 - `advanceSentence(+1)` 에서 `prev.section !== next.section` 이면 직전 섹션 리뷰 오픈
 - 뒤로 가기(`-1`)에서는 리뷰 안 띄움
+- 리뷰 행: 글 영역 클릭 → 문장 선택·노트 편집 · **▶ 목소리** → IndexedDB 최신 voice만 재생 (인덱스 불변)
+- 리뷰 닫기·TTS·다른 목소리 재생 시 이전 목소리 중단
 
 ## 다음
 
 - ~~Signalsmith WASM으로 `tts_stretch.js` 교체~~ (0.2.7 — vendored 1.3.2, 폴백 preservesPitch)
+- ~~분기 리뷰 목록에 최신 목소리 재생 버튼~~ (0.2.8)
 - GCS 실제 upload/download (`ASR_GCS_BUCKET` 설정 시)
-- 분기 리뷰 목록에 최신 목소리 재생 버튼

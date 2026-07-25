@@ -148,7 +148,7 @@
   const AsrNotes = window.AsrNotes;
   const NOTE_ENTER_GAP_MS = 900;
   const NOTE_SAVE_DEBOUNCE_MS = 300;
-  /** @type {{ open: boolean, enterStreak: number, lastEnterAt: number, saveTimer: number, boundSentenceId: string | null, draft: string, reviewOpen: boolean, reviewSection: string | null }} */
+  /** @type {{ open: boolean, enterStreak: number, lastEnterAt: number, saveTimer: number, boundSentenceId: string | null, draft: string, reviewOpen: boolean, reviewSection: string | null, recording: boolean, mediaRecorder: MediaRecorder | null, recordChunks: Blob[] | null, voiceAudio: HTMLAudioElement | null, voiceObjectUrl: string | null }} */
   const noteUi = {
     open: false,
     enterStreak: 0,
@@ -161,6 +161,9 @@
     recording: false,
     mediaRecorder: null,
     recordChunks: null,
+    voiceAudio: null,
+    voiceObjectUrl: null,
+    voicePlayingKey: null,
   };
 
   const TTS_STORAGE_KEY = "asr.tts.v2";
@@ -1210,6 +1213,71 @@
     if (el.noteVoiceStatus) el.noteVoiceStatus.textContent = msg || "";
   }
 
+  /** 사용자 목소리 재생 중단 (노트·분기 리뷰 공통). TTS와 별개. */
+  function stopVoicePlayback() {
+    if (noteUi.voiceAudio) {
+      try {
+        noteUi.voiceAudio.onended = null;
+        noteUi.voiceAudio.onerror = null;
+        noteUi.voiceAudio.pause();
+      } catch (_) {
+        /* ignore */
+      }
+      noteUi.voiceAudio = null;
+    }
+    if (noteUi.voiceObjectUrl) {
+      try {
+        URL.revokeObjectURL(noteUi.voiceObjectUrl);
+      } catch (_) {
+        /* ignore */
+      }
+      noteUi.voiceObjectUrl = null;
+    }
+    noteUi.voicePlayingKey = null;
+  }
+
+  /**
+   * IndexedDB blobKey → 최신 한 건만 재생 (이전 재생은 끊음).
+   * @param {string} blobKey
+   * @param {{ onStatus?: function(string), onMissing?: function() }} opts
+   * @returns {Promise<boolean>}
+   */
+  async function playVoiceBlobKey(blobKey, opts) {
+    opts = opts || {};
+    if (!blobKey || !window.AsrVoiceIdb) {
+      if (opts.onMissing) opts.onMissing();
+      return false;
+    }
+    stopVoicePlayback();
+    stopTtsEngineOnly();
+    try {
+      var blob = await window.AsrVoiceIdb.getBlob(blobKey);
+      if (!blob || !(blob.size > 0)) {
+        if (opts.onMissing) opts.onMissing();
+        return false;
+      }
+      var url = URL.createObjectURL(blob);
+      noteUi.voiceObjectUrl = url;
+      var a = new Audio(url);
+      noteUi.voiceAudio = a;
+      a.onended = function () {
+        stopVoicePlayback();
+        if (opts.onStatus) opts.onStatus("");
+      };
+      a.onerror = function () {
+        stopVoicePlayback();
+        if (opts.onStatus) opts.onStatus("재생 실패");
+      };
+      await a.play();
+      if (opts.onStatus) opts.onStatus("재생 중…");
+      return true;
+    } catch (_) {
+      stopVoicePlayback();
+      if (opts.onStatus) opts.onStatus("재생 실패");
+      return false;
+    }
+  }
+
   async function toggleNoteVoiceRecord() {
     if (!noteUi.boundSentenceId) return;
     if (noteUi.recording) {
@@ -1282,29 +1350,19 @@
   }
 
   async function playLatestNoteVoice() {
-    if (!noteUi.boundSentenceId || !AsrNotes || !window.AsrVoiceIdb) return;
+    if (!noteUi.boundSentenceId || !AsrNotes) return;
     var latest = AsrNotes.latestVoice(
       readNotesStore(),
       currentPaperKey(),
       noteUi.boundSentenceId
     );
     if (!latest) return;
-    try {
-      var blob = await window.AsrVoiceIdb.getBlob(latest.blobKey);
-      if (!blob) {
+    await playVoiceBlobKey(latest.blobKey, {
+      onStatus: setNoteVoiceStatus,
+      onMissing: function () {
         setNoteVoiceStatus("파일을 찾을 수 없습니다.");
-        return;
-      }
-      var url = URL.createObjectURL(blob);
-      var a = new Audio(url);
-      a.onended = function () {
-        URL.revokeObjectURL(url);
-      };
-      await a.play();
-      setNoteVoiceStatus("재생 중…");
-    } catch (_) {
-      setNoteVoiceStatus("재생 실패");
-    }
+      },
+    });
   }
 
   function loadNoteForCurrentSentence() {
@@ -1389,6 +1447,7 @@
     if (!el.sectionReviewOverlay || !el.sectionReviewList || !AsrNotes) return;
     if (noteUi.open) closeNoteOverlay();
     stopTts();
+    stopVoicePlayback();
     noteUi.reviewOpen = true;
     noteUi.reviewSection = section;
     el.sectionReviewOverlay.hidden = false;
@@ -1399,6 +1458,7 @@
     }
     var ids = AsrNotes.sentenceIdsInSection(state.sentences, section);
     var pk = currentPaperKey();
+    var store = readNotesStore();
     el.sectionReviewList.innerHTML = "";
     if (!ids.length) {
       var empty = document.createElement("li");
@@ -1414,18 +1474,22 @@
           break;
         }
       }
-      var latest = AsrNotes.latestText(readNotesStore(), pk, sid);
+      var latest = AsrNotes.latestText(store, pk, sid);
+      var voice = AsrNotes.latestVoice(store, pk, sid);
+      var revs = AsrNotes.listTextRevisions(store, pk, sid);
       var li = document.createElement("li");
+      li.className = "section-review-row";
+
       var btn = document.createElement("button");
       btn.type = "button";
       btn.className = "section-review-item";
       btn.dataset.sentenceId = sid;
       var meta = document.createElement("span");
       meta.className = "section-review-item-meta";
-      var revs = AsrNotes.listTextRevisions(readNotesStore(), pk, sid);
       meta.textContent =
         "rev " +
         (revs.length ? revs[revs.length - 1].rev : 0) +
+        (voice ? " · 목소리 #" + voice.rev : "") +
         " · " +
         (plainSentencePreview(sent) || sid);
       var body = document.createElement("span");
@@ -1438,6 +1502,25 @@
         onSectionReviewPick(sid);
       });
       li.appendChild(btn);
+
+      // WHY: 목소리 버튼은 인덱스 변경 없음 — 문장 선택(텍스트 버튼)과 분리 (INVARIANT)
+      if (voice && voice.blobKey) {
+        var playBtn = document.createElement("button");
+        playBtn.type = "button";
+        playBtn.className = "section-review-voice-btn";
+        playBtn.dataset.sentenceId = sid;
+        playBtn.dataset.blobKey = voice.blobKey;
+        playBtn.title = "최신 목소리 듣기 (rev " + voice.rev + ")";
+        playBtn.setAttribute("aria-label", "최신 목소리 듣기");
+        playBtn.textContent = "▶ 목소리";
+        playBtn.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          onSectionReviewPlayVoice(sid, voice.blobKey, playBtn);
+        });
+        li.appendChild(playBtn);
+      }
+
       el.sectionReviewList.appendChild(li);
     });
     if (el.sectionReviewSheet) {
@@ -1447,9 +1530,51 @@
     }
   }
 
+  /**
+   * 분기 리뷰에서 최신 목소리만 재생/중지 — sentence_index 불변.
+   * @param {string} sentenceId
+   * @param {string} blobKey
+   * @param {HTMLButtonElement} playBtn
+   */
+  async function onSectionReviewPlayVoice(sentenceId, blobKey, playBtn) {
+    if (!blobKey) return;
+    // 같은 키 재생 중이면 토글로 중지
+    if (
+      noteUi.voiceAudio &&
+      noteUi.voicePlayingKey === blobKey &&
+      !noteUi.voiceAudio.paused
+    ) {
+      stopVoicePlayback();
+      if (playBtn) playBtn.textContent = "▶ 목소리";
+      return;
+    }
+    if (playBtn) {
+      playBtn.disabled = true;
+      playBtn.textContent = "…";
+    }
+    noteUi.voicePlayingKey = blobKey;
+    var ok = await playVoiceBlobKey(blobKey, {
+      onStatus: function (msg) {
+        if (!playBtn) return;
+        if (msg === "재생 중…") playBtn.textContent = "■ 중지";
+        else if (msg === "재생 실패") playBtn.textContent = "실패";
+        else playBtn.textContent = "▶ 목소리";
+      },
+      onMissing: function () {
+        if (playBtn) playBtn.textContent = "없음";
+      },
+    });
+    if (playBtn) {
+      playBtn.disabled = false;
+      if (!ok && playBtn.textContent === "…") playBtn.textContent = "▶ 목소리";
+    }
+    void sentenceId;
+  }
+
   function closeSectionReview(opts) {
     opts = opts || {};
     if (!el.sectionReviewOverlay) return;
+    stopVoicePlayback();
     noteUi.reviewOpen = false;
     noteUi.reviewSection = null;
     el.sectionReviewOverlay.hidden = true;
@@ -1799,7 +1924,7 @@
     if (el.noteSheet) el.noteSheet.classList.toggle("is-speaking", !!on);
   }
 
-  function stopTts() {
+  function stopTtsEngineOnly() {
     ttsFetchGen += 1;
     // WHY: Signalsmith / HTMLAudio 공통 중단 (tts_stretch.js)
     if (window.AsrStretch && typeof window.AsrStretch.stop === "function") {
@@ -1826,6 +1951,12 @@
       ttsObjectUrl = null;
     }
     setTtsSpeakingUi(false);
+  }
+
+  function stopTts() {
+    stopTtsEngineOnly();
+    // WHY: TTS·문장 이동 시 사용자 목소리도 겹치지 않게 끊음
+    stopVoicePlayback();
   }
 
   /**

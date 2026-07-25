@@ -119,7 +119,7 @@ def status() -> dict:
         "gcs": gcs_status(),
         "paper_cache": True,
         "docx_extract": True,
-        "version": "0.2.7",
+        "version": "0.2.8",
     }
 
 

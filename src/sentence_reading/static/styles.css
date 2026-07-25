@@ -1273,6 +1273,42 @@ body.is-figure-chrome-out .figure-frame figcaption {
   gap: 0.55rem;
 }
 
+.section-review-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.45rem;
+}
+
+.section-review-row .section-review-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.section-review-voice-btn {
+  flex: 0 0 auto;
+  align-self: stretch;
+  min-width: 4.5rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.section-review-voice-btn:hover,
+.section-review-voice-btn:focus-visible {
+  outline: 2px solid var(--fg-muted);
+  outline-offset: 1px;
+}
+
+.section-review-voice-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 .section-review-item {
   display: block;
   width: 100%;
