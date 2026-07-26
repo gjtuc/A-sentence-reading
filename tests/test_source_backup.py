@@ -1,4 +1,4 @@
-"""원본 PDF/DOCX 백업 · 재분석 계약 (0.2.16)."""
+"""원본 PDF/DOCX 백업 · 재분석 계약 (0.2.17)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from sentence_reading.models import PaperSession, Sentence
 def test_status_version() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.16"
+    assert st["version"] == "0.2.17"
 
 
 def test_save_copies_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -164,8 +164,12 @@ def test_reanalyze_starts_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     started: list = []
     pending: list = []
 
-    async def fake_job(job_id, tmp_path, filename, kind, *, skip_cache=False):
-        started.append((job_id, kind, skip_cache, Path(tmp_path).read_bytes()))
+    async def fake_job(
+        job_id, tmp_path, filename, kind, *, skip_cache=False, content_hash=None
+    ):
+        started.append(
+            (job_id, kind, skip_cache, Path(tmp_path).read_bytes(), content_hash)
+        )
 
     def capture_task(coro):
         pending.append(coro)

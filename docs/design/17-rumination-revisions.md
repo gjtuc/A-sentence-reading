@@ -54,6 +54,7 @@
 - ~~보관 목록에서 삭제~~ (0.2.14 — 로컬+GCS)
 - ~~pipeline_version stale 정책~~ (0.2.15 — [19-pipeline-cache.md](19-pipeline-cache.md))
 - ~~원본 PDF/DOCX 백업·재분석~~ (0.2.16 — [20-source-backup.md](20-source-backup.md))
+- ~~진행(문장·그림 인덱스) 복원~~ (0.2.17 — [21-progress-restore.md](21-progress-restore.md))
 
 ## GCS
 

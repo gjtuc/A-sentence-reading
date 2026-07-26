@@ -346,6 +346,7 @@ def load_cached_session(cache_id: str) -> tuple[PaperSession, dict] | None:
         "stale": str(meta.get("pipeline_version") or "") != PIPELINE_VERSION,
         "has_source": bool(meta.get("has_source"))
         or get_source_path(cache_id) is not None,
+        "content_hash": str(meta.get("content_hash") or "") or None,
     }
     return session, info
 
@@ -452,11 +453,13 @@ def save_paper_session(
     debone: bool = False,
     source: str = "pdf",
     source_path: Path | None = None,
+    content_hash: str | None = None,
 ) -> dict | None:
     """
     제목 키 + source(pdf/docx) 로 저장.
     같은 제목이어도 본편 PDF 와 보충 Word 는 서로 덮어쓰지 않음.
     source_path 가 있으면 source.pdf|docx 로 원본 백업 (한도 초과 시 생략).
+    content_hash 는 원본 바이트 SHA-256 (진행 복원 교차 키).
     """
     import shutil
 
@@ -469,6 +472,9 @@ def save_paper_session(
     src = (source or "pdf").lower()
     if src not in ("pdf", "docx"):
         src = "pdf"
+    ch = (content_hash or "").strip().lower()
+    if ch and not re.fullmatch(r"[a-f0-9]{64}", ch):
+        ch = ""
 
     root = cache_root()
     root.mkdir(parents=True, exist_ok=True)
@@ -547,6 +553,7 @@ def save_paper_session(
         "sentence_index": session.sentence_index,
         "has_source": has_source,
         "source_file": source_rel,
+        "content_hash": ch or None,
         "sentences": [
             {"id": s.id, "text": s.text, "section": s.section} for s in session.sentences
         ],
@@ -569,6 +576,7 @@ def save_paper_session(
         "debone": bool(debone),
         "pipeline_version": PIPELINE_VERSION,
         "has_source": has_source,
+        "content_hash": ch or None,
     }
     entries = [e for e in entries if not (isinstance(e, dict) and e.get("id") == cache_id)]
     entries = [

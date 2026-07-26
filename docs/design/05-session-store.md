@@ -43,15 +43,15 @@ data/
 
 `image_src`는 서빙 시 `/media/{session_id}/{id}.png`로 조립.
 
-## 진행 복원 (M5)
+## 진행 복원 (M5) — 구현: [21-progress-restore.md](21-progress-restore.md)
 
-키: `content_hash` (파일 바이트 SHA-256).
+키: `cache:{id}` · `hash:{sha256}` · `ses:{session_id}` (`asr.progress.v1`).
 
-1. ingest 시 hash 계산
-2. 브라우저 `localStorage["asr.progress." + hash] = { figure_index, sentence_index }`
-3. 새 세션이어도 hash 같으면 인덱스 복원 후 clamp
+1. ingest 시 원본 바이트 SHA-256 → `content_hash`
+2. 브라우저가 이동 시 localStorage 저장
+3. 재열기·같은 파일 재업로드 시 clamp 후 복원
 
-서버 측 progress 파일은 M5에서 선택. 1차는 localStorage만으로도 충분.
+서버 측 progress 파일은 선택. 1차는 localStorage만.
 
 ## 수명
 
