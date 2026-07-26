@@ -49,17 +49,37 @@ Run = 로그인 검증 + SA로 GCS/TTS/Gemini 호출.
 
 - `https://<service>-<hash>.a.run.app`
 
-## 배포 (이 PC에 Docker 없어도 됨)
+## 배포 (이 PC)
 
-Cloud Build가 원격 빌드:
+로컬 Docker 불필요. gcloud 는 `Desktop/.cursor/tools/gcloud-sdk/` 에 설치됨.
+
+### A. 콘솔에서 API 켜기 (소유자 계정 · 1회)
+
+프로젝트 `peaceful-basis-503207-t4` 로 아래를 **사용 설정**:
+
+1. [Cloud Run Admin API](https://console.developers.google.com/apis/api/run.googleapis.com/overview?project=peaceful-basis-503207-t4)
+2. [Cloud Build API](https://console.developers.google.com/apis/api/cloudbuild.googleapis.com/overview?project=peaceful-basis-503207-t4)
+3. [Artifact Registry API](https://console.developers.google.com/apis/api/artifactregistry.googleapis.com/overview?project=peaceful-basis-503207-t4)
+4. [Cloud Resource Manager API](https://console.developers.google.com/apis/api/cloudresourcemanager.googleapis.com/overview?project=peaceful-basis-503207-t4)
+
+(TTS SA `asr-tts@…` 는 런타임용 — **배포·API 활성화는 본인 Google 계정**.)
+
+### B. 본인 계정으로 gcloud 로그인
 
 ```bash
-# 1회: gcloud CLI 설치 · gcloud auth login · project 설정
+export CLOUDSDK_PYTHON="/c/Users/user/Desktop/.cursor/A-sentence-reading/venv/Scripts/python.exe"
+export PATH="/c/Users/user/Desktop/.cursor/tools/gcloud-sdk/google-cloud-sdk/bin:$PATH"
+gcloud auth login
 gcloud config set project peaceful-basis-503207-t4
+```
 
-# API 사용 설정
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+### C. 배포 스크립트
 
+`gc_automation.env` 에 `ASR_GOOGLE_CLIENT_ID` · `ASR_AUTH_SECRET` · `GEMINI_API_KEY` · `ASR_GCS_BUCKET` 필요.
+
+```bash
+cd "/c/Users/user/Desktop/.cursor/A-sentence-reading"
+set -a && source "/c/Users/user/Desktop/.cursor/gc_automation.env" && set +a
 bash scripts/deploy_cloud_run.sh
 ```
 
