@@ -52,6 +52,7 @@
 - ~~GCS 논문 캐시(session+figures) sync~~ (0.2.12 — 원본 PDF 제외 · `cache_id` 유지)
 - ~~보관 목록 UI~~ (0.2.13 — [18-paper-library.md](18-paper-library.md))
 - ~~보관 목록에서 삭제~~ (0.2.14 — 로컬+GCS)
+- ~~pipeline_version stale 정책~~ (0.2.15 — [19-pipeline-cache.md](19-pipeline-cache.md))
 
 ## GCS
 

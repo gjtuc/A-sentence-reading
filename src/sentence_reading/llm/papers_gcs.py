@@ -32,6 +32,7 @@ from sentence_reading.llm.gcs_sync import (
     object_name,
     upload_bytes,
 )
+from sentence_reading.llm.typography import PIPELINE_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -367,6 +368,8 @@ def list_merged_paper_entries() -> list[dict[str, Any]]:
                 "sentence_count": int(entry.get("sentence_count") or 0),
                 "figure_count": int(entry.get("figure_count") or 0),
                 "debone": bool(entry.get("debone")),
+                "pipeline_version": str(entry.get("pipeline_version") or ""),
+                "stale": str(entry.get("pipeline_version") or "") != PIPELINE_VERSION,
             }
         )
     out.sort(key=lambda e: e.get("updated_at") or "", reverse=True)

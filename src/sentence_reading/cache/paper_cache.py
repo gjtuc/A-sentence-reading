@@ -274,6 +274,8 @@ def list_cached_papers() -> list[dict]:
                 "sentence_count": int(entry.get("sentence_count") or 0),
                 "figure_count": int(entry.get("figure_count") or 0),
                 "debone": bool(entry.get("debone")),
+                "pipeline_version": str(entry.get("pipeline_version") or ""),
+                "stale": str(entry.get("pipeline_version") or "") != PIPELINE_VERSION,
             }
         )
     entries.sort(key=lambda e: e.get("updated_at") or "", reverse=True)
@@ -336,6 +338,8 @@ def load_cached_session(cache_id: str) -> tuple[PaperSession, dict] | None:
         "cache_id": cache_id,
         "debone": bool(meta.get("debone")),
         "from_cache": True,
+        "pipeline_version": str(meta.get("pipeline_version") or ""),
+        "stale": str(meta.get("pipeline_version") or "") != PIPELINE_VERSION,
     }
     return session, info
 

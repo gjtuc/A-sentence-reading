@@ -1536,6 +1536,10 @@ body.is-figure-chrome-out .figure-frame figcaption {
   box-sizing: border-box;
 }
 
+.library-item-btn.is-stale .library-item-meta {
+  color: #c45c5c;
+}
+
 .library-item-btn:hover,
 .library-item-btn:focus-visible {
   outline: 2px solid var(--fg-muted);
