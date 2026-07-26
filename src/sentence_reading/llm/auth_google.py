@@ -74,6 +74,16 @@ def auth_secret() -> str:
     return "asr-dev-auth-secret-change-me"
 
 
+def cookie_secure() -> bool:
+    """
+    HTTPS 전용 세션 쿠키 (Cloud Run).
+    ASR_COOKIE_SECURE=1|true 이면 Secure.
+    """
+    load_asr_env()
+    v = (os.environ.get("ASR_COOKIE_SECURE") or "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
 def sanitize_uid(raw: str | None) -> str | None:
     uid = (raw or "").strip()
     if not _UID_RE.match(uid):

@@ -47,6 +47,7 @@ from sentence_reading.llm.auth_google import (
     auth_client_id,
     auth_enabled,
     auth_status_fields,
+    cookie_secure,
     email_auth_enabled,
     issue_oauth_state,
     issue_session_token,
@@ -116,7 +117,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.20",
+    version="0.2.21",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -196,7 +197,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.20",
+        "version": "0.2.21",
     }
 
 
@@ -215,6 +216,7 @@ def _session_response(user: AuthUser, *, message: str = "logged_in") -> JSONResp
         value=token,
         httponly=True,
         samesite="lax",
+        secure=cookie_secure(),
         max_age=SESSION_MAX_AGE_SEC,
         path="/",
     )
@@ -394,6 +396,7 @@ def auth_kakao_callback(
         value=issue_session_token(user),
         httponly=True,
         samesite="lax",
+        secure=cookie_secure(),
         max_age=SESSION_MAX_AGE_SEC,
         path="/",
     )
@@ -543,7 +546,7 @@ async def auth_unlink(request: Request, payload: dict = Body(...)) -> JSONRespon
 @app.post("/api/auth/logout")
 def auth_logout() -> JSONResponse:
     resp = JSONResponse({"ok": True, "message": "logged_out"})
-    resp.delete_cookie(COOKIE_NAME, path="/")
+    resp.delete_cookie(COOKIE_NAME, path="/", secure=cookie_secure(), samesite="lax")
     return resp
 
 
