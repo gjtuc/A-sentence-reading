@@ -30,4 +30,4 @@
 14는 PDF ingest에서 12/13 직전(텍스트 복구)에 붙는다.  
 15는 UI·TTS (레이아웃 접기보다 크롭·읽기 우선; 배속은 Signalsmith vendored + 폴백).  
 16은 UI만 (서버 없음 · TTS Enter와 충돌 주의).  
-17은 16 위에 리비전·분기 리뷰 (TTS·노트·voice blob GCS 0.2.11 · 논문 GCS는 후속).
+17은 16 위에 리비전·분기 리뷰 (TTS·노트·voice·논문캐시 GCS 0.2.12 — 원본 PDF는 미동기).

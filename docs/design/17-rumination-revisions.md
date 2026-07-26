@@ -49,7 +49,7 @@
 - ~~GCS TTS 캐시 upload/download~~ (0.2.9 — `ASR_GCS_BUCKET` · `llm/gcs_sync.py`)
 - ~~GCS 노트 store sync~~ (0.2.10 — `GET|PUT /api/notes/sync` · `{prefix}/notes/store_v2.json`)
 - ~~GCS voice blob sync~~ (0.2.11 — `GET|PUT /api/voice/blobs` · `{prefix}/voice/{sha256}.bin`)
-- GCS **논문**(PDF/캐시 세션) 동기화
+- ~~GCS 논문 캐시(session+figures) sync~~ (0.2.12 — 원본 PDF 제외 · `cache_id` 유지)
 
 ## GCS
 
@@ -63,9 +63,13 @@
 object: `{prefix}/tts_cache/{sha24}.mp3`
 
 **노트 store:** 부팅 시 pull · 저장 후 debounce push.  
-병합: fingerprint(`at`+`body` / `at`+`blobKey`) 합집합 → `at` 정렬 → rev 재번호 (삭제 없음).  
+병합: fingerprint(`at`+`body` / `at`+`blobKey`) 합집합 → `at` 정렬 → `rev` 재번호 (삭제 없음).  
 object: `{prefix}/notes/store_v2.json` · 한도 2MB.
 
 **Voice blob:** 녹음 직후 PUT · 재생 시 IDB miss → GET → IDB 채움.  
 object: `{prefix}/voice/{sha256(blobKey)}.bin` · 한도 5MB.  
 blobKey 문자열은 노트 JSON에 그대로 두고, GCS 경로만 해시.
+
+**논문 캐시:** 분석 저장 시 push · ingest 제목 매칭 miss 시 remote index pull · `/open` 로컬 miss 시 pull.  
+object: `{prefix}/papers/index.json` · `{prefix}/papers/{cache_id}/session.json` · `…/figures/*`.  
+원본 PDF/DOCX 는 올리지 않음. `cache_id` 안정 → 노트 키 `cache:{id}` 유지.

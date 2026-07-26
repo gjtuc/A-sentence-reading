@@ -210,5 +210,8 @@ def gcs_status() -> dict[str, Any]:
     }
     out.update(notes_gcs_status_fields())
     out.update(voice_gcs_status_fields())
+    from sentence_reading.llm.papers_gcs import papers_gcs_status_fields
+
+    out.update(papers_gcs_status_fields())
     return out
 
