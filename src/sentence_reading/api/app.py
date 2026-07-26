@@ -130,7 +130,7 @@ def status() -> dict:
         "gcs": gcs_status(),
         "paper_cache": True,
         "docx_extract": True,
-        "version": "0.2.11",
+        "version": "0.2.12",
     }
 
 
@@ -346,14 +346,27 @@ def session_mock() -> dict:
 
 @app.get("/api/cache/papers")
 def cache_papers() -> dict:
-    """보관된 논문 목록 (제목 기준)."""
-    return {"ok": True, "papers": list_cached_papers()}
+    """보관된 논문 목록 (로컬 ∪ GCS index 메타)."""
+    try:
+        from sentence_reading.llm.papers_gcs import list_merged_paper_entries
+
+        return {"ok": True, "papers": list_merged_paper_entries()}
+    except Exception:
+        return {"ok": True, "papers": list_cached_papers()}
 
 
 @app.post("/api/cache/papers/{cache_id}/open")
 def cache_open(cache_id: str) -> JSONResponse:
-    """보관본을 즉시 세션으로 연다."""
+    """보관본을 즉시 세션으로 연다. 로컬 miss 시 GCS pull."""
     loaded = load_cached_session(cache_id)
+    if loaded is None:
+        try:
+            from sentence_reading.llm.papers_gcs import ensure_paper_local
+
+            ensure_paper_local(cache_id)
+        except Exception:
+            pass
+        loaded = load_cached_session(cache_id)
     if loaded is None:
         return JSONResponse(
             status_code=404,

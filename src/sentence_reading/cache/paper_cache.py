@@ -149,7 +149,15 @@ def find_cached_by_text(text: str, *, source: str = "pdf") -> dict | None:
         if key in head and len(key) > best_len:
             best = entry
             best_len = len(key)
-    return best
+    if best is not None:
+        return best
+    # WHY: 로컬 miss → GCS index 제목 매칭 후 session+figures pull (design/17)
+    try:
+        from sentence_reading.llm.papers_gcs import pull_paper_matching_text
+
+        return pull_paper_matching_text(text, source=source)
+    except Exception:
+        return None
 
 
 def _delete_paper_dir(cache_id: str) -> None:
@@ -429,4 +437,11 @@ def save_paper_session(
     entries.insert(0, new_entry)
     index["entries"] = _evict_oldest(entries, keep=_MAX_CACHED_PAPERS)
     _write_index(index)
+    # WHY: 보관 직후 GCS push — 실패해도 로컬 보관은 유지
+    try:
+        from sentence_reading.llm.papers_gcs import upload_paper_cache
+
+        upload_paper_cache(cache_id)
+    except Exception:
+        pass
     return new_entry
