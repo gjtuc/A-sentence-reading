@@ -149,10 +149,47 @@ def test_status_and_list_api(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.13"
+    assert st["version"] == "0.2.14"
     assert st["gcs"]["papers_sync"] is True
     papers = client.get("/api/cache/papers").json()["papers"]
     assert papers[0]["id"] == "y"
+
+
+def test_delete_paper_updates_remote_index(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pg, "gcs_client_ready", lambda: (True, "ok"))
+    monkeypatch.setattr(
+        pg, "gcs_config", lambda: type("C", (), {"enabled": True, "bucket": "b", "prefix": "asr"})()
+    )
+    store: dict[str, bytes] = {}
+    cid = "cccccccccccc"
+    sess = {
+        "figures": [{"file": "figures/a.png"}],
+        "title": "T",
+    }
+    store[f"asr/papers/{cid}/session.json"] = json.dumps(sess).encode()
+    store[f"asr/papers/{cid}/figures/a.png"] = b"x"
+    store["asr/papers/index.json"] = json.dumps(
+        {"version": 1, "entries": [{"id": cid, "title": "T", "title_key": "t", "source": "pdf"}]}
+    ).encode()
+
+    def up(name, data, content_type="application/octet-stream"):
+        store[name] = bytes(data)
+        return True
+
+    def down(name):
+        return store.get(name)
+
+    def delete(name):
+        store.pop(name, None)
+        return True
+
+    monkeypatch.setattr(pg, "upload_bytes", up)
+    monkeypatch.setattr(pg, "download_bytes", down)
+    monkeypatch.setattr(pg, "delete_bytes", delete)
+    assert pg.delete_paper_cache(cid) is True
+    assert f"asr/papers/{cid}/session.json" not in store
+    idx = json.loads(store["asr/papers/index.json"])
+    assert idx["entries"] == []
 
 
 def test_prompt_text_updated() -> None:

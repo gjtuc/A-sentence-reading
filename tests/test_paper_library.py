@@ -14,7 +14,8 @@ def test_library_markup() -> None:
     assert 'id="libraryList"' in html
     css = (STATIC / "styles.css").read_text(encoding="utf-8")
     assert ".library-list" in css
-    assert ".library-item-btn" in css
+    assert ".library-item-delete" in css
+    assert ".library-item-row" in css
 
 
 def test_library_js_wiring() -> None:
@@ -22,9 +23,8 @@ def test_library_js_wiring() -> None:
     assert "openLibraryDialog" in app
     assert "openCachedPaper" in app
     assert "refreshLibraryList" in app
-    assert "/api/cache/papers/" in app
-    assert "/open" in app
-    # cacheId 로 탭 재사용
+    assert "deleteLibraryPaper" in app
+    assert "library-item-delete" in app
     assert "p.cacheId && paper.cacheId" in app
 
 

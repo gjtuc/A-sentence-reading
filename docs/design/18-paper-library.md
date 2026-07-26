@@ -6,7 +6,9 @@
 
 - 헤더 **보관** → 로컬∪GCS index 목록
 - 항목 클릭 → `/api/cache/papers/{id}/open` (로컬 miss 시 GCS pull)
+- 항목 **삭제** → `DELETE …/{id}` (로컬 폴더·index + GCS index/객체 best-effort)
 - 파일 재업로드 없이 같은 `cache_id`로 탭 오픈 → 노트 키 `cache:{id}` 유지
+- 삭제 시 해당 `cacheId` 탭이 열려 있으면 탭도 닫음
 
 ## 불변조건
 

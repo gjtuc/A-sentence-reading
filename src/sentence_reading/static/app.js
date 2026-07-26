@@ -3179,6 +3179,10 @@
         if (!item || !item.id) return;
         const li = document.createElement("li");
         li.className = "library-item";
+
+        const row = document.createElement("div");
+        row.className = "library-item-row";
+
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "library-item-btn";
@@ -3200,7 +3204,22 @@
         btn.addEventListener("click", function () {
           openCachedPaper(String(item.id), item.title || "");
         });
-        li.appendChild(btn);
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "library-item-delete";
+        delBtn.title = "보관본 삭제";
+        delBtn.setAttribute("aria-label", "보관본 삭제");
+        delBtn.textContent = "삭제";
+        delBtn.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          deleteLibraryPaper(String(item.id), item.title || "");
+        });
+
+        row.appendChild(btn);
+        row.appendChild(delBtn);
+        li.appendChild(row);
         el.libraryList.appendChild(li);
       });
     } catch (err) {
@@ -3248,6 +3267,57 @@
       void titleHint;
     } finally {
       setLoading(false);
+    }
+  }
+
+  /**
+   * 보관 목록에서 삭제 — 로컬+GCS. 열린 탭이면 탭도 닫음.
+   * @param {string} cacheId
+   * @param {string} titleHint
+   */
+  async function deleteLibraryPaper(cacheId, titleHint) {
+    if (!cacheId) return;
+    const label = shortTitle(titleHint || cacheId, 40);
+    const ok = window.confirm(
+      `「${label}」보관본을 삭제할까요?\n로컬·클라우드 목록에서 지워집니다.`
+    );
+    if (!ok) return;
+    setLibraryStatus("삭제 중…", "busy");
+    try {
+      const res = await fetch(
+        "/api/cache/papers/" + encodeURIComponent(cacheId),
+        { method: "DELETE" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok && res.status !== 404) {
+        throw new Error(data.message || "삭제에 실패했습니다.");
+      }
+      // 열린 탭에 같은 cacheId 있으면 제거
+      const openIdx = papers.findIndex(
+        (p) => p && p.cacheId && String(p.cacheId) === String(cacheId)
+      );
+      if (openIdx >= 0) {
+        papers.splice(openIdx, 1);
+        const reals = realPaperIndices();
+        if (reals.length) {
+          const prefer =
+            reals.find((i) => i >= openIdx) ?? reals[reals.length - 1];
+          activePaperIndex = prefer;
+          hydrateStateFromPaper(papers[activePaperIndex]);
+          uiPhase = "ready";
+          render();
+          renderPaperTabs();
+          updateCacheDeleteBtn();
+        } else {
+          papers = [];
+          activePaperIndex = 0;
+          await loadMock();
+        }
+      }
+      await refreshLibraryList();
+      setUploadStatus("보관본 삭제됨", "");
+    } catch (err) {
+      setLibraryStatus(String(err.message || err), "error");
     }
   }
 

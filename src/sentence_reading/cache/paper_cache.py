@@ -176,7 +176,8 @@ def delete_cached_paper(
 ) -> dict | None:
     """
     보관본 삭제. cache_id 우선, 없으면 title+source 로 찾음.
-    반환: 삭제된 entry 또는 None.
+    로컬 폴더·index 제거 후 GCS index/객체도 best-effort 삭제.
+    반환: 삭제된 entry(또는 stub) · 아무 것도 없으면 None.
     """
     index = _read_index()
     entries: list = list(index.get("entries") or [])
@@ -199,22 +200,41 @@ def delete_cached_paper(
             if e.get("title_key") == key and entry_src == src:
                 target = e
                 break
-            # title_key 없을 때 제목 문자열 직접 비교
             if normalize_title_key(str(e.get("title") or "")) == key and entry_src == src:
                 target = e
                 break
 
-    if target is None:
+    tid = str((target or {}).get("id") or cid or "").strip()
+    if not tid:
         return None
 
-    tid = str(target.get("id") or "")
-    if tid:
-        _delete_paper_dir(tid)
+    paper_path = cache_root() / tid
+    had_local_dir = paper_path.is_dir()
+    had_local_entry = target is not None
+
+    _delete_paper_dir(tid)
     index["entries"] = [
         e for e in entries if not (isinstance(e, dict) and e.get("id") == tid)
     ]
     _write_index(index)
-    return target
+
+    remote_ok = False
+    try:
+        from sentence_reading.llm.papers_gcs import delete_paper_cache
+
+        remote_ok = bool(delete_paper_cache(tid))
+    except Exception:
+        remote_ok = False
+
+    if had_local_entry:
+        return target
+    if had_local_dir or remote_ok:
+        return {
+            "id": tid,
+            "title": str((target or {}).get("title") or title or ""),
+            "source": str((target or {}).get("source") or source or "pdf"),
+        }
+    return None
 
 
 
