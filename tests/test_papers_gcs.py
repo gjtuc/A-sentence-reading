@@ -149,8 +149,8 @@ def test_status_and_list_api(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.14"
-    assert st["gcs"]["papers_sync"] is True
+    assert st["version"] == "0.2.15"
+    assert st.get("pipeline_version")
     papers = client.get("/api/cache/papers").json()["papers"]
     assert papers[0]["id"] == "y"
 

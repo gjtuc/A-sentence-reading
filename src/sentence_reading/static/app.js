@@ -3198,11 +3198,17 @@
           " · 문장 " +
           (item.sentence_count || 0) +
           " · 그림 " +
-          (item.figure_count || 0);
+          (item.figure_count || 0) +
+          (item.stale ? " · 갱신 필요" : "");
+        if (item.stale) {
+          btn.classList.add("is-stale");
+          meta.title =
+            "분석 파이프라인이 바뀌었습니다. 열 수는 있고, 파일을 다시 열면 같은 보관 id로 재분석됩니다.";
+        }
         btn.appendChild(title);
         btn.appendChild(meta);
         btn.addEventListener("click", function () {
-          openCachedPaper(String(item.id), item.title || "");
+          openCachedPaper(String(item.id), item.title || "", !!item.stale);
         });
 
         const delBtn = document.createElement("button");
@@ -3238,10 +3244,12 @@
 
   /**
    * 보관본 즉시 열기 — GCS miss 시 서버가 pull (design/17·18).
+   * stale 이어도 열어 노트 키 유지 · 상태만 경고 (design/19).
    * @param {string} cacheId
    * @param {string} titleHint
+   * @param {boolean} [staleHint]
    */
-  async function openCachedPaper(cacheId, titleHint) {
+  async function openCachedPaper(cacheId, titleHint, staleHint) {
     if (!cacheId) return;
     setLibraryStatus("여는 중…", "busy");
     setUploadStatus("보관본 여는 중…", "busy");
@@ -3258,7 +3266,15 @@
       applySession(data, "ready", { asNewTab: true });
       const nS = state.sentences.length;
       const nF = state.figures.length;
-      setUploadStatus(`보관본 · 문장 ${nS} · 그림 ${nF}`, "");
+      const stale = !!(data.stale || staleHint);
+      if (stale) {
+        setUploadStatus(
+          `보관본(갱신 필요) · 문장 ${nS} · 그림 ${nF} · 파일 다시 열면 재분석`,
+          "error"
+        );
+      } else {
+        setUploadStatus(`보관본 · 문장 ${nS} · 그림 ${nF}`, "");
+      }
       if (el.libraryDialog && el.libraryDialog.open) el.libraryDialog.close();
       setLibraryStatus("");
     } catch (err) {

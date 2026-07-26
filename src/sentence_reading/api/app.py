@@ -130,7 +130,8 @@ def status() -> dict:
         "gcs": gcs_status(),
         "paper_cache": True,
         "docx_extract": True,
-        "version": "0.2.14",
+        "pipeline_version": PIPELINE_VERSION,
+        "version": "0.2.15",
     }
 
 
@@ -384,7 +385,13 @@ def cache_open(cache_id: str) -> JSONResponse:
     data["debone"] = bool(info.get("debone"))
     data["from_cache"] = True
     data["cache_id"] = cache_id
-    data["warnings"] = []
+    data["pipeline_version"] = str(info.get("pipeline_version") or "")
+    data["current_pipeline"] = PIPELINE_VERSION
+    data["stale"] = bool(info.get("stale"))
+    # WHY: stale 도 열어 노트(cache:id) 유지 — 재분석은 파일 재업로드(같은 id로 덮어씀)
+    data["warnings"] = (
+        ["stale_pipeline"] if info.get("stale") else []
+    )
     return JSONResponse(data)
 
 
