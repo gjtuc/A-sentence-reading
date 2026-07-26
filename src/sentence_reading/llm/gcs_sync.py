@@ -198,6 +198,7 @@ def gcs_status() -> dict[str, Any]:
     cfg = gcs_config()
     ready, message = gcs_client_ready()
     from sentence_reading.llm.notes_gcs import notes_gcs_status_fields
+    from sentence_reading.llm.voice_gcs import voice_gcs_status_fields
 
     out: dict[str, Any] = {
         "enabled": cfg.enabled,
@@ -208,5 +209,6 @@ def gcs_status() -> dict[str, Any]:
         "message": message if cfg.enabled else "set ASR_GCS_BUCKET to enable cloud sync",
     }
     out.update(notes_gcs_status_fields())
+    out.update(voice_gcs_status_fields())
     return out
 

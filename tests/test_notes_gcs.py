@@ -94,8 +94,9 @@ def test_api_notes_sync_unavailable() -> None:
     if not body["available"]:
         assert body["store"] is None
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.10"
+    assert st["version"] == "0.2.11"
     assert st["gcs"]["notes_sync"] is True
+    assert st["gcs"]["voice_blob_sync"] is True
 
 
 def test_push_merges_with_fake_remote(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
