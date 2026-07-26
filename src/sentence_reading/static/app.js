@@ -3199,17 +3199,34 @@
           (item.sentence_count || 0) +
           " · 그림 " +
           (item.figure_count || 0) +
+          (item.has_source ? " · 원본" : "") +
           (item.stale ? " · 갱신 필요" : "");
         if (item.stale) {
           btn.classList.add("is-stale");
-          meta.title =
-            "분석 파이프라인이 바뀌었습니다. 열 수는 있고, 파일을 다시 열면 같은 보관 id로 재분석됩니다.";
+          meta.title = item.has_source
+            ? "분석 파이프라인이 바뀌었습니다. 「재분석」으로 보관된 원본을 다시 돌릴 수 있습니다."
+            : "분석 파이프라인이 바뀌었습니다. 열 수는 있고, 파일을 다시 열면 같은 보관 id로 재분석됩니다.";
         }
         btn.appendChild(title);
         btn.appendChild(meta);
         btn.addEventListener("click", function () {
           openCachedPaper(String(item.id), item.title || "", !!item.stale);
         });
+
+        let reBtn = null;
+        if (item.has_source) {
+          reBtn = document.createElement("button");
+          reBtn.type = "button";
+          reBtn.className = "library-item-reanalyze";
+          reBtn.title = "보관된 원본으로 다시 분석";
+          reBtn.setAttribute("aria-label", "재분석");
+          reBtn.textContent = "재분석";
+          reBtn.addEventListener("click", function (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            reanalyzeLibraryPaper(String(item.id), item.title || "");
+          });
+        }
 
         const delBtn = document.createElement("button");
         delBtn.type = "button";
@@ -3224,6 +3241,7 @@
         });
 
         row.appendChild(btn);
+        if (reBtn) row.appendChild(reBtn);
         row.appendChild(delBtn);
         li.appendChild(row);
         el.libraryList.appendChild(li);
@@ -3268,8 +3286,11 @@
       const nF = state.figures.length;
       const stale = !!(data.stale || staleHint);
       if (stale) {
+        const hint = data.has_source
+          ? "보관에서 「재분석」"
+          : "파일 다시 열면 재분석";
         setUploadStatus(
-          `보관본(갱신 필요) · 문장 ${nS} · 그림 ${nF} · 파일 다시 열면 재분석`,
+          `보관본(갱신 필요) · 문장 ${nS} · 그림 ${nF} · ${hint}`,
           "error"
         );
       } else {
@@ -3281,6 +3302,70 @@
       setLibraryStatus(String(err.message || err), "error");
       setUploadStatus(String(err.message || err), "error");
       void titleHint;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /**
+   * 보관 원본으로 재분석 — job 폴링은 ingest 와 동일 (design/20).
+   * @param {string} cacheId
+   * @param {string} titleHint
+   */
+  async function reanalyzeLibraryPaper(cacheId, titleHint) {
+    if (!cacheId) return;
+    const label = shortTitle(titleHint || cacheId, 40);
+    const ok = window.confirm(
+      `「${label}」을 보관된 원본으로 다시 분석할까요?\n문장·그림이 갱신되고 보관 id는 유지됩니다.`
+    );
+    if (!ok) return;
+    setLibraryStatus("재분석 중…", "busy");
+    setUploadStatus("재분석 중… 0%", "busy");
+    setLoading(true);
+    if (el.libraryDialog && el.libraryDialog.open) el.libraryDialog.close();
+    try {
+      const res = await fetch(
+        "/api/cache/papers/" + encodeURIComponent(cacheId) + "/reanalyze",
+        { method: "POST" }
+      );
+      const start = await res.json().catch(() => ({}));
+      if (!res.ok || start.ok === false) {
+        throw new Error(start.message || "재분석을 시작하지 못했습니다.");
+      }
+      const jobId = start.job_id;
+      if (!jobId) throw new Error("작업 ID를 받지 못했어요.");
+
+      let data = null;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 400));
+        const stRes = await fetch(
+          "/api/ingest/jobs/" + encodeURIComponent(jobId)
+        );
+        const st = await stRes.json().catch(() => ({}));
+        if (!stRes.ok && stRes.status === 404) {
+          throw new Error(st.message || "작업을 찾을 수 없어요.");
+        }
+        const pct = typeof st.percent === "number" ? st.percent : 0;
+        setUploadStatus("재분석 중… " + pct + "%", "busy");
+        if (st.message) {
+          el.stageBadge.textContent = st.message + " · 재분석";
+        }
+        if (st.done) {
+          if (st.ok === false && !st.session_id) {
+            throw new Error(st.message || "재분석에 실패했어요.");
+          }
+          data = st;
+          break;
+        }
+      }
+      applySession(data, "ready", { asNewTab: true });
+      const nS = state.sentences.length;
+      const nF = state.figures.length;
+      setUploadStatus(`재분석 완료 · 문장 ${nS} · 그림 ${nF}`, "");
+      setLibraryStatus("");
+    } catch (err) {
+      setLibraryStatus(String(err.message || err), "error");
+      setUploadStatus(String(err.message || err), "error");
     } finally {
       setLoading(false);
     }

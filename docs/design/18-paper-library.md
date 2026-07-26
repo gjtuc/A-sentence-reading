@@ -23,4 +23,5 @@
 ## stale (design/19)
 
 - `pipeline_version !=` 현재 → 메타에 `· 갱신 필요`
+- `has_source` → 메타에 `· 원본` · 「재분석」 버튼 ([20-source-backup.md](20-source-backup.md))
 - 열기는 허용 · 상태줄 경고 · 파일 재업로드 시 같은 id로 재분석

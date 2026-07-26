@@ -20,4 +20,5 @@
 
 - `GET /api/status` → `pipeline_version`
 - 목록 entry → `pipeline_version`, `stale`
+- 원본이 있으면 보관 UI 「재분석」으로 재실행 (0.2.16 — [20-source-backup.md](20-source-backup.md)); 없으면 파일 재업로드
 - open 응답 → `stale`, `current_pipeline`, `warnings: ["stale_pipeline"]`

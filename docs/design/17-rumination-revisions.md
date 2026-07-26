@@ -53,6 +53,7 @@
 - ~~보관 목록 UI~~ (0.2.13 — [18-paper-library.md](18-paper-library.md))
 - ~~보관 목록에서 삭제~~ (0.2.14 — 로컬+GCS)
 - ~~pipeline_version stale 정책~~ (0.2.15 — [19-pipeline-cache.md](19-pipeline-cache.md))
+- ~~원본 PDF/DOCX 백업·재분석~~ (0.2.16 — [20-source-backup.md](20-source-backup.md))
 
 ## GCS
 
@@ -74,5 +75,5 @@ object: `{prefix}/voice/{sha256(blobKey)}.bin` · 한도 5MB.
 blobKey 문자열은 노트 JSON에 그대로 두고, GCS 경로만 해시.
 
 **논문 캐시:** 분석 저장 시 push · ingest 제목 매칭 miss 시 remote index pull · `/open` 로컬 miss 시 pull.  
-object: `{prefix}/papers/index.json` · `{prefix}/papers/{cache_id}/session.json` · `…/figures/*`.  
-원본 PDF/DOCX 는 올리지 않음. `cache_id` 안정 → 노트 키 `cache:{id}` 유지.
+object: `{prefix}/papers/index.json` · `{prefix}/papers/{cache_id}/session.json` · `…/figures/*` · `…/source.pdf|docx`(있을 때).  
+`cache_id` 안정 → 노트 키 `cache:{id}` 유지. 재분석: [20-source-backup.md](20-source-backup.md).
