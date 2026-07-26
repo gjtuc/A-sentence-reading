@@ -32,6 +32,14 @@ def _parse_env_file(path: Path) -> dict[str, str]:
 
 def load_asr_env() -> None:
     """gc_automation.env 값을 os.environ에 채운다 (이미 있으면 유지)."""
+    # WHY: pytest 가 실기기 env 파일을 읽지 않게 (tests/conftest)
+    if (os.environ.get("ASR_SKIP_ENV_FILE") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return
     for path in _DEFAULT_ENV_CANDIDATES:
         parsed = _parse_env_file(path)
         if not parsed:

@@ -57,7 +57,7 @@
 - ~~진행(문장·그림 인덱스) 복원~~ (0.2.17 — [21-progress-restore.md](21-progress-restore.md))
 - ~~Google 로그인 · UID별 GCS 칸~~ (0.2.18 — [22-google-auth-gcs.md](22-google-auth-gcs.md))
 - ~~카카오·이메일 · 계정 연결~~ (0.2.19 — [23-multi-auth-link.md](23-multi-auth-link.md))
-
+- ~~GCS 버킷 실연결~~ (0.2.20 — [24-gcs-bucket-enable.md](24-gcs-bucket-enable.md); Cloud Run은 이후)
 ## GCS
 
 | env | 의미 |
