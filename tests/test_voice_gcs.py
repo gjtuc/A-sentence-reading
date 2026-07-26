@@ -55,7 +55,7 @@ def test_api_voice_unavailable() -> None:
     # no bucket → 503
     assert r.status_code in (503, 404)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.17"
+    assert st["version"] == "0.2.18"
     assert st["gcs"]["voice_blob_sync"] is True
     assert st["gcs"]["papers_sync"] is True
 

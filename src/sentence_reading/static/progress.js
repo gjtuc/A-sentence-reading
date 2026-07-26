@@ -6,8 +6,22 @@
 (function (global) {
   "use strict";
 
-  var STORAGE_KEY = "asr.progress.v1";
+  var BASE_STORAGE_KEY = "asr.progress.v1";
+  var STORAGE_KEY = BASE_STORAGE_KEY;
   var MAX_ENTRIES = 500;
+  var _accountUid = null;
+
+  function storageKeyForUid(uid) {
+    if (!uid) return BASE_STORAGE_KEY;
+    var safe = String(uid).replace(/[^A-Za-z0-9_\-]/g, "").slice(0, 128);
+    if (!safe) return BASE_STORAGE_KEY;
+    return BASE_STORAGE_KEY + ".u." + safe;
+  }
+
+  function setAccountScope(uid) {
+    _accountUid = uid ? String(uid) : null;
+    STORAGE_KEY = storageKeyForUid(_accountUid);
+  }
 
   function emptyStore() {
     return { version: 1, papers: {} };
@@ -138,7 +152,11 @@
   }
 
   global.AsrProgress = {
-    STORAGE_KEY: STORAGE_KEY,
+    get STORAGE_KEY() {
+      return STORAGE_KEY;
+    },
+    setAccountScope: setAccountScope,
+    storageKeyForUid: storageKeyForUid,
     emptyStore: emptyStore,
     clampIndex: clampIndex,
     progressKeysFor: progressKeysFor,

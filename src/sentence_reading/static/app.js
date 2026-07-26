@@ -110,6 +110,10 @@
     libraryStatus: document.getElementById("libraryStatus"),
     libraryRefreshBtn: document.getElementById("libraryRefreshBtn"),
     libraryDialogClose: document.getElementById("libraryDialogClose"),
+    authLoginBtn: document.getElementById("authLoginBtn"),
+    authLogoutBtn: document.getElementById("authLogoutBtn"),
+    authUserLabel: document.getElementById("authUserLabel"),
+    googleSignInHost: document.getElementById("googleSignInHost"),
     veilBtn: document.getElementById("veilBtn"),
     cacheDeleteBtn: document.getElementById("cacheDeleteBtn"),
     ttsSettingsBtn: document.getElementById("ttsSettingsBtn"),
@@ -1177,6 +1181,143 @@
   /** @type {boolean|null} null=미확인 */
   let gcsNotesAvailable = null;
 
+  /** @type {{ enabled: boolean, clientId: string|null, user: {uid:string,email?:string,name?:string}|null }} */
+  let authState = { enabled: false, clientId: null, user: null };
+
+  function applyAccountScope(uid) {
+    if (AsrNotes && typeof AsrNotes.setAccountScope === "function") {
+      AsrNotes.setAccountScope(uid || null);
+    }
+    if (
+      typeof AsrProgress !== "undefined" &&
+      AsrProgress &&
+      AsrProgress.setAccountScope
+    ) {
+      AsrProgress.setAccountScope(uid || null);
+    }
+  }
+
+  function renderAuthChrome() {
+    const enabled = !!authState.enabled;
+    const user = authState.user;
+    if (el.authLoginBtn) el.authLoginBtn.hidden = !enabled || !!user;
+    if (el.authLogoutBtn) el.authLogoutBtn.hidden = !enabled || !user;
+    if (el.authUserLabel) {
+      if (enabled && user) {
+        el.authUserLabel.hidden = false;
+        el.authUserLabel.textContent = user.email || user.name || user.uid;
+        el.authUserLabel.title = user.uid;
+      } else {
+        el.authUserLabel.hidden = true;
+        el.authUserLabel.textContent = "";
+      }
+    }
+    if (el.googleSignInHost) el.googleSignInHost.hidden = true;
+  }
+
+  async function completeGoogleCredential(credential) {
+    if (!credential) return;
+    const res = await fetch("/api/auth/google", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ credential }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      throw new Error(data.message || "로그인에 실패했습니다.");
+    }
+    authState.user = data.user || null;
+    applyAccountScope(authState.user && authState.user.uid);
+    renderAuthChrome();
+    setUploadStatus(
+      (authState.user && (authState.user.email || authState.user.name)) ||
+        "로그인됨",
+      ""
+    );
+    await pullNotesFromCloud();
+  }
+
+  function loadGisAndPrompt() {
+    if (!authState.clientId) return;
+    const start = () => {
+      try {
+        window.google.accounts.id.initialize({
+          client_id: authState.clientId,
+          callback: (resp) => {
+            void completeGoogleCredential(resp && resp.credential).catch(
+              (err) => {
+                setUploadStatus(String(err.message || err), "error");
+              }
+            );
+          },
+          auto_select: false,
+          cancel_on_tap_outside: true,
+        });
+        if (el.googleSignInHost) {
+          el.googleSignInHost.hidden = false;
+          el.googleSignInHost.innerHTML = "";
+          window.google.accounts.id.renderButton(el.googleSignInHost, {
+            theme: "outline",
+            size: "medium",
+            text: "signin_with",
+            shape: "rectangular",
+          });
+        }
+        window.google.accounts.id.prompt();
+      } catch (err) {
+        setUploadStatus(String(err.message || err), "error");
+      }
+    };
+    if (window.google && window.google.accounts && window.google.accounts.id) {
+      start();
+      return;
+    }
+    const existing = document.querySelector('script[data-asr-gis="1"]');
+    if (existing) {
+      existing.addEventListener("load", start, { once: true });
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client";
+    s.async = true;
+    s.dataset.asrGis = "1";
+    s.onload = start;
+    s.onerror = () =>
+      setUploadStatus("Google 로그인 스크립트를 불러오지 못했습니다.", "error");
+    document.head.appendChild(s);
+  }
+
+  async function initAuth() {
+    try {
+      const res = await fetch("/api/auth/status", { credentials: "same-origin" });
+      const data = await res.json().catch(() => ({}));
+      authState.enabled = !!data.auth_enabled;
+      authState.clientId = data.client_id || null;
+      authState.user = data.user || null;
+      applyAccountScope(authState.user && authState.user.uid);
+      renderAuthChrome();
+    } catch (_) {
+      authState = { enabled: false, clientId: null, user: null };
+      renderAuthChrome();
+    }
+  }
+
+  async function logoutAuth() {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+    } catch (_) {
+      /* ignore */
+    }
+    authState.user = null;
+    applyAccountScope(null);
+    renderAuthChrome();
+    setUploadStatus("로그아웃됨", "");
+  }
+
   function writeNotesStore(store) {
     if (!AsrNotes) return;
     AsrNotes.writeRaw(store);
@@ -1195,7 +1336,7 @@
     if (!AsrNotes || notesSyncBusy) return;
     notesSyncBusy = true;
     try {
-      const res = await fetch("/api/notes/sync");
+      const res = await fetch("/api/notes/sync", { credentials: "same-origin" });
       if (!res.ok) return;
       const data = await res.json();
       gcsNotesAvailable = !!data.available;
@@ -3531,6 +3672,18 @@
     if (list && list.length) ingestFiles(list);
   });
 
+  if (el.authLoginBtn) {
+    el.authLoginBtn.addEventListener("click", () => {
+      if (!authState.enabled) return;
+      loadGisAndPrompt();
+    });
+  }
+  if (el.authLogoutBtn) {
+    el.authLogoutBtn.addEventListener("click", () => {
+      void logoutAuth();
+    });
+  }
+
   window.addEventListener("beforeunload", () => {
     try {
       snapshotActivePaper();
@@ -3541,6 +3694,6 @@
   });
 
   loadMock();
-  // WHY: GCS 노트 pull — 버킷 없으면 available:false 로 조용히 스킵
-  pullNotesFromCloud();
+  // WHY: 로그인 칸 → 그다음 GCS 노트 pull (design/22)
+  void initAuth().then(() => pullNotesFromCloud());
 })();

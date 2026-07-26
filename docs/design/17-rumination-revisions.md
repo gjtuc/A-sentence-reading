@@ -55,6 +55,7 @@
 - ~~pipeline_version stale 정책~~ (0.2.15 — [19-pipeline-cache.md](19-pipeline-cache.md))
 - ~~원본 PDF/DOCX 백업·재분석~~ (0.2.16 — [20-source-backup.md](20-source-backup.md))
 - ~~진행(문장·그림 인덱스) 복원~~ (0.2.17 — [21-progress-restore.md](21-progress-restore.md))
+- ~~Google 로그인 · UID별 GCS 칸~~ (0.2.18 — [22-google-auth-gcs.md](22-google-auth-gcs.md))
 
 ## GCS
 

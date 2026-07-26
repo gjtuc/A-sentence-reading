@@ -17,6 +17,26 @@
       <button
         type="button"
         class="upload-btn upload-btn-ghost"
+        id="authLoginBtn"
+        title="Google 계정으로 로그인 — 기기 간 같은 창고"
+        hidden
+      >
+        로그인
+      </button>
+      <span class="auth-user" id="authUserLabel" hidden></span>
+      <button
+        type="button"
+        class="upload-btn upload-btn-ghost"
+        id="authLogoutBtn"
+        title="로그아웃"
+        hidden
+      >
+        로그아웃
+      </button>
+      <div id="googleSignInHost" class="google-signin-host" hidden></div>
+      <button
+        type="button"
+        class="upload-btn upload-btn-ghost"
         id="libraryBtn"
         title="보관된 논문 목록 — 다시 분석 없이 열기"
       >
@@ -129,7 +149,7 @@
   >
     <div class="note-sheet" id="noteSheet" tabindex="-1">
       <p class="note-prompt" id="notePrompt">
-        이 문장에서 알아차린 것을, 여러 사람에게 새로 들려준다고 생각하고, 주어 없이 적어보세요.
+        이 문장에서 알아차린 것을, 여러 사람에게 새로 들려준다고 생각하고, 주어 없이 꺼내보세요.
       </p>
       <p class="note-hint">클릭·Space 듣기 · Esc 닫기 · ←/→ 문장 · 배경 클릭 닫기 · Enter×3 닫기</p>
       <label class="note-label" for="noteTextarea">

@@ -1487,6 +1487,23 @@ body.is-figure-chrome-out .figure-frame figcaption {
   gap: 0.45rem;
 }
 
+.auth-user {
+  display: inline-block;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  align-self: center;
+}
+
+.google-signin-host {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+}
+
 .library-item {
   margin: 0;
 }

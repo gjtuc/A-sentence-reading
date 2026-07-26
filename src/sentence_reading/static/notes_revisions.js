@@ -19,8 +19,26 @@
 (function (global) {
   "use strict";
 
-  var STORAGE_KEY = "asr.notes.v2";
+  var BASE_STORAGE_KEY = "asr.notes.v2";
+  var STORAGE_KEY = BASE_STORAGE_KEY;
   var LEGACY_KEY = "asr.notes.v1";
+  var _accountUid = null;
+
+  function storageKeyForUid(uid) {
+    if (!uid) return BASE_STORAGE_KEY;
+    var safe = String(uid).replace(/[^A-Za-z0-9_\-]/g, "").slice(0, 128);
+    if (!safe) return BASE_STORAGE_KEY;
+    return BASE_STORAGE_KEY + ".u." + safe;
+  }
+
+  /**
+   * Google UID 칸 — 로컬 노트 키를 계정별로 갈라둠 (design/22).
+   * @param {string|null|undefined} uid
+   */
+  function setAccountScope(uid) {
+    _accountUid = uid ? String(uid) : null;
+    STORAGE_KEY = storageKeyForUid(_accountUid);
+  }
 
   function nowIso() {
     try {
@@ -314,8 +332,12 @@
   }
 
   global.AsrNotes = {
-    STORAGE_KEY: STORAGE_KEY,
+    get STORAGE_KEY() {
+      return STORAGE_KEY;
+    },
     LEGACY_KEY: LEGACY_KEY,
+    setAccountScope: setAccountScope,
+    storageKeyForUid: storageKeyForUid,
     emptyStore: emptyStore,
     migrateV1Object: migrateV1Object,
     readRaw: readRaw,
