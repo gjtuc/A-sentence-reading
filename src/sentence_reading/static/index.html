@@ -17,6 +17,14 @@
       <button
         type="button"
         class="upload-btn upload-btn-ghost"
+        id="libraryBtn"
+        title="보관된 논문 목록 — 다시 분석 없이 열기"
+      >
+        보관
+      </button>
+      <button
+        type="button"
+        class="upload-btn upload-btn-ghost"
         id="ttsSettingsBtn"
         title="TTS 목소리·속도"
       >
@@ -170,6 +178,25 @@
       </div>
     </div>
   </div>
+
+  <dialog class="tts-dialog library-dialog" id="libraryDialog">
+    <div class="tts-dialog-form">
+      <h2 class="tts-dialog-title">보관된 논문</h2>
+      <p class="library-hint">
+        분석해 둔 보관본입니다. 고르면 바로 엽니다 (같은 파일이 없어도 됨).
+      </p>
+      <p class="library-status" id="libraryStatus" aria-live="polite"></p>
+      <ul class="library-list" id="libraryList"></ul>
+      <div class="tts-dialog-actions">
+        <button type="button" class="upload-btn upload-btn-ghost" id="libraryRefreshBtn">
+          새로고침
+        </button>
+        <button type="button" class="upload-btn upload-btn-ghost" id="libraryDialogClose">
+          닫기
+        </button>
+      </div>
+    </div>
+  </dialog>
 
   <dialog class="tts-dialog" id="ttsDialog">
     <form method="dialog" class="tts-dialog-form" id="ttsForm">

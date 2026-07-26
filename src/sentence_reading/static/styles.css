@@ -1454,6 +1454,76 @@ body.is-figure-chrome-out .figure-frame figcaption {
   margin-top: 0.25rem;
 }
 
+.library-dialog {
+  max-width: min(28rem, calc(100% - 2rem));
+}
+
+.library-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  line-height: 1.4;
+}
+
+.library-status {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  min-height: 1.1em;
+}
+
+.library-status.is-error {
+  color: #c45c5c;
+}
+
+.library-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: min(50vh, 22rem);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.library-item {
+  margin: 0;
+}
+
+.library-item-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.library-item-btn:hover,
+.library-item-btn:focus-visible {
+  outline: 2px solid var(--fg-muted);
+  outline-offset: 1px;
+}
+
+.library-item-title {
+  display: block;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.library-item-meta {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+}
+
 #ttsRateOut {
   color: var(--fg);
   font-variant-numeric: tabular-nums;
