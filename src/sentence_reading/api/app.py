@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import tempfile
 import uuid
+import urllib.parse
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -28,17 +29,37 @@ from sentence_reading.cache.paper_cache import (
     save_paper_session,
 )
 from sentence_reading.docx import extract as docx_extract
+from sentence_reading.llm.auth_accounts import (
+    get_user_record,
+    link_provider,
+    lookup_uid,
+    normalize_email,
+    public_user_with_providers,
+    pull_accounts_from_gcs,
+    resolve_or_create,
+    unlink_provider,
+    verify_password,
+)
 from sentence_reading.llm.auth_google import (
     COOKIE_NAME,
     SESSION_MAX_AGE_SEC,
     AuthUser,
+    auth_client_id,
     auth_enabled,
     auth_status_fields,
+    email_auth_enabled,
+    issue_oauth_state,
     issue_session_token,
+    parse_oauth_state,
     parse_session_token,
     reset_gcs_uid,
     set_gcs_uid,
     verify_google_id_token,
+)
+from sentence_reading.llm.auth_kakao import (
+    exchange_code as kakao_exchange_code,
+    kakao_authorize_url,
+    kakao_enabled,
 )
 from sentence_reading.llm.debone import DeboneResult, debone_sentences
 from sentence_reading.llm.env import gemini_available, load_asr_env
@@ -86,12 +107,16 @@ async def _lifespan(_app: FastAPI):
         ensure_registered(quiet=True)
     except Exception:
         pass
+    try:
+        pull_accounts_from_gcs()
+    except Exception:
+        pass
     yield
 
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.18",
+    version="0.2.19",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -171,50 +196,18 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.18",
+        "version": "0.2.19",
     }
 
 
-@app.get("/api/auth/status")
-def auth_status(request: Request) -> dict:
-    user = _request_user(request)
-    st = auth_status_fields(user)
-    return {"ok": True, **st}
-
-
-@app.post("/api/auth/google")
-async def auth_google_login(payload: dict = Body(...)) -> JSONResponse:
-    """Google Identity Services credential → httpOnly 세션 쿠키."""
-    if not auth_enabled():
-        return JSONResponse(
-            status_code=503,
-            content={
-                "ok": False,
-                "error": "auth_disabled",
-                "message": "ASR_GOOGLE_CLIENT_ID 를 설정하면 Google 로그인을 쓸 수 있습니다.",
-            },
-        )
-    credential = ""
-    if isinstance(payload, dict):
-        credential = str(payload.get("credential") or payload.get("id_token") or "")
-    try:
-        user = verify_google_id_token(credential)
-    except Exception as exc:  # noqa: BLE001
-        return JSONResponse(
-            status_code=401,
-            content={
-                "ok": False,
-                "error": "invalid_token",
-                "message": f"Google 로그인 검증 실패: {exc}"[:240],
-            },
-        )
+def _session_response(user: AuthUser, *, message: str = "logged_in") -> JSONResponse:
     token = issue_session_token(user)
     resp = JSONResponse(
         {
             "ok": True,
-            "user": user.public_dict(),
+            "user": public_user_with_providers(user),
             "gcs_user_scoped": True,
-            "message": "logged_in",
+            "message": message,
         }
     )
     resp.set_cookie(
@@ -226,6 +219,325 @@ async def auth_google_login(payload: dict = Body(...)) -> JSONResponse:
         path="/",
     )
     return resp
+
+
+def _kakao_redirect_uri(request: Request) -> str:
+    # WHY: 콘솔에 등록한 Redirect URI 와 바이트 단위로 같아야 함
+    return str(request.base_url).rstrip("/") + "/api/auth/kakao/callback"
+
+
+@app.get("/api/auth/status")
+def auth_status(request: Request) -> dict:
+    user = _request_user(request)
+    st = auth_status_fields(user)
+    return {"ok": True, **st}
+
+
+@app.post("/api/auth/google")
+async def auth_google_login(request: Request, payload: dict = Body(...)) -> JSONResponse:
+    """Google Identity Services credential → 세션 (또는 계정 연결)."""
+    if not auth_client_id():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "auth_disabled",
+                "message": "ASR_GOOGLE_CLIENT_ID 를 설정하면 Google 로그인을 쓸 수 있습니다.",
+            },
+        )
+    credential = ""
+    mode = "login"
+    if isinstance(payload, dict):
+        credential = str(payload.get("credential") or payload.get("id_token") or "")
+        mode = str(payload.get("mode") or "login").strip().lower()
+    try:
+        ident = verify_google_id_token(credential)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "invalid_token",
+                "message": f"Google 로그인 검증 실패: {exc}"[:240],
+            },
+        )
+    try:
+        if mode == "link":
+            cur = _request_user(request)
+            if cur is None:
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "ok": False,
+                        "error": "auth_required",
+                        "message": "연결하려면 먼저 로그인하세요.",
+                    },
+                )
+            user = link_provider(
+                cur.uid,
+                "google",
+                ident.uid,
+                email=ident.email,
+                name=ident.name,
+                picture=ident.picture,
+            )
+            return _session_response(user, message="linked")
+        user = resolve_or_create(
+            "google",
+            ident.uid,
+            email=ident.email,
+            name=ident.name,
+            picture=ident.picture,
+        )
+    except ValueError as exc:
+        code = str(exc)
+        status = 409 if code == "conflict" else 400
+        return JSONResponse(
+            status_code=status,
+            content={
+                "ok": False,
+                "error": code,
+                "message": {
+                    "conflict": "이 Google 계정은 이미 다른 사용자에 연결되어 있습니다.",
+                }.get(code, str(exc)),
+            },
+        )
+    return _session_response(user)
+
+
+@app.get("/api/auth/kakao/start")
+def auth_kakao_start(request: Request, mode: str = "login") -> Response:
+    if not kakao_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "kakao_disabled",
+                "message": "ASR_KAKAO_REST_API_KEY 를 설정하세요.",
+            },
+        )
+    m = (mode or "login").strip().lower()
+    if m not in ("login", "link"):
+        m = "login"
+    link_uid = None
+    if m == "link":
+        cur = _request_user(request)
+        if cur is None:
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "ok": False,
+                    "error": "auth_required",
+                    "message": "연결하려면 먼저 로그인하세요.",
+                },
+            )
+        link_uid = cur.uid
+    state = issue_oauth_state(m, link_uid=link_uid)
+    url = kakao_authorize_url(
+        redirect_uri=_kakao_redirect_uri(request), state=state
+    )
+    from fastapi.responses import RedirectResponse
+
+    return RedirectResponse(url, status_code=302)
+
+
+@app.get("/api/auth/kakao/callback")
+def auth_kakao_callback(
+    request: Request, code: str = "", state: str = "", error: str = ""
+) -> Response:
+    from fastapi.responses import RedirectResponse
+
+    if error:
+        return RedirectResponse(
+            "/?auth_error=kakao_" + urllib.parse.quote(error), status_code=302
+        )
+    parsed = parse_oauth_state(state)
+    if not parsed:
+        return RedirectResponse("/?auth_error=bad_state", status_code=302)
+    try:
+        profile = kakao_exchange_code(
+            code, redirect_uri=_kakao_redirect_uri(request)
+        )
+        subject = str(profile["subject"])
+        if parsed["mode"] == "link":
+            uid = parsed.get("link_uid") or ""
+            if not uid:
+                return RedirectResponse("/?auth_error=link_uid", status_code=302)
+            user = link_provider(
+                uid,
+                "kakao",
+                subject,
+                email=str(profile.get("email") or ""),
+                name=str(profile.get("name") or ""),
+                picture=str(profile.get("picture") or ""),
+            )
+            msg = "linked"
+        else:
+            user = resolve_or_create(
+                "kakao",
+                subject,
+                email=str(profile.get("email") or ""),
+                name=str(profile.get("name") or ""),
+                picture=str(profile.get("picture") or ""),
+            )
+            msg = "logged_in"
+    except ValueError as exc:
+        err = str(exc)
+        if err == "conflict":
+            return RedirectResponse("/?auth_error=conflict", status_code=302)
+        return RedirectResponse(
+            "/?auth_error=" + urllib.parse.quote(err[:80]), status_code=302
+        )
+    resp = RedirectResponse("/?auth=" + msg, status_code=302)
+    resp.set_cookie(
+        key=COOKIE_NAME,
+        value=issue_session_token(user),
+        httponly=True,
+        samesite="lax",
+        max_age=SESSION_MAX_AGE_SEC,
+        path="/",
+    )
+    return resp
+
+
+@app.post("/api/auth/email/register")
+async def auth_email_register(payload: dict = Body(...)) -> JSONResponse:
+    if not email_auth_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False, "error": "email_disabled", "message": "이메일 가입이 꺼져 있습니다."},
+        )
+    email = str(payload.get("email") or "") if isinstance(payload, dict) else ""
+    password = str(payload.get("password") or "") if isinstance(payload, dict) else ""
+    name = str(payload.get("name") or "") if isinstance(payload, dict) else ""
+    try:
+        em = normalize_email(email)
+        if not em:
+            raise ValueError("bad_email")
+        if lookup_uid("email", em):
+            raise ValueError("email_taken")
+        user = resolve_or_create(
+            "email", em, email=em, name=name, password=password
+        )
+    except ValueError as exc:
+        code = str(exc)
+        messages = {
+            "bad_email": "이메일 형식이 올바르지 않습니다.",
+            "email_taken": "이미 가입된 이메일입니다. 로그인하세요.",
+            "password_too_short": "비밀번호는 8자 이상이어야 합니다.",
+        }
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": code, "message": messages.get(code, code)},
+        )
+    return _session_response(user, message="registered")
+
+
+@app.post("/api/auth/email/login")
+async def auth_email_login(payload: dict = Body(...)) -> JSONResponse:
+    if not email_auth_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False, "error": "email_disabled", "message": "이메일 로그인이 꺼져 있습니다."},
+        )
+    email = str(payload.get("email") or "") if isinstance(payload, dict) else ""
+    password = str(payload.get("password") or "") if isinstance(payload, dict) else ""
+    em = normalize_email(email)
+    if not em:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "bad_email",
+                "message": "이메일 형식이 올바르지 않습니다.",
+            },
+        )
+    uid = lookup_uid("email", em)
+    if not uid:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "bad_credentials",
+                "message": "이메일 또는 비밀번호가 올바르지 않습니다.",
+            },
+        )
+    row = get_user_record(uid) or {}
+    ph = str(row.get("password_hash") or "")
+    if not ph or not verify_password(password, ph):
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "bad_credentials",
+                "message": "이메일 또는 비밀번호가 올바르지 않습니다.",
+            },
+        )
+    user = AuthUser(
+        uid=uid,
+        email=str(row.get("email") or em),
+        name=str(row.get("name") or ""),
+        picture=str(row.get("picture") or ""),
+    )
+    return _session_response(user)
+
+
+@app.post("/api/auth/email/link")
+async def auth_email_link(request: Request, payload: dict = Body(...)) -> JSONResponse:
+    cur = _request_user(request)
+    if cur is None:
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "error": "auth_required", "message": "먼저 로그인하세요."},
+        )
+    if not email_auth_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False, "error": "email_disabled", "message": "이메일 연결이 꺼져 있습니다."},
+        )
+    email = str(payload.get("email") or "") if isinstance(payload, dict) else ""
+    password = str(payload.get("password") or "") if isinstance(payload, dict) else ""
+    try:
+        em = normalize_email(email)
+        if not em:
+            raise ValueError("bad_email")
+        user = link_provider(cur.uid, "email", em, email=em, password=password)
+    except ValueError as exc:
+        code = str(exc)
+        messages = {
+            "conflict": "이 이메일은 이미 다른 계정에 연결되어 있습니다.",
+            "bad_email": "이메일 형식이 올바르지 않습니다.",
+            "password_too_short": "비밀번호는 8자 이상이어야 합니다.",
+        }
+        return JSONResponse(
+            status_code=409 if code == "conflict" else 400,
+            content={"ok": False, "error": code, "message": messages.get(code, code)},
+        )
+    return _session_response(user, message="linked")
+
+
+@app.post("/api/auth/unlink")
+async def auth_unlink(request: Request, payload: dict = Body(...)) -> JSONResponse:
+    cur = _request_user(request)
+    if cur is None:
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "error": "auth_required", "message": "먼저 로그인하세요."},
+        )
+    provider = str(payload.get("provider") or "") if isinstance(payload, dict) else ""
+    try:
+        user = unlink_provider(cur.uid, provider)
+    except ValueError as exc:
+        code = str(exc)
+        messages = {
+            "last_provider": "마지막 로그인 수단은 해제할 수 없습니다.",
+            "not_linked": "연결되어 있지 않습니다.",
+        }
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": code, "message": messages.get(code, code)},
+        )
+    return _session_response(user, message="unlinked")
 
 
 @app.post("/api/auth/logout")
@@ -248,7 +560,7 @@ async def voice_blob_get(request: Request, key: str = "") -> Response:
                 "available": False,
                 "needs_auth": True,
                 "error": "auth_required",
-                "message": "Google 로그인 후 목소리를 동기화합니다.",
+                "message": "로그인 후 목소리를 동기화합니다.",
             },
         )
     st = gcs_status()
@@ -289,7 +601,7 @@ async def voice_blob_put(request: Request, key: str = "") -> JSONResponse:
                 "available": False,
                 "needs_auth": True,
                 "uploaded": False,
-                "message": "Google 로그인 후 목소리를 동기화합니다.",
+                "message": "로그인 후 목소리를 동기화합니다.",
             }
         )
     st = gcs_status()

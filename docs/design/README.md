@@ -28,6 +28,7 @@
 | 20 | [20-source-backup.md](20-source-backup.md) | 원본 PDF/DOCX 백업 · 재분석 |
 | 21 | [21-progress-restore.md](21-progress-restore.md) | 문장·그림 진행 localStorage |
 | 22 | [22-google-auth-gcs.md](22-google-auth-gcs.md) | Google 로그인 · UID별 GCS 칸 |
+| 23 | [23-multi-auth-link.md](23-multi-auth-link.md) | 카카오·이메일 · 계정 연결 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -40,4 +41,5 @@
 19는 stale `pipeline_version` 표시·ingest 재분석·open 허용 (0.2.15).  
 20은 원본 PDF/DOCX 백업·GCS sync·보관 「재분석」 (0.2.16).  
 21은 M5 진행 복원 — `asr.progress.v1` · `content_hash` (0.2.17).  
-22는 Google 로그인 · `users/{uid}/` GCS 칸 (0.2.18).
+22는 Google 로그인 · `users/{uid}/` GCS 칸 (0.2.18).  
+23은 카카오·이메일 로그인 + 계정 연결 (0.2.19).
