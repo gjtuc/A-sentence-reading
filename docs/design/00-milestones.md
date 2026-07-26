@@ -40,10 +40,10 @@
 - [06-ui-states.md](06-ui-states.md) loading/error/empty
 - 합격: mock 없이도 로컬 PDF로 전체 루프
 
-## M5 — 진행 저장 (선택)
+## M5 — 진행 저장 (선택) — 0.2.17
 
-- `localStorage` 또는 서버 사이드 `progress.json` ([05](05-session-store.md))
-- 합격: 새로고침 후에도 같은 PDF면 문장/그림 인덱스 복원
+- `localStorage` `asr.progress.v1` + ingest `content_hash` ([21](21-progress-restore.md), [05](05-session-store.md))
+- 합격: 새로고침·보관 재열기·같은 파일 재업로드 후 문장/그림 인덱스 복원
 
 ## 명시적 연기 (M5 이후)
 

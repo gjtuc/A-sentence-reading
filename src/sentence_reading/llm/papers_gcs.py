@@ -351,6 +351,7 @@ def download_paper_cache(cache_id: str, *, entry: dict[str, Any] | None = None) 
             "debone": bool(meta.get("debone")),
             "pipeline_version": str(meta.get("pipeline_version") or ""),
             "has_source": has_src,
+            "content_hash": str(meta.get("content_hash") or "") or None,
         }
     )
     entries = [e for e in entries if e.get("id") != cid]

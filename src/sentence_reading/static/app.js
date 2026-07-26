@@ -601,12 +601,21 @@
     enterFigureFullscreen();
   }
 
+  function persistReadingProgress() {
+    // WHY: M5 — 문장/그림 위치 localStorage (design/21)
+    if (typeof AsrProgress === "undefined" || !AsrProgress) return;
+    const p = papers[activePaperIndex];
+    if (!p || isMockPaper(p)) return;
+    AsrProgress.saveProgress(p, state.figureIndex, state.sentenceIndex);
+  }
+
   function advanceFigure(delta) {
     if (!state.figures.length) return;
     clearCropZoom();
     state.figureIndex = clamp(state.figureIndex + delta, state.figures.length);
     render();
     snapshotActivePaper();
+    persistReadingProgress();
   }
 
   function advanceSentence(delta) {
@@ -632,6 +641,7 @@
       state.sentenceIndex !== prevIdx;
     render();
     snapshotActivePaper();
+    persistReadingProgress();
     if (crossedForward) {
       openSectionReview(prevSec);
       return;
@@ -938,6 +948,7 @@
       stopTts();
       if (noteUi.open) flushNoteSave();
       snapshotActivePaper();
+      persistReadingProgress();
       activePaperIndex = i;
       hydrateStateFromPaper(papers[i]);
       uiPhase = "ready";
@@ -982,9 +993,23 @@
       sessionId: data.session_id || null,
       source: data.source || "",
       cacheId: data.cache_id || null,
+      contentHash: data.content_hash || null,
       isMock: phase === "mock",
       crop: emptyCrop(),
     };
+
+    // WHY: mock 제외 — 저장된 읽기 위치가 있으면 서버 기본(0)보다 우선 (design/21)
+    if (
+      phase !== "mock" &&
+      typeof AsrProgress !== "undefined" &&
+      AsrProgress
+    ) {
+      AsrProgress.applyStoredProgress(
+        paper,
+        paper.figures.length,
+        paper.sentences.length
+      );
+    }
 
     if (phase === "mock" || !asNewTab) {
       papers = [paper];
@@ -1742,6 +1767,7 @@
     state.sentenceIndex = idx;
     render();
     snapshotActivePaper();
+    persistReadingProgress();
     openNoteOverlay();
   }
 
@@ -3503,6 +3529,15 @@
     ev.preventDefault();
     const list = ev.dataTransfer.files;
     if (list && list.length) ingestFiles(list);
+  });
+
+  window.addEventListener("beforeunload", () => {
+    try {
+      snapshotActivePaper();
+      persistReadingProgress();
+    } catch (_) {
+      /* ignore */
+    }
   });
 
   loadMock();

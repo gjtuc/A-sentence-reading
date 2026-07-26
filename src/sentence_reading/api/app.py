@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import tempfile
 import uuid
 from contextlib import asynccontextmanager
@@ -133,7 +134,8 @@ def status() -> dict:
         "paper_cache": True,
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
-        "version": "0.2.16",
+        "progress_restore": True,
+        "version": "0.2.17",
     }
 
 
@@ -391,6 +393,8 @@ def cache_open(cache_id: str) -> JSONResponse:
     data["current_pipeline"] = PIPELINE_VERSION
     data["stale"] = bool(info.get("stale"))
     data["has_source"] = bool(info.get("has_source")) or get_source_path(cache_id) is not None
+    if info.get("content_hash"):
+        data["content_hash"] = info["content_hash"]
     # WHY: stale 도 열어 노트(cache:id) 유지 — 원본 있으면 재분석, 없으면 파일 재업로드
     data["warnings"] = (
         ["stale_pipeline"] if info.get("stale") else []
@@ -455,8 +459,16 @@ async def cache_reanalyze(cache_id: str) -> JSONResponse:
         "error": None,
         "result": None,
     }
+    content_hash = await asyncio.to_thread(_file_sha256, tmp_path)
     asyncio.create_task(
-        _run_ingest_job(job_id, tmp_path, filename, kind, skip_cache=True)
+        _run_ingest_job(
+            job_id,
+            tmp_path,
+            filename,
+            kind,
+            skip_cache=True,
+            content_hash=content_hash,
+        )
     )
     return JSONResponse(
         {
@@ -593,6 +605,21 @@ def _source_kind(filename: str) -> str | None:
     return None
 
 
+def _file_sha256(path: Path) -> str | None:
+    """원본 바이트 SHA-256 — 진행 복원 키 (design/05·21)."""
+    h = hashlib.sha256()
+    try:
+        with path.open("rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                h.update(chunk)
+    except OSError:
+        return None
+    return h.hexdigest()
+
+
 def _try_cache_hit(
     text: str, kind: str
 ) -> tuple[PaperSession, dict, dict] | None:
@@ -618,10 +645,13 @@ async def _run_ingest_job(
     kind: str,
     *,
     skip_cache: bool = False,
+    content_hash: str | None = None,
 ) -> None:
     warnings: list[str] = []
     try:
         label = "PDF" if kind == "pdf" else "Word"
+        if not content_hash:
+            content_hash = await asyncio.to_thread(_file_sha256, tmp_path)
         _job_set(job_id, percent=5, stage="extract", message=f"{label} 읽는 중")
         pdf_pages: list[str] | None = None
         try:
@@ -658,6 +688,8 @@ async def _run_ingest_job(
                 data["cache_id"] = hit["id"]
                 data["source"] = kind
                 data["has_source"] = get_source_path(str(hit["id"])) is not None
+                if content_hash:
+                    data["content_hash"] = content_hash
                 data["warnings"] = []
                 _finish_job(job_id, data, message="보관본에서 불러옴")
                 return
@@ -700,6 +732,8 @@ async def _run_ingest_job(
                     data["cache_id"] = hit["id"]
                     data["source"] = kind
                     data["has_source"] = get_source_path(str(hit["id"])) is not None
+                    if content_hash:
+                        data["content_hash"] = content_hash
                     data["warnings"] = list(warnings)
                     _finish_job(job_id, data, message="보관본에서 불러옴")
                     return
@@ -802,6 +836,7 @@ async def _run_ingest_job(
             debone=debone_ok,
             source=kind,
             source_path=tmp_path,
+            content_hash=content_hash,
         )
         if cache_entry is None and debone_ok:
             warnings.append("cache_skip_short_title")
@@ -813,6 +848,8 @@ async def _run_ingest_job(
         data["warnings"] = warnings
         data["from_cache"] = False
         data["source"] = kind
+        if content_hash:
+            data["content_hash"] = content_hash
         if cache_entry:
             data["cache_id"] = cache_entry.get("id")
             data["cached"] = True
@@ -898,6 +935,7 @@ async def ingest(file: UploadFile = File(...)) -> JSONResponse:
         tmp.write(raw)
         tmp_path = Path(tmp.name)
 
+    content_hash = hashlib.sha256(raw).hexdigest()
     _JOBS[job_id] = {
         "percent": 1,
         "stage": "queued",
@@ -906,13 +944,18 @@ async def ingest(file: UploadFile = File(...)) -> JSONResponse:
         "error": None,
         "result": None,
     }
-    asyncio.create_task(_run_ingest_job(job_id, tmp_path, filename, kind))
+    asyncio.create_task(
+        _run_ingest_job(
+            job_id, tmp_path, filename, kind, content_hash=content_hash
+        )
+    )
     return JSONResponse(
         {
             "ok": True,
             "job_id": job_id,
             "percent": 1,
             "message": "업로드 완료, 읽기 시작",
+            "content_hash": content_hash,
         }
     )
 
