@@ -104,6 +104,12 @@
     sentNext: document.getElementById("sentNext"),
     pdfInput: document.getElementById("pdfInput"),
     uploadBtn: document.getElementById("uploadBtn"),
+    libraryBtn: document.getElementById("libraryBtn"),
+    libraryDialog: document.getElementById("libraryDialog"),
+    libraryList: document.getElementById("libraryList"),
+    libraryStatus: document.getElementById("libraryStatus"),
+    libraryRefreshBtn: document.getElementById("libraryRefreshBtn"),
+    libraryDialogClose: document.getElementById("libraryDialogClose"),
     veilBtn: document.getElementById("veilBtn"),
     cacheDeleteBtn: document.getElementById("cacheDeleteBtn"),
     ttsSettingsBtn: document.getElementById("ttsSettingsBtn"),
@@ -988,7 +994,11 @@
       // WHY: mock 은 기본 화면용 — 실제 논문이 열리면 탭에서 제거
       papers = papers.filter((p) => !isMockPaper(p));
       const existing = papers.findIndex(
-        (p) => p.sessionId && paper.sessionId && p.sessionId === paper.sessionId
+        (p) =>
+          (p.sessionId &&
+            paper.sessionId &&
+            p.sessionId === paper.sessionId) ||
+          (p.cacheId && paper.cacheId && p.cacheId === paper.cacheId)
       );
       if (existing >= 0) {
         papers[existing] = paper;
@@ -3009,6 +3019,7 @@
       !ev.altKey
     ) {
       if (el.ttsDialog && el.ttsDialog.open) return;
+      if (el.libraryDialog && el.libraryDialog.open) return;
       if (isNoteOpen()) return;
       ev.preventDefault();
       openNoteOverlay();
@@ -3139,6 +3150,118 @@
   loadTtsSettings();
 
   el.uploadBtn.addEventListener("click", () => el.pdfInput.click());
+
+  function setLibraryStatus(msg, kind) {
+    if (!el.libraryStatus) return;
+    el.libraryStatus.textContent = msg || "";
+    el.libraryStatus.classList.toggle("is-error", kind === "error");
+    el.libraryStatus.classList.toggle("is-busy", kind === "busy");
+  }
+
+  async function refreshLibraryList() {
+    if (!el.libraryList) return;
+    setLibraryStatus("목록 불러오는 중…", "busy");
+    el.libraryList.innerHTML = "";
+    try {
+      const res = await fetch("/api/cache/papers");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLibraryStatus(data.message || "목록을 불러오지 못했습니다.", "error");
+        return;
+      }
+      const papersList = Array.isArray(data.papers) ? data.papers : [];
+      if (!papersList.length) {
+        setLibraryStatus("보관된 논문이 없습니다. 파일을 열어 분석하면 여기에 쌓입니다.", "");
+        return;
+      }
+      setLibraryStatus(`${papersList.length}편`, "");
+      papersList.forEach(function (item) {
+        if (!item || !item.id) return;
+        const li = document.createElement("li");
+        li.className = "library-item";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "library-item-btn";
+        btn.dataset.cacheId = String(item.id);
+        const title = document.createElement("span");
+        title.className = "library-item-title";
+        title.textContent = item.title || item.id;
+        const meta = document.createElement("span");
+        meta.className = "library-item-meta";
+        const src = item.source === "docx" ? "Word" : "PDF";
+        meta.textContent =
+          src +
+          " · 문장 " +
+          (item.sentence_count || 0) +
+          " · 그림 " +
+          (item.figure_count || 0);
+        btn.appendChild(title);
+        btn.appendChild(meta);
+        btn.addEventListener("click", function () {
+          openCachedPaper(String(item.id), item.title || "");
+        });
+        li.appendChild(btn);
+        el.libraryList.appendChild(li);
+      });
+    } catch (err) {
+      setLibraryStatus(String(err.message || err), "error");
+    }
+  }
+
+  async function openLibraryDialog() {
+    if (!el.libraryDialog || typeof el.libraryDialog.showModal !== "function") {
+      return;
+    }
+    if (el.ttsDialog && el.ttsDialog.open) el.ttsDialog.close();
+    el.libraryDialog.showModal();
+    await refreshLibraryList();
+  }
+
+  /**
+   * 보관본 즉시 열기 — GCS miss 시 서버가 pull (design/17·18).
+   * @param {string} cacheId
+   * @param {string} titleHint
+   */
+  async function openCachedPaper(cacheId, titleHint) {
+    if (!cacheId) return;
+    setLibraryStatus("여는 중…", "busy");
+    setUploadStatus("보관본 여는 중…", "busy");
+    setLoading(true);
+    try {
+      const res = await fetch(
+        "/api/cache/papers/" + encodeURIComponent(cacheId) + "/open",
+        { method: "POST" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || "보관본을 열 수 없습니다.");
+      }
+      applySession(data, "ready", { asNewTab: true });
+      const nS = state.sentences.length;
+      const nF = state.figures.length;
+      setUploadStatus(`보관본 · 문장 ${nS} · 그림 ${nF}`, "");
+      if (el.libraryDialog && el.libraryDialog.open) el.libraryDialog.close();
+      setLibraryStatus("");
+    } catch (err) {
+      setLibraryStatus(String(err.message || err), "error");
+      setUploadStatus(String(err.message || err), "error");
+      void titleHint;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (el.libraryBtn) {
+    el.libraryBtn.addEventListener("click", () => openLibraryDialog());
+  }
+  if (el.libraryRefreshBtn) {
+    el.libraryRefreshBtn.addEventListener("click", () => refreshLibraryList());
+  }
+  if (el.libraryDialogClose) {
+    el.libraryDialogClose.addEventListener("click", () => {
+      if (el.libraryDialog) el.libraryDialog.close();
+    });
+  }
   if (el.veilBtn) {
     el.veilBtn.addEventListener("click", () => toggleVeilWindow());
   }

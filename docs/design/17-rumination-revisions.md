@@ -50,6 +50,7 @@
 - ~~GCS 노트 store sync~~ (0.2.10 — `GET|PUT /api/notes/sync` · `{prefix}/notes/store_v2.json`)
 - ~~GCS voice blob sync~~ (0.2.11 — `GET|PUT /api/voice/blobs` · `{prefix}/voice/{sha256}.bin`)
 - ~~GCS 논문 캐시(session+figures) sync~~ (0.2.12 — 원본 PDF 제외 · `cache_id` 유지)
+- ~~보관 목록 UI~~ (0.2.13 — [18-paper-library.md](18-paper-library.md))
 
 ## GCS
 
