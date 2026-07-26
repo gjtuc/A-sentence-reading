@@ -194,6 +194,28 @@ def blob_exists(full_object_name: str) -> bool:
         return False
 
 
+def delete_bytes(full_object_name: str) -> bool:
+    """GCS object 삭제. 없거나 실패면 False (호출측 best-effort)."""
+    cfg = gcs_config()
+    if not cfg.enabled:
+        return False
+    name = _assert_under_prefix(full_object_name)
+    if not name:
+        return False
+    ready, msg = gcs_client_ready()
+    if not ready:
+        log.debug("gcs delete skipped: %s", msg)
+        return False
+    try:
+        blob = _storage_client().bucket(cfg.bucket).blob(name)
+        if blob.exists():
+            blob.delete()
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("gcs delete failed %s: %s", name, exc)
+        return False
+
+
 def gcs_status() -> dict[str, Any]:
     cfg = gcs_config()
     ready, message = gcs_client_ready()

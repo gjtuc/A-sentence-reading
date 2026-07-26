@@ -1491,6 +1491,38 @@ body.is-figure-chrome-out .figure-frame figcaption {
   margin: 0;
 }
 
+.library-item-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+
+.library-item-row .library-item-btn {
+  flex: 1;
+  min-width: 0;
+}
+
+.library-item-delete {
+  flex: 0 0 auto;
+  align-self: stretch;
+  min-width: 3.2rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.library-item-delete:hover,
+.library-item-delete:focus-visible {
+  outline: 2px solid var(--fg-muted);
+  outline-offset: 1px;
+  color: #c45c5c;
+}
+
 .library-item-btn {
   display: block;
   width: 100%;

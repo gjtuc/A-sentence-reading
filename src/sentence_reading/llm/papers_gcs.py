@@ -25,6 +25,7 @@ from sentence_reading.cache.paper_cache import (
     normalize_title_key,
 )
 from sentence_reading.llm.gcs_sync import (
+    delete_bytes,
     download_bytes,
     gcs_client_ready,
     gcs_config,
@@ -370,6 +371,49 @@ def list_merged_paper_entries() -> list[dict[str, Any]]:
         )
     out.sort(key=lambda e: e.get("updated_at") or "", reverse=True)
     return out
+
+
+def delete_paper_cache(cache_id: str) -> bool:
+    """
+    GCS 논문 객체·index 항목 제거.
+    session/figures 삭제 + index 에서 id 제거 후 재업로드.
+    """
+    ready, msg = gcs_client_ready()
+    if not gcs_config().enabled or not ready:
+        log.debug("papers delete skip: %s", msg)
+        return False
+    cid = (cache_id or "").strip()
+    if not _CACHE_ID_RE.match(cid):
+        return False
+
+    # session 읽어 figure 목록 확보 (없어도 index 정리는 진행)
+    sess_obj = paper_session_object(cid)
+    session_raw = download_bytes(sess_obj) if sess_obj else None
+    meta: dict[str, Any] = {}
+    if session_raw:
+        try:
+            parsed = json.loads(session_raw.decode("utf-8"))
+            if isinstance(parsed, dict):
+                meta = parsed
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            meta = {}
+        if sess_obj:
+            delete_bytes(sess_obj)
+
+    for fig in meta.get("figures") or []:
+        if not isinstance(fig, dict):
+            continue
+        fig_obj = paper_figure_object(cid, str(fig.get("file") or ""))
+        if fig_obj:
+            delete_bytes(fig_obj)
+
+    remote = download_remote_index()
+    entries = [
+        e
+        for e in (remote.get("entries") or [])
+        if isinstance(e, dict) and e.get("id") != cid
+    ]
+    return upload_remote_index({"version": 1, "entries": entries})
 
 
 def papers_gcs_status_fields() -> dict[str, Any]:
