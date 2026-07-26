@@ -24,6 +24,7 @@ data/uploads/
 data/extracted/
 data/cache/
 data/tts_cache/
+data/auth/
 *.pdf
 
 # Logs

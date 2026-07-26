@@ -1,4 +1,4 @@
-"""Google 로그인 · UID별 GCS 경로 계약 (0.2.18)."""
+"""Google 로그인 · UID별 GCS 경로 계약 (0.2.18 경로 · 0.2.19 버전)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
+from sentence_reading.llm import auth_accounts as aa
 from sentence_reading.llm import auth_google as ag
 from sentence_reading.llm import gcs_sync as gs
 from sentence_reading.llm import notes_gcs as ng
@@ -16,7 +17,15 @@ from sentence_reading.llm.auth_google import AuthUser
 
 
 @pytest.fixture(autouse=True)
-def _clear_uid():
+def _clear_uid(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    # WHY: 이메일 기본 on — Google-only 계약 테스트는 email off
+    monkeypatch.setenv("ASR_EMAIL_AUTH", "0")
+    monkeypatch.delenv("ASR_KAKAO_REST_API_KEY", raising=False)
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "pyproject.toml").write_text("[project]\nname='t'\n", encoding="utf-8")
+    monkeypatch.setattr(aa, "project_root", lambda: root)
+    monkeypatch.setattr(aa, "accounts_path", lambda: root / "data" / "auth" / "accounts.json")
     ag.reset_gcs_uid()
     yield
     ag.reset_gcs_uid()
@@ -26,7 +35,7 @@ def test_status_version_and_auth_block(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ASR_GOOGLE_CLIENT_ID", raising=False)
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.18"
+    assert st["version"] == "0.2.19"
     assert "auth" in st
     assert st["auth"]["auth_enabled"] is False
 

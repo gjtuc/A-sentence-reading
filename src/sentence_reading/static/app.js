@@ -112,8 +112,28 @@
     libraryDialogClose: document.getElementById("libraryDialogClose"),
     authLoginBtn: document.getElementById("authLoginBtn"),
     authLogoutBtn: document.getElementById("authLogoutBtn"),
+    authAccountBtn: document.getElementById("authAccountBtn"),
     authUserLabel: document.getElementById("authUserLabel"),
-    googleSignInHost: document.getElementById("googleSignInHost"),
+    authDialog: document.getElementById("authDialog"),
+    authDialogTitle: document.getElementById("authDialogTitle"),
+    authDialogHint: document.getElementById("authDialogHint"),
+    authDialogStatus: document.getElementById("authDialogStatus"),
+    authDialogClose: document.getElementById("authDialogClose"),
+    authProviderStack: document.getElementById("authProviderStack"),
+    authKakaoBtn: document.getElementById("authKakaoBtn"),
+    authGoogleBtn: document.getElementById("authGoogleBtn"),
+    authEmailToggleBtn: document.getElementById("authEmailToggleBtn"),
+    authEmailPanel: document.getElementById("authEmailPanel"),
+    authEmailInput: document.getElementById("authEmailInput"),
+    authPasswordInput: document.getElementById("authPasswordInput"),
+    authEmailLoginBtn: document.getElementById("authEmailLoginBtn"),
+    authEmailRegisterBtn: document.getElementById("authEmailRegisterBtn"),
+    authLinkPanel: document.getElementById("authLinkPanel"),
+    authLinkList: document.getElementById("authLinkList"),
+    authLinkKakaoBtn: document.getElementById("authLinkKakaoBtn"),
+    authLinkGoogleBtn: document.getElementById("authLinkGoogleBtn"),
+    authLinkEmailBtn: document.getElementById("authLinkEmailBtn"),
+    googleSignInMount: document.getElementById("googleSignInMount"),
     veilBtn: document.getElementById("veilBtn"),
     cacheDeleteBtn: document.getElementById("cacheDeleteBtn"),
     ttsSettingsBtn: document.getElementById("ttsSettingsBtn"),
@@ -1181,8 +1201,14 @@
   /** @type {boolean|null} null=미확인 */
   let gcsNotesAvailable = null;
 
-  /** @type {{ enabled: boolean, clientId: string|null, user: {uid:string,email?:string,name?:string}|null }} */
-  let authState = { enabled: false, clientId: null, user: null };
+  /** @type {{ enabled: boolean, clientId: string|null, providers: {google?:boolean,kakao?:boolean,email?:boolean}, user: object|null, dialogMode: string }} */
+  let authState = {
+    enabled: false,
+    clientId: null,
+    providers: {},
+    user: null,
+    dialogMode: "login",
+  };
 
   function applyAccountScope(uid) {
     if (AsrNotes && typeof AsrNotes.setAccountScope === "function") {
@@ -1197,11 +1223,18 @@
     }
   }
 
+  function setAuthDialogStatus(msg, kind) {
+    if (!el.authDialogStatus) return;
+    el.authDialogStatus.textContent = msg || "";
+    el.authDialogStatus.classList.toggle("is-error", kind === "error");
+  }
+
   function renderAuthChrome() {
     const enabled = !!authState.enabled;
     const user = authState.user;
     if (el.authLoginBtn) el.authLoginBtn.hidden = !enabled || !!user;
     if (el.authLogoutBtn) el.authLogoutBtn.hidden = !enabled || !user;
+    if (el.authAccountBtn) el.authAccountBtn.hidden = !enabled || !user;
     if (el.authUserLabel) {
       if (enabled && user) {
         el.authUserLabel.hidden = false;
@@ -1212,61 +1245,135 @@
         el.authUserLabel.textContent = "";
       }
     }
-    if (el.googleSignInHost) el.googleSignInHost.hidden = true;
   }
 
-  async function completeGoogleCredential(credential) {
+  function paintAuthDialog() {
+    const p = authState.providers || {};
+    const linking = authState.dialogMode === "link";
+    const user = authState.user;
+    if (el.authDialogTitle) {
+      el.authDialogTitle.textContent = linking ? "계정 연결" : "계속하기";
+    }
+    if (el.authDialogHint) {
+      el.authDialogHint.hidden = linking;
+    }
+    if (el.authProviderStack) {
+      el.authProviderStack.hidden = linking;
+    }
+    if (el.authLinkPanel) el.authLinkPanel.hidden = !linking;
+    if (el.authKakaoBtn) el.authKakaoBtn.hidden = linking || !p.kakao;
+    if (el.authGoogleBtn) el.authGoogleBtn.hidden = linking || !p.google;
+    if (el.authEmailToggleBtn) el.authEmailToggleBtn.hidden = linking || !p.email;
+    if (el.authLinkKakaoBtn) el.authLinkKakaoBtn.hidden = !linking || !p.kakao;
+    if (el.authLinkGoogleBtn) el.authLinkGoogleBtn.hidden = !linking || !p.google;
+    if (el.authLinkEmailBtn) el.authLinkEmailBtn.hidden = !linking || !p.email;
+    if (el.authEmailPanel) {
+      el.authEmailPanel.hidden = true;
+    }
+    if (el.googleSignInMount) {
+      el.googleSignInMount.hidden = true;
+      el.googleSignInMount.innerHTML = "";
+    }
+    if (linking && el.authLinkList && user) {
+      const linked = Array.isArray(user.providers) ? user.providers : [];
+      el.authLinkList.innerHTML = "";
+      ["google", "kakao", "email"].forEach(function (name) {
+        const li = document.createElement("li");
+        const label =
+          name === "google" ? "Google" : name === "kakao" ? "카카오" : "이메일";
+        const on = linked.indexOf(name) >= 0;
+        li.innerHTML =
+          "<span>" +
+          label +
+          (on ? " · 연결됨" : " · 없음") +
+          "</span>";
+        if (on && linked.length > 1) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "upload-btn upload-btn-ghost";
+          btn.textContent = "해제";
+          btn.addEventListener("click", function () {
+            void unlinkProvider(name);
+          });
+          li.appendChild(btn);
+        }
+        el.authLinkList.appendChild(li);
+      });
+    }
+  }
+
+  function openAuthDialog(mode) {
+    authState.dialogMode = mode === "link" ? "link" : "login";
+    setAuthDialogStatus("");
+    paintAuthDialog();
+    if (el.authDialog && typeof el.authDialog.showModal === "function") {
+      el.authDialog.showModal();
+    }
+  }
+
+  async function afterAuthSuccess(data, msg) {
+    authState.user = data.user || null;
+    applyAccountScope(authState.user && authState.user.uid);
+    renderAuthChrome();
+    setUploadStatus(msg || "로그인됨", "");
+    if (el.authDialog && el.authDialog.open) el.authDialog.close();
+    await pullNotesFromCloud();
+  }
+
+  async function completeGoogleCredential(credential, mode) {
     if (!credential) return;
     const res = await fetch("/api/auth/google", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({ credential }),
+      body: JSON.stringify({
+        credential,
+        mode: mode === "link" ? "link" : "login",
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.ok === false) {
-      throw new Error(data.message || "로그인에 실패했습니다.");
+      throw new Error(data.message || "Google 로그인에 실패했습니다.");
     }
-    authState.user = data.user || null;
-    applyAccountScope(authState.user && authState.user.uid);
-    renderAuthChrome();
-    setUploadStatus(
-      (authState.user && (authState.user.email || authState.user.name)) ||
-        "로그인됨",
-      ""
+    await afterAuthSuccess(
+      data,
+      mode === "link" ? "Google 연결됨" : "Google 로그인됨"
     );
-    await pullNotesFromCloud();
   }
 
-  function loadGisAndPrompt() {
-    if (!authState.clientId) return;
+  function loadGis(mode) {
+    if (!authState.clientId) {
+      setAuthDialogStatus("Google 클라이언트 ID가 없습니다.", "error");
+      return;
+    }
     const start = () => {
       try {
         window.google.accounts.id.initialize({
           client_id: authState.clientId,
           callback: (resp) => {
-            void completeGoogleCredential(resp && resp.credential).catch(
-              (err) => {
-                setUploadStatus(String(err.message || err), "error");
-              }
-            );
+            void completeGoogleCredential(
+              resp && resp.credential,
+              mode
+            ).catch((err) => {
+              setAuthDialogStatus(String(err.message || err), "error");
+            });
           },
           auto_select: false,
           cancel_on_tap_outside: true,
         });
-        if (el.googleSignInHost) {
-          el.googleSignInHost.hidden = false;
-          el.googleSignInHost.innerHTML = "";
-          window.google.accounts.id.renderButton(el.googleSignInHost, {
+        if (el.googleSignInMount) {
+          el.googleSignInMount.hidden = false;
+          el.googleSignInMount.innerHTML = "";
+          window.google.accounts.id.renderButton(el.googleSignInMount, {
             theme: "outline",
-            size: "medium",
-            text: "signin_with",
+            size: "large",
+            text: mode === "link" ? "continue_with" : "signin_with",
             shape: "rectangular",
+            width: 280,
           });
         }
-        window.google.accounts.id.prompt();
       } catch (err) {
-        setUploadStatus(String(err.message || err), "error");
+        setAuthDialogStatus(String(err.message || err), "error");
       }
     };
     if (window.google && window.google.accounts && window.google.accounts.id) {
@@ -1284,8 +1391,55 @@
     s.dataset.asrGis = "1";
     s.onload = start;
     s.onerror = () =>
-      setUploadStatus("Google 로그인 스크립트를 불러오지 못했습니다.", "error");
+      setAuthDialogStatus("Google 스크립트를 불러오지 못했습니다.", "error");
     document.head.appendChild(s);
+  }
+
+  async function emailAuth(kind) {
+    const email = el.authEmailInput ? el.authEmailInput.value.trim() : "";
+    const password = el.authPasswordInput ? el.authPasswordInput.value : "";
+    const path =
+      kind === "register"
+        ? "/api/auth/email/register"
+        : kind === "link"
+          ? "/api/auth/email/link"
+          : "/api/auth/email/login";
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      throw new Error(data.message || "이메일 인증에 실패했습니다.");
+    }
+    await afterAuthSuccess(
+      data,
+      kind === "register"
+        ? "가입·로그인됨"
+        : kind === "link"
+          ? "이메일 연결됨"
+          : "이메일 로그인됨"
+    );
+  }
+
+  async function unlinkProvider(provider) {
+    const res = await fetch("/api/auth/unlink", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ provider }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      setAuthDialogStatus(data.message || "해제 실패", "error");
+      return;
+    }
+    authState.user = data.user || null;
+    paintAuthDialog();
+    renderAuthChrome();
+    setAuthDialogStatus("연결 해제됨", "");
   }
 
   async function initAuth() {
@@ -1294,11 +1448,29 @@
       const data = await res.json().catch(() => ({}));
       authState.enabled = !!data.auth_enabled;
       authState.clientId = data.client_id || null;
+      authState.providers = data.providers || {};
       authState.user = data.user || null;
       applyAccountScope(authState.user && authState.user.uid);
       renderAuthChrome();
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("auth_error")) {
+        setUploadStatus("로그인 실패: " + params.get("auth_error"), "error");
+      } else if (params.get("auth") === "logged_in" || params.get("auth") === "linked") {
+        setUploadStatus(
+          params.get("auth") === "linked" ? "계정 연결됨" : "로그인됨",
+          ""
+        );
+        history.replaceState({}, "", window.location.pathname);
+        await pullNotesFromCloud();
+      }
     } catch (_) {
-      authState = { enabled: false, clientId: null, user: null };
+      authState = {
+        enabled: false,
+        clientId: null,
+        providers: {},
+        user: null,
+        dialogMode: "login",
+      };
       renderAuthChrome();
     }
   }
@@ -3675,12 +3847,74 @@
   if (el.authLoginBtn) {
     el.authLoginBtn.addEventListener("click", () => {
       if (!authState.enabled) return;
-      loadGisAndPrompt();
+      openAuthDialog("login");
+    });
+  }
+  if (el.authAccountBtn) {
+    el.authAccountBtn.addEventListener("click", () => {
+      if (!authState.user) return;
+      openAuthDialog("link");
     });
   }
   if (el.authLogoutBtn) {
     el.authLogoutBtn.addEventListener("click", () => {
       void logoutAuth();
+    });
+  }
+  if (el.authDialogClose) {
+    el.authDialogClose.addEventListener("click", () => {
+      if (el.authDialog) el.authDialog.close();
+    });
+  }
+  if (el.authKakaoBtn) {
+    el.authKakaoBtn.addEventListener("click", () => {
+      window.location.href = "/api/auth/kakao/start?mode=login";
+    });
+  }
+  if (el.authLinkKakaoBtn) {
+    el.authLinkKakaoBtn.addEventListener("click", () => {
+      window.location.href = "/api/auth/kakao/start?mode=link";
+    });
+  }
+  if (el.authGoogleBtn) {
+    el.authGoogleBtn.addEventListener("click", () => {
+      if (el.authEmailPanel) el.authEmailPanel.hidden = true;
+      loadGis("login");
+    });
+  }
+  if (el.authLinkGoogleBtn) {
+    el.authLinkGoogleBtn.addEventListener("click", () => {
+      if (el.authEmailPanel) el.authEmailPanel.hidden = true;
+      loadGis("link");
+    });
+  }
+  if (el.authEmailToggleBtn) {
+    el.authEmailToggleBtn.addEventListener("click", () => {
+      if (el.googleSignInMount) {
+        el.googleSignInMount.hidden = true;
+        el.googleSignInMount.innerHTML = "";
+      }
+      if (el.authEmailPanel) el.authEmailPanel.hidden = false;
+    });
+  }
+  if (el.authLinkEmailBtn) {
+    el.authLinkEmailBtn.addEventListener("click", () => {
+      if (el.authEmailPanel) el.authEmailPanel.hidden = false;
+    });
+  }
+  if (el.authEmailLoginBtn) {
+    el.authEmailLoginBtn.addEventListener("click", () => {
+      const kind = authState.dialogMode === "link" ? "link" : "login";
+      void emailAuth(kind).catch((err) => {
+        setAuthDialogStatus(String(err.message || err), "error");
+      });
+    });
+  }
+  if (el.authEmailRegisterBtn) {
+    el.authEmailRegisterBtn.addEventListener("click", () => {
+      void emailAuth("register").catch((err) => {
+        setAuthDialogStatus(String(err.message || err), "error");
+      });
     });
   }
 

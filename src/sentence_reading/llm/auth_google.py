@@ -51,9 +51,18 @@ def auth_client_id() -> str:
     return (os.environ.get("ASR_GOOGLE_CLIENT_ID") or "").strip()
 
 
+def email_auth_enabled() -> bool:
+    """이메일 가입/로그인. ASR_EMAIL_AUTH=0 이면 끔 (기본 on)."""
+    load_asr_env()
+    v = (os.environ.get("ASR_EMAIL_AUTH") or "1").strip().lower()
+    return v not in ("0", "false", "no", "off")
+
+
 def auth_enabled() -> bool:
-    """OAuth 클라이언트 ID 가 있으면 로그인 UI·UID 칸 모드."""
-    return bool(auth_client_id())
+    """Google·카카오·이메일 중 하나라도 켜져 있으면 로그인 UI·UID 칸 모드."""
+    from sentence_reading.llm.auth_kakao import kakao_enabled
+
+    return bool(auth_client_id()) or kakao_enabled() or email_auth_enabled()
 
 
 def auth_secret() -> str:
@@ -162,7 +171,7 @@ def parse_session_token(token: str | None) -> AuthUser | None:
 def verify_google_id_token(credential: str) -> AuthUser:
     """
     GIS credential (JWT) 검증 → AuthUser.
-    테스트에서는 monkeypatch 대상.
+    여기서 uid 필드는 Google subject (창고 UID는 auth_accounts.resolve 가 결정).
     """
     client_id = auth_client_id()
     if not client_id:
@@ -196,13 +205,71 @@ def verify_google_id_token(credential: str) -> AuthUser:
     )
 
 
+def issue_oauth_state(mode: str, *, link_uid: str | None = None) -> str:
+    """카카오 redirect state (mode=login|link)."""
+    m = (mode or "login").strip().lower()
+    if m not in ("login", "link"):
+        m = "login"
+    body = {
+        "m": m,
+        "u": (link_uid or "")[:128],
+        "iat": int(time.time()),
+        "n": secrets.token_hex(8),
+    }
+    payload_b64 = _b64url_encode(
+        json.dumps(body, separators=(",", ":")).encode("utf-8")
+    )
+    return f"{payload_b64}.{_sign(payload_b64)}"
+
+
+def parse_oauth_state(state: str | None) -> dict[str, str] | None:
+    if not state or "." not in state:
+        return None
+    payload_b64, _, sig = state.partition(".")
+    if not payload_b64 or not sig or not hmac.compare_digest(_sign(payload_b64), sig):
+        return None
+    raw = _b64url_decode(payload_b64)
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        iat = int(data.get("iat") or 0)
+    except (TypeError, ValueError):
+        return None
+    if iat <= 0 or (time.time() - iat) > 600:
+        return None
+    mode = str(data.get("m") or "login")
+    if mode not in ("login", "link"):
+        return None
+    return {"mode": mode, "link_uid": str(data.get("u") or "")}
+
+
 def auth_status_fields(user: AuthUser | None = None) -> dict[str, Any]:
+    from sentence_reading.llm.auth_accounts import public_user_with_providers
+    from sentence_reading.llm.auth_kakao import kakao_enabled
+
     enabled = auth_enabled()
+    google_on = bool(auth_client_id())
+    kakao_on = kakao_enabled()
+    email_on = email_auth_enabled()
+    user_out: dict[str, Any] | None = None
+    if user:
+        user_out = public_user_with_providers(user)
     return {
         "auth_enabled": enabled,
-        "auth_provider": "google" if enabled else None,
-        "client_id": auth_client_id() if enabled else None,
-        "user": user.public_dict() if user else None,
+        "auth_provider": "multi" if enabled else None,
+        "providers": {
+            "google": google_on,
+            "kakao": kakao_on,
+            "email": email_on,
+        },
+        "client_id": auth_client_id() if google_on else None,
+        "user": user_out,
         "gcs_uid": current_gcs_uid(),
         "gcs_user_scoped": bool(current_gcs_uid()),
     }
