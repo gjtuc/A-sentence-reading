@@ -32,7 +32,7 @@ from sentence_reading.llm.gcs_sync import (
     download_bytes,
     gcs_client_ready,
     gcs_config,
-    object_name,
+    personal_object_name,
     upload_bytes,
 )
 from sentence_reading.llm.typography import PIPELINE_VERSION
@@ -49,14 +49,14 @@ PAPER_SOURCE_MAX_BYTES = SOURCE_MAX_BYTES
 
 
 def papers_index_object() -> str | None:
-    return object_name("papers", "index.json")
+    return personal_object_name("papers", "index.json")
 
 
 def paper_session_object(cache_id: str) -> str | None:
     cid = (cache_id or "").strip()
     if not _CACHE_ID_RE.match(cid):
         return None
-    return object_name("papers", cid, "session.json")
+    return personal_object_name("papers", cid, "session.json")
 
 
 def paper_figure_object(cache_id: str, rel: str) -> str | None:
@@ -67,7 +67,7 @@ def paper_figure_object(cache_id: str, rel: str) -> str | None:
     if not _FIG_FILE_RE.match(path):
         return None
     # figures/name.png → segments
-    return object_name("papers", cid, "figures", path.split("/", 1)[1])
+    return personal_object_name("papers", cid, "figures", path.split("/", 1)[1])
 
 
 def paper_source_object(cache_id: str, filename: str) -> str | None:
@@ -77,7 +77,7 @@ def paper_source_object(cache_id: str, filename: str) -> str | None:
     name = (filename or "").replace("\\", "/").strip().lstrip("/").split("/")[-1]
     if not _SOURCE_FILE_RE.match(name):
         return None
-    return object_name("papers", cid, name)
+    return personal_object_name("papers", cid, name)
 
 
 def _empty_index() -> dict[str, Any]:

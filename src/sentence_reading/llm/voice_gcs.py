@@ -2,6 +2,7 @@
 무엇을: 목소리 blob GCS upload/download.
 왜: 노트 store의 blobKey 메타가 PC 간에 재생 가능하도록 (design/17).
 object: {prefix}/voice/{sha256(blobKey)}.bin
+  또는 {prefix}/users/{uid}/voice/… (로그인 시)
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from sentence_reading.llm.gcs_sync import (
     download_bytes,
     gcs_client_ready,
     gcs_config,
-    object_name,
+    personal_object_name,
     upload_bytes,
 )
 
@@ -35,7 +36,7 @@ def voice_blob_object(blob_key: str) -> str | None:
     digest = voice_blob_digest(blob_key)
     if not digest:
         return None
-    return object_name("voice", f"{digest}.bin")
+    return personal_object_name("voice", f"{digest}.bin")
 
 
 def upload_voice_blob(

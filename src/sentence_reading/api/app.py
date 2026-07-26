@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi import Body, FastAPI, File, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from sentence_reading.cache.paper_cache import (
     attach_source_file,
@@ -27,6 +28,18 @@ from sentence_reading.cache.paper_cache import (
     save_paper_session,
 )
 from sentence_reading.docx import extract as docx_extract
+from sentence_reading.llm.auth_google import (
+    COOKIE_NAME,
+    SESSION_MAX_AGE_SEC,
+    AuthUser,
+    auth_enabled,
+    auth_status_fields,
+    issue_session_token,
+    parse_session_token,
+    reset_gcs_uid,
+    set_gcs_uid,
+    verify_google_id_token,
+)
 from sentence_reading.llm.debone import DeboneResult, debone_sentences
 from sentence_reading.llm.env import gemini_available, load_asr_env
 from sentence_reading.llm.richtext import plain_text
@@ -78,10 +91,31 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.5",
+    version="0.2.18",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
+
+
+class _GcsUidMiddleware(BaseHTTPMiddleware):
+    """쿠키 세션 → 요청 동안 GCS personal_object_name 용 UID."""
+
+    async def dispatch(self, request: Request, call_next):
+        user = parse_session_token(request.cookies.get(COOKIE_NAME))
+        request.state.auth_user = user
+        set_gcs_uid(user.uid if user else None)
+        try:
+            return await call_next(request)
+        finally:
+            reset_gcs_uid()
+
+
+app.add_middleware(_GcsUidMiddleware)
+
+
+def _request_user(request: Request) -> AuthUser | None:
+    user = getattr(request.state, "auth_user", None)
+    return user if isinstance(user, AuthUser) else None
 
 
 def _job_set(job_id: str, *, percent: int, stage: str, message: str = "") -> None:
@@ -118,8 +152,9 @@ def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
 
 
 @app.get("/api/status")
-def status() -> dict:
+def status(request: Request) -> dict:
     """기동 확인."""
+    user = _request_user(request)
     return {
         "ok": True,
         "stage": "m4",
@@ -131,19 +166,91 @@ def status() -> dict:
         "tts_cache_native_rate": True,
         "tts_stretch": "signalsmith",
         "gcs": gcs_status(),
+        "auth": auth_status_fields(user),
         "paper_cache": True,
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.17",
+        "version": "0.2.18",
     }
 
 
+@app.get("/api/auth/status")
+def auth_status(request: Request) -> dict:
+    user = _request_user(request)
+    st = auth_status_fields(user)
+    return {"ok": True, **st}
+
+
+@app.post("/api/auth/google")
+async def auth_google_login(payload: dict = Body(...)) -> JSONResponse:
+    """Google Identity Services credential → httpOnly 세션 쿠키."""
+    if not auth_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "auth_disabled",
+                "message": "ASR_GOOGLE_CLIENT_ID 를 설정하면 Google 로그인을 쓸 수 있습니다.",
+            },
+        )
+    credential = ""
+    if isinstance(payload, dict):
+        credential = str(payload.get("credential") or payload.get("id_token") or "")
+    try:
+        user = verify_google_id_token(credential)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "invalid_token",
+                "message": f"Google 로그인 검증 실패: {exc}"[:240],
+            },
+        )
+    token = issue_session_token(user)
+    resp = JSONResponse(
+        {
+            "ok": True,
+            "user": user.public_dict(),
+            "gcs_user_scoped": True,
+            "message": "logged_in",
+        }
+    )
+    resp.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=SESSION_MAX_AGE_SEC,
+        path="/",
+    )
+    return resp
+
+
+@app.post("/api/auth/logout")
+def auth_logout() -> JSONResponse:
+    resp = JSONResponse({"ok": True, "message": "logged_out"})
+    resp.delete_cookie(COOKIE_NAME, path="/")
+    return resp
+
+
 @app.get("/api/voice/blobs")
-async def voice_blob_get(key: str = "") -> Response:
+async def voice_blob_get(request: Request, key: str = "") -> Response:
     """
     blobKey → 오디오 bytes (GCS). IDB miss 시 클라이언트가 호출.
     """
+    if auth_enabled() and _request_user(request) is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "available": False,
+                "needs_auth": True,
+                "error": "auth_required",
+                "message": "Google 로그인 후 목소리를 동기화합니다.",
+            },
+        )
     st = gcs_status()
     if not st.get("enabled") or not st.get("ready"):
         return JSONResponse(
@@ -175,6 +282,16 @@ async def voice_blob_put(request: Request, key: str = "") -> JSONResponse:
     """
     녹음 blob → GCS. query `key` = 노트 store 의 blobKey.
     """
+    if auth_enabled() and _request_user(request) is None:
+        return JSONResponse(
+            {
+                "ok": True,
+                "available": False,
+                "needs_auth": True,
+                "uploaded": False,
+                "message": "Google 로그인 후 목소리를 동기화합니다.",
+            }
+        )
     st = gcs_status()
     if not st.get("enabled") or not st.get("ready"):
         return JSONResponse(
@@ -221,8 +338,16 @@ async def voice_blob_put(request: Request, key: str = "") -> JSONResponse:
 
 
 @app.get("/api/notes/sync")
-def notes_sync_get() -> dict:
+def notes_sync_get(request: Request) -> dict:
     """GCS 노트 store pull. 버킷 미설정·미준비면 available=false."""
+    if auth_enabled() and _request_user(request) is None:
+        return {
+            "ok": True,
+            "available": False,
+            "needs_auth": True,
+            "store": None,
+            "message": "Google 로그인 후 클라우드 노트를 동기화합니다.",
+        }
     st = gcs_status()
     if not st.get("enabled") or not st.get("ready"):
         return {
@@ -230,6 +355,14 @@ def notes_sync_get() -> dict:
             "available": False,
             "store": None,
             "message": st.get("message"),
+        }
+    if st.get("notes_object") is None:
+        return {
+            "ok": True,
+            "available": False,
+            "needs_auth": True,
+            "store": None,
+            "message": "로그인된 사용자 칸이 없습니다.",
         }
     store = download_notes_store()
     return {
@@ -241,10 +374,20 @@ def notes_sync_get() -> dict:
 
 
 @app.put("/api/notes/sync")
-async def notes_sync_put(payload: dict = Body(...)) -> JSONResponse:
+async def notes_sync_put(request: Request, payload: dict = Body(...)) -> JSONResponse:
     """
     로컬 store push — remote∪local 병합 후 GCS 업로드, 병합본 반환.
     """
+    if auth_enabled() and _request_user(request) is None:
+        return JSONResponse(
+            {
+                "ok": True,
+                "available": False,
+                "needs_auth": True,
+                "store": payload.get("store") if isinstance(payload, dict) else None,
+                "message": "Google 로그인 후 클라우드 노트를 동기화합니다.",
+            }
+        )
     st = gcs_status()
     if not st.get("enabled") or not st.get("ready"):
         return JSONResponse(
@@ -253,6 +396,16 @@ async def notes_sync_put(payload: dict = Body(...)) -> JSONResponse:
                 "available": False,
                 "store": payload.get("store") if isinstance(payload, dict) else None,
                 "message": st.get("message"),
+            }
+        )
+    if st.get("notes_object") is None:
+        return JSONResponse(
+            {
+                "ok": True,
+                "available": False,
+                "needs_auth": True,
+                "store": payload.get("store") if isinstance(payload, dict) else None,
+                "message": "로그인된 사용자 칸이 없습니다.",
             }
         )
     local = payload.get("store") if isinstance(payload, dict) else None

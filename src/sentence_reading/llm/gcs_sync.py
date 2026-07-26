@@ -3,6 +3,7 @@
 왜: 다른 PC에서 같은 TTS 캐시를 이어 쓰기 (design/17).
 자격: GOOGLE_APPLICATION_CREDENTIALS (TTS와 동일 SA 권장).
 환경: ASR_GCS_BUCKET · ASR_GCS_PREFIX(기본 asr)
+개인 흔적: personal_object_name → {prefix}/users/{uid}/… (design/22)
 """
 
 from __future__ import annotations
@@ -67,7 +68,27 @@ def object_name(*parts: str) -> str | None:
     return f"{cfg.prefix}/{'/'.join(segs)}"
 
 
+def personal_object_name(*parts: str) -> str | None:
+    """
+    로그인 UID 가 있으면 {prefix}/users/{uid}/…
+    없으면(레거시·auth 미설정) {prefix}/…
+    auth 켜졌는데 UID 없으면 None (호출측이 동기화 skip/401).
+    """
+    from sentence_reading.llm.auth_google import (
+        auth_enabled,
+        current_gcs_uid,
+    )
+
+    uid = current_gcs_uid()
+    if uid:
+        return object_name("users", uid, *parts)
+    if auth_enabled():
+        return None
+    return object_name(*parts)
+
+
 def tts_cache_object(cache_key: str) -> str | None:
+    """TTS 정속 캐시 — 내용 주소라 유저 칸 밖(공유)에 둔다."""
     key = (cache_key or "").strip()
     if not key or not _SAFE_SEGMENT.match(key):
         return None
@@ -82,7 +103,7 @@ def notes_object(paper_key: str) -> str | None:
     safe = re.sub(r"[^A-Za-z0-9._\-]+", "_", raw).strip("_")
     if not safe or len(safe) > 180:
         return None
-    return object_name("notes", f"{safe}.json")
+    return personal_object_name("notes", f"{safe}.json")
 
 
 def _assert_under_prefix(full_name: str) -> str | None:
@@ -219,6 +240,7 @@ def delete_bytes(full_object_name: str) -> bool:
 def gcs_status() -> dict[str, Any]:
     cfg = gcs_config()
     ready, message = gcs_client_ready()
+    from sentence_reading.llm.auth_google import auth_status_fields, current_gcs_uid
     from sentence_reading.llm.notes_gcs import notes_gcs_status_fields
     from sentence_reading.llm.voice_gcs import voice_gcs_status_fields
 
@@ -229,7 +251,13 @@ def gcs_status() -> dict[str, Any]:
         "ready": bool(cfg.enabled and ready),
         "tts_cache_sync": True,
         "message": message if cfg.enabled else "set ASR_GCS_BUCKET to enable cloud sync",
+        "user_prefix": (
+            f"{cfg.prefix}/users/{current_gcs_uid()}"
+            if current_gcs_uid()
+            else None
+        ),
     }
+    out.update(auth_status_fields())
     out.update(notes_gcs_status_fields())
     out.update(voice_gcs_status_fields())
     from sentence_reading.llm.papers_gcs import papers_gcs_status_fields

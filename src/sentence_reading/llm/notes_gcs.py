@@ -2,6 +2,7 @@
 무엇을: 노트 store(v2) GCS 동기화 + append-only 병합.
 왜: PC 간 되새김질 텍스트(·voice 메타) 이어쓰기 (design/17).
 object: {prefix}/notes/store_v2.json
+  또는 {prefix}/users/{uid}/notes/store_v2.json (로그인 시)
 충돌: 리비전 fingerprint 합집합 후 at 정렬·rev 재번호 (내용 삭제 없음).
 """
 
@@ -15,7 +16,7 @@ from sentence_reading.llm.gcs_sync import (
     download_bytes,
     gcs_client_ready,
     gcs_config,
-    object_name,
+    personal_object_name,
     upload_bytes,
 )
 
@@ -25,7 +26,7 @@ NOTES_STORE_MAX_BYTES = 2_000_000
 
 
 def notes_store_object() -> str | None:
-    return object_name("notes", "store_v2.json")
+    return personal_object_name("notes", "store_v2.json")
 
 
 def empty_notes_store() -> dict[str, Any]:
