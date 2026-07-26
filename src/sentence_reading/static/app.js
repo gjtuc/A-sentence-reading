@@ -1361,7 +1361,17 @@
           auto_select: false,
           cancel_on_tap_outside: true,
         });
-        if (el.googleSignInMount) {
+        // WHY: 「구글로 계속하기」+ 공식 버튼 이중 노출 방지 — 계정 선택 먼저, 실패 시 공식 버튼만
+        const customBtn =
+          mode === "link" ? el.authLinkGoogleBtn : el.authGoogleBtn;
+        if (customBtn) customBtn.hidden = true;
+        if (el.authEmailPanel) el.authEmailPanel.hidden = true;
+        setAuthDialogStatus("Google 계정 선택 창을 여는 중…", "");
+
+        let showedFallback = false;
+        const showOfficialButton = () => {
+          if (showedFallback || !el.googleSignInMount) return;
+          showedFallback = true;
           el.googleSignInMount.hidden = false;
           el.googleSignInMount.innerHTML = "";
           window.google.accounts.id.renderButton(el.googleSignInMount, {
@@ -1371,7 +1381,26 @@
             shape: "rectangular",
             width: 280,
           });
-        }
+          setAuthDialogStatus("아래 Google 버튼으로 계속하세요.", "");
+        };
+
+        window.google.accounts.id.prompt((notification) => {
+          try {
+            if (!notification) {
+              showOfficialButton();
+              return;
+            }
+            const needButton =
+              (notification.isNotDisplayed && notification.isNotDisplayed()) ||
+              (notification.isSkippedMoment && notification.isSkippedMoment()) ||
+              (notification.isDismissedMoment &&
+                notification.isDismissedMoment());
+            if (needButton) showOfficialButton();
+            else setAuthDialogStatus("");
+          } catch (_) {
+            showOfficialButton();
+          }
+        });
       } catch (err) {
         setAuthDialogStatus(String(err.message || err), "error");
       }
