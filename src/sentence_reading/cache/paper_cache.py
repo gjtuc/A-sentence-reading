@@ -23,6 +23,9 @@ _MIN_TITLE_KEY_LEN = 24
 _HEAD_CHARS = 14_000
 # WHY: 제목 대조는 키 문자열 포함 여부만 — 1000개도 수십 ms 이하. 디스크·목록 상한.
 _MAX_CACHED_PAPERS = 1000
+# 원본 PDF/DOCX 백업 상한 (초과 시 session만 보관)
+SOURCE_MAX_BYTES = 80_000_000
+_SOURCE_NAMES = {"pdf": "source.pdf", "docx": "source.docx"}
 
 
 def project_root() -> Path:
@@ -276,6 +279,7 @@ def list_cached_papers() -> list[dict]:
                 "debone": bool(entry.get("debone")),
                 "pipeline_version": str(entry.get("pipeline_version") or ""),
                 "stale": str(entry.get("pipeline_version") or "") != PIPELINE_VERSION,
+                "has_source": bool(entry.get("has_source")),
             }
         )
     entries.sort(key=lambda e: e.get("updated_at") or "", reverse=True)
@@ -340,8 +344,106 @@ def load_cached_session(cache_id: str) -> tuple[PaperSession, dict] | None:
         "from_cache": True,
         "pipeline_version": str(meta.get("pipeline_version") or ""),
         "stale": str(meta.get("pipeline_version") or "") != PIPELINE_VERSION,
+        "has_source": bool(meta.get("has_source"))
+        or get_source_path(cache_id) is not None,
     }
     return session, info
+
+
+def source_filename_for(kind: str) -> str:
+    src = (kind or "pdf").lower()
+    if src not in _SOURCE_NAMES:
+        src = "pdf"
+    return _SOURCE_NAMES[src]
+
+
+def get_source_path(cache_id: str) -> Path | None:
+    """로컬 원본 경로. 없으면 None."""
+    cid = (cache_id or "").strip()
+    if not cid:
+        return None
+    paper_dir = cache_root() / cid
+    for name in _SOURCE_NAMES.values():
+        p = paper_dir / name
+        if p.is_file() and p.stat().st_size > 0:
+            return p
+    # session.json 힌트
+    meta_path = paper_dir / _SESSION_NAME
+    if meta_path.is_file():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            rel = str((meta or {}).get("source_file") or "")
+            if rel and ".." not in rel.split("/"):
+                p = paper_dir / rel
+                if p.is_file() and p.stat().st_size > 0:
+                    return p
+        except (OSError, json.JSONDecodeError):
+            pass
+    return None
+
+
+def attach_source_file(
+    cache_id: str,
+    source_path: Path,
+    *,
+    source: str = "pdf",
+) -> bool:
+    """
+    기존 보관본에 원본이 없을 때만 복사 (캐시 히트 시 백필).
+    index/session has_source 갱신.
+    """
+    import shutil
+
+    cid = (cache_id or "").strip()
+    if not cid or not source_path or not source_path.is_file():
+        return False
+    if get_source_path(cid) is not None:
+        return True
+    try:
+        size = source_path.stat().st_size
+    except OSError:
+        return False
+    if size <= 0 or size > SOURCE_MAX_BYTES:
+        return False
+    src = (source or "pdf").lower()
+    if src not in _SOURCE_NAMES:
+        src = "pdf"
+    paper_dir = cache_root() / cid
+    if not (paper_dir / _SESSION_NAME).is_file():
+        return False
+    dest_name = source_filename_for(src)
+    dest = paper_dir / dest_name
+    try:
+        paper_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, dest)
+    except OSError:
+        return False
+
+    # session + index 메타
+    try:
+        meta = json.loads((paper_dir / _SESSION_NAME).read_text(encoding="utf-8"))
+        if isinstance(meta, dict):
+            meta["has_source"] = True
+            meta["source_file"] = dest_name
+            (paper_dir / _SESSION_NAME).write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+    except (OSError, json.JSONDecodeError):
+        pass
+    index = _read_index()
+    for e in index.get("entries") or []:
+        if isinstance(e, dict) and e.get("id") == cid:
+            e["has_source"] = True
+            break
+    _write_index(index)
+    try:
+        from sentence_reading.llm.papers_gcs import upload_paper_cache
+
+        upload_paper_cache(cid)
+    except Exception:
+        pass
+    return True
 
 
 def save_paper_session(
@@ -349,11 +451,15 @@ def save_paper_session(
     *,
     debone: bool = False,
     source: str = "pdf",
+    source_path: Path | None = None,
 ) -> dict | None:
     """
     제목 키 + source(pdf/docx) 로 저장.
     같은 제목이어도 본편 PDF 와 보충 Word 는 서로 덮어쓰지 않음.
+    source_path 가 있으면 source.pdf|docx 로 원본 백업 (한도 초과 시 생략).
     """
+    import shutil
+
     title = (session.title or "").strip()
     key = normalize_title_key(title)
     if len(key) < _MIN_TITLE_KEY_LEN:
@@ -390,9 +496,7 @@ def save_paper_session(
     paper_dir = root / cache_id
     fig_dir = paper_dir / "figures"
     if paper_dir.exists():
-        # 옛 그림 정리 후 재기록
-        import shutil
-
+        # 옛 그림·원본 정리 후 재기록
         shutil.rmtree(paper_dir, ignore_errors=True)
     fig_dir.mkdir(parents=True, exist_ok=True)
 
@@ -415,6 +519,21 @@ def save_paper_session(
             }
         )
 
+    has_source = False
+    source_rel: str | None = None
+    if source_path is not None:
+        try:
+            sp = Path(source_path)
+            if sp.is_file():
+                size = sp.stat().st_size
+                if 0 < size <= SOURCE_MAX_BYTES:
+                    source_rel = source_filename_for(src)
+                    shutil.copy2(sp, paper_dir / source_rel)
+                    has_source = True
+        except OSError:
+            has_source = False
+            source_rel = None
+
     payload = {
         "version": 1,
         "pipeline_version": PIPELINE_VERSION,
@@ -426,6 +545,8 @@ def save_paper_session(
         "saved_at": now,
         "figure_index": session.figure_index,
         "sentence_index": session.sentence_index,
+        "has_source": has_source,
+        "source_file": source_rel,
         "sentences": [
             {"id": s.id, "text": s.text, "section": s.section} for s in session.sentences
         ],
@@ -447,6 +568,7 @@ def save_paper_session(
         "figure_count": len(fig_meta),
         "debone": bool(debone),
         "pipeline_version": PIPELINE_VERSION,
+        "has_source": has_source,
     }
     entries = [e for e in entries if not (isinstance(e, dict) and e.get("id") == cache_id)]
     entries = [

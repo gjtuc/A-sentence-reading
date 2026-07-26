@@ -1502,6 +1502,7 @@ body.is-figure-chrome-out .figure-frame figcaption {
   min-width: 0;
 }
 
+.library-item-reanalyze,
 .library-item-delete {
   flex: 0 0 auto;
   align-self: stretch;
@@ -1514,6 +1515,13 @@ body.is-figure-chrome-out .figure-frame figcaption {
   font-size: 0.72rem;
   cursor: pointer;
   box-sizing: border-box;
+}
+
+.library-item-reanalyze:hover,
+.library-item-reanalyze:focus-visible {
+  outline: 2px solid var(--fg-muted);
+  outline-offset: 1px;
+  color: var(--fg);
 }
 
 .library-item-delete:hover,

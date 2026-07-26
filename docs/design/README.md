@@ -34,4 +34,5 @@
 16은 UI만 (서버 없음 · TTS Enter와 충돌 주의).  
 17은 16 위에 리비전·분기 리뷰 (TTS·노트·voice·논문캐시 GCS 0.2.12 — 원본 PDF는 미동기).  
 18은 17 캐시 위에 보관 목록·즉시 열기·목록 삭제 (0.2.14).  
-19는 stale `pipeline_version` 표시·ingest 재분석·open 허용 (0.2.15).
+19는 stale `pipeline_version` 표시·ingest 재분석·open 허용 (0.2.15).  
+20은 원본 PDF/DOCX 백업·GCS sync·보관 「재분석」 (0.2.16).

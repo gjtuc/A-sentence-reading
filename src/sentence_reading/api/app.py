@@ -17,8 +17,10 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from sentence_reading.cache.paper_cache import (
+    attach_source_file,
     delete_cached_paper,
     find_cached_by_text,
+    get_source_path,
     list_cached_papers,
     load_cached_session,
     save_paper_session,
@@ -131,7 +133,7 @@ def status() -> dict:
         "paper_cache": True,
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
-        "version": "0.2.15",
+        "version": "0.2.16",
     }
 
 
@@ -388,11 +390,83 @@ def cache_open(cache_id: str) -> JSONResponse:
     data["pipeline_version"] = str(info.get("pipeline_version") or "")
     data["current_pipeline"] = PIPELINE_VERSION
     data["stale"] = bool(info.get("stale"))
-    # WHY: stale 도 열어 노트(cache:id) 유지 — 재분석은 파일 재업로드(같은 id로 덮어씀)
+    data["has_source"] = bool(info.get("has_source")) or get_source_path(cache_id) is not None
+    # WHY: stale 도 열어 노트(cache:id) 유지 — 원본 있으면 재분석, 없으면 파일 재업로드
     data["warnings"] = (
         ["stale_pipeline"] if info.get("stale") else []
     )
     return JSONResponse(data)
+
+
+@app.post("/api/cache/papers/{cache_id}/reanalyze")
+async def cache_reanalyze(cache_id: str) -> JSONResponse:
+    """보관된 원본(source.pdf|docx)으로 파이프라인 재실행. 같은 cache_id 유지."""
+    cid = (cache_id or "").strip()
+    try:
+        from sentence_reading.llm.papers_gcs import ensure_paper_local
+
+        ensure_paper_local(cid)
+    except Exception:
+        pass
+    src = get_source_path(cid)
+    if src is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "source_missing",
+                "message": "원본 파일이 없어 재분석할 수 없습니다. PDF/Word를 다시 열어 주세요.",
+            },
+        )
+    kind = "docx" if src.name.lower().endswith(".docx") else "pdf"
+    suffix = ".docx" if kind == "docx" else ".pdf"
+    try:
+        raw = src.read_bytes()
+    except OSError as exc:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ok": False,
+                "error": "source_read_failed",
+                "message": f"원본을 읽지 못했습니다: {exc}",
+            },
+        )
+    if not raw:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "source_missing",
+                "message": "원본 파일이 비어 있습니다.",
+            },
+        )
+
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(raw)
+        tmp_path = Path(tmp.name)
+
+    filename = src.name
+    _JOBS[job_id] = {
+        "percent": 1,
+        "stage": "queued",
+        "message": "재분석 시작",
+        "done": False,
+        "error": None,
+        "result": None,
+    }
+    asyncio.create_task(
+        _run_ingest_job(job_id, tmp_path, filename, kind, skip_cache=True)
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "job_id": job_id,
+            "cache_id": cid,
+            "percent": 1,
+            "message": "재분석 시작",
+        }
+    )
 
 
 @app.delete("/api/cache/papers/{cache_id}")
@@ -537,7 +611,14 @@ def _try_cache_hit(
     return session, info, hit
 
 
-async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str) -> None:
+async def _run_ingest_job(
+    job_id: str,
+    tmp_path: Path,
+    filename: str,
+    kind: str,
+    *,
+    skip_cache: bool = False,
+) -> None:
     warnings: list[str] = []
     try:
         label = "PDF" if kind == "pdf" else "Word"
@@ -559,21 +640,27 @@ async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str)
             raise RuntimeError(f"{label} 텍스트 추출 실패: {exc}") from exc
 
         # WHY: 파일명 말고 논문 제목 — 원문 앞부분에 캐시 제목이 있으면 즉시 로드
-        _job_set(job_id, percent=10, stage="cache", message="제목으로 보관본 찾는 중")
-        cached = await asyncio.to_thread(_try_cache_hit, text, kind)
-        if cached is not None:
-            session, info, hit = cached
-            session_id = _remember_session(session)
-            data = session.to_public_dict()
-            data["ok"] = True
-            data["session_id"] = session_id
-            data["debone"] = bool(info.get("debone"))
-            data["from_cache"] = True
-            data["cache_id"] = hit["id"]
-            data["source"] = kind
-            data["warnings"] = []
-            _finish_job(job_id, data, message="보관본에서 불러옴")
-            return
+        # 재분석(skip_cache) 또는 원본 백필은 히트 경로에서도 진행
+        if not skip_cache:
+            _job_set(job_id, percent=10, stage="cache", message="제목으로 보관본 찾는 중")
+            cached = await asyncio.to_thread(_try_cache_hit, text, kind)
+            if cached is not None:
+                session, info, hit = cached
+                await asyncio.to_thread(
+                    attach_source_file, str(hit["id"]), tmp_path, source=kind
+                )
+                session_id = _remember_session(session)
+                data = session.to_public_dict()
+                data["ok"] = True
+                data["session_id"] = session_id
+                data["debone"] = bool(info.get("debone"))
+                data["from_cache"] = True
+                data["cache_id"] = hit["id"]
+                data["source"] = kind
+                data["has_source"] = get_source_path(str(hit["id"])) is not None
+                data["warnings"] = []
+                _finish_job(job_id, data, message="보관본에서 불러옴")
+                return
 
         # WHY: PDF만 적응형 vision — 스캔·손상 페이지 복구 후 캐시 재조회
         if kind == "pdf" and pdf_pages is not None:
@@ -595,12 +682,15 @@ async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str)
             )
             text = recovered.text
             warnings.extend(recovered.warnings)
-            if recovered.vision_pages:
+            if recovered.vision_pages and not skip_cache:
                 # 복구 후 제목이 보이면 보관본 재사용
                 _job_set(job_id, percent=40, stage="cache", message="복구 후 보관본 확인")
                 cached = await asyncio.to_thread(_try_cache_hit, text, kind)
                 if cached is not None:
                     session, info, hit = cached
+                    await asyncio.to_thread(
+                        attach_source_file, str(hit["id"]), tmp_path, source=kind
+                    )
                     session_id = _remember_session(session)
                     data = session.to_public_dict()
                     data["ok"] = True
@@ -609,6 +699,7 @@ async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str)
                     data["from_cache"] = True
                     data["cache_id"] = hit["id"]
                     data["source"] = kind
+                    data["has_source"] = get_source_path(str(hit["id"])) is not None
                     data["warnings"] = list(warnings)
                     _finish_job(job_id, data, message="보관본에서 불러옴")
                     return
@@ -706,7 +797,11 @@ async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str)
         session_id = _remember_session(session)
 
         cache_entry = await asyncio.to_thread(
-            save_paper_session, session, debone=debone_ok, source=kind
+            save_paper_session,
+            session,
+            debone=debone_ok,
+            source=kind,
+            source_path=tmp_path,
         )
         if cache_entry is None and debone_ok:
             warnings.append("cache_skip_short_title")
@@ -721,6 +816,7 @@ async def _run_ingest_job(job_id: str, tmp_path: Path, filename: str, kind: str)
         if cache_entry:
             data["cache_id"] = cache_entry.get("id")
             data["cached"] = True
+            data["has_source"] = bool(cache_entry.get("has_source"))
 
         _finish_job(
             job_id,
