@@ -12,7 +12,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Body, FastAPI, File, UploadFile
+from fastapi import Body, FastAPI, File, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -32,6 +32,12 @@ from sentence_reading.llm.notes_gcs import (
     download_notes_store,
     empty_notes_store,
     push_notes_store,
+)
+from sentence_reading.llm.voice_gcs import (
+    VOICE_BLOB_KEY_MAX,
+    VOICE_BLOB_MAX_BYTES,
+    download_voice_blob,
+    upload_voice_blob,
 )
 from sentence_reading.llm.tts import (
     CURATED_VOICES,
@@ -124,8 +130,89 @@ def status() -> dict:
         "gcs": gcs_status(),
         "paper_cache": True,
         "docx_extract": True,
-        "version": "0.2.10",
+        "version": "0.2.11",
     }
+
+
+@app.get("/api/voice/blobs")
+async def voice_blob_get(key: str = "") -> Response:
+    """
+    blobKey → 오디오 bytes (GCS). IDB miss 시 클라이언트가 호출.
+    """
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready"):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "available": False,
+                "error": "gcs_unavailable",
+                "message": st.get("message"),
+            },
+        )
+    blob_key = (key or "").strip()
+    if not blob_key or len(blob_key) > VOICE_BLOB_KEY_MAX:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "bad_key", "message": "invalid blob key"},
+        )
+    data = download_voice_blob(blob_key)
+    if not data:
+        return JSONResponse(
+            status_code=404,
+            content={"ok": False, "error": "not_found", "message": "voice blob missing"},
+        )
+    return Response(content=data, media_type="application/octet-stream")
+
+
+@app.put("/api/voice/blobs")
+async def voice_blob_put(request: Request, key: str = "") -> JSONResponse:
+    """
+    녹음 blob → GCS. query `key` = 노트 store 의 blobKey.
+    """
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready"):
+        return JSONResponse(
+            {
+                "ok": True,
+                "available": False,
+                "uploaded": False,
+                "message": st.get("message"),
+            }
+        )
+    blob_key = (key or "").strip()
+    if not blob_key or len(blob_key) > VOICE_BLOB_KEY_MAX:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "bad_key", "message": "invalid blob key"},
+        )
+    body = await request.body()
+    if not body:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "empty_body", "message": "empty audio"},
+        )
+    if len(body) > VOICE_BLOB_MAX_BYTES:
+        return JSONResponse(
+            status_code=413,
+            content={
+                "ok": False,
+                "error": "too_large",
+                "message": f"max {VOICE_BLOB_MAX_BYTES} bytes",
+            },
+        )
+    ctype = (request.headers.get("content-type") or "application/octet-stream").split(";")[
+        0
+    ].strip()
+    ok = upload_voice_blob(blob_key, body, content_type=ctype or "application/octet-stream")
+    return JSONResponse(
+        {
+            "ok": True,
+            "available": True,
+            "uploaded": bool(ok),
+            "message": "ok" if ok else "upload_failed",
+        }
+    )
 
 
 @app.get("/api/notes/sync")

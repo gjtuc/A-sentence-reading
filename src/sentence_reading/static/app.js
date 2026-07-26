@@ -1308,6 +1308,7 @@
 
   /**
    * IndexedDB blobKey → 최신 한 건만 재생 (이전 재생은 끊음).
+   * IDB miss 시 GCS(/api/voice/blobs)에서 받아 IDB에 채움.
    * @param {string} blobKey
    * @param {{ onStatus?: function(string), onMissing?: function() }} opts
    * @returns {Promise<boolean>}
@@ -1323,8 +1324,11 @@
     try {
       var blob = await window.AsrVoiceIdb.getBlob(blobKey);
       if (!blob || !(blob.size > 0)) {
-        if (opts.onMissing) opts.onMissing();
-        return false;
+        blob = await fetchVoiceBlobFromCloud(blobKey);
+        if (!blob || !(blob.size > 0)) {
+          if (opts.onMissing) opts.onMissing();
+          return false;
+        }
       }
       var url = URL.createObjectURL(blob);
       noteUi.voiceObjectUrl = url;
@@ -1345,6 +1349,61 @@
       stopVoicePlayback();
       if (opts.onStatus) opts.onStatus("재생 실패");
       return false;
+    }
+  }
+
+  /**
+   * GCS → IDB 캐시. 실패·미설정 시 null.
+   * @param {string} blobKey
+   * @returns {Promise<Blob|null>}
+   */
+  async function fetchVoiceBlobFromCloud(blobKey) {
+    if (!blobKey || !window.AsrVoiceIdb) return null;
+    try {
+      var res = await fetch(
+        "/api/voice/blobs?key=" + encodeURIComponent(blobKey)
+      );
+      if (!res.ok) return null;
+      var buf = await res.arrayBuffer();
+      if (!buf || !buf.byteLength) return null;
+      var ctype = res.headers.get("content-type") || "audio/webm";
+      var blob = new Blob([buf], { type: ctype });
+      try {
+        await window.AsrVoiceIdb.putBlob(blobKey, blob);
+      } catch (_) {
+        /* IDB 실패해도 재생은 가능 */
+      }
+      return blob;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * 로컬 녹음 → GCS best-effort (노트 메타 push 와 별개).
+   * @param {string} blobKey
+   * @param {Blob} blob
+   */
+  async function uploadVoiceBlobToCloud(blobKey, blob) {
+    if (!blobKey || !blob || !(blob.size > 0)) return;
+    try {
+      var res = await fetch(
+        "/api/voice/blobs?key=" + encodeURIComponent(blobKey),
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": blob.type || "application/octet-stream",
+          },
+          body: blob,
+        }
+      );
+      if (!res.ok) return;
+      var data = await res.json();
+      if (data && data.available === false) {
+        /* 버킷 없음 — 무시 */
+      }
+    } catch (_) {
+      /* offline */
     }
   }
 
@@ -1406,6 +1465,8 @@
             blob.type || "audio/webm"
           );
           writeNotesStore(result.store);
+          // WHY: 메타는 notes sync · 바이너리는 voice GCS (design/17)
+          uploadVoiceBlobToCloud(blobKey, blob);
           setNoteVoiceStatus("저장됨 · rev " + result.rev);
           updateNoteVoiceButtons(pk, sid);
         } catch (err) {

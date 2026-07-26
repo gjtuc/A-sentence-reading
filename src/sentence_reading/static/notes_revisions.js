@@ -1,7 +1,7 @@
 /**
  * 무엇을: 문장별 성찰 노트 append-only 리비전 (localStorage).
  * 왜: 되새김질 — 최신만 기본 표시, 과거는 보관·선택 열람 (design/17).
- * 다음에: voice blob GCS. 노트 store는 /api/notes/sync.
+ * 다음에: (voice blob GCS는 /api/voice/blobs).
  *
  * 스키마 v2:
  * {
