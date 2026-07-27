@@ -272,6 +272,11 @@ def auth_status_fields(user: AuthUser | None = None) -> dict[str, Any]:
     if user:
         user_out = public_user_with_providers(user)
     cloud_url = (os.environ.get("ASR_CLOUD_RUN_URL") or "").strip().rstrip("/")
+    is_admin = False
+    if user and user.email:
+        from sentence_reading.llm.usage_meter import is_admin_email
+
+        is_admin = is_admin_email(user.email)
     return {
         "auth_enabled": enabled,
         "auth_provider": "multi" if enabled else None,
@@ -285,6 +290,7 @@ def auth_status_fields(user: AuthUser | None = None) -> dict[str, Any]:
         "user": user_out,
         "gcs_uid": current_gcs_uid(),
         "gcs_user_scoped": bool(current_gcs_uid()),
+        "is_admin": is_admin,
     }
 
 

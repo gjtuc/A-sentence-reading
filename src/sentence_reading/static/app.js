@@ -113,6 +113,11 @@
     authLoginBtn: document.getElementById("authLoginBtn"),
     authLogoutBtn: document.getElementById("authLogoutBtn"),
     authAccountBtn: document.getElementById("authAccountBtn"),
+    usageBtn: document.getElementById("usageBtn"),
+    usageDialog: document.getElementById("usageDialog"),
+    usageDialogBody: document.getElementById("usageDialogBody"),
+    usageDialogNote: document.getElementById("usageDialogNote"),
+    usageDialogClose: document.getElementById("usageDialogClose"),
     authUserLabel: document.getElementById("authUserLabel"),
     cloudUrlLink: document.getElementById("cloudUrlLink"),
     authDialog: document.getElementById("authDialog"),
@@ -1202,7 +1207,7 @@
   /** @type {boolean|null} null=미확인 */
   let gcsNotesAvailable = null;
 
-  /** @type {{ enabled: boolean, clientId: string|null, providers: {google?:boolean,kakao?:boolean,email?:boolean}, user: object|null, dialogMode: string, cloudUrl: string|null }} */
+  /** @type {{ enabled: boolean, clientId: string|null, providers: {google?:boolean,kakao?:boolean,email?:boolean}, user: object|null, dialogMode: string, cloudUrl: string|null, isAdmin: boolean }} */
   let authState = {
     enabled: false,
     clientId: null,
@@ -1210,6 +1215,7 @@
     user: null,
     dialogMode: "login",
     cloudUrl: null,
+    isAdmin: false,
   };
 
   function applyAccountScope(uid) {
@@ -1237,6 +1243,7 @@
     if (el.authLoginBtn) el.authLoginBtn.hidden = !enabled || !!user;
     if (el.authLogoutBtn) el.authLogoutBtn.hidden = !enabled || !user;
     if (el.authAccountBtn) el.authAccountBtn.hidden = !enabled || !user;
+    if (el.usageBtn) el.usageBtn.hidden = !enabled || !user;
     if (el.cloudUrlLink) {
       const cloud = authState.cloudUrl;
       const here = window.location.origin.replace(/\/$/, "");
@@ -1327,6 +1334,14 @@
   async function afterAuthSuccess(data, msg) {
     authState.user = data.user || null;
     applyAccountScope(authState.user && authState.user.uid);
+    try {
+      const st = await fetch("/api/auth/status", { credentials: "same-origin" });
+      const d = await st.json().catch(() => ({}));
+      authState.isAdmin = !!d.is_admin;
+      if (d.user) authState.user = d.user;
+    } catch (_) {
+      /* ignore */
+    }
     renderAuthChrome();
     setUploadStatus(msg || "로그인됨", "");
     if (el.authDialog && el.authDialog.open) el.authDialog.close();
@@ -1493,6 +1508,7 @@
       authState.providers = data.providers || {};
       authState.user = data.user || null;
       authState.cloudUrl = data.cloud_url || null;
+      authState.isAdmin = !!data.is_admin;
       applyAccountScope(authState.user && authState.user.uid);
       renderAuthChrome();
       const params = new URLSearchParams(window.location.search);
@@ -1514,8 +1530,82 @@
         user: null,
         dialogMode: "login",
         cloudUrl: null,
+        isAdmin: false,
       };
       renderAuthChrome();
+    }
+  }
+
+  async function openUsageDialog() {
+    if (!el.usageDialog || !authState.user) return;
+    if (el.usageDialogBody) el.usageDialogBody.textContent = "불러오는 중…";
+    if (typeof el.usageDialog.showModal === "function") {
+      el.usageDialog.showModal();
+    }
+    try {
+      const meRes = await fetch("/api/usage", { credentials: "same-origin" });
+      const me = await meRes.json().catch(() => ({}));
+      let text = "";
+      if (!meRes.ok || me.ok === false) {
+        text = me.error || "사용량을 불러오지 못했습니다.";
+      } else {
+        const t = me.totals || {};
+        const e = me.estimate_usd || {};
+        text =
+          "나 · 추정 $" +
+          (e.total_usd != null ? e.total_usd : "?") +
+          "\n" +
+          "Gemini 호출 " +
+          (t.gemini_calls || 0) +
+          " · in/out 문자 " +
+          (t.gemini_input_chars || 0) +
+          "/" +
+          (t.gemini_output_chars || 0) +
+          "\n" +
+          "TTS 클라우드 " +
+          (t.tts_cloud_calls || 0) +
+          "회 · " +
+          (t.tts_chars || 0) +
+          "자\n" +
+          "GCS up/down " +
+          (t.gcs_upload_bytes || 0) +
+          "/" +
+          (t.gcs_download_bytes || 0) +
+          " B\n" +
+          (me.estimate_note || "");
+      }
+      if (authState.isAdmin) {
+        const adRes = await fetch("/api/usage/admin", {
+          credentials: "same-origin",
+        });
+        const ad = await adRes.json().catch(() => ({}));
+        if (adRes.ok && ad.ok !== false) {
+          const g = ad.grand_estimate_usd || {};
+          text +=
+            "\n\n—— 관리자 전체 ——\n추정 합 $" +
+            (g.total_usd != null ? g.total_usd : "?") +
+            " · 유저 " +
+            ((ad.users && ad.users.length) || 0) +
+            "명";
+          (ad.users || []).slice(0, 40).forEach(function (u) {
+            const ue = (u.estimate_usd && u.estimate_usd.total_usd) || 0;
+            text +=
+              "\n· " +
+              (u.email || u.uid) +
+              " · $" +
+              ue;
+          });
+        }
+      }
+      if (el.usageDialogBody) el.usageDialogBody.textContent = text;
+      if (el.usageDialogNote && me.estimate_note) {
+        el.usageDialogNote.textContent = me.estimate_note;
+      }
+    } catch (err) {
+      if (el.usageDialogBody) {
+        el.usageDialogBody.textContent =
+          (err && err.message) || "사용량 오류";
+      }
     }
   }
 
@@ -3898,6 +3988,16 @@
     el.authAccountBtn.addEventListener("click", () => {
       if (!authState.user) return;
       openAuthDialog("link");
+    });
+  }
+  if (el.usageBtn) {
+    el.usageBtn.addEventListener("click", () => {
+      void openUsageDialog();
+    });
+  }
+  if (el.usageDialogClose) {
+    el.usageDialogClose.addEventListener("click", () => {
+      if (el.usageDialog && el.usageDialog.open) el.usageDialog.close();
     });
   }
   if (el.authLogoutBtn) {

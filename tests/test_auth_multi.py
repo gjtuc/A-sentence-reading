@@ -1,4 +1,4 @@
-"""멀티 로그인 · 계정 연결 (0.2.23)."""
+"""멀티 로그인 · 계정 연결 (0.2.24)."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_version() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.23"
+    assert st["version"] == "0.2.24"
     assert st["auth"]["providers"]["email"] is True
 
 

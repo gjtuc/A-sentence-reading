@@ -267,6 +267,12 @@ def _call_gemini(system: str, user: str) -> str:
             response_mime_type="application/json",
         ),
     )
+    try:
+        from sentence_reading.llm.usage_meter import record_gemini_response
+
+        record_gemini_response(f"{system}\n{user}", response)
+    except Exception:  # noqa: BLE001
+        pass
     text = (getattr(response, "text", None) or "").strip()
     if text:
         return text

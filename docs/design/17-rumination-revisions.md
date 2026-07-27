@@ -61,7 +61,7 @@
 - ~~Cloud Run 문지기 스캐폴드~~ (0.2.21 — [25-cloud-run.md](25-cloud-run.md))
 - ~~Cloud Run 실배포 · ADC~~ (0.2.22)
 - ~~Cloud Run Google OAuth 원본~~ (0.2.23 — [26-cloud-run-oauth-origin.md](26-cloud-run-oauth-origin.md))
-- 유저별 사용량·추정 비용 UI (나중 — Gemini·TTS·GCS 계측)
+- ~~유저별 사용량·추정 비용 UI~~ (0.2.24 — [27-usage-metering.md](27-usage-metering.md))
 ## GCS
 
 | env | 의미 |

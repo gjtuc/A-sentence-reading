@@ -162,6 +162,7 @@ def upload_bytes(
     data: bytes,
     *,
     content_type: str = "application/octet-stream",
+    meter: bool = True,
 ) -> bool:
     """bytes → GCS. 실패 시 False (호출측 TTS를 막지 않음)."""
     cfg = gcs_config()
@@ -179,14 +180,22 @@ def upload_bytes(
     try:
         client = _storage_client()
         blob = client.bucket(cfg.bucket).blob(name)
-        blob.upload_from_string(bytes(data), content_type=content_type)
+        payload = bytes(data)
+        blob.upload_from_string(payload, content_type=content_type)
+        if meter:
+            try:
+                from sentence_reading.llm.usage_meter import record
+
+                record(gcs_ops=1, gcs_upload_bytes=len(payload))
+            except Exception:  # noqa: BLE001
+                pass
         return True
     except Exception as exc:  # noqa: BLE001
         log.warning("gcs upload failed %s: %s", name, exc)
         return False
 
 
-def download_bytes(full_object_name: str) -> bytes | None:
+def download_bytes(full_object_name: str, *, meter: bool = True) -> bytes | None:
     """GCS → bytes. miss/실패면 None."""
     cfg = gcs_config()
     if not cfg.enabled:
@@ -204,6 +213,13 @@ def download_bytes(full_object_name: str) -> bytes | None:
         if not blob.exists():
             return None
         data = blob.download_as_bytes()
+        if data and meter:
+            try:
+                from sentence_reading.llm.usage_meter import record
+
+                record(gcs_ops=1, gcs_download_bytes=len(data))
+            except Exception:  # noqa: BLE001
+                pass
         return data if data else None
     except Exception as exc:  # noqa: BLE001
         log.warning("gcs download failed %s: %s", name, exc)
