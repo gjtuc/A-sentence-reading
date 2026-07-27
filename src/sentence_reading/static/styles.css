@@ -89,6 +89,26 @@ body.is-browser-fullscreen .note-overlay .note-textarea {
     text !important;
 }
 
+/*
+ * 문장 확대 FS: 문장 패널 hover 때만 흰 십자.
+ * WHY: 글 위에 올렸을 때 검정 십자가가 안 보임 → 흰 십자 (노트 시트와 동일 SVG).
+ */
+:fullscreen .layout.is-sentence-focus .panel-sentence:hover,
+:fullscreen .layout.is-sentence-focus .panel-sentence:hover *,
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover,
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17'%3E%3Cpath stroke='%23ffffff' stroke-width='1.25' d='M8.5 0v17M0 8.5h17'/%3E%3C/svg%3E")
+      8 8,
+    crosshair !important;
+}
+
+:fullscreen .layout.is-sentence-focus .panel-sentence:hover .nav-btn,
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover .nav-btn,
+:fullscreen .layout.is-sentence-focus .panel-sentence:hover .fig-ref-chip,
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover .fig-ref-chip {
+  cursor: pointer !important;
+}
+
 /* 스크롤바 — 다크 미니멀 (Firefox) */
 * {
   scrollbar-width: thin;
