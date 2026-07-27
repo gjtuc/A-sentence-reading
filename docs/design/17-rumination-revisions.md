@@ -63,6 +63,7 @@
 - ~~Cloud Run Google OAuth 원본~~ (0.2.23 — [26-cloud-run-oauth-origin.md](26-cloud-run-oauth-origin.md))
 - ~~유저별 사용량·추정 비용 UI~~ (0.2.24 — [27-usage-metering.md](27-usage-metering.md))
 - ~~Fig. N → 그림 점프 힌트~~ (0.2.25 — [28-fig-ref-jump.md](28-fig-ref-jump.md))
+- ~~Compound figure (1a/1b) 분해~~ (0.2.26 — [29-compound-figures.md](29-compound-figures.md))
 ## GCS
 
 | env | 의미 |

@@ -2,7 +2,7 @@
 
 모듈: `llm/extract_quality.py` · `llm/vision_ocr.py` · `pdf/extract.py` (`extract_text_by_page`, `render_page_png`)  
 관련: [02-pdf-extract.md](02-pdf-extract.md) · [12-gemini-debone.md](12-gemini-debone.md)  
-파이프라인: `PIPELINE_VERSION = rich-v3`
+파이프라인: `PIPELINE_VERSION = rich-v4`
 
 ## 목표
 

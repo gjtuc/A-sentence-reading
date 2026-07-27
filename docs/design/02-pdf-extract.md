@@ -73,7 +73,8 @@ embedded가 0개이고 텍스트는 있을 때 — “페이지를 그림으로�
 
 ### compound figures
 
-`Fig 1a/1b` 분해 **안 함.** 통짜 한 장으로 둔다. warning 없음(정상).
+캡션에 `(a)(b)…` 또는 `(a–c)` 가 있으면 **균등 그리드 크롭**으로 패널별 항목 생성  
+(`Fig. 1a` …). ML 분할 없음. 실패·패널 1개면 통짜 유지. → [29-compound-figures.md](29-compound-figures.md)
 
 ## 성능·한도
 
