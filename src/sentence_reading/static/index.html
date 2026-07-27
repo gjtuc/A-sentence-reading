@@ -54,6 +54,15 @@
       <button
         type="button"
         class="upload-btn upload-btn-ghost"
+        id="usageBtn"
+        title="사용량 · 추정 비용"
+        hidden
+      >
+        사용량
+      </button>
+      <button
+        type="button"
+        class="upload-btn upload-btn-ghost"
         id="libraryBtn"
         title="보관된 논문 목록 — 다시 분석 없이 열기"
       >
@@ -287,6 +296,19 @@
         <button type="button" class="upload-btn upload-btn-ghost" id="libraryDialogClose">
           닫기
         </button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="tts-dialog" id="usageDialog">
+    <div class="tts-dialog-form">
+      <h2 class="tts-dialog-title">사용량 · 추정 비용</h2>
+      <p class="auth-dialog-hint" id="usageDialogNote">
+        Google 청구서와 다를 수 있는 안내 추정입니다.
+      </p>
+      <pre class="usage-body" id="usageDialogBody" style="white-space:pre-wrap;font-size:0.85rem;max-height:50vh;overflow:auto;margin:0.5rem 0;"></pre>
+      <div class="tts-dialog-actions">
+        <button type="button" class="upload-btn upload-btn-ghost" id="usageDialogClose">닫기</button>
       </div>
     </div>
   </dialog>

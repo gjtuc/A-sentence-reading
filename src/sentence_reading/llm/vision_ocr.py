@@ -64,6 +64,13 @@ def _call_gemini_vision(system: str, user_text: str, png: bytes) -> str:
             max_output_tokens=8192,
         ),
     )
+    try:
+        from sentence_reading.llm.usage_meter import record_gemini_response
+
+        # WHY: 이미지는 토큰 usage_metadata 우선 · 없으면 프롬프트 문자만
+        record_gemini_response(f"{system}\n{user_text}", response)
+    except Exception:  # noqa: BLE001
+        pass
     text = (getattr(response, "text", None) or "").strip()
     if text:
         return text

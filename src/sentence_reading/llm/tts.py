@@ -209,6 +209,13 @@ def synthesize_mp3(
 
     audio = _synthesize_uncached(plain, voice_name)
     try:
+        from sentence_reading.llm.usage_meter import record
+
+        # WHY: 캐시 hit 제외 · 클라우드 합성만 (design/27)
+        record(tts_cloud_calls=1, tts_chars=len(plain))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_bytes(audio)
     except OSError:

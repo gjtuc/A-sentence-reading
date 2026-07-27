@@ -1,4 +1,4 @@
-"""Cloud Run 문지기 계약 (0.2.23)."""
+"""Cloud Run 문지기 계약 (0.2.24)."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ def test_dockerfile_and_deploy_script_exist() -> None:
     assert "JavaScript" in design
     assert "0.2.23" in design
     assert "ASR_CLOUD_RUN_URL" in script
+    assert "ASR_ADMIN_EMAILS" in script
 
 
 def test_cookie_secure_flag(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -43,7 +44,7 @@ def test_status_version() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.23"
+    assert st["version"] == "0.2.24"
 
 
 def test_cloud_url_in_auth_status(monkeypatch):
