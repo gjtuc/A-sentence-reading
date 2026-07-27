@@ -65,6 +65,7 @@
 - ~~Fig. N → 그림 점프 힌트~~ (0.2.25 — [28-fig-ref-jump.md](28-fig-ref-jump.md))
 - ~~Compound figure (1a/1b) 분해~~ (0.2.26 — [29-compound-figures.md](29-compound-figures.md))
 - ~~음절·품사 색~~ — **하지 않음** (0.2.30 원복 · RESEARCH 비목표)
+- ~~다단 reading-order~~ (0.2.32 — [31-reading-order.md](31-reading-order.md))
 ## GCS
 
 | env | 의미 |

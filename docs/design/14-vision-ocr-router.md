@@ -2,7 +2,7 @@
 
 모듈: `llm/extract_quality.py` · `llm/vision_ocr.py` · `pdf/extract.py` (`extract_text_by_page`, `render_page_png`)  
 관련: [02-pdf-extract.md](02-pdf-extract.md) · [12-gemini-debone.md](12-gemini-debone.md)  
-파이프라인: `PIPELINE_VERSION = rich-v4`
+파이프라인: `PIPELINE_VERSION = rich-v5`
 
 ## 목표
 
@@ -75,4 +75,4 @@ DOCX는 대상 아님 (텍스트 extract → debone 유지).
 
 - Tesseract 로컬 OCR
 - DOCX vision
-- 다단 ML 전면 재정렬 (의심 페이지만 vision 우회)
+- 다단 ML 전면 재정렬 — **기하+vision 강제** 로 대체 (0.2.32 — [31-reading-order.md](31-reading-order.md); 로컬 Layout 가중치 없음)

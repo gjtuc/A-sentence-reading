@@ -27,9 +27,9 @@ extract_figures(pdf_path, out_dir) -> list[Figure]
 
 ### 다단 (two-column)
 
-1차는 **무시** (단순 get_text).  
-심한 순서 손상은 [14-vision-ocr-router.md](14-vision-ocr-router.md) 가 의 페이지만 vision으로 우회.  
-전면 ML 재정렬은 M5 이후.
+1. 블록 bbox 로 좌·우 군집 → 좌열 위→아래 후 우열 ([31-reading-order.md](31-reading-order.md)).
+2. 다단 페이지는 vision OCR 후보에 **강제 합류** (순서 재확인).
+3. 로컬 Layout ML 없음.
 
 ### 실패
 

@@ -2,7 +2,7 @@
 무엇을: PDF 바이트 → 그림·표 목록(+캡션) + 원문 텍스트.
 왜: Fig/Table 은 본문과 위치가 어긋나므로 하단 캐러셀에 따로 둔다.
      그림 캡션은 아래, 표 캡션은 위에 있는 경우가 많다.
-다음에: 다단 reading-order, 스캔본 OCR. compound 1a/1b → pdf/compound.py.
+다음에: 스캔본 OCR 보강. compound → pdf/compound.py · reading-order → pdf/reading_order.py.
 """
 
 from __future__ import annotations
@@ -330,16 +330,19 @@ def _normalize_page_text(raw: str) -> str:
 
 
 def extract_text_by_page(pdf_path: Path) -> list[str]:
-    """페이지별 텍스트 (0-based). 단순 get_text — 다단 미보정."""
-    import fitz
+    """
+    페이지별 텍스트 (0-based).
+    2단이면 블록 좌→우 재정렬 (design/31). 다단 인덱스는 extract_text_by_page_meta.
+    """
+    pages, _ = extract_text_by_page_meta(pdf_path)
+    return pages
 
-    doc = fitz.open(pdf_path)
-    try:
-        if doc.is_encrypted:
-            raise ValueError("encrypted_pdf")
-        return [_normalize_page_text(page.get_text("text") or "") for page in doc]
-    finally:
-        doc.close()
+
+def extract_text_by_page_meta(pdf_path: Path) -> tuple[list[str], list[int]]:
+    """(pages, multicolumn_page_indices)."""
+    from sentence_reading.pdf.reading_order import extract_text_by_page_ordered
+
+    return extract_text_by_page_ordered(pdf_path)
 
 
 def join_page_texts(pages: list[str]) -> str:
@@ -348,7 +351,7 @@ def join_page_texts(pages: list[str]) -> str:
 
 
 def extract_text(pdf_path: Path) -> str:
-    """페이지 순서 텍스트. 1차는 단순 get_text (다단 미보정)."""
+    """페이지 순서 텍스트 (다단 보정 포함)."""
     return join_page_texts(extract_text_by_page(pdf_path))
 
 

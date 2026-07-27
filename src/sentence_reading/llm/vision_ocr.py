@@ -1,7 +1,7 @@
 """
 무엇을: PDF 페이지 PNG → Gemini vision → plain text, 품질 라우터와 병합.
 왜: 스캔·손상 페이지는 get_text가 비거나 순서가 틀리므로 이미지가 필요하다.
-다음에: 페이지 묶음(batch) vision, DPI 자동 조절.
+다음에: 페이지 묶음(batch) vision. 다단 강제 → reading_order + design/31.
 """
 
 from __future__ import annotations
@@ -20,7 +20,10 @@ from sentence_reading.pdf.extract import join_page_texts, render_page_png
 _VISION_PAGE_CAP = 40
 
 _OCR_SYSTEM = """You read one academic PDF page image and return its body text.
-Restore reading order (two-column: left column top-to-bottom, then right).
+Restore reading order strictly:
+- two-column: left column top-to-bottom, then right column top-to-bottom
+- three-column: left, then middle, then right (each top-to-bottom)
+- sidebars/captions: after the main column flow, or with their figure/table if adjacent
 Output plain text only — no HTML, no markdown fences, no commentary.
 Skip pure decorative headers/footers if they repeat; keep real section titles and prose.
 Do not invent chemistry or claims that are not visible on the page.
@@ -146,6 +149,20 @@ def recover_pdf_text(
     decision = decide_extract_quality(working)
     if decision.warning:
         warnings.append(decision.warning)
+
+    # WHY: 기하 2단 페이지는 비용 무시하고 vision 으로 읽는 순서 재확인 (design/31)
+    try:
+        from sentence_reading.pdf.reading_order import (
+            detect_multicolumn_pages,
+            merge_multicolumn_decision,
+        )
+
+        multi = detect_multicolumn_pages(pdf_path)
+        decision = merge_multicolumn_decision(decision, multi, n)
+        if multi:
+            warnings.append(f"multicolumn_pages:{len(multi)}")
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"multicolumn_detect_failed:{exc}")
 
     if on_progress:
         on_progress("quality", 1, 1, decision.notes or decision.verdict)
