@@ -49,7 +49,7 @@
 
 - ~~compound figure (1a/1b) 분해~~ (0.2.26 — [29-compound-figures.md](29-compound-figures.md))
 - ~~Fig. N → 그림 자동 점프 힌트~~ (0.2.25 — [28-fig-ref-jump.md](28-fig-ref-jump.md))
-- TTS / 음절 / 품사 색
+- ~~TTS / 음절 / 품사 색~~ — 음절(·) 0.2.30 ([30-reading-aids.md](30-reading-aids.md)); **품사 색은 남음**
 - 다단 reading-order ML (전면; 의심 페이지 vision 우회는 [14](14-vision-ocr-router.md)로 일부 커버)
 
 ### 구현됨 (참고)

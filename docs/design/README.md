@@ -35,6 +35,7 @@
 | 27 | [27-usage-metering.md](27-usage-metering.md) | 유저별 사용량 · 추정 비용 |
 | 28 | [28-fig-ref-jump.md](28-fig-ref-jump.md) | Fig. N → 그림 점프 칩 |
 | 29 | [29-compound-figures.md](29-compound-figures.md) | Compound 1a/1b 균등 분해 |
+| 30 | [30-reading-aids.md](30-reading-aids.md) | 음절(·) 토글 · 품사 색은 다음 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -54,4 +55,5 @@
 26은 Run URL Google OAuth 원본 + 로컬 「클라우드」링크 (0.2.23).  
 27은 유저별 사용량·추정 비용 (0.2.24).  
 28은 Fig./Scheme/Table 참조 → 그림 점프 칩 (0.2.25).  
-29는 compound figure 1a/1b 균등 분해 · `rich-v4` (0.2.26).
+29는 compound figure 1a/1b 균등 분해 · `rich-v4` (0.2.26).  
+30은 Immersive식 음절(·) 토글 (0.2.30; 품사 색 다음).
