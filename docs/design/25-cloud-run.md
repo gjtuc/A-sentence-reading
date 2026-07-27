@@ -8,11 +8,11 @@
 창고는 이미 GCS `asr-chaheon-warehouse` · `users/{uid}/…`.  
 Run = 로그인 검증 + SA로 GCS/TTS/Gemini 호출.
 
-## 비목표 (이 턴)
+## 비목표 (완료·연기)
 
-- 유저별 추정 비용 UI ([나중 턴](17-rumination-revisions.md))
-- 카카오 콘솔 키
-- GitHub 자동 CD (수동 `gcloud run deploy --source` 먼저)
+- ~~유저별 추정 비용 UI~~ ([27](27-usage-metering.md))
+- 카카오 콘솔 키 ([23](23-multi-auth-link.md) — 별도)
+- ~~GitHub 자동 CD~~ ([32-github-cd.md](32-github-cd.md) · 0.2.33; `ASR_CD_ENABLED=1` 게이트)
 
 ## 불변
 
@@ -105,4 +105,4 @@ Google OAuth **승인된 JavaScript 원본**에 위 URL 추가 후 Google 로그
 
 ## 버전
 
-0.2.22
+0.2.22 (문지기) · CD 게이트는 0.2.33 ([32](32-github-cd.md))

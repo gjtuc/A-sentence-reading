@@ -75,6 +75,11 @@ python -m venv venv
 | [docs/RESEARCH.md](docs/RESEARCH.md) | Immersive Reader·유사 제품 |
 | [docs/COMMENTING.md](docs/COMMENTING.md) | `# WHY:` 주석 규칙 |
 | [docs/design/](docs/design/README.md) | **구현용 쪼개진 설계** (마일스톤·데이터·PDF·API·UI 상태·테스트…) |
+| [docs/design/25-cloud-run.md](docs/design/25-cloud-run.md) | Cloud Run 문지기 (수동 배포) |
+| [docs/design/32-github-cd.md](docs/design/32-github-cd.md) | GitHub pytest CI · Cloud Run CD 게이트 |
+
+라이브: `https://asr-sentence-reading-984608876300.asia-northeast3.run.app`  
+CD는 기본 꺼짐 — Secrets + `ASR_CD_ENABLED=1` 후 Actions에서 켠다.
 
 ## 스택
 

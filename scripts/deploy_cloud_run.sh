@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # WHAT: Build+deploy A-sentence-reading gatekeeper to Cloud Run (remote build, no local Docker).
-# WHY: PC-off access — design/25. Secrets via env flags; runtime SA = asr-tts.
+# WHY: PC-off access — design/25·32. Secrets via env flags; runtime SA = asr-tts.
+# 다음에: GitHub Actions CD (vars.ASR_CD_ENABLED=1) 가 이 스크립트를 호출.
 set -euo pipefail
 
 PROJECT_ID="${GCP_PROJECT_ID:-peaceful-basis-503207-t4}"
@@ -12,14 +13,20 @@ BUCKET="${ASR_GCS_BUCKET:-asr-chaheon-warehouse}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+: "${ASR_GOOGLE_CLIENT_ID:?Set ASR_GOOGLE_CLIENT_ID}"
+: "${ASR_AUTH_SECRET:?Set ASR_AUTH_SECRET (strong random)}"
+: "${GEMINI_API_KEY:?Set GEMINI_API_KEY}"
+
+# WHY: CI·로컬에서 gcloud/권한 없이 계약만 검증 (design/32).
+if [[ "${ASR_CD_DRY_RUN:-}" == "1" ]]; then
+  echo "dry-run: would deploy service=${SERVICE} region=${REGION} project=${PROJECT_ID} sa=${SA_EMAIL} bucket=${BUCKET}"
+  exit 0
+fi
+
 if ! command -v gcloud >/dev/null 2>&1; then
   echo "gcloud CLI 가 없습니다. https://cloud.google.com/sdk/docs/install 후 다시 실행하세요." >&2
   exit 1
 fi
-
-: "${ASR_GOOGLE_CLIENT_ID:?Set ASR_GOOGLE_CLIENT_ID}"
-: "${ASR_AUTH_SECRET:?Set ASR_AUTH_SECRET (strong random)}"
-: "${GEMINI_API_KEY:?Set GEMINI_API_KEY}"
 
 gcloud config set project "$PROJECT_ID"
 gcloud services enable \
