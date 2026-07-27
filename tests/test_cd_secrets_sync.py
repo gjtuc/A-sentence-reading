@@ -48,18 +48,46 @@ def test_ensure_sa_dry_run() -> None:
 
 
 def test_sync_dry_run_requires_sa_json(tmp_path: Path) -> None:
-    # edge: SA JSON 없으면 exit 2
+    # edge: SA JSON 없으면 exit 2 (env 는 있어도)
+    env_file = tmp_path / "asr.env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "ASR_GOOGLE_CLIENT_ID=cid",
+                "ASR_AUTH_SECRET=sec",
+                "GEMINI_API_KEY=key",
+                "ASR_KAKAO_REST_API_KEY=r" * 8,
+                "ASR_KAKAO_CLIENT_SECRET=s" * 8,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
     missing = tmp_path / "no-such.json"
     r = _run(
         SYNC,
         {
             "ASR_CD_DRY_RUN": "1",
-            "ASR_ENV_FILE": str(Path(r"C:/Users/user/Desktop/.cursor/gc_automation.env")),
+            "ASR_ENV_FILE": str(env_file),
             "ASR_CD_SA_JSON": str(missing),
         },
     )
-    assert r.returncode == 2
+    assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
     assert "missing SA_JSON" in (r.stdout + r.stderr)
+
+
+def test_sync_dry_run_missing_env_file(tmp_path: Path) -> None:
+    # edge: env 파일 없음 → exit 1
+    r = _run(
+        SYNC,
+        {
+            "ASR_CD_DRY_RUN": "1",
+            "ASR_ENV_FILE": str(tmp_path / "gone.env"),
+            "ASR_CD_SA_JSON": str(tmp_path / "x.json"),
+        },
+    )
+    assert r.returncode == 1
+    assert "missing env file" in (r.stdout + r.stderr)
 
 
 def test_sync_dry_run_ok_with_sa_json() -> None:
