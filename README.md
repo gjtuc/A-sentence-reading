@@ -78,9 +78,10 @@ python -m venv venv
 | [docs/design/25-cloud-run.md](docs/design/25-cloud-run.md) | Cloud Run 문지기 (수동 배포) |
 | [docs/design/32-github-cd.md](docs/design/32-github-cd.md) | GitHub pytest CI · Cloud Run CD 게이트 |
 
-라이브: `https://asr-sentence-reading-984608876300.asia-northeast3.run.app` (**0.2.33**, 2026-07-27 수동 배포)  
-CD는 기본 꺼짐 — Secrets + `ASR_CD_ENABLED=1` 후 Actions에서 켠다.  
-배포 확인: `python scripts/verify_live_status.py --expect 0.2.33`
+라이브: `https://asr-sentence-reading-984608876300.asia-northeast3.run.app` (**0.2.33+**, 카카오 env 반영)  
+CD는 기본 꺼짐 — Secrets + `ASR_CD_ENABLED=1` 후 Actions에서 켠다 (0.2.34: 배포 시 카카오 키 wipe 방지).  
+점검: `python scripts/check_github_cd_ready.py`  
+배포 확인: `python scripts/verify_live_status.py --expect 0.2.34` (CD/재배포 후)
 
 ## 스택
 

@@ -1,6 +1,6 @@
 # 무엇을: main 푸시·수동으로 Cloud Run 배포 (선택).
 # 왜: design/25 수동 배포 다음 단계 — PC 없이 재배포 (design/32).
-# 불변: SA JSON·API 키를 이미지에 넣지 않음 — GitHub Secrets → gcloud --set-env-vars.
+# 불변: SA JSON·API 키를 이미지에 넣지 않음 — GitHub Secrets → env-vars-file.
 # 게이트: repository variable ASR_CD_ENABLED=1 일 때만 job 실행 (기본 off).
 name: Deploy Cloud Run
 
@@ -63,6 +63,9 @@ jobs:
           ASR_AUTH_SECRET: ${{ secrets.ASR_AUTH_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ASR_ADMIN_EMAILS: ${{ secrets.ASR_ADMIN_EMAILS }}
+          ASR_KAKAO_REST_API_KEY: ${{ secrets.ASR_KAKAO_REST_API_KEY }}
+          ASR_KAKAO_CLIENT_SECRET: ${{ secrets.ASR_KAKAO_CLIENT_SECRET }}
+          ASR_CLOUD_RUN_URL: ${{ vars.ASR_CLOUD_RUN_URL || 'https://asr-sentence-reading-984608876300.asia-northeast3.run.app' }}
           ASR_GCS_BUCKET: ${{ vars.ASR_GCS_BUCKET || 'asr-chaheon-warehouse' }}
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'peaceful-basis-503207-t4' }}
           ASR_CLOUD_RUN_REGION: ${{ vars.ASR_CLOUD_RUN_REGION || 'asia-northeast3' }}

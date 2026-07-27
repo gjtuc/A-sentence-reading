@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # WHAT: Build+deploy A-sentence-reading gatekeeper to Cloud Run (remote build, no local Docker).
 # WHY: PC-off access — design/25·32. Secrets via env flags; runtime SA = asr-tts.
-# 다음에: GitHub Actions CD (vars.ASR_CD_ENABLED=1) 가 이 스크립트를 호출.
+# 불변: --set-env-vars 는 나열한 키로 덮어씀 → 카카오 키도 반드시 포함(있을 때).
+# 다음에: GitHub Actions CD (vars.ASR_CD_READY=1 · ASR_CD_ENABLED=1).
 set -euo pipefail
 
 PROJECT_ID="${GCP_PROJECT_ID:-peaceful-basis-503207-t4}"
@@ -9,6 +10,7 @@ REGION="${ASR_CLOUD_RUN_REGION:-asia-northeast3}"
 SERVICE="${ASR_CLOUD_RUN_SERVICE:-asr-sentence-reading}"
 SA_EMAIL="${ASR_RUNTIME_SA:-asr-tts@${PROJECT_ID}.iam.gserviceaccount.com}"
 BUCKET="${ASR_GCS_BUCKET:-asr-chaheon-warehouse}"
+CLOUD_URL="${ASR_CLOUD_RUN_URL:-https://asr-sentence-reading-984608876300.asia-northeast3.run.app}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -17,9 +19,23 @@ cd "$ROOT"
 : "${ASR_AUTH_SECRET:?Set ASR_AUTH_SECRET (strong random)}"
 : "${GEMINI_API_KEY:?Set GEMINI_API_KEY}"
 
+KAKAO_REST="${ASR_KAKAO_REST_API_KEY:-}"
+KAKAO_SECRET="${ASR_KAKAO_CLIENT_SECRET:-}"
+ADMIN_EMAILS="${ASR_ADMIN_EMAILS:-kimcha0809@gmail.com}"
+
 # WHY: CI·로컬에서 gcloud/권한 없이 계약만 검증 (design/32).
 if [[ "${ASR_CD_DRY_RUN:-}" == "1" ]]; then
-  echo "dry-run: would deploy service=${SERVICE} region=${REGION} project=${PROJECT_ID} sa=${SA_EMAIL} bucket=${BUCKET}"
+  kakao_state="off"
+  if [[ -n "$KAKAO_REST" && -n "$KAKAO_SECRET" ]]; then
+    kakao_state="on"
+  elif [[ -n "$KAKAO_REST" || -n "$KAKAO_SECRET" ]]; then
+    kakao_state="partial"
+  fi
+  echo "dry-run: would deploy service=${SERVICE} region=${REGION} project=${PROJECT_ID} sa=${SA_EMAIL} bucket=${BUCKET} kakao=${kakao_state}"
+  if [[ "$kakao_state" == "partial" ]]; then
+    echo "dry-run-warn: set both ASR_KAKAO_REST_API_KEY and ASR_KAKAO_CLIENT_SECRET (or neither)" >&2
+    exit 2
+  fi
   exit 0
 fi
 
@@ -27,6 +43,30 @@ if ! command -v gcloud >/dev/null 2>&1; then
   echo "gcloud CLI 가 없습니다. https://cloud.google.com/sdk/docs/install 후 다시 실행하세요." >&2
   exit 1
 fi
+
+# WHY: 값에 쉼표·특수문자 있어도 안전 — --set-env-vars 한 줄보다 env-vars-file.
+ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/asr-run-env.XXXXXX.yaml")"
+cleanup() { rm -f "$ENV_FILE"; }
+trap cleanup EXIT
+
+{
+  echo "ASR_GCS_BUCKET: \"${BUCKET}\""
+  echo "ASR_GCS_PREFIX: \"asr\""
+  echo "ASR_EMAIL_AUTH: \"1\""
+  echo "ASR_COOKIE_SECURE: \"1\""
+  echo "ASR_GOOGLE_CLIENT_ID: \"${ASR_GOOGLE_CLIENT_ID}\""
+  echo "ASR_AUTH_SECRET: \"${ASR_AUTH_SECRET}\""
+  echo "GEMINI_API_KEY: \"${GEMINI_API_KEY}\""
+  echo "ASR_CLOUD_RUN_URL: \"${CLOUD_URL}\""
+  echo "ASR_ADMIN_EMAILS: \"${ADMIN_EMAILS}\""
+  if [[ -n "$KAKAO_REST" && -n "$KAKAO_SECRET" ]]; then
+    echo "ASR_KAKAO_REST_API_KEY: \"${KAKAO_REST}\""
+    echo "ASR_KAKAO_CLIENT_SECRET: \"${KAKAO_SECRET}\""
+  elif [[ -n "$KAKAO_REST" || -n "$KAKAO_SECRET" ]]; then
+    echo "Kakao: set BOTH ASR_KAKAO_REST_API_KEY and ASR_KAKAO_CLIENT_SECRET (client secret is ON in console)." >&2
+    exit 2
+  fi
+} >"$ENV_FILE"
 
 gcloud config set project "$PROJECT_ID"
 gcloud services enable \
@@ -48,7 +88,7 @@ gcloud run deploy "$SERVICE" \
   --min-instances 0 \
   --max-instances 3 \
   --timeout 300 \
-  --set-env-vars "ASR_GCS_BUCKET=${BUCKET},ASR_GCS_PREFIX=asr,ASR_EMAIL_AUTH=1,ASR_COOKIE_SECURE=1,ASR_GOOGLE_CLIENT_ID=${ASR_GOOGLE_CLIENT_ID},ASR_AUTH_SECRET=${ASR_AUTH_SECRET},GEMINI_API_KEY=${GEMINI_API_KEY},ASR_CLOUD_RUN_URL=https://asr-sentence-reading-984608876300.asia-northeast3.run.app,ASR_ADMIN_EMAILS=${ASR_ADMIN_EMAILS:-kimcha0809@gmail.com}"
+  --env-vars-file "$ENV_FILE"
 
 URL="${ASR_CLOUD_RUN_URL:-}"
 if [[ -z "$URL" ]]; then
@@ -57,4 +97,4 @@ fi
 echo
 echo "Deployed: $URL"
 echo "다음: Google OAuth 클라이언트에 JavaScript 원본 추가 → $URL"
-echo "확인: python scripts/verify_live_status.py --expect 0.2.33"
+echo "확인: python scripts/verify_live_status.py --expect 0.2.34"

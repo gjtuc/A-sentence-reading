@@ -20,11 +20,18 @@
 |-----|------|
 | `ASR_GOOGLE_CLIENT_ID` | Google GIS |
 | `ASR_KAKAO_REST_API_KEY` | 카카오 REST 키 |
-| `ASR_KAKAO_CLIENT_SECRET` | (선택) 카카오 client secret |
+| `ASR_KAKAO_CLIENT_SECRET` | 카카오 client secret (콘솔 ON 이면 **필수**) |
 | `ASR_EMAIL_AUTH` | 기본 `1` · `0` 이면 이메일 off |
 | `ASR_AUTH_SECRET` | 세션·OAuth state 서명 |
 
-카카오 Redirect URI 예: `http://127.0.0.1:8770/api/auth/kakao/callback`
+카카오 Redirect URI (개편 후 · 2025-12~):  
+**앱 → 플랫폼 키 → REST API 키 → 카카오 로그인 리다이렉트 URI**
+
+예:
+- `http://127.0.0.1:8770/api/auth/kakao/callback`
+- `https://asr-sentence-reading-984608876300.asia-northeast3.run.app/api/auth/kakao/callback`
+
+(구 UI의 [카카오 로그인] > [일반] 위치는 폐지됨 — [32](32-github-cd.md).)
 
 ## API
 
