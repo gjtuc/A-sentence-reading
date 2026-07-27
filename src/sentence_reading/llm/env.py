@@ -66,9 +66,11 @@ def gemini_available() -> bool:
 
 
 def tts_credentials_available() -> bool:
-    """Cloud Text-to-Speech 서비스 계정 JSON 경로가 유효한지."""
+    """Cloud Text-to-Speech 자격 — JSON 경로 또는 Cloud Run ADC."""
     load_asr_env()
     raw = (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
-    if not raw:
-        return False
-    return Path(raw).is_file()
+    if raw and Path(raw).is_file():
+        return True
+    from sentence_reading.llm.gcs_sync import running_on_gcp
+
+    return running_on_gcp()

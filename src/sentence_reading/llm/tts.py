@@ -52,7 +52,12 @@ def tts_credentials_path() -> Path | None:
 
 
 def tts_available() -> bool:
-    return tts_credentials_path() is not None
+    if tts_credentials_path() is not None:
+        return True
+    # WHY: Cloud Run 런타임 SA ADC (design/25)
+    from sentence_reading.llm.gcs_sync import running_on_gcp
+
+    return running_on_gcp()
 
 
 def list_voice_choices() -> list[dict[str, str]]:

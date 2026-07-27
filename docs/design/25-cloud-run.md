@@ -87,10 +87,22 @@ bash scripts/deploy_cloud_run.sh
 
 ## 합격
 
-- `https://…run.app/api/status` → `ok` · `gcs.ready` · `version` ≥ 0.2.21  
+- `https://…run.app/api/status` → `ok` · `gcs.ready` · `version` ≥ 0.2.22  
 - PC 꺼도 폰 브라우저로 로그인 · 노트 sync  
 - 이미지/로그에 SA JSON·GEMINI 키 없음
 
+## 운영 기록 (이 PC · 2026-07-27)
+
+| | |
+|--|--|
+| Service | `asr-sentence-reading` |
+| Region | `asia-northeast3` |
+| URL | `https://asr-sentence-reading-984608876300.asia-northeast3.run.app` |
+| Runtime SA | `asr-tts@peaceful-basis-503207-t4.iam.gserviceaccount.com` |
+| 자격 | Cloud Run ADC (`K_SERVICE`) — JSON 파일 불필요 |
+
+Google OAuth **승인된 JavaScript 원본**에 위 URL 추가 후 Google 로그인 가능.
+
 ## 버전
 
-0.2.21
+0.2.22
