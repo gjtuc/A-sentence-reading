@@ -120,7 +120,8 @@
         </div>
         <button type="button" class="nav-btn" id="sentNext" aria-label="다음 문장">›</button>
       </div>
-      <p class="hint">←/→ 문장 · Enter 노트 · 문장 클릭 TTS · ↑ 글 확대 · Tab 탭 전환 · F 전체화면</p>
+      <div class="fig-ref-hints" id="figRefHints" hidden></div>
+      <p class="hint">←/→ 문장 · Enter 노트 · 문장 클릭 TTS · Fig. 칩 → 그림 · ↑ 글 확대 · Tab 탭 · F 전체화면</p>
     </section>
 
     <!-- 구분선 (드래그 접기 비활성 — 시각만) -->
@@ -371,6 +372,7 @@
   <!-- WHY: Signalsmith UMD → AsrStretch가 AudioWorklet stretch에 사용 (design/17) -->
   <script src="/static/vendor/signalsmith-stretch/SignalsmithStretch.js" defer></script>
   <script src="/static/tts_stretch.js" defer></script>
+  <script src="/static/fig_refs.js" defer></script>
   <script src="/static/app.js" defer></script>
 </body>
 </html>
