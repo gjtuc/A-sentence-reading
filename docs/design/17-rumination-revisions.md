@@ -66,6 +66,10 @@
 - ~~Compound figure (1a/1b) 분해~~ (0.2.26 — [29-compound-figures.md](29-compound-figures.md))
 - ~~음절·품사 색~~ — **하지 않음** (0.2.30 원복 · RESEARCH 비목표)
 - ~~다단 reading-order~~ (0.2.32 — [31-reading-order.md](31-reading-order.md))
+- ~~GitHub CI · Cloud Run CD~~ (0.2.33 — [32-github-cd.md](32-github-cd.md))
+
+다음 운영: 카카오 콘솔 키 · `ASR_CD_ENABLED=1` + Secrets 후 실배포 1회.
+
 ## GCS
 
 | env | 의미 |

@@ -37,6 +37,7 @@
 | 29 | [29-compound-figures.md](29-compound-figures.md) | 복합 그림 1a/1b · rich-v4 |
 | 30 | (삭제) | 음절 보조 — **하지 않음** · 0.2.30 원복 |
 | 31 | [31-reading-order.md](31-reading-order.md) | 다단 좌→우 순서 · 기하+vision |
+| 32 | [32-github-cd.md](32-github-cd.md) | GitHub CI · Cloud Run CD 게이트 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -58,4 +59,5 @@
 28은 Fig./Scheme/Table 참조 → 그림 점프 칩 (0.2.25).  
 29는 compound figure 1a/1b 균등 분해 · `rich-v4` (0.2.26).  
 31은 다단 읽는 순서 — 기하 재정렬 + vision 강제 (0.2.32 · `rich-v5`).  
+32는 GitHub pytest CI + Cloud Run CD 게이트 (0.2.33 · `ASR_CD_ENABLED`).  
 음절(30)은 **하지 않음** (원복).

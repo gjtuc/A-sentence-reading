@@ -1,0 +1,70 @@
+# 무엇을: main 푸시·수동으로 Cloud Run 배포 (선택).
+# 왜: design/25 수동 배포 다음 단계 — PC 없이 재배포 (design/32).
+# 불변: SA JSON·API 키를 이미지에 넣지 않음 — GitHub Secrets → gcloud --set-env-vars.
+# 게이트: repository variable ASR_CD_ENABLED=1 일 때만 job 실행 (기본 off).
+name: Deploy Cloud Run
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "scripts/deploy_cloud_run.sh"
+      - ".github/workflows/deploy-cloud-run.yml"
+
+concurrency:
+  group: deploy-cloud-run
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ vars.ASR_CD_ENABLED == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require deploy secrets
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          ASR_GOOGLE_CLIENT_ID: ${{ secrets.ASR_GOOGLE_CLIENT_ID }}
+          ASR_AUTH_SECRET: ${{ secrets.ASR_AUTH_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          missing=0
+          for name in GCP_SA_KEY ASR_GOOGLE_CLIENT_ID ASR_AUTH_SECRET GEMINI_API_KEY; do
+            eval "val=\${$name}"
+            if [ -z "$val" ]; then
+              echo "missing secret: $name" >&2
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Set GitHub Actions secrets (see docs/design/32-github-cd.md)." >&2
+            exit 1
+          fi
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy
+        env:
+          ASR_GOOGLE_CLIENT_ID: ${{ secrets.ASR_GOOGLE_CLIENT_ID }}
+          ASR_AUTH_SECRET: ${{ secrets.ASR_AUTH_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ASR_ADMIN_EMAILS: ${{ secrets.ASR_ADMIN_EMAILS }}
+          ASR_GCS_BUCKET: ${{ vars.ASR_GCS_BUCKET || 'asr-chaheon-warehouse' }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'peaceful-basis-503207-t4' }}
+          ASR_CLOUD_RUN_REGION: ${{ vars.ASR_CLOUD_RUN_REGION || 'asia-northeast3' }}
+          ASR_CLOUD_RUN_SERVICE: ${{ vars.ASR_CLOUD_RUN_SERVICE || 'asr-sentence-reading' }}
+        run: bash scripts/deploy_cloud_run.sh
