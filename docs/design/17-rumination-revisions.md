@@ -60,7 +60,7 @@
 - ~~GCS 버킷 실연결~~ (0.2.20 — [24-gcs-bucket-enable.md](24-gcs-bucket-enable.md))
 - ~~Cloud Run 문지기 스캐폴드~~ (0.2.21 — [25-cloud-run.md](25-cloud-run.md))
 - ~~Cloud Run 실배포 · ADC~~ (0.2.22)
-- Cloud Run Google OAuth 원본 (진행 — [26-cloud-run-oauth-origin.md](26-cloud-run-oauth-origin.md); 0.2.23 UI)
+- ~~Cloud Run Google OAuth 원본~~ (0.2.23 — [26-cloud-run-oauth-origin.md](26-cloud-run-oauth-origin.md))
 - 유저별 사용량·추정 비용 UI (나중 — Gemini·TTS·GCS 계측)
 ## GCS
 
