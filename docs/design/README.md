@@ -32,6 +32,8 @@
 | 24 | [24-gcs-bucket-enable.md](24-gcs-bucket-enable.md) | GCS 버킷 실연결 (운영) |
 | 25 | [25-cloud-run.md](25-cloud-run.md) | Cloud Run 문지기 (PC 꺼도) |
 | 26 | [26-cloud-run-oauth-origin.md](26-cloud-run-oauth-origin.md) | Run URL · Google OAuth 원본 |
+| 27 | [27-usage-metering.md](27-usage-metering.md) | 유저별 사용량 · 추정 비용 |
+| 28 | [28-fig-ref-jump.md](28-fig-ref-jump.md) | Fig. N → 그림 점프 칩 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -49,4 +51,5 @@
 24는 GCS 버킷 실연결 (0.2.20).  
 25는 Cloud Run 문지기 (0.2.21–0.2.22 배포).  
 26은 Run URL Google OAuth 원본 + 로컬 「클라우드」링크 (0.2.23).  
-27은 유저별 사용량·추정 비용 (0.2.24).
+27은 유저별 사용량·추정 비용 (0.2.24).  
+28은 Fig./Scheme/Table 참조 → 그림 점프 칩 (0.2.25).

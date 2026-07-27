@@ -96,6 +96,7 @@
     sentenceText: document.getElementById("sentenceText"),
     sentenceCount: document.getElementById("sentenceCount"),
     sentenceFrame: document.getElementById("sentenceFrame"),
+    figRefHints: document.getElementById("figRefHints"),
     figureFrame: document.getElementById("figureFrame"),
     stageBadge: document.getElementById("stageBadge"),
     figPrev: document.getElementById("figPrev"),
@@ -648,6 +649,54 @@
     persistReadingProgress();
   }
 
+  /** Fig. N 칩 — 문장 인덱스는 그대로 (design/28). */
+  function goToFigureIndex(index) {
+    if (!state.figures.length) return;
+    const i = Math.max(0, Math.min(index | 0, state.figures.length - 1));
+    if (i === state.figureIndex) return;
+    clearCropZoom();
+    state.figureIndex = i;
+    render();
+    snapshotActivePaper();
+    persistReadingProgress();
+  }
+
+  function renderFigRefHints(sent) {
+    if (!el.figRefHints) return;
+    el.figRefHints.innerHTML = "";
+    if (
+      !sent ||
+      !state.figures.length ||
+      typeof AsrFigRefs === "undefined" ||
+      !AsrFigRefs
+    ) {
+      el.figRefHints.hidden = true;
+      return;
+    }
+    const rows = AsrFigRefs.hintsForSentence(sent.text || "", state.figures);
+    if (!rows.length) {
+      el.figRefHints.hidden = true;
+      return;
+    }
+    el.figRefHints.hidden = false;
+    rows.forEach(function (row) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "fig-ref-chip";
+      if (row.figure_index === state.figureIndex) {
+        btn.classList.add("is-current");
+      }
+      btn.textContent = row.ref + " →";
+      btn.title = "그림 " + (row.figure_index + 1) + "으로 이동";
+      btn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        goToFigureIndex(row.figure_index);
+      });
+      el.figRefHints.appendChild(btn);
+    });
+  }
+
   function advanceSentence(delta) {
     if (!state.sentences.length) return;
     if (isSectionReviewOpen()) return;
@@ -1165,21 +1214,25 @@
         body = body.replace(re, "");
       }
       setSentenceDisplay(body, false);
+      renderFigRefHints(sent);
     } else if (uiPhase === "loading") {
       setSentenceDisplay(
         "논문을 읽고 있어요.\n잡음을 걸러 읽기 좋게\n다듬는 중이에요.",
         true
       );
+      renderFigRefHints(null);
     } else if (state.figures.length > 0) {
       setSentenceDisplay(
         "문장 없음\n스캔본이거나 텍스트 추출에\n실패했을 수 있어요.",
         true
       );
+      renderFigRefHints(null);
     } else {
       setSentenceDisplay(
         "문장이 없습니다.\n파일을 열어 주세요.",
         true
       );
+      renderFigRefHints(null);
     }
   }
 

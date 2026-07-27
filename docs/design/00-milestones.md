@@ -48,7 +48,7 @@
 ## 명시적 연기 (M5 이후)
 
 - compound figure (1a/1b) 분해
-- Fig. N → 그림 자동 점프 힌트
+- ~~Fig. N → 그림 자동 점프 힌트~~ (0.2.25 — [28-fig-ref-jump.md](28-fig-ref-jump.md))
 - TTS / 음절 / 품사 색
 - 다단 reading-order ML (전면; 의심 페이지 vision 우회는 [14](14-vision-ocr-router.md)로 일부 커버)
 

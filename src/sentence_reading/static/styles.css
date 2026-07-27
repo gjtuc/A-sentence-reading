@@ -979,6 +979,41 @@ body.is-figure-chrome-out .figure-frame figcaption {
   flex: 0 0 auto;
 }
 
+.fig-ref-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.25rem 0.75rem 0;
+  flex: 0 0 auto;
+}
+
+.fig-ref-hints[hidden] {
+  display: none !important;
+}
+
+.fig-ref-chip {
+  appearance: none;
+  border: 1px solid var(--border, #4a5560);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  padding: 0.15rem 0.55rem;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.fig-ref-chip:hover {
+  color: var(--fg);
+  border-color: var(--fg-muted);
+}
+
+.fig-ref-chip.is-current {
+  color: var(--fg);
+  border-color: var(--accent, #8a9ba8);
+}
+
 /* --- 뽀모도로: 알림·휴식만 --- */
 .pomo-alert {
   position: fixed;
