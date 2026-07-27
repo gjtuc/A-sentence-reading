@@ -59,5 +59,5 @@
 28은 Fig./Scheme/Table 참조 → 그림 점프 칩 (0.2.25).  
 29는 compound figure 1a/1b 균등 분해 · `rich-v4` (0.2.26).  
 31은 다단 읽는 순서 — 기하 재정렬 + vision 강제 (0.2.32 · `rich-v5`).  
-32는 GitHub pytest CI + Cloud Run CD 게이트 (0.2.33–0.2.34 · 카카오 env 포함 배포).  
+32는 GitHub pytest CI + Cloud Run CD (0.2.33–0.2.35 · Secrets 동기화·CD 켜짐).  
 음절(30)은 **하지 않음** (원복).

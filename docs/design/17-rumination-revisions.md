@@ -68,9 +68,10 @@
 - ~~다단 reading-order~~ (0.2.32 — [31-reading-order.md](31-reading-order.md))
 - ~~GitHub CI · Cloud Run CD~~ (0.2.33 — [32-github-cd.md](32-github-cd.md))
 
-다음 운영: 카카오 콘솔 키 · (선택) `ASR_CD_ENABLED=1` + Secrets 후 Actions 배포.
+다음 운영: (선택) Actions `workflow_dispatch` 로 라이브 0.2.35 반영.
 
-라이브(2026-07-27): Cloud Run **0.2.33** 수동 재배포 완료 — [25](25-cloud-run.md).
+라이브 카카오: Cloud Run env 반영됨 · 이 PC 브라우저 확인은 건너뜀.
+CD: Secrets 동기화 · `ASR_CD_ENABLED=1` (0.2.35 — [32](32-github-cd.md)).
 
 ## GCS
 
