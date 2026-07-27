@@ -322,7 +322,10 @@ body.is-browser-fullscreen .layout {
 
 /*
  * 브라우저 전체화면 + 문장 확대:
- * 글만 보이게. 문장 패널에 hover 하면 라벨·화살표·힌트·그림 프레임 복귀.
+ * 글만 보이게. 문장 패널 hover → 라벨·화살표·힌트만 복귀.
+ * WHY: 예전엔 그림 패널도 펼쳐져, 마우스가 Fig 칩 아래로 가면
+ *       그림 영역이 커서 밑으로 들어오며 hover 끊김↔펼침이 깜빡였다.
+ *       그림은 ↓ / 문장확대 해제 후에만 본다 (Fig. 칩은 인덱스만 이동).
  */
 :fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .panel-meta,
 :fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .hint,
@@ -349,10 +352,10 @@ body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:ho
   display: none;
 }
 
-:fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .split,
-:fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-figure,
-body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .split,
-body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-figure {
+:fullscreen .layout.is-sentence-focus .split,
+:fullscreen .layout.is-sentence-focus .panel-figure,
+body.is-browser-fullscreen .layout.is-sentence-focus .split,
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-figure {
   opacity: 0;
   pointer-events: none;
   height: 0 !important;
@@ -363,8 +366,8 @@ body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:ho
   flex: 0 0 0 !important;
 }
 
-:fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence,
-body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence {
+:fullscreen .layout.is-sentence-focus .panel-sentence,
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence {
   flex: 1 1 auto;
 }
 
@@ -373,11 +376,7 @@ body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:ho
 :fullscreen .layout.is-sentence-focus .panel-sentence .nav-btn,
 body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence .panel-meta,
 body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence .hint,
-body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence .nav-btn,
-:fullscreen .layout.is-sentence-focus .split,
-:fullscreen .layout.is-sentence-focus .panel-figure,
-body.is-browser-fullscreen .layout.is-sentence-focus .split,
-body.is-browser-fullscreen .layout.is-sentence-focus .panel-figure {
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence .nav-btn {
   transition:
     opacity 0.25s var(--layout-ease),
     max-height 0.25s var(--layout-ease);
