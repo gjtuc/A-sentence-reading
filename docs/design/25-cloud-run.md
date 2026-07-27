@@ -103,6 +103,19 @@ bash scripts/deploy_cloud_run.sh
 
 Google OAuth **승인된 JavaScript 원본**에 위 URL 추가 후 Google 로그인 가능.
 
+### 재배포 기록
+
+| 시각 (UTC+9) | revision | live `version` | 비고 |
+|--------------|----------|----------------|------|
+| 2026-07-27 ~23:28 | `asr-sentence-reading-00012-46n` | **0.2.33** | `rich-v5` · `reading_order` · `github_cd` (수동 `deploy_cloud_run.sh`) |
+
+확인:
+
+```bash
+cd "/c/Users/user/Desktop/.cursor/A-sentence-reading"
+./venv/Scripts/python.exe scripts/verify_live_status.py --expect 0.2.33
+```
+
 ## 버전
 
-0.2.22 (문지기) · CD 게이트는 0.2.33 ([32](32-github-cd.md))
+0.2.22 (문지기) · CD 게이트 0.2.33 ([32](32-github-cd.md)) · **라이브 0.2.33** (위 재배포)

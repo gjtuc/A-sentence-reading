@@ -59,6 +59,11 @@ ASR_CD_DRY_RUN=1 ASR_GOOGLE_CLIENT_ID=x ASR_AUTH_SECRET=y GEMINI_API_KEY=z \
 - `ASR_CD_ENABLED=1` + secrets 후 `workflow_dispatch` → `/api/status` version 갱신
 - 레포·이미지에 `GCP_SA_KEY` / `GEMINI_API_KEY` 평문 없음
 
+## 운영 메모 (2026-07-27)
+
+CD 게이트는 기본 off 유지. 라이브는 수동 `bash scripts/deploy_cloud_run.sh` 로 **0.2.33** 반영됨 ([25](25-cloud-run.md)).  
+사후 확인: `python scripts/verify_live_status.py --expect 0.2.33`.
+
 ## 버전
 
 0.2.33
