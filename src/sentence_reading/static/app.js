@@ -111,7 +111,6 @@
     libraryStatus: document.getElementById("libraryStatus"),
     libraryRefreshBtn: document.getElementById("libraryRefreshBtn"),
     libraryDialogClose: document.getElementById("libraryDialogClose"),
-    syllableBtn: document.getElementById("syllableBtn"),
     authLoginBtn: document.getElementById("authLoginBtn"),
     authLogoutBtn: document.getElementById("authLogoutBtn"),
     authAccountBtn: document.getElementById("authAccountBtn"),
@@ -205,64 +204,6 @@
   };
 
   const TTS_STORAGE_KEY = "asr.tts.v2";
-  const READING_AIDS_KEY = "asr.readingAids.v1";
-  /** @type {{ syllables: boolean }} */
-  let readingAids = { syllables: false };
-  let sentencePaintSeq = 0;
-  /** @type {Map<string, string>} */
-  const syllableCache = new Map();
-
-  function loadReadingAids() {
-    try {
-      const raw = localStorage.getItem(READING_AIDS_KEY);
-      if (!raw) return;
-      const data = JSON.parse(raw);
-      readingAids.syllables = !!(data && data.syllables);
-    } catch (_) {
-      readingAids.syllables = false;
-    }
-  }
-
-  function saveReadingAids() {
-    try {
-      localStorage.setItem(
-        READING_AIDS_KEY,
-        JSON.stringify({ syllables: !!readingAids.syllables })
-      );
-    } catch (_) {
-      /* ignore */
-    }
-  }
-
-  function paintSyllableBtn() {
-    if (!el.syllableBtn) return;
-    el.syllableBtn.classList.toggle("is-active", !!readingAids.syllables);
-    el.syllableBtn.setAttribute(
-      "aria-pressed",
-      readingAids.syllables ? "true" : "false"
-    );
-  }
-
-  async function decorateSyllables(html) {
-    const src = html || "";
-    if (!readingAids.syllables) return src;
-    if (syllableCache.has(src)) return syllableCache.get(src);
-    try {
-      const res = await fetch("/api/reading/aids", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: src, syllables: true }),
-      });
-      const data = await res.json().catch(() => ({}));
-      const out =
-        res.ok && data && typeof data.text === "string" ? data.text : src;
-      if (syllableCache.size > 200) syllableCache.clear();
-      syllableCache.set(src, out);
-      return out;
-    } catch (_) {
-      return src;
-    }
-  }
   const ttsSettings = {
     mode: "fixed", // fixed | random_normal | random_hard | random_very_hard
     voice: "en-US-Neural2-D",
@@ -1222,23 +1163,8 @@
       el.sentenceText.textContent = text || "";
     } else {
       // WHY: design/13 — 서버 sanitize된 <sub>/<sup>/<i> 렌더
-      // design/30 — 음절 · 은 표시만 (TTS는 원문)
       el.sentenceText.innerHTML = text || "";
     }
-  }
-
-  async function paintCurrentSentence(sent) {
-    const seq = ++sentencePaintSeq;
-    if (!sent) return;
-    let body = sent.text || "";
-    const lab = sectionLabel(sent.section);
-    if (lab) {
-      const re = new RegExp(`^${lab}\\s*:\\s*`, "i");
-      body = body.replace(re, "");
-    }
-    const display = await decorateSyllables(body);
-    if (seq !== sentencePaintSeq) return;
-    setSentenceDisplay(display, false);
   }
 
   function render() {
@@ -1280,7 +1206,14 @@
     }
 
     if (sent) {
-      void paintCurrentSentence(sent);
+      // WHY: 구역은 Sent N/M · Title 배지에만 — 본문 앞 "Title:" 중복 제거
+      let body = sent.text || "";
+      const lab = sectionLabel(sent.section);
+      if (lab) {
+        const re = new RegExp(`^${lab}\\s*:\\s*`, "i");
+        body = body.replace(re, "");
+      }
+      setSentenceDisplay(body, false);
       renderFigRefHints(sent);
     } else if (uiPhase === "loading") {
       setSentenceDisplay(
@@ -3089,15 +3022,6 @@
   if (el.ttsSettingsBtn) {
     el.ttsSettingsBtn.addEventListener("click", () => openTtsSettings());
   }
-  if (el.syllableBtn) {
-    el.syllableBtn.addEventListener("click", () => {
-      readingAids.syllables = !readingAids.syllables;
-      saveReadingAids();
-      paintSyllableBtn();
-      syllableCache.clear();
-      render();
-    });
-  }
   if (el.ttsRate) {
     el.ttsRate.addEventListener("input", () => {
       if (el.ttsRateOut) {
@@ -3750,8 +3674,6 @@
   layout.fullscreen = false;
   applyLayout();
   loadTtsSettings();
-  loadReadingAids();
-  paintSyllableBtn();
 
   el.uploadBtn.addEventListener("click", () => el.pdfInput.click());
 

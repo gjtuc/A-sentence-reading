@@ -198,13 +198,6 @@ body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover .fig-
   border-color: var(--accent);
 }
 
-.upload-btn.is-active,
-.upload-btn[aria-pressed="true"] {
-  border-color: var(--accent);
-  color: var(--fg);
-  background: rgba(255, 255, 255, 0.06);
-}
-
 .upload-btn:focus-visible {
   outline: 2px solid var(--fg-muted);
   outline-offset: 2px;

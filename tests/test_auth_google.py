@@ -35,7 +35,7 @@ def test_status_version_and_auth_block(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ASR_GOOGLE_CLIENT_ID", raising=False)
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.30"
+    assert st["version"] == "0.2.29"
     assert "auth" in st
     assert st["auth"]["auth_enabled"] is False
 
