@@ -50,8 +50,11 @@ gcloud run deploy "$SERVICE" \
   --timeout 300 \
   --set-env-vars "ASR_GCS_BUCKET=${BUCKET},ASR_GCS_PREFIX=asr,ASR_EMAIL_AUTH=1,ASR_COOKIE_SECURE=1,ASR_GOOGLE_CLIENT_ID=${ASR_GOOGLE_CLIENT_ID},ASR_AUTH_SECRET=${ASR_AUTH_SECRET},GEMINI_API_KEY=${GEMINI_API_KEY},ASR_CLOUD_RUN_URL=https://asr-sentence-reading-984608876300.asia-northeast3.run.app,ASR_ADMIN_EMAILS=${ASR_ADMIN_EMAILS:-kimcha0809@gmail.com}"
 
-URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
+URL="${ASR_CLOUD_RUN_URL:-}"
+if [[ -z "$URL" ]]; then
+  URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
+fi
 echo
 echo "Deployed: $URL"
 echo "다음: Google OAuth 클라이언트에 JavaScript 원본 추가 → $URL"
-echo "확인: curl -sS \"$URL/api/status\""
+echo "확인: python scripts/verify_live_status.py --expect 0.2.33"

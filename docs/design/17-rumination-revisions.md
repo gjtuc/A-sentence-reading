@@ -68,7 +68,9 @@
 - ~~다단 reading-order~~ (0.2.32 — [31-reading-order.md](31-reading-order.md))
 - ~~GitHub CI · Cloud Run CD~~ (0.2.33 — [32-github-cd.md](32-github-cd.md))
 
-다음 운영: 카카오 콘솔 키 · `ASR_CD_ENABLED=1` + Secrets 후 실배포 1회.
+다음 운영: 카카오 콘솔 키 · (선택) `ASR_CD_ENABLED=1` + Secrets 후 Actions 배포.
+
+라이브(2026-07-27): Cloud Run **0.2.33** 수동 재배포 완료 — [25](25-cloud-run.md).
 
 ## GCS
 
