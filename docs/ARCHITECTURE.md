@@ -65,14 +65,21 @@ src/sentence_reading/
 
 이 불변조건이 깨지면 제품 가설(수동 동기화)이 깨진다.
 
-## 다음 구현 순서
+## 배포 · CI/CD (0.2.33)
 
-세부는 **[design/](design/README.md)** 가 권위 문서다. 요약:
+| 경로 | 역할 |
+|------|------|
+| 로컬 `127.0.0.1:8770` | 개발 문지기 |
+| Cloud Run | PC 꺼도 동일 API · GCS 창고 ([design/25](design/25-cloud-run.md)) |
+| `.github/workflows/ci.yml` | PR·`main` 마다 pytest (**항상**) |
+| `.github/workflows/deploy-cloud-run.yml` | Cloud Run 재배포 (**기본 off**) |
 
-1. M1 — 데이터/API 계약 ([design/01](design/01-data-model.md), [04](design/04-api-contract.md), [05](design/05-session-store.md))
-2. M2 — 텍스트 추출 + 문장 분할 ([02](design/02-pdf-extract.md), [03](design/03-sentence-split.md))
-3. M3 — 그림 추출 + `/media`
-4. M4 — UI 상태·업로드 연결 ([06](design/06-ui-states.md))
-5. M5 — 진행 저장·타이포 조절 (선택)
+CD를 켜려면 GitHub repository variable `ASR_CD_ENABLED=1` 과 Secrets(`GCP_SA_KEY`, `ASR_GOOGLE_CLIENT_ID`, `ASR_AUTH_SECRET`, `GEMINI_API_KEY`) — 상세 [design/32](design/32-github-cd.md).  
+이미지·레포에 SA JSON·API 키를 넣지 않는다. 런타임은 Cloud Run ADC.
+
+## 구현 순서 (권위: design/)
+
+세부는 **[design/](design/README.md)** 가 권위 문서다. M0–M5·reading-order·CI/CD 게이트까지 반영됨.  
+남은 운영: 카카오 콘솔 키 · `ASR_CD_ENABLED` 실켜기 1회.
 
 에러·한도·테스트: [08](design/08-errors.md) · [09](design/09-testing.md) · [10](design/10-security-limits.md)
