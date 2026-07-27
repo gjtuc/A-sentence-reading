@@ -117,7 +117,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.29",
+    version="0.2.30",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -197,10 +197,11 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.29",
+        "version": "0.2.30",
         "usage_meter": True,
         "fig_ref_hints": True,
         "compound_figures": True,
+        "reading_aids_syllables": True,
     }
 
 
@@ -544,6 +545,19 @@ async def auth_unlink(request: Request, payload: dict = Body(...)) -> JSONRespon
             content={"ok": False, "error": code, "message": messages.get(code, code)},
         )
     return _session_response(user, message="unlinked")
+
+
+@app.post("/api/reading/aids")
+def reading_aids(payload: dict = Body(default_factory=dict)) -> dict:
+    """표시용 읽기 보조 (음절 ·). TTS 원문은 클라이언트가 별도 유지."""
+    from sentence_reading.reading_aids import apply_reading_aids
+
+    if not isinstance(payload, dict):
+        payload = {}
+    text = str(payload.get("text") or "")
+    syllables = bool(payload.get("syllables"))
+    out = apply_reading_aids(text, syllables=syllables)
+    return {"ok": True, "text": out, "syllables": syllables}
 
 
 @app.get("/api/usage")
