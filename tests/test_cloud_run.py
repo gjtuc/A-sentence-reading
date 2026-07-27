@@ -1,4 +1,4 @@
-"""Cloud Run 문지기 계약 (0.2.22)."""
+"""Cloud Run 문지기 계약 (0.2.23)."""
 
 from __future__ import annotations
 
@@ -21,9 +21,12 @@ def test_dockerfile_and_deploy_script_exist() -> None:
     assert "gcloud run deploy" in script
     assert "ASR_COOKIE_SECURE=1" in script
     assert "--source" in script
-    design = (ROOT / "docs" / "design" / "25-cloud-run.md").read_text(encoding="utf-8")
-    assert "Cloud Run" in design
-    assert "0.2.22" in design
+    design = (ROOT / "docs" / "design" / "26-cloud-run-oauth-origin.md").read_text(
+        encoding="utf-8"
+    )
+    assert "JavaScript" in design
+    assert "0.2.23" in design
+    assert "ASR_CLOUD_RUN_URL" in script
 
 
 def test_cookie_secure_flag(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -40,7 +43,25 @@ def test_status_version() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.22"
+    assert st["version"] == "0.2.23"
+
+
+def test_cloud_url_in_auth_status(monkeypatch):
+    monkeypatch.setenv("ASR_SKIP_ENV_FILE", "1")
+    monkeypatch.setenv(
+        "ASR_CLOUD_RUN_URL",
+        "https://asr-sentence-reading-984608876300.asia-northeast3.run.app",
+    )
+    from fastapi.testclient import TestClient
+    from sentence_reading.api.app import app
+    from sentence_reading.llm import auth_google as ag
+    # reload fields pick env
+    st = TestClient(app).get("/api/status").json()
+    assert st["auth"]["cloud_url"].startswith("https://asr-sentence-reading")
+    assert "cloudUrlLink" in (
+        Path(__file__).resolve().parents[1]
+        / "src/sentence_reading/static/index.html"
+    ).read_text(encoding="utf-8")
 
 
 def test_gcs_ready_via_cloud_run_adc(monkeypatch: pytest.MonkeyPatch) -> None:

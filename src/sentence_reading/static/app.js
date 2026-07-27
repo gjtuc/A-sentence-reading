@@ -114,6 +114,7 @@
     authLogoutBtn: document.getElementById("authLogoutBtn"),
     authAccountBtn: document.getElementById("authAccountBtn"),
     authUserLabel: document.getElementById("authUserLabel"),
+    cloudUrlLink: document.getElementById("cloudUrlLink"),
     authDialog: document.getElementById("authDialog"),
     authDialogTitle: document.getElementById("authDialogTitle"),
     authDialogHint: document.getElementById("authDialogHint"),
@@ -1201,13 +1202,14 @@
   /** @type {boolean|null} null=미확인 */
   let gcsNotesAvailable = null;
 
-  /** @type {{ enabled: boolean, clientId: string|null, providers: {google?:boolean,kakao?:boolean,email?:boolean}, user: object|null, dialogMode: string }} */
+  /** @type {{ enabled: boolean, clientId: string|null, providers: {google?:boolean,kakao?:boolean,email?:boolean}, user: object|null, dialogMode: string, cloudUrl: string|null }} */
   let authState = {
     enabled: false,
     clientId: null,
     providers: {},
     user: null,
     dialogMode: "login",
+    cloudUrl: null,
   };
 
   function applyAccountScope(uid) {
@@ -1235,6 +1237,17 @@
     if (el.authLoginBtn) el.authLoginBtn.hidden = !enabled || !!user;
     if (el.authLogoutBtn) el.authLogoutBtn.hidden = !enabled || !user;
     if (el.authAccountBtn) el.authAccountBtn.hidden = !enabled || !user;
+    if (el.cloudUrlLink) {
+      const cloud = authState.cloudUrl;
+      const here = window.location.origin.replace(/\/$/, "");
+      // WHY: 로컬 8770 일 때만 「클라우드」로 Run URL 안내 (이미 Run이면 숨김)
+      const show =
+        !!cloud && cloud.replace(/\/$/, "") !== here;
+      el.cloudUrlLink.hidden = !show;
+      if (show) {
+        el.cloudUrlLink.href = cloud;
+      }
+    }
     if (el.authUserLabel) {
       if (enabled && user) {
         el.authUserLabel.hidden = false;
@@ -1479,6 +1492,7 @@
       authState.clientId = data.client_id || null;
       authState.providers = data.providers || {};
       authState.user = data.user || null;
+      authState.cloudUrl = data.cloud_url || null;
       applyAccountScope(authState.user && authState.user.uid);
       renderAuthChrome();
       const params = new URLSearchParams(window.location.search);
@@ -1499,6 +1513,7 @@
         providers: {},
         user: null,
         dialogMode: "login",
+        cloudUrl: null,
       };
       renderAuthChrome();
     }

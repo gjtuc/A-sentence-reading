@@ -31,6 +31,7 @@
 | 23 | [23-multi-auth-link.md](23-multi-auth-link.md) | 카카오·이메일 · 계정 연결 |
 | 24 | [24-gcs-bucket-enable.md](24-gcs-bucket-enable.md) | GCS 버킷 실연결 (운영) |
 | 25 | [25-cloud-run.md](25-cloud-run.md) | Cloud Run 문지기 (PC 꺼도) |
+| 26 | [26-cloud-run-oauth-origin.md](26-cloud-run-oauth-origin.md) | Run URL · Google OAuth 원본 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -46,4 +47,5 @@
 22는 Google 로그인 · `users/{uid}/` GCS 칸 (0.2.18).  
 23은 카카오·이메일 로그인 + 계정 연결 (0.2.19).  
 24는 GCS 버킷 실연결 (0.2.20).  
-25는 Cloud Run 문지기 스캐폴드 (0.2.21) — 실제 `gcloud run deploy` 는 운영자 1회.
+25는 Cloud Run 문지기 (0.2.21–0.2.22 배포).  
+26은 Run URL Google OAuth 원본 + 로컬 「클라우드」링크 (0.2.23).
