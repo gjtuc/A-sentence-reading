@@ -1,4 +1,4 @@
-"""원본 PDF/DOCX 백업 · 재분석 계약 (0.2.21)."""
+"""원본 PDF/DOCX 백업 · 재분석 계약 (0.2.22)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from sentence_reading.models import PaperSession, Sentence
 def test_status_version() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.21"
+    assert st["version"] == "0.2.22"
 
 
 def test_save_copies_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

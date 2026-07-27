@@ -1,4 +1,4 @@
-"""Cloud Run 문지기 계약 (0.2.21)."""
+"""Cloud Run 문지기 계약 (0.2.22)."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def test_dockerfile_and_deploy_script_exist() -> None:
     assert "--source" in script
     design = (ROOT / "docs" / "design" / "25-cloud-run.md").read_text(encoding="utf-8")
     assert "Cloud Run" in design
-    assert "0.2.21" in design
+    assert "0.2.22" in design
 
 
 def test_cookie_secure_flag(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -40,7 +40,18 @@ def test_status_version() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.21"
+    assert st["version"] == "0.2.22"
+
+
+def test_gcs_ready_via_cloud_run_adc(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sentence_reading.llm import gcs_sync as gcs
+
+    monkeypatch.setenv("ASR_GCS_BUCKET", "b")
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+    monkeypatch.setenv("K_SERVICE", "asr-sentence-reading")
+    ready, msg = gcs.gcs_client_ready()
+    assert ready is True
+    assert msg == "adc"
 
 
 if __name__ == "__main__":

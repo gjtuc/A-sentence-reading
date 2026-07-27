@@ -129,6 +129,14 @@ def reset_gcs_client_cache() -> None:
     _storage_client.cache_clear()
 
 
+def running_on_gcp() -> bool:
+    """Cloud Run / GCP 런타임 — ADC(메타데이터 SA) 사용 가능."""
+    return bool(
+        (os.environ.get("K_SERVICE") or "").strip()
+        or (os.environ.get("CLOUD_RUN_JOB") or "").strip()
+    )
+
+
 def gcs_client_ready() -> tuple[bool, str]:
     """자격·라이브러리 준비 (버킷 존재 HTTP 검증은 생략 — 비용·지연)."""
     cfg = gcs_config()
@@ -139,11 +147,14 @@ def gcs_client_ready() -> tuple[bool, str]:
     except ImportError:
         return False, "google-cloud-storage not installed"
     cred = (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
-    if not cred:
-        return False, "GOOGLE_APPLICATION_CREDENTIALS missing"
-    if not Path(cred).is_file():
-        return False, "GOOGLE_APPLICATION_CREDENTIALS file missing"
-    return True, "ok"
+    if cred:
+        if not Path(cred).is_file():
+            return False, "GOOGLE_APPLICATION_CREDENTIALS file missing"
+        return True, "ok"
+    # WHY: Cloud Run 은 런타임 SA ADC — JSON 파일 없음 (design/25)
+    if running_on_gcp():
+        return True, "adc"
+    return False, "GOOGLE_APPLICATION_CREDENTIALS missing"
 
 
 def upload_bytes(
