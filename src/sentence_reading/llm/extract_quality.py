@@ -1,7 +1,7 @@
 """
 무엇을: PyMuPDF 추출 텍스트 품질 판정 (규칙 + Gemini 품질맵).
 왜: 스캔·다단 손상을 “오타율”이 아니라 복구 경로(vision 여부)로 라우팅한다.
-다음에: 블록 좌표 기반 다단 힌트.
+다음에: (다단 기하 힌트는 pdf/reading_order · design/31).
 """
 
 from __future__ import annotations
@@ -25,7 +25,8 @@ Flag problems such as:
 - Gibberish, severed words, missing large sections
 - Fluent English but suspicious reading order (two-column mix-ups)
 
-Be conservative: if unsure, prefer text_ok to avoid expensive vision.
+Be willing to flag two-column reading-order mix-ups as repair_pages.
+Prefer text_ok only when order and coverage look fine.
 Output JSON only, no markdown fences.
 """
 
