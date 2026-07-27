@@ -263,6 +263,7 @@ def auth_status_fields(user: AuthUser | None = None) -> dict[str, Any]:
     from sentence_reading.llm.auth_accounts import public_user_with_providers
     from sentence_reading.llm.auth_kakao import kakao_enabled
 
+    load_asr_env()
     enabled = auth_enabled()
     google_on = bool(auth_client_id())
     kakao_on = kakao_enabled()
@@ -270,6 +271,7 @@ def auth_status_fields(user: AuthUser | None = None) -> dict[str, Any]:
     user_out: dict[str, Any] | None = None
     if user:
         user_out = public_user_with_providers(user)
+    cloud_url = (os.environ.get("ASR_CLOUD_RUN_URL") or "").strip().rstrip("/")
     return {
         "auth_enabled": enabled,
         "auth_provider": "multi" if enabled else None,
@@ -279,6 +281,7 @@ def auth_status_fields(user: AuthUser | None = None) -> dict[str, Any]:
             "email": email_on,
         },
         "client_id": auth_client_id() if google_on else None,
+        "cloud_url": cloud_url or None,
         "user": user_out,
         "gcs_uid": current_gcs_uid(),
         "gcs_user_scoped": bool(current_gcs_uid()),

@@ -58,7 +58,9 @@
 - ~~Google 로그인 · UID별 GCS 칸~~ (0.2.18 — [22-google-auth-gcs.md](22-google-auth-gcs.md))
 - ~~카카오·이메일 · 계정 연결~~ (0.2.19 — [23-multi-auth-link.md](23-multi-auth-link.md))
 - ~~GCS 버킷 실연결~~ (0.2.20 — [24-gcs-bucket-enable.md](24-gcs-bucket-enable.md))
-- ~~Cloud Run 문지기 스캐폴드~~ (0.2.21 — [25-cloud-run.md](25-cloud-run.md); `gcloud` 배포는 운영 1회)
+- ~~Cloud Run 문지기 스캐폴드~~ (0.2.21 — [25-cloud-run.md](25-cloud-run.md))
+- ~~Cloud Run 실배포 · ADC~~ (0.2.22)
+- Cloud Run Google OAuth 원본 (진행 — [26-cloud-run-oauth-origin.md](26-cloud-run-oauth-origin.md); 0.2.23 UI)
 - 유저별 사용량·추정 비용 UI (나중 — Gemini·TTS·GCS 계측)
 ## GCS
 

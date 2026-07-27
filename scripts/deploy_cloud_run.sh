@@ -41,7 +41,7 @@ gcloud run deploy "$SERVICE" \
   --min-instances 0 \
   --max-instances 3 \
   --timeout 300 \
-  --set-env-vars "ASR_GCS_BUCKET=${BUCKET},ASR_GCS_PREFIX=asr,ASR_EMAIL_AUTH=1,ASR_COOKIE_SECURE=1,ASR_GOOGLE_CLIENT_ID=${ASR_GOOGLE_CLIENT_ID},ASR_AUTH_SECRET=${ASR_AUTH_SECRET},GEMINI_API_KEY=${GEMINI_API_KEY}"
+  --set-env-vars "ASR_GCS_BUCKET=${BUCKET},ASR_GCS_PREFIX=asr,ASR_EMAIL_AUTH=1,ASR_COOKIE_SECURE=1,ASR_GOOGLE_CLIENT_ID=${ASR_GOOGLE_CLIENT_ID},ASR_AUTH_SECRET=${ASR_AUTH_SECRET},GEMINI_API_KEY=${GEMINI_API_KEY},ASR_CLOUD_RUN_URL=https://asr-sentence-reading-984608876300.asia-northeast3.run.app"
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
 echo
