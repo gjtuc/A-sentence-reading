@@ -252,6 +252,7 @@ body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover .fig-
   overflow-x: auto;
   flex: 0 0 auto;
   background: var(--bg);
+  position: relative;
 }
 
 .paper-tabs[hidden] {
@@ -286,7 +287,21 @@ body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover .fig-
   cursor: grabbing;
 }
 
-/* 크롬식: 잡은 탭이 커서에 붙어 떠 다님 (자리는 .paper-tab-placeholder) */
+/* 원본 탭은 숨기고 자리만 placeholder가 차지 */
+.paper-tab.is-tab-source-hidden {
+  position: absolute !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* body에 붙인 고스트 — 커서 가로 위치를 따라 슬라이드 */
 .paper-tab.is-tab-float {
   cursor: grabbing;
   opacity: 1;
@@ -294,6 +309,7 @@ body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover .fig-
   border-color: var(--accent);
   color: var(--fg);
   background: #1a1a1a;
+  max-width: none;
 }
 
 .paper-tab-placeholder {

@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -117,7 +117,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.38",
+    version="0.2.39",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -197,7 +197,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.38",
+        "version": "0.2.39",
         "usage_meter": True,
         "fig_ref_hints": True,
         "compound_figures": True,
@@ -1489,8 +1489,11 @@ def veil_debug_log_get() -> dict:
 
 
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(_STATIC_DIR / "index.html")
+def index() -> HTMLResponse:
+    # WHY: 정적 JS/CSS 캐시 무효화 — 배포 버전이 바뀌면 브라우저가 새 파일을 받음
+    html = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    html = html.replace("__ASR_ASSET_V__", app.version)
+    return HTMLResponse(html)
 
 
 @app.get("/veil.html")
