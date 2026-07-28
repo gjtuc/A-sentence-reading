@@ -39,13 +39,15 @@ python scripts/check_github_cd_ready.py   # ok:true · cd_enabled:true
 | var | `ASR_CD_ENABLED=1` · `GCP_PROJECT_ID` · `ASR_CLOUD_RUN_*` · `ASR_GCS_BUCKET` · `ASR_CLOUD_RUN_URL` |
 | secret | `GCP_SA_KEY` · `ASR_GOOGLE_CLIENT_ID` · `ASR_AUTH_SECRET` · `GEMINI_API_KEY` · `ASR_KAKAO_*` · `ASR_ADMIN_EMAILS` |
 
-배포 SA 역할: Run Admin, Cloud Build Editor, Artifact Registry Writer, Storage Admin, Service Usage Consumer, runtime SA 에 Service Account User.
+배포 SA 역할: Run Admin, Cloud Build Editor, Artifact Registry Writer, Storage Admin, Service Usage Consumer, runtime SA 에 Service Account User.  
+CD 배포는 `ASR_CD_SKIP_API_ENABLE=1` — **`gcloud services enable` 생략** (배포 SA에 API enable 권한 없음).
 
 ## 합격
 
 - `check_github_cd_ready.py` → `ok: true`, `cd_enabled: true`, `kakao: on`
 - `ASR_CD_DRY_RUN=1` sync: SA JSON 없으면 exit 2
 - 레포에 `asr-github-deploy.json` 없음
+- Actions Deploy 성공 후 라이브 `/api/status` `version` = 앱 버전
 
 ## 운영 기록
 
@@ -53,10 +55,9 @@ python scripts/check_github_cd_ready.py   # ok:true · cd_enabled:true
 |------|------|
 | 2026-07-27 | 수동 배포 0.2.33 · 카카오 env |
 | 2026-07-28 | 0.2.34 env-vars-file · 카카오 wipe 방지 |
-| 2026-07-28 | **CD Secrets 동기화 · `ASR_CD_ENABLED=1`** (0.2.35). 배포 SA `asr-github-deploy@…` |
-
-다음(선택): Actions **Deploy Cloud Run** `workflow_dispatch` 1회로 라이브를 0.2.35로.
+| 2026-07-28 | CD Secrets · `ASR_CD_ENABLED=1` (0.2.35) |
+| 2026-07-28 | 첫 `workflow_dispatch` 실패 — API enable 권한 없음 → **0.2.36** skip enable |
 
 ## 버전
 
-0.2.35
+0.2.36

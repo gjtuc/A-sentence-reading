@@ -69,12 +69,30 @@ trap cleanup EXIT
 } >"$ENV_FILE"
 
 gcloud config set project "$PROJECT_ID"
-gcloud services enable \
-  run.googleapis.com \
-  cloudbuild.googleapis.com \
-  artifactregistry.googleapis.com \
-  texttospeech.googleapis.com \
-  storage.googleapis.com
+
+# WHY: CD SA 는 API enable 권한이 없을 수 있음 — 이미 켜진 프로젝트에서는 생략.
+# 로컬 최초 배포만 ASR_ENABLE_APIS=1 로 강제.
+if [[ "${ASR_ENABLE_APIS:-}" == "1" ]]; then
+  gcloud services enable \
+    run.googleapis.com \
+    cloudbuild.googleapis.com \
+    artifactregistry.googleapis.com \
+    texttospeech.googleapis.com \
+    storage.googleapis.com \
+    cloudresourcemanager.googleapis.com
+elif [[ -n "${GITHUB_ACTIONS:-}" || "${ASR_CD_SKIP_API_ENABLE:-}" == "1" ]]; then
+  echo "skip gcloud services enable (CI/CD — APIs assumed enabled)"
+else
+  # 로컬 수동: 실패해도 배포 시도 (이미 enable 된 경우 흔함)
+  gcloud services enable \
+    run.googleapis.com \
+    cloudbuild.googleapis.com \
+    artifactregistry.googleapis.com \
+    texttospeech.googleapis.com \
+    storage.googleapis.com \
+    cloudresourcemanager.googleapis.com \
+    || echo "warn: services enable failed (continuing)" >&2
+fi
 
 # WHY: --source 는 Cloud Build 가 Dockerfile 로 원격 빌드 (로컬 Docker 불필요)
 gcloud run deploy "$SERVICE" \
