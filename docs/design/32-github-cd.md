@@ -57,6 +57,7 @@ CD 배포는 `ASR_CD_SKIP_API_ENABLE=1` — **`gcloud services enable` 생략** 
 | 2026-07-28 | 0.2.34 env-vars-file · 카카오 wipe 방지 |
 | 2026-07-28 | CD Secrets · `ASR_CD_ENABLED=1` (0.2.35) |
 | 2026-07-28 | 첫 `workflow_dispatch` 실패 — API enable 권한 없음 → **0.2.36** skip enable |
+| 2026-07-28 | **CD 성공** — PR #40 merge push deploy · 라이브 `/api/status` **0.2.36** · `kakao: true` |
 
 ## 버전
 
