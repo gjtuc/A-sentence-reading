@@ -117,7 +117,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.36",
+    version="0.2.37",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -197,7 +197,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.36",
+        "version": "0.2.37",
         "usage_meter": True,
         "fig_ref_hints": True,
         "compound_figures": True,
@@ -550,12 +550,14 @@ async def auth_unlink(request: Request, payload: dict = Body(...)) -> JSONRespon
 
 @app.get("/api/usage")
 def usage_me(request: Request) -> dict:
-    """로그인 유저 본인 사용량 · 추정 비용."""
-    from sentence_reading.llm.usage_meter import public_usage
+    """관리자만: 본인 사용량 · 추정 비용 (일반 유저 UI/API 비공개)."""
+    from sentence_reading.llm.usage_meter import is_admin_email, public_usage
 
     user = _request_user(request)
     if not user:
         return {"ok": False, "error": "auth_required"}
+    if not is_admin_email(user.email):
+        return {"ok": False, "error": "forbidden"}
     return public_usage(user.uid, email=user.email or "")
 
 

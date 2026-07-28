@@ -9,8 +9,8 @@
 
 | 보는 사람 | 내용 |
 |-----------|------|
-| 로그인 유저 | 자기 합계만 |
-| 관리자 (`ASR_ADMIN_EMAILS`) | 전체 유저 목록 + 합 |
+| 일반 로그인 유저 | **UI·API 모두 숨김** (`forbidden`) |
+| 관리자 (`ASR_ADMIN_EMAILS`) | 헤더 「사용량」· 본인 합계 + 전체 유저 목록 |
 
 ## 계측
 
@@ -20,7 +20,8 @@
 | TTS | 클라우드 합성 문자 수 (캐시 hit 제외) |
 | GCS | upload/download 바이트 · op 횟수 |
 
-저장: `users/{uid}/usage.json` (GCS) + 로컬 `data/usage/{uid}.json`
+저장: `users/{uid}/usage.json` (GCS) + 로컬 `data/usage/{uid}.json`  
+(계측 자체는 전 유저 — **표시만** 관리자)
 
 ## 추정 단가 (코드 상수 · 변경 가능)
 
@@ -32,13 +33,16 @@
 
 ## API
 
-- `GET /api/usage` — 로그인 필요 · 본인
-- `GET /api/usage/admin` — 관리자만
+- `GET /api/usage` — **관리자만** · 본인
+- `GET /api/usage/admin` — 관리자만 · 전체
+
+비관리자(로그인 포함) → `{ ok: false, error: "forbidden" }`
 
 ## UI
 
-헤더 **사용량** → 다이얼로그 (본인 추정). 관리자면 전체 표.
+헤더 **사용량** 버튼: `is_admin` 일 때만 표시.  
+다이얼로그: 본인 추정 + 전체 표.
 
 ## 버전
 
-0.2.24
+0.2.37 (0.2.24 도입 · 관리자 전용 표시는 0.2.37)
