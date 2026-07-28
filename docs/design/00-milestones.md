@@ -52,6 +52,7 @@
 - ~~TTS / 음절 / 품사 색~~ — **하지 않음** (사용자 결정 · 0.2.30 원복). RESEARCH 비목표와 동일.
 - ~~다단 reading-order~~ (0.2.32 — [31-reading-order.md](31-reading-order.md); 기하+vision, 로컬 Layout ML 없음)
 - ~~GitHub CI · Cloud Run CD~~ (0.2.33 — [32-github-cd.md](32-github-cd.md); `ASR_CD_ENABLED` 게이트)
+- **Android Flutter 「문장 읽기」** — 설계 [33-mobile-flutter.md](33-mobile-flutter.md); MVP: 로그인·보관·읽기·TTS · APK 사이드로드 (구현 후속)
 
 ### 구현됨 (참고)
 

@@ -38,6 +38,7 @@
 | 30 | (삭제) | 음절 보조 — **하지 않음** · 0.2.30 원복 |
 | 31 | [31-reading-order.md](31-reading-order.md) | 다단 좌→우 순서 · 기하+vision |
 | 32 | [32-github-cd.md](32-github-cd.md) | GitHub CI · Cloud Run CD 게이트 |
+| 33 | [33-mobile-flutter.md](33-mobile-flutter.md) | Android Flutter 「문장 읽기」 · API 재사용 · APK |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -60,4 +61,5 @@
 29는 compound figure 1a/1b 균등 분해 · `rich-v4` (0.2.26).  
 31은 다단 읽는 순서 — 기하 재정렬 + vision 강제 (0.2.32 · `rich-v5`).  
 32는 GitHub pytest CI + Cloud Run CD (0.2.33–0.2.35 · Secrets 동기화·CD 켜짐).  
+33은 Android Flutter 앱 「문장 읽기」 — Cloud Run API 재사용 · APK 사이드로드 (문서; 구현 후속).  
 음절(30)은 **하지 않음** (원복).
