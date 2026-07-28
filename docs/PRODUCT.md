@@ -37,9 +37,16 @@
 | 자동 figure grounding | 수동 동기화가 의도 |
 | 속독/RSVP(단어 플래시) | 연구상 이해에 불리; 우리 단위는 **문장** |
 
+## 플랫폼
+
+| | |
+|--|--|
+| PC | 웹 (Cloud Run) — ingest·다듬기·읽기 |
+| 모바일 | Android 앱 **문장 읽기** (Flutter) — 보관 읽기 우선 · [33-mobile-flutter.md](design/33-mobile-flutter.md) |
+
 ## 다음 제품 단계 (문서만 — 구현은 이후)
 
-1. PyMuPDF로 그림·텍스트 추출
-2. 문장 경계 (`pysbd` 등) + 논문 약어 예외
-3. 업로드 → 세션 → UI 바인딩
-4. 진행 위치(문장/그림 인덱스) 로컬 저장
+1. ~~PyMuPDF로 그림·텍스트 추출~~ (웹 구현됨)
+2. ~~문장 경계 · 업로드 · 세션 · UI~~ (웹 구현됨)
+3. ~~진행 위치 로컬 저장~~ (웹 구현됨)
+4. Android Flutter MVP — 로그인 · 보관 · 문장/그림 · TTS ([33](design/33-mobile-flutter.md))
