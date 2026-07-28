@@ -860,8 +860,8 @@
   }
 
   /**
-   * 크롬식 탭 드래그: 잡은 탭이 커서를 따라가고, 막대에는 placeholder 자리만 남김.
-   * 놓는 순간 papers[] 순서를 확정 (드래그 중 renderPaperTabs 금지).
+   * 크롬식 탭 드래그: 클론이 커서를 따라 가로로 미끄러지고, 원본 자리엔 placeholder.
+   * pointerdown 직후 document 리스너 등록 (capture 끊김·pointer-events 이슈 회피).
    * @type {{
    *   pointerId: number,
    *   paperKey: string,
@@ -871,15 +871,17 @@
    *   offsetY: number,
    *   width: number,
    *   height: number,
+   *   barTop: number,
    *   dragging: boolean,
    *   fromSlot: number,
    *   hoverSlot: number,
-   *   floatEl: HTMLElement | null,
+   *   sourceBtn: HTMLElement | null,
+   *   ghost: HTMLElement | null,
    * } | null}
    */
   let tabDrag = null;
   let suppressTabClickUntil = 0;
-  const TAB_DRAG_PX = 6;
+  const TAB_DRAG_PX = 4;
 
   function cssEscapeKey(key) {
     if (window.CSS && typeof CSS.escape === "function") return CSS.escape(key);
@@ -887,23 +889,9 @@
   }
 
   function cleanupTabDragDocListeners() {
-    document.removeEventListener("pointermove", onTabPointerMoveDoc);
-    document.removeEventListener("pointerup", onTabPointerUpDoc);
-    document.removeEventListener("pointercancel", onTabPointerUpDoc);
-  }
-
-  function clearTabFloatStyles(btn) {
-    if (!btn) return;
-    btn.classList.remove("is-dragging", "is-tab-float");
-    btn.style.position = "";
-    btn.style.left = "";
-    btn.style.top = "";
-    btn.style.width = "";
-    btn.style.height = "";
-    btn.style.zIndex = "";
-    btn.style.pointerEvents = "";
-    btn.style.margin = "";
-    btn.style.boxShadow = "";
+    document.removeEventListener("pointermove", onTabPointerMoveDoc, true);
+    document.removeEventListener("pointerup", onTabPointerUpDoc, true);
+    document.removeEventListener("pointercancel", onTabPointerUpDoc, true);
   }
 
   function removeTabPlaceholder() {
@@ -911,6 +899,12 @@
     el.paperTabs
       .querySelectorAll(".paper-tab-placeholder")
       .forEach((n) => n.remove());
+  }
+
+  function removeTabGhost() {
+    if (!tabDrag || !tabDrag.ghost) return;
+    tabDrag.ghost.remove();
+    tabDrag.ghost = null;
   }
 
   /** real 슬롯 fromSlot → toSlot (placeholder 기준 insert 인덱스). */
@@ -939,11 +933,12 @@
     return true;
   }
 
-  function positionFloatingTab(clientX, clientY) {
-    if (!tabDrag || !tabDrag.floatEl) return;
-    const btn = tabDrag.floatEl;
-    btn.style.left = `${clientX - tabDrag.offsetX}px`;
-    btn.style.top = `${clientY - tabDrag.offsetY}px`;
+  function positionTabGhost(clientX) {
+    if (!tabDrag || !tabDrag.ghost) return;
+    // WHY: 크롬처럼 세로로 안 빼고 탭 줄 높이에 고정 · 가로만 따라감
+    const left = clientX - tabDrag.offsetX;
+    tabDrag.ghost.style.left = `${left}px`;
+    tabDrag.ghost.style.top = `${tabDrag.barTop}px`;
   }
 
   function movePlaceholderToSlot(slot) {
@@ -952,7 +947,10 @@
     const ph = bar.querySelector(".paper-tab-placeholder");
     if (!ph) return;
     const others = [...bar.children].filter(
-      (n) => n !== ph && !n.classList.contains("is-tab-float")
+      (n) =>
+        n !== ph &&
+        !n.classList.contains("is-tab-source-hidden") &&
+        n.classList.contains("paper-tab")
     );
     if (slot >= others.length) {
       const last = others[others.length - 1];
@@ -969,9 +967,9 @@
     if (!bar) return 0;
     const slots = [...bar.children].filter(
       (n) =>
-        !n.classList.contains("is-tab-float") &&
-        (n.classList.contains("paper-tab") ||
-          n.classList.contains("paper-tab-placeholder"))
+        n.classList.contains("paper-tab-placeholder") ||
+        (n.classList.contains("paper-tab") &&
+          !n.classList.contains("is-tab-source-hidden"))
     );
     if (!slots.length) return 0;
     for (let i = 0; i < slots.length; i++) {
@@ -981,20 +979,23 @@
     return slots.length - 1;
   }
 
-  function beginTabFloat(btn, ev) {
-    if (!tabDrag || !btn) return;
+  function beginTabFloat() {
+    if (!tabDrag || tabDrag.dragging || !tabDrag.sourceBtn) return;
+    const btn = tabDrag.sourceBtn;
     const rect = btn.getBoundingClientRect();
+    const barRect = el.paperTabs
+      ? el.paperTabs.getBoundingClientRect()
+      : rect;
     const real = realPaperIndices();
     const fromIndex = findPaperIndexByKey(tabDrag.paperKey);
     const fromSlot = real.indexOf(fromIndex);
-    tabDrag.offsetX = ev.clientX - rect.left;
-    tabDrag.offsetY = ev.clientY - rect.top;
+
     tabDrag.width = rect.width;
     tabDrag.height = rect.height;
+    tabDrag.barTop = barRect.top + (barRect.height - rect.height) / 2;
     tabDrag.dragging = true;
     tabDrag.fromSlot = fromSlot;
     tabDrag.hoverSlot = fromSlot;
-    tabDrag.floatEl = btn;
 
     removeTabPlaceholder();
     const ph = document.createElement("div");
@@ -1004,40 +1005,33 @@
     ph.style.height = `${rect.height}px`;
     ph.style.flex = `0 0 ${rect.width}px`;
     btn.before(ph);
+    btn.classList.add("is-tab-source-hidden");
 
-    btn.classList.add("is-dragging", "is-tab-float");
-    btn.style.position = "fixed";
-    btn.style.left = `${rect.left}px`;
-    btn.style.top = `${rect.top}px`;
-    btn.style.width = `${rect.width}px`;
-    btn.style.height = `${rect.height}px`;
-    btn.style.zIndex = "10000";
-    btn.style.pointerEvents = "none";
-    btn.style.margin = "0";
-
-    try {
-      btn.setPointerCapture(tabDrag.pointerId);
-    } catch (_) {
-      /* ignore */
-    }
-    document.addEventListener("pointermove", onTabPointerMoveDoc);
-    document.addEventListener("pointerup", onTabPointerUpDoc);
-    document.addEventListener("pointercancel", onTabPointerUpDoc);
-    positionFloatingTab(ev.clientX, ev.clientY);
+    const ghost = btn.cloneNode(true);
+    ghost.removeAttribute("id");
+    ghost.classList.add("is-tab-float");
+    ghost.classList.remove("is-tab-source-hidden");
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.style.position = "fixed";
+    ghost.style.left = `${rect.left}px`;
+    ghost.style.top = `${tabDrag.barTop}px`;
+    ghost.style.width = `${rect.width}px`;
+    ghost.style.height = `${rect.height}px`;
+    ghost.style.zIndex = "10000";
+    ghost.style.margin = "0";
+    ghost.style.pointerEvents = "none";
+    document.body.appendChild(ghost);
+    tabDrag.ghost = ghost;
   }
 
   function abortTabFloatVisual() {
     if (!tabDrag) return;
-    const btn = tabDrag.floatEl;
-    const pid = tabDrag.pointerId;
-    clearTabFloatStyles(btn);
+    if (tabDrag.sourceBtn) {
+      tabDrag.sourceBtn.classList.remove("is-tab-source-hidden");
+    }
+    removeTabGhost();
     removeTabPlaceholder();
     cleanupTabDragDocListeners();
-    try {
-      if (btn && btn.releasePointerCapture) btn.releasePointerCapture(pid);
-    } catch (_) {
-      /* ignore */
-    }
   }
 
   function endTabDrag(ev) {
@@ -1073,17 +1067,11 @@
       const dx = ev.clientX - tabDrag.startX;
       const dy = ev.clientY - tabDrag.startY;
       if (Math.hypot(dx, dy) < TAB_DRAG_PX) return;
-      const btn =
-        tabDrag.floatEl ||
-        (el.paperTabs &&
-          el.paperTabs.querySelector(
-            `.paper-tab[data-paper-key="${cssEscapeKey(tabDrag.paperKey)}"]`
-          ));
-      if (!btn) return;
-      beginTabFloat(btn, ev);
-      return;
+      beginTabFloat();
     }
-    positionFloatingTab(ev.clientX, ev.clientY);
+    if (!tabDrag || !tabDrag.dragging) return;
+    ev.preventDefault();
+    positionTabGhost(ev.clientX);
     const slot = hoverSlotFromPointer(ev.clientX);
     if (slot !== tabDrag.hoverSlot) movePlaceholderToSlot(slot);
   }
@@ -1092,20 +1080,10 @@
     endTabDrag(ev);
   }
 
-  function onTabPointerMove(ev) {
-    onTabPointerMoveDoc(ev);
-  }
-
-  function wireTabDragPointer(btn) {
-    btn.onpointermove = onTabPointerMove;
-    btn.onpointerup = endTabDrag;
-    btn.onpointercancel = endTabDrag;
-  }
-
   function renderPaperTabs() {
     const bar = el.paperTabs;
     if (!bar) return;
-    if (tabDrag && tabDrag.dragging) {
+    if (tabDrag) {
       abortTabFloatVisual();
       tabDrag = null;
     }
@@ -1115,7 +1093,6 @@
       .filter(({ p }) => !isMockPaper(p));
     if (real.length <= 1) {
       bar.hidden = true;
-      tabDrag = null;
       return;
     }
     bar.hidden = false;
@@ -1130,7 +1107,12 @@
       btn.innerHTML = `<span class="paper-tab-num">${slot + 1}</span>${shortTitle(p.title)}`;
       btn.addEventListener("pointerdown", (ev) => {
         if (ev.button !== 0) return;
+        ev.preventDefault();
         const rect = btn.getBoundingClientRect();
+        if (tabDrag) {
+          abortTabFloatVisual();
+          tabDrag = null;
+        }
         tabDrag = {
           pointerId: ev.pointerId,
           paperKey: key,
@@ -1140,12 +1122,16 @@
           offsetY: ev.clientY - rect.top,
           width: rect.width,
           height: rect.height,
+          barTop: rect.top,
           dragging: false,
           fromSlot: slot,
           hoverSlot: slot,
-          floatEl: btn,
+          sourceBtn: btn,
+          ghost: null,
         };
-        wireTabDragPointer(btn);
+        document.addEventListener("pointermove", onTabPointerMoveDoc, true);
+        document.addEventListener("pointerup", onTabPointerUpDoc, true);
+        document.addEventListener("pointercancel", onTabPointerUpDoc, true);
       });
       btn.addEventListener("click", (ev) => {
         if (Date.now() < suppressTabClickUntil) {
