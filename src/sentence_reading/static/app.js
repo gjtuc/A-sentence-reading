@@ -1128,7 +1128,8 @@
     const real = papers
       .map((p, i) => ({ p, i }))
       .filter(({ p }) => !isMockPaper(p));
-    if (real.length <= 1) {
+    // WHY: 실논문 1개여도 ×로 닫을 수 있게 탭 줄 표시 (design/34)
+    if (real.length < 1) {
       bar.hidden = true;
       return;
     }
@@ -1140,10 +1141,41 @@
       btn.className = "paper-tab" + (i === activePaperIndex ? " is-active" : "");
       btn.dataset.paperKey = key;
       btn.dataset.paperIndex = String(i);
-      btn.title = `${slot + 1}. ${stripTags(p.title) || "Untitled"} (키 ${slot + 1} · 드래그로 순서)`;
-      btn.innerHTML = `<span class="paper-tab-num">${slot + 1}</span>${shortTitle(p.title)}`;
+      btn.title = `${slot + 1}. ${stripTags(p.title) || "Untitled"} (키 ${slot + 1} · 드래그로 순서 · × 닫기)`;
+      const label = document.createElement("span");
+      label.className = "paper-tab-label";
+      label.innerHTML = `<span class="paper-tab-num">${slot + 1}</span>${shortTitle(p.title)}`;
+      const closeBtn = document.createElement("span");
+      closeBtn.className = "paper-tab-close";
+      closeBtn.setAttribute("role", "button");
+      closeBtn.setAttribute("tabindex", "0");
+      closeBtn.setAttribute("aria-label", "탭 닫기");
+      closeBtn.title = "탭 닫기 (진행·노트 저장)";
+      closeBtn.textContent = "×";
+      closeBtn.addEventListener("pointerdown", (ev) => {
+        // WHY: 탭 드래그/활성화와 분리 · button 중첩 금지라 span[role=button]
+        ev.preventDefault();
+        ev.stopPropagation();
+      });
+      closeBtn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        void closePaperTab(i);
+      });
+      closeBtn.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          ev.stopPropagation();
+          void closePaperTab(i);
+        }
+      });
+      btn.appendChild(label);
+      btn.appendChild(closeBtn);
       btn.addEventListener("pointerdown", (ev) => {
         if (ev.button !== 0) return;
+        if (ev.target && ev.target.closest && ev.target.closest(".paper-tab-close")) {
+          return;
+        }
         ev.preventDefault();
         const rect = btn.getBoundingClientRect();
         if (tabDrag) {
@@ -1171,10 +1203,15 @@
         document.addEventListener("pointercancel", onTabPointerUpDoc, true);
       });
       btn.addEventListener("click", (ev) => {
+        if (ev.target && ev.target.closest && ev.target.closest(".paper-tab-close")) {
+          return;
+        }
         if (Date.now() < suppressTabClickUntil) {
           ev.preventDefault();
           ev.stopPropagation();
+          return;
         }
+        activatePaper(i);
       });
       bar.appendChild(btn);
     });
@@ -1214,6 +1251,65 @@
       n > 1
         ? `${ord}/${n} · ${shortTitle(state.title, 40)}`
         : state.title || "ready";
+    updateCacheDeleteBtn();
+  }
+
+  /**
+   * 논문 탭 × — 탭 범위 저장 후 닫기 (보관/GCS 삭제가 아님).
+   * WHY: 진행·노트만 저장. TTS/테마는 전역이라 손대지 않음 (design/34).
+   * @param {number} paperIndex papers[] 인덱스
+   */
+  async function closePaperTab(paperIndex) {
+    if (
+      paperIndex < 0 ||
+      paperIndex >= papers.length ||
+      isMockPaper(papers[paperIndex])
+    ) {
+      return;
+    }
+    const closingActive = paperIndex === activePaperIndex;
+    if (closingActive) {
+      stopTts();
+      if (noteUi.open) flushNoteSave();
+      snapshotActivePaper();
+      persistReadingProgress();
+      if (noteUi.open) {
+        noteUi.open = false;
+        if (el.notePanel) el.notePanel.hidden = true;
+      }
+    } else {
+      // 비활성 탭: 진행은 마지막 activate 때 이미 localStorage 에 있음
+      // (노트는 활성 탭 키에만 묶이므로 여기서 flush 불필요)
+    }
+
+    papers.splice(paperIndex, 1);
+    if (activePaperIndex > paperIndex) {
+      activePaperIndex -= 1;
+    } else if (activePaperIndex === paperIndex) {
+      activePaperIndex = Math.min(paperIndex, papers.length - 1);
+    }
+
+    const reals = realPaperIndices();
+    if (!reals.length) {
+      papers = [];
+      activePaperIndex = 0;
+      await loadMock();
+      renderPaperTabs();
+      updateCacheDeleteBtn();
+      return;
+    }
+
+    if (closingActive || activePaperIndex < 0 || isMockPaper(papers[activePaperIndex])) {
+      const prefer =
+        reals.find((i) => i >= paperIndex) ?? reals[reals.length - 1];
+      activePaperIndex = prefer;
+      hydrateStateFromPaper(papers[activePaperIndex]);
+      uiPhase = "ready";
+      render();
+      if (layout.fullscreen) applyCropZoom();
+    }
+    renderPaperTabs();
+    updatePaperTabChrome();
     updateCacheDeleteBtn();
   }
 
