@@ -70,4 +70,5 @@ jobs:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'peaceful-basis-503207-t4' }}
           ASR_CLOUD_RUN_REGION: ${{ vars.ASR_CLOUD_RUN_REGION || 'asia-northeast3' }}
           ASR_CLOUD_RUN_SERVICE: ${{ vars.ASR_CLOUD_RUN_SERVICE || 'asr-sentence-reading' }}
+          ASR_CD_SKIP_API_ENABLE: "1"
         run: bash scripts/deploy_cloud_run.sh

@@ -81,7 +81,7 @@ python -m venv venv
 라이브: `https://asr-sentence-reading-984608876300.asia-northeast3.run.app`  
 CD **켜짐** (`ASR_CD_ENABLED=1`, 2026-07-28) — Secrets는 `sync_github_cd_secrets.sh` 로 동기화.  
 점검: `python scripts/check_github_cd_ready.py`  
-배포 확인(재배포 후): `python scripts/verify_live_status.py --expect 0.2.35`
+배포 확인(재배포 후): `python scripts/verify_live_status.py --expect 0.2.36`
 
 ## 스택
 

@@ -21,6 +21,10 @@ def test_dockerfile_and_deploy_script_exist() -> None:
     assert "gcloud run deploy" in script
     assert "ASR_COOKIE_SECURE" in script
     assert "--env-vars-file" in script
+    assert "ASR_CD_SKIP_API_ENABLE" in (
+        ROOT / ".github" / "workflows" / "deploy-cloud-run.yml"
+    ).read_text(encoding="utf-8")
+    assert "skip gcloud services enable" in script
     assert "--source" in script
     assert "ASR_KAKAO_REST_API_KEY" in script
     design = (ROOT / "docs" / "design" / "26-cloud-run-oauth-origin.md").read_text(
@@ -46,7 +50,7 @@ def test_status_version() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.35"
+    assert st["version"] == "0.2.36"
 
 
 def test_cloud_url_in_auth_status(monkeypatch):
