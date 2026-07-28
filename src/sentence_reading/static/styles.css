@@ -831,7 +831,16 @@ body.is-figure-chrome-out .figure-viewport:not(.is-cropped) img {
   background: #ffffff;
 }
 
-/* 드래그 크롭 확대: 절대 배치로 선택 영역이 뷰포트를 채움 */
+/* 드래그 크롭 확대: 절대 배치로 선택 영역이 뷰포트를 채움 · 드래그로 팬 */
+.figure-viewport.is-cropped {
+  cursor: grab;
+  touch-action: none;
+}
+
+.figure-viewport.is-cropped.is-panning {
+  cursor: grabbing;
+}
+
 .figure-viewport.is-cropped img {
   position: absolute;
   flex: none;

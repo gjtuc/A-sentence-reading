@@ -68,9 +68,12 @@
   /**
    * 그림 전체화면 드래그 크롭 확대.
    * norm: 원본 이미지 대비 0~1 사각형 — ↑글 갔다 ↓그림 돌아와도 유지.
+   * 확대 중 드래그 = 팬 (마우스 대비 2배 이동).
    * @type {{ active: boolean, norm: { x: number, y: number, w: number, h: number } | null }}
    */
   const cropZoom = { active: false, norm: null };
+  /** 팬 속도: 마우스 1px → 이미지 2px (viewport 기준). */
+  const CROP_PAN_SPEED = 2;
 
   /** @type {{ mode: "expanded" | "collapsed", heightPx: number, fullscreen: boolean, contentSplit: boolean }} */
   const layout = {
@@ -338,6 +341,40 @@
     img.style.top = `${top}px`;
   }
 
+  /** 현재 크롭 확대의 화면 스케일 (팬 환산용). */
+  function getCropZoomMetrics() {
+    if (!cropZoom.active || !cropZoom.norm) return null;
+    const vp = el.figureViewport;
+    const img = el.figureImage;
+    const n = cropZoom.norm;
+    if (!vp || !img || !img.naturalWidth) return null;
+    const vw = vp.clientWidth;
+    const vh = vp.clientHeight;
+    const nw = img.naturalWidth;
+    const nh = img.naturalHeight;
+    const cw = Math.max(n.w * nw, 1);
+    const ch = Math.max(n.h * nh, 1);
+    const s = Math.min(vw / cw, vh / ch);
+    if (!(s > 0)) return null;
+    return { s, nw, nh };
+  }
+
+  /**
+   * 확대 창을 이미지 위에서 이동 (구글 지도식 팬).
+   * dx/dy = 포인터 이동(px). 이미지 이동량은 CROP_PAN_SPEED 배.
+   */
+  function panCropBy(dx, dy) {
+    const m = getCropZoomMetrics();
+    if (!m || !cropZoom.norm) return;
+    const n = cropZoom.norm;
+    // 손가락을 오른쪽으로 → 이미지도 오른쪽 (보이는 영역은 왼쪽으로)
+    n.x -= (CROP_PAN_SPEED * dx) / (m.s * m.nw);
+    n.y -= (CROP_PAN_SPEED * dy) / (m.s * m.nh);
+    n.x = Math.max(0, Math.min(1 - n.w, n.x));
+    n.y = Math.max(0, Math.min(1 - n.h, n.y));
+    applyCropZoom();
+  }
+
   function setCropFromViewportRect(x0, y0, x1, y1) {
     const r = getContainedImageRect();
     if (!r) return false;
@@ -436,7 +473,7 @@
       el.figureFrame.setAttribute(
         "title",
         layout.fullscreen
-          ? "드래그: 크롭 확대 · Esc: 종료 · 크롭 중 클릭: 축소"
+          ? "드래그: 크롭 확대 · 확대 중 드래그: 팬(2×) · 클릭: 축소 · Esc: 종료"
           : "↓ : 그림 전체화면 (크롭)"
       );
       el.splitter.setAttribute("aria-valuemin", "0");
@@ -3064,8 +3101,10 @@
     speakCurrentSentence();
   });
 
-  /* ---------- 그림 전체화면: 드래그 크롭 확대 ---------- */
+  /* ---------- 그림 전체화면: 드래그 크롭 확대 · 확대 중 팬 ---------- */
   let cropDrag = null;
+  /** @type {{ pointerId: number, lastX: number, lastY: number, moved: boolean, dist: number } | null} */
+  let cropPan = null;
   let suppressFigureClick = false;
 
   function localPoint(ev) {
@@ -3073,12 +3112,48 @@
     return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
   }
 
+  function endCropPan(ev) {
+    if (!cropPan || (ev && ev.pointerId !== cropPan.pointerId)) return;
+    const pan = cropPan;
+    cropPan = null;
+    if (el.figureViewport) el.figureViewport.classList.remove("is-panning");
+    try {
+      if (el.figureViewport && el.figureViewport.releasePointerCapture) {
+        el.figureViewport.releasePointerCapture(pan.pointerId);
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    if (pan.moved) {
+      suppressFigureClick = true;
+      snapshotActivePaper();
+      window.setTimeout(() => {
+        suppressFigureClick = false;
+      }, 0);
+    }
+  }
+
   el.figureViewport.addEventListener("pointerdown", (ev) => {
     if (!layout.fullscreen) return;
     if (ev.button != null && ev.button !== 0) return;
-    // 확대 중이면 드래그 대신 클릭으로만 축소
-    if (cropZoom.active) return;
     ev.preventDefault();
+    if (cropZoom.active) {
+      // 확대 중: 드래그=팬(2×), 클릭(거의 안 움직임)=축소
+      cropPan = {
+        pointerId: ev.pointerId,
+        lastX: ev.clientX,
+        lastY: ev.clientY,
+        moved: false,
+        dist: 0,
+      };
+      el.figureViewport.classList.add("is-panning");
+      try {
+        el.figureViewport.setPointerCapture(ev.pointerId);
+      } catch (_) {
+        /* ignore */
+      }
+      return;
+    }
     const p = localPoint(ev);
     cropDrag = {
       pointerId: ev.pointerId,
@@ -3096,6 +3171,16 @@
   });
 
   el.figureViewport.addEventListener("pointermove", (ev) => {
+    if (cropPan && ev.pointerId === cropPan.pointerId) {
+      const dx = ev.clientX - cropPan.lastX;
+      const dy = ev.clientY - cropPan.lastY;
+      cropPan.lastX = ev.clientX;
+      cropPan.lastY = ev.clientY;
+      cropPan.dist += Math.hypot(dx, dy);
+      if (cropPan.dist > 6) cropPan.moved = true;
+      if (dx !== 0 || dy !== 0) panCropBy(dx, dy);
+      return;
+    }
     if (!cropDrag || ev.pointerId !== cropDrag.pointerId) return;
     const p = localPoint(ev);
     cropDrag.x1 = p.x;
@@ -3107,6 +3192,10 @@
   });
 
   function endCropDrag(ev) {
+    if (cropPan) {
+      endCropPan(ev);
+      return;
+    }
     if (!cropDrag || (ev && ev.pointerId !== cropDrag.pointerId)) return;
     const drag = cropDrag;
     cropDrag = null;
