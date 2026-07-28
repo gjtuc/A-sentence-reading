@@ -60,6 +60,7 @@
 28은 Fig./Scheme/Table 참조 → 그림 점프 칩 (0.2.25).  
 29는 compound figure 1a/1b 균등 분해 · `rich-v4` (0.2.26).  
 31은 다단 읽는 순서 — 기하 재정렬 + vision 강제 (0.2.32 · `rich-v5`).  
-32는 GitHub pytest CI + Cloud Run CD (0.2.33–0.2.35 · Secrets 동기화·CD 켜짐).  
+그림 클립 zoom **8** · `rich-v6` (0.2.41).  
+32는 GitHub pytest CI + Cloud Run CD (0.2.33–0.2.35 · Secrets 동기화·CD 켜짐).
 33은 Android Flutter 앱 「문장 읽기」 — Cloud Run API 재사용 · APK 사이드로드 (문서; 구현 후속).  
 음절(30)은 **하지 않음** (원복).
