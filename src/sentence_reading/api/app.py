@@ -117,7 +117,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.42",
+    version="0.2.43",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -197,12 +197,14 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.42",
+        "version": "0.2.43",
         "usage_meter": True,
         "fig_ref_hints": True,
         "compound_figures": True,
         "reading_order": True,
         "github_cd": True,
+        "translate_en_ko": gemini_available(),
+        "tab_close": True,
     }
 
 
@@ -546,6 +548,37 @@ async def auth_unlink(request: Request, payload: dict = Body(...)) -> JSONRespon
             content={"ok": False, "error": code, "message": messages.get(code, code)},
         )
     return _session_response(user, message="unlinked")
+
+
+@app.post("/api/translate")
+async def translate_sentence(payload: dict = Body(...)) -> dict:
+    """영→한 단순 번역 (design/35). 다단계 아님."""
+    from sentence_reading.llm.translate import translate_en_to_ko
+
+    if not gemini_available():
+        return {"ok": False, "error": "gemini_unavailable"}
+    text = payload.get("text")
+    if text is None:
+        text = ""
+    if not isinstance(text, str):
+        return {"ok": False, "error": "invalid_text"}
+    try:
+        result = await asyncio.to_thread(translate_en_to_ko, text)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "error": "translate_failed",
+            "message": str(exc)[:200],
+        }
+    if not result.get("ok"):
+        return result
+    return {
+        "ok": True,
+        "ko": result["ko"],
+        "source_lang": "en",
+        "target_lang": "ko",
+        "cached": bool(result.get("cached")),
+    }
 
 
 @app.get("/api/usage")
