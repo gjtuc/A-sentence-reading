@@ -97,6 +97,8 @@
     figureViewport: document.getElementById("figureViewport"),
     figureRubberband: document.getElementById("figureRubberband"),
     sentenceText: document.getElementById("sentenceText"),
+    sentenceKo: document.getElementById("sentenceKo"),
+    translateBtn: document.getElementById("translateBtn"),
     sentenceCount: document.getElementById("sentenceCount"),
     sentenceFrame: document.getElementById("sentenceFrame"),
     figRefHints: document.getElementById("figRefHints"),
@@ -207,6 +209,11 @@
   };
 
   const TTS_STORAGE_KEY = "asr.tts.v2";
+  const TRANSLATE_STORAGE_BASE = "asr.translate.v1";
+  /** @type {{ enabled: boolean }} */
+  const translatePrefs = { enabled: false };
+  /** @type {AbortController | null} */
+  let translateAbort = null;
   const ttsSettings = {
     mode: "fixed", // fixed | random_normal | random_hard | random_very_hard
     voice: "en-US-Neural2-D",
@@ -1431,6 +1438,127 @@
     }
   }
 
+  function translateStorageKey() {
+    const uid = authState.user && authState.user.uid;
+    return uid
+      ? TRANSLATE_STORAGE_BASE + "." + String(uid)
+      : TRANSLATE_STORAGE_BASE;
+  }
+
+  function loadTranslatePrefs() {
+    try {
+      const raw = localStorage.getItem(translateStorageKey());
+      if (!raw) {
+        translatePrefs.enabled = false;
+      } else {
+        const data = JSON.parse(raw);
+        translatePrefs.enabled = !!data.enabled;
+      }
+    } catch (_) {
+      translatePrefs.enabled = false;
+    }
+    syncTranslateBtn();
+  }
+
+  function saveTranslatePrefs() {
+    try {
+      localStorage.setItem(
+        translateStorageKey(),
+        JSON.stringify({ enabled: !!translatePrefs.enabled })
+      );
+    } catch (_) {
+      /* ignore quota */
+    }
+  }
+
+  function syncTranslateBtn() {
+    if (!el.translateBtn) return;
+    el.translateBtn.setAttribute(
+      "aria-pressed",
+      translatePrefs.enabled ? "true" : "false"
+    );
+    el.translateBtn.title = translatePrefs.enabled
+      ? "번역 표시 켜짐 — 클릭하면 끔"
+      : "영→한 번역 표시 (기본 꺼짐)";
+  }
+
+  function clearSentenceKo() {
+    if (!el.sentenceKo) return;
+    el.sentenceKo.hidden = true;
+    el.sentenceKo.textContent = "";
+    el.sentenceKo.classList.remove("is-error", "is-loading");
+  }
+
+  function plainSentenceForTranslate(htmlOrText) {
+    const d = document.createElement("div");
+    d.innerHTML = htmlOrText || "";
+    return (d.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  /**
+   * 현재 문장 영→한 (design/35). 실패해도 읽기 루프는 유지.
+   * @param {string} plainEn
+   */
+  async function refreshSentenceKo(plainEn) {
+    if (!el.sentenceKo) return;
+    if (!translatePrefs.enabled) {
+      clearSentenceKo();
+      return;
+    }
+    if (!plainEn) {
+      clearSentenceKo();
+      return;
+    }
+    if (translateAbort) {
+      try {
+        translateAbort.abort();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    const ac = new AbortController();
+    translateAbort = ac;
+    el.sentenceKo.hidden = false;
+    el.sentenceKo.classList.add("is-loading");
+    el.sentenceKo.classList.remove("is-error");
+    el.sentenceKo.textContent = "번역 중…";
+    try {
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ text: plainEn }),
+        signal: ac.signal,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (ac.signal.aborted) return;
+      if (!res.ok || data.ok === false) {
+        el.sentenceKo.classList.remove("is-loading");
+        el.sentenceKo.classList.add("is-error");
+        const err = data.error || "translate_failed";
+        el.sentenceKo.textContent =
+          err === "gemini_unavailable"
+            ? "번역 불가 (Gemini 키 없음)"
+            : err === "too_long"
+              ? "문장이 너무 길어 번역하지 않음"
+              : err === "empty"
+                ? ""
+                : "번역 실패";
+        if (err === "empty") clearSentenceKo();
+        return;
+      }
+      el.sentenceKo.classList.remove("is-loading", "is-error");
+      el.sentenceKo.textContent = data.ko || "";
+      el.sentenceKo.hidden = !data.ko;
+    } catch (err) {
+      if (err && err.name === "AbortError") return;
+      if (ac.signal.aborted) return;
+      el.sentenceKo.classList.remove("is-loading");
+      el.sentenceKo.classList.add("is-error");
+      el.sentenceKo.textContent = "번역 오류";
+    }
+  }
+
   function render() {
     const nS = state.sentences.length;
     const fig = state.figures.length ? state.figures[state.figureIndex] : null;
@@ -1479,24 +1607,28 @@
       }
       setSentenceDisplay(body, false);
       renderFigRefHints(sent);
+      void refreshSentenceKo(plainSentenceForTranslate(body));
     } else if (uiPhase === "loading") {
       setSentenceDisplay(
         "논문을 읽고 있어요.\n잡음을 걸러 읽기 좋게\n다듬는 중이에요.",
         true
       );
       renderFigRefHints(null);
+      clearSentenceKo();
     } else if (state.figures.length > 0) {
       setSentenceDisplay(
         "문장 없음\n스캔본이거나 텍스트 추출에\n실패했을 수 있어요.",
         true
       );
       renderFigRefHints(null);
+      clearSentenceKo();
     } else {
       setSentenceDisplay(
         "문장이 없습니다.\n파일을 열어 주세요.",
         true
       );
       renderFigRefHints(null);
+      clearSentenceKo();
     }
   }
 
@@ -1663,6 +1795,8 @@
     renderAuthChrome();
     setUploadStatus(msg || "로그인됨", "");
     if (el.authDialog && el.authDialog.open) el.authDialog.close();
+    loadTranslatePrefs();
+    if (translatePrefs.enabled) render();
     await pullNotesFromCloud();
   }
 
@@ -1829,6 +1963,7 @@
       authState.isAdmin = !!data.is_admin;
       applyAccountScope(authState.user && authState.user.uid);
       renderAuthChrome();
+      loadTranslatePrefs();
       const params = new URLSearchParams(window.location.search);
       if (params.get("auth_error")) {
         setUploadStatus("로그인 실패: " + params.get("auth_error"), "error");
@@ -1851,6 +1986,7 @@
         isAdmin: false,
       };
       renderAuthChrome();
+      loadTranslatePrefs();
     }
   }
 
@@ -1939,6 +2075,9 @@
     authState.user = null;
     applyAccountScope(null);
     renderAuthChrome();
+    loadTranslatePrefs();
+    if (translatePrefs.enabled) render();
+    else clearSentenceKo();
     setUploadStatus("로그아웃됨", "");
   }
 
@@ -3991,6 +4130,17 @@
   layout.fullscreen = false;
   applyLayout();
   loadTtsSettings();
+  loadTranslatePrefs();
+
+  if (el.translateBtn) {
+    el.translateBtn.addEventListener("click", () => {
+      translatePrefs.enabled = !translatePrefs.enabled;
+      saveTranslatePrefs();
+      syncTranslateBtn();
+      if (translatePrefs.enabled) render();
+      else clearSentenceKo();
+    });
+  }
 
   el.uploadBtn.addEventListener("click", () => el.pdfInput.click());
 
