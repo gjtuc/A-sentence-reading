@@ -53,6 +53,8 @@
 - ~~다단 reading-order~~ (0.2.32 — [31-reading-order.md](31-reading-order.md); 기하+vision, 로컬 Layout ML 없음)
 - ~~GitHub CI · Cloud Run CD~~ (0.2.33 — [32-github-cd.md](32-github-cd.md); `ASR_CD_ENABLED` 게이트)
 - **Android Flutter 「문장 읽기」** — 설계 [33-mobile-flutter.md](33-mobile-flutter.md); MVP: 로그인·보관·읽기·TTS · APK 사이드로드 (구현 후속)
+- ~~논문 탭 × 닫기~~ (0.2.42 — [34-tab-close.md](34-tab-close.md); 탭 범위 저장만)
+- 번역 영→한 (on/off → 다단계) · STT 발음 연습 (브라우저→서버) — 설계 후속
 
 ### 구현됨 (참고)
 

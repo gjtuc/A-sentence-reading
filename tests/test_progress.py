@@ -47,7 +47,7 @@ def progress_keys_for(paper: dict) -> list[str]:
 def test_status_progress_flag() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.41"
+    assert st["version"] == "0.2.42"
     assert st["progress_restore"] is True
 
 
