@@ -284,7 +284,25 @@ body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover .fig-
 
 .paper-tab.is-dragging {
   cursor: grabbing;
-  opacity: 0.55;
+}
+
+/* 크롬식: 잡은 탭이 커서에 붙어 떠 다님 (자리는 .paper-tab-placeholder) */
+.paper-tab.is-tab-float {
+  cursor: grabbing;
+  opacity: 1;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  border-color: var(--accent);
+  color: var(--fg);
+  background: #1a1a1a;
+}
+
+.paper-tab-placeholder {
+  box-sizing: border-box;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  pointer-events: none;
+  flex-shrink: 0;
 }
 
 .paper-tab.is-active {
