@@ -30,7 +30,7 @@ def _rgb_png(w: int, h: int, color: tuple[int, int, int]) -> bytes:
 
 def test_status_and_pipeline() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.39"
+    assert st["version"] == "0.2.40"
     assert st["pipeline_version"] == "rich-v5"
     assert PIPELINE_VERSION == "rich-v5"
     assert st.get("compound_figures") is True
