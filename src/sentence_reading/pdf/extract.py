@@ -16,6 +16,10 @@ from sentence_reading.models import Figure
 # WHY: 로고·아이콘 대량 혼입 완화 (docs/design/02-pdf-extract.md)
 _MIN_SIDE_PX = 40
 _MIN_BYTES = 2_000
+# WHY: 크롭 확대 화질 — 페이지 클립 래스터 배율 (72dpi×8 ≈ 576dpi). 영역(clip)은 그대로.
+_FIGURE_CLIP_ZOOM = 8.0
+# WHY: 전면 그림 8× 시 OOM 완화. 긴 변만 줄이고 clip 범위는 유지.
+_FIGURE_CLIP_MAX_SIDE_PX = 6400
 _CAPTION_BELOW_PT = 110.0
 _CAPTION_ABOVE_PT = 90.0
 _FIG_CAPTION_START = re.compile(
@@ -106,8 +110,8 @@ def _png_data_url(png: bytes) -> str:
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
 
 
-def _render_page_clip(page, rect, *, zoom: float = 2.0) -> bytes | None:
-    """캡션+표/그림 영역을 페이지에서 잘라 PNG로."""
+def _render_page_clip(page, rect, *, zoom: float = _FIGURE_CLIP_ZOOM) -> bytes | None:
+    """캡션+표/그림 영역을 페이지에서 잘라 PNG로. zoom↑ = 같은 영역을 더 촘촘히 찍음."""
     import fitz
 
     page_rect = page.rect
@@ -121,6 +125,14 @@ def _render_page_clip(page, rect, *, zoom: float = 2.0) -> bytes | None:
         return None
     try:
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, alpha=False)
+        long_side = max(pix.width, pix.height)
+        if long_side > _FIGURE_CLIP_MAX_SIDE_PX and long_side > 0:
+            scale = _FIGURE_CLIP_MAX_SIDE_PX / long_side
+            pix = page.get_pixmap(
+                matrix=fitz.Matrix(zoom * scale, zoom * scale),
+                clip=clip,
+                alpha=False,
+            )
         png = pix.tobytes("png")
     except Exception:
         return None
@@ -250,7 +262,7 @@ def _extract_tables(page, page_index: int, start_i: int) -> list[tuple[float, Fi
             # 캡션 텍스트를 못 찾으면 위쪽 여백만 조금 포함
             clip.y0 = max(page.rect.y0, clip.y0 - 28)
 
-        png = _render_page_clip(page, clip, zoom=2.0)
+        png = _render_page_clip(page, clip)
         if not png:
             continue
 

@@ -46,6 +46,17 @@ Tesseract 로컬 OCR은 쓰지 않음.
 
 ## 그림 (§M3)
 
+### 페이지 클립 래스터 (캡션 포함 PNG)
+
+임베디드 추출 후 **표시용**은 그림+캡션(또는 표+캡션) 영역을 `page.get_pixmap` 으로 자른다.
+
+| 상수 | 값 | 의미 |
+|------|-----|------|
+| `_FIGURE_CLIP_ZOOM` | **8.0** (0.2.41 · 이전 2.0) | 같은 clip을 더 촘촘히 찍음 (~576 dpi). **잘리는 범위는 불변** |
+| `_FIGURE_CLIP_MAX_SIDE_PX` | 6400 | 전면 그림 8× 시 긴 변 상한 (OOM). 영역은 유지·해상도만 캡 |
+
+`pipeline_version` → **`rich-v6`** (옛 보관본은 stale · 재분석 시 고해상도).
+
 ### 1차 전략: embedded images
 
 페이지마다 `page.get_images(full=True)`:
