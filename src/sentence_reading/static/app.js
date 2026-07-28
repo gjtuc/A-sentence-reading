@@ -1296,7 +1296,8 @@
     if (el.authLoginBtn) el.authLoginBtn.hidden = !enabled || !!user;
     if (el.authLogoutBtn) el.authLogoutBtn.hidden = !enabled || !user;
     if (el.authAccountBtn) el.authAccountBtn.hidden = !enabled || !user;
-    if (el.usageBtn) el.usageBtn.hidden = !enabled || !user;
+    // WHY: 사용량은 운영자만 — 일반 로그인 유저에게 버튼 숨김 (design/27)
+    if (el.usageBtn) el.usageBtn.hidden = !enabled || !user || !authState.isAdmin;
     if (el.cloudUrlLink) {
       const cloud = authState.cloudUrl;
       const here = window.location.origin.replace(/\/$/, "");
@@ -1590,7 +1591,7 @@
   }
 
   async function openUsageDialog() {
-    if (!el.usageDialog || !authState.user) return;
+    if (!el.usageDialog || !authState.user || !authState.isAdmin) return;
     if (el.usageDialogBody) el.usageDialogBody.textContent = "불러오는 중…";
     if (typeof el.usageDialog.showModal === "function") {
       el.usageDialog.showModal();

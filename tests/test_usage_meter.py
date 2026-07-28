@@ -1,4 +1,4 @@
-"""유저별 사용량 · 추정 비용 (0.2.24 · design/27)."""
+"""유저별 사용량 · 추정 비용 (0.2.37 · design/27 · 관리자 전용 UI/API)."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _iso_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_version() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.36"
+    assert st["version"] == "0.2.37"
     assert st.get("usage_meter") is True
 
 
@@ -86,6 +86,22 @@ def test_usage_requires_auth() -> None:
     assert client.get("/api/usage").json()["error"] == "auth_required"
 
 
+def test_usage_me_forbidden_for_non_admin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ASR_GOOGLE_CLIENT_ID", "cid.apps.googleusercontent.com")
+    monkeypatch.setenv("ASR_AUTH_SECRET", "test-secret-usage-meter-xxxxxxxx")
+    monkeypatch.setenv("ASR_ADMIN_EMAILS", "admin@example.com")
+    user = AuthUser(
+        uid="118234567890123456780",
+        email="other@example.com",
+        name="Other",
+        picture="",
+    )
+    token = ag.issue_session_token(user)
+    client = TestClient(app)
+    me = client.get("/api/usage", cookies={ag.COOKIE_NAME: token}).json()
+    assert me["error"] == "forbidden"
+
+
 def test_admin_forbidden(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ASR_GOOGLE_CLIENT_ID", "cid.apps.googleusercontent.com")
     monkeypatch.setenv("ASR_AUTH_SECRET", "test-secret-usage-meter-xxxxxxxx")
@@ -105,4 +121,5 @@ def test_admin_forbidden(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_design_mentions_version() -> None:
     root = Path(__file__).resolve().parents[1]
     design = (root / "docs" / "design" / "27-usage-metering.md").read_text(encoding="utf-8")
-    assert "0.2.24" in design
+    assert "0.2.37" in design
+    assert "관리자" in design

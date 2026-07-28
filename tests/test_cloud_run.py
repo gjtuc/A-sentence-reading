@@ -50,7 +50,7 @@ def test_status_version() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.36"
+    assert st["version"] == "0.2.37"
 
 
 def test_cloud_url_in_auth_status(monkeypatch):
