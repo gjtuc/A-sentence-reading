@@ -29,6 +29,34 @@ log = logging.getLogger(__name__)
 # WHY: rich-v* 와 분리 — 번역만 바뀌어도 PDF 재분석 강제하지 않음
 TRANSLATE_DOC_VERSION = "doc-v1"
 
+
+def needs_translate_backfill(
+    sentences: list[Sentence],
+    figures: list[Figure],
+    digests: dict | None = None,
+) -> bool:
+    """
+    보관본에 ingest 번역이 사실상 없으면 True.
+    WHY: rich-v6 캐시 히트가 번역 stage를 건너뛰던 구멍 (design/42).
+    """
+    if digests and any(
+        isinstance(v, dict)
+        and (str(v.get("en") or "").strip() or str(v.get("ko") or "").strip())
+        for v in digests.values()
+    ):
+        return False
+    n = len(sentences or [])
+    if n == 0:
+        # 문장 없으면 번역할 것 없음 — 백필 불필요
+        return False
+    filled = sum(1 for s in sentences if (getattr(s, "text_ko", None) or "").strip())
+    if filled / n >= 0.05:
+        return False
+    if any((getattr(f, "caption_ko", None) or "").strip() for f in (figures or [])):
+        return False
+    return True
+
+
 _DIGEST_SYSTEM = """You summarize one academic paper section for a Korean researcher.
 Return exactly two blocks:
 EN: <2-4 English sentences: core claim and key terms>

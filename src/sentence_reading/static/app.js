@@ -1659,12 +1659,20 @@
   }
 
   /**
-   * 현재 문장 영→한 (design/35·36·39·40).
-   * text_ko(ingest 캐시)가 있으면 live API 생략. 실패해도 읽기 루프는 유지.
+   * 현재 문장 영→한 표시 (design/35·39·40·42).
+   * ingest 시 저장된 text_ko 만 사용 — live /api/translate 폴백 없음.
    * @param {string} plainEn
    */
   async function refreshSentenceKo(plainEn) {
     if (!el.sentenceKo) return;
+    if (translateAbort) {
+      try {
+        translateAbort.abort();
+      } catch (_) {
+        /* ignore */
+      }
+      translateAbort = null;
+    }
     if (!translatePrefs.enabled) {
       clearSentenceKo();
       return;
@@ -1673,76 +1681,18 @@
       clearSentenceKo();
       return;
     }
-    // WHY: design/40 — 첨부 시 미리 만든 KO를 우선 (대기·용어 일관성)
     const cur = state.sentences[state.sentenceIndex];
     const cachedKo = cur && String(cur.text_ko || "").trim();
+    setBilingualSplit(true);
+    el.sentenceKo.classList.remove("is-loading");
     if (cachedKo) {
-      if (translateAbort) {
-        try {
-          translateAbort.abort();
-        } catch (_) {
-          /* ignore */
-        }
-        translateAbort = null;
-      }
-      setBilingualSplit(true);
-      el.sentenceKo.classList.remove("is-loading", "is-error");
+      el.sentenceKo.classList.remove("is-error");
       el.sentenceKo.textContent = cachedKo;
       return;
     }
-    if (translateAbort) {
-      try {
-        translateAbort.abort();
-      } catch (_) {
-        /* ignore */
-      }
-    }
-    const ac = new AbortController();
-    translateAbort = ac;
-    setBilingualSplit(true);
-    el.sentenceKo.classList.add("is-loading");
-    el.sentenceKo.classList.remove("is-error");
-    el.sentenceKo.textContent = "번역 중…";
-    try {
-      const res = await fetch("/api/translate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({
-          text: plainEn,
-          mode: translatePrefs.mode === "simple" ? "simple" : "pipeline",
-        }),
-        signal: ac.signal,
-      });
-      const data = await res.json().catch(() => ({}));
-      if (ac.signal.aborted) return;
-      if (!res.ok || data.ok === false) {
-        el.sentenceKo.classList.remove("is-loading");
-        el.sentenceKo.classList.add("is-error");
-        const err = data.error || "translate_failed";
-        el.sentenceKo.textContent =
-          err === "gemini_unavailable"
-            ? "번역 불가 (Gemini 키 없음)"
-            : err === "too_long"
-              ? "문장이 너무 길어 번역하지 않음"
-              : err === "empty"
-                ? ""
-                : "번역 실패";
-        if (err === "empty") clearSentenceKo();
-        return;
-      }
-      el.sentenceKo.classList.remove("is-loading", "is-error");
-      el.sentenceKo.textContent = data.ko || "";
-      if (!data.ko) clearSentenceKo();
-      else setBilingualSplit(true);
-    } catch (err) {
-      if (err && err.name === "AbortError") return;
-      if (ac.signal.aborted) return;
-      el.sentenceKo.classList.remove("is-loading");
-      el.sentenceKo.classList.add("is-error");
-      el.sentenceKo.textContent = "번역 오류";
-      setBilingualSplit(true);
-    }
+    // WHY: design/42 — 빈 KO를 live로 가리지 않음
+    el.sentenceKo.classList.add("is-error");
+    el.sentenceKo.textContent = "미리 번역 없음 (파일을 다시 열거나 재분석)";
   }
 
   function sttExpectedPlain() {

@@ -17,7 +17,7 @@ from sentence_reading.models import Figure, PaperSession, Sentence
 def test_status_exposes_pipeline() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.49"
+    assert st["version"] == "0.2.50"
     assert st["pipeline_version"] == PIPELINE_VERSION
 
 
@@ -97,7 +97,8 @@ def test_open_stale_allowed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     assert res.status_code == 200
     body = res.json()
     assert body["stale"] is True
-    assert body["warnings"] == ["stale_pipeline"]
+    assert "stale_pipeline" in body["warnings"]
+    # design/42 — KO 없으면 translate_missing 경고가 함께 올 수 있음
     assert body["current_pipeline"] == PIPELINE_VERSION
 
 

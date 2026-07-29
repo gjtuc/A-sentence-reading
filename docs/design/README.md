@@ -47,6 +47,7 @@
 | 39 | [39-translate-side-by-side.md](39-translate-side-by-side.md) | EN\|KO 좌우 동형 |
 | 40 | [40-ingest-section-translate.md](40-ingest-section-translate.md) | ingest 섹션 번역 · 요지 · 캡션 |
 | 41 | [41-cite-ref-open.md](41-cite-ref-open.md) | 각주 → References → DOI/Crossref |
+| 42 | [42-translate-ingest-only.md](42-translate-ingest-only.md) | live 번역 제거 · 보관본 백필 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -79,4 +80,5 @@
 39는 번역 표시 EN|KO 좌우 동형 — 전체·축소 공통 (0.2.47).  
 40는 첨부 시 섹션 번역 + 요지 재감수 + 캡션 (0.2.48).  
 41는 본문 각주 → References → DOI/Crossref 원문 열기 (0.2.49).  
+42는 읽기 live 번역 제거 · 보관본 KO 백필 (0.2.50).  
 음절(30)은 **하지 않음** (원복).
