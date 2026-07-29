@@ -301,6 +301,7 @@ def load_cached_session(cache_id: str) -> tuple[PaperSession, dict] | None:
             id=str(s.get("id") or f"s-{i}"),
             text=str(s.get("text") or ""),
             section=s.get("section"),
+            text_ko=str(s.get("text_ko") or ""),
         )
         for i, s in enumerate(meta.get("sentences") or [])
         if isinstance(s, dict) and str(s.get("text") or "").strip()
@@ -326,16 +327,27 @@ def load_cached_session(cache_id: str) -> tuple[PaperSession, dict] | None:
                 image_src=src,
                 caption=str(f.get("caption") or ""),
                 page_index=f.get("page_index"),
+                caption_ko=str(f.get("caption_ko") or ""),
             )
         )
 
     title = str(meta.get("title") or "Untitled")
+    digests_raw = meta.get("translate_digests") or {}
+    digests: dict = {}
+    if isinstance(digests_raw, dict):
+        for k, v in digests_raw.items():
+            if isinstance(v, dict):
+                digests[str(k)] = {
+                    "en": str(v.get("en") or ""),
+                    "ko": str(v.get("ko") or ""),
+                }
     session = PaperSession(
         title=title,
         figures=figures,
         sentences=sentences,
         figure_index=int(meta.get("figure_index") or 0),
         sentence_index=int(meta.get("sentence_index") or 0),
+        translate_digests=digests,
     )
     session.clamp_indices()
     info = {
@@ -520,6 +532,7 @@ def save_paper_session(
             {
                 "id": fig.id,
                 "caption": fig.caption,
+                "caption_ko": fig.caption_ko or "",
                 "page_index": fig.page_index,
                 "file": f"figures/{fname}",
             }
@@ -540,6 +553,10 @@ def save_paper_session(
             has_source = False
             source_rel = None
 
+    has_tr = bool(session.translate_digests) or any(
+        (s.text_ko or "").strip() for s in session.sentences
+    ) or any((f.caption_ko or "").strip() for f in session.figures)
+
     payload = {
         "version": 1,
         "pipeline_version": PIPELINE_VERSION,
@@ -555,10 +572,26 @@ def save_paper_session(
         "source_file": source_rel,
         "content_hash": ch or None,
         "sentences": [
-            {"id": s.id, "text": s.text, "section": s.section} for s in session.sentences
+            {
+                "id": s.id,
+                "text": s.text,
+                "section": s.section,
+                "text_ko": s.text_ko or "",
+            }
+            for s in session.sentences
         ],
         "figures": fig_meta,
+        "translate_digests": {
+            str(k): {
+                "en": str((v or {}).get("en") or ""),
+                "ko": str((v or {}).get("ko") or ""),
+            }
+            for k, v in (session.translate_digests or {}).items()
+            if isinstance(v, dict)
+        },
     }
+    if has_tr:
+        payload["translate_doc_version"] = "doc-v1"
     (paper_dir / _SESSION_NAME).write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",

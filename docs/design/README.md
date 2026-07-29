@@ -40,6 +40,12 @@
 | 32 | [32-github-cd.md](32-github-cd.md) | GitHub CI · Cloud Run CD 게이트 |
 | 33 | [33-mobile-flutter.md](33-mobile-flutter.md) | Android Flutter 「문장 읽기」 · API 재사용 · APK |
 | 34 | [34-tab-close.md](34-tab-close.md) | 논문 탭 × 닫기 · 탭 범위 저장 |
+| 35 | [35-translate-simple.md](35-translate-simple.md) | 영→한 단순 번역 · on/off |
+| 36 | [36-translate-pipeline.md](36-translate-pipeline.md) | draft→sense→polish |
+| 37 | [37-stt-browser.md](37-stt-browser.md) | 브라우저 STT · 단어 diff |
+| 38 | [38-stt-server.md](38-stt-server.md) | 서버 STT · MediaRecorder |
+| 39 | [39-translate-side-by-side.md](39-translate-side-by-side.md) | EN\|KO 좌우 동형 |
+| 40 | [40-ingest-section-translate.md](40-ingest-section-translate.md) | ingest 섹션 번역 · 요지 · 캡션 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -70,4 +76,5 @@
 37는 브라우저 STT 발음 연습 — 원문 vs 인식 diff · 점수 없음 (0.2.45).  
 38는 서버 STT — MediaRecorder 업로드 · Gemini 전사 · 브라우저 폴백 (0.2.46).  
 39는 번역 표시 EN|KO 좌우 동형 — 전체·축소 공통 (0.2.47).  
+40는 첨부 시 섹션 번역 + 요지 재감수 + 캡션 (0.2.48).  
 음절(30)은 **하지 않음** (원복).

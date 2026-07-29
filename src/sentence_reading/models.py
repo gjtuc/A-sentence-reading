@@ -18,6 +18,8 @@ class Figure:
     image_src: str
     caption: str = ""
     page_index: int | None = None
+    # WHY: design/40 — ingest 시 캡션 번역
+    caption_ko: str = ""
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,8 @@ class Sentence:
     end_char: int | None = None
     # WHY: Gemini 정제 후 title / abstract / body 구분 (네비는 단일 리스트)
     section: str | None = None
+    # WHY: design/40 — ingest 시 섹션 파이프+요지 재감수 결과
+    text_ko: str = ""
 
 
 @dataclass
@@ -47,6 +51,8 @@ class PaperSession:
     sentences: list[Sentence] = field(default_factory=list)
     figure_index: int = 0
     sentence_index: int = 0
+    # WHY: design/40 — 섹션별 번역 정리본 {section: {en, ko}}
+    translate_digests: dict = field(default_factory=dict)
 
     def clamp_indices(self) -> None:
         """빈 목록이면 인덱스를 0으로 두고, UI가 empty 상태를 처리한다."""
@@ -97,18 +103,43 @@ class PaperSession:
                 "id": fig.id,
                 "image_src": fig.image_src,
                 "caption": fig.caption,
+                "caption_ko": fig.caption_ko or "",
                 "page_index": fig.page_index,
             },
             "sentence": None
             if sent is None
-            else {"id": sent.id, "text": sent.text, "section": sent.section},
+            else {
+                "id": sent.id,
+                "text": sent.text,
+                "section": sent.section,
+                "text_ko": sent.text_ko or "",
+            },
             "figures": [
-                {"id": f.id, "image_src": f.image_src, "caption": f.caption}
+                {
+                    "id": f.id,
+                    "image_src": f.image_src,
+                    "caption": f.caption,
+                    "caption_ko": f.caption_ko or "",
+                }
                 for f in self.figures
             ],
             "sentences": [
-                {"id": s.id, "text": s.text, "section": s.section} for s in self.sentences
+                {
+                    "id": s.id,
+                    "text": s.text,
+                    "section": s.section,
+                    "text_ko": s.text_ko or "",
+                }
+                for s in self.sentences
             ],
+            "translate_digests": {
+                str(k): {
+                    "en": str((v or {}).get("en") or ""),
+                    "ko": str((v or {}).get("ko") or ""),
+                }
+                for k, v in (self.translate_digests or {}).items()
+                if isinstance(v, dict)
+            },
         }
 
 

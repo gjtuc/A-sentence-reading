@@ -50,6 +50,7 @@ src/sentence_reading/
 | `pdf.extract` | PDF 바이트 → 그림 바이너리/메타 + 원문 텍스트 | 문장 분할, HTTP |
 | `pdf.sentences` | 원문 → 문장 리스트 | PDF 파싱 |
 | `llm.translate` | 한 문장 영→한 (simple · pipeline draft/sense/polish) | 용어집 DB, TTS |
+| `llm.translate_section` | ingest 시 섹션 pipeline → digest → harmonize · 캡션 | 실시간 스트리밍 번역 |
 | `stt.compare` | 기대/인식 토큰 diff | 점수·마이크 |
 | `stt.recognize` | 짧은 오디오 → 영어 전사 | 채점·장기 보관 |
 | `api.app` | 라우팅, 정적 파일, ingest | 비즈니스 로직 본문 |
@@ -60,13 +61,14 @@ src/sentence_reading/
 | Method | Path | 동작 |
 |--------|------|------|
 | GET | `/` | `index.html` |
-| GET | `/api/status` | 버전·기능 플래그 (`stt_server` · `translate_pipeline` 등) |
+| GET | `/api/status` | 버전·기능 플래그 (`translate_ingest_sections` · `stt_server` 등) |
 | POST | `/api/translate` | `{ text, mode? }` → `{ ok, ko, stages_done }` (0.2.44 · design/35–36) |
 | POST | `/api/stt/compare` | `{ expected, heard }` → `{ ok, diff }` · **score 없음** (0.2.45 · design/37) |
 | POST | `/api/stt/recognize` | multipart 오디오 → `{ ok, heard, compare? }` (0.2.46 · design/38) |
-| UI | 번역 on | EN|KO 좌우 동형 박스 (0.2.47 · design/39) |
+| UI | 번역 on | EN\|KO 좌우 동형 박스 (0.2.47 · design/39) |
+| ingest | 번역 | 섹션 `text_ko` · `caption_ko` · `translate_digests` (0.2.48 · design/40) |
 | GET | `/api/session/mock` | mock figures + sentences |
-| POST | `/api/ingest` | 논문 분석 잡 |
+| POST | `/api/ingest` | 논문 분석 잡 (Gemini 있으면 섹션 번역 단계 포함) |
 
 ## PaperSession 불변조건
 
@@ -92,7 +94,7 @@ CD를 켜려면 GitHub repository variable `ASR_CD_ENABLED=1` 과 Secrets(`GCP_S
 
 ## 구현 순서 (권위: design/)
 
-세부는 **[design/](design/README.md)** 가 권위 문서다. M0–M5·번역·STT·EN|KO 좌우까지 반영됨.  
+세부는 **[design/](design/README.md)** 가 권위 문서다. M0–M5·번역·STT·EN|KO 좌우·ingest 섹션 번역까지 반영됨.  
 다음: Flutter 앱.
 
 에러·한도·테스트: [08](design/08-errors.md) · [09](design/09-testing.md) · [10](design/10-security-limits.md)
