@@ -1,4 +1,4 @@
-"""Compound figure 1a/1b 분해 (0.2.26 · design/29)."""
+"""Compound figure 모듈 보관 · ingest 비활성 (0.2.52 · design/44)."""
 
 from __future__ import annotations
 
@@ -19,21 +19,21 @@ from sentence_reading.pdf.compound import (
     panel_caption,
     split_png_equal,
 )
+from sentence_reading.pdf import extract as pdf_extract
 
 
-def _rgb_png(w: int, h: int, color: tuple[int, int, int]) -> bytes:
-    im = Image.new("RGB", (w, h), color)
-    buf = io.BytesIO()
-    im.save(buf, format="PNG")
-    return buf.getvalue()
-
-
-def test_status_and_pipeline() -> None:
+def test_status_compound_off() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.51"
-    assert st["pipeline_version"] == "rich-v6"
-    assert PIPELINE_VERSION == "rich-v6"
-    assert st.get("compound_figures") is True
+    assert st["version"] == "0.2.52"
+    assert st["pipeline_version"] == "rich-v7"
+    assert PIPELINE_VERSION == "rich-v7"
+    assert st.get("compound_figures") is False
+
+
+def test_extract_source_has_no_compound_call() -> None:
+    src = Path(pdf_extract.__file__).read_text(encoding="utf-8")
+    assert "expand_compound_png" not in src
+    assert "design/44" in src
 
 
 def test_detect_panels() -> None:
@@ -51,8 +51,8 @@ def test_labels() -> None:
     )
 
 
-def test_split_and_expand() -> None:
-    # 좌우 다른 색 — 2패널
+def test_split_and_expand_module_still_works() -> None:
+    """모듈은 보관 — extract 만 안 부름."""
     left = Image.new("RGB", (100, 80), (255, 0, 0))
     right = Image.new("RGB", (100, 80), (0, 0, 255))
     im = Image.new("RGB", (200, 80))
@@ -76,23 +76,17 @@ def test_split_and_expand() -> None:
     assert figs is not None
     assert len(figs) == 2
     assert figs[0].caption.startswith("Fig. 1a")
-    assert figs[1].caption.startswith("Fig. 1b")
     assert match_figure_index(figs, "Fig. 1a") == 0
-    assert match_figure_index(figs, "Fig. 1b") == 1
-
-    # 패널 표시 없으면 None
-    assert (
-        expand_compound_png(
-            png, "Fig. 1. Single panel", page_index=0, id_prefix="fig", start_i=1
-        )
-        is None
-    )
 
 
-def test_design_doc() -> None:
+def test_design_44_and_29() -> None:
     root = Path(__file__).resolve().parents[1]
-    design = (root / "docs" / "design" / "29-compound-figures.md").read_text(
+    d44 = (root / "docs" / "design" / "44-compound-off.md").read_text(encoding="utf-8")
+    assert "0.2.52" in d44
+    assert "expand_compound_png" in d44 or "끊" in d44
+    assert "rich-v7" in d44
+    d29 = (root / "docs" / "design" / "29-compound-figures.md").read_text(
         encoding="utf-8"
     )
-    assert "0.2.26" in design
-    assert "rich-v4" in design
+    assert "0.2.26" in d29
+    assert "비활성" in d29 or "44" in d29

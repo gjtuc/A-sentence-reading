@@ -2,7 +2,8 @@
 무엇을: PDF 바이트 → 그림·표 목록(+캡션) + 원문 텍스트.
 왜: Fig/Table 은 본문과 위치가 어긋나므로 하단 캐러셀에 따로 둔다.
      그림 캡션은 아래, 표 캡션은 위에 있는 경우가 많다.
-다음에: 스캔본 OCR 보강. compound → pdf/compound.py · reading-order → pdf/reading_order.py.
+다음에: 스캔본 OCR 보강. reading-order → pdf/reading_order.py.
+# NOTE: compound 자동 분리는 design/44 에서 extract 파이프라인 끊김 (모듈은 보관).
 """
 
 from __future__ import annotations
@@ -181,7 +182,6 @@ def _extract_embedded_images(page, page_index: int, start_i: int) -> list[tuple[
         if not caption:
             continue
 
-        image_only_png = png
         # 캡션까지 포함해 페이지 클립 (전체화면에서 설명 잘 보이게)
         clip = fitz.Rect(img_rect)
         clip.y1 = min(page.rect.y1, img_rect.y1 + _CAPTION_BELOW_PT)
@@ -189,34 +189,21 @@ def _extract_embedded_images(page, page_index: int, start_i: int) -> list[tuple[
         if rendered:
             png = rendered
 
-        # WHY: compound 는 이미지 영역만 균등 분할 (캡션 포함 클립은 패널 경계 왜곡)
-        from sentence_reading.pdf.compound import expand_compound_png
-
-        panels = expand_compound_png(
-            image_only_png,
-            caption,
-            page_index=page_index,
-            id_prefix="fig",
-            start_i=fig_i + 1,
-        )
+        # WHY: design/44 — compound (a/b) 자동 분리 파이프라인에서 끊음. 통짜만 유지.
+        # 드래그 크롭은 UI 제스처로 별개.
         y0 = float(img_rect.y0)
-        if panels:
-            for fig in panels:
-                fig_i += 1
-                items.append((y0, fig))
-        else:
-            fig_i += 1
-            items.append(
-                (
-                    y0,
-                    Figure(
-                        id=f"fig-{fig_i:04d}",
-                        image_src=_png_data_url(png),
-                        caption=caption,
-                        page_index=page_index,
-                    ),
-                )
+        fig_i += 1
+        items.append(
+            (
+                y0,
+                Figure(
+                    id=f"fig-{fig_i:04d}",
+                    image_src=_png_data_url(png),
+                    caption=caption,
+                    page_index=page_index,
+                ),
             )
+        )
         if len(items) + start_i >= 200:
             break
 

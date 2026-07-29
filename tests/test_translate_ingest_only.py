@@ -1,4 +1,4 @@
-"""읽기 live 번역 제거 · 보관본 번역 백필 (0.2.51 · design/42)."""
+"""읽기 live 번역 제거 · 보관본 번역 백필 (0.2.52 · design/42)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_ingest_only() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.51"
+    assert st["version"] == "0.2.52"
     assert st["translate_ingest_only"] is True
     assert st["translate_live_fallback"] is False
 
@@ -41,7 +41,7 @@ def test_ui_no_live_translate_fetch() -> None:
     assert 'fetch("/api/translate"' not in js
     assert "번역 중…" not in js or "미리 번역 없음" in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.51" in served
+    assert "app.js?v=0.2.52" in served
 
 
 def test_needs_backfill_edges() -> None:

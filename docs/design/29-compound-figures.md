@@ -1,6 +1,9 @@
 # 29 — Compound figure (1a/1b) 분해
 
-모듈: `pdf/compound.py` · `pdf/extract.py` · `PIPELINE_VERSION=rich-v4`
+> **0.2.52+:** ingest에서 **비활성** ([44-compound-off.md](44-compound-off.md)).  
+> 모듈은 보관하나 `extract.py` 가 호출하지 않음.
+
+모듈: `pdf/compound.py` · `pdf/extract.py` · `PIPELINE_VERSION=rich-v4` (도입 시점)
 
 ## 무엇을
 
