@@ -117,7 +117,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.47",
+    version="0.2.48",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -197,7 +197,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.47",
+        "version": "0.2.48",
         "usage_meter": True,
         "fig_ref_hints": True,
         "compound_figures": True,
@@ -206,6 +206,7 @@ def status(request: Request) -> dict:
         "translate_en_ko": gemini_available(),
         "translate_pipeline": True,
         "translate_side_by_side": True,
+        "translate_ingest_sections": True,
         "stt_browser": True,
         "stt_server": gemini_available(),
         "tab_close": True,
@@ -1420,6 +1421,28 @@ async def _run_ingest_job(
             for s in sentences
         ]
 
+        digests: dict = {}
+        if gemini_available():
+            _job_set(
+                job_id,
+                percent=92,
+                stage="translate",
+                message="섹션 번역·요지 정리 중",
+            )
+            from sentence_reading.llm.translate_section import (
+                enrich_session_translations,
+            )
+
+            try:
+                sentences, figures, digests, tr_warn = await asyncio.to_thread(
+                    enrich_session_translations, sentences, figures
+                )
+                warnings.extend(tr_warn)
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(f"translate_failed:{str(exc)[:80]}")
+        else:
+            warnings.append("translate_skipped_no_gemini")
+
         _job_set(job_id, percent=95, stage="save", message="거의 끝")
         title = Path(filename).stem or "Untitled"
         for s in sentences:
@@ -1431,6 +1454,7 @@ async def _run_ingest_job(
             title=title,
             figures=figures,
             sentences=sentences,
+            translate_digests=digests,
         )
         session_id = _remember_session(session)
 

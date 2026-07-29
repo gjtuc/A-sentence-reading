@@ -52,7 +52,7 @@
     return Math.max(Math.round(el.layout.clientHeight - 16), Math.round(window.innerHeight - 24));
   }
 
-  /** @type {{ figures: any[], sentences: any[], figureIndex: number, sentenceIndex: number, title: string, sessionId: string | null }} */
+  /** @type {{ figures: any[], sentences: any[], figureIndex: number, sentenceIndex: number, title: string, sessionId: string | null, translateDigests: Record<string, {en?: string, ko?: string}> }} */
   const state = {
     figures: [],
     sentences: [],
@@ -60,6 +60,8 @@
     sentenceIndex: 0,
     title: "",
     sessionId: null,
+    // WHY: design/40 — 섹션 번역 정리본 (되새김질)
+    translateDigests: {},
   };
 
   /** @type {"boot" | "mock" | "loading" | "ready" | "error"} */
@@ -830,6 +832,7 @@
     p.sentenceIndex = state.sentenceIndex;
     p.title = state.title;
     p.sessionId = state.sessionId;
+    p.translateDigests = state.translateDigests || {};
     // cacheId / source / isMock 는 탭 메타 — state 에 없으므로 유지
     p.crop = {
       active: !!cropZoom.active,
@@ -844,6 +847,7 @@
     state.sentenceIndex = p.sentenceIndex || 0;
     state.title = p.title || "";
     state.sessionId = p.sessionId || null;
+    state.translateDigests = p.translateDigests || {};
     clearCropZoomStyles();
     cropZoom.active = !!(p.crop && p.crop.active && p.crop.norm);
     cropZoom.norm = p.crop && p.crop.norm ? { ...p.crop.norm } : null;
@@ -1359,6 +1363,8 @@
       source: data.source || "",
       cacheId: data.cache_id || null,
       contentHash: data.content_hash || null,
+      // WHY: design/40 — ingest 섹션 요지 (캐시/세션 동일 키)
+      translateDigests: data.translate_digests || {},
       isMock: phase === "mock",
       crop: emptyCrop(),
     };
@@ -1528,7 +1534,8 @@
   }
 
   /**
-   * 현재 문장 영→한 (design/35·36·39). 실패해도 읽기 루프는 유지.
+   * 현재 문장 영→한 (design/35·36·39·40).
+   * text_ko(ingest 캐시)가 있으면 live API 생략. 실패해도 읽기 루프는 유지.
    * @param {string} plainEn
    */
   async function refreshSentenceKo(plainEn) {
@@ -1539,6 +1546,23 @@
     }
     if (!plainEn) {
       clearSentenceKo();
+      return;
+    }
+    // WHY: design/40 — 첨부 시 미리 만든 KO를 우선 (대기·용어 일관성)
+    const cur = state.sentences[state.sentenceIndex];
+    const cachedKo = cur && String(cur.text_ko || "").trim();
+    if (cachedKo) {
+      if (translateAbort) {
+        try {
+          translateAbort.abort();
+        } catch (_) {
+          /* ignore */
+        }
+        translateAbort = null;
+      }
+      setBilingualSplit(true);
+      el.sentenceKo.classList.remove("is-loading", "is-error");
+      el.sentenceKo.textContent = cachedKo;
       return;
     }
     if (translateAbort) {
@@ -1725,8 +1749,14 @@
       const prevSrc = el.figureImage.getAttribute("src");
       el.figureImage.src = fig.image_src;
       el.figureImage.alt = fig.caption || fig.id;
-      el.figureCaption.textContent = fig.caption || "";
-      el.figureCaption.hidden = !fig.caption;
+      // WHY: design/40 — 번역 on이면 caption_ko 우선, 없으면 영문
+      const capEn = fig.caption || "";
+      const capKo =
+        translatePrefs.enabled && String(fig.caption_ko || "").trim()
+          ? String(fig.caption_ko).trim()
+          : "";
+      el.figureCaption.textContent = capKo || capEn;
+      el.figureCaption.hidden = !(capKo || capEn);
       if (prevSrc !== fig.image_src) {
         el.figureImage.addEventListener(
           "load",
@@ -2686,10 +2716,46 @@
     if (el.sectionReviewTitle) {
       el.sectionReviewTitle.textContent = label + " · 되새김질";
     }
+    var secKey = String(section || "body").trim().toLowerCase() || "body";
+    var digest =
+      (state.translateDigests && state.translateDigests[secKey]) ||
+      (state.translateDigests && state.translateDigests[section]) ||
+      null;
+    var hasDigest =
+      translatePrefs.enabled &&
+      digest &&
+      (String(digest.ko || "").trim() || String(digest.en || "").trim());
+    if (el.sectionReviewHint) {
+      el.sectionReviewHint.textContent = hasDigest
+        ? "위쪽은 이 구간 번역 정리본입니다. 아래는 최신 글·목소리 — 글 영역을 누르면 이어서 쓰고, ▶ 목소리는 듣기만 합니다 (문장 위치는 그대로)."
+        : "최신 글·목소리만 보입니다. 글 영역을 누르면 이어서 쓰고, ▶ 목소리는 듣기만 합니다 (문장 위치는 그대로).";
+    }
     var ids = AsrNotes.sentenceIdsInSection(state.sentences, section);
     var pk = currentPaperKey();
     var store = readNotesStore();
     el.sectionReviewList.innerHTML = "";
+    // WHY: design/40 — 섹션 digest를 되새김질 상단에 고정
+    if (hasDigest) {
+      var digLi = document.createElement("li");
+      digLi.className = "section-review-digest";
+      var digTitle = document.createElement("div");
+      digTitle.className = "section-review-digest-label";
+      digTitle.textContent = "번역 정리본";
+      digLi.appendChild(digTitle);
+      if (String(digest.ko || "").trim()) {
+        var digKo = document.createElement("p");
+        digKo.className = "section-review-digest-ko";
+        digKo.textContent = String(digest.ko).trim();
+        digLi.appendChild(digKo);
+      }
+      if (String(digest.en || "").trim()) {
+        var digEn = document.createElement("p");
+        digEn.className = "section-review-digest-en";
+        digEn.textContent = String(digest.en).trim();
+        digLi.appendChild(digEn);
+      }
+      el.sectionReviewList.appendChild(digLi);
+    }
     if (!ids.length) {
       var empty = document.createElement("li");
       empty.className = "section-review-item-body is-empty";
@@ -2716,12 +2782,17 @@
       btn.dataset.sentenceId = sid;
       var meta = document.createElement("span");
       meta.className = "section-review-item-meta";
+      var koPrev =
+        translatePrefs.enabled && sent && String(sent.text_ko || "").trim()
+          ? " · KO " + String(sent.text_ko).trim().slice(0, 48)
+          : "";
       meta.textContent =
         "rev " +
         (revs.length ? revs[revs.length - 1].rev : 0) +
         (voice ? " · 목소리 #" + voice.rev : "") +
         " · " +
-        (plainSentencePreview(sent) || sid);
+        (plainSentencePreview(sent) || sid) +
+        koPrev;
       var body = document.createElement("span");
       body.className =
         "section-review-item-body" + (latest ? "" : " is-empty");
