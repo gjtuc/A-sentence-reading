@@ -14,7 +14,7 @@ import urllib.parse
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Body, FastAPI, File, Request, UploadFile
+from fastapi import Body, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -117,7 +117,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.45",
+    version="0.2.46",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -197,7 +197,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.45",
+        "version": "0.2.46",
         "usage_meter": True,
         "fig_ref_hints": True,
         "compound_figures": True,
@@ -206,6 +206,7 @@ def status(request: Request) -> dict:
         "translate_en_ko": gemini_available(),
         "translate_pipeline": True,
         "stt_browser": True,
+        "stt_server": gemini_available(),
         "tab_close": True,
     }
 
@@ -568,6 +569,51 @@ async def stt_compare(payload: dict = Body(...)) -> dict:
         assert "grade" not in result
         assert "accuracy" not in result
     return result
+
+
+@app.post("/api/stt/recognize")
+async def stt_recognize(
+    file: UploadFile = File(...),
+    expected: str = Form(""),
+) -> dict:
+    """연습 오디오 → 영어 전사 (+선택 compare). 점수 없음 (design/38)."""
+    from sentence_reading.stt.compare import diff_tokens
+    from sentence_reading.stt.recognize import recognize_english_audio
+
+    if not gemini_available():
+        return {"ok": False, "error": "gemini_unavailable"}
+    try:
+        data = await file.read()
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "error": "recognize_failed",
+            "message": str(exc)[:200],
+        }
+    mime = file.content_type or "application/octet-stream"
+    try:
+        result = await asyncio.to_thread(recognize_english_audio, data, mime)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "error": "recognize_failed",
+            "message": str(exc)[:200],
+        }
+    if not result.get("ok"):
+        return result
+    out: dict = {
+        "ok": True,
+        "heard": result.get("heard") or "",
+        "engine": result.get("engine") or "gemini",
+    }
+    exp = expected if isinstance(expected, str) else ""
+    if exp.strip():
+        cmp = diff_tokens(exp, out["heard"])
+        if cmp.get("ok"):
+            assert "score" not in cmp
+        out["compare"] = cmp
+    assert "score" not in out
+    return out
 
 
 @app.post("/api/translate")

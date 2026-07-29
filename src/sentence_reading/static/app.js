@@ -224,6 +224,8 @@
   let sttBoundKey = null;
   /** @type {ReturnType<typeof window.AsrSttPractice.create> | null} */
   let sttPractice = null;
+  /** @type {Promise<void> | null} */
+  let sttInitPromise = null;
 
   const ttsSettings = {
     mode: "fixed", // fixed | random_normal | random_hard | random_very_hard
@@ -1610,7 +1612,7 @@
     if (el.sttPracticeBtn) {
       el.sttPracticeBtn.setAttribute(
         "aria-pressed",
-        u && u.active ? "true" : "false"
+        u && (u.active || u.uploading) ? "true" : "false"
       );
     }
     if (el.sttStatus) {
@@ -1618,24 +1620,36 @@
         el.sttStatus.textContent = u.message || "음성 인식 미지원";
       } else if (u && u.error) {
         el.sttStatus.textContent = u.message || String(u.error);
+      } else if (u && u.uploading) {
+        el.sttStatus.textContent = u.message || "서버 인식 중…";
       } else if (u && u.active) {
-        el.sttStatus.textContent = u.interim
-          ? "듣는 중… " + u.interim
-          : "듣는 중… 영어로 문장을 말해 주세요.";
+        if (u.mode === "server") {
+          el.sttStatus.textContent =
+            u.message || "녹음 중… 다시 누르면 중지·서버 인식";
+        } else {
+          el.sttStatus.textContent = u.interim
+            ? "듣는 중… " + u.interim
+            : "듣는 중… 영어로 문장을 말해 주세요.";
+        }
       } else if (u && u.compare && u.compare.ok) {
-        el.sttStatus.textContent = "비교 결과 (점수 없음 — 차이만 표시)";
+        el.sttStatus.textContent =
+          "비교 결과 (점수 없음" +
+          (u.engine ? " · " + u.engine : "") +
+          ")";
       } else if (u && u.compare && u.compare.ok === false) {
         el.sttStatus.textContent =
           u.compare.error === "empty"
             ? "인식·원문이 비어 비교하지 않음"
             : "비교 실패";
+      } else if (u && u.message) {
+        el.sttStatus.textContent = u.message;
       } else {
         el.sttStatus.textContent = "말하기를 눌러 연습";
       }
     }
     if (el.sttHeard) {
       const heard = (u && (u.heard || u.finalText || u.interim)) || "";
-      if (heard && !(u && u.active && !u.finalText)) {
+      if (heard && !(u && u.active && !u.finalText && u.mode !== "server")) {
         el.sttHeard.hidden = false;
         el.sttHeard.textContent = "인식: " + heard;
       } else if (u && u.active && u.interim) {
@@ -1658,7 +1672,7 @@
         el.sttDiff.innerHTML = window.AsrSttPractice.renderDiffHtml(
           u.compare.diff || []
         );
-      } else if (!(u && u.active)) {
+      } else if (!(u && (u.active || u.uploading))) {
         el.sttDiff.innerHTML = "";
       }
     }
@@ -4274,16 +4288,48 @@
     });
   }
 
-  // WHY: design/37 — Web Speech STT · 노트 MediaRecorder 와 분리
-  if (
-    window.AsrSttPractice &&
-    typeof window.AsrSttPractice.create === "function"
-  ) {
-    sttPractice = window.AsrSttPractice.create({
-      getExpectedPlain: sttExpectedPlain,
-      onUpdate: onSttPracticeUpdate,
-    });
+  // WHY: design/37–38 — 서버 녹음 기본 · 브라우저 Web Speech 폴백 · 노트 voice 와 분리
+  function initSttPractice() {
+    if (sttPractice) return Promise.resolve();
+    if (sttInitPromise) return sttInitPromise;
+    sttInitPromise = (async () => {
+      let mode = "browser";
+      try {
+        const res = await fetch("/api/status", { credentials: "same-origin" });
+        const st = await res.json().catch(() => ({}));
+        if (st && st.stt_server) mode = "server";
+      } catch (_) {
+        /* keep browser */
+      }
+      try {
+        const raw = localStorage.getItem(
+          authState.user && authState.user.uid
+            ? "asr.stt.v1." + String(authState.user.uid)
+            : "asr.stt.v1"
+        );
+        if (raw) {
+          const data = JSON.parse(raw);
+          if (data.mode === "browser" || data.mode === "server") {
+            mode = data.mode;
+          }
+        }
+      } catch (_) {
+        /* ignore */
+      }
+      if (
+        window.AsrSttPractice &&
+        typeof window.AsrSttPractice.create === "function"
+      ) {
+        sttPractice = window.AsrSttPractice.create({
+          mode: mode,
+          getExpectedPlain: sttExpectedPlain,
+          onUpdate: onSttPracticeUpdate,
+        });
+      }
+    })();
+    return sttInitPromise;
   }
+  void initSttPractice();
   if (el.sttPracticeBtn) {
     el.sttPracticeBtn.addEventListener("click", () => {
       if (!state.sentences.length) {
@@ -4293,14 +4339,17 @@
         }
         return;
       }
-      if (!sttPractice) {
-        onSttPracticeUpdate({
-          error: "unsupported",
-          message: "이 브라우저는 음성 인식을 지원하지 않습니다 (Chrome 권장).",
-        });
-        return;
-      }
-      sttPractice.toggle();
+      void initSttPractice().then(() => {
+        if (!sttPractice) {
+          onSttPracticeUpdate({
+            error: "unsupported",
+            message:
+              "이 브라우저는 음성 인식을 지원하지 않습니다 (Chrome 권장).",
+          });
+          return;
+        }
+        sttPractice.toggle();
+      });
     });
   }
 
