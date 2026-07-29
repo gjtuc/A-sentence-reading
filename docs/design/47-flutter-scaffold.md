@@ -42,4 +42,4 @@ flutter build apk
 
 ## 버전
 
-웹 **0.2.55** · status `mobile_flutter_scaffold: true`
+출시 **0.2.55** · status `mobile_flutter_scaffold: true` (이후 앱 버전은 후속 문서 참고)
