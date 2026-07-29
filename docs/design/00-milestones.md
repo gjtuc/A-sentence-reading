@@ -60,6 +60,7 @@
 - ~~서버 STT~~ (0.2.46 — [38-stt-server.md](38-stt-server.md); Gemini 전사 · 브라우저 폴백)
 - ~~번역 EN|KO 좌우 동형~~ (0.2.47 — [39-translate-side-by-side.md](39-translate-side-by-side.md); 전체·축소 공통)
 - ~~첨부 시 섹션 번역·요지 재감수·캡션~~ (0.2.48 — [40-ingest-section-translate.md](40-ingest-section-translate.md); live 폴백 유지)
+- ~~본문 각주 → References → DOI/Crossref~~ (0.2.49 — [41-cite-ref-open.md](41-cite-ref-open.md); Scholar 폴백)
 - **Android Flutter 「문장 읽기」** — 설계 [33-mobile-flutter.md](33-mobile-flutter.md); MVP: 로그인·보관·읽기·TTS · APK 사이드로드 (구현 후속)
 
 ### 구현됨 (참고)

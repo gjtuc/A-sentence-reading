@@ -1274,6 +1274,110 @@ body.is-figure-chrome-out .figure-frame figcaption {
   border-color: var(--accent, #8a9ba8);
 }
 
+/* design/41 — 문헌 각주 칩 · 패널 */
+.cite-ref-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.2rem 0.75rem 0;
+  flex: 0 0 auto;
+}
+
+.cite-ref-hints[hidden] {
+  display: none !important;
+}
+
+.cite-ref-chip {
+  appearance: none;
+  border: 1px solid var(--border, #4a5560);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  padding: 0.15rem 0.55rem;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.cite-ref-chip:hover,
+.cite-ref-chip.is-current {
+  color: var(--fg);
+  border-color: var(--accent, #8a9ba8);
+}
+
+.cite-ref-panel {
+  margin: 0.35rem 0.75rem 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border, #333);
+  border-radius: 4px;
+  flex: 0 0 auto;
+}
+
+.cite-ref-panel[hidden] {
+  display: none !important;
+}
+
+.cite-ref-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.35rem;
+}
+
+.cite-ref-panel-label {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+}
+
+.cite-ref-open-btn {
+  appearance: none;
+  border: 1px solid var(--border, #4a5560);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 2px;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.cite-ref-open-btn:hover {
+  border-color: var(--fg-muted);
+}
+
+.cite-ref-open-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.cite-ref-close-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.2rem;
+}
+
+.cite-ref-panel-text {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--fg);
+  white-space: pre-wrap;
+}
+
+.cite-ref-panel-status {
+  margin: 0.3rem 0 0;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+}
+
 /* --- 뽀모도로: 알림·휴식만 --- */
 .pomo-alert {
   position: fixed;

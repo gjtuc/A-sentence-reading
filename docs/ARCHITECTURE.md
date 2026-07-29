@@ -51,6 +51,8 @@ src/sentence_reading/
 | `pdf.sentences` | 원문 → 문장 리스트 | PDF 파싱 |
 | `llm.translate` | 한 문장 영→한 (simple · pipeline draft/sense/polish) | 용어집 DB, TTS |
 | `llm.translate_section` | ingest 시 섹션 pipeline → digest → harmonize · 캡션 | 실시간 스트리밍 번역 |
+| `cite_refs` | 본문 `[n]` ↔ References · DOI 문자열 | 이름-연도 인용 전체 |
+| `llm.crossref_resolve` | 문헌 → DOI/Crossref/Scholar URL | 출판사별 검색 완전 매핑 |
 | `stt.compare` | 기대/인식 토큰 diff | 점수·마이크 |
 | `stt.recognize` | 짧은 오디오 → 영어 전사 | 채점·장기 보관 |
 | `api.app` | 라우팅, 정적 파일, ingest | 비즈니스 로직 본문 |
@@ -61,14 +63,16 @@ src/sentence_reading/
 | Method | Path | 동작 |
 |--------|------|------|
 | GET | `/` | `index.html` |
-| GET | `/api/status` | 버전·기능 플래그 (`translate_ingest_sections` · `stt_server` 등) |
+| GET | `/api/status` | 버전·기능 플래그 (`cite_ref_open` · `translate_ingest_sections` 등) |
 | POST | `/api/translate` | `{ text, mode? }` → `{ ok, ko, stages_done }` (0.2.44 · design/35–36) |
+| POST | `/api/cite/resolve` | `{ text }` → `{ ok, url, doi?, source }` (0.2.49 · design/41) |
 | POST | `/api/stt/compare` | `{ expected, heard }` → `{ ok, diff }` · **score 없음** (0.2.45 · design/37) |
 | POST | `/api/stt/recognize` | multipart 오디오 → `{ ok, heard, compare? }` (0.2.46 · design/38) |
 | UI | 번역 on | EN\|KO 좌우 동형 박스 (0.2.47 · design/39) |
 | ingest | 번역 | 섹션 `text_ko` · `caption_ko` · `translate_digests` (0.2.48 · design/40) |
+| UI | 각주 | `[n]` 칩 · References 패널 · 원문 열기 (0.2.49 · design/41) |
 | GET | `/api/session/mock` | mock figures + sentences |
-| POST | `/api/ingest` | 논문 분석 잡 (Gemini 있으면 섹션 번역 단계 포함) |
+| POST | `/api/ingest` | 논문 분석 잡 (Gemini 있으면 섹션 번역 · References 추출) |
 
 ## PaperSession 불변조건
 
@@ -76,7 +80,7 @@ src/sentence_reading/
 - `sentence_index ∈ [0, len(sentences))`
 - `advance_figure(±1)` 는 `sentence_index`를 바꾸지 않는다
 - `advance_sentence(±1)` 는 `figure_index`를 바꾸지 않는다
-- 번역 on/off·STT 연습은 읽기 인덱스를 바꾸지 않는다 (번역 기본 off)
+- 번역 on/off·STT 연습·각주 패널은 읽기 인덱스를 바꾸지 않는다 (번역 기본 off)
 
 이 불변조건이 깨지면 제품 가설(수동 동기화)이 깨진다.
 
@@ -94,7 +98,7 @@ CD를 켜려면 GitHub repository variable `ASR_CD_ENABLED=1` 과 Secrets(`GCP_S
 
 ## 구현 순서 (권위: design/)
 
-세부는 **[design/](design/README.md)** 가 권위 문서다. M0–M5·번역·STT·EN|KO 좌우·ingest 섹션 번역까지 반영됨.  
+세부는 **[design/](design/README.md)** 가 권위 문서다. M0–M5·번역·STT·EN|KO·ingest 번역·각주 원문까지 반영됨.  
 다음: Flutter 앱.
 
 에러·한도·테스트: [08](design/08-errors.md) · [09](design/09-testing.md) · [10](design/10-security-limits.md)

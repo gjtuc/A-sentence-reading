@@ -88,12 +88,16 @@ Use it for section tagging and for restoring typography consistently.
 
 DROP entirely (do not output):
 - Author names, affiliations, emails, ORCID, corresponding-author lines
-- Journal/citation fragments (e.g. "Soc. 2022, 144, 4186-4195", "J. Am. Chem.")
-- Lone citation markers / footnote numbers (e.g. "1.", "9-12", "4,5")
+- Journal/citation fragments that are NOT part of a prose sentence (e.g. orphan "Soc. 2022, 144, 4186-4195")
+- Lone citation markers / footnote numbers that are the ENTIRE line (e.g. a line that is only "1.", "9-12", "4,5")
 - Page headers/footers, received/accepted dates, copyright lines
-- References / bibliography list entries
+- References / bibliography list entries (the References section itself)
 - Figure/table captions that are not prose (optional: skip short "Fig. N. ..." lines)
 - Incomplete fragments that are only initials or truncated author lists
+
+KEEP citation markers that are ATTACHED to prose sentences:
+- Bracket citations like [12], [1-3], [1,2] at the end of or inside a sentence — keep them in the sentence text
+- Do NOT invent citations; only preserve ones present in the source chunk
 
 KEEP and classify each sentence with ONE section tag:
 - title: paper title only (one clean line if possible)
