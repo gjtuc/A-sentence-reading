@@ -42,11 +42,11 @@
 | | |
 |--|--|
 | PC | 웹 (Cloud Run) — ingest·다듬기·읽기 |
-| 모바일 | Android 앱 **문장 읽기** (Flutter) — 보관 읽기 우선 · [33-mobile-flutter.md](design/33-mobile-flutter.md) |
+| 모바일 | Android Flutter 「문장 읽기」 — 스캐폴드 0.2.55 · MVP(로그인·보관·읽기·TTS) 후속 · [33](design/33-mobile-flutter.md) · [47](design/47-flutter-scaffold.md) |
 
 ## 다음 제품 단계 (문서만 — 구현은 이후)
 
 1. ~~PyMuPDF로 그림·텍스트 추출~~ (웹 구현됨)
 2. ~~문장 경계 · 업로드 · 세션 · UI~~ (웹 구현됨)
 3. ~~진행 위치 로컬 저장~~ (웹 구현됨)
-4. Android Flutter MVP — 로그인 · 보관 · 문장/그림 · TTS ([33](design/33-mobile-flutter.md))
+4. Android Flutter — 스캐폴드 완료(0.2.55) · MVP 로그인·보관·문장/그림·TTS 후속 ([33](design/33-mobile-flutter.md) · [47](design/47-flutter-scaffold.md)). Live Enable/IPS는 Trading Gate(ASR 밖).

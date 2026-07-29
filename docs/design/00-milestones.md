@@ -52,7 +52,7 @@
 - ~~TTS / 음절 / 품사 색~~ — **하지 않음** (사용자 결정 · 0.2.30 원복). RESEARCH 비목표와 동일.
 - ~~다단 reading-order~~ (0.2.32 — [31-reading-order.md](31-reading-order.md); 기하+vision, 로컬 Layout ML 없음)
 - ~~GitHub CI · Cloud Run CD~~ (0.2.33 — [32-github-cd.md](32-github-cd.md); `ASR_CD_ENABLED` 게이트)
-- **Android Flutter 「문장 읽기」** — 설계 [33-mobile-flutter.md](33-mobile-flutter.md); MVP: 로그인·보관·읽기·TTS · APK 사이드로드 (구현 후속)
+- **Android Flutter 「문장 읽기」** — 설계 [33-mobile-flutter.md](33-mobile-flutter.md); MVP 나머지(로그인·보관·읽기·TTS) · 스캐폴드는 0.2.55
 - ~~논문 탭 × 닫기~~ (0.2.42 — [34-tab-close.md](34-tab-close.md); 탭 범위 저장만)
 - ~~영→한 단순 번역 + on/off~~ (0.2.43 — [35-translate-simple.md](35-translate-simple.md); 다단계는 후속)
 - ~~영→한 다단계 번역~~ (0.2.44 — [36-translate-pipeline.md](36-translate-pipeline.md); draft→sense→polish)
@@ -66,7 +66,8 @@
 - ~~compound 자동 분리 ingest 끊기~~ (0.2.52 — [44-compound-off.md](44-compound-off.md); rich-v7 · 드래그 크롭만)
 - ~~progressive 읽기 열기~~ (0.2.53 — [45-progressive-translate.md](45-progressive-translate.md); 초벌 단계·포커스 고정)
 - ~~번역 문장 병렬~~ (0.2.54 — [46-translate-parallel.md](46-translate-parallel.md); 동시 N)
-- **Android Flutter 「문장 읽기」** — 설계 [33-mobile-flutter.md](33-mobile-flutter.md); MVP: 로그인·보관·읽기·TTS · APK 사이드로드 (구현 후속)
+- ~~Flutter `mobile/` 스캐폴드~~ (0.2.55 — [47-flutter-scaffold.md](47-flutter-scaffold.md); [33](33-mobile-flutter.md) 1단계)
+- **Android Flutter MVP** — 로그인·보관·읽기·TTS · APK ([33-mobile-flutter.md](33-mobile-flutter.md); 스캐폴드 이후)
 
 ### 구현됨 (참고)
 

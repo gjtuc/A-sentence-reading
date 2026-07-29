@@ -85,4 +85,5 @@
 44는 compound 자동 분리 ingest 끊기 · rich-v7 (0.2.52).
 45는 progressive 읽기 열기 · 단계 KO (0.2.53).
 46는 섹션 번역 문장 병렬 · ASR_TRANSLATE_WORKERS (0.2.54).  
+47는 Flutter `mobile/` 스캐폴드 · status 클라이언트 (0.2.55).  
 음절(30)은 **하지 않음** (원복).
