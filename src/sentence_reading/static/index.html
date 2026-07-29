@@ -134,10 +134,15 @@
       <div class="carousel">
         <button type="button" class="nav-btn" id="sentPrev" aria-label="이전 문장">‹</button>
         <div class="sentence-stack">
-          <div class="sentence-frame" id="sentenceFrame" tabindex="0" title="클릭: 문장 읽기 (TTS)">
-            <p class="sentence-text" id="sentenceText"></p>
+          <!-- WHY: design/39 — 번역 on 시 EN|KO 좌우 동형 (전체·축소 공통) -->
+          <div class="sentence-bilingual" id="sentenceBilingual">
+            <div class="sentence-frame" id="sentenceFrame" tabindex="0" title="클릭: 문장 읽기 (TTS)">
+              <p class="sentence-text" id="sentenceText"></p>
+            </div>
+            <div class="sentence-ko-frame" id="sentenceKoFrame" hidden>
+              <p class="sentence-ko" id="sentenceKo" aria-live="polite"></p>
+            </div>
           </div>
-          <p class="sentence-ko" id="sentenceKo" hidden aria-live="polite"></p>
         </div>
         <button type="button" class="nav-btn" id="sentNext" aria-label="다음 문장">›</button>
       </div>

@@ -98,6 +98,8 @@
     figureRubberband: document.getElementById("figureRubberband"),
     sentenceText: document.getElementById("sentenceText"),
     sentenceKo: document.getElementById("sentenceKo"),
+    sentenceKoFrame: document.getElementById("sentenceKoFrame"),
+    sentenceBilingual: document.getElementById("sentenceBilingual"),
     translateBtn: document.getElementById("translateBtn"),
     sttPracticeBtn: document.getElementById("sttPracticeBtn"),
     sttPracticePanel: document.getElementById("sttPracticePanel"),
@@ -1502,11 +1504,21 @@
       : "영→한 다단계 번역 표시 (기본 꺼짐)";
   }
 
+  function setBilingualSplit(on) {
+    // WHY: design/39 — 전체·축소 공통 EN|KO 좌우
+    if (el.sentenceBilingual) {
+      el.sentenceBilingual.classList.toggle("is-split", !!on);
+    }
+    if (el.sentenceKoFrame) {
+      el.sentenceKoFrame.hidden = !on;
+    }
+  }
+
   function clearSentenceKo() {
     if (!el.sentenceKo) return;
-    el.sentenceKo.hidden = true;
     el.sentenceKo.textContent = "";
     el.sentenceKo.classList.remove("is-error", "is-loading");
+    setBilingualSplit(false);
   }
 
   function plainSentenceForTranslate(htmlOrText) {
@@ -1516,7 +1528,7 @@
   }
 
   /**
-   * 현재 문장 영→한 (design/35·36). 실패해도 읽기 루프는 유지.
+   * 현재 문장 영→한 (design/35·36·39). 실패해도 읽기 루프는 유지.
    * @param {string} plainEn
    */
   async function refreshSentenceKo(plainEn) {
@@ -1538,7 +1550,7 @@
     }
     const ac = new AbortController();
     translateAbort = ac;
-    el.sentenceKo.hidden = false;
+    setBilingualSplit(true);
     el.sentenceKo.classList.add("is-loading");
     el.sentenceKo.classList.remove("is-error");
     el.sentenceKo.textContent = "번역 중…";
@@ -1572,13 +1584,15 @@
       }
       el.sentenceKo.classList.remove("is-loading", "is-error");
       el.sentenceKo.textContent = data.ko || "";
-      el.sentenceKo.hidden = !data.ko;
+      if (!data.ko) clearSentenceKo();
+      else setBilingualSplit(true);
     } catch (err) {
       if (err && err.name === "AbortError") return;
       if (ac.signal.aborted) return;
       el.sentenceKo.classList.remove("is-loading");
       el.sentenceKo.classList.add("is-error");
       el.sentenceKo.textContent = "번역 오류";
+      setBilingualSplit(true);
     }
   }
 

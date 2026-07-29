@@ -58,6 +58,7 @@
 - ~~영→한 다단계 번역~~ (0.2.44 — [36-translate-pipeline.md](36-translate-pipeline.md); draft→sense→polish)
 - ~~브라우저 STT 발음 연습~~ (0.2.45 — [37-stt-browser.md](37-stt-browser.md); 점수 없음 · 서버 STT 후속)
 - ~~서버 STT~~ (0.2.46 — [38-stt-server.md](38-stt-server.md); Gemini 전사 · 브라우저 폴백)
+- ~~번역 EN|KO 좌우 동형~~ (0.2.47 — [39-translate-side-by-side.md](39-translate-side-by-side.md); 전체·축소 공통)
 - **Android Flutter 「문장 읽기」** — 설계 [33-mobile-flutter.md](33-mobile-flutter.md); MVP: 로그인·보관·읽기·TTS · APK 사이드로드 (구현 후속)
 
 ### 구현됨 (참고)
