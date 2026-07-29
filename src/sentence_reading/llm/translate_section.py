@@ -4,10 +4,10 @@
 다음에: 용어집·부분 재번역 API.
 
 흐름 (섹션마다):
-  1) 문장별 translate_dispatch(pipeline)
+  1) 문장별 translate_dispatch(pipeline) — design/46 동시 N
   2) 섹션 EN 묶음 → digest(EN+KO)
-  3) digest로 각 text_ko harmonize
-  4) 그림 caption도 pipeline (+ body digest 재감수)
+  3) digest로 각 text_ko harmonize — design/46 동시 N
+  4) 그림 caption도 pipeline (+ body digest 재감수) — 캡션 동시 N
 
 INVARIANT: 점수/채점 없음. 실패는 항목 단위 스킵(경고만).
 NOTE: Live Enable / IPS 는 Trading Gate — ASR 밖.
@@ -16,8 +16,11 @@ NOTE: Live Enable / IPS 는 Trading Gate — ASR 밖.
 from __future__ import annotations
 
 import logging
+import os
 import re
+import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from typing import Any
 
@@ -36,6 +39,25 @@ ProgressCb = Callable[[str, float], None]
 ItemCb = Callable[[str, int, str, str], None]
 
 _FINAL_STAGES = frozenset({"polish", "harmonize"})
+_DEFAULT_WORKERS = 4
+_MAX_WORKERS = 8
+
+
+def translate_worker_count() -> int:
+    """
+    동시 Gemini 작업 수 (design/46).
+    ASR_TRANSLATE_WORKERS — 없으면 4, 범위 1–8.
+    """
+    raw = (os.environ.get("ASR_TRANSLATE_WORKERS") or "").strip()
+    if not raw:
+        return _DEFAULT_WORKERS
+    try:
+        n = int(raw)
+    except ValueError:
+        return _DEFAULT_WORKERS
+    return max(1, min(_MAX_WORKERS, n))
+
+
 _SEC_LABEL_KO: dict[str, str] = {
     "title": "제목",
     "abstract": "초록",
@@ -307,11 +329,13 @@ def enrich_session_translations(
     *,
     on_progress: ProgressCb | None = None,
     on_item: ItemCb | None = None,
+    workers: int | None = None,
 ) -> tuple[list[Sentence], list[Figure], dict[str, dict[str, str]], list[str]]:
     """
     섹션별 pipeline → digest → harmonize.
     on_progress: design/43 badge.
     on_item: design/45 — ("sentence"|"figure", index, ko, stage) 즉시 패치.
+    workers: design/46 — 동시 작업 수 (None이면 env/기본).
     # INVARIANT: score 없음. 실패 시 해당 항목만 스킵.
     """
     warnings: list[str] = []
@@ -319,20 +343,29 @@ def enrich_session_translations(
         warnings.append("translate_skipped_no_gemini")
         return sentences, figures, {}, warnings
 
+    n_workers = (
+        max(1, min(_MAX_WORKERS, int(workers)))
+        if workers is not None
+        else translate_worker_count()
+    )
+
     by_sec: dict[str, list[int]] = {}
     for i, s in enumerate(sentences):
         by_sec.setdefault(_section_key(s.section), []).append(i)
 
     total = _estimate_progress_units(sentences, figures, by_sec)
     done = 0
+    lock = threading.Lock()
 
     def _tick(message: str) -> None:
         nonlocal done
-        done = min(done + 1, total)
+        with lock:
+            done = min(done + 1, total)
+            frac = done / total
         if not on_progress:
             return
         try:
-            on_progress(message, done / total)
+            on_progress(message, frac)
         except Exception as exc:  # noqa: BLE001
             log.warning("translate on_progress failed: %s", exc)
 
@@ -340,7 +373,8 @@ def enrich_session_translations(
         if not on_item or not ko:
             return
         try:
-            on_item(kind, index, ko, stage)
+            with lock:
+                on_item(kind, index, ko, stage)
         except Exception as exc:  # noqa: BLE001
             log.warning("translate on_item failed: %s", exc)
 
@@ -348,47 +382,81 @@ def enrich_session_translations(
     stage_map: dict[int, str] = {}
     digests: dict[str, dict[str, str]] = {}
 
+    def _run_sentence_pipeline(i: int) -> tuple[int, str | None, str]:
+        last_stage = ""
+
+        def _on_stage(ko: str, stage: str) -> None:
+            nonlocal last_stage
+            last_stage = stage
+            with lock:
+                ko_map[i] = ko
+                stage_map[i] = stage
+            _emit("sentence", i, ko, stage)
+
+        ko = _pipeline_staged(
+            _plain(sentences[i].text),
+            on_stage=_on_stage,
+        )
+        if ko and i not in ko_map:
+            with lock:
+                ko_map[i] = ko
+                stage_map[i] = last_stage or "polish"
+            _emit("sentence", i, ko, last_stage or "polish")
+        return i, ko, last_stage or stage_map.get(i, "")
+
+    def _run_harmonize(i: int, digest: dict[str, str]) -> int:
+        with lock:
+            draft = ko_map.get(i) or ""
+        if not draft:
+            return i
+        ko = _harmonize(_plain(sentences[i].text), draft, digest)
+        with lock:
+            ko_map[i] = ko
+            stage_map[i] = "harmonize"
+        _emit("sentence", i, ko, "harmonize")
+        return i
+
     for sec, idxs in by_sec.items():
         label = _sec_label(sec)
         plain_idxs = [i for i in idxs if _plain(sentences[i].text)]
         n_plain = len(plain_idxs)
+        if n_plain == 0:
+            continue
 
-        for cur, i in enumerate(plain_idxs, start=1):
-            idx = i
-
-            def _on_stage(ko: str, stage: str, _i: int = idx) -> None:
-                ko_map[_i] = ko
-                stage_map[_i] = stage
-                _emit("sentence", _i, ko, stage)
-
-            ko = _pipeline_staged(
-                _plain(sentences[i].text),
-                on_stage=_on_stage,
-            )
-            if ko and i not in ko_map:
-                ko_map[i] = ko
-                stage_map[i] = "polish"
-                _emit("sentence", i, ko, "polish")
-            _tick(f"{label} 번역 {cur}/{n_plain}")
+        finished = 0
+        with ThreadPoolExecutor(max_workers=min(n_workers, n_plain)) as pool:
+            futs = {pool.submit(_run_sentence_pipeline, i): i for i in plain_idxs}
+            for fut in as_completed(futs):
+                try:
+                    fut.result()
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("parallel pipeline failed: %s", exc)
+                finished += 1
+                _tick(f"{label} 번역 {finished}/{n_plain}")
 
         eng_lines = [_plain(sentences[i].text) for i in plain_idxs]
-        if n_plain:
-            _tick(f"{label} 요지 정리")
+        _tick(f"{label} 요지 정리")
         digest = _make_digest(sec, eng_lines)
         digests[sec] = digest
 
         if digest.get("en") or digest.get("ko"):
             harm_idxs = [i for i in plain_idxs if i in ko_map]
             n_harm = len(harm_idxs)
-            for cur, i in enumerate(harm_idxs, start=1):
-                ko_map[i] = _harmonize(
-                    _plain(sentences[i].text),
-                    ko_map[i],
-                    digest,
-                )
-                stage_map[i] = "harmonize"
-                _emit("sentence", i, ko_map[i], "harmonize")
-                _tick(f"{label} 재감수 {cur}/{n_harm}")
+            if n_harm:
+                finished_h = 0
+                with ThreadPoolExecutor(
+                    max_workers=min(n_workers, n_harm)
+                ) as pool:
+                    futs = {
+                        pool.submit(_run_harmonize, i, digest): i for i in harm_idxs
+                    }
+                    for fut in as_completed(futs):
+                        try:
+                            fut.result()
+                        except Exception as exc:  # noqa: BLE001
+                            log.warning("parallel harmonize failed: %s", exc)
+                        finished_h += 1
+                        _tick(f"{label} 재감수 {finished_h}/{n_harm}")
 
     new_sentences = [
         replace(
@@ -404,31 +472,52 @@ def enrich_session_translations(
     body_digest = digests.get("body") or next(
         iter(digests.values()), {"en": "", "ko": ""}
     )
-    cap_figs = [f for f in figures if _plain(f.caption)]
-    n_cap = len(cap_figs)
-    new_figures: list[Figure] = []
-    cap_i = 0
+
+    cap_jobs: list[tuple[int, Figure, str]] = []
     for fi, fig in enumerate(figures):
         cap = _plain(fig.caption)
+        if cap:
+            cap_jobs.append((fi, fig, cap))
+
+    cap_results: dict[int, tuple[str, str]] = {}
+    n_cap = len(cap_jobs)
+
+    def _run_caption(job: tuple[int, Figure, str]) -> tuple[int, str, str]:
+        fi, _fig, cap = job
         cap_ko = ""
         cap_stage = ""
-        if cap:
-            cap_i += 1
 
-            def _on_cap(ko: str, stage: str, _fi: int = fi) -> None:
-                nonlocal cap_ko, cap_stage
-                cap_ko = ko
-                cap_stage = stage
-                _emit("figure", _fi, ko, stage)
+        def _on_cap(ko: str, stage: str) -> None:
+            nonlocal cap_ko, cap_stage
+            cap_ko = ko
+            cap_stage = stage
+            _emit("figure", fi, ko, stage)
 
-            cap_ko = _pipeline_staged(cap, on_stage=_on_cap) or ""
-            if cap_ko and (body_digest.get("en") or body_digest.get("ko")):
-                cap_ko = _harmonize(cap, cap_ko, body_digest)
-                cap_stage = "harmonize"
-                _emit("figure", fi, cap_ko, "harmonize")
-            elif cap_ko and not cap_stage:
-                cap_stage = "polish"
-            _tick(f"캡션 {cap_i}/{n_cap}")
+        cap_ko = _pipeline_staged(cap, on_stage=_on_cap) or ""
+        if cap_ko and (body_digest.get("en") or body_digest.get("ko")):
+            cap_ko = _harmonize(cap, cap_ko, body_digest)
+            cap_stage = "harmonize"
+            _emit("figure", fi, cap_ko, "harmonize")
+        elif cap_ko and not cap_stage:
+            cap_stage = "polish"
+        return fi, cap_ko, cap_stage
+
+    if cap_jobs:
+        finished_c = 0
+        with ThreadPoolExecutor(max_workers=min(n_workers, n_cap)) as pool:
+            futs = {pool.submit(_run_caption, j): j[0] for j in cap_jobs}
+            for fut in as_completed(futs):
+                try:
+                    fi, cap_ko, cap_stage = fut.result()
+                    cap_results[fi] = (cap_ko, cap_stage)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("parallel caption failed: %s", exc)
+                finished_c += 1
+                _tick(f"캡션 {finished_c}/{n_cap}")
+
+    new_figures: list[Figure] = []
+    for fi, fig in enumerate(figures):
+        cap_ko, cap_stage = cap_results.get(fi, ("", ""))
         new_figures.append(
             replace(
                 fig,

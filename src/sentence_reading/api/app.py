@@ -64,6 +64,7 @@ from sentence_reading.llm.auth_kakao import (
 )
 from sentence_reading.llm.debone import DeboneResult, debone_sentences
 from sentence_reading.llm.env import gemini_available, load_asr_env
+from sentence_reading.llm.translate_section import translate_worker_count
 from sentence_reading.llm.richtext import plain_text
 from sentence_reading.llm.gcs_sync import gcs_status
 from sentence_reading.llm.notes_gcs import (
@@ -117,7 +118,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.53",
+    version="0.2.54",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -213,7 +214,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.53",
+        "version": "0.2.54",
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -227,6 +228,8 @@ def status(request: Request) -> dict:
         "translate_ingest_only": True,
         "translate_live_fallback": False,
         "translate_progressive": True,
+        "translate_parallel": True,
+        "translate_workers": translate_worker_count(),
         "stt_browser": True,
         "stt_server": gemini_available(),
         "tab_close": True,
