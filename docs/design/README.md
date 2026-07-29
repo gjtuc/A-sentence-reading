@@ -69,4 +69,5 @@
 36는 영→한 다단계 번역 draft→sense→polish (0.2.44) — 기본 pipeline · simple 호환.  
 37는 브라우저 STT 발음 연습 — 원문 vs 인식 diff · 점수 없음 (0.2.45).  
 38는 서버 STT — MediaRecorder 업로드 · Gemini 전사 · 브라우저 폴백 (0.2.46).  
+39는 번역 표시 EN|KO 좌우 동형 — 전체·축소 공통 (0.2.47).  
 음절(30)은 **하지 않음** (원복).
