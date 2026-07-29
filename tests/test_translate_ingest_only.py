@@ -1,10 +1,9 @@
-"""읽기 live 번역 제거 · 보관본 번역 백필 (0.2.52 · design/42)."""
+"""읽기 live 번역 제거 · 보관본 번역 백필 (0.2.53 · design/42)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
@@ -16,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_ingest_only() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.52"
+    assert st["version"] == "0.2.53"
     assert st["translate_ingest_only"] is True
     assert st["translate_live_fallback"] is False
 
@@ -36,30 +35,38 @@ def test_ui_no_live_translate_fetch() -> None:
         encoding="utf-8"
     )
     assert "미리 번역 없음" in js
+    assert "번역 진행 중" in js
     assert "design/42" in js
-    # 읽기 루프에서 live translate 호출 제거
     assert 'fetch("/api/translate"' not in js
-    assert "번역 중…" not in js or "미리 번역 없음" in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.52" in served
+    assert "app.js?v=0.2.53" in served
 
 
 def test_needs_backfill_edges() -> None:
     empty = [Sentence(id="s1", text="Hello catalyst.")]
     assert needs_translate_backfill(empty, [], {}) is True
     assert needs_translate_backfill([], [], {}) is False
-    filled = [Sentence(id="s1", text="Hi", text_ko="안녕")]
-    assert needs_translate_backfill(filled, [], {}) is False
-    # 5% 미만만 채워진 긴 목록 → 백필
+    filled = [
+        Sentence(
+            id="s1",
+            text="Hi",
+            text_ko="안녕",
+            text_ko_stage="harmonize",
+        )
+    ]
+    assert (
+        needs_translate_backfill(filled, [], {"body": {"en": "x", "ko": "y"}}) is False
+    )
     many = [
         Sentence(id=f"s{i}", text=f"t{i}", text_ko="ko" if i == 0 else "")
         for i in range(30)
     ]
     assert needs_translate_backfill(many, [], {}) is True
     dig = {"body": {"en": "x", "ko": "이"}}
-    assert needs_translate_backfill(empty, [], dig) is False
+    # design/45 — digest만 있고 문장 KO 없으면 이어하기
+    assert needs_translate_backfill(empty, [], dig) is True
     figs = [Figure(id="f", image_src="x", caption="c", caption_ko="캡션")]
-    assert needs_translate_backfill(empty, figs, {}) is False
+    assert needs_translate_backfill(empty, figs, {}) is True
 
 
 def test_api_translate_still_exists() -> None:

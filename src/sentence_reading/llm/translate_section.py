@@ -32,7 +32,10 @@ TRANSLATE_DOC_VERSION = "doc-v1"
 
 # on_progress(message, fraction 0..1) — job badge용 (design/43)
 ProgressCb = Callable[[str, float], None]
+# on_item(kind, index, ko, stage) — progressive 세션 패치 (design/45)
+ItemCb = Callable[[str, int, str, str], None]
 
+_FINAL_STAGES = frozenset({"polish", "harmonize"})
 _SEC_LABEL_KO: dict[str, str] = {
     "title": "제목",
     "abstract": "초록",
@@ -56,20 +59,49 @@ def needs_translate_backfill(
     digests: dict | None = None,
 ) -> bool:
     """
-    보관본에 ingest 번역이 사실상 없으면 True.
-    WHY: rich-v6 캐시 히트가 번역 stage를 건너뛰던 구멍 (design/42).
+    보관본에 ingest 번역이 없거나 단계 미완이면 True (design/42·45).
     """
+    plain_sents = [
+        s for s in (sentences or []) if _plain(getattr(s, "text", "") or "")
+    ]
+    for s in plain_sents:
+        ko = (getattr(s, "text_ko", None) or "").strip()
+        stage = (getattr(s, "text_ko_stage", None) or "").strip().lower()
+        if ko and stage and stage not in _FINAL_STAGES:
+            return True
+        if not ko:
+            return True
+    for f in figures or []:
+        cko = (getattr(f, "caption_ko", None) or "").strip()
+        stage = (getattr(f, "caption_ko_stage", None) or "").strip().lower()
+        if cko and stage and stage not in _FINAL_STAGES:
+            return True
+        if _plain(getattr(f, "caption", "") or "") and not cko:
+            return True
+
     if digests and any(
         isinstance(v, dict)
         and (str(v.get("en") or "").strip() or str(v.get("ko") or "").strip())
         for v in digests.values()
     ):
-        return False
-    n = len(sentences or [])
+        n = len(plain_sents)
+        if n == 0:
+            return False
+        final_ok = sum(
+            1
+            for s in plain_sents
+            if (getattr(s, "text_ko", None) or "").strip()
+            and (getattr(s, "text_ko_stage", None) or "").strip().lower()
+            in _FINAL_STAGES
+        )
+        if final_ok / n >= 0.05:
+            return False
+        return True
+
+    n = len(plain_sents)
     if n == 0:
-        # 문장 없으면 번역할 것 없음 — 백필 불필요
         return False
-    filled = sum(1 for s in sentences if (getattr(s, "text_ko", None) or "").strip())
+    filled = sum(1 for s in plain_sents if (getattr(s, "text_ko", None) or "").strip())
     if filled / n >= 0.05:
         return False
     if any((getattr(f, "caption_ko", None) or "").strip() for f in (figures or [])):
@@ -126,18 +158,86 @@ def _parse_digest(raw: str) -> dict[str, str]:
     return {"en": en, "ko": ko}
 
 
-def _pipeline_one(text: str) -> str | None:
-    """기존 design/36 pipeline 1회. 실패·빈 입력 → None (호출측이 skip)."""
+def _pipeline_staged(
+    text: str,
+    *,
+    on_stage: Callable[[str, str], None] | None = None,
+) -> str | None:
+    """
+    draft → sense → polish. 각 단계마다 on_stage(ko, stage) (design/45).
+    캐시 hit 시 polish 한 번에 보고 종료.
+    """
     plain = _plain(text)
     if not plain:
         return None
     if len(plain) > tr._MAX_CHARS:
-        # WHY: live /api/translate 와 동일 한도 — 잘라도 번역 시도
         plain = plain[: tr._MAX_CHARS]
-    out = tr.translate_dispatch(plain, "pipeline")
-    if not out.get("ok"):
+
+    key = tr._cache_key(f"pipeline:{tr._PIPELINE_VERSION}:", plain)
+    hit = tr._cache_get(key)
+    if hit is not None:
+        if on_stage:
+            try:
+                on_stage(hit, "polish")
+            except Exception as exc:  # noqa: BLE001
+                log.warning("pipeline on_stage failed: %s", exc)
+        return hit
+
+    if not gemini_api_key():
         return None
-    return str(out.get("ko") or "") or None
+
+    stages_done: list[str] = []
+    draft = tr._gemini_generate(tr._SYSTEM_DRAFT, f"Translate to Korean:\n\n{plain}")
+    if not draft:
+        return None
+    stages_done.append("draft")
+    current = draft
+    if on_stage:
+        try:
+            on_stage(current, "draft")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("pipeline on_stage draft failed: %s", exc)
+
+    try:
+        sense = tr._gemini_generate(
+            tr._SYSTEM_SENSE,
+            f"English source:\n{plain}\n\nKorean draft:\n{current}\n\nRevise for terminology.",
+        )
+        if sense:
+            current = sense
+            stages_done.append("sense")
+            if on_stage:
+                try:
+                    on_stage(current, "sense")
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("pipeline on_stage sense failed: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("translate sense failed: %s", exc)
+
+    try:
+        polish = tr._gemini_generate(
+            tr._SYSTEM_POLISH,
+            f"English source:\n{plain}\n\nKorean draft:\n{current}\n\nPolish for readability.",
+        )
+        if polish:
+            current = polish
+            stages_done.append("polish")
+            if on_stage:
+                try:
+                    on_stage(current, "polish")
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("pipeline on_stage polish failed: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("translate polish failed: %s", exc)
+
+    if stages_done == ["draft", "sense", "polish"]:
+        tr._cache_put(key, current)
+    return current or None
+
+
+def _pipeline_one(text: str) -> str | None:
+    """기존 design/36 pipeline 1회. 실패·빈 입력 → None (호출측이 skip)."""
+    return _pipeline_staged(text)
 
 
 def _make_digest(section: str, english_lines: list[str]) -> dict[str, str]:
@@ -206,11 +306,12 @@ def enrich_session_translations(
     figures: list[Figure],
     *,
     on_progress: ProgressCb | None = None,
+    on_item: ItemCb | None = None,
 ) -> tuple[list[Sentence], list[Figure], dict[str, dict[str, str]], list[str]]:
     """
     섹션별 pipeline → digest → harmonize.
-    Gemini 없으면 입력 그대로 + warnings.
-    on_progress: design/43 — 단계 메시지 + 0..1 fraction (선택).
+    on_progress: design/43 badge.
+    on_item: design/45 — ("sentence"|"figure", index, ko, stage) 즉시 패치.
     # INVARIANT: score 없음. 실패 시 해당 항목만 스킵.
     """
     warnings: list[str] = []
@@ -226,7 +327,6 @@ def enrich_session_translations(
     done = 0
 
     def _tick(message: str) -> None:
-        # WHY: 콜백 예외로 번역 전체 실패 금지
         nonlocal done
         done = min(done + 1, total)
         if not on_progress:
@@ -236,7 +336,16 @@ def enrich_session_translations(
         except Exception as exc:  # noqa: BLE001
             log.warning("translate on_progress failed: %s", exc)
 
+    def _emit(kind: str, index: int, ko: str, stage: str) -> None:
+        if not on_item or not ko:
+            return
+        try:
+            on_item(kind, index, ko, stage)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("translate on_item failed: %s", exc)
+
     ko_map: dict[int, str] = {}
+    stage_map: dict[int, str] = {}
     digests: dict[str, dict[str, str]] = {}
 
     for sec, idxs in by_sec.items():
@@ -244,11 +353,22 @@ def enrich_session_translations(
         plain_idxs = [i for i in idxs if _plain(sentences[i].text)]
         n_plain = len(plain_idxs)
 
-        # 1) pipeline per sentence
         for cur, i in enumerate(plain_idxs, start=1):
-            ko = _pipeline_one(_plain(sentences[i].text))
-            if ko:
+            idx = i
+
+            def _on_stage(ko: str, stage: str, _i: int = idx) -> None:
+                ko_map[_i] = ko
+                stage_map[_i] = stage
+                _emit("sentence", _i, ko, stage)
+
+            ko = _pipeline_staged(
+                _plain(sentences[i].text),
+                on_stage=_on_stage,
+            )
+            if ko and i not in ko_map:
                 ko_map[i] = ko
+                stage_map[i] = "polish"
+                _emit("sentence", i, ko, "polish")
             _tick(f"{label} 번역 {cur}/{n_plain}")
 
         eng_lines = [_plain(sentences[i].text) for i in plain_idxs]
@@ -257,7 +377,6 @@ def enrich_session_translations(
         digest = _make_digest(sec, eng_lines)
         digests[sec] = digest
 
-        # 2) harmonize with digest (요지 없으면 draft 유지)
         if digest.get("en") or digest.get("ko"):
             harm_idxs = [i for i in plain_idxs if i in ko_map]
             n_harm = len(harm_idxs)
@@ -267,14 +386,21 @@ def enrich_session_translations(
                     ko_map[i],
                     digest,
                 )
+                stage_map[i] = "harmonize"
+                _emit("sentence", i, ko_map[i], "harmonize")
                 _tick(f"{label} 재감수 {cur}/{n_harm}")
 
-    # WHY: replace — Figure/Sentence 필드가 늘어도 복사 누락 방지
     new_sentences = [
-        replace(s, text_ko=ko_map.get(i) or "") for i, s in enumerate(sentences)
+        replace(
+            s,
+            text_ko=ko_map.get(i) or getattr(s, "text_ko", "") or "",
+            text_ko_stage=stage_map.get(i)
+            or getattr(s, "text_ko_stage", "")
+            or "",
+        )
+        for i, s in enumerate(sentences)
     ]
 
-    # 캡션: pipeline (+ body digest가 있으면 짧게 harmonize)
     body_digest = digests.get("body") or next(
         iter(digests.values()), {"en": "", "ko": ""}
     )
@@ -282,23 +408,42 @@ def enrich_session_translations(
     n_cap = len(cap_figs)
     new_figures: list[Figure] = []
     cap_i = 0
-    for fig in figures:
+    for fi, fig in enumerate(figures):
         cap = _plain(fig.caption)
         cap_ko = ""
+        cap_stage = ""
         if cap:
             cap_i += 1
-            cap_ko = _pipeline_one(cap) or ""
+
+            def _on_cap(ko: str, stage: str, _fi: int = fi) -> None:
+                nonlocal cap_ko, cap_stage
+                cap_ko = ko
+                cap_stage = stage
+                _emit("figure", _fi, ko, stage)
+
+            cap_ko = _pipeline_staged(cap, on_stage=_on_cap) or ""
             if cap_ko and (body_digest.get("en") or body_digest.get("ko")):
                 cap_ko = _harmonize(cap, cap_ko, body_digest)
+                cap_stage = "harmonize"
+                _emit("figure", fi, cap_ko, "harmonize")
+            elif cap_ko and not cap_stage:
+                cap_stage = "polish"
             _tick(f"캡션 {cap_i}/{n_cap}")
-        new_figures.append(replace(fig, caption_ko=cap_ko or ""))
+        new_figures.append(
+            replace(
+                fig,
+                caption_ko=cap_ko or getattr(fig, "caption_ko", "") or "",
+                caption_ko_stage=cap_stage
+                or getattr(fig, "caption_ko_stage", "")
+                or "",
+            )
+        )
 
     if not any(s.text_ko for s in new_sentences) and not any(
         f.caption_ko for f in new_figures
     ):
         warnings.append("translate_empty")
 
-    # WHY: harmonize 스킵 등으로 done < total 이어도 badge 는 100%로
     if on_progress and done < total:
         try:
             on_progress("번역 마무리", 1.0)

@@ -64,7 +64,13 @@
     translateDigests: {},
     // WHY: design/41 — References
     references: [],
+    // WHY: design/45 — 백그라운드 번역 중
+    translatePending: false,
   };
+
+  // WHY: design/45 — 보고 있는 문장 KO 스냅샷 (데이터는 뒤에서 갱신)
+  let frozenKoSentenceId = null;
+  let frozenKoText = null;
 
   /** @type {"boot" | "mock" | "loading" | "ready" | "error"} */
   let uiPhase = "boot";
@@ -891,6 +897,9 @@
       state.sentenceIndex + delta,
       state.sentences.length
     );
+    // WHY: design/45 — 문장 이동 시 스냅샷 해제 → 최신 text_ko 표시
+    frozenKoSentenceId = null;
+    frozenKoText = null;
     const next = state.sentences[state.sentenceIndex];
     const nextSec = next && next.section ? String(next.section) : "";
     // WHY: 앞으로 갈 때만 섹션 경계 → 직전 구간 되새김질 (design/17)
@@ -971,6 +980,7 @@
     state.sessionId = p.sessionId || null;
     state.translateDigests = p.translateDigests || {};
     state.references = p.references || [];
+    state.translatePending = !!p.translatePending;
     clearCropZoomStyles();
     cropZoom.active = !!(p.crop && p.crop.active && p.crop.norm);
     cropZoom.norm = p.crop && p.crop.norm ? { ...p.crop.norm } : null;
@@ -1471,6 +1481,29 @@
     activatePaper(next);
   }
 
+  /**
+   * design/45 — 백그라운드 번역 중간 결과 병합 (인덱스·포커스 유지).
+   * @param {object} data
+   */
+  function mergeTranslateProgress(data) {
+    if (!data || !Array.isArray(data.sentences)) return;
+    const paper = papers[activePaperIndex];
+    state.sentences = data.sentences;
+    state.figures = Array.isArray(data.figures) ? data.figures : state.figures;
+    state.translateDigests = data.translate_digests || state.translateDigests;
+    state.translatePending = !!data.translate_pending;
+    if (typeof data.title === "string" && data.title) state.title = data.title;
+    if (paper) {
+      paper.sentences = state.sentences;
+      paper.figures = state.figures;
+      paper.translateDigests = state.translateDigests;
+      paper.translatePending = state.translatePending;
+      if (data.cache_id) paper.cacheId = data.cache_id;
+    }
+    // 현재 문장만 다시 그림/힌트 — KO 는 frozen 이면 refresh 가 스냅샷 유지
+    render();
+  }
+
   function applySession(data, phase, opts) {
     const options = opts || {};
     const asNewTab = options.asNewTab !== false && phase !== "mock";
@@ -1490,6 +1523,7 @@
       translateDigests: data.translate_digests || {},
       // WHY: design/41 — References
       references: data.references || [],
+      translatePending: !!data.translate_pending,
       isMock: phase === "mock",
       crop: emptyCrop(),
     };
@@ -1659,8 +1693,9 @@
   }
 
   /**
-   * 현재 문장 영→한 표시 (design/35·39·40·42).
-   * ingest 시 저장된 text_ko 만 사용 — live /api/translate 폴백 없음.
+   * 현재 문장 영→한 표시 (design/35·39·40·42·45).
+   * ingest 시 저장된 text_ko 만 사용 — live /api/translate 폴백 없음 (design/42).
+   * 보고 있는 문장은 frozenKo 스냅샷 유지 (다른 문장 이동 시 최신본).
    * @param {string} plainEn
    */
   async function refreshSentenceKo(plainEn) {
@@ -1682,17 +1717,39 @@
       return;
     }
     const cur = state.sentences[state.sentenceIndex];
-    const cachedKo = cur && String(cur.text_ko || "").trim();
+    const sid = cur && (cur.id || String(state.sentenceIndex));
     setBilingualSplit(true);
     el.sentenceKo.classList.remove("is-loading");
+
+    // WHY: design/45 — 보고 있는 문장은 읽기 중 바꿔치기 금지
+    if (
+      sid != null &&
+      frozenKoSentenceId != null &&
+      String(frozenKoSentenceId) === String(sid) &&
+      frozenKoText != null
+    ) {
+      el.sentenceKo.classList.remove("is-error");
+      el.sentenceKo.textContent = frozenKoText;
+      return;
+    }
+
+    const cachedKo = cur && String(cur.text_ko || "").trim();
     if (cachedKo) {
       el.sentenceKo.classList.remove("is-error");
       el.sentenceKo.textContent = cachedKo;
+      frozenKoSentenceId = sid;
+      frozenKoText = cachedKo;
       return;
     }
-    // WHY: design/42 — 빈 KO를 live로 가리지 않음
+    // WHY: design/45 — 진행 중이면 「미리 번역 없음」대신 진행 안내
     el.sentenceKo.classList.add("is-error");
-    el.sentenceKo.textContent = "미리 번역 없음 (파일을 다시 열거나 재분석)";
+    if (state.translatePending) {
+      el.sentenceKo.textContent = "번역 진행 중";
+    } else {
+      el.sentenceKo.textContent = "미리 번역 없음 (파일을 다시 열거나 재분석)";
+    }
+    frozenKoSentenceId = sid;
+    frozenKoText = el.sentenceKo.textContent;
   }
 
   function sttExpectedPlain() {
@@ -3229,6 +3286,7 @@
       }
 
       let data = null;
+      let openedEarly = false;
       for (;;) {
         await new Promise((r) => setTimeout(r, 400));
         const stRes = await fetch(`/api/ingest/jobs/${encodeURIComponent(jobId)}`);
@@ -3241,6 +3299,26 @@
         if (st.message) {
           el.stageBadge.textContent = `${st.message} · ${name}`;
         }
+        // WHY: design/45 — 번역 전이라도 session_id 있으면 먼저 열기
+        if (
+          !openedEarly &&
+          st.session_id &&
+          Array.isArray(st.sentences) &&
+          st.sentences.length
+        ) {
+          applySession(st, "ready", { asNewTab: true });
+          openedEarly = true;
+          setLoading(false);
+          setUploadStatus(
+            st.translate_pending
+              ? `읽는 중 · 번역 진행… ${pct}% · ${name}`
+              : `읽는 중… ${pct}% · ${name}`,
+            "busy"
+          );
+        } else if (openedEarly && st.session_id && Array.isArray(st.sentences)) {
+          // 데이터만 병합 — 보고 있는 문장 KO 스냅샷은 refreshSentenceKo 가 유지
+          mergeTranslateProgress(st);
+        }
         if (st.done) {
           if (st.ok === false && !st.session_id) {
             throw new Error(st.message || "처리에 실패했어요.");
@@ -3250,7 +3328,17 @@
         }
       }
 
-      applySession(data, "ready", { asNewTab: true });
+      if (openedEarly) {
+        mergeTranslateProgress(data);
+        state.translatePending = false;
+        const paper = papers[activePaperIndex];
+        if (paper) paper.translatePending = false;
+        frozenKoSentenceId = null;
+        frozenKoText = null;
+        render();
+      } else {
+        applySession(data, "ready", { asNewTab: true });
+      }
       const nS = state.sentences.length;
       const nF = state.figures.length;
       if (data.from_cache) {

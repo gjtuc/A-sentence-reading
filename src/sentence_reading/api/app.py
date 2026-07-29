@@ -117,7 +117,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.52",
+    version="0.2.53",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -150,6 +150,22 @@ def _job_set(job_id: str, *, percent: int, stage: str, message: str = "") -> Non
         return
     job["percent"] = max(0, min(100, int(percent)))
     job["stage"] = stage
+    if message:
+        job["message"] = message
+
+
+def _job_publish_partial(job_id: str, data: dict, *, message: str = "") -> None:
+    """
+    design/45 — done 전에 세션을 열어 읽기 시작.
+    job["result"] 만 갱신 (done=False 유지).
+    """
+    job = _JOBS.get(job_id)
+    if not job or job.get("done"):
+        return
+    payload = dict(data)
+    payload["ok"] = True
+    payload["translate_pending"] = True
+    job["result"] = payload
     if message:
         job["message"] = message
 
@@ -197,7 +213,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.52",
+        "version": "0.2.53",
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -210,6 +226,7 @@ def status(request: Request) -> dict:
         "translate_ingest_sections": True,
         "translate_ingest_only": True,
         "translate_live_fallback": False,
+        "translate_progressive": True,
         "stt_browser": True,
         "stt_server": gemini_available(),
         "tab_close": True,
@@ -1242,6 +1259,12 @@ def ingest_job_status(job_id: str) -> JSONResponse:
         out.update(job["result"])
         out["percent"] = 100
         out["done"] = True
+        out["translate_pending"] = False
+    elif isinstance(job.get("result"), dict):
+        # WHY: design/45 — 번역 중에도 세션 열어 읽기
+        out.update(job["result"])
+        out["done"] = False
+        out["translate_pending"] = True
     return JSONResponse(out)
 
 
@@ -1549,37 +1572,6 @@ async def _run_ingest_job(
             for s in sentences
         ]
 
-        digests: dict = {}
-        if gemini_available():
-            _job_set(
-                job_id,
-                percent=90,
-                stage="translate",
-                message="섹션 번역·요지 정리 중",
-            )
-            from sentence_reading.llm.translate_section import (
-                enrich_session_translations,
-            )
-
-            # WHY: design/43 — 「초록 번역 3/12」처럼 세분 메시지
-            def _tr_progress(message: str, fraction: float = 0.0) -> None:
-                lo, hi = 90, 94
-                pct = int(lo + (hi - lo) * max(0.0, min(1.0, fraction)))
-                _job_set(job_id, percent=pct, stage="translate", message=message)
-
-            try:
-                sentences, figures, digests, tr_warn = await asyncio.to_thread(
-                    enrich_session_translations,
-                    sentences,
-                    figures,
-                    on_progress=_tr_progress,
-                )
-                warnings.extend(tr_warn)
-            except Exception as exc:  # noqa: BLE001
-                warnings.append(f"translate_failed:{str(exc)[:80]}")
-        else:
-            warnings.append("translate_skipped_no_gemini")
-
         # WHY: design/41 — debone이 References를 버려도 원문에서 별도 추출
         from sentence_reading.cite_refs import (
             bibliography_public,
@@ -1588,13 +1580,14 @@ async def _run_ingest_job(
 
         references = bibliography_public(extract_bibliography(text))
 
-        _job_set(job_id, percent=95, stage="save", message="거의 끝")
         title = Path(filename).stem or "Untitled"
         for s in sentences:
             if s.section == "title" and plain_text(s.text):
                 title = plain_text(s.text)
                 break
 
+        # WHY: design/45 — 번역 전에 영어 세션을 먼저 열어 읽기 시작
+        digests: dict = {}
         session = PaperSession(
             title=title,
             figures=figures,
@@ -1604,6 +1597,21 @@ async def _run_ingest_job(
         )
         session_id = _remember_session(session)
 
+        def _pack(*, pending: bool) -> dict:
+            d = session.to_public_dict()
+            d["ok"] = True
+            d["session_id"] = session_id
+            d["debone"] = debone_ok
+            d["warnings"] = list(warnings)
+            d["from_cache"] = False
+            d["source"] = kind
+            d["translate_pending"] = pending
+            if content_hash:
+                d["content_hash"] = content_hash
+            return d
+
+        _job_set(job_id, percent=88, stage="ready", message="읽기 시작 · 번역 준비")
+        early = _pack(pending=True)
         cache_entry = await asyncio.to_thread(
             save_paper_session,
             session,
@@ -1614,16 +1622,79 @@ async def _run_ingest_job(
         )
         if cache_entry is None and debone_ok:
             warnings.append("cache_skip_short_title")
+        if cache_entry:
+            early["cache_id"] = cache_entry.get("id")
+            early["cached"] = True
+            early["has_source"] = bool(cache_entry.get("has_source"))
+        _job_publish_partial(job_id, early, message="읽기 가능 · 번역 중")
 
-        data = session.to_public_dict()
-        data["ok"] = True
-        data["session_id"] = session_id
-        data["debone"] = debone_ok
-        data["warnings"] = warnings
-        data["from_cache"] = False
-        data["source"] = kind
-        if content_hash:
-            data["content_hash"] = content_hash
+        if gemini_available():
+            _job_set(
+                job_id,
+                percent=90,
+                stage="translate",
+                message="섹션 번역·요지 정리 중",
+            )
+            from dataclasses import replace as dc_replace
+
+            from sentence_reading.llm.translate_section import (
+                enrich_session_translations,
+            )
+
+            def _tr_progress(message: str, fraction: float = 0.0) -> None:
+                lo, hi = 90, 97
+                pct = int(lo + (hi - lo) * max(0.0, min(1.0, fraction)))
+                _job_set(job_id, percent=pct, stage="translate", message=message)
+
+            def _on_item(kind: str, index: int, ko: str, stage: str) -> None:
+                # WHY: 보고 있지 않은 문장 데이터만 갱신 — UI 스냅샷 고정은 클라
+                if kind == "sentence" and 0 <= index < len(session.sentences):
+                    s = session.sentences[index]
+                    session.sentences[index] = dc_replace(
+                        s, text_ko=ko, text_ko_stage=stage
+                    )
+                elif kind == "figure" and 0 <= index < len(session.figures):
+                    f = session.figures[index]
+                    session.figures[index] = dc_replace(
+                        f, caption_ko=ko, caption_ko_stage=stage
+                    )
+                packed = _pack(pending=True)
+                if cache_entry:
+                    packed["cache_id"] = cache_entry.get("id")
+                    packed["cached"] = True
+                    packed["has_source"] = bool(cache_entry.get("has_source"))
+                _job_publish_partial(job_id, packed)
+
+            try:
+                new_s, new_f, digests, tr_warn = await asyncio.to_thread(
+                    enrich_session_translations,
+                    list(session.sentences),
+                    list(session.figures),
+                    on_progress=_tr_progress,
+                    on_item=_on_item,
+                )
+                warnings.extend(tr_warn)
+                session.sentences = new_s
+                session.figures = new_f
+                session.translate_digests = digests
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(f"translate_failed:{str(exc)[:80]}")
+        else:
+            warnings.append("translate_skipped_no_gemini")
+
+        _job_set(job_id, percent=98, stage="save", message="번역 저장 중")
+        cache_entry = await asyncio.to_thread(
+            save_paper_session,
+            session,
+            debone=debone_ok,
+            source=kind,
+            source_path=tmp_path,
+            content_hash=content_hash,
+        )
+        if cache_entry is None and debone_ok and "cache_skip_short_title" not in warnings:
+            warnings.append("cache_skip_short_title")
+
+        data = _pack(pending=False)
         if cache_entry:
             data["cache_id"] = cache_entry.get("id")
             data["cached"] = True

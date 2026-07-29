@@ -1,4 +1,4 @@
-"""섹션 번역 진행 콜백 (0.2.52 · design/43)."""
+"""섹션 번역 진행 콜백 (0.2.53 · design/43)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def _clear_cache() -> None:
 
 def test_status_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.52"
+    assert st["version"] == "0.2.53"
 
 
 def test_design_43_contract() -> None:
@@ -48,8 +48,11 @@ def test_sec_label_ko() -> None:
 def test_on_progress_messages_and_fractions(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
 
-    def fake_pipeline(text: str) -> str:
-        return f"KO:{text[:20]}"
+    def fake_pipeline(text: str, on_stage=None) -> str:
+        ko = f"KO:{text[:20]}"
+        if on_stage:
+            on_stage(ko, "polish")
+        return ko
 
     def fake_digest(section: str, lines: list[str]) -> dict[str, str]:
         return {"en": f"theme {section}", "ko": f"요지 {section}"}
@@ -57,7 +60,7 @@ def test_on_progress_messages_and_fractions(monkeypatch: pytest.MonkeyPatch) -> 
     def fake_harm(en: str, ko: str, digest: dict[str, str]) -> str:
         return ko + "|h"
 
-    monkeypatch.setattr(ts, "_pipeline_one", fake_pipeline)
+    monkeypatch.setattr(ts, "_pipeline_staged", fake_pipeline)
     monkeypatch.setattr(ts, "_make_digest", fake_digest)
     monkeypatch.setattr(ts, "_harmonize", fake_harm)
     monkeypatch.setattr(ts, "gemini_api_key", lambda: "test-key-not-real")
@@ -101,7 +104,13 @@ def test_on_progress_messages_and_fractions(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_on_progress_exception_fail_soft(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
-    monkeypatch.setattr(ts, "_pipeline_one", lambda t: "한")
+
+    def fake_pipeline(text: str, on_stage=None) -> str:
+        if on_stage:
+            on_stage("한", "polish")
+        return "한"
+
+    monkeypatch.setattr(ts, "_pipeline_staged", fake_pipeline)
     monkeypatch.setattr(
         ts, "_make_digest", lambda sec, lines: {"en": "e", "ko": "k"}
     )

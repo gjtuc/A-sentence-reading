@@ -82,5 +82,6 @@
 41는 본문 각주 → References → DOI/Crossref 원문 열기 (0.2.49).  
 42는 읽기 live 번역 제거 · 보관본 KO 백필 (0.2.50).
 43는 섹션 번역 stage 진행 문구 세분화 (0.2.51).  
-44는 compound 자동 분리 ingest 끊기 · rich-v7 (0.2.52).  
+44는 compound 자동 분리 ingest 끊기 · rich-v7 (0.2.52).
+45는 progressive 읽기 열기 · 단계 KO (0.2.53).  
 음절(30)은 **하지 않음** (원복).

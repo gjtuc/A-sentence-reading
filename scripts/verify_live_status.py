@@ -56,7 +56,7 @@ def check_status(
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Verify ASR Cloud Run /api/status")
     p.add_argument("--url", default=DEFAULT_URL)
-    p.add_argument("--expect", default="0.2.52", help="expected version string")
+    p.add_argument("--expect", default="0.2.53", help="expected version string")
     p.add_argument("--timeout", type=float, default=60.0)
     args = p.parse_args(argv)
     try:

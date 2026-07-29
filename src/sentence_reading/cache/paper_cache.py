@@ -308,6 +308,7 @@ def load_cached_session(cache_id: str) -> tuple[PaperSession, dict] | None:
             text=str(s.get("text") or ""),
             section=s.get("section"),
             text_ko=str(s.get("text_ko") or ""),
+            text_ko_stage=str(s.get("text_ko_stage") or ""),
         )
         for i, s in enumerate(meta.get("sentences") or [])
         if isinstance(s, dict) and str(s.get("text") or "").strip()
@@ -334,6 +335,7 @@ def load_cached_session(cache_id: str) -> tuple[PaperSession, dict] | None:
                 caption=str(f.get("caption") or ""),
                 page_index=f.get("page_index"),
                 caption_ko=str(f.get("caption_ko") or ""),
+                caption_ko_stage=str(f.get("caption_ko_stage") or ""),
             )
         )
 
@@ -540,6 +542,7 @@ def save_paper_session(
                 "id": fig.id,
                 "caption": fig.caption,
                 "caption_ko": fig.caption_ko or "",
+                "caption_ko_stage": fig.caption_ko_stage or "",
                 "page_index": fig.page_index,
                 "file": f"figures/{fname}",
             }
@@ -584,6 +587,7 @@ def save_paper_session(
                 "text": s.text,
                 "section": s.section,
                 "text_ko": s.text_ko or "",
+                "text_ko_stage": s.text_ko_stage or "",
             }
             for s in session.sentences
         ],
