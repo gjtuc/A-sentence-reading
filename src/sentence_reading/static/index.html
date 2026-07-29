@@ -71,6 +71,15 @@
       <button
         type="button"
         class="upload-btn upload-btn-ghost"
+        id="sttPracticeBtn"
+        title="발음 연습 — 문장을 말하면 원문과 글자 비교 (점수 없음)"
+        aria-pressed="false"
+      >
+        말하기
+      </button>
+      <button
+        type="button"
+        class="upload-btn upload-btn-ghost"
         id="translateBtn"
         title="영→한 다단계 번역 표시 on/off (기본 꺼짐)"
         aria-pressed="false"
@@ -133,7 +142,12 @@
         <button type="button" class="nav-btn" id="sentNext" aria-label="다음 문장">›</button>
       </div>
       <div class="fig-ref-hints" id="figRefHints" hidden></div>
-      <p class="hint">←/→ 문장 · Enter 노트 · 문장 클릭 TTS · Fig. 칩 → 그림 · ↑ 글 확대 · Tab 탭 · F 전체화면</p>
+      <div class="stt-practice" id="sttPracticePanel" hidden>
+        <p class="stt-status" id="sttStatus" aria-live="polite"></p>
+        <p class="stt-heard" id="sttHeard" hidden></p>
+        <div class="stt-diff" id="sttDiff" aria-label="원문과 인식 비교"></div>
+      </div>
+      <p class="hint">←/→ 문장 · Enter 노트 · 문장 클릭 TTS · 말하기 발음 연습 · Fig. 칩 → 그림 · ↑ 글 확대 · Tab 탭 · F 전체화면</p>
     </section>
 
     <!-- 구분선 (드래그 접기 비활성 — 시각만) -->
@@ -381,6 +395,7 @@
   <script src="/static/notes_revisions.js?v=__ASR_ASSET_V__" defer></script>
   <script src="/static/progress.js?v=__ASR_ASSET_V__" defer></script>
   <script src="/static/voice_idb.js?v=__ASR_ASSET_V__" defer></script>
+  <script src="/static/stt_practice.js?v=__ASR_ASSET_V__" defer></script>
   <!-- WHY: Signalsmith UMD → AsrStretch가 AudioWorklet stretch에 사용 (design/17) -->
   <script src="/static/vendor/signalsmith-stretch/SignalsmithStretch.js?v=__ASR_ASSET_V__" defer></script>
   <script src="/static/tts_stretch.js?v=__ASR_ASSET_V__" defer></script>

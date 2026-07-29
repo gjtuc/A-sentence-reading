@@ -28,14 +28,17 @@ src/sentence_reading/
   models.py
   pdf/
   llm/
-    translate.py     # 영→한 단순 번역 (Gemini · design/35)
+    translate.py     # 영→한 단순·다단계 (design/35–36)
     tts_speak.py     # TTS
+  stt/
+    compare.py       # 원문 vs 인식 단어 diff · 점수 없음 (design/37)
   api/
     app.py           # HTTP + static
   static/
     index.html
     styles.css
     app.js
+    stt_practice.js  # Web Speech API 연습 UI
 ```
 
 ## 모듈 책임
@@ -46,16 +49,18 @@ src/sentence_reading/
 | `pdf.extract` | PDF 바이트 → 그림 바이너리/메타 + 원문 텍스트 | 문장 분할, HTTP |
 | `pdf.sentences` | 원문 → 문장 리스트 | PDF 파싱 |
 | `llm.translate` | 한 문장 영→한 (simple · pipeline draft/sense/polish) | 용어집 DB, TTS |
+| `stt.compare` | 기대/인식 토큰 diff | 점수·서버 STT·마이크 |
 | `api.app` | 라우팅, 정적 파일, ingest | 비즈니스 로직 본문 |
-| `static/*` | 표시·네비·타이포·번역 토글 | PDF 알고리즘 |
+| `static/*` | 표시·네비·타이포·번역·STT 연습 | PDF 알고리즘 |
 
 ## API (발췌)
 
 | Method | Path | 동작 |
 |--------|------|------|
 | GET | `/` | `index.html` |
-| GET | `/api/status` | 버전·기능 플래그 (`translate_en_ko` 등) |
+| GET | `/api/status` | 버전·기능 플래그 (`translate_pipeline` · `stt_browser` 등) |
 | POST | `/api/translate` | `{ text, mode? }` → `{ ok, ko, stages_done }` (0.2.44 · design/35–36) |
+| POST | `/api/stt/compare` | `{ expected, heard }` → `{ ok, diff }` · **score 없음** (0.2.45 · design/37) |
 | GET | `/api/session/mock` | mock figures + sentences |
 | POST | `/api/ingest` | 논문 분석 잡 |
 
@@ -65,7 +70,7 @@ src/sentence_reading/
 - `sentence_index ∈ [0, len(sentences))`
 - `advance_figure(±1)` 는 `sentence_index`를 바꾸지 않는다
 - `advance_sentence(±1)` 는 `figure_index`를 바꾸지 않는다
-- 번역 on/off는 읽기 인덱스를 바꾸지 않는다 (기본 off)
+- 번역 on/off·STT 연습은 읽기 인덱스를 바꾸지 않는다 (번역 기본 off)
 
 이 불변조건이 깨지면 제품 가설(수동 동기화)이 깨진다.
 
@@ -83,7 +88,7 @@ CD를 켜려면 GitHub repository variable `ASR_CD_ENABLED=1` 과 Secrets(`GCP_S
 
 ## 구현 순서 (권위: design/)
 
-세부는 **[design/](design/README.md)** 가 권위 문서다. M0–M5·reading-order·CI/CD·탭 닫기·단순/다단계 번역까지 반영됨.  
-다음: STT 발음 연습 · Flutter 앱.
+세부는 **[design/](design/README.md)** 가 권위 문서다. M0–M5·번역·브라우저 STT까지 반영됨.  
+다음: 서버 STT · Flutter 앱.
 
 에러·한도·테스트: [08](design/08-errors.md) · [09](design/09-testing.md) · [10](design/10-security-limits.md)

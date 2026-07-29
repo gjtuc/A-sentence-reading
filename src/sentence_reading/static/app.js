@@ -99,6 +99,11 @@
     sentenceText: document.getElementById("sentenceText"),
     sentenceKo: document.getElementById("sentenceKo"),
     translateBtn: document.getElementById("translateBtn"),
+    sttPracticeBtn: document.getElementById("sttPracticeBtn"),
+    sttPracticePanel: document.getElementById("sttPracticePanel"),
+    sttStatus: document.getElementById("sttStatus"),
+    sttHeard: document.getElementById("sttHeard"),
+    sttDiff: document.getElementById("sttDiff"),
     sentenceCount: document.getElementById("sentenceCount"),
     sentenceFrame: document.getElementById("sentenceFrame"),
     figRefHints: document.getElementById("figRefHints"),
@@ -215,6 +220,11 @@
   const translatePrefs = { enabled: false, mode: "pipeline" };
   /** @type {AbortController | null} */
   let translateAbort = null;
+  /** @type {string | null} */
+  let sttBoundKey = null;
+  /** @type {ReturnType<typeof window.AsrSttPractice.create> | null} */
+  let sttPractice = null;
+
   const ttsSettings = {
     mode: "fixed", // fixed | random_normal | random_hard | random_very_hard
     voice: "en-US-Neural2-D",
@@ -1570,6 +1580,106 @@
     }
   }
 
+  function sttExpectedPlain() {
+    const nS = state.sentences.length;
+    if (!nS) return "";
+    const sent = state.sentences[state.sentenceIndex];
+    if (!sent) return "";
+    let body = sent.text || "";
+    const lab = sectionLabel(sent.section);
+    if (lab) {
+      const re = new RegExp(`^${lab}\\s*:\\s*`, "i");
+      body = body.replace(re, "");
+    }
+    return plainSentenceForTranslate(body);
+  }
+
+  function sttSentenceKey() {
+    const sent = state.sentences[state.sentenceIndex];
+    const sid = sent && (sent.id || sent.sentence_id || state.sentenceIndex);
+    return String(state.sentenceIndex) + ":" + String(sid);
+  }
+
+  /**
+   * 브라우저 STT 발음 연습 UI (design/37). 점수 표시 금지.
+   * @param {object} u
+   */
+  function onSttPracticeUpdate(u) {
+    if (!el.sttPracticePanel) return;
+    el.sttPracticePanel.hidden = false;
+    if (el.sttPracticeBtn) {
+      el.sttPracticeBtn.setAttribute(
+        "aria-pressed",
+        u && u.active ? "true" : "false"
+      );
+    }
+    if (el.sttStatus) {
+      if (u && u.error === "unsupported") {
+        el.sttStatus.textContent = u.message || "음성 인식 미지원";
+      } else if (u && u.error) {
+        el.sttStatus.textContent = u.message || String(u.error);
+      } else if (u && u.active) {
+        el.sttStatus.textContent = u.interim
+          ? "듣는 중… " + u.interim
+          : "듣는 중… 영어로 문장을 말해 주세요.";
+      } else if (u && u.compare && u.compare.ok) {
+        el.sttStatus.textContent = "비교 결과 (점수 없음 — 차이만 표시)";
+      } else if (u && u.compare && u.compare.ok === false) {
+        el.sttStatus.textContent =
+          u.compare.error === "empty"
+            ? "인식·원문이 비어 비교하지 않음"
+            : "비교 실패";
+      } else {
+        el.sttStatus.textContent = "말하기를 눌러 연습";
+      }
+    }
+    if (el.sttHeard) {
+      const heard = (u && (u.heard || u.finalText || u.interim)) || "";
+      if (heard && !(u && u.active && !u.finalText)) {
+        el.sttHeard.hidden = false;
+        el.sttHeard.textContent = "인식: " + heard;
+      } else if (u && u.active && u.interim) {
+        el.sttHeard.hidden = false;
+        el.sttHeard.textContent = "인식 중: " + u.interim;
+      } else if (!(u && u.compare && u.compare.ok)) {
+        el.sttHeard.hidden = true;
+        el.sttHeard.textContent = "";
+      }
+    }
+    if (el.sttDiff) {
+      if (
+        u &&
+        u.compare &&
+        u.compare.ok &&
+        window.AsrSttPractice &&
+        typeof window.AsrSttPractice.renderDiffHtml === "function"
+      ) {
+        // INVARIANT: score/grade를 DOM에 쓰지 않음
+        el.sttDiff.innerHTML = window.AsrSttPractice.renderDiffHtml(
+          u.compare.diff || []
+        );
+      } else if (!(u && u.active)) {
+        el.sttDiff.innerHTML = "";
+      }
+    }
+  }
+
+  function resetSttPracticePanel() {
+    if (sttPractice && typeof sttPractice.reset === "function") {
+      sttPractice.reset();
+    }
+    if (el.sttPracticePanel) el.sttPracticePanel.hidden = true;
+    if (el.sttPracticeBtn) {
+      el.sttPracticeBtn.setAttribute("aria-pressed", "false");
+    }
+    if (el.sttStatus) el.sttStatus.textContent = "";
+    if (el.sttHeard) {
+      el.sttHeard.hidden = true;
+      el.sttHeard.textContent = "";
+    }
+    if (el.sttDiff) el.sttDiff.innerHTML = "";
+  }
+
   function render() {
     const nS = state.sentences.length;
     const fig = state.figures.length ? state.figures[state.figureIndex] : null;
@@ -1619,6 +1729,11 @@
       setSentenceDisplay(body, false);
       renderFigRefHints(sent);
       void refreshSentenceKo(plainSentenceForTranslate(body));
+      const sk = sttSentenceKey();
+      if (sk !== sttBoundKey) {
+        sttBoundKey = sk;
+        resetSttPracticePanel();
+      }
     } else if (uiPhase === "loading") {
       setSentenceDisplay(
         "논문을 읽고 있어요.\n잡음을 걸러 읽기 좋게\n다듬는 중이에요.",
@@ -1626,6 +1741,8 @@
       );
       renderFigRefHints(null);
       clearSentenceKo();
+      sttBoundKey = null;
+      resetSttPracticePanel();
     } else if (state.figures.length > 0) {
       setSentenceDisplay(
         "문장 없음\n스캔본이거나 텍스트 추출에\n실패했을 수 있어요.",
@@ -1633,6 +1750,8 @@
       );
       renderFigRefHints(null);
       clearSentenceKo();
+      sttBoundKey = null;
+      resetSttPracticePanel();
     } else {
       setSentenceDisplay(
         "문장이 없습니다.\n파일을 열어 주세요.",
@@ -1640,6 +1759,8 @@
       );
       renderFigRefHints(null);
       clearSentenceKo();
+      sttBoundKey = null;
+      resetSttPracticePanel();
     }
   }
 
@@ -4150,6 +4271,36 @@
       syncTranslateBtn();
       if (translatePrefs.enabled) render();
       else clearSentenceKo();
+    });
+  }
+
+  // WHY: design/37 — Web Speech STT · 노트 MediaRecorder 와 분리
+  if (
+    window.AsrSttPractice &&
+    typeof window.AsrSttPractice.create === "function"
+  ) {
+    sttPractice = window.AsrSttPractice.create({
+      getExpectedPlain: sttExpectedPlain,
+      onUpdate: onSttPracticeUpdate,
+    });
+  }
+  if (el.sttPracticeBtn) {
+    el.sttPracticeBtn.addEventListener("click", () => {
+      if (!state.sentences.length) {
+        if (el.sttPracticePanel) el.sttPracticePanel.hidden = false;
+        if (el.sttStatus) {
+          el.sttStatus.textContent = "먼저 논문 문장을 열어 주세요.";
+        }
+        return;
+      }
+      if (!sttPractice) {
+        onSttPracticeUpdate({
+          error: "unsupported",
+          message: "이 브라우저는 음성 인식을 지원하지 않습니다 (Chrome 권장).",
+        });
+        return;
+      }
+      sttPractice.toggle();
     });
   }
 

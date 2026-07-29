@@ -117,7 +117,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.44",
+    version="0.2.45",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -197,7 +197,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.44",
+        "version": "0.2.45",
         "usage_meter": True,
         "fig_ref_hints": True,
         "compound_figures": True,
@@ -205,6 +205,7 @@ def status(request: Request) -> dict:
         "github_cd": True,
         "translate_en_ko": gemini_available(),
         "translate_pipeline": True,
+        "stt_browser": True,
         "tab_close": True,
     }
 
@@ -549,6 +550,24 @@ async def auth_unlink(request: Request, payload: dict = Body(...)) -> JSONRespon
             content={"ok": False, "error": code, "message": messages.get(code, code)},
         )
     return _session_response(user, message="unlinked")
+
+
+@app.post("/api/stt/compare")
+async def stt_compare(payload: dict = Body(...)) -> dict:
+    """원문 vs 인식 단어 diff — 점수 없음 (design/37)."""
+    from sentence_reading.stt.compare import diff_tokens
+
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "invalid_body"}
+    expected = payload.get("expected")
+    heard = payload.get("heard")
+    # WHY: score 필드를 응답에 넣지 않음 — 채점 UI 유혹 차단
+    result = diff_tokens(expected, heard)
+    if result.get("ok"):
+        assert "score" not in result
+        assert "grade" not in result
+        assert "accuracy" not in result
+    return result
 
 
 @app.post("/api/translate")

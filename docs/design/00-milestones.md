@@ -56,7 +56,9 @@
 - ~~논문 탭 × 닫기~~ (0.2.42 — [34-tab-close.md](34-tab-close.md); 탭 범위 저장만)
 - ~~영→한 단순 번역 + on/off~~ (0.2.43 — [35-translate-simple.md](35-translate-simple.md); 다단계는 후속)
 - ~~영→한 다단계 번역~~ (0.2.44 — [36-translate-pipeline.md](36-translate-pipeline.md); draft→sense→polish)
-- STT 발음 연습 (브라우저→서버) — 설계 후속
+- ~~브라우저 STT 발음 연습~~ (0.2.45 — [37-stt-browser.md](37-stt-browser.md); 점수 없음 · 서버 STT 후속)
+- 서버 STT — 설계 후속
+- **Android Flutter 「문장 읽기」** — 설계 [33-mobile-flutter.md](33-mobile-flutter.md); MVP: 로그인·보관·읽기·TTS · APK 사이드로드 (구현 후속)
 
 ### 구현됨 (참고)
 

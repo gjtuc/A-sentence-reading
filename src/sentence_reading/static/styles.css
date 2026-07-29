@@ -828,6 +828,66 @@ body.is-figure-chrome-out .figure-viewport:not(.is-cropped) img {
   color: var(--fg);
 }
 
+#sttPracticeBtn[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+.stt-practice {
+  margin: 0.35rem auto 0;
+  width: min(var(--sentence-max-ch), 100%);
+  box-sizing: border-box;
+  text-align: center;
+  font-size: calc(var(--sentence-size) * 0.62);
+  line-height: 1.4;
+  color: var(--fg-muted);
+}
+
+.stt-status {
+  margin: 0 0 0.35rem;
+}
+
+.stt-heard {
+  margin: 0 0 0.35rem;
+  font-style: italic;
+}
+
+.stt-diff {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.45rem;
+  justify-content: center;
+}
+
+.stt-tok {
+  padding: 0.05em 0.25em;
+  border-radius: 0.2em;
+}
+
+.stt-equal {
+  color: var(--fg);
+}
+
+.stt-replace {
+  background: rgba(220, 160, 80, 0.25);
+  text-decoration: underline;
+}
+
+.stt-delete {
+  background: rgba(200, 90, 90, 0.22);
+  text-decoration: line-through;
+  opacity: 0.85;
+}
+
+.stt-insert {
+  background: rgba(90, 160, 200, 0.25);
+}
+
+.stt-muted {
+  opacity: 0.7;
+}
+
+
 .nav-btn {
   appearance: none;
   border: 1px solid var(--border);
