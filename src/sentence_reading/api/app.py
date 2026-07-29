@@ -117,7 +117,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.49",
+    version="0.2.50",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -197,7 +197,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.49",
+        "version": "0.2.50",
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -208,6 +208,8 @@ def status(request: Request) -> dict:
         "translate_pipeline": True,
         "translate_side_by_side": True,
         "translate_ingest_sections": True,
+        "translate_ingest_only": True,
+        "translate_live_fallback": False,
         "stt_browser": True,
         "stt_server": gemini_available(),
         "tab_close": True,
@@ -990,8 +992,8 @@ def cache_papers() -> dict:
 
 
 @app.post("/api/cache/papers/{cache_id}/open")
-def cache_open(cache_id: str) -> JSONResponse:
-    """보관본을 즉시 세션으로 연다. 로컬 miss 시 GCS pull."""
+async def cache_open(cache_id: str) -> JSONResponse:
+    """보관본을 즉시 세션으로 연다. 로컬 miss 시 GCS pull · KO 없으면 번역 백필."""
     loaded = load_cached_session(cache_id)
     if loaded is None:
         try:
@@ -1011,6 +1013,24 @@ def cache_open(cache_id: str) -> JSONResponse:
             },
         )
     session, info = loaded
+    src = "pdf"
+    # index source 힌트
+    try:
+        from sentence_reading.cache.paper_cache import list_cached_papers
+
+        for e in list_cached_papers():
+            if e.get("id") == cache_id:
+                src = str(e.get("source") or "pdf")
+                break
+    except Exception:
+        pass
+    session, bf_warn = await _backfill_cached_translations(
+        None,
+        session,
+        kind=src,
+        source_path=get_source_path(cache_id),
+        content_hash=info.get("content_hash"),
+    )
     session_id = _remember_session(session)
     data = session.to_public_dict()
     data["ok"] = True
@@ -1025,9 +1045,9 @@ def cache_open(cache_id: str) -> JSONResponse:
     if info.get("content_hash"):
         data["content_hash"] = info["content_hash"]
     # WHY: stale 도 열어 노트(cache:id) 유지 — 원본 있으면 재분석, 없으면 파일 재업로드
-    data["warnings"] = (
-        ["stale_pipeline"] if info.get("stale") else []
-    )
+    warnings = ["stale_pipeline"] if info.get("stale") else []
+    warnings.extend(bf_warn)
+    data["warnings"] = warnings
     return JSONResponse(data)
 
 
@@ -1267,6 +1287,65 @@ def _try_cache_hit(
     return session, info, hit
 
 
+async def _backfill_cached_translations(
+    job_id: str | None,
+    session: PaperSession,
+    *,
+    kind: str,
+    source_path: Path | None,
+    content_hash: str | None,
+) -> tuple[PaperSession, list[str]]:
+    """
+    design/42 — 보관본에 KO가 없으면 번역만 채우고 같은 제목 키로 재저장.
+    Gemini 없거나 실패해도 원 세션 반환 (fail-soft).
+    """
+    from sentence_reading.llm.translate_section import (
+        enrich_session_translations,
+        needs_translate_backfill,
+    )
+
+    warnings: list[str] = []
+    if not needs_translate_backfill(
+        session.sentences, session.figures, session.translate_digests
+    ):
+        return session, warnings
+    if not gemini_available():
+        warnings.append("translate_missing")
+        warnings.append("translate_skipped_no_gemini")
+        return session, warnings
+    if job_id:
+        _job_set(
+            job_id,
+            percent=88,
+            stage="translate",
+            message="보관본 번역 채우는 중",
+        )
+    try:
+        sentences, figures, digests, tr_warn = await asyncio.to_thread(
+            enrich_session_translations, session.sentences, session.figures
+        )
+        warnings.extend(tr_warn)
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"translate_backfill_failed:{str(exc)[:80]}")
+        return session, warnings
+
+    session.sentences = sentences
+    session.figures = figures
+    session.translate_digests = digests
+    try:
+        await asyncio.to_thread(
+            save_paper_session,
+            session,
+            debone=True,
+            source=kind,
+            source_path=source_path,
+            content_hash=content_hash,
+        )
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"translate_backfill_save_failed:{str(exc)[:80]}")
+    return session, warnings
+
+
 async def _run_ingest_job(
     job_id: str,
     tmp_path: Path,
@@ -1308,6 +1387,13 @@ async def _run_ingest_job(
                 await asyncio.to_thread(
                     attach_source_file, str(hit["id"]), tmp_path, source=kind
                 )
+                session, bf_warn = await _backfill_cached_translations(
+                    job_id,
+                    session,
+                    kind=kind,
+                    source_path=tmp_path,
+                    content_hash=content_hash,
+                )
                 session_id = _remember_session(session)
                 data = session.to_public_dict()
                 data["ok"] = True
@@ -1319,7 +1405,7 @@ async def _run_ingest_job(
                 data["has_source"] = get_source_path(str(hit["id"])) is not None
                 if content_hash:
                     data["content_hash"] = content_hash
-                data["warnings"] = []
+                data["warnings"] = list(bf_warn)
                 _finish_job(job_id, data, message="보관본에서 불러옴")
                 return
 
@@ -1352,6 +1438,13 @@ async def _run_ingest_job(
                     await asyncio.to_thread(
                         attach_source_file, str(hit["id"]), tmp_path, source=kind
                     )
+                    session, bf_warn = await _backfill_cached_translations(
+                        job_id,
+                        session,
+                        kind=kind,
+                        source_path=tmp_path,
+                        content_hash=content_hash,
+                    )
                     session_id = _remember_session(session)
                     data = session.to_public_dict()
                     data["ok"] = True
@@ -1363,7 +1456,7 @@ async def _run_ingest_job(
                     data["has_source"] = get_source_path(str(hit["id"])) is not None
                     if content_hash:
                         data["content_hash"] = content_hash
-                    data["warnings"] = list(warnings)
+                    data["warnings"] = list(warnings) + list(bf_warn)
                     _finish_job(job_id, data, message="보관본에서 불러옴")
                     return
 

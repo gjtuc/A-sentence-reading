@@ -68,8 +68,8 @@ src/sentence_reading/
 | POST | `/api/cite/resolve` | `{ text }` → `{ ok, url, doi?, source }` (0.2.49 · design/41) |
 | POST | `/api/stt/compare` | `{ expected, heard }` → `{ ok, diff }` · **score 없음** (0.2.45 · design/37) |
 | POST | `/api/stt/recognize` | multipart 오디오 → `{ ok, heard, compare? }` (0.2.46 · design/38) |
-| UI | 번역 on | EN\|KO 좌우 동형 박스 (0.2.47 · design/39) |
-| ingest | 번역 | 섹션 `text_ko` · `caption_ko` · `translate_digests` (0.2.48 · design/40) |
+| UI | 번역 on | EN\|KO 좌우 · **ingest KO만** (0.2.50 · design/42 · live 폴백 없음) |
+| ingest | 번역 | 섹션 `text_ko` · `caption_ko` · `translate_digests` (0.2.48 · design/40) · 캐시 히트 시 백필 (0.2.50) |
 | UI | 각주 | `[n]` 칩 · References 패널 · 원문 열기 (0.2.49 · design/41) |
 | GET | `/api/session/mock` | mock figures + sentences |
 | POST | `/api/ingest` | 논문 분석 잡 (Gemini 있으면 섹션 번역 · References 추출) |
@@ -98,7 +98,7 @@ CD를 켜려면 GitHub repository variable `ASR_CD_ENABLED=1` 과 Secrets(`GCP_S
 
 ## 구현 순서 (권위: design/)
 
-세부는 **[design/](design/README.md)** 가 권위 문서다. M0–M5·번역·STT·EN|KO·ingest 번역·각주 원문까지 반영됨.  
+세부는 **[design/](design/README.md)** 가 권위 문서다. 번역은 ingest 전용(42)·각주 원문(41)까지 반영.  
 다음: Flutter 앱.
 
 에러·한도·테스트: [08](design/08-errors.md) · [09](design/09-testing.md) · [10](design/10-security-limits.md)
