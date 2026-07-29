@@ -117,7 +117,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.43",
+    version="0.2.44",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -197,13 +197,14 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.43",
+        "version": "0.2.44",
         "usage_meter": True,
         "fig_ref_hints": True,
         "compound_figures": True,
         "reading_order": True,
         "github_cd": True,
         "translate_en_ko": gemini_available(),
+        "translate_pipeline": True,
         "tab_close": True,
     }
 
@@ -552,18 +553,21 @@ async def auth_unlink(request: Request, payload: dict = Body(...)) -> JSONRespon
 
 @app.post("/api/translate")
 async def translate_sentence(payload: dict = Body(...)) -> dict:
-    """영→한 단순 번역 (design/35). 다단계 아님."""
-    from sentence_reading.llm.translate import translate_en_to_ko
+    """영→한 번역 (design/35 simple · design/36 pipeline 기본)."""
+    from sentence_reading.llm.translate import translate_dispatch
 
     if not gemini_available():
         return {"ok": False, "error": "gemini_unavailable"}
-    text = payload.get("text")
+    text = payload.get("text") if isinstance(payload, dict) else None
     if text is None:
         text = ""
     if not isinstance(text, str):
         return {"ok": False, "error": "invalid_text"}
+    mode = "pipeline"
+    if isinstance(payload, dict) and payload.get("mode") is not None:
+        mode = str(payload.get("mode") or "pipeline")
     try:
-        result = await asyncio.to_thread(translate_en_to_ko, text)
+        result = await asyncio.to_thread(translate_dispatch, text, mode)
     except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
@@ -577,7 +581,9 @@ async def translate_sentence(payload: dict = Body(...)) -> dict:
         "ko": result["ko"],
         "source_lang": "en",
         "target_lang": "ko",
+        "mode": result.get("mode") or mode,
         "cached": bool(result.get("cached")),
+        "stages_done": list(result.get("stages_done") or []),
     }
 
 

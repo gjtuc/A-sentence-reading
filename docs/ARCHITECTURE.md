@@ -45,7 +45,7 @@ src/sentence_reading/
 | `models` | 데이터 형태·인덱스 불변조건 문서화 | I/O, UI |
 | `pdf.extract` | PDF 바이트 → 그림 바이너리/메타 + 원문 텍스트 | 문장 분할, HTTP |
 | `pdf.sentences` | 원문 → 문장 리스트 | PDF 파싱 |
-| `llm.translate` | 한 문장 영→한 (캐시·한도) | 다단계 감수, TTS |
+| `llm.translate` | 한 문장 영→한 (simple · pipeline draft/sense/polish) | 용어집 DB, TTS |
 | `api.app` | 라우팅, 정적 파일, ingest | 비즈니스 로직 본문 |
 | `static/*` | 표시·네비·타이포·번역 토글 | PDF 알고리즘 |
 
@@ -55,7 +55,7 @@ src/sentence_reading/
 |--------|------|------|
 | GET | `/` | `index.html` |
 | GET | `/api/status` | 버전·기능 플래그 (`translate_en_ko` 등) |
-| POST | `/api/translate` | `{ text }` → `{ ok, ko }` (0.2.43 · design/35) |
+| POST | `/api/translate` | `{ text, mode? }` → `{ ok, ko, stages_done }` (0.2.44 · design/35–36) |
 | GET | `/api/session/mock` | mock figures + sentences |
 | POST | `/api/ingest` | 논문 분석 잡 |
 
@@ -83,7 +83,7 @@ CD를 켜려면 GitHub repository variable `ASR_CD_ENABLED=1` 과 Secrets(`GCP_S
 
 ## 구현 순서 (권위: design/)
 
-세부는 **[design/](design/README.md)** 가 권위 문서다. M0–M5·reading-order·CI/CD·탭 닫기·단순 번역까지 반영됨.  
-다음: 다단계 번역 · STT · Flutter 앱.
+세부는 **[design/](design/README.md)** 가 권위 문서다. M0–M5·reading-order·CI/CD·탭 닫기·단순/다단계 번역까지 반영됨.  
+다음: STT 발음 연습 · Flutter 앱.
 
 에러·한도·테스트: [08](design/08-errors.md) · [09](design/09-testing.md) · [10](design/10-security-limits.md)
