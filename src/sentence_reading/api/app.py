@@ -117,7 +117,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.48",
+    version="0.2.49",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -197,9 +197,10 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.48",
+        "version": "0.2.49",
         "usage_meter": True,
         "fig_ref_hints": True,
+        "cite_ref_open": True,
         "compound_figures": True,
         "reading_order": True,
         "github_cd": True,
@@ -616,6 +617,29 @@ async def stt_recognize(
         out["compare"] = cmp
     assert "score" not in out
     return out
+
+
+@app.post("/api/cite/resolve")
+async def cite_resolve(payload: dict = Body(...)) -> dict:
+    """문헌 문자열 → 원문 URL (design/41 · DOI · Crossref · Scholar)."""
+    from sentence_reading.llm.crossref_resolve import resolve_citation
+
+    text = payload.get("text") if isinstance(payload, dict) else None
+    if text is None:
+        text = ""
+    if not isinstance(text, str):
+        return {"ok": False, "error": "invalid_text", "url": "", "source": ""}
+    try:
+        result = await asyncio.to_thread(resolve_citation, text)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "error": "resolve_failed",
+            "message": str(exc)[:200],
+            "url": "",
+            "source": "",
+        }
+    return result
 
 
 @app.post("/api/translate")
@@ -1443,6 +1467,14 @@ async def _run_ingest_job(
         else:
             warnings.append("translate_skipped_no_gemini")
 
+        # WHY: design/41 — debone이 References를 버려도 원문에서 별도 추출
+        from sentence_reading.cite_refs import (
+            bibliography_public,
+            extract_bibliography,
+        )
+
+        references = bibliography_public(extract_bibliography(text))
+
         _job_set(job_id, percent=95, stage="save", message="거의 끝")
         title = Path(filename).stem or "Untitled"
         for s in sentences:
@@ -1455,6 +1487,7 @@ async def _run_ingest_job(
             figures=figures,
             sentences=sentences,
             translate_digests=digests,
+            references=references,
         )
         session_id = _remember_session(session)
 

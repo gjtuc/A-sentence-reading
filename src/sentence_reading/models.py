@@ -53,6 +53,8 @@ class PaperSession:
     sentence_index: int = 0
     # WHY: design/40 — 섹션별 번역 정리본 {section: {en, ko}}
     translate_digests: dict = field(default_factory=dict)
+    # WHY: design/41 — References [{n, text, doi}]
+    references: list = field(default_factory=list)
 
     def clamp_indices(self) -> None:
         """빈 목록이면 인덱스를 0으로 두고, UI가 empty 상태를 처리한다."""
@@ -140,7 +142,26 @@ class PaperSession:
                 for k, v in (self.translate_digests or {}).items()
                 if isinstance(v, dict)
             },
+            "references": [
+                {
+                    "n": int(r["n"]),
+                    "text": str(r.get("text") or ""),
+                    "doi": str(r.get("doi") or ""),
+                }
+                for r in (self.references or [])
+                if isinstance(r, dict)
+                and str(r.get("text") or "").strip()
+                and _ref_n_ok(r.get("n"))
+            ],
         }
+
+
+def _ref_n_ok(n: object) -> bool:
+    try:
+        v = int(n)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+    return 1 <= v <= 9999
 
 
 def build_mock_session() -> PaperSession:
@@ -169,14 +190,14 @@ def build_mock_session() -> PaperSession:
         Figure(id="fig-3", image_src=_svg("Figure 3 (mock)", "#1a4a2a"), caption="Fig. 3 — mock activity plot"),
     ]
     sentences = [
-        Sentence(id="s-1", text="Ni catalyst was a convenient material for the model reaction."),
+        Sentence(id="s-1", text="Ni catalyst was a convenient material for the model reaction.[1]"),
         Sentence(
             id="s-2",
             text="As shown in Figure 1, the active sites remain stable after pretreatment.",
         ),
         Sentence(
             id="s-3",
-            text="We then examined the diffraction pattern; see Figure 2 for the main peaks.",
+            text="We then examined the diffraction pattern; see Figure 2 for the main peaks.[2]",
         ),
         Sentence(
             id="s-4",
@@ -187,4 +208,27 @@ def build_mock_session() -> PaperSession:
             text="These results suggest that sentence-level rereading helps keep the claim in view.",
         ),
     ]
-    return PaperSession(title="Mock paper (skeleton)", figures=figures, sentences=sentences)
+    references = [
+        {
+            "n": 1,
+            "text": (
+                "B. Liu, J. Sunarso, Y. Zhang, G. Yang, W. Zhou, Z. Shao, "
+                "ChemElectroChem 2018, 5, 785."
+            ),
+            "doi": "",
+        },
+        {
+            "n": 2,
+            "text": (
+                "Example Author, J. Am. Chem. Soc. 2020, 142, 1-10. "
+                "doi:10.1021/jacs.0c00000"
+            ),
+            "doi": "10.1021/jacs.0c00000",
+        },
+    ]
+    return PaperSession(
+        title="Mock paper (skeleton)",
+        figures=figures,
+        sentences=sentences,
+        references=references,
+    )

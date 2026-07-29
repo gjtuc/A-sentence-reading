@@ -52,7 +52,7 @@
     return Math.max(Math.round(el.layout.clientHeight - 16), Math.round(window.innerHeight - 24));
   }
 
-  /** @type {{ figures: any[], sentences: any[], figureIndex: number, sentenceIndex: number, title: string, sessionId: string | null, translateDigests: Record<string, {en?: string, ko?: string}> }} */
+  /** @type {{ figures: any[], sentences: any[], figureIndex: number, sentenceIndex: number, title: string, sessionId: string | null, translateDigests: Record<string, {en?: string, ko?: string}>, references: {n:number,text:string,doi?:string}[] }} */
   const state = {
     figures: [],
     sentences: [],
@@ -62,6 +62,8 @@
     sessionId: null,
     // WHY: design/40 — 섹션 번역 정리본 (되새김질)
     translateDigests: {},
+    // WHY: design/41 — References
+    references: [],
   };
 
   /** @type {"boot" | "mock" | "loading" | "ready" | "error"} */
@@ -111,6 +113,13 @@
     sentenceCount: document.getElementById("sentenceCount"),
     sentenceFrame: document.getElementById("sentenceFrame"),
     figRefHints: document.getElementById("figRefHints"),
+    citeRefHints: document.getElementById("citeRefHints"),
+    citeRefPanel: document.getElementById("citeRefPanel"),
+    citeRefPanelLabel: document.getElementById("citeRefPanelLabel"),
+    citeRefPanelText: document.getElementById("citeRefPanelText"),
+    citeRefPanelStatus: document.getElementById("citeRefPanelStatus"),
+    citeRefOpenBtn: document.getElementById("citeRefOpenBtn"),
+    citeRefCloseBtn: document.getElementById("citeRefCloseBtn"),
     figureFrame: document.getElementById("figureFrame"),
     stageBadge: document.getElementById("stageBadge"),
     figPrev: document.getElementById("figPrev"),
@@ -722,6 +731,118 @@
     persistReadingProgress();
   }
 
+  /** @type {{ n: number, text: string, doi: string } | null} */
+  let citePanelEntry = null;
+
+  function closeCiteRefPanel() {
+    citePanelEntry = null;
+    if (el.citeRefPanel) el.citeRefPanel.hidden = true;
+    if (el.citeRefPanelText) el.citeRefPanelText.textContent = "";
+    if (el.citeRefPanelStatus) el.citeRefPanelStatus.textContent = "";
+    if (el.citeRefPanelLabel) el.citeRefPanelLabel.textContent = "[—]";
+  }
+
+  function openCiteRefPanel(entry) {
+    if (!el.citeRefPanel || !entry) return;
+    citePanelEntry = entry;
+    el.citeRefPanel.hidden = false;
+    if (el.citeRefPanelLabel) {
+      el.citeRefPanelLabel.textContent = "[" + entry.n + "]";
+    }
+    if (el.citeRefPanelText) {
+      el.citeRefPanelText.textContent = entry.text || "";
+    }
+    if (el.citeRefPanelStatus) el.citeRefPanelStatus.textContent = "";
+  }
+
+  /**
+   * design/41 — 원문 열기. 인덱스 불변.
+   */
+  async function openCiteResolvedUrl() {
+    if (!citePanelEntry || !el.citeRefOpenBtn) return;
+    if (el.citeRefPanelStatus) el.citeRefPanelStatus.textContent = "찾는 중…";
+    el.citeRefOpenBtn.disabled = true;
+    try {
+      const res = await fetch("/api/cite/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ text: citePanelEntry.text || "" }),
+      });
+      const data = await res.json().catch(function () {
+        return {};
+      });
+      if (!data.ok || !data.url) {
+        if (el.citeRefPanelStatus) {
+          el.citeRefPanelStatus.textContent =
+            data.error === "empty" ? "문헌 텍스트 없음" : "원문을 찾지 못함";
+        }
+        return;
+      }
+      if (el.citeRefPanelStatus) {
+        const src = data.source || "";
+        el.citeRefPanelStatus.textContent =
+          src === "doi_in_text"
+            ? "DOI로 열기"
+            : src === "crossref"
+              ? "Crossref 매칭"
+              : src === "scholar_fallback"
+                ? "Scholar 검색"
+                : "";
+      }
+      window.open(data.url, "_blank", "noopener,noreferrer");
+    } catch (_) {
+      if (el.citeRefPanelStatus) {
+        el.citeRefPanelStatus.textContent = "네트워크 오류";
+      }
+    } finally {
+      el.citeRefOpenBtn.disabled = false;
+    }
+  }
+
+  function renderCiteRefHints(sent) {
+    if (!el.citeRefHints) return;
+    el.citeRefHints.innerHTML = "";
+    if (
+      !sent ||
+      !state.references.length ||
+      typeof AsrCiteRefs === "undefined" ||
+      !AsrCiteRefs
+    ) {
+      el.citeRefHints.hidden = true;
+      closeCiteRefPanel();
+      return;
+    }
+    const rows = AsrCiteRefs.hintsForSentence(
+      sent.text || "",
+      state.references
+    );
+    if (!rows.length) {
+      el.citeRefHints.hidden = true;
+      closeCiteRefPanel();
+      return;
+    }
+    el.citeRefHints.hidden = false;
+    rows.forEach(function (row) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "cite-ref-chip";
+      if (citePanelEntry && citePanelEntry.n === row.n) {
+        btn.classList.add("is-current");
+      }
+      btn.textContent = "[" + row.n + "]";
+      btn.title = "참고문헌 [" + row.n + "] 보기";
+      btn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        // INVARIANT: sentence_index / figure_index 불변
+        openCiteRefPanel(row);
+        renderCiteRefHints(sent);
+      });
+      el.citeRefHints.appendChild(btn);
+    });
+  }
+
   function renderFigRefHints(sent) {
     if (!el.figRefHints) return;
     el.figRefHints.innerHTML = "";
@@ -833,6 +954,7 @@
     p.title = state.title;
     p.sessionId = state.sessionId;
     p.translateDigests = state.translateDigests || {};
+    p.references = state.references || [];
     // cacheId / source / isMock 는 탭 메타 — state 에 없으므로 유지
     p.crop = {
       active: !!cropZoom.active,
@@ -848,6 +970,7 @@
     state.title = p.title || "";
     state.sessionId = p.sessionId || null;
     state.translateDigests = p.translateDigests || {};
+    state.references = p.references || [];
     clearCropZoomStyles();
     cropZoom.active = !!(p.crop && p.crop.active && p.crop.norm);
     cropZoom.norm = p.crop && p.crop.norm ? { ...p.crop.norm } : null;
@@ -1365,6 +1488,8 @@
       contentHash: data.content_hash || null,
       // WHY: design/40 — ingest 섹션 요지 (캐시/세션 동일 키)
       translateDigests: data.translate_digests || {},
+      // WHY: design/41 — References
+      references: data.references || [],
       isMock: phase === "mock",
       crop: emptyCrop(),
     };
@@ -1786,6 +1911,7 @@
       }
       setSentenceDisplay(body, false);
       renderFigRefHints(sent);
+      renderCiteRefHints(sent);
       void refreshSentenceKo(plainSentenceForTranslate(body));
       const sk = sttSentenceKey();
       if (sk !== sttBoundKey) {
@@ -1798,6 +1924,7 @@
         true
       );
       renderFigRefHints(null);
+      renderCiteRefHints(null);
       clearSentenceKo();
       sttBoundKey = null;
       resetSttPracticePanel();
@@ -1807,6 +1934,7 @@
         true
       );
       renderFigRefHints(null);
+      renderCiteRefHints(null);
       clearSentenceKo();
       sttBoundKey = null;
       resetSttPracticePanel();
@@ -1816,6 +1944,7 @@
         true
       );
       renderFigRefHints(null);
+      renderCiteRefHints(null);
       clearSentenceKo();
       sttBoundKey = null;
       resetSttPracticePanel();
@@ -4763,6 +4892,20 @@
         ev.preventDefault();
         closeNoteOverlay();
       }
+    });
+  }
+  if (el.citeRefOpenBtn) {
+    el.citeRefOpenBtn.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      void openCiteResolvedUrl();
+    });
+  }
+  if (el.citeRefCloseBtn) {
+    el.citeRefCloseBtn.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      closeCiteRefPanel();
+      const sent = state.sentences[state.sentenceIndex];
+      renderCiteRefHints(sent || null);
     });
   }
   if (el.sectionReviewContinue) {

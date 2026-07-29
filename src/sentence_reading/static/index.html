@@ -147,6 +147,16 @@
         <button type="button" class="nav-btn" id="sentNext" aria-label="다음 문장">›</button>
       </div>
       <div class="fig-ref-hints" id="figRefHints" hidden></div>
+      <div class="cite-ref-hints" id="citeRefHints" hidden aria-label="문헌 각주"></div>
+      <div class="cite-ref-panel" id="citeRefPanel" hidden>
+        <div class="cite-ref-panel-head">
+          <span class="cite-ref-panel-label" id="citeRefPanelLabel">[—]</span>
+          <button type="button" class="cite-ref-open-btn" id="citeRefOpenBtn">원문 열기</button>
+          <button type="button" class="cite-ref-close-btn" id="citeRefCloseBtn" aria-label="닫기">×</button>
+        </div>
+        <p class="cite-ref-panel-text" id="citeRefPanelText"></p>
+        <p class="cite-ref-panel-status" id="citeRefPanelStatus" aria-live="polite"></p>
+      </div>
       <div class="stt-practice" id="sttPracticePanel" hidden>
         <p class="stt-status" id="sttStatus" aria-live="polite"></p>
         <p class="stt-heard" id="sttHeard" hidden></p>
@@ -405,6 +415,7 @@
   <script src="/static/vendor/signalsmith-stretch/SignalsmithStretch.js?v=__ASR_ASSET_V__" defer></script>
   <script src="/static/tts_stretch.js?v=__ASR_ASSET_V__" defer></script>
   <script src="/static/fig_refs.js?v=__ASR_ASSET_V__" defer></script>
+  <script src="/static/cite_refs.js?v=__ASR_ASSET_V__" defer></script>
   <script src="/static/app.js?v=__ASR_ASSET_V__" defer></script>
 </body>
 </html>

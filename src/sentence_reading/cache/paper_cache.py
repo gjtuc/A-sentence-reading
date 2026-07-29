@@ -286,6 +286,12 @@ def list_cached_papers() -> list[dict]:
     return entries
 
 
+def _load_references(raw: object) -> list:
+    from sentence_reading.cite_refs import bibliography_public
+
+    return bibliography_public(raw if isinstance(raw, list) else None)
+
+
 def load_cached_session(cache_id: str) -> tuple[PaperSession, dict] | None:
     root = cache_root() / cache_id
     meta_path = root / _SESSION_NAME
@@ -348,6 +354,7 @@ def load_cached_session(cache_id: str) -> tuple[PaperSession, dict] | None:
         figure_index=int(meta.get("figure_index") or 0),
         sentence_index=int(meta.get("sentence_index") or 0),
         translate_digests=digests,
+        references=_load_references(meta.get("references")),
     )
     session.clamp_indices()
     info = {
@@ -589,6 +596,7 @@ def save_paper_session(
             for k, v in (session.translate_digests or {}).items()
             if isinstance(v, dict)
         },
+        "references": _load_references(session.references),
     }
     if has_tr:
         payload["translate_doc_version"] = "doc-v1"
