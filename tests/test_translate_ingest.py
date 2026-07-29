@@ -1,4 +1,4 @@
-"""첨부 시 섹션 번역 + 요지 재감수 (0.2.52 · design/40)."""
+"""첨부 시 섹션 번역 + 요지 재감수 (0.2.53 · design/40)."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def _clear_cache() -> None:
 
 def test_status_ingest_translate_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.52"
+    assert st["version"] == "0.2.53"
     assert st["translate_ingest_sections"] is True
     assert st["translate_side_by_side"] is True
 
@@ -57,8 +57,8 @@ def test_ui_prefers_cached_ko() -> None:
     )
     assert "section-review-digest" in css
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.52" in served
-    assert "styles.css?v=0.2.52" in served
+    assert "app.js?v=0.2.53" in served
+    assert "styles.css?v=0.2.53" in served
 
 
 def test_public_dict_includes_ko_and_digests() -> None:
@@ -167,11 +167,7 @@ def test_enrich_pipeline_and_digest(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_enrich_edge_empty_and_garbage(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ts, "gemini_api_key", lambda: "fake")
-    monkeypatch.setattr(
-        tr,
-        "translate_dispatch",
-        lambda text, mode="pipeline": {"ok": False, "error": "boom"},
-    )
+    monkeypatch.setattr(ts, "_pipeline_staged", lambda text, on_stage=None: None)
     monkeypatch.setattr(tr, "_gemini_generate", lambda system, user: "!!!not a digest!!!")
 
     sents = [

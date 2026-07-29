@@ -69,7 +69,7 @@ src/sentence_reading/
 | POST | `/api/stt/compare` | `{ expected, heard }` → `{ ok, diff }` · **score 없음** (0.2.45 · design/37) |
 | POST | `/api/stt/recognize` | multipart 오디오 → `{ ok, heard, compare? }` (0.2.46 · design/38) |
 | UI | 번역 on | EN\|KO 좌우 · **ingest KO만** (0.2.50 · design/42 · live 폴백 없음) |
-| ingest | 번역 | 섹션 `text_ko` · `caption_ko` · `translate_digests` (0.2.48 · design/40) · 캐시 히트 시 백필 (0.2.50) · 진행 세분 (0.2.51 · design/43) |
+| ingest | 번역 | 섹션 `text_ko` · `caption_ko` · `translate_digests` (0.2.48 · design/40) · 캐시 히트 시 백필 (0.2.50) · 진행 세분 (0.2.51 · design/43) · progressive 열기 (0.2.53 · design/45) |
 | UI | 각주 | `[n]` 칩 · References 패널 · 원문 열기 (0.2.49 · design/41) |
 | GET | `/api/session/mock` | mock figures + sentences |
 | POST | `/api/ingest` | 논문 분석 잡 (Gemini 있으면 섹션 번역 · References 추출) |

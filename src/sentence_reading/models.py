@@ -20,6 +20,8 @@ class Figure:
     page_index: int | None = None
     # WHY: design/40 — ingest 시 캡션 번역
     caption_ko: str = ""
+    # WHY: design/45 — 캡션 번역 단계 (draft|sense|polish|harmonize)
+    caption_ko_stage: str = ""
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,8 @@ class Sentence:
     section: str | None = None
     # WHY: design/40 — ingest 시 섹션 파이프+요지 재감수 결과
     text_ko: str = ""
+    # WHY: design/45 — draft|sense|polish|harmonize (빈 문자열 = 미번역)
+    text_ko_stage: str = ""
 
 
 @dataclass
@@ -106,6 +110,7 @@ class PaperSession:
                 "image_src": fig.image_src,
                 "caption": fig.caption,
                 "caption_ko": fig.caption_ko or "",
+                "caption_ko_stage": fig.caption_ko_stage or "",
                 "page_index": fig.page_index,
             },
             "sentence": None
@@ -115,6 +120,7 @@ class PaperSession:
                 "text": sent.text,
                 "section": sent.section,
                 "text_ko": sent.text_ko or "",
+                "text_ko_stage": sent.text_ko_stage or "",
             },
             "figures": [
                 {
@@ -122,6 +128,7 @@ class PaperSession:
                     "image_src": f.image_src,
                     "caption": f.caption,
                     "caption_ko": f.caption_ko or "",
+                    "caption_ko_stage": f.caption_ko_stage or "",
                 }
                 for f in self.figures
             ],
@@ -131,6 +138,7 @@ class PaperSession:
                     "text": s.text,
                     "section": s.section,
                     "text_ko": s.text_ko or "",
+                    "text_ko_stage": s.text_ko_stage or "",
                 }
                 for s in self.sentences
             ],
