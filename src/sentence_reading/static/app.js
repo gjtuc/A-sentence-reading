@@ -210,8 +210,9 @@
 
   const TTS_STORAGE_KEY = "asr.tts.v2";
   const TRANSLATE_STORAGE_BASE = "asr.translate.v1";
-  /** @type {{ enabled: boolean }} */
-  const translatePrefs = { enabled: false };
+  /** @type {{ enabled: boolean, mode: "pipeline" | "simple" }} */
+  // WHY: design/36 — 기본 pipeline(초안→감수→윤문); simple은 35 호환
+  const translatePrefs = { enabled: false, mode: "pipeline" };
   /** @type {AbortController | null} */
   let translateAbort = null;
   const ttsSettings = {
@@ -1450,12 +1451,16 @@
       const raw = localStorage.getItem(translateStorageKey());
       if (!raw) {
         translatePrefs.enabled = false;
+        translatePrefs.mode = "pipeline";
       } else {
         const data = JSON.parse(raw);
         translatePrefs.enabled = !!data.enabled;
+        const m = String(data.mode || "pipeline").toLowerCase();
+        translatePrefs.mode = m === "simple" ? "simple" : "pipeline";
       }
     } catch (_) {
       translatePrefs.enabled = false;
+      translatePrefs.mode = "pipeline";
     }
     syncTranslateBtn();
   }
@@ -1464,7 +1469,10 @@
     try {
       localStorage.setItem(
         translateStorageKey(),
-        JSON.stringify({ enabled: !!translatePrefs.enabled })
+        JSON.stringify({
+          enabled: !!translatePrefs.enabled,
+          mode: translatePrefs.mode === "simple" ? "simple" : "pipeline",
+        })
       );
     } catch (_) {
       /* ignore quota */
@@ -1478,8 +1486,8 @@
       translatePrefs.enabled ? "true" : "false"
     );
     el.translateBtn.title = translatePrefs.enabled
-      ? "번역 표시 켜짐 — 클릭하면 끔"
-      : "영→한 번역 표시 (기본 꺼짐)";
+      ? "번역 표시 켜짐 (다단계) — 클릭하면 끔"
+      : "영→한 다단계 번역 표시 (기본 꺼짐)";
   }
 
   function clearSentenceKo() {
@@ -1496,7 +1504,7 @@
   }
 
   /**
-   * 현재 문장 영→한 (design/35). 실패해도 읽기 루프는 유지.
+   * 현재 문장 영→한 (design/35·36). 실패해도 읽기 루프는 유지.
    * @param {string} plainEn
    */
   async function refreshSentenceKo(plainEn) {
@@ -1527,7 +1535,10 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ text: plainEn }),
+        body: JSON.stringify({
+          text: plainEn,
+          mode: translatePrefs.mode === "simple" ? "simple" : "pipeline",
+        }),
         signal: ac.signal,
       });
       const data = await res.json().catch(() => ({}));

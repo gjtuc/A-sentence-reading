@@ -1,4 +1,4 @@
-"""영→한 단순 번역 (0.2.43 · design/35)."""
+"""영→한 단순 번역 (0.2.44 · design/35)."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def _install_fake_gemini(monkeypatch: pytest.MonkeyPatch, calls: list[str], text
 
 def test_status_flags_translate() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.43"
+    assert st["version"] == "0.2.44"
     assert "translate_en_ko" in st
     assert st["tab_close"] is True
 
@@ -88,7 +88,7 @@ def test_ui_wiring_contract() -> None:
     assert "/api/translate" in js
     assert "design/35" in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.43" in served
+    assert "app.js?v=0.2.44" in served
 
 
 def test_empty_and_whitespace(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -153,15 +153,21 @@ def test_api_invalid_and_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bad.json()["error"] == "invalid_text"
 
     monkeypatch.setattr(
-        "sentence_reading.llm.translate.translate_en_to_ko",
-        lambda t: {"ok": False, "error": "empty"},
+        "sentence_reading.llm.translate.translate_dispatch",
+        lambda t, m="pipeline": {"ok": False, "error": "empty"},
     )
     empty = client.post("/api/translate", json={"text": ""})
     assert empty.json()["error"] == "empty"
 
     monkeypatch.setattr(
-        "sentence_reading.llm.translate.translate_en_to_ko",
-        lambda t: {"ok": True, "ko": "안녕", "cached": False},
+        "sentence_reading.llm.translate.translate_dispatch",
+        lambda t, m="pipeline": {
+            "ok": True,
+            "ko": "안녕",
+            "cached": False,
+            "mode": m,
+            "stages_done": ["draft", "sense", "polish"],
+        },
     )
     ok = client.post("/api/translate", json={"text": "Hi"})
     body = ok.json()
@@ -169,6 +175,7 @@ def test_api_invalid_and_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["ko"] == "안녕"
     assert body["source_lang"] == "en"
     assert body["target_lang"] == "ko"
+    assert body["mode"] == "pipeline"
 
 
 def test_api_gemini_gate(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -182,11 +189,11 @@ def test_api_gemini_gate(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_api_exception_maps(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("sentence_reading.api.app.gemini_available", lambda: True)
 
-    def boom(_t: str) -> dict:
+    def boom(_t: str, _m: str = "pipeline") -> dict:
         raise RuntimeError("network down")
 
     monkeypatch.setattr(
-        "sentence_reading.llm.translate.translate_en_to_ko", boom
+        "sentence_reading.llm.translate.translate_dispatch", boom
     )
     r = TestClient(app).post("/api/translate", json={"text": "Hi"})
     body = r.json()
