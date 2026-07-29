@@ -55,7 +55,7 @@ Tesseract 로컬 OCR은 쓰지 않음.
 | `_FIGURE_CLIP_ZOOM` | **8.0** (0.2.41 · 이전 2.0) | 같은 clip을 더 촘촘히 찍음 (~576 dpi). **잘리는 범위는 불변** |
 | `_FIGURE_CLIP_MAX_SIDE_PX` | 6400 | 전면 그림 8× 시 긴 변 상한 (OOM). 영역은 유지·해상도만 캡 |
 
-`pipeline_version` → **`rich-v6`** (옛 보관본은 stale · 재분석 시 고해상도).
+`pipeline_version` → **`rich-v7`** (0.2.52 · compound off; 이전 rich-v6 는 고해상도 클립).
 
 ### 1차 전략: embedded images
 
@@ -84,8 +84,8 @@ embedded가 0개이고 텍스트는 있을 때 — “페이지를 그림으로�
 
 ### compound figures
 
-캡션에 `(a)(b)…` 또는 `(a–c)` 가 있으면 **균등 그리드 크롭**으로 패널별 항목 생성  
-(`Fig. 1a` …). ML 분할 없음. 실패·패널 1개면 통짜 유지. → [29-compound-figures.md](29-compound-figures.md)
+**0.2.52+ 비활성** ([44-compound-off.md](44-compound-off.md)). extract 는 통짜만.  
+모듈·설명은 [29-compound-figures.md](29-compound-figures.md). `pipeline_version` → **rich-v7**.
 
 ## 성능·한도
 
