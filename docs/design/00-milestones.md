@@ -65,6 +65,7 @@
 - ~~섹션 번역 진행 문구 세분화~~ (0.2.51 — [43-translate-progress.md](43-translate-progress.md))
 - ~~compound 자동 분리 ingest 끊기~~ (0.2.52 — [44-compound-off.md](44-compound-off.md); rich-v7 · 드래그 크롭만)
 - ~~progressive 읽기 열기~~ (0.2.53 — [45-progressive-translate.md](45-progressive-translate.md); 초벌 단계·포커스 고정)
+- ~~번역 문장 병렬~~ (0.2.54 — [46-translate-parallel.md](46-translate-parallel.md); 동시 N)
 - **Android Flutter 「문장 읽기」** — 설계 [33-mobile-flutter.md](33-mobile-flutter.md); MVP: 로그인·보관·읽기·TTS · APK 사이드로드 (구현 후속)
 
 ### 구현됨 (참고)
