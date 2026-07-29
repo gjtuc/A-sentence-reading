@@ -117,7 +117,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.50",
+    version="0.2.51",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -197,7 +197,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.50",
+        "version": "0.2.51",
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -1313,6 +1313,14 @@ async def _backfill_cached_translations(
         warnings.append("translate_missing")
         warnings.append("translate_skipped_no_gemini")
         return session, warnings
+    # WHY: design/43 — 백필도 문장/요지/캡션 단위로 badge 갱신
+    def _bf_progress(message: str, fraction: float = 0.0) -> None:
+        if not job_id:
+            return
+        lo, hi = 88, 93
+        pct = int(lo + (hi - lo) * max(0.0, min(1.0, fraction)))
+        _job_set(job_id, percent=pct, stage="translate", message=message)
+
     if job_id:
         _job_set(
             job_id,
@@ -1322,7 +1330,10 @@ async def _backfill_cached_translations(
         )
     try:
         sentences, figures, digests, tr_warn = await asyncio.to_thread(
-            enrich_session_translations, session.sentences, session.figures
+            enrich_session_translations,
+            session.sentences,
+            session.figures,
+            on_progress=_bf_progress,
         )
         warnings.extend(tr_warn)
     except Exception as exc:  # noqa: BLE001
@@ -1542,7 +1553,7 @@ async def _run_ingest_job(
         if gemini_available():
             _job_set(
                 job_id,
-                percent=92,
+                percent=90,
                 stage="translate",
                 message="섹션 번역·요지 정리 중",
             )
@@ -1550,9 +1561,18 @@ async def _run_ingest_job(
                 enrich_session_translations,
             )
 
+            # WHY: design/43 — 「초록 번역 3/12」처럼 세분 메시지
+            def _tr_progress(message: str, fraction: float = 0.0) -> None:
+                lo, hi = 90, 94
+                pct = int(lo + (hi - lo) * max(0.0, min(1.0, fraction)))
+                _job_set(job_id, percent=pct, stage="translate", message=message)
+
             try:
                 sentences, figures, digests, tr_warn = await asyncio.to_thread(
-                    enrich_session_translations, sentences, figures
+                    enrich_session_translations,
+                    sentences,
+                    figures,
+                    on_progress=_tr_progress,
                 )
                 warnings.extend(tr_warn)
             except Exception as exc:  # noqa: BLE001

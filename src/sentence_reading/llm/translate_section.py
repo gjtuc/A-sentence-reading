@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
@@ -28,6 +29,25 @@ log = logging.getLogger(__name__)
 
 # WHY: rich-v* 와 분리 — 번역만 바뀌어도 PDF 재분석 강제하지 않음
 TRANSLATE_DOC_VERSION = "doc-v1"
+
+# on_progress(message, fraction 0..1) — job badge용 (design/43)
+ProgressCb = Callable[[str, float], None]
+
+_SEC_LABEL_KO: dict[str, str] = {
+    "title": "제목",
+    "abstract": "초록",
+    "introduction": "서론",
+    "methods": "방법",
+    "experimental": "실험",
+    "results": "결과",
+    "discussion": "토론",
+    "conclusion": "결론",
+    "body": "본문",
+}
+
+
+def _sec_label(section: str) -> str:
+    return _SEC_LABEL_KO.get(section, section or "본문")
 
 
 def needs_translate_backfill(
@@ -159,13 +179,38 @@ def _harmonize(en: str, ko: str, digest: dict[str, str]) -> str:
     return (out or ko).strip() or ko
 
 
+def _estimate_progress_units(
+    sentences: list[Sentence],
+    figures: list[Figure],
+    by_sec: dict[str, list[int]],
+) -> int:
+    """
+    job percent 분모 — 실제 LLM 호출과 1:1은 아님.
+    WHY: pipeline(문장) + digest(섹션) + harmonize(문장) + caption.
+    """
+    units = 0
+    for idxs in by_sec.values():
+        n_plain = sum(1 for i in idxs if _plain(sentences[i].text))
+        if n_plain == 0:
+            continue
+        units += n_plain  # translate
+        units += 1  # digest
+        units += n_plain  # harmonize (요지 없으면 스킵해도 상한)
+    n_cap = sum(1 for f in figures if _plain(f.caption))
+    units += n_cap
+    return max(units, 1)
+
+
 def enrich_session_translations(
     sentences: list[Sentence],
     figures: list[Figure],
+    *,
+    on_progress: ProgressCb | None = None,
 ) -> tuple[list[Sentence], list[Figure], dict[str, dict[str, str]], list[str]]:
     """
     섹션별 pipeline → digest → harmonize.
     Gemini 없으면 입력 그대로 + warnings.
+    on_progress: design/43 — 단계 메시지 + 0..1 fraction (선택).
     # INVARIANT: score 없음. 실패 시 해당 항목만 스킵.
     """
     warnings: list[str] = []
@@ -177,35 +222,52 @@ def enrich_session_translations(
     for i, s in enumerate(sentences):
         by_sec.setdefault(_section_key(s.section), []).append(i)
 
+    total = _estimate_progress_units(sentences, figures, by_sec)
+    done = 0
+
+    def _tick(message: str) -> None:
+        # WHY: 콜백 예외로 번역 전체 실패 금지
+        nonlocal done
+        done = min(done + 1, total)
+        if not on_progress:
+            return
+        try:
+            on_progress(message, done / total)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("translate on_progress failed: %s", exc)
+
     ko_map: dict[int, str] = {}
     digests: dict[str, dict[str, str]] = {}
 
     for sec, idxs in by_sec.items():
+        label = _sec_label(sec)
+        plain_idxs = [i for i in idxs if _plain(sentences[i].text)]
+        n_plain = len(plain_idxs)
+
         # 1) pipeline per sentence
-        for i in idxs:
-            plain = _plain(sentences[i].text)
-            if not plain:
-                continue
-            ko = _pipeline_one(plain)
+        for cur, i in enumerate(plain_idxs, start=1):
+            ko = _pipeline_one(_plain(sentences[i].text))
             if ko:
                 ko_map[i] = ko
+            _tick(f"{label} 번역 {cur}/{n_plain}")
 
-        eng_lines = [
-            _plain(sentences[i].text) for i in idxs if _plain(sentences[i].text)
-        ]
+        eng_lines = [_plain(sentences[i].text) for i in plain_idxs]
+        if n_plain:
+            _tick(f"{label} 요지 정리")
         digest = _make_digest(sec, eng_lines)
         digests[sec] = digest
 
         # 2) harmonize with digest (요지 없으면 draft 유지)
         if digest.get("en") or digest.get("ko"):
-            for i in idxs:
-                if i not in ko_map:
-                    continue
+            harm_idxs = [i for i in plain_idxs if i in ko_map]
+            n_harm = len(harm_idxs)
+            for cur, i in enumerate(harm_idxs, start=1):
                 ko_map[i] = _harmonize(
                     _plain(sentences[i].text),
                     ko_map[i],
                     digest,
                 )
+                _tick(f"{label} 재감수 {cur}/{n_harm}")
 
     # WHY: replace — Figure/Sentence 필드가 늘어도 복사 누락 방지
     new_sentences = [
@@ -216,20 +278,32 @@ def enrich_session_translations(
     body_digest = digests.get("body") or next(
         iter(digests.values()), {"en": "", "ko": ""}
     )
+    cap_figs = [f for f in figures if _plain(f.caption)]
+    n_cap = len(cap_figs)
     new_figures: list[Figure] = []
+    cap_i = 0
     for fig in figures:
         cap = _plain(fig.caption)
         cap_ko = ""
         if cap:
+            cap_i += 1
             cap_ko = _pipeline_one(cap) or ""
             if cap_ko and (body_digest.get("en") or body_digest.get("ko")):
                 cap_ko = _harmonize(cap, cap_ko, body_digest)
+            _tick(f"캡션 {cap_i}/{n_cap}")
         new_figures.append(replace(fig, caption_ko=cap_ko or ""))
 
     if not any(s.text_ko for s in new_sentences) and not any(
         f.caption_ko for f in new_figures
     ):
         warnings.append("translate_empty")
+
+    # WHY: harmonize 스킵 등으로 done < total 이어도 badge 는 100%로
+    if on_progress and done < total:
+        try:
+            on_progress("번역 마무리", 1.0)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("translate on_progress final failed: %s", exc)
 
     return new_sentences, new_figures, digests, warnings
 

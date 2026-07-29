@@ -1,4 +1,4 @@
-"""브라우저 STT 발음 연습 · 단어 diff (0.2.50 · design/37)."""
+"""브라우저 STT 발음 연습 · 단어 diff (0.2.51 · design/37)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_stt_browser() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.50"
+    assert st["version"] == "0.2.51"
     assert st["stt_browser"] is True
     assert st["translate_pipeline"] is True
 
@@ -50,8 +50,8 @@ def test_ui_assets_contract() -> None:
     assert "design/37" in app_js
     assert "AsrSttPractice" in app_js
     served = TestClient(app).get("/").text
-    assert "stt_practice.js?v=0.2.50" in served
-    assert "app.js?v=0.2.50" in served
+    assert "stt_practice.js?v=0.2.51" in served
+    assert "app.js?v=0.2.51" in served
 
 
 def test_normalize_and_tokenize_edges() -> None:
