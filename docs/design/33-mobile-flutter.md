@@ -106,7 +106,8 @@ PC **웹**은 유지하고, 휴대폰용 **네이티브 앱**을 새로 둔다.
 ## 합격 기준 (설계 → 구현 시)
 
 - [x] `mobile/` 스캐폴드 · status 클라이언트 · 화면 자리 (0.2.55 · [47](47-flutter-scaffold.md))
-- [ ] APK를 실기에 설치해 Cloud Run에 로그인 가능 (수단 ≥1, 목표는 3) — Flutter SDK + `flutter create .` 후
+- [x] `android/` 플랫폼 · applicationId · 라벨 「문장 읽기」 (0.2.56 · [48](48-flutter-android-platform.md))
+- [ ] APK를 실기에 설치해 Cloud Run에 로그인 가능 (수단 ≥1, 목표는 3) — Android SDK 있는 환경
 - [ ] 보관 목록에서 논문 열고 문장·그림 독립 이동
 - [ ] 현재 문장 TTS 재생
 - [ ] 테마 3종 전환 유지(재실행 후)
@@ -115,14 +116,14 @@ PC **웹**은 유지하고, 휴대폰용 **네이티브 앱**을 새로 둔다.
 ## 구현 순서
 
 1. ~~`mobile/` 스캐폴드 · 표시명 「문장 읽기」 · `/api/status`~~ (**0.2.55**)
-2. `flutter create .` 로 `android/` 보강 → release APK (로컬 SDK)
+2. ~~`flutter create` → `android/` · applicationId~~ (**0.2.56**)
 3. 인증 → 보관 목록 → 읽기 → TTS
-4. 실기 사이드로드
+4. release APK · 실기 사이드로드 (Android SDK)
 
 ## Live Enable / IPS
 
-**Stock Trading Gate 전용.** 이 레포·Flutter 앱에 구현하지 않는다 ([47](47-flutter-scaffold.md)).
+**Stock Trading Gate 전용.** 이 레포·Flutter 앱에 구현하지 않는다 ([47](47-flutter-scaffold.md) · [48](48-flutter-android-platform.md)).
 
 ## 버전
 
-웹 **0.2.55** · status `mobile_flutter_scaffold: true` · pubspec `0.2.55+1`
+웹 **0.2.56** · `mobile_flutter_scaffold` · `mobile_android_platform` · pubspec `0.2.56+1`

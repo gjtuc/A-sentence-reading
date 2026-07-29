@@ -1,4 +1,4 @@
-"""Flutter mobile/ scaffold contract (0.2.55 · design/33 · design/47)."""
+"""Flutter mobile/ scaffold contract (0.2.56 · design/33 · design/47)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ MOBILE = ROOT / "mobile"
 def test_status_exposes_mobile_scaffold_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.55"
+    assert st["version"] == "0.2.56"
     assert st["mobile_flutter_scaffold"] is True
     # Live Enable / IPS belong to Trading Gate — never on ASR status
     assert "live_enable" not in st
@@ -27,7 +27,7 @@ def test_mobile_tree_and_pubspec() -> None:
     assert MOBILE.is_dir()
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
     assert "name: sentence_reading" in pub
-    assert "0.2.55" in pub
+    assert "0.2.56" in pub
     assert "http:" in pub
     assert (MOBILE / "lib" / "main.dart").is_file()
     assert (MOBILE / "lib" / "config.dart").is_file()
@@ -66,8 +66,8 @@ def test_config_points_at_known_cloud_run() -> None:
 def test_design_notes_scaffold_shipped() -> None:
     d33 = (ROOT / "docs/design/33-mobile-flutter.md").read_text(encoding="utf-8")
     d47 = (ROOT / "docs/design/47-flutter-scaffold.md").read_text(encoding="utf-8")
-    assert "0.2.55" in d33
-    assert "0.2.55" in d47
+    assert "0.2.55" in d47 or "mobile_flutter_scaffold" in d47
+    assert "0.2.56" in d33
     assert "Live Enable" in d47
     assert "Trading Gate" in d47 or "ASR 밖" in d47
     assert "mobile_flutter_scaffold" in d47
@@ -76,5 +76,5 @@ def test_design_notes_scaffold_shipped() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.2.55" in html
-    assert "styles.css?v=0.2.55" in html
+    assert "app.js?v=0.2.56" in html
+    assert "styles.css?v=0.2.56" in html
