@@ -1,6 +1,6 @@
 /// Thin HTTP client for the existing Cloud Run FastAPI surface.
 ///
-/// Auth (email·Google·Kakao) · library · reader · TTS (0.2.74 · design/61-65).
+/// Auth (email·Google·Kakao) · library · reader · TTS (0.2.75 · design/61-65).
 ///
 /// WHY separate from UI: screens must not know cookie jars / timeouts;
 /// cookie persistence stays in this layer (design/33).
@@ -18,6 +18,7 @@ import 'reading_models.dart';
 import 'session_store.dart';
 import 'tts_models.dart';
 import 'oauth_models.dart';
+import 'access_models.dart';
 
 /// Parsed `/api/status` JSON (subset used by the mobile shell).
 class AsrStatus {
@@ -33,6 +34,7 @@ class AsrStatus {
     this.mobileTts = false,
     this.mobileOauth = false,
     this.mobileTheme = false,
+    this.mobileAccessGate = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -50,6 +52,7 @@ class AsrStatus {
       mobileTts: json['mobile_tts'] == true,
       mobileOauth: json['mobile_oauth'] == true,
       mobileTheme: json['mobile_theme'] == true,
+      mobileAccessGate: json['mobile_access_gate'] == true || json['access_gate'] == true,
     );
   }
 
@@ -64,6 +67,7 @@ class AsrStatus {
   final bool mobileTts;
   final bool mobileOauth;
   final bool mobileTheme;
+  final bool mobileAccessGate;
 }
 
 class AsrClient {
@@ -396,6 +400,113 @@ class AsrClient {
       // EDGE: non-JSON error page
     }
     throw AsrApiException(detail, res.statusCode);
+  }
+
+
+  /// GET /api/access/status
+  Future<AccessStatus> fetchAccessStatus() async {
+    final res = await _http
+        .get(_uri('/api/access/status'), headers: await _headers())
+        .timeout(const Duration(seconds: 20));
+    final map = _decodeObject(res, 'access/status');
+    return AccessStatus.fromJson(map);
+  }
+
+  /// POST /api/access/invite — redeem OTP-style code → pending.
+  Future<AccessStatus> redeemInviteCode(String code) async {
+    final compact = normalizeInviteCodeInput(code);
+    if (compact.isEmpty) {
+      throw AsrApiException('empty_code', 400);
+    }
+    if (compact.length != 8) {
+      throw AsrApiException('bad_code', 403);
+    }
+    final res = await _http
+        .post(
+          _uri('/api/access/invite'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({'code': compact}),
+        )
+        .timeout(const Duration(seconds: 30));
+    final map = _decodeObject(res, 'access/invite');
+    final access = map['access'];
+    if (access is Map) {
+      return AccessStatus.fromJson(Map<String, dynamic>.from(access));
+    }
+    return AccessStatus.fromJson(map);
+  }
+
+  /// POST /api/access/admin/mint — returns plaintext once.
+  Future<String> mintInviteCode({String note = ''}) async {
+    final res = await _http
+        .post(
+          _uri('/api/access/admin/mint'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({'note': note}),
+        )
+        .timeout(const Duration(seconds: 30));
+    final map = _decodeObject(res, 'access/mint');
+    final code = '${map['code'] ?? ''}'.trim();
+    if (code.isEmpty) {
+      throw AsrApiException('mint returned empty code', res.statusCode);
+    }
+    return code;
+  }
+
+  /// GET /api/access/admin/pending
+  Future<List<Map<String, dynamic>>> fetchAccessPending() async {
+    final res = await _http
+        .get(_uri('/api/access/admin/pending'), headers: await _headers())
+        .timeout(const Duration(seconds: 30));
+    final map = _decodeObject(res, 'access/pending');
+    final raw = map['pending'];
+    if (raw is! List) return const [];
+    return [
+      for (final item in raw)
+        if (item is Map) Map<String, dynamic>.from(item),
+    ];
+  }
+
+  /// GET /api/access/admin/notifications
+  Future<List<Map<String, dynamic>>> fetchAccessNotifications() async {
+    final res = await _http
+        .get(
+          _uri('/api/access/admin/notifications'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 30));
+    final map = _decodeObject(res, 'access/notifications');
+    final raw = map['events'];
+    if (raw is! List) return const [];
+    return [
+      for (final item in raw)
+        if (item is Map) Map<String, dynamic>.from(item),
+    ];
+  }
+
+  /// POST /api/access/admin/decide
+  Future<AccessStatus> decideAccess({
+    required String uid,
+    required String decision,
+    String note = '',
+  }) async {
+    final res = await _http
+        .post(
+          _uri('/api/access/admin/decide'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({
+            'uid': uid.trim(),
+            'decision': decision.trim(),
+            'note': note,
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
+    final map = _decodeObject(res, 'access/decide');
+    final access = map['access'];
+    if (access is Map) {
+      return AccessStatus.fromJson(Map<String, dynamic>.from(access));
+    }
+    return AccessStatus.fromJson(map);
   }
 
   /// POST /api/auth/logout — clears server cookie + local token.

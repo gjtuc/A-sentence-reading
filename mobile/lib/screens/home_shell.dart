@@ -47,7 +47,7 @@ class _HomeShellState extends State<HomeShell> {
         onOpened: _goReader,
       ),
       ReaderScreen(library: widget.library, tts: widget.tts),
-      SettingsScreen(theme: widget.theme),
+      SettingsScreen(theme: widget.theme, auth: widget.auth),
     ];
 
     return AnimatedBuilder(

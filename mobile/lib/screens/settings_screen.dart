@@ -1,33 +1,168 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../api/access_models.dart';
+import '../api/client.dart';
 import '../api/theme_models.dart';
+import '../state/auth_controller.dart';
 import '../state/theme_controller.dart';
 
-/// App settings: theme only for 0.2.74 (design/66).
+/// Settings: theme + access gate (design/66 · design/67).
 ///
 /// Live Enable / IPS: Trading Gate (ASR out).
-class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key, required this.theme});
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({
+    super.key,
+    required this.theme,
+    required this.auth,
+  });
 
   final ThemeController theme;
+  final AuthController auth;
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  final _code = TextEditingController();
+  AccessStatus? _access;
+  List<Map<String, dynamic>> _pending = const [];
+  List<Map<String, dynamic>> _events = const [];
+  bool _loading = false;
+  String? _error;
+  String? _minted;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  @override
+  void dispose() {
+    _code.dispose();
+    super.dispose();
+  }
+
+  Future<void> _reload() async {
+    if (!widget.auth.isLoggedIn) {
+      setState(() {
+        _access = null;
+        _pending = const [];
+        _events = const [];
+      });
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final st = await widget.auth.client.fetchAccessStatus();
+      List<Map<String, dynamic>> pending = const [];
+      List<Map<String, dynamic>> events = const [];
+      // Admin endpoints 403 for non-admins — ignore.
+      try {
+        pending = await widget.auth.client.fetchAccessPending();
+        events = await widget.auth.client.fetchAccessNotifications();
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        _access = st;
+        _pending = pending;
+        _events = events.reversed.take(20).toList();
+      });
+    } on AsrApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _redeem() async {
+    final raw = _code.text;
+    if (!isPlausibleInviteCode(raw)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('코드 형식: XXXX-XXXX (예: TqG3-V12T)')),
+      );
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      final st = await widget.auth.client.redeemInviteCode(raw);
+      if (!mounted) return;
+      setState(() => _access = st);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            st.isPending
+                ? '코드 확인됨. 관리자 승인 대기 중.'
+                : '상태: ${st.status}',
+          ),
+        ),
+      );
+      await _reload();
+    } on AsrApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _mint() async {
+    setState(() => _loading = true);
+    try {
+      final code = await widget.auth.client.mintInviteCode();
+      if (!mounted) return;
+      setState(() => _minted = code);
+      await Clipboard.setData(ClipboardData(text: code));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('발급됨·클립보드 복사: $code')),
+      );
+      await _reload();
+    } on AsrApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _decide(String uid, String decision) async {
+    setState(() => _loading = true);
+    try {
+      await widget.auth.client.decideAccess(uid: uid, decision: decision);
+      await _reload();
+    } on AsrApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: theme,
+      animation: Listenable.merge([widget.theme, widget.auth]),
       builder: (context, _) {
-        if (!theme.ready) {
+        if (!widget.theme.ready) {
           return const Center(child: CircularProgressIndicator());
         }
+        final logged = widget.auth.isLoggedIn;
+        final access = _access;
         return ListView(
           padding: const EdgeInsets.all(24),
           children: [
             Text('설정', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(
-              '화면 밝기. 선택값은 재실행 후에도 유지됩니다.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
             const SizedBox(height: 16),
             Text('테마', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
@@ -49,25 +184,102 @@ class SettingsScreen extends StatelessWidget {
                   icon: Icon(Icons.dark_mode),
                 ),
               ],
-              selected: {theme.mode},
+              selected: {widget.theme.mode},
               onSelectionChanged: (set) {
-                if (set.isEmpty) return; // EDGE: empty selection
-                theme.setMode(set.first);
+                if (set.isEmpty) return;
+                widget.theme.setMode(set.first);
               },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
+            Text('현재: ${themeModeLabelKo(widget.theme.mode)}'),
+            const Divider(height: 32),
+            Text('액세스 (초대 코드)', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
             Text(
-              '현재: ${themeModeLabelKo(theme.mode)}',
-              style: Theme.of(context).textTheme.bodyMedium,
+              '서버가 만든 OTP 코드(예: TqG3-V12T)를 입력하면 승인 대기가 됩니다. '
+              '관리자가 Allow해야 유료 API를 씁니다.',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
-            if (theme.error != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                theme.error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+            if (!logged) ...[
+              const SizedBox(height: 12),
+              const Text('로그인 후 초대 코드를 입력할 수 있습니다.'),
+            ] else ...[
+              const SizedBox(height: 12),
+              if (_loading) const LinearProgressIndicator(),
+              if (access != null)
+                Text(
+                  '상태: ${access.status}'
+                  '${access.gateEnabled ? '' : ' (게이트 꺼짐)'}'
+                  '${access.canUsePaid ? ' · 유료 API 가능' : ' · 유료 API 차단'}',
+                ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _code,
+                textCapitalization: TextCapitalization.characters,
+                decoration: const InputDecoration(
+                  labelText: '초대 코드',
+                  hintText: 'XXXX-XXXX',
+                  border: OutlineInputBorder(),
+                ),
               ),
+              const SizedBox(height: 8),
+              FilledButton(
+                onPressed: _loading ? null : _redeem,
+                child: const Text('코드 제출'),
+              ),
+              const SizedBox(height: 24),
+              Text('관리자', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              FilledButton.tonal(
+                onPressed: _loading ? null : _mint,
+                child: const Text('OTP 초대 코드 발급'),
+              ),
+              if (_minted != null) ...[
+                const SizedBox(height: 8),
+                SelectableText('방금 발급: $_minted'),
+              ],
+              const SizedBox(height: 12),
+              Text('승인 대기 (${_pending.length})'),
+              ..._pending.map((p) {
+                final uid = '${p['uid'] ?? ''}';
+                final email = '${p['email'] ?? ''}';
+                return ListTile(
+                  dense: true,
+                  title: Text(email.isEmpty ? uid : email),
+                  subtitle: Text(uid),
+                  trailing: Wrap(
+                    spacing: 4,
+                    children: [
+                      TextButton(
+                        onPressed: _loading ? null : () => _decide(uid, 'allow'),
+                        child: const Text('Allow'),
+                      ),
+                      TextButton(
+                        onPressed: _loading ? null : () => _decide(uid, 'deny'),
+                        child: const Text('Deny'),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+              if (_events.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text('알림', style: Theme.of(context).textTheme.titleSmall),
+                ..._events.take(8).map((e) {
+                  return ListTile(
+                    dense: true,
+                    title: Text('${e['type'] ?? ''}'),
+                    subtitle: Text('${e['email'] ?? ''} ${e['message'] ?? ''}'),
+                  );
+                }),
+              ],
+              TextButton(onPressed: _loading ? null : _reload, child: const Text('새로고침')),
             ],
-            const SizedBox(height: 32),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ],
+            const SizedBox(height: 24),
             Text(
               'Live Enable / IPS: Trading Gate (ASR out)',
               style: Theme.of(context).textTheme.bodySmall,

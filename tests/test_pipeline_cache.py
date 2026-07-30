@@ -17,7 +17,7 @@ from sentence_reading.models import Figure, PaperSession, Sentence
 def test_status_exposes_pipeline() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.74"
+    assert st["version"] == "0.2.75"
     assert st["pipeline_version"] == PIPELINE_VERSION
 
 

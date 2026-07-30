@@ -97,6 +97,10 @@ class _StatusScreenState extends State<StatusScreen> {
                       title: const Text('mobile_theme'),
                       subtitle: Text('${s.mobileTheme}'),
                     ),
+                    ListTile(
+                      title: const Text('mobile_access_gate'),
+                      subtitle: Text('${s.mobileAccessGate}'),
+                    ),
                   ],
                 );
 
