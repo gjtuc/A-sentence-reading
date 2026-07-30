@@ -73,6 +73,7 @@ src/sentence_reading/
 | 클라이언트 | Android | `mobile/` + `android/` (0.2.55–0.2.56 · design/33·47·48) · Live Enable/IPS 없음 |
 | UI | 각주 | 칩·원문 열기 (0.2.49) · 박스 [n] 숨김 · FS hover (0.2.57 · design/49) |
 | UI | 번역 KO | 어절 줄바꿈 keep-all (0.2.58 · design/50) |
+| UI | 되새김질 | 구간 노트 이어 보기 (0.2.59 · design/51) |
 | UI | 각주 | `[n]` 칩 · References 패널 · 원문 열기 (0.2.49 · design/41) |
 | GET | `/api/session/mock` | mock figures + sentences |
 | POST | `/api/ingest` | 논문 분석 잡 (Gemini 있으면 섹션 번역 · References 추출) |

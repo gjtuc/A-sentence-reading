@@ -34,7 +34,9 @@ def test_section_review_hint_mentions_voice() -> None:
     assert "목소리" in html
     css = CSS.read_text(encoding="utf-8")
     assert ".section-review-voice-btn" in css
-    assert ".section-review-row" in css
+    assert ".section-review-voice-bar" in css or ".section-review-row" in css
+    app = APP_JS.read_text(encoding="utf-8")
+    assert "section-review-flow" in app
 
 
 def test_voice_play_does_not_mutate_store_contract() -> None:

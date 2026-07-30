@@ -1,4 +1,4 @@
-"""Flutter mobile/ scaffold contract (0.2.58 · design/33 · design/47)."""
+"""Flutter mobile/ scaffold contract (0.2.59 · design/33 · design/47)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ MOBILE = ROOT / "mobile"
 def test_status_exposes_mobile_scaffold_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.58"
+    assert st["version"] == "0.2.59"
     assert st["mobile_flutter_scaffold"] is True
     # Live Enable / IPS belong to Trading Gate — never on ASR status
     assert "live_enable" not in st
@@ -76,5 +76,5 @@ def test_design_notes_scaffold_shipped() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.2.58" in html
-    assert "styles.css?v=0.2.58" in html
+    assert "app.js?v=0.2.59" in html
+    assert "styles.css?v=0.2.59" in html
