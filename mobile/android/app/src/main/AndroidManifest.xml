@@ -24,6 +24,13 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Kakao mobile OAuth bounce (design/65). HTTPS callback stays on Cloud Run. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="com.gjtuc.sentence_reading" android:host="oauth" android:pathPrefix="/kakao"/>
+            </intent-filter>
         </activity>
         <!-- Required by Flutter tool — do not remove. -->
         <meta-data

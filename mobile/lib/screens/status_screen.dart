@@ -89,6 +89,10 @@ class _StatusScreenState extends State<StatusScreen> {
                       title: const Text('mobile_tts'),
                       subtitle: Text('${s.mobileTts}'),
                     ),
+                    ListTile(
+                      title: const Text('mobile_oauth'),
+                      subtitle: Text('${s.mobileOauth}'),
+                    ),
                   ],
                 );
 

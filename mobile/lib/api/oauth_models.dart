@@ -1,0 +1,94 @@
+/// Pure OAuth helpers for Flutter Google/Kakao (design/65).
+///
+/// WHY separate from plugins: unit-test deep-link parse + token refuse
+/// without Google Play / Custom Tabs.
+library;
+
+/// Android custom scheme (must match AndroidManifest + server deep link).
+const String kMobileOAuthScheme = 'com.gjtuc.sentence_reading';
+
+/// Full deep-link prefix used by the server (host oauth, path /kakao).
+const String kMobileKakaoDeepLink = '$kMobileOAuthScheme://oauth/kakao';
+
+/// Result of parsing a Kakao mobile deep link.
+class KakaoDeepLinkResult {
+  const KakaoDeepLinkResult({this.sessionToken, this.auth, this.error});
+
+  final String? sessionToken;
+  final String? auth;
+  final String? error;
+
+  bool get isSuccess =>
+      (error == null || error!.trim().isEmpty) &&
+      sessionToken != null &&
+      sessionToken!.trim().isNotEmpty;
+}
+
+/// Parse com.gjtuc.sentence_reading://oauth/kakao?...
+///
+/// EDGE: null/empty/wrong scheme/host -> failure; blank asr_session -> failure.
+///
+/// NOTE: Dart Uri.tryParse rejects some dotted custom schemes as invalid;
+/// we parse manually for the known Android callback shape.
+KakaoDeepLinkResult parseKakaoDeepLink(String? raw) {
+  final s = (raw ?? '').trim();
+  if (s.isEmpty) {
+    return const KakaoDeepLinkResult(error: 'empty_redirect');
+  }
+
+  const prefix = '$kMobileOAuthScheme://';
+  if (!s.startsWith(prefix)) {
+    return const KakaoDeepLinkResult(error: 'bad_scheme');
+  }
+  final rest = s.substring(prefix.length);
+  final qAt = rest.indexOf('?');
+  final pathPart = qAt < 0 ? rest : rest.substring(0, qAt);
+  final queryPart = qAt < 0 ? '' : rest.substring(qAt + 1);
+
+  // Expect host/path: oauth/kakao
+  final norm = pathPart.startsWith('/') ? pathPart.substring(1) : pathPart;
+  final segments = norm.split('/').where((e) => e.isNotEmpty).toList();
+  if (segments.length < 2 || segments[0] != 'oauth') {
+    return const KakaoDeepLinkResult(error: 'bad_host');
+  }
+  if (segments[1] != 'kakao') {
+    return const KakaoDeepLinkResult(error: 'bad_path');
+  }
+
+  final params = <String, String>{};
+  if (queryPart.isNotEmpty) {
+    for (final part in queryPart.split('&')) {
+      if (part.isEmpty) continue;
+      final eq = part.indexOf('=');
+      final k = eq < 0 ? part : part.substring(0, eq);
+      final v = eq < 0 ? '' : part.substring(eq + 1);
+      params[Uri.decodeQueryComponent(k)] = Uri.decodeQueryComponent(v);
+    }
+  }
+
+  final err = (params['auth_error'] ?? '').trim();
+  if (err.isNotEmpty) {
+    return KakaoDeepLinkResult(error: err);
+  }
+  final token = (params['asr_session'] ?? '').trim();
+  if (token.isEmpty || token.toLowerCase() == 'deleted') {
+    return const KakaoDeepLinkResult(error: 'missing_session');
+  }
+  final auth = (params['auth'] ?? '').trim();
+  return KakaoDeepLinkResult(
+    sessionToken: token,
+    auth: auth.isEmpty ? null : auth,
+  );
+}
+
+/// True when a Google id_token / credential string is usable.
+bool isUsableGoogleCredential(String? raw) {
+  if (raw == null) return false;
+  final t = raw.trim();
+  if (t.isEmpty) return false;
+  final lower = t.toLowerCase();
+  if (lower == 'null' || lower == 'undefined') return false;
+  // JWT has two dots; EDGE: refuse obviously truncated values
+  if (t.split('.').length < 3) return false;
+  return t.length >= 20;
+}

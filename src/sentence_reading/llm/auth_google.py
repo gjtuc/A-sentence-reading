@@ -15,6 +15,7 @@ import os
 import re
 import secrets
 import time
+import urllib.parse
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
@@ -215,8 +216,30 @@ def verify_google_id_token(credential: str) -> AuthUser:
     )
 
 
-def issue_oauth_state(mode: str, *, link_uid: str | None = None) -> str:
-    """카카오 redirect state (mode=login|link)."""
+
+# Flutter Android custom scheme (design/33 · design/65). Not a Kakao console URI —
+# Kakao still redirects to HTTPS /api/auth/kakao/callback; we then bounce into the app.
+MOBILE_OAUTH_SCHEME = "com.gjtuc.sentence_reading"
+MOBILE_KAKAO_DEEP_LINK = "com.gjtuc.sentence_reading://oauth/kakao"
+
+
+def mobile_kakao_deep_link(*, session: str = "", auth: str = "", error: str = "") -> str:
+    """Build app deep link after Kakao server callback (session token in query)."""
+    q: dict[str, str] = {}
+    if error:
+        q["auth_error"] = error[:120]
+    else:
+        if auth:
+            q["auth"] = auth[:64]
+        if session:
+            q["asr_session"] = session
+    return MOBILE_KAKAO_DEEP_LINK + ("?" + urllib.parse.urlencode(q) if q else "")
+
+
+def issue_oauth_state(
+    mode: str, *, link_uid: str | None = None, mobile: bool = False
+) -> str:
+    """카카오 redirect state (mode=login|link). mobile → Flutter deep link."""
     m = (mode or "login").strip().lower()
     if m not in ("login", "link"):
         m = "login"
@@ -225,6 +248,7 @@ def issue_oauth_state(mode: str, *, link_uid: str | None = None) -> str:
         "u": (link_uid or "")[:128],
         "iat": int(time.time()),
         "n": secrets.token_hex(8),
+        "mob": 1 if mobile else 0,
     }
     payload_b64 = _b64url_encode(
         json.dumps(body, separators=(",", ":")).encode("utf-8")
@@ -256,7 +280,15 @@ def parse_oauth_state(state: str | None) -> dict[str, str] | None:
     mode = str(data.get("m") or "login")
     if mode not in ("login", "link"):
         return None
-    return {"mode": mode, "link_uid": str(data.get("u") or "")}
+    try:
+        mobile = int(data.get("mob") or 0) == 1
+    except (TypeError, ValueError):
+        mobile = False
+    return {
+        "mode": mode,
+        "link_uid": str(data.get("u") or ""),
+        "mobile": "1" if mobile else "0",
+    }
 
 
 def auth_status_fields(user: AuthUser | None = None) -> dict[str, Any]:
