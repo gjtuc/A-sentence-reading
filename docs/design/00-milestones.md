@@ -79,7 +79,7 @@
 - ~~되새김질 흰 십자~~ (0.2.65 — [57-section-review-crosshair.md](57-section-review-crosshair.md))
 - ~~헤더 파일 열기 + `⋯`~~ (0.2.66 — [58-header-overflow.md](58-header-overflow.md))
 - ~~Guide 헤더 배치~~ (0.2.67 — [59-guide-header.md](59-guide-header.md); 기본 밖 · `⋯` 안 옵션)
-- **화면 단축키 안내 줄 정리** ([59](59-guide-header.md) 후속)
+- ~~패널 단축키 안내 줄 기본 숨김~~ (0.2.68 — [60-panel-hints.md](60-panel-hints.md); Guide에서 다시 켜기)
 - **Android Flutter MVP** — 로그인·보관·읽기·TTS · 실기 APK ([33-mobile-flutter.md](33-mobile-flutter.md); 플랫폼 이후)
 
 ### 구현됨 (참고)
