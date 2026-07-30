@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "53-section-review-optional.md"
 
 def test_status_section_review_optional() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.65"
+    assert st["version"] == "0.2.66"
     assert st["section_review_optional"] is True
     assert st["section_review_flow"] is True
     # Live Enable / IPS = Trading Gate only (ASR 밖)
@@ -63,6 +63,6 @@ def test_toggle_closes_open_review() -> None:
     assert "0.2.61" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.65" in served
-    assert "styles.css?v=0.2.65" in served
+    assert "app.js?v=0.2.66" in served
+    assert "styles.css?v=0.2.66" in served
     assert "sectionReviewBtn" in served

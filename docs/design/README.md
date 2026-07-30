@@ -48,6 +48,7 @@
 | 40 | [40-ingest-section-translate.md](40-ingest-section-translate.md) | ingest 섹션 번역 · 요지 · 캡션 |
 | 41 | [41-cite-ref-open.md](41-cite-ref-open.md) | 각주 → References → DOI/Crossref |
 | 42 | [42-translate-ingest-only.md](42-translate-ingest-only.md) | live 번역 제거 · 보관본 백필 |
+| 58 | [58-header-overflow.md](58-header-overflow.md) | 헤더 파일 열기 + `⋯` · Live Enable/IPS 밖 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -96,4 +97,5 @@
 55는 되새김질 flow 콕 수정 (0.2.63).
 56는 되새김질 키보드 패리티 (0.2.64).
 57는 되새김질 흰 십자 (0.2.65).  
+58는 헤더 「파일 열기」+ `⋯` overflow (0.2.66).  
 음절(30)은 **하지 않음** (원복).

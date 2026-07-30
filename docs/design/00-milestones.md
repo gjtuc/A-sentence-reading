@@ -77,6 +77,8 @@
 - ~~되새김질 flow 콕 수정~~ (0.2.63 — [55-section-review-flow-edit.md](55-section-review-flow-edit.md))
 - ~~되새김질 키보드~~ (0.2.64 — [56-section-review-keys.md](56-section-review-keys.md))
 - ~~되새김질 흰 십자~~ (0.2.65 — [57-section-review-crosshair.md](57-section-review-crosshair.md))
+- ~~헤더 파일 열기 + `⋯`~~ (0.2.66 — [58-header-overflow.md](58-header-overflow.md))
+- **Guide 배치** — 기본은 `⋯` 밖 · 선택 시 `⋯` 안 ([58](58-header-overflow.md) 후속)
 - **Android Flutter MVP** — 로그인·보관·읽기·TTS · 실기 APK ([33-mobile-flutter.md](33-mobile-flutter.md); 플랫폼 이후)
 
 ### 구현됨 (참고)

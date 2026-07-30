@@ -135,6 +135,9 @@
     sentNext: document.getElementById("sentNext"),
     pdfInput: document.getElementById("pdfInput"),
     uploadBtn: document.getElementById("uploadBtn"),
+    headerMoreBtn: document.getElementById("headerMoreBtn"),
+    headerMoreMenu: document.getElementById("headerMoreMenu"),
+    headerMore: document.getElementById("headerMore"),
     libraryBtn: document.getElementById("libraryBtn"),
     libraryDialog: document.getElementById("libraryDialog"),
     libraryList: document.getElementById("libraryList"),
@@ -5572,6 +5575,67 @@
   }
 
   el.uploadBtn.addEventListener("click", () => el.pdfInput.click());
+
+  // WHY: design/58 — 헤더에는 「파일 열기」만 두고 도구는 ⋯ overflow.
+  // 버튼 id·기존 리스너는 유지(DOM 이동만). Live Enable/IPS는 ASR 밖.
+  // EDGE: 노드 없음(구 HTML)·이중 클릭 버블·노트/되새김 Esc와 충돌 방지.
+  function isHeaderMoreOpen() {
+    return !!(el.headerMoreMenu && !el.headerMoreMenu.hidden);
+  }
+
+  function setHeaderMoreOpen(on) {
+    // null-safe: 정적 마크업 누락·부분 로드에서도 throw 금지
+    if (!el.headerMoreMenu || !el.headerMoreBtn) return;
+    var open = !!on;
+    el.headerMoreMenu.hidden = !open;
+    el.headerMoreBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function toggleHeaderMore() {
+    setHeaderMoreOpen(!isHeaderMoreOpen());
+  }
+
+  if (el.headerMoreBtn) {
+    el.headerMoreBtn.addEventListener("click", (ev) => {
+      // stopPropagation: 바로 아래 document click이 같은 탭에서 즉시 닫지 않게
+      ev.preventDefault();
+      ev.stopPropagation();
+      toggleHeaderMore();
+    });
+  }
+  if (el.headerMoreMenu) {
+    el.headerMoreMenu.addEventListener("click", (ev) => {
+      // 메뉴 항목 클릭 후 닫기 — setTimeout(0): 토글 핸들러(aria-pressed)가 먼저 돌게
+      var t = ev.target;
+      if (!t) return;
+      if (t === el.headerMoreMenu) return;
+      var item = t.closest ? t.closest("button, a") : null;
+      if (item && el.headerMoreMenu.contains(item)) {
+        window.setTimeout(function () {
+          setHeaderMoreOpen(false);
+        }, 0);
+      }
+    });
+  }
+  document.addEventListener("click", (ev) => {
+    if (!isHeaderMoreOpen()) return;
+    var t = ev.target;
+    // 메뉴·⋯ 버튼 내부 클릭은 유지
+    if (el.headerMore && t && el.headerMore.contains(t)) return;
+    setHeaderMoreOpen(false);
+  });
+  // Esc: 노트/되새김이 열려 있으면 그들 핸들러에 맡김 (메뉴만 열려 있을 때만 닫기)
+  document.addEventListener(
+    "keydown",
+    (ev) => {
+      if (ev.key !== "Escape") return;
+      if (!isHeaderMoreOpen()) return;
+      if (isNoteOpen() || isSectionReviewOpen()) return;
+      ev.preventDefault();
+      setHeaderMoreOpen(false);
+    },
+    true
+  );
 
   function setLibraryStatus(msg, kind) {
     if (!el.libraryStatus) return;
