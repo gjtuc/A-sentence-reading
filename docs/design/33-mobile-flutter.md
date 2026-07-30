@@ -107,7 +107,7 @@ PC **웹**은 유지하고, 휴대폰용 **네이티브 앱**을 새로 둔다.
 
 - [x] `mobile/` 스캐폴드 · status 클라이언트 · 화면 자리 (0.2.55 · [47](47-flutter-scaffold.md))
 - [x] `android/` 플랫폼 · applicationId · 라벨 「문장 읽기」 (0.2.56 · [48](48-flutter-android-platform.md))
-- [x] 이메일 로그인·세션 쿠키 (0.2.69 · [61](61-mobile-email-auth.md)) — 수단 1/3
+- [x] 이메일 로그인·세션 쿠키 (0.2.70 · [61](61-mobile-email-auth.md)) — 수단 1/3
 - [ ] APK를 실기에 설치해 Cloud Run에 로그인 가능 (Google/카카오 포함 · 목표는 3) — Android SDK 있는 환경
 - [ ] 보관 목록에서 논문 열고 문장·그림 독립 이동
 - [ ] 현재 문장 TTS 재생
@@ -118,7 +118,7 @@ PC **웹**은 유지하고, 휴대폰용 **네이티브 앱**을 새로 둔다.
 
 1. ~~`mobile/` 스캐폴드 · 표시명 「문장 읽기」 · `/api/status`~~ (**0.2.55**)
 2. ~~`flutter create` → `android/` · applicationId~~ (**0.2.56**)
-3. ~~이메일 인증~~ (0.2.69) → 보관 목록 → 읽기 → TTS · Google/카카오
+3. ~~이메일 인증~~ (0.2.70) → 보관 목록 → 읽기 → TTS · Google/카카오
 4. release APK · 실기 사이드로드 (Android SDK)
 
 ## Live Enable / IPS
@@ -127,4 +127,4 @@ PC **웹**은 유지하고, 휴대폰용 **네이티브 앱**을 새로 둔다.
 
 ## 버전
 
-웹 **0.2.69** · `mobile_email_auth` · pubspec `0.2.69+1` (스캐폴드 0.2.55 · android 0.2.56)
+웹 **0.2.70** · `mobile_library` · pubspec `0.2.70+1` (이메일 0.2.69 · 스캐폴드 0.2.55 · android 0.2.56)
