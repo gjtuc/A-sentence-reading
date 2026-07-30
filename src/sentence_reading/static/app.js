@@ -2875,10 +2875,11 @@
       translatePrefs.enabled &&
       digest &&
       (String(digest.ko || "").trim() || String(digest.en || "").trim());
+    // WHY: design/51 — 조각 카드 대신 이어 보기; 콕 수정·이어 재생은 후속
     if (el.sectionReviewHint) {
       el.sectionReviewHint.textContent = hasDigest
-        ? "위쪽은 이 구간 번역 정리본입니다. 아래는 최신 글·목소리 — 글 영역을 누르면 이어서 쓰고, ▶ 목소리는 듣기만 합니다 (문장 위치는 그대로)."
-        : "최신 글·목소리만 보입니다. 글 영역을 누르면 이어서 쓰고, ▶ 목소리는 듣기만 합니다 (문장 위치는 그대로).";
+        ? "위쪽은 이 구간 번역 정리본입니다. 아래는 기록을 이어서 본 것입니다. ▶ 목소리는 듣기만 합니다 (문장 위치는 그대로)."
+        : "아래는 이 구간 기록을 이어서 본 것입니다. ▶ 목소리는 듣기만 합니다 (문장 위치는 그대로).";
     }
     var ids = AsrNotes.sentenceIdsInSection(state.sentences, section);
     var pk = currentPaperKey();
@@ -2911,69 +2912,72 @@
       empty.className = "section-review-item-body is-empty";
       empty.textContent = "이 구간에 문장이 없습니다.";
       el.sectionReviewList.appendChild(empty);
-    }
-    ids.forEach(function (sid) {
-      var sent = null;
-      for (var i = 0; i < state.sentences.length; i++) {
-        if (state.sentences[i] && String(state.sentences[i].id) === sid) {
-          sent = state.sentences[i];
-          break;
-        }
+      if (el.sectionReviewSheet) {
+        window.setTimeout(function () {
+          el.sectionReviewSheet.focus();
+        }, 0);
       }
+      return;
+    }
+
+    // design/51 — 최신 노트를 등장 순으로 한 박스에 이어 붙임 (빈 노트 생략)
+    var flowParts = [];
+    var voiceEntries = [];
+    ids.forEach(function (sid) {
       var latest = AsrNotes.latestText(store, pk, sid);
+      var trimmed = latest ? String(latest).trim() : "";
+      if (trimmed) flowParts.push(trimmed);
       var voice = AsrNotes.latestVoice(store, pk, sid);
-      var revs = AsrNotes.listTextRevisions(store, pk, sid);
-      var li = document.createElement("li");
-      li.className = "section-review-row";
-
-      var btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "section-review-item";
-      btn.dataset.sentenceId = sid;
-      var meta = document.createElement("span");
-      meta.className = "section-review-item-meta";
-      var koPrev =
-        translatePrefs.enabled && sent && String(sent.text_ko || "").trim()
-          ? " · KO " + String(sent.text_ko).trim().slice(0, 48)
-          : "";
-      meta.textContent =
-        "rev " +
-        (revs.length ? revs[revs.length - 1].rev : 0) +
-        (voice ? " · 목소리 #" + voice.rev : "") +
-        " · " +
-        (plainSentencePreview(sent) || sid) +
-        koPrev;
-      var body = document.createElement("span");
-      body.className =
-        "section-review-item-body" + (latest ? "" : " is-empty");
-      body.textContent = latest || "(아직 기록 없음 — 눌러서 쓰기)";
-      btn.appendChild(meta);
-      btn.appendChild(body);
-      btn.addEventListener("click", function () {
-        onSectionReviewPick(sid);
-      });
-      li.appendChild(btn);
-
-      // WHY: 목소리 버튼은 인덱스 변경 없음 — 문장 선택(텍스트 버튼)과 분리 (INVARIANT)
       if (voice && voice.blobKey) {
+        voiceEntries.push({ sid: sid, voice: voice });
+      }
+    });
+    var flowLi = document.createElement("li");
+    flowLi.className = "section-review-flow-wrap";
+    var flow = document.createElement("div");
+    flow.className = "section-review-flow";
+    flow.setAttribute("role", "article");
+    flow.setAttribute("aria-label", "구간 기록 이어 보기");
+    if (flowParts.length) {
+      flow.textContent = flowParts.join("\n\n");
+    } else {
+      flow.className = "section-review-flow is-empty";
+      flow.textContent = "이 구간에 아직 기록이 없습니다.";
+    }
+    flowLi.appendChild(flow);
+    el.sectionReviewList.appendChild(flowLi);
+
+    // WHY: 목소리 재생은 인덱스 불변 — flow와 분리된 하단 바 (design/17 · 0.2.8)
+    if (voiceEntries.length) {
+      var barLi = document.createElement("li");
+      barLi.className = "section-review-voice-bar";
+      var barLabel = document.createElement("span");
+      barLabel.className = "section-review-voice-bar-label";
+      barLabel.textContent = "목소리";
+      barLi.appendChild(barLabel);
+      voiceEntries.forEach(function (entry, vi) {
         var playBtn = document.createElement("button");
         playBtn.type = "button";
         playBtn.className = "section-review-voice-btn";
-        playBtn.dataset.sentenceId = sid;
-        playBtn.dataset.blobKey = voice.blobKey;
-        playBtn.title = "최신 목소리 듣기 (rev " + voice.rev + ")";
-        playBtn.setAttribute("aria-label", "최신 목소리 듣기");
-        playBtn.textContent = "▶ 목소리";
+        playBtn.dataset.sentenceId = entry.sid;
+        playBtn.dataset.blobKey = entry.voice.blobKey;
+        playBtn.title =
+          "최신 목소리 듣기 #" + (vi + 1) + " (rev " + entry.voice.rev + ")";
+        playBtn.setAttribute(
+          "aria-label",
+          "최신 목소리 듣기 " + (vi + 1)
+        );
+        playBtn.textContent = "▶ " + (vi + 1);
         playBtn.addEventListener("click", function (ev) {
           ev.preventDefault();
           ev.stopPropagation();
-          onSectionReviewPlayVoice(sid, voice.blobKey, playBtn);
+          onSectionReviewPlayVoice(entry.sid, entry.voice.blobKey, playBtn);
         });
-        li.appendChild(playBtn);
-      }
+        barLi.appendChild(playBtn);
+      });
+      el.sectionReviewList.appendChild(barLi);
+    }
 
-      el.sectionReviewList.appendChild(li);
-    });
     if (el.sectionReviewSheet) {
       window.setTimeout(function () {
         el.sectionReviewSheet.focus();

@@ -1720,6 +1720,53 @@ body.is-figure-chrome-out .figure-frame figcaption {
   gap: 0.55rem;
 }
 
+/* design/51 — 구간 노트를 한 박스에 이어 보기 */
+.section-review-flow-wrap {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.section-review-flow {
+  margin: 0;
+  padding: 1rem 1.05rem;
+  min-height: 10rem;
+  max-height: min(48vh, 22rem);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 0.95rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
+}
+
+.section-review-flow.is-empty {
+  color: var(--fg-muted);
+  font-style: italic;
+  min-height: 4rem;
+}
+
+.section-review-voice-bar {
+  list-style: none;
+  margin: 0;
+  padding: 0.35rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.section-review-voice-bar-label {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  margin-right: 0.15rem;
+}
+
 .section-review-row {
   display: flex;
   align-items: stretch;

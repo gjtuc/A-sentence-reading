@@ -118,7 +118,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.58",
+    version="0.2.59",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -214,12 +214,13 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.58",
+        "version": "0.2.59",
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
         "cite_display_clean": True,
         "ko_word_wrap": True,
+        "section_review_flow": True,
         "compound_figures": False,
         "reading_order": True,
         "github_cd": True,

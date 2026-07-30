@@ -1,4 +1,4 @@
-"""한글 번역 어절 줄바꿈 (0.2.58 · design/50)."""
+"""한글 번역 어절 줄바꿈 (0.2.58 ship · design/50; 앱 버전은 후속 범프)."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def _sentence_ko_block() -> str:
 
 def test_status_ko_word_wrap() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.58"
+    assert st["version"] == "0.2.59"
     assert st["ko_word_wrap"] is True
     assert st["cite_display_clean"] is True
     assert "live_enable" not in st
@@ -53,5 +53,5 @@ def test_design_50_and_assets() -> None:
     assert "Trading Gate" in design or "ASR 밖" in design
     assert "design/50" in CSS.read_text(encoding="utf-8")
     html = TestClient(app).get("/").text
-    assert "styles.css?v=0.2.58" in html
-    assert "app.js?v=0.2.58" in html
+    assert "styles.css?v=0.2.59" in html
+    assert "app.js?v=0.2.59" in html
