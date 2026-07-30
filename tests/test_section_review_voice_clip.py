@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "54-section-review-voice-clip.md"
 
 def test_status_voice_clip_actions() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.62"
+    assert st["version"] == "0.2.63"
     assert st["section_review_voice_clip_actions"] is True
     assert st["section_review_voice_seq"] is True
     assert "live_enable" not in st
@@ -41,7 +41,8 @@ def test_clip_action_wiring() -> None:
     css = CSS.read_text(encoding="utf-8")
     assert ".section-review-clip-actions" in css
     html = INDEX.read_text(encoding="utf-8")
-    assert "일시 정지하면 그 문장만" in html
+    assert "이어" in html
+    assert "기록" in html
 
 
 def test_edge_empty_and_no_mutate_index() -> None:
@@ -66,5 +67,5 @@ def test_design_and_assets() -> None:
     assert "0.2.62" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.62" in served
-    assert "styles.css?v=0.2.62" in served
+    assert "app.js?v=0.2.63" in served
+    assert "styles.css?v=0.2.63" in served

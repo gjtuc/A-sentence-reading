@@ -94,7 +94,7 @@ def test_api_notes_sync_unavailable() -> None:
     if not body["available"]:
         assert body["store"] is None
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.62"
+    assert st["version"] == "0.2.63"
     assert st["gcs"]["notes_sync"] is True
     assert st["gcs"]["voice_blob_sync"] is True
     assert st["gcs"]["papers_sync"] is True

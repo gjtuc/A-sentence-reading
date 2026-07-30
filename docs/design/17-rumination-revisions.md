@@ -39,7 +39,7 @@
 
 - `advanceSentence(+1)` 에서 `prev.section !== next.section` 이면 직전 섹션 리뷰 오픈
 - 뒤로 가기(`-1`)에서는 리뷰 안 띄움
-- 리뷰 행: ~~글 영역 클릭 → 문장 선택~~ → **0.2.59** 부터 구간 노트를 **한 박스에 이어 보기** ([51](51-section-review-flow.md)); **0.2.60** **▶ 이어 듣기** ([52](52-section-review-voice-seq.md)); 헤더「되새김」on/off ([53](53-section-review-optional.md) · 0.2.61); 일시 정지 클립 재듣기/재녹음 ([54](54-section-review-voice-clip.md) · 0.2.62); 콕 수정은 후속 (인덱스 불변)
+- 리뷰 행: ~~글 영역 클릭 → 문장 선택~~ → **0.2.59** 부터 구간 노트를 **한 박스에 이어 보기** ([51](51-section-review-flow.md)); **0.2.60** **▶ 이어 듣기** ([52](52-section-review-voice-seq.md)); 헤더「되새김」on/off ([53](53-section-review-optional.md) · 0.2.61); 일시 정지 클립 재듣기/재녹음 ([54](54-section-review-voice-clip.md) · 0.2.62); flow 콕 수정 ([55](55-section-review-flow-edit.md) · 0.2.63); 흰 십자·동일 키는 후속 (인덱스 불변)
 - 리뷰 닫기·TTS·다른 목소리 재생 시 이전 목소리 중단
 
 ## 다음
