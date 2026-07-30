@@ -858,6 +858,7 @@ body.is-figure-chrome-out .figure-viewport:not(.is-cropped) img {
 }
 
 /* INVARIANT: 한글은 영어 .sentence-text 와 동일 타이포 (색·크기·정렬) */
+/* WHY design/50: 브라우저는 한글을 음절 단위로 자를 수 있음 → 어절(공백) 경계만 */
 .sentence-ko {
   margin: 0 auto;
   width: min(var(--sentence-max-ch), 100%);
@@ -870,6 +871,9 @@ body.is-figure-chrome-out .figure-viewport:not(.is-cropped) img {
   color: var(--fg);
   max-height: 100%;
   overflow: auto;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  line-break: strict;
 }
 
 .sentence-ko.is-error {
