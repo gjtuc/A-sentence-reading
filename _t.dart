@@ -1,1 +1,0 @@
-'No paper open.\n\n'
