@@ -135,6 +135,11 @@
     sentNext: document.getElementById("sentNext"),
     pdfInput: document.getElementById("pdfInput"),
     uploadBtn: document.getElementById("uploadBtn"),
+    guideOutsideSlot: document.getElementById("guideOutsideSlot"),
+    guideBtn: document.getElementById("guideBtn"),
+    guideDialog: document.getElementById("guideDialog"),
+    guideDialogClose: document.getElementById("guideDialogClose"),
+    guideNestCheck: document.getElementById("guideNestCheck"),
     headerMoreBtn: document.getElementById("headerMoreBtn"),
     headerMoreMenu: document.getElementById("headerMoreMenu"),
     headerMore: document.getElementById("headerMore"),
@@ -249,11 +254,15 @@
   const TRANSLATE_STORAGE_BASE = "asr.translate.v1";
   // WHY: design/53 — 되새김질(섹션 경계 리뷰) 사용자 on/off · 기본 켜짐(기존 UX 유지)
   const SECTION_REVIEW_STORAGE_BASE = "asr.sectionReview.v1";
+  // WHY: design/59 — Guide 헤더 밖(기본) vs ⋯ 안 · UID별 키
+  const GUIDE_STORAGE_BASE = "asr.guide.v1";
   /** @type {{ enabled: boolean, mode: "pipeline" | "simple" }} */
   // WHY: design/36 — 기본 pipeline(초안→감수→윤문); simple은 35 호환
   const translatePrefs = { enabled: false, mode: "pipeline" };
   /** @type {{ enabled: boolean }} */
   const sectionReviewPrefs = { enabled: true };
+  /** @type {{ nestInMore: boolean }} */
+  const guidePrefs = { nestInMore: false };
   /** @type {AbortController | null} */
   let translateAbort = null;
   /** @type {string | null} */
@@ -2154,6 +2163,7 @@
     if (el.authDialog && el.authDialog.open) el.authDialog.close();
     loadTranslatePrefs();
     loadSectionReviewPrefs();
+    loadGuidePrefs();
     if (translatePrefs.enabled) render();
     await pullNotesFromCloud();
   }
@@ -2323,6 +2333,7 @@
       renderAuthChrome();
       loadTranslatePrefs();
       loadSectionReviewPrefs();
+      loadGuidePrefs();
       const params = new URLSearchParams(window.location.search);
       if (params.get("auth_error")) {
         setUploadStatus("로그인 실패: " + params.get("auth_error"), "error");
@@ -2347,6 +2358,7 @@
       renderAuthChrome();
       loadTranslatePrefs();
       loadSectionReviewPrefs();
+      loadGuidePrefs();
     }
   }
 
@@ -2437,6 +2449,7 @@
     renderAuthChrome();
     loadTranslatePrefs();
     loadSectionReviewPrefs();
+    loadGuidePrefs();
     if (translatePrefs.enabled) render();
     else clearSentenceKo();
     setUploadStatus("로그아웃됨", "");
@@ -3265,6 +3278,91 @@
     el.sectionReviewBtn.title = sectionReviewPrefs.enabled
       ? "되새김질 켜짐 — 섹션이 바뀔 때 리뷰 (클릭하면 끔)"
       : "되새김질 꺼짐 — 섹션 경계에서도 리뷰 없음 (클릭하면 켬)";
+  }
+
+  // ——— design/59 Guide placement ———
+  function guideStorageKey() {
+    const uid = authState.user && authState.user.uid;
+    return uid ? GUIDE_STORAGE_BASE + "." + String(uid) : GUIDE_STORAGE_BASE;
+  }
+
+  function loadGuidePrefs() {
+    // EDGE: 손상 JSON · 비객체 · 알 수 없는 키 → nestInMore=false (헤더에 Guide)
+    try {
+      const raw = localStorage.getItem(guideStorageKey());
+      if (!raw) {
+        guidePrefs.nestInMore = false;
+      } else {
+        const data = JSON.parse(raw);
+        if (data && typeof data === "object" && "nestInMore" in data) {
+          guidePrefs.nestInMore = !!data.nestInMore;
+        } else if (typeof data === "boolean") {
+          guidePrefs.nestInMore = data;
+        } else {
+          guidePrefs.nestInMore = false;
+        }
+      }
+    } catch (_) {
+      guidePrefs.nestInMore = false;
+    }
+    applyGuidePlacement();
+  }
+
+  function saveGuidePrefs() {
+    try {
+      localStorage.setItem(
+        guideStorageKey(),
+        JSON.stringify({ nestInMore: !!guidePrefs.nestInMore })
+      );
+    } catch (_) {
+      /* ignore quota / private mode */
+    }
+  }
+
+  /**
+   * Guide 버튼을 밖 슬롯 ↔ ⋯ 메뉴로 옮긴다.
+   * EDGE: 슬롯/메뉴/버튼 누락 시 no-op (구 HTML 캐시).
+   */
+  function applyGuidePlacement() {
+    if (!el.guideBtn) return;
+    if (el.guideNestCheck) {
+      el.guideNestCheck.checked = !!guidePrefs.nestInMore;
+    }
+    if (guidePrefs.nestInMore) {
+      if (el.headerMoreMenu && el.guideBtn.parentElement !== el.headerMoreMenu) {
+        el.headerMoreMenu.insertBefore(
+          el.guideBtn,
+          el.headerMoreMenu.firstChild
+        );
+      }
+      el.guideBtn.setAttribute("role", "menuitem");
+    } else if (el.guideOutsideSlot) {
+      if (el.guideBtn.parentElement !== el.guideOutsideSlot) {
+        el.guideOutsideSlot.appendChild(el.guideBtn);
+      }
+      el.guideBtn.removeAttribute("role");
+    }
+  }
+
+  function isGuideOpen() {
+    return !!(el.guideDialog && el.guideDialog.open);
+  }
+
+  function openGuideDialog() {
+    if (!el.guideDialog || typeof el.guideDialog.showModal !== "function") {
+      return;
+    }
+    setHeaderMoreOpen(false);
+    if (el.ttsDialog && el.ttsDialog.open) el.ttsDialog.close();
+    if (el.libraryDialog && el.libraryDialog.open) el.libraryDialog.close();
+    if (el.guideNestCheck) {
+      el.guideNestCheck.checked = !!guidePrefs.nestInMore;
+    }
+    el.guideDialog.showModal();
+  }
+
+  function closeGuideDialog() {
+    if (el.guideDialog && el.guideDialog.open) el.guideDialog.close();
   }
 
   function openSectionReview(section) {
@@ -5486,6 +5584,7 @@
   loadTtsSettings();
   loadTranslatePrefs();
   loadSectionReviewPrefs();
+  loadGuidePrefs();
 
   if (el.translateBtn) {
     el.translateBtn.addEventListener("click", () => {
@@ -5506,6 +5605,26 @@
       if (!sectionReviewPrefs.enabled && isSectionReviewOpen()) {
         closeSectionReview({ resume: false });
       }
+    });
+  }
+
+  // WHY: design/59 — Guide 열기 · ⋯ 안 넣기 체크
+  if (el.guideBtn) {
+    el.guideBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      openGuideDialog();
+    });
+  }
+  if (el.guideDialogClose) {
+    el.guideDialogClose.addEventListener("click", () => {
+      closeGuideDialog();
+    });
+  }
+  if (el.guideNestCheck) {
+    el.guideNestCheck.addEventListener("change", () => {
+      guidePrefs.nestInMore = !!el.guideNestCheck.checked;
+      saveGuidePrefs();
+      applyGuidePlacement();
     });
   }
 
@@ -5630,7 +5749,7 @@
     (ev) => {
       if (ev.key !== "Escape") return;
       if (!isHeaderMoreOpen()) return;
-      if (isNoteOpen() || isSectionReviewOpen()) return;
+      if (isNoteOpen() || isSectionReviewOpen() || isGuideOpen()) return;
       ev.preventDefault();
       setHeaderMoreOpen(false);
     },

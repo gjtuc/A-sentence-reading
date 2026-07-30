@@ -1,4 +1,4 @@
-"""헤더 파일 열기 + ⋯ overflow (0.2.66 · design/58)."""
+"""헤더 파일 열기 + ⋯ overflow (0.2.66 ship · design/58; 앱 버전은 후속 범프)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "58-header-overflow.md"
 
 def test_status_header_overflow() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.66"
+    assert st["version"] == "0.2.67"
     assert st["header_overflow"] is True
     assert "live_enable" not in st
     assert "ips" not in st
@@ -65,8 +65,8 @@ def test_js_css_wiring() -> None:
 def test_edge_escape_and_outside_close() -> None:
     src = APP_JS.read_text(encoding="utf-8")
     assert "setHeaderMoreOpen(false)" in src
-    # Esc closes menu only when note/review closed
-    assert "isNoteOpen() || isSectionReviewOpen()" in src
+    # Esc closes menu only when note/review/guide closed
+    assert "isNoteOpen() || isSectionReviewOpen() || isGuideOpen()" in src
     # empty/missing nodes: setHeaderMoreOpen guards
     assert "if (!el.headerMoreMenu || !el.headerMoreBtn) return" in src
     # EDGE: stopPropagation on ⋯ so document click does not immediately close
@@ -78,6 +78,6 @@ def test_edge_escape_and_outside_close() -> None:
     assert "Trading Gate" in design or "ASR 밖" in design
     assert "Live Enable" in design or "IPS" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.66" in served
-    assert "styles.css?v=0.2.66" in served
+    assert "app.js?v=0.2.67" in served
+    assert "styles.css?v=0.2.67" in served
     assert "headerMoreBtn" in served

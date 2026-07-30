@@ -15,9 +15,11 @@
 
 | 포함 | 미포함 (후속) |
 |------|----------------|
-| overflow 토글 · 바깥 클릭/Esc 닫기 | Guide 버튼 · `⋯`로 넣기 체크박스 |
-| 기존 버튼 id/리스너 유지 (DOM만 이동) | 화면 단축키 안내 줄 삭제 |
+| overflow 토글 · 바깥 클릭/Esc 닫기 | 화면 단축키 안내 줄 삭제 |
+| 기존 버튼 id/리스너 유지 (DOM만 이동) | |
 | `aria-expanded` / `role="menu"` | |
+
+Guide 버튼·`⋯` 안 옵션 → **0.2.67** ([59-guide-header.md](59-guide-header.md)).
 
 ## UX
 
