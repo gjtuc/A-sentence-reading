@@ -118,7 +118,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.70",
+    version="0.2.71",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -214,7 +214,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.70",
+        "version": "0.2.71",
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -237,6 +237,7 @@ def status(request: Request) -> dict:
         "mobile_android_platform": True,
         "mobile_email_auth": True,
         "mobile_library": True,
+        "mobile_reader": True,
         "translate_en_ko": gemini_available(),
         "translate_pipeline": True,
         "translate_side_by_side": True,
@@ -1241,6 +1242,64 @@ def session_get(session_id: str) -> JSONResponse:
                 "message": "세션을 찾을 수 없습니다.",
             },
         )
+    data = session.to_public_dict()
+    data["ok"] = True
+    data["session_id"] = session_id
+    return JSONResponse(data)
+
+
+@app.patch("/api/session/{session_id}/cursor")
+async def session_patch_cursor(session_id: str, payload: dict = Body(...)) -> JSONResponse:
+    """Update sentence/figure cursors independently (design/04 · design/63).
+
+    INVARIANT: only the keys present in the body are applied — never force both.
+    """
+    if session_id == "ses_mock":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "mock_readonly",
+                "message": "mock 세션 커서는 저장하지 않습니다.",
+            },
+        )
+    session = _SESSIONS.get(session_id)
+    if session is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "session_not_found",
+                "message": "세션을 찾을 수 없습니다.",
+            },
+        )
+    body = payload if isinstance(payload, dict) else {}
+    # EDGE: ignore unknown keys; only apply provided indices
+    if "sentence_index" in body:
+        try:
+            session.sentence_index = int(body.get("sentence_index"))
+        except (TypeError, ValueError):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "ok": False,
+                    "error": "bad_sentence_index",
+                    "message": "sentence_index 가 올바르지 않습니다.",
+                },
+            )
+    if "figure_index" in body:
+        try:
+            session.figure_index = int(body.get("figure_index"))
+        except (TypeError, ValueError):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "ok": False,
+                    "error": "bad_figure_index",
+                    "message": "figure_index 가 올바르지 않습니다.",
+                },
+            )
+    session.clamp_indices()
     data = session.to_public_dict()
     data["ok"] = True
     data["session_id"] = session_id
