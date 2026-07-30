@@ -90,6 +90,36 @@ body.is-browser-fullscreen .note-overlay .note-textarea {
 }
 
 /*
+ * design/57 — 되새김질 시트: 흰 십자 (노트 시트와 동일 SVG).
+ * WHY: FS 검정 십자가가 어두운 패널에서 안 보임 · 키보드 포커스와 커서 위치 맞춤.
+ * body.is-section-review 는 openSectionReview 가 토글.
+ */
+body.is-section-review .section-review-sheet,
+body.is-section-review .section-review-sheet *,
+body.is-browser-fullscreen.is-section-review .section-review-sheet,
+body.is-browser-fullscreen.is-section-review .section-review-sheet * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17'%3E%3Cpath stroke='%23ffffff' stroke-width='1.25' d='M8.5 0v17M0 8.5h17'/%3E%3C/svg%3E")
+      8 8,
+    crosshair !important;
+}
+
+/* 편집 textarea = 흰 I (노트와 동일) */
+body.is-section-review .section-review-flow-edit,
+body.is-browser-fullscreen.is-section-review .section-review-flow-edit {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='20'%3E%3Cpath stroke='%23ffffff' stroke-width='1.5' fill='none' d='M2 1h8M6 1v18M2 19h8'/%3E%3C/svg%3E")
+      6 10,
+    text !important;
+}
+
+/* 버튼·링크는 pointer 유지 */
+body.is-section-review .section-review-sheet button,
+body.is-section-review .section-review-sheet .upload-btn,
+body.is-browser-fullscreen.is-section-review .section-review-sheet button,
+body.is-browser-fullscreen.is-section-review .section-review-sheet .upload-btn {
+  cursor: pointer !important;
+}
+
+/*
  * 문장 확대 FS: 문장 패널 hover 때만 흰 십자.
  * WHY: 글 위에 올렸을 때 검정 십자가가 안 보임 → 흰 십자 (노트 시트와 동일 SVG).
  */
@@ -1780,17 +1810,37 @@ body.is-figure-chrome-out .figure-frame figcaption {
   outline-offset: 1px;
 }
 
-/* design/56 — 키보드 ←/→ 포커스 표시 */
+/* design/56+57 — 키보드 포커스 · 흰 + 마커 (마우스 없이도 “여기”) */
 .section-review-flow-seg.is-flow-focus {
+  position: relative;
   border-color: var(--accent, var(--border));
   outline: 2px solid var(--fg-muted);
   outline-offset: 1px;
+  padding-left: 1.35rem;
+}
+
+.section-review-flow-seg.is-flow-focus::before {
+  content: "";
+  position: absolute;
+  left: 0.35rem;
+  top: 0.7rem;
+  width: 0.65rem;
+  height: 0.65rem;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11'%3E%3Cpath stroke='%23ffffff' stroke-width='1.35' d='M5.5 0v11M0 5.5h11'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  pointer-events: none;
+  opacity: 0.95;
 }
 
 .section-review-flow-seg.is-editing {
   cursor: default;
   border-color: var(--accent, var(--border));
   outline: none;
+  padding-left: 0.65rem;
+}
+
+.section-review-flow-seg.is-editing::before {
+  display: none;
 }
 
 .section-review-flow-seg-body {

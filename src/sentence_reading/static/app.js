@@ -3290,11 +3290,11 @@
       translatePrefs.enabled &&
       digest &&
       (String(digest.ko || "").trim() || String(digest.en || "").trim());
-    // WHY: design/51+55+56 — 이어 보기 · 콕 수정 · 키보드 세그먼트 이동
+    // WHY: design/51+55+56+57 — 이어 보기 · 콕 수정 · 키보드 · 흰 십자
     if (el.sectionReviewHint) {
       el.sectionReviewHint.textContent = hasDigest
-        ? "위쪽은 이 구간 번역 정리본입니다. 아래는 기록을 이어서 본 것입니다. ←/→ 로 구간 이동 · Enter로 수정 · Esc로 닫기 (문장 위치는 그대로)."
-        : "아래는 이 구간 기록을 이어서 본 것입니다. ←/→ 로 구간 이동 · Enter로 수정 · Esc로 닫기 (문장 위치는 그대로).";
+        ? "위쪽은 이 구간 번역 정리본입니다. 아래는 기록을 이어서 본 것입니다. ←/→ · Enter · Esc · 흰 십자로 위치를 봅니다 (문장 위치는 그대로)."
+        : "아래는 이 구간 기록을 이어서 본 것입니다. ←/→ · Enter · Esc · 흰 십자로 위치를 봅니다 (문장 위치는 그대로).";
     }
     var ids = AsrNotes.sentenceIdsInSection(state.sentences, section);
     var pk = currentPaperKey();

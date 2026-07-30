@@ -17,7 +17,7 @@
 
 | 포함 | 미포함 (후속) |
 |------|----------------|
-| `handleSectionReviewKeys` · `is-flow-focus` | 흰 십자 커서 |
+| `handleSectionReviewKeys` · `is-flow-focus` | 헤더 `⋯` · Guide |
 | Esc 2단 (취소 → 닫기) | 헤더 `⋯` · Guide |
 | 열릴 때 첫 세그먼트 포커스 | |
 
