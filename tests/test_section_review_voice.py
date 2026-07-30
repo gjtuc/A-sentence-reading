@@ -21,20 +21,24 @@ def test_latest_voice_api_exists() -> None:
 def test_section_review_voice_wiring() -> None:
     app = APP_JS.read_text(encoding="utf-8")
     assert "section-review-voice-btn" in app
+    assert "onSectionReviewPlayVoiceSequence" in app
     assert "onSectionReviewPlayVoice" in app
     assert "playVoiceBlobKey" in app
     assert "stopVoicePlayback" in app
     # INVARIANT: voice click must not rely solely on row pick
     assert "stopPropagation" in app
     assert "voicePlayingKey" in app
+    assert "voiceSeq" in app
 
 
 def test_section_review_hint_mentions_voice() -> None:
     html = INDEX.read_text(encoding="utf-8")
     assert "목소리" in html
+    assert "이어 듣" in html
     css = CSS.read_text(encoding="utf-8")
     assert ".section-review-voice-btn" in css
     assert ".section-review-voice-bar" in css or ".section-review-row" in css
+    assert ".section-review-voice-seq" in css
     app = APP_JS.read_text(encoding="utf-8")
     assert "section-review-flow" in app
 
@@ -42,15 +46,18 @@ def test_section_review_hint_mentions_voice() -> None:
 def test_voice_play_does_not_mutate_store_contract() -> None:
     """재생은 blob 읽기만 — notes store append 경로를 타지 않음."""
     app = APP_JS.read_text(encoding="utf-8")
-    # onSectionReviewPlayVoice 본문에 appendVoiceRevision 호출이 없어야 함
-    start = app.find("async function onSectionReviewPlayVoice")
-    assert start > 0
-    end = app.find("\n  async function ", start + 10)
-    if end < 0:
-        end = app.find("\n  function ", start + 10)
-    chunk = app[start:end]
-    assert "appendVoiceRevision" not in chunk
-    assert "playVoiceBlobKey" in chunk
+    for name in (
+        "async function onSectionReviewPlayVoiceSequence",
+        "async function onSectionReviewPlayVoice",
+    ):
+        start = app.find(name)
+        assert start > 0, name
+        end = app.find("\n  async function ", start + 10)
+        if end < 0:
+            end = app.find("\n  function ", start + 10)
+        chunk = app[start:end]
+        assert "appendVoiceRevision" not in chunk
+        assert "playVoiceBlobKey" in chunk
 
 
 if __name__ == "__main__":

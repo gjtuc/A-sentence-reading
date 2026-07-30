@@ -1803,6 +1803,12 @@ body.is-figure-chrome-out .figure-frame figcaption {
   cursor: wait;
 }
 
+/* design/52 — 이어 듣기 한 버튼 (번호 ▶ 나열 대체) */
+.section-review-voice-seq {
+  min-width: 7.5rem;
+  font-weight: 600;
+}
+
 .section-review-item {
   display: block;
   width: 100%;

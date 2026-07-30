@@ -71,6 +71,7 @@
 - ~~각주 표시 정리~~ (0.2.57 — [49-cite-display-clean.md](49-cite-display-clean.md); 박스 [n] 숨김 · FS 칩 hover)
 - ~~한글 번역 어절 줄바꿈~~ (0.2.58 — [50-ko-word-wrap.md](50-ko-word-wrap.md); keep-all)
 - ~~되새김질 이어 보기~~ (0.2.59 — [51-section-review-flow.md](51-section-review-flow.md); 한 박스)
+- ~~되새김질 목소리 이어 듣기~~ (0.2.60 — [52-section-review-voice-seq.md](52-section-review-voice-seq.md))
 - **Android Flutter MVP** — 로그인·보관·읽기·TTS · 실기 APK ([33-mobile-flutter.md](33-mobile-flutter.md); 플랫폼 이후)
 
 ### 구현됨 (참고)
