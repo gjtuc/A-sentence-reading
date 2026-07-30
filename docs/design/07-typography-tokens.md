@@ -22,6 +22,10 @@
 - 보라/네온 액센트 금지
 - 기본값을 라이트 테마로 뒤집지 않음 (설정 UI는 M5+)
 
+## 한글 줄바꿈 (0.2.58 · [50](50-ko-word-wrap.md))
+
+`.sentence-ko` 만 `word-break: keep-all` (+ `overflow-wrap: break-word`). 토큰 수치(`--sentence-size` 등)는 그대로.
+
 ## 사용자 조절 (M5+)
 
 토글 후보만 적어둠. 1차 구현 안 함.

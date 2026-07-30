@@ -78,10 +78,10 @@ python -m venv venv
 | [docs/design/25-cloud-run.md](docs/design/25-cloud-run.md) | Cloud Run 문지기 (수동 배포) |
 | [docs/design/32-github-cd.md](docs/design/32-github-cd.md) | GitHub pytest CI · Cloud Run CD 게이트 |
 
-라이브: `https://asr-sentence-reading-984608876300.asia-northeast3.run.app` (**0.2.57**, GitHub CD)  
+라이브: `https://asr-sentence-reading-984608876300.asia-northeast3.run.app` (**0.2.58**, GitHub CD)  
 CD **켜짐** (`ASR_CD_ENABLED=1`) — Secrets는 `sync_github_cd_secrets.sh` 로 동기화.  
 점검: `python scripts/check_github_cd_ready.py`  
-배포 확인: `python scripts/verify_live_status.py --expect 0.2.57`
+배포 확인: `python scripts/verify_live_status.py --expect 0.2.58`
 
 모바일(스캐폴드): [`mobile/`](mobile/) — Flutter · [design/33](docs/design/33-mobile-flutter.md) · [design/47](docs/design/47-flutter-scaffold.md)
 

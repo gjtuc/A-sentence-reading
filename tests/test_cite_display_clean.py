@@ -1,4 +1,4 @@
-"""각주 표시 정리 (0.2.57 · design/49) — 박스에서 [n] 숨김 · FS에서 칩 hover."""
+"""각주 표시 정리 (0.2.57 ship · design/49; 앱 버전은 후속 범프)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_cite_display_clean() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.57"
+    assert st["version"] == "0.2.58"
     assert st["cite_display_clean"] is True
     assert st["cite_ref_open"] is True
     assert "live_enable" not in st
@@ -37,7 +37,6 @@ def test_ui_hides_cites_like_fig_chips() -> None:
     css = (ROOT / "src/sentence_reading/static/styles.css").read_text(encoding="utf-8")
     assert "cite-ref-hints" in css
     assert "cite-ref-panel" in css
-    # same hover-gate family as fig-ref-hints
     assert ".fig-ref-hints" in css
     assert "design/49" in css or "각주 칩" in css
     js = (ROOT / "src/sentence_reading/static/cite_refs.js").read_text(encoding="utf-8")
@@ -49,5 +48,5 @@ def test_ui_hides_cites_like_fig_chips() -> None:
     assert "0.2.57" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.2.57" in html
-    assert "styles.css?v=0.2.57" in html
+    assert "app.js?v=0.2.58" in html
+    assert "styles.css?v=0.2.58" in html

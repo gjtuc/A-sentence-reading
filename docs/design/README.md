@@ -88,4 +88,5 @@
 47는 Flutter `mobile/` 스캐폴드 · status 클라이언트 (0.2.55).  
 48는 Flutter `android/` 플랫폼 · applicationId (0.2.56).  
 49는 각주 표시 정리 · 박스 [n] 숨김 · FS 칩 hover (0.2.57).  
+50는 한글 번역 어절 줄바꿈 · keep-all (0.2.58).  
 음절(30)은 **하지 않음** (원복).
