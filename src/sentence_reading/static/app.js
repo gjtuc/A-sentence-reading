@@ -230,6 +230,9 @@
     voiceAudio: null,
     voiceObjectUrl: null,
     voicePlayingKey: null,
+    /** @type {{ queue: string[], i: number, gen: number, btn: HTMLElement|null } | null} */
+    voiceSeq: null,
+    voiceSeqGen: 0,
   };
 
   const TTS_STORAGE_KEY = "asr.tts.v2";
@@ -2563,7 +2566,8 @@
   }
 
   /** 사용자 목소리 재생 중단 (노트·분기 리뷰 공통). TTS와 별개. */
-  function stopVoicePlayback() {
+  function stopVoicePlayback(opts) {
+    opts = opts || {};
     if (noteUi.voiceAudio) {
       try {
         noteUi.voiceAudio.onended = null;
@@ -2583,13 +2587,17 @@
       noteUi.voiceObjectUrl = null;
     }
     noteUi.voicePlayingKey = null;
+    // WHY: design/52 — 이어 재생 큐는 keepSequence 일 때만 유지 (클립 전환)
+    if (!opts.keepSequence) {
+      noteUi.voiceSeq = null;
+    }
   }
 
   /**
    * IndexedDB blobKey → 최신 한 건만 재생 (이전 재생은 끊음).
    * IDB miss 시 GCS(/api/voice/blobs)에서 받아 IDB에 채움.
    * @param {string} blobKey
-   * @param {{ onStatus?: function(string), onMissing?: function() }} opts
+   * @param {{ onStatus?: function(string), onMissing?: function(), onEnded?: function(), keepSequence?: boolean }} opts
    * @returns {Promise<boolean>}
    */
   async function playVoiceBlobKey(blobKey, opts) {
@@ -2598,7 +2606,7 @@
       if (opts.onMissing) opts.onMissing();
       return false;
     }
-    stopVoicePlayback();
+    stopVoicePlayback({ keepSequence: !!opts.keepSequence });
     stopTtsEngineOnly();
     try {
       var blob = await window.AsrVoiceIdb.getBlob(blobKey);
@@ -2613,19 +2621,41 @@
       noteUi.voiceObjectUrl = url;
       var a = new Audio(url);
       noteUi.voiceAudio = a;
+      noteUi.voicePlayingKey = blobKey;
       a.onended = function () {
-        stopVoicePlayback();
-        if (opts.onStatus) opts.onStatus("");
+        // 클립만 정리 — 시퀀스는 onEnded 가 이어 감
+        if (noteUi.voiceAudio === a) {
+          noteUi.voiceAudio = null;
+        }
+        if (noteUi.voiceObjectUrl === url) {
+          try {
+            URL.revokeObjectURL(url);
+          } catch (_) {
+            /* ignore */
+          }
+          noteUi.voiceObjectUrl = null;
+        }
+        noteUi.voicePlayingKey = null;
+        if (opts.onEnded) {
+          opts.onEnded();
+        } else {
+          if (!opts.keepSequence) noteUi.voiceSeq = null;
+          if (opts.onStatus) opts.onStatus("");
+        }
       };
       a.onerror = function () {
-        stopVoicePlayback();
+        // WHY: 시퀀스 중이면 클립만 끊고 onEnded 로 다음 — 한 클립 실패로 전체 중단하지 않음
+        stopVoicePlayback({ keepSequence: !!opts.keepSequence });
         if (opts.onStatus) opts.onStatus("재생 실패");
+        if (opts.keepSequence && opts.onEnded) {
+          opts.onEnded();
+        }
       };
       await a.play();
       if (opts.onStatus) opts.onStatus("재생 중…");
       return true;
     } catch (_) {
-      stopVoicePlayback();
+      stopVoicePlayback({ keepSequence: !!opts.keepSequence });
       if (opts.onStatus) opts.onStatus("재생 실패");
       return false;
     }
@@ -2875,11 +2905,11 @@
       translatePrefs.enabled &&
       digest &&
       (String(digest.ko || "").trim() || String(digest.en || "").trim());
-    // WHY: design/51 — 조각 카드 대신 이어 보기; 콕 수정·이어 재생은 후속
+    // WHY: design/51+52 — 이어 보기 + ▶ 이어 듣기; 콕 수정은 후속
     if (el.sectionReviewHint) {
       el.sectionReviewHint.textContent = hasDigest
-        ? "위쪽은 이 구간 번역 정리본입니다. 아래는 기록을 이어서 본 것입니다. ▶ 목소리는 듣기만 합니다 (문장 위치는 그대로)."
-        : "아래는 이 구간 기록을 이어서 본 것입니다. ▶ 목소리는 듣기만 합니다 (문장 위치는 그대로).";
+        ? "위쪽은 이 구간 번역 정리본입니다. 아래는 기록을 이어서 본 것입니다. ▶ 이어 듣기로 목소리를 순서대로 재생합니다 (문장 위치는 그대로)."
+        : "아래는 이 구간 기록을 이어서 본 것입니다. ▶ 이어 듣기로 목소리를 순서대로 재생합니다 (문장 위치는 그대로).";
     }
     var ids = AsrNotes.sentenceIdsInSection(state.sentences, section);
     var pk = currentPaperKey();
@@ -2947,7 +2977,7 @@
     flowLi.appendChild(flow);
     el.sectionReviewList.appendChild(flowLi);
 
-    // WHY: 목소리 재생은 인덱스 불변 — flow와 분리된 하단 바 (design/17 · 0.2.8)
+    // WHY: design/52 — 구간 목소리를 한 줄로 이어 재생 (문장 ▶ 나열 대신)
     if (voiceEntries.length) {
       var barLi = document.createElement("li");
       barLi.className = "section-review-voice-bar";
@@ -2955,26 +2985,19 @@
       barLabel.className = "section-review-voice-bar-label";
       barLabel.textContent = "목소리";
       barLi.appendChild(barLabel);
-      voiceEntries.forEach(function (entry, vi) {
-        var playBtn = document.createElement("button");
-        playBtn.type = "button";
-        playBtn.className = "section-review-voice-btn";
-        playBtn.dataset.sentenceId = entry.sid;
-        playBtn.dataset.blobKey = entry.voice.blobKey;
-        playBtn.title =
-          "최신 목소리 듣기 #" + (vi + 1) + " (rev " + entry.voice.rev + ")";
-        playBtn.setAttribute(
-          "aria-label",
-          "최신 목소리 듣기 " + (vi + 1)
-        );
-        playBtn.textContent = "▶ " + (vi + 1);
-        playBtn.addEventListener("click", function (ev) {
-          ev.preventDefault();
-          ev.stopPropagation();
-          onSectionReviewPlayVoice(entry.sid, entry.voice.blobKey, playBtn);
-        });
-        barLi.appendChild(playBtn);
+      var seqBtn = document.createElement("button");
+      seqBtn.type = "button";
+      seqBtn.className = "section-review-voice-btn section-review-voice-seq";
+      seqBtn.title =
+        "이 구간 목소리를 순서대로 이어 듣기 (" + voiceEntries.length + "개)";
+      seqBtn.setAttribute("aria-label", "구간 목소리 이어 듣기");
+      seqBtn.textContent = "▶ 이어 듣기";
+      seqBtn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        onSectionReviewPlayVoiceSequence(voiceEntries, seqBtn);
       });
+      barLi.appendChild(seqBtn);
       el.sectionReviewList.appendChild(barLi);
     }
 
@@ -2986,14 +3009,90 @@
   }
 
   /**
-   * 분기 리뷰에서 최신 목소리만 재생/중지 — sentence_index 불변.
-   * @param {string} sentenceId
-   * @param {string} blobKey
+   * design/52 — 구간 최신 목소리를 등장 순으로 이어 재생/중지.
+   * sentence_index 불변. 없는 blob 은 건너뜀.
+   * @param {{ sid: string, voice: { blobKey: string, rev?: number } }[]} entries
    * @param {HTMLButtonElement} playBtn
    */
+  async function onSectionReviewPlayVoiceSequence(entries, playBtn) {
+    var queue = [];
+    (entries || []).forEach(function (e) {
+      var k = e && e.voice && e.voice.blobKey;
+      if (k) queue.push(String(k));
+    });
+    if (!queue.length) return;
+
+    // 이어 재생 중이면 토글로 중지
+    if (noteUi.voiceSeq && noteUi.voiceAudio && !noteUi.voiceAudio.paused) {
+      stopVoicePlayback();
+      if (playBtn) {
+        playBtn.disabled = false;
+        playBtn.textContent = "▶ 이어 듣기";
+      }
+      return;
+    }
+    if (noteUi.voiceSeq && !noteUi.voiceAudio) {
+      // 전환 중 재클릭 → 취소
+      stopVoicePlayback();
+      if (playBtn) {
+        playBtn.disabled = false;
+        playBtn.textContent = "▶ 이어 듣기";
+      }
+      return;
+    }
+
+    noteUi.voiceSeqGen += 1;
+    var gen = noteUi.voiceSeqGen;
+    noteUi.voiceSeq = { queue: queue, i: 0, gen: gen, btn: playBtn || null };
+
+    function labelFor(i) {
+      return "■ 중지 (" + (i + 1) + "/" + queue.length + ")";
+    }
+
+    async function playAt(i) {
+      if (!noteUi.voiceSeq || noteUi.voiceSeq.gen !== gen) return;
+      if (i >= queue.length) {
+        stopVoicePlayback();
+        if (playBtn) {
+          playBtn.disabled = false;
+          playBtn.textContent = "▶ 이어 듣기";
+        }
+        return;
+      }
+      noteUi.voiceSeq.i = i;
+      if (playBtn) {
+        playBtn.disabled = false;
+        playBtn.textContent = labelFor(i);
+      }
+      function advance() {
+        // WHY: onerror+!ok 또는 onEnded 중복 호출 시 한 칸만 전진
+        if (!noteUi.voiceSeq || noteUi.voiceSeq.gen !== gen) return;
+        if (noteUi.voiceSeq.i !== i) return;
+        playAt(i + 1);
+      }
+      // WHY: onMissing 과 !ok 둘 다에서 playAt 하면 한 칸을 두 번 건너뜀 — 실패는 !ok/advance 한곳
+      var ok = await playVoiceBlobKey(queue[i], {
+        keepSequence: true,
+        onEnded: advance,
+        onStatus: function (msg) {
+          if (!playBtn) return;
+          if (msg === "재생 실패") playBtn.textContent = "실패";
+        },
+      });
+      // edge: IDB/GCS miss · 빈 blob · 재생 예외 → 다음 클립 (시퀀스 유지 시)
+      if (!ok) advance();
+    }
+
+    if (playBtn) {
+      playBtn.disabled = true;
+      playBtn.textContent = "…";
+    }
+    await playAt(0);
+  }
+
+  /** @deprecated design/52 — 단일 클립 대신 이어 듣기 사용. 테스트·호환용 유지. */
   async function onSectionReviewPlayVoice(sentenceId, blobKey, playBtn) {
     if (!blobKey) return;
-    // 같은 키 재생 중이면 토글로 중지
     if (
       noteUi.voiceAudio &&
       noteUi.voicePlayingKey === blobKey &&
@@ -3007,7 +3106,6 @@
       playBtn.disabled = true;
       playBtn.textContent = "…";
     }
-    noteUi.voicePlayingKey = blobKey;
     var ok = await playVoiceBlobKey(blobKey, {
       onStatus: function (msg) {
         if (!playBtn) return;
