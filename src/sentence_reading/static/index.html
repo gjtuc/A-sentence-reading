@@ -11,10 +11,21 @@
   <header class="app-header">
     <p class="stage-badge" id="stageBadge"></p>
     <div class="upload-bar" id="uploadBar">
-      <!-- WHY: design/58 — 헤더에는 파일 열기 + ⋯ 만 (나머지는 overflow) -->
+      <!-- WHY: design/58·59 — 파일 열기 · Guide(기본 밖) · ⋯ (나머지는 overflow) -->
       <button type="button" class="upload-btn" id="uploadBtn" title="PDF 또는 Word(.docx) 열기 (여러 개 가능)">
         파일 열기
       </button>
+      <!-- Guide 버튼 자리(밖). nestInMore 시 JS가 버튼을 메뉴로 옮김 (design/59) -->
+      <span class="guide-outside-slot" id="guideOutsideSlot">
+        <button
+          type="button"
+          class="upload-btn upload-btn-ghost"
+          id="guideBtn"
+          title="사용 안내 · 단축키"
+        >
+          Guide
+        </button>
+      </span>
       <div class="header-more" id="headerMore">
         <button
           type="button"
@@ -395,6 +406,34 @@
       <pre class="usage-body" id="usageDialogBody" style="white-space:pre-wrap;font-size:0.85rem;max-height:50vh;overflow:auto;margin:0.5rem 0;"></pre>
       <div class="tts-dialog-actions">
         <button type="button" class="upload-btn upload-btn-ghost" id="usageDialogClose">닫기</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- WHY: design/59 — Guide 안내 · 헤더 밖/`⋯` 안 배치 설정 -->
+  <dialog class="tts-dialog guide-dialog" id="guideDialog" aria-labelledby="guideDialogTitle">
+    <div class="tts-dialog-form">
+      <h2 class="tts-dialog-title" id="guideDialogTitle">Guide · 사용 안내</h2>
+      <div class="guide-body" id="guideBody">
+        <p class="guide-lead">문장과 그림 인덱스는 서로 묶이지 않습니다. 문장만 ←/→, 그림만 Shift+←/→.</p>
+        <ul class="guide-list">
+          <li><kbd>←</kbd> / <kbd>→</kbd> — 이전·다음 문장</li>
+          <li><kbd>Shift</kbd>+<kbd>←</kbd> / <kbd>→</kbd> — 이전·다음 그림</li>
+          <li><kbd>Enter</kbd> — 듣고 적기 노트 (+ TTS)</li>
+          <li>문장 클릭 — TTS · Fig./각주 칩 — 그림·문헌</li>
+          <li><kbd>F</kbd> — 브라우저 전체화면 · <kbd>↑</kbd>/<kbd>↓</kbd> — 글/그림 몰입</li>
+          <li><kbd>Esc</kbd> — 노트·되새김·다이얼로그 닫기 (우선)</li>
+          <li>헤더「되새김」— 섹션 바뀔 때 구간 리뷰 on/off</li>
+          <li>헤더 `⋯` — 보관·말하기·번역·TTS·가림창·계정</li>
+        </ul>
+      </div>
+      <label class="guide-nest-label" for="guideNestCheck">
+        <input type="checkbox" id="guideNestCheck" />
+        Guide 버튼을 <span aria-hidden="true">⋯</span> 메뉴 안에 넣기
+      </label>
+      <p class="auth-dialog-hint">기본은 헤더에 Guide가 보입니다. 체크하면 파일 열기·⋯만 남고 Guide는 메뉴로 이동합니다.</p>
+      <div class="tts-dialog-actions">
+        <button type="button" class="upload-btn" id="guideDialogClose">닫기</button>
       </div>
     </div>
   </dialog>

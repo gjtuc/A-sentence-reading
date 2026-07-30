@@ -269,6 +269,63 @@ body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover .cite
   display: none !important;
 }
 
+/* design/59 — Guide 밖 슬롯 · 안내 다이얼로그 */
+.guide-outside-slot {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.guide-outside-slot:empty {
+  display: none;
+}
+
+.guide-dialog .guide-body {
+  margin: 0.35rem 0 0.75rem;
+  max-height: min(50vh, 22rem);
+  overflow: auto;
+}
+
+.guide-lead {
+  margin: 0 0 0.65rem;
+  font-size: 0.92rem;
+  color: var(--fg);
+  line-height: 1.45;
+}
+
+.guide-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  font-size: 0.88rem;
+  color: var(--fg-muted);
+  line-height: 1.55;
+}
+
+.guide-list kbd {
+  font-family: inherit;
+  font-size: 0.85em;
+  padding: 0.05em 0.35em;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.guide-nest-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 0.5rem 0 0.35rem;
+  font-size: 0.9rem;
+  color: var(--fg);
+  cursor: pointer;
+  line-height: 1.35;
+}
+
+.guide-nest-label input {
+  margin-top: 0.2rem;
+  flex: 0 0 auto;
+}
+
 .upload-btn {
   appearance: none;
   border: 1px solid var(--border);
