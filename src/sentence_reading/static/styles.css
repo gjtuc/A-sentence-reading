@@ -1780,6 +1780,13 @@ body.is-figure-chrome-out .figure-frame figcaption {
   outline-offset: 1px;
 }
 
+/* design/56 — 키보드 ←/→ 포커스 표시 */
+.section-review-flow-seg.is-flow-focus {
+  border-color: var(--accent, var(--border));
+  outline: 2px solid var(--fg-muted);
+  outline-offset: 1px;
+}
+
 .section-review-flow-seg.is-editing {
   cursor: default;
   border-color: var(--accent, var(--border));

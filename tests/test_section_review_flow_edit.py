@@ -19,7 +19,7 @@ DESIGN = ROOT / "docs" / "design" / "55-section-review-flow-edit.md"
 
 def test_status_flow_edit() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.63"
+    assert st["version"] == "0.2.64"
     assert st["section_review_flow_edit"] is True
     assert st["section_review_flow"] is True
     assert "live_enable" not in st
@@ -41,7 +41,8 @@ def test_flow_edit_wiring() -> None:
     assert ".section-review-flow-seg" in css
     assert ".section-review-flow-edit" in css
     html = INDEX.read_text(encoding="utf-8")
-    assert "한 구간을 클릭하면" in html
+    assert "Enter" in html or "수정" in html
+    assert "이어" in html
 
 
 def test_edge_guards_and_append_only() -> None:
@@ -65,5 +66,5 @@ def test_design_and_assets() -> None:
     assert "0.2.63" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.63" in served
-    assert "styles.css?v=0.2.63" in served
+    assert "app.js?v=0.2.64" in served
+    assert "styles.css?v=0.2.64" in served
