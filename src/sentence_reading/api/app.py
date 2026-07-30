@@ -50,6 +50,7 @@ from sentence_reading.llm.auth_google import (
     cookie_secure,
     email_auth_enabled,
     issue_oauth_state,
+    mobile_kakao_deep_link,
     issue_session_token,
     parse_oauth_state,
     parse_session_token,
@@ -118,7 +119,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.72",
+    version="0.2.73",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -214,7 +215,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.72",
+        "version": "0.2.73",
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -239,6 +240,7 @@ def status(request: Request) -> dict:
         "mobile_library": True,
         "mobile_reader": True,
         "mobile_tts": True,
+        "mobile_oauth": True,
         "translate_en_ko": gemini_available(),
         "translate_pipeline": True,
         "translate_side_by_side": True,
@@ -361,7 +363,9 @@ async def auth_google_login(request: Request, payload: dict = Body(...)) -> JSON
 
 
 @app.get("/api/auth/kakao/start")
-def auth_kakao_start(request: Request, mode: str = "login") -> Response:
+def auth_kakao_start(
+    request: Request, mode: str = "login", mobile: str = "0"
+) -> Response:
     if not kakao_enabled():
         return JSONResponse(
             status_code=503,
@@ -387,7 +391,8 @@ def auth_kakao_start(request: Request, mode: str = "login") -> Response:
                 },
             )
         link_uid = cur.uid
-    state = issue_oauth_state(m, link_uid=link_uid)
+    want_mobile = str(mobile or "0").strip().lower() in ("1", "true", "yes", "on")
+    state = issue_oauth_state(m, link_uid=link_uid, mobile=want_mobile)
     url = kakao_authorize_url(
         redirect_uri=_kakao_redirect_uri(request), state=state
     )
@@ -400,15 +405,29 @@ def auth_kakao_start(request: Request, mode: str = "login") -> Response:
 def auth_kakao_callback(
     request: Request, code: str = "", state: str = "", error: str = ""
 ) -> Response:
+    """Kakao redirect. Web → `/?auth=…`; Flutter mobile state → custom-scheme deep link."""
     from fastapi.responses import RedirectResponse
 
-    if error:
+    parsed = parse_oauth_state(state) if state else None
+    is_mobile = bool(parsed and parsed.get("mobile") == "1")
+
+    def _web_err(code_s: str) -> Response:
         return RedirectResponse(
-            "/?auth_error=kakao_" + urllib.parse.quote(error), status_code=302
+            "/?auth_error=" + urllib.parse.quote(code_s[:80]), status_code=302
         )
-    parsed = parse_oauth_state(state)
+
+    def _mobile_err(code_s: str) -> Response:
+        return RedirectResponse(
+            mobile_kakao_deep_link(error=code_s), status_code=302
+        )
+
+    def _err(code_s: str) -> Response:
+        return _mobile_err(code_s) if is_mobile else _web_err(code_s)
+
+    if error:
+        return _err("kakao_" + error)
     if not parsed:
-        return RedirectResponse("/?auth_error=bad_state", status_code=302)
+        return _err("bad_state")
     try:
         profile = kakao_exchange_code(
             code, redirect_uri=_kakao_redirect_uri(request)
@@ -417,7 +436,7 @@ def auth_kakao_callback(
         if parsed["mode"] == "link":
             uid = parsed.get("link_uid") or ""
             if not uid:
-                return RedirectResponse("/?auth_error=link_uid", status_code=302)
+                return _err("link_uid")
             user = link_provider(
                 uid,
                 "kakao",
@@ -439,14 +458,20 @@ def auth_kakao_callback(
     except ValueError as exc:
         err = str(exc)
         if err == "conflict":
-            return RedirectResponse("/?auth_error=conflict", status_code=302)
-        return RedirectResponse(
-            "/?auth_error=" + urllib.parse.quote(err[:80]), status_code=302
+            return _err("conflict")
+        return _err(err[:80])
+
+    token = issue_session_token(user)
+    if is_mobile:
+        # WHY: Custom-tab cookie is not visible to Flutter; pass signed session in query.
+        resp = RedirectResponse(
+            mobile_kakao_deep_link(session=token, auth=msg), status_code=302
         )
-    resp = RedirectResponse("/?auth=" + msg, status_code=302)
+    else:
+        resp = RedirectResponse("/?auth=" + msg, status_code=302)
     resp.set_cookie(
         key=COOKIE_NAME,
-        value=issue_session_token(user),
+        value=token,
         httponly=True,
         samesite="lax",
         secure=cookie_secure(),

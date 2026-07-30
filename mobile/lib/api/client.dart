@@ -1,6 +1,6 @@
 /// Thin HTTP client for the existing Cloud Run FastAPI surface.
 ///
-/// Auth · library · reader · TTS (0.2.72 · design/61-64).
+/// Auth (email·Google·Kakao) · library · reader · TTS (0.2.73 · design/61-65).
 ///
 /// WHY separate from UI: screens must not know cookie jars / timeouts;
 /// cookie persistence stays in this layer (design/33).
@@ -17,6 +17,7 @@ import 'paper_models.dart';
 import 'reading_models.dart';
 import 'session_store.dart';
 import 'tts_models.dart';
+import 'oauth_models.dart';
 
 /// Parsed `/api/status` JSON (subset used by the mobile shell).
 class AsrStatus {
@@ -30,6 +31,7 @@ class AsrStatus {
     this.mobileLibrary = false,
     this.mobileReader = false,
     this.mobileTts = false,
+    this.mobileOauth = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -45,6 +47,7 @@ class AsrStatus {
       mobileLibrary: json['mobile_library'] == true,
       mobileReader: json['mobile_reader'] == true,
       mobileTts: json['mobile_tts'] == true,
+      mobileOauth: json['mobile_oauth'] == true,
     );
   }
 
@@ -57,6 +60,7 @@ class AsrStatus {
   final bool mobileLibrary;
   final bool mobileReader;
   final bool mobileTts;
+  final bool mobileOauth;
 }
 
 class AsrClient {
@@ -144,6 +148,58 @@ class AsrClient {
     await _captureSession(res);
     final map = _decodeObject(res, 'auth/status');
     return AsrAuthStatus.fromJson(map);
+  }
+
+
+  /// POST /api/auth/google — real id_token verification on server (design/23·65).
+  Future<AsrUser> loginGoogle({required String credential, String mode = 'login'}) async {
+    if (!isUsableGoogleCredential(credential)) {
+      throw AsrApiException('invalid_token', 401);
+    }
+    final res = await _http
+        .post(
+          _uri('/api/auth/google'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({
+            'credential': credential.trim(),
+            'mode': mode.trim().isEmpty ? 'login' : mode.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
+    await _captureSession(res);
+    final map = _decodeObject(res, 'auth/google');
+    final userRaw = map['user'];
+    final user = AsrUser.fromJson(
+      userRaw is Map ? Map<String, dynamic>.from(userRaw) : null,
+    );
+    if (user.isEmpty) {
+      throw AsrApiException('google login returned empty user', res.statusCode);
+    }
+    return user;
+  }
+
+  /// Persist a session token from Kakao mobile deep link (no Set-Cookie path).
+  Future<AsrUser> applySessionToken(String token) async {
+    final t = token.trim();
+    if (t.isEmpty || t.toLowerCase() == 'deleted') {
+      throw AsrApiException('missing_session', 401);
+    }
+    await _sessions.writeToken(t);
+    final st = await fetchAuthStatus();
+    final u = st.user;
+    if (u == null || u.isEmpty) {
+      await _sessions.clear();
+      throw AsrApiException('session not accepted', 401);
+    }
+    return u;
+  }
+
+  /// Absolute URL for Kakao Custom-Tab start (mobile=1).
+  String kakaoStartUrl({String mode = 'login'}) {
+    final m = mode.trim().isEmpty ? 'login' : mode.trim();
+    return _uri('/api/auth/kakao/start').replace(
+      queryParameters: {'mode': m, 'mobile': '1'},
+    ).toString();
   }
 
   /// POST /api/auth/email/login — sets `asr_session` cookie on success.

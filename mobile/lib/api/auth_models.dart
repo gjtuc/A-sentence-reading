@@ -60,6 +60,7 @@ class AsrAuthStatus {
     required this.authEnabled,
     required this.providers,
     this.user,
+    this.clientId,
   });
 
   factory AsrAuthStatus.fromJson(Map<String, dynamic> json) {
@@ -83,11 +84,13 @@ class AsrAuthStatus {
       final parsed = AsrUser.fromJson(Map<String, dynamic>.from(u));
       if (!parsed.isEmpty) user = parsed;
     }
+    final cid = '${json['client_id'] ?? ''}'.trim();
     return AsrAuthStatus(
       ok: json['ok'] == true,
       authEnabled: json['auth_enabled'] == true,
       providers: Map<String, bool>.unmodifiable(map),
       user: user,
+      clientId: cid.isEmpty ? null : cid,
     );
   }
 
@@ -95,6 +98,10 @@ class AsrAuthStatus {
   final bool authEnabled;
   final Map<String, bool> providers;
   final AsrUser? user;
+  /// Google Web client id from server (public; not a secret).
+  final String? clientId;
 
   bool get emailEnabled => providers['email'] == true;
+  bool get googleEnabled => providers['google'] == true;
+  bool get kakaoEnabled => providers['kakao'] == true;
 }
