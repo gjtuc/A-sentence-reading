@@ -5,41 +5,63 @@ import 'package:sentence_reading/api/client.dart';
 import 'package:sentence_reading/api/session_store.dart';
 import 'package:sentence_reading/app.dart';
 import 'package:sentence_reading/state/auth_controller.dart';
+import 'package:sentence_reading/state/library_controller.dart';
 
 void main() {
-  testWidgets('home shell shows brand and email login form', (tester) async {
+  testWidgets('library prompts login then lists papers when authenticated',
+      (tester) async {
+    var loggedIn = false;
     final mock = MockClient((request) async {
-      if (request.url.path.endsWith('/api/auth/status')) {
+      final path = request.url.path;
+      if (path.endsWith('/api/auth/status')) {
+        if (loggedIn) {
+          return http.Response(
+            '{"ok":true,"auth_enabled":true,"providers":{"email":true},"user":{"uid":"u1","email":"a@b.c","providers":["email"]}}',
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
         return http.Response(
-          '{"ok":true,"auth_enabled":true,"providers":{"email":true,"google":false,"kakao":false},"user":null}',
+          '{"ok":true,"auth_enabled":true,"providers":{"email":true},"user":null}',
           200,
           headers: {'content-type': 'application/json'},
         );
       }
-      if (request.url.path.endsWith('/api/status')) {
+      if (path.endsWith('/api/cache/papers')) {
         return http.Response(
-          '{"ok":true,"version":"0.2.69","pipeline":"rich-v7","mobile_flutter_scaffold":true,"mobile_android_platform":true,"mobile_email_auth":true}',
+          '{"ok":true,"papers":[{"id":"c1","title":"Sample Paper","source":"pdf","sentence_count":10,"figure_count":1,"updated_at":"2026-07-01"}]}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (path.endsWith('/api/status')) {
+        return http.Response(
+          '{"ok":true,"version":"0.2.70","pipeline":"rich-v7","mobile_library":true}',
           200,
           headers: {'content-type': 'application/json'},
         );
       }
       return http.Response('{}', 404);
     });
-    final client = AsrClient(
-      httpClient: mock,
-      sessionStore: MemorySessionStore(),
-    );
+    final store = MemorySessionStore();
+    final client = AsrClient(httpClient: mock, sessionStore: store);
     final auth = AuthController(client: client);
-    // Complete bootstrap before pumping UI so LoginScreen has no perpetual spinner.
+    final library = LibraryController(client: client);
     await auth.bootstrap();
-    expect(auth.bootstrapping, isFalse);
 
-    await tester.pumpWidget(SentenceReadingApp(auth: auth));
+    await tester.pumpWidget(SentenceReadingApp(auth: auth, library: library));
     await tester.pump();
-    expect(find.textContaining('문장 읽기'), findsWidgets);
+    await tester.tap(find.text('보관'));
+    await tester.pump();
+    expect(find.textContaining('먼저 로그인'), findsOneWidget);
 
-    await tester.tap(find.text('로그인'));
+    // Simulate login by writing session + re-bootstrap with user.
+    loggedIn = true;
+    await store.writeToken('tok');
+    await auth.bootstrap();
     await tester.pump();
-    expect(find.textContaining('이메일 로그인'), findsOneWidget);
+    await library.refresh();
+    await tester.pump();
+    expect(find.text('Sample Paper'), findsOneWidget);
   });
 }

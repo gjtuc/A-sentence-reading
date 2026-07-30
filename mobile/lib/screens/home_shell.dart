@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/auth_controller.dart';
+import '../state/library_controller.dart';
 import 'library_screen.dart';
 import 'login_screen.dart';
 import 'reader_screen.dart';
@@ -8,9 +9,10 @@ import 'status_screen.dart';
 
 /// Bottom-nav shell: Status · Login · Library · Reader.
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key, required this.auth});
+  const HomeShell({super.key, required this.auth, required this.library});
 
   final AuthController auth;
+  final LibraryController library;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -21,17 +23,23 @@ class _HomeShellState extends State<HomeShell> {
 
   static const _titles = ['서버', '로그인', '보관', '읽기'];
 
+  void _goReader() => setState(() => _index = 3);
+
   @override
   Widget build(BuildContext context) {
     final pages = <Widget>[
       const StatusScreen(),
       LoginScreen(auth: widget.auth),
-      const LibraryScreen(),
-      const ReaderScreen(),
+      LibraryScreen(
+        auth: widget.auth,
+        library: widget.library,
+        onOpened: _goReader,
+      ),
+      ReaderScreen(library: widget.library),
     ];
 
     return AnimatedBuilder(
-      animation: widget.auth,
+      animation: Listenable.merge([widget.auth, widget.library]),
       builder: (context, _) {
         final logged = widget.auth.isLoggedIn;
         final titleExtra = logged ? ' · ${widget.auth.user!.displayLabel}' : '';

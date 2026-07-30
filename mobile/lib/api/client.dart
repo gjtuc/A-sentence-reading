@@ -1,7 +1,7 @@
 /// Thin HTTP client for the existing Cloud Run FastAPI surface.
 ///
-/// Auth (0.2.69 · design/61): email register/login + session cookie capture.
-/// Library/reader/TTS calls land in later PRs.
+/// Auth (0.2.69 · design/61) + library list/open (0.2.70 · design/62).
+/// Reader/TTS calls land in later PRs.
 ///
 /// WHY separate from UI: screens must not know cookie jars / timeouts;
 /// cookie persistence stays in this layer (design/33).
@@ -13,6 +13,7 @@ import 'package:http/http.dart' as http;
 
 import '../config.dart';
 import 'auth_models.dart';
+import 'paper_models.dart';
 import 'session_store.dart';
 
 /// Parsed `/api/status` JSON (subset used by the mobile shell).
@@ -24,6 +25,7 @@ class AsrStatus {
     this.mobileFlutterScaffold = false,
     this.mobileAndroidPlatform = false,
     this.mobileEmailAuth = false,
+    this.mobileLibrary = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -36,6 +38,7 @@ class AsrStatus {
       mobileFlutterScaffold: json['mobile_flutter_scaffold'] == true,
       mobileAndroidPlatform: json['mobile_android_platform'] == true,
       mobileEmailAuth: json['mobile_email_auth'] == true,
+      mobileLibrary: json['mobile_library'] == true,
     );
   }
 
@@ -45,6 +48,7 @@ class AsrStatus {
   final bool mobileFlutterScaffold;
   final bool mobileAndroidPlatform;
   final bool mobileEmailAuth;
+  final bool mobileLibrary;
 }
 
 class AsrClient {
@@ -188,6 +192,50 @@ class AsrClient {
       throw AsrApiException('email/register returned empty user', res.statusCode);
     }
     return user;
+  }
+
+
+  /// GET /api/cache/papers — authenticated library listing.
+  ///
+  /// EDGE: non-list `papers` · null entries · missing id/title → skipped.
+  Future<List<PaperEntry>> listPapers() async {
+    final res = await _http
+        .get(_uri('/api/cache/papers'), headers: await _headers())
+        .timeout(const Duration(seconds: 30));
+    final map = _decodeObject(res, 'cache/papers');
+    final raw = map['papers'];
+    if (raw is! List) {
+      // EDGE: ok:true but papers missing/wrong type → empty library
+      return const [];
+    }
+    final out = <PaperEntry>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final e = PaperEntry.fromJson(Map<String, dynamic>.from(item));
+      if (e.isValid) out.add(e);
+    }
+    return out;
+  }
+
+  /// POST /api/cache/papers/{id}/open — start a reading session from cache.
+  Future<OpenedPaper> openPaper(String cacheId) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) {
+      throw AsrApiException('cache id is empty', 400);
+    }
+    final res = await _http
+        .post(
+          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/open'),
+          headers: await _headers(jsonBody: true),
+          body: '{}',
+        )
+        .timeout(const Duration(seconds: 120));
+    final map = _decodeObject(res, 'cache/open');
+    final opened = OpenedPaper.fromOpenJson(map);
+    if (!opened.isValid) {
+      throw AsrApiException('open returned empty session_id', res.statusCode);
+    }
+    return opened;
   }
 
   /// POST /api/auth/logout — clears server cookie + local token.

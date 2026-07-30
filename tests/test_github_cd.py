@@ -1,4 +1,4 @@
-"""GitHub CI/CD 계약 (0.2.69 · design/32)."""
+"""GitHub CI/CD 계약 (0.2.70 · design/32)."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def test_workflow_files_parse_and_gate() -> None:
     assert "ASR_KAKAO_CLIENT_SECRET" in deploy_text
     assert "ASR_CD_SKIP_API_ENABLE" in deploy_text
     design = DESIGN.read_text(encoding="utf-8")
-    assert "0.2.69" in design
+    assert "0.2.70" in design
     assert "env-vars-file" in design or "env-vars-file" in SCRIPT.read_text(encoding="utf-8")
     assert "--env-vars-file" in SCRIPT.read_text(encoding="utf-8")
 
@@ -162,7 +162,7 @@ def test_status_github_cd_flag() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.69"
+    assert st["version"] == "0.2.70"
     assert st.get("github_cd") is True
 
 
