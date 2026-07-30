@@ -92,6 +92,28 @@ def parse_cite_numbers(text: str) -> list[int]:
     return out
 
 
+def strip_cite_markers_for_display(html: str) -> str:
+    """
+    문장 박스 표시용 — 유효 각주 마커만 제거 (design/49).
+    칩 매칭은 원문 유지. JS `stripCiteMarkersForDisplay` 와 동기.
+    """
+    s = html or ""
+
+    def _sup(m: re.Match[str]) -> str:
+        n = int(m.group(1))
+        return "" if 1 <= n <= 999 else m.group(0)
+
+    s = _SUP_NUM.sub(_sup, s)
+
+    def _br(m: re.Match[str]) -> str:
+        return "" if _expand_num_token(m.group(1)) else m.group(0)
+
+    s = _BRACKET.sub(_br, s)
+    s = re.sub(r"\s+([.,;:!?)])", r"\1", s)
+    s = re.sub(r"\s{2,}", " ", s)
+    return s.strip()
+
+
 def extract_bibliography(full_text: str) -> list[dict[str, Any]]:
     """
     원문에서 References 블록 → [{n, text, doi}].

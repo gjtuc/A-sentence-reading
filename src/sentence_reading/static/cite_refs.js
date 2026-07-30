@@ -97,9 +97,31 @@
     return rows;
   }
 
+  /**
+   * WHY design/49: 한 문장씩 볼 때 본문 안 [n] 위치는 중요하지 않음.
+   * 칩·패널용 파싱은 원문을 쓰고, 표시만 각주 마커를 뺀다.
+   * 유효한 각주만 제거 — `[0]`·쓰레기 범위는 그대로 둔다.
+   */
+  function stripCiteMarkersForDisplay(html) {
+    var s = String(html || "");
+    s = s.replace(SUP_NUM, function (full, dig) {
+      var v = parseInt(dig, 10);
+      if (v >= 1 && v <= 999) return "";
+      return full;
+    });
+    s = s.replace(BRACKET, function (full, inner) {
+      return expandToken(inner).length ? "" : full;
+    });
+    // "word. " / "word ," 앞 공백 정리 · 연속 공백
+    s = s.replace(/\s+([.,;:!?)])/g, "$1");
+    s = s.replace(/\s{2,}/g, " ");
+    return s.replace(/^\s+|\s+$/g, "");
+  }
+
   global.AsrCiteRefs = {
     parseCiteNumbers: parseCiteNumbers,
     hintsForSentence: hintsForSentence,
     lookup: lookup,
+    stripCiteMarkersForDisplay: stripCiteMarkersForDisplay,
   };
 })(typeof window !== "undefined" ? window : globalThis);

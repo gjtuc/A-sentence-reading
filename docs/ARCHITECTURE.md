@@ -71,6 +71,7 @@ src/sentence_reading/
 | UI | 번역 on | EN\|KO 좌우 · **ingest KO만** (0.2.50 · design/42 · live 폴백 없음) |
 | ingest | 번역 | 섹션 `text_ko` · `caption_ko` · `translate_digests` (0.2.48 · design/40) · 캐시 히트 시 백필 (0.2.50) · 진행 세분 (0.2.51 · design/43) · progressive 열기 (0.2.53 · design/45) · 병렬 (0.2.54 · design/46) |
 | 클라이언트 | Android | `mobile/` + `android/` (0.2.55–0.2.56 · design/33·47·48) · Live Enable/IPS 없음 |
+| UI | 각주 | 칩·원문 열기 (0.2.49) · 박스 [n] 숨김 · FS hover (0.2.57 · design/49) |
 | UI | 각주 | `[n]` 칩 · References 패널 · 원문 열기 (0.2.49 · design/41) |
 | GET | `/api/session/mock` | mock figures + sentences |
 | POST | `/api/ingest` | 논문 분석 잡 (Gemini 있으면 섹션 번역 · References 추출) |
