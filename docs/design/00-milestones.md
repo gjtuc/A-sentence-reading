@@ -79,10 +79,11 @@
 - ~~되새김질 흰 십자~~ (0.2.65 — [57-section-review-crosshair.md](57-section-review-crosshair.md))
 - ~~헤더 파일 열기 + `⋯`~~ (0.2.66 — [58-header-overflow.md](58-header-overflow.md))
 - ~~Guide 헤더 배치~~ (0.2.67 — [59-guide-header.md](59-guide-header.md); 기본 밖 · `⋯` 안 옵션)
-- ~~패널 단축키 안내 줄 기본 숨김~~ (0.2.70 — [60-panel-hints.md](60-panel-hints.md); Guide에서 다시 켜기)
-- ~~Flutter 이메일 로그인·세션~~ (0.2.70 — [61-mobile-email-auth.md](61-mobile-email-auth.md); [33](33-mobile-flutter.md) 로그인 1수단)
-- ~~Flutter 보관 목록·open~~ (0.2.70 — [62-mobile-library.md](62-mobile-library.md); [33](33-mobile-flutter.md) 보관)
-- **Android Flutter MVP** — 읽기·TTS · Google/카카오 · 실기 APK ([33-mobile-flutter.md](33-mobile-flutter.md); 보관 이후)
+- ~~패널 단축키 안내 줄 기본 숨김~~ (0.2.71 — [60-panel-hints.md](60-panel-hints.md); Guide에서 다시 켜기)
+- ~~Flutter 이메일 로그인·세션~~ (0.2.71 — [61-mobile-email-auth.md](61-mobile-email-auth.md); [33](33-mobile-flutter.md) 로그인 1수단)
+- ~~Flutter 보관 목록·open~~ (0.2.71 — [62-mobile-library.md](62-mobile-library.md); [33](33-mobile-flutter.md) 보관)
+- ~~Flutter 읽기(문장·그림 독립)~~ (0.2.71 — [63-mobile-reader.md](63-mobile-reader.md); [33](33-mobile-flutter.md) 읽기)
+- **Android Flutter MVP** — TTS · Google/카카오 · 실기 APK ([33-mobile-flutter.md](33-mobile-flutter.md); 읽기 이후)
 
 ### 구현됨 (참고)
 

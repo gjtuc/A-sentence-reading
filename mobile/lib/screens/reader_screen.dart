@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../api/reading_models.dart';
 import '../state/library_controller.dart';
 
-/// Reader placeholder — shows opened session until full reader (design/33 next).
+/// Split reader: sentence panel + figure panel (design/63).
 ///
-/// Invariant reminder: sentence index is independent of figure index (PRODUCT).
+/// INVARIANT: sentence controls never call figure advance and vice versa.
 class ReaderScreen extends StatelessWidget {
   const ReaderScreen({super.key, required this.library});
 
@@ -15,49 +16,216 @@ class ReaderScreen extends StatelessWidget {
     return AnimatedBuilder(
       animation: library,
       builder: (context, _) {
-        final o = library.opened;
-        if (o == null || !o.isValid) {
+        final s = library.session;
+        if (s == null || !s.isValid) {
           return const Center(
             child: Padding(
               padding: EdgeInsets.all(24),
               child: Text(
-                '읽기\n\n'
-                '보관에서 논문을 열면 여기에 세션이 표시됩니다.\n'
-                '문장·그림 패널과 TTS는 다음 단계에서 붙입니다.\n'
-                'AI 채점·Live Enable·IPS는 이 앱 범위가 아닙니다.',
+                'No paper open. Open one from Library (sentence + figure). TTS next. Live Enable/IPS: ASR out.',
                 textAlign: TextAlign.center,
               ),
             ),
           );
         }
-        return ListView(
-          padding: const EdgeInsets.all(24),
+        return Column(
           children: [
-            Text('세션 열림', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 12),
-            Text(o.title.isEmpty ? '(제목 없음)' : o.title),
-            const SizedBox(height: 8),
-            Text(
-              'session: ${o.sessionId}',
-              style: Theme.of(context).textTheme.bodySmall,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: Text(
+                s.title.isEmpty ? '(no title)' : s.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
             ),
-            Text(
-              'cache: ${o.cacheId}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            Text('문장 ${o.sentenceCount} · 그림 ${o.figureCount}'),
-            if (o.warnings.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text('경고: ${o.warnings.join(', ')}'),
-            ],
-            const SizedBox(height: 24),
-            const Text(
-              '다음 검토: 문장 하나 · 그림 하나 · 인덱스 독립 이동.\n'
-              'Live Enable / IPS: Trading Gate · ASR 밖.',
+            Expanded(flex: 3, child: _SentencePanel(library: library, session: s)),
+            const Divider(height: 1),
+            Expanded(flex: 2, child: _FigurePanel(library: library, session: s)),
+            const Padding(
+              padding: EdgeInsets.only(bottom: 6),
+              child: Text(
+                'Live Enable / IPS: Trading Gate (ASR out)',
+                style: TextStyle(fontSize: 11),
+              ),
             ),
           ],
         );
       },
+    );
+  }
+}
+
+class _SentencePanel extends StatelessWidget {
+  const _SentencePanel({required this.library, required this.session});
+
+  final LibraryController library;
+  final ReadingSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final cur = session.currentSentence;
+    final label = session.sentenceCount == 0
+        ? 'no sentences'
+        : 'sentence ${session.sentenceIndex + 1} / ${session.sentenceCount}';
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'prev sentence',
+                onPressed: session.sentenceCount == 0
+                    ? null
+                    : () => library.advanceSentence(-1),
+                icon: const Icon(Icons.chevron_left),
+              ),
+              Expanded(child: Text(label, textAlign: TextAlign.center)),
+              IconButton(
+                tooltip: 'next sentence',
+                onPressed: session.sentenceCount == 0
+                    ? null
+                    : () => library.advanceSentence(1),
+                icon: const Icon(Icons.chevron_right),
+              ),
+            ],
+          ),
+          Expanded(
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: SingleChildScrollView(
+                  child: cur == null || !cur.hasText
+                      ? const Text('No sentence at this index.')
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              cur.text,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            if (cur.textKo.trim().isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                cur.textKo,
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ],
+                          ],
+                        ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FigurePanel extends StatelessWidget {
+  const _FigurePanel({required this.library, required this.session});
+
+  final LibraryController library;
+  final ReadingSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final cur = session.currentFigure;
+    final label = session.figureCount == 0
+        ? 'no figures'
+        : 'figure ${session.figureIndex + 1} / ${session.figureCount}';
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'prev figure',
+                onPressed: session.figureCount == 0
+                    ? null
+                    : () => library.advanceFigure(-1),
+                icon: const Icon(Icons.chevron_left),
+              ),
+              Expanded(child: Text(label, textAlign: TextAlign.center)),
+              IconButton(
+                tooltip: 'next figure',
+                onPressed: session.figureCount == 0
+                    ? null
+                    : () => library.advanceFigure(1),
+                icon: const Icon(Icons.chevron_right),
+              ),
+            ],
+          ),
+          Expanded(
+            child: Card(
+              clipBehavior: Clip.antiAlias,
+              child: cur == null
+                  ? const Center(child: Text('No figure.'))
+                  : Column(
+                      children: [
+                        Expanded(child: _FigureImage(src: cur.imageSrc)),
+                        if (cur.caption.trim().isNotEmpty ||
+                            cur.captionKo.trim().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Text(
+                              cur.captionKo.trim().isNotEmpty
+                                  ? cur.captionKo
+                                  : cur.caption,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                      ],
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FigureImage extends StatelessWidget {
+  const _FigureImage({required this.src});
+
+  final String src;
+
+  @override
+  Widget build(BuildContext context) {
+    if (src.isEmpty) {
+      return const Center(child: Text('No image'));
+    }
+    final decoded = decodeRasterDataUrl(src);
+    if (decoded != null) {
+      return InteractiveViewer(
+        child: Image.memory(decoded.bytes, fit: BoxFit.contain),
+      );
+    }
+    if (src.startsWith('http://') || src.startsWith('https://')) {
+      return InteractiveViewer(
+        child: Image.network(
+          src,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) =>
+              const Center(child: Text('Image load failed')),
+        ),
+      );
+    }
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(12),
+        child: Text(
+          'Preview not available for this image type (caption only).',
+          textAlign: TextAlign.center,
+        ),
+      ),
     );
   }
 }

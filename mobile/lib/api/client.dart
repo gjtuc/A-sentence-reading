@@ -1,6 +1,6 @@
 /// Thin HTTP client for the existing Cloud Run FastAPI surface.
 ///
-/// Auth (0.2.69 · design/61) + library list/open (0.2.70 · design/62).
+/// Auth (0.2.69 · design/61) + library list/open (0.2.71 · design/62).
 /// Reader/TTS calls land in later PRs.
 ///
 /// WHY separate from UI: screens must not know cookie jars / timeouts;
@@ -14,6 +14,7 @@ import 'package:http/http.dart' as http;
 import '../config.dart';
 import 'auth_models.dart';
 import 'paper_models.dart';
+import 'reading_models.dart';
 import 'session_store.dart';
 
 /// Parsed `/api/status` JSON (subset used by the mobile shell).
@@ -26,6 +27,7 @@ class AsrStatus {
     this.mobileAndroidPlatform = false,
     this.mobileEmailAuth = false,
     this.mobileLibrary = false,
+    this.mobileReader = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -39,6 +41,7 @@ class AsrStatus {
       mobileAndroidPlatform: json['mobile_android_platform'] == true,
       mobileEmailAuth: json['mobile_email_auth'] == true,
       mobileLibrary: json['mobile_library'] == true,
+      mobileReader: json['mobile_reader'] == true,
     );
   }
 
@@ -49,6 +52,7 @@ class AsrStatus {
   final bool mobileAndroidPlatform;
   final bool mobileEmailAuth;
   final bool mobileLibrary;
+  final bool mobileReader;
 }
 
 class AsrClient {
@@ -218,7 +222,7 @@ class AsrClient {
   }
 
   /// POST /api/cache/papers/{id}/open — start a reading session from cache.
-  Future<OpenedPaper> openPaper(String cacheId) async {
+  Future<ReadingSession> openPaper(String cacheId) async {
     final id = cacheId.trim();
     if (id.isEmpty) {
       throw AsrApiException('cache id is empty', 400);
@@ -231,11 +235,36 @@ class AsrClient {
         )
         .timeout(const Duration(seconds: 120));
     final map = _decodeObject(res, 'cache/open');
-    final opened = OpenedPaper.fromOpenJson(map);
+    final opened = ReadingSession.fromOpenJson(map);
     if (!opened.isValid) {
       throw AsrApiException('open returned empty session_id', res.statusCode);
     }
     return opened;
+  }
+
+  /// PATCH /api/session/{id}/cursor — best-effort sync (local UI stays source of truth on fail).
+  Future<void> patchCursor({
+    required String sessionId,
+    int? sentenceIndex,
+    int? figureIndex,
+  }) async {
+    final sid = sessionId.trim();
+    if (sid.isEmpty) {
+      throw AsrApiException('session id is empty', 400);
+    }
+    final body = <String, dynamic>{};
+    if (sentenceIndex != null) body['sentence_index'] = sentenceIndex;
+    if (figureIndex != null) body['figure_index'] = figureIndex;
+    // EDGE: nothing to patch
+    if (body.isEmpty) return;
+    final res = await _http
+        .patch(
+          _uri('/api/session/${Uri.encodeComponent(sid)}/cursor'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 20));
+    _decodeObject(res, 'session/cursor');
   }
 
   /// POST /api/auth/logout — clears server cookie + local token.

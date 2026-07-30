@@ -81,8 +81,13 @@ class _StatusScreenState extends State<StatusScreen> {
                       title: const Text('mobile_library'),
                       subtitle: Text('${s.mobileLibrary}'),
                     ),
+                    ListTile(
+                      title: const Text('mobile_reader'),
+                      subtitle: Text('${s.mobileReader}'),
+                    ),
                   ],
                 );
+
               },
             ),
           ),
