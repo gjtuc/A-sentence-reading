@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "52-section-review-voice-seq.md"
 
 def test_status_section_review_voice_seq() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.61"
+    assert st["version"] == "0.2.62"
     assert st["section_review_flow"] is True
     assert st["section_review_voice_seq"] is True
     # Live Enable / IPS = Trading Gate only (ASR 밖)
@@ -50,26 +50,28 @@ def test_sequence_wiring_and_invariants() -> None:
 def test_edge_empty_and_missing_handled() -> None:
     """말도 안 되는 입력 — 빈 entries / 빈 blobKey 는 조기 반환·필터."""
     src = APP_JS.read_text(encoding="utf-8")
-    assert "if (!queue.length) return" in src
+    assert "if (!list.length) return" in src
     assert "keepSequence: true" in src
     seq_start = src.find("async function onSectionReviewPlayVoiceSequence")
-    seq_end = src.find("\n  async function onSectionReviewPlayVoice", seq_start + 10)
+    seq_end = src.find("\n  async function onSectionReviewClipReplay", seq_start + 10)
     assert seq_start > 0 and seq_end > seq_start
     seq = src[seq_start:seq_end]
     assert "function advance()" in seq
     assert "if (!ok) advance()" in seq
     assert "noteUi.voiceSeq.i !== i" in seq
     assert "onMissing:" not in seq
+    assert "paused" in seq
 
 
 def test_css_html_design_52() -> None:
     css = CSS.read_text(encoding="utf-8")
     assert ".section-review-voice-seq" in css
     html = INDEX.read_text(encoding="utf-8")
-    assert "이어 듣기로 목소리를 순서대로" in html
+    assert "이어 듣기" in html
+    assert "일시 정지" in html
     design = DESIGN.read_text(encoding="utf-8")
     assert "0.2.60" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.61" in served
-    assert "styles.css?v=0.2.61" in served
+    assert "app.js?v=0.2.62" in served
+    assert "styles.css?v=0.2.62" in served

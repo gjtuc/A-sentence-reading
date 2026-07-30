@@ -1815,6 +1815,25 @@ body.is-figure-chrome-out .figure-frame figcaption {
   font-weight: 600;
 }
 
+/* design/54 — 일시 정지 후 이 문장만 다시 듣기/재녹음 */
+.section-review-clip-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.section-review-clip-actions[hidden] {
+  display: none !important;
+}
+
+.section-review-clip-status {
+  flex: 1 1 100%;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  min-height: 1em;
+}
+
 .section-review-item {
   display: block;
   width: 100%;

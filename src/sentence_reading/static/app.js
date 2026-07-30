@@ -231,9 +231,11 @@
     voiceAudio: null,
     voiceObjectUrl: null,
     voicePlayingKey: null,
-    /** @type {{ queue: string[], i: number, gen: number, btn: HTMLElement|null } | null} */
+    /** @type {{ queue: string[], entries: {sid:string,voice:object}[], i: number, gen: number, btn: HTMLElement|null, paused?: boolean, actionsEl?: HTMLElement|null, statusEl?: HTMLElement|null } | null} */
     voiceSeq: null,
     voiceSeqGen: 0,
+    /** 되새김질 안에서 재녹음 중인 문장 id (노트 boundSentenceId 와 별개) */
+    reviewRecordSid: null,
   };
 
   const TTS_STORAGE_KEY = "asr.tts.v2";
@@ -2598,7 +2600,39 @@
     noteUi.voicePlayingKey = null;
     // WHY: design/52 — 이어 재생 큐는 keepSequence 일 때만 유지 (클립 전환)
     if (!opts.keepSequence) {
+      hideSectionReviewClipActions();
       noteUi.voiceSeq = null;
+    }
+  }
+
+  /** design/54 — 일시 정지 시 보이는 클립 액션 숨김 */
+  function hideSectionReviewClipActions() {
+    var seq = noteUi.voiceSeq;
+    if (seq && seq.actionsEl) {
+      seq.actionsEl.hidden = true;
+    }
+    if (seq && seq.statusEl && !noteUi.reviewRecordSid) {
+      seq.statusEl.textContent = "";
+    }
+  }
+
+  /**
+   * design/54 — 현재 클립(i) 기준 다시 듣기·재녹음·끝내기 표시.
+   * sentence_index 불변.
+   */
+  function showSectionReviewClipActions() {
+    var seq = noteUi.voiceSeq;
+    if (!seq || !seq.actionsEl) return;
+    var i = seq.i | 0;
+    var entry = seq.entries && seq.entries[i];
+    if (!entry || !entry.sid) {
+      seq.actionsEl.hidden = true;
+      return;
+    }
+    seq.actionsEl.hidden = false;
+    if (seq.statusEl) {
+      seq.statusEl.textContent =
+        "문장 " + (i + 1) + "/" + seq.queue.length + " · 다시 듣거나 녹음";
     }
   }
 
@@ -2725,9 +2759,32 @@
     }
   }
 
-  async function toggleNoteVoiceRecord() {
-    if (!noteUi.boundSentenceId) return;
-    if (noteUi.recording) {
+  /**
+   * 문장 단위 목소리 녹음 (노트 오버레이 · 되새김질 클립 재녹음 공용).
+   * append-only · sentence_index 불변.
+   * @param {string} sentenceId
+   * @param {{ onStatus?: function(string), onSaved?: function({rev:number, blobKey:string, mime:string}), toggleStop?: boolean }} opts
+   */
+  async function recordVoiceForSentence(sentenceId, opts) {
+    opts = opts || {};
+    var sid = String(sentenceId || "").trim();
+    if (!sid) {
+      if (opts.onStatus) opts.onStatus("문장 없음");
+      return;
+    }
+    // 토글 중지: 같은 sid 녹음 중이면 stop
+    if (noteUi.recording && (opts.toggleStop !== false)) {
+      if (noteUi.reviewRecordSid === sid || noteUi.boundSentenceId === sid) {
+        try {
+          if (noteUi.mediaRecorder && noteUi.mediaRecorder.state !== "inactive") {
+            noteUi.mediaRecorder.stop();
+          }
+        } catch (_) {
+          /* ignore */
+        }
+        return;
+      }
+      // 다른 문장 녹음 중이면 먼저 끊고 진행
       try {
         if (noteUi.mediaRecorder && noteUi.mediaRecorder.state !== "inactive") {
           noteUi.mediaRecorder.stop();
@@ -2735,11 +2792,20 @@
       } catch (_) {
         /* ignore */
       }
-      return;
     }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setNoteVoiceStatus("이 브라우저는 녹음을 지원하지 않습니다.");
+      if (opts.onStatus) opts.onStatus("이 브라우저는 녹음을 지원하지 않습니다.");
+      else setNoteVoiceStatus("이 브라우저는 녹음을 지원하지 않습니다.");
       return;
+    }
+    // 재생 중이면 녹음 전에 멈춤 (시퀀스 포커스는 유지할 수 있게 pause 만)
+    if (noteUi.voiceAudio && !noteUi.voiceAudio.paused) {
+      try {
+        noteUi.voiceAudio.pause();
+      } catch (_) {
+        /* ignore */
+      }
+      if (noteUi.voiceSeq) noteUi.voiceSeq.paused = true;
     }
     try {
       var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -2748,13 +2814,18 @@
       var rec = new MediaRecorder(stream);
       noteUi.mediaRecorder = rec;
       noteUi.recording = true;
-      if (el.noteVoiceBtn) el.noteVoiceBtn.textContent = "녹음 중지";
-      setNoteVoiceStatus("녹음 중…");
+      noteUi.reviewRecordSid = sid;
+      if (el.noteVoiceBtn && noteUi.open && noteUi.boundSentenceId === sid) {
+        el.noteVoiceBtn.textContent = "녹음 중지";
+      }
+      if (opts.onStatus) opts.onStatus("녹음 중…");
+      else setNoteVoiceStatus("녹음 중…");
       rec.ondataavailable = function (ev) {
         if (ev.data && ev.data.size) chunks.push(ev.data);
       };
       rec.onstop = async function () {
         noteUi.recording = false;
+        noteUi.reviewRecordSid = null;
         if (el.noteVoiceBtn) el.noteVoiceBtn.textContent = "목소리 녹음";
         stream.getTracks().forEach(function (t) {
           try {
@@ -2767,11 +2838,11 @@
         noteUi.recordChunks = null;
         noteUi.mediaRecorder = null;
         if (!blob.size || !window.AsrVoiceIdb || !AsrNotes) {
-          setNoteVoiceStatus("녹음 실패");
+          if (opts.onStatus) opts.onStatus("녹음 실패");
+          else setNoteVoiceStatus("녹음 실패");
           return;
         }
         var pk = currentPaperKey();
-        var sid = noteUi.boundSentenceId;
         var blobKey = pk + "|" + sid + "|" + Date.now();
         try {
           await window.AsrVoiceIdb.putBlob(blobKey, blob);
@@ -2783,19 +2854,37 @@
             blob.type || "audio/webm"
           );
           writeNotesStore(result.store);
-          // WHY: 메타는 notes sync · 바이너리는 voice GCS (design/17)
           uploadVoiceBlobToCloud(blobKey, blob);
-          setNoteVoiceStatus("저장됨 · rev " + result.rev);
-          updateNoteVoiceButtons(pk, sid);
+          var msg = "저장됨 · rev " + result.rev;
+          if (opts.onStatus) opts.onStatus(msg);
+          else setNoteVoiceStatus(msg);
+          if (noteUi.open && noteUi.boundSentenceId === sid) {
+            updateNoteVoiceButtons(pk, sid);
+          }
+          if (opts.onSaved) {
+            opts.onSaved({
+              rev: result.rev,
+              blobKey: blobKey,
+              mime: blob.type || "audio/webm",
+            });
+          }
         } catch (err) {
-          setNoteVoiceStatus("저장 실패");
+          if (opts.onStatus) opts.onStatus("저장 실패");
+          else setNoteVoiceStatus("저장 실패");
         }
       };
       rec.start();
     } catch (err) {
       noteUi.recording = false;
-      setNoteVoiceStatus("마이크 권한이 필요합니다.");
+      noteUi.reviewRecordSid = null;
+      if (opts.onStatus) opts.onStatus("마이크 권한이 필요합니다.");
+      else setNoteVoiceStatus("마이크 권한이 필요합니다.");
     }
+  }
+
+  async function toggleNoteVoiceRecord() {
+    if (!noteUi.boundSentenceId) return;
+    await recordVoiceForSentence(noteUi.boundSentenceId, { toggleStop: true });
   }
 
   async function playLatestNoteVoice() {
@@ -2970,8 +3059,8 @@
     // WHY: design/51+52 — 이어 보기 + ▶ 이어 듣기; 콕 수정은 후속
     if (el.sectionReviewHint) {
       el.sectionReviewHint.textContent = hasDigest
-        ? "위쪽은 이 구간 번역 정리본입니다. 아래는 기록을 이어서 본 것입니다. ▶ 이어 듣기로 목소리를 순서대로 재생합니다 (문장 위치는 그대로)."
-        : "아래는 이 구간 기록을 이어서 본 것입니다. ▶ 이어 듣기로 목소리를 순서대로 재생합니다 (문장 위치는 그대로).";
+        ? "위쪽은 이 구간 번역 정리본입니다. 아래는 기록을 이어서 본 것입니다. ▶ 이어 듣기 중 일시 정지하면 그 문장만 다시 듣거나 녹음할 수 있습니다."
+        : "아래는 이 구간 기록을 이어서 본 것입니다. ▶ 이어 듣기 중 일시 정지하면 그 문장만 다시 듣거나 녹음할 수 있습니다.";
     }
     var ids = AsrNotes.sentenceIdsInSection(state.sentences, section);
     var pk = currentPaperKey();
@@ -3039,7 +3128,7 @@
     flowLi.appendChild(flow);
     el.sectionReviewList.appendChild(flowLi);
 
-    // WHY: design/52 — 구간 목소리를 한 줄로 이어 재생 (문장 ▶ 나열 대신)
+    // WHY: design/52+54 — 이어 듣기 · 일시 정지 시 이 문장만 다시 듣기/재녹음
     if (voiceEntries.length) {
       var barLi = document.createElement("li");
       barLi.className = "section-review-voice-bar";
@@ -3054,12 +3143,60 @@
         "이 구간 목소리를 순서대로 이어 듣기 (" + voiceEntries.length + "개)";
       seqBtn.setAttribute("aria-label", "구간 목소리 이어 듣기");
       seqBtn.textContent = "▶ 이어 듣기";
+      barLi.appendChild(seqBtn);
+      var actionsEl = document.createElement("span");
+      actionsEl.className = "section-review-clip-actions";
+      actionsEl.hidden = true;
+      var replayBtn = document.createElement("button");
+      replayBtn.type = "button";
+      replayBtn.className = "section-review-voice-btn section-review-clip-replay";
+      replayBtn.textContent = "이 문장만 듣기";
+      replayBtn.title = "일시 정지한 문장 목소리만 다시 듣기";
+      var rerecordBtn = document.createElement("button");
+      rerecordBtn.type = "button";
+      rerecordBtn.className =
+        "section-review-voice-btn section-review-clip-rerecord";
+      rerecordBtn.textContent = "이 문장만 녹음";
+      rerecordBtn.title = "일시 정지한 문장만 다시 녹음 (인덱스 불변)";
+      var endBtn = document.createElement("button");
+      endBtn.type = "button";
+      endBtn.className = "section-review-voice-btn section-review-clip-end";
+      endBtn.textContent = "끝내기";
+      endBtn.title = "이어 듣기 종료";
+      actionsEl.appendChild(replayBtn);
+      actionsEl.appendChild(rerecordBtn);
+      actionsEl.appendChild(endBtn);
+      barLi.appendChild(actionsEl);
+      var statusEl = document.createElement("span");
+      statusEl.className = "section-review-clip-status";
+      statusEl.setAttribute("aria-live", "polite");
+      barLi.appendChild(statusEl);
       seqBtn.addEventListener("click", function (ev) {
         ev.preventDefault();
         ev.stopPropagation();
-        onSectionReviewPlayVoiceSequence(voiceEntries, seqBtn);
+        onSectionReviewPlayVoiceSequence(voiceEntries, seqBtn, {
+          actionsEl: actionsEl,
+          statusEl: statusEl,
+          replayBtn: replayBtn,
+          rerecordBtn: rerecordBtn,
+          endBtn: endBtn,
+        });
       });
-      barLi.appendChild(seqBtn);
+      replayBtn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        onSectionReviewClipReplay();
+      });
+      rerecordBtn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        onSectionReviewClipRerecord(rerecordBtn);
+      });
+      endBtn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        onSectionReviewClipEnd(seqBtn);
+      });
       el.sectionReviewList.appendChild(barLi);
     }
 
@@ -3071,44 +3208,151 @@
   }
 
   /**
-   * design/52 — 구간 최신 목소리를 등장 순으로 이어 재생/중지.
+   * design/52+54 — 구간 최신 목소리를 등장 순으로 이어 재생.
+   * 재생 중 클릭 = 일시 정지 + 이 문장 액션. 정지 중 클릭 = 계속.
    * sentence_index 불변. 없는 blob 은 건너뜀.
    * @param {{ sid: string, voice: { blobKey: string, rev?: number } }[]} entries
    * @param {HTMLButtonElement} playBtn
+   * @param {{ actionsEl?: HTMLElement, statusEl?: HTMLElement, replayBtn?: HTMLElement, rerecordBtn?: HTMLElement, endBtn?: HTMLElement }} ui
    */
-  async function onSectionReviewPlayVoiceSequence(entries, playBtn) {
-    var queue = [];
+  async function onSectionReviewPlayVoiceSequence(entries, playBtn, ui) {
+    ui = ui || {};
+    var list = [];
     (entries || []).forEach(function (e) {
       var k = e && e.voice && e.voice.blobKey;
-      if (k) queue.push(String(k));
+      if (k && e.sid) list.push({ sid: String(e.sid), voice: e.voice });
     });
-    if (!queue.length) return;
+    if (!list.length) return;
+    var queue = list.map(function (e) {
+      return String(e.voice.blobKey);
+    });
 
-    // 이어 재생 중이면 토글로 중지
-    if (noteUi.voiceSeq && noteUi.voiceAudio && !noteUi.voiceAudio.paused) {
-      stopVoicePlayback();
+    // 재생 중 → 일시 정지 (design/54) · 클립 액션 표시
+    if (
+      noteUi.voiceSeq &&
+      noteUi.voiceAudio &&
+      !noteUi.voiceAudio.paused &&
+      !noteUi.voiceSeq.paused
+    ) {
+      try {
+        noteUi.voiceAudio.pause();
+      } catch (_) {
+        /* ignore */
+      }
+      noteUi.voiceSeq.paused = true;
+      noteUi.voiceSeq.clipFinished = false;
+      showSectionReviewClipActions();
       if (playBtn) {
         playBtn.disabled = false;
-        playBtn.textContent = "▶ 이어 듣기";
+        var pi = noteUi.voiceSeq.i | 0;
+        playBtn.textContent =
+          "▶ 계속 (" + (pi + 1) + "/" + noteUi.voiceSeq.queue.length + ")";
       }
       return;
     }
-    if (noteUi.voiceSeq && !noteUi.voiceAudio) {
-      // 전환 중 재클릭 → 취소
+
+    // 일시 정지 중 · 오디오 살아 있음 → 같은 위치에서 재개
+    if (
+      noteUi.voiceSeq &&
+      noteUi.voiceSeq.paused &&
+      noteUi.voiceAudio &&
+      noteUi.voicePlayingKey
+    ) {
+      noteUi.voiceSeq.paused = false;
+      noteUi.voiceSeq.clipFinished = false;
+      hideSectionReviewClipActions();
+      try {
+        await noteUi.voiceAudio.play();
+        if (playBtn) {
+          var ri = noteUi.voiceSeq.i | 0;
+          playBtn.textContent =
+            "⏸ 일시정지 (" + (ri + 1) + "/" + noteUi.voiceSeq.queue.length + ")";
+        }
+      } catch (_) {
+        if (playBtn) playBtn.textContent = "실패";
+      }
+      return;
+    }
+
+    // 일시 정지 중 · 오디오 없음 (클립만 듣기 끝·재녹음 후) → 현재/다음부터 시퀀스 재개
+    if (noteUi.voiceSeq && noteUi.voiceSeq.paused && noteUi.voiceSeq.gen) {
+      var seqResume = noteUi.voiceSeq;
+      var resumeGen = seqResume.gen;
+      var resumeBtn = playBtn || seqResume.btn;
+      var startAt = seqResume.i | 0;
+      if (seqResume.clipFinished) startAt = startAt + 1;
+      seqResume.paused = false;
+      seqResume.clipFinished = false;
+      hideSectionReviewClipActions();
+
+      async function resumePlayAt(i) {
+        if (!noteUi.voiceSeq || noteUi.voiceSeq.gen !== resumeGen) return;
+        if (i >= seqResume.queue.length) {
+          stopVoicePlayback();
+          if (resumeBtn) {
+            resumeBtn.disabled = false;
+            resumeBtn.textContent = "▶ 이어 듣기";
+          }
+          return;
+        }
+        noteUi.voiceSeq.i = i;
+        noteUi.voiceSeq.paused = false;
+        if (resumeBtn) {
+          resumeBtn.disabled = false;
+          resumeBtn.textContent =
+            "⏸ 일시정지 (" + (i + 1) + "/" + seqResume.queue.length + ")";
+        }
+        function advance() {
+          if (!noteUi.voiceSeq || noteUi.voiceSeq.gen !== resumeGen) return;
+          if (noteUi.voiceSeq.i !== i) return;
+          if (noteUi.voiceSeq.paused) return;
+          resumePlayAt(i + 1);
+        }
+        var key = seqResume.queue[i];
+        var ok = await playVoiceBlobKey(key, {
+          keepSequence: true,
+          onEnded: advance,
+          onStatus: function (msg) {
+            if (!resumeBtn) return;
+            if (msg === "재생 실패") resumeBtn.textContent = "실패";
+          },
+        });
+        if (!ok) advance();
+      }
+
+      if (resumeBtn) {
+        resumeBtn.disabled = true;
+        resumeBtn.textContent = "…";
+      }
+      await resumePlayAt(startAt);
+      return;
+    }
+
+    // 전환 중(오디오 없음)·잔여 시퀀스 → 취소 후 새로 시작
+    if (noteUi.voiceSeq && !noteUi.voiceAudio && !noteUi.voiceSeq.paused) {
       stopVoicePlayback();
       if (playBtn) {
         playBtn.disabled = false;
         playBtn.textContent = "▶ 이어 듣기";
       }
-      return;
     }
 
     noteUi.voiceSeqGen += 1;
     var gen = noteUi.voiceSeqGen;
-    noteUi.voiceSeq = { queue: queue, i: 0, gen: gen, btn: playBtn || null };
+    noteUi.voiceSeq = {
+      queue: queue,
+      entries: list,
+      i: 0,
+      gen: gen,
+      btn: playBtn || null,
+      paused: false,
+      clipFinished: false,
+      actionsEl: ui.actionsEl || null,
+      statusEl: ui.statusEl || null,
+    };
 
-    function labelFor(i) {
-      return "■ 중지 (" + (i + 1) + "/" + queue.length + ")";
+    function labelPause(i) {
+      return "⏸ 일시정지 (" + (i + 1) + "/" + queue.length + ")";
     }
 
     async function playAt(i) {
@@ -3122,17 +3366,18 @@
         return;
       }
       noteUi.voiceSeq.i = i;
+      noteUi.voiceSeq.paused = false;
+      hideSectionReviewClipActions();
       if (playBtn) {
         playBtn.disabled = false;
-        playBtn.textContent = labelFor(i);
+        playBtn.textContent = labelPause(i);
       }
       function advance() {
-        // WHY: onerror+!ok 또는 onEnded 중복 호출 시 한 칸만 전진
         if (!noteUi.voiceSeq || noteUi.voiceSeq.gen !== gen) return;
         if (noteUi.voiceSeq.i !== i) return;
+        if (noteUi.voiceSeq.paused) return;
         playAt(i + 1);
       }
-      // WHY: onMissing 과 !ok 둘 다에서 playAt 하면 한 칸을 두 번 건너뜀 — 실패는 !ok/advance 한곳
       var ok = await playVoiceBlobKey(queue[i], {
         keepSequence: true,
         onEnded: advance,
@@ -3141,7 +3386,6 @@
           if (msg === "재생 실패") playBtn.textContent = "실패";
         },
       });
-      // edge: IDB/GCS miss · 빈 blob · 재생 예외 → 다음 클립 (시퀀스 유지 시)
       if (!ok) advance();
     }
 
@@ -3150,6 +3394,120 @@
       playBtn.textContent = "…";
     }
     await playAt(0);
+  }
+
+  /** design/54 — 일시 정지된 현재 클립만 다시 재생 (시퀀스 유지·일시 정지 상태) */
+  async function onSectionReviewClipReplay() {
+    var seq = noteUi.voiceSeq;
+    if (!seq || !seq.entries) return;
+    var i = seq.i | 0;
+    var entry = seq.entries[i];
+    var key =
+      (entry && entry.voice && entry.voice.blobKey) ||
+      (seq.queue && seq.queue[i]) ||
+      "";
+    if (!key) {
+      if (seq.statusEl) seq.statusEl.textContent = "목소리 없음";
+      return;
+    }
+    seq.paused = true;
+    seq.clipFinished = false;
+    if (seq.btn) {
+      seq.btn.textContent =
+        "▶ 계속 (" + (i + 1) + "/" + seq.queue.length + ")";
+    }
+    await playVoiceBlobKey(String(key), {
+      keepSequence: true,
+      onEnded: function () {
+        // 클립만 끝 — 시퀀스는 일시 정지 유지 (자동 다음 안 함)
+        if (noteUi.voiceSeq && noteUi.voiceSeq.gen === seq.gen) {
+          noteUi.voiceSeq.paused = true;
+          noteUi.voiceSeq.clipFinished = true;
+          showSectionReviewClipActions();
+        }
+      },
+      onStatus: function (msg) {
+        if (seq.statusEl && msg === "재생 실패") {
+          seq.statusEl.textContent = "재생 실패";
+        }
+      },
+    });
+  }
+
+  /** design/54 — 현재 클립 문장만 재녹음 (인덱스 불변) */
+  async function onSectionReviewClipRerecord(rerecordBtn) {
+    var seq = noteUi.voiceSeq;
+    if (!seq || !seq.entries) return;
+    var i = seq.i | 0;
+    var entry = seq.entries[i];
+    if (!entry || !entry.sid) {
+      if (seq.statusEl) seq.statusEl.textContent = "문장 없음";
+      return;
+    }
+    // 녹음 중이면 토글로 중지
+    if (noteUi.recording && noteUi.reviewRecordSid === entry.sid) {
+      await recordVoiceForSentence(entry.sid, {
+        toggleStop: true,
+        onStatus: function (msg) {
+          if (seq.statusEl) seq.statusEl.textContent = msg;
+          if (rerecordBtn && msg === "녹음 중…") {
+            rerecordBtn.textContent = "녹음 중지";
+          } else if (rerecordBtn) {
+            rerecordBtn.textContent = "이 문장만 녹음";
+          }
+        },
+      });
+      return;
+    }
+    if (rerecordBtn) rerecordBtn.textContent = "녹음 중지";
+    await recordVoiceForSentence(entry.sid, {
+      toggleStop: true,
+      onStatus: function (msg) {
+        if (seq.statusEl) seq.statusEl.textContent = msg;
+        if (rerecordBtn) {
+          rerecordBtn.textContent =
+            msg === "녹음 중…" ? "녹음 중지" : "이 문장만 녹음";
+        }
+      },
+      onSaved: function (saved) {
+        // 큐·엔트리의 현재 클립을 최신 blob 으로 교체
+        if (!noteUi.voiceSeq || noteUi.voiceSeq.gen !== seq.gen) return;
+        var cur = noteUi.voiceSeq.entries[i];
+        if (cur) {
+          cur.voice = {
+            blobKey: saved.blobKey,
+            rev: saved.rev,
+            mime: saved.mime,
+          };
+        }
+        noteUi.voiceSeq.queue[i] = saved.blobKey;
+        noteUi.voiceSeq.paused = true;
+        noteUi.voiceSeq.clipFinished = false;
+        showSectionReviewClipActions();
+        if (noteUi.voiceSeq.statusEl) {
+          noteUi.voiceSeq.statusEl.textContent =
+            "저장됨 · 이 문장만 듣기로 확인 가능";
+        }
+      },
+    });
+  }
+
+  /** design/54 — 이어 듣기 완전 종료 */
+  function onSectionReviewClipEnd(playBtn) {
+    if (noteUi.recording) {
+      try {
+        if (noteUi.mediaRecorder && noteUi.mediaRecorder.state !== "inactive") {
+          noteUi.mediaRecorder.stop();
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    stopVoicePlayback();
+    if (playBtn) {
+      playBtn.disabled = false;
+      playBtn.textContent = "▶ 이어 듣기";
+    }
   }
 
   /** @deprecated design/52 — 단일 클립 대신 이어 듣기 사용. 테스트·호환용 유지. */
@@ -3189,6 +3547,16 @@
   function closeSectionReview(opts) {
     opts = opts || {};
     if (!el.sectionReviewOverlay) return;
+    // WHY: design/54 — 시트 닫을 때 재녹음도 정리
+    if (noteUi.recording && noteUi.reviewRecordSid) {
+      try {
+        if (noteUi.mediaRecorder && noteUi.mediaRecorder.state !== "inactive") {
+          noteUi.mediaRecorder.stop();
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    }
     stopVoicePlayback();
     noteUi.reviewOpen = false;
     noteUi.reviewSection = null;
