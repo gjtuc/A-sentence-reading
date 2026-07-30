@@ -13,9 +13,11 @@
 
 | 포함 | 미포함 (후속) |
 |------|----------------|
-| Guide 버튼 · 안내 `<dialog>` | 화면 단축키 hint 줄 삭제·축소 |
-| `asr.guide.v1` · UID별 키 | 안내 문구 대폭 확장 |
+| Guide 버튼 · 안내 `<dialog>` | 안내 문구 대폭 확장 |
+| `asr.guide.v1` · UID별 키 | |
 | DOM 이동 (`guideOutsideSlot` ↔ 메뉴) | Live Enable / IPS |
+
+화면 단축키 `.hint` 기본 숨김 → **0.2.68** ([60-panel-hints.md](60-panel-hints.md)).
 
 ## UX
 
@@ -37,7 +39,6 @@ EDGE: 손상 JSON · 비객체 → `nestInMore: false`
 
 - Live Enable / IPS — Trading Gate (ASR 밖)
 - 문장·그림 인덱스 변경
-- 화면 `.hint` 줄 제거 (다음 검토)
 
 ## 버전
 

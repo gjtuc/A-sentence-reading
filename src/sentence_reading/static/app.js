@@ -140,6 +140,9 @@
     guideDialog: document.getElementById("guideDialog"),
     guideDialogClose: document.getElementById("guideDialogClose"),
     guideNestCheck: document.getElementById("guideNestCheck"),
+    guideShowHintsCheck: document.getElementById("guideShowHintsCheck"),
+    sentenceHint: document.getElementById("sentenceHint"),
+    figureHint: document.getElementById("figureHint"),
     headerMoreBtn: document.getElementById("headerMoreBtn"),
     headerMoreMenu: document.getElementById("headerMoreMenu"),
     headerMore: document.getElementById("headerMore"),
@@ -261,8 +264,9 @@
   const translatePrefs = { enabled: false, mode: "pipeline" };
   /** @type {{ enabled: boolean }} */
   const sectionReviewPrefs = { enabled: true };
-  /** @type {{ nestInMore: boolean }} */
-  const guidePrefs = { nestInMore: false };
+  /** @type {{ nestInMore: boolean, showPanelHints: boolean }} */
+  // WHY: design/59·60 — Guide 자리 + 패널 단축키 줄(기본 숨김)
+  const guidePrefs = { nestInMore: false, showPanelHints: false };
   /** @type {AbortController | null} */
   let translateAbort = null;
   /** @type {string | null} */
@@ -3287,32 +3291,51 @@
   }
 
   function loadGuidePrefs() {
-    // EDGE: 손상 JSON · 비객체 · 알 수 없는 키 → nestInMore=false (헤더에 Guide)
+    // EDGE: 손상 JSON · 비객체 → nestInMore=false · showPanelHints=false
+    // WHY: design/60 — 예전 v1에 nestInMore만 있어도 showPanelHints는 기본 숨김
     try {
       const raw = localStorage.getItem(guideStorageKey());
       if (!raw) {
         guidePrefs.nestInMore = false;
+        guidePrefs.showPanelHints = false;
       } else {
         const data = JSON.parse(raw);
-        if (data && typeof data === "object" && "nestInMore" in data) {
-          guidePrefs.nestInMore = !!data.nestInMore;
+        if (data && typeof data === "object") {
+          if ("nestInMore" in data) {
+            guidePrefs.nestInMore = !!data.nestInMore;
+          } else {
+            guidePrefs.nestInMore = false;
+          }
+          if ("showPanelHints" in data) {
+            guidePrefs.showPanelHints = !!data.showPanelHints;
+          } else {
+            guidePrefs.showPanelHints = false;
+          }
         } else if (typeof data === "boolean") {
+          // 구형 boolean = nestInMore 만
           guidePrefs.nestInMore = data;
+          guidePrefs.showPanelHints = false;
         } else {
           guidePrefs.nestInMore = false;
+          guidePrefs.showPanelHints = false;
         }
       }
     } catch (_) {
       guidePrefs.nestInMore = false;
+      guidePrefs.showPanelHints = false;
     }
     applyGuidePlacement();
+    applyPanelHints();
   }
 
   function saveGuidePrefs() {
     try {
       localStorage.setItem(
         guideStorageKey(),
-        JSON.stringify({ nestInMore: !!guidePrefs.nestInMore })
+        JSON.stringify({
+          nestInMore: !!guidePrefs.nestInMore,
+          showPanelHints: !!guidePrefs.showPanelHints,
+        })
       );
     } catch (_) {
       /* ignore quota / private mode */
@@ -3344,6 +3367,20 @@
     }
   }
 
+  /**
+   * design/60 — 문장·그림 패널 `.panel-chrome-hint` 표시.
+   * 노트/되새김/veil hint 는 건드리지 않음 (읽기 크롬만).
+   * EDGE: 노드 없으면 no-op · hidden 속성으로 기본 숨김.
+   */
+  function applyPanelHints() {
+    var show = !!guidePrefs.showPanelHints;
+    if (el.sentenceHint) el.sentenceHint.hidden = !show;
+    if (el.figureHint) el.figureHint.hidden = !show;
+    if (el.guideShowHintsCheck) {
+      el.guideShowHintsCheck.checked = show;
+    }
+  }
+
   function isGuideOpen() {
     return !!(el.guideDialog && el.guideDialog.open);
   }
@@ -3357,6 +3394,9 @@
     if (el.libraryDialog && el.libraryDialog.open) el.libraryDialog.close();
     if (el.guideNestCheck) {
       el.guideNestCheck.checked = !!guidePrefs.nestInMore;
+    }
+    if (el.guideShowHintsCheck) {
+      el.guideShowHintsCheck.checked = !!guidePrefs.showPanelHints;
     }
     el.guideDialog.showModal();
   }
@@ -5625,6 +5665,14 @@
       guidePrefs.nestInMore = !!el.guideNestCheck.checked;
       saveGuidePrefs();
       applyGuidePlacement();
+    });
+  }
+  if (el.guideShowHintsCheck) {
+    el.guideShowHintsCheck.addEventListener("change", () => {
+      // WHY: design/60 — 화면 단축키 줄 on/off (인덱스·단축키 동작 불변)
+      guidePrefs.showPanelHints = !!el.guideShowHintsCheck.checked;
+      saveGuidePrefs();
+      applyPanelHints();
     });
   }
 

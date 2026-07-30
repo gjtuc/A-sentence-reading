@@ -1403,6 +1403,11 @@ body.is-figure-chrome-out .figure-frame figcaption {
   flex: 0 0 auto;
 }
 
+/* design/60 — 패널 크롬 단축키 줄 · 기본 숨김(Guide에서 켬) */
+.panel-chrome-hint[hidden] {
+  display: none !important;
+}
+
 .fig-ref-hints {
   display: flex;
   flex-wrap: wrap;
