@@ -60,6 +60,9 @@ from sentence_reading.llm.auth_google import (
 )
 from sentence_reading.llm.access_gate import (
     access_gate_enabled,
+    invite_ttl_seconds,
+    redeem_max_attempts,
+    redeem_window_seconds,
     decide_access,
     list_events,
     list_open_invite_meta,
@@ -130,7 +133,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.75",
+    version="0.2.76",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -269,7 +272,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.75",
+        "version": "0.2.76",
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -299,6 +302,9 @@ def status(request: Request) -> dict:
         "access_gate": True,
         "mobile_access_gate": True,
         "access_gate_enabled": access_gate_enabled(),
+        "access_invite_ttl_seconds": invite_ttl_seconds(),
+        "access_redeem_max": redeem_max_attempts(),
+        "access_redeem_window_sec": redeem_window_seconds(),
         "translate_en_ko": gemini_available(),
         "translate_pipeline": True,
         "translate_side_by_side": True,
@@ -877,6 +883,8 @@ async def access_invite(request: Request, payload: dict = Body(...)) -> JSONResp
             "bad_code": "초대 코드가 올바르지 않습니다.",
             "code_used": "이미 사용된 초대 코드입니다.",
             "code_revoked": "폐기된 초대 코드입니다.",
+            "code_expired": "만료된 초대 코드입니다. 관리자에게 새 코드를 요청하세요.",
+            "rate_limited": "시도가 너무 많습니다. 잠시 후 다시 시도하세요.",
             "auth_required": "로그인이 필요합니다.",
         }
         status = 400
@@ -884,8 +892,10 @@ async def access_invite(request: Request, payload: dict = Body(...)) -> JSONResp
             status = 403
         if code_e == "gate_disabled":
             status = 503
-        if code_e in ("code_used", "code_revoked"):
+        if code_e in ("code_used", "code_revoked", "code_expired"):
             status = 409
+        if code_e == "rate_limited":
+            status = 429
         return JSONResponse(
             status_code=status,
             content={
@@ -968,8 +978,10 @@ async def access_admin_mint(request: Request, payload: dict = Body(None)) -> JSO
             "ok": True,
             "code": minted["code"],
             "created_at": minted["created_at"],
+            "expires_at": minted.get("expires_at"),
+            "ttl_seconds": minted.get("ttl_seconds"),
             "single_use": True,
-            "message": "이 코드는 지금만 표시됩니다. 안전한 곳에 복사하세요.",
+            "message": "이 코드는 지금만 표시됩니다. 만료 전·1회만 사용하세요.",
         }
     )
 

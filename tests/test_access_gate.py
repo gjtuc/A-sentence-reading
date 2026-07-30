@@ -1,4 +1,4 @@
-"""Access gate OTP invite + admin allow/deny (0.2.75 · design/67)."""
+"""Access gate OTP invite + TTL/rate-limit (0.2.76 · design/67)."""
 
 from __future__ import annotations
 
@@ -20,6 +20,9 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setenv("ASR_ADMIN_EMAILS", "admin@example.com")
     monkeypatch.setenv("ASR_AUTH_SECRET", "access-gate-test-secret")
     monkeypatch.setenv("ASR_EMAIL_AUTH", "1")
+    monkeypatch.setenv("ASR_INVITE_TTL_HOURS", "48")
+    monkeypatch.setenv("ASR_INVITE_REDEEM_MAX", "20")
+    monkeypatch.setenv("ASR_INVITE_REDEEM_WINDOW_SEC", "900")
     root = tmp_path / "proj"
     root.mkdir()
     (root / "pyproject.toml").write_text("[project]\nname='t'\n", encoding="utf-8")
@@ -64,7 +67,7 @@ def _login_user(client: TestClient, email: str = "user@example.com") -> str:
 def test_status_access_gate_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.75"
+    assert st["version"] == "0.2.76"
     assert st["access_gate"] is True
     assert st["mobile_access_gate"] is True
     assert "live_enable" not in st
@@ -150,7 +153,7 @@ def test_gate_off_allows() -> None:
 def test_mobile_sources() -> None:
     mobile = Path(__file__).resolve().parents[1] / "mobile"
     pub = (mobile / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.2.75" in pub
+    assert "0.2.76" in pub
     client = (mobile / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "redeemInviteCode" in client and "mintInviteCode" in client
     settings = (mobile / "lib" / "screens" / "settings_screen.dart").read_text(
@@ -162,4 +165,63 @@ def test_mobile_sources() -> None:
         Path(__file__).resolve().parents[1] / "docs" / "design" / "67-access-gate.md"
     )
     assert design.is_file()
-    assert "0.2.75" in design.read_text(encoding="utf-8")
+    assert "0.2.76" in design.read_text(encoding="utf-8")
+
+
+def test_invite_expires(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EDGE: past expires_at → 409 code_expired; not redeemable."""
+    monkeypatch.setenv("ASR_INVITE_TTL_HOURS", "1")  # 1 hour
+    client = TestClient(app)
+    _login_admin(client)
+    minted = client.post("/api/access/admin/mint", json={}).json()
+    code = minted["code"]
+    assert minted.get("expires_at")
+    # rewind expires_at on disk
+    store = ag._read_invites()
+    for row in store["codes"]:
+        if row.get("status") == "open":
+            row["expires_at"] = int(row["created_at"]) - 10
+    ag._write_invites(store)
+    client.post("/api/auth/logout")
+    _login_user(client)
+    expired = client.post("/api/access/invite", json={"code": code})
+    assert expired.status_code == 409
+    assert expired.json()["error"] == "code_expired"
+
+
+def test_redeem_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EDGE: too many wrong guesses → 429 rate_limited."""
+    monkeypatch.setenv("ASR_INVITE_REDEEM_MAX", "3")
+    monkeypatch.setenv("ASR_INVITE_REDEEM_WINDOW_SEC", "900")
+    client = TestClient(app)
+    _login_user(client)
+    last = None
+    for i in range(3):
+        last = client.post("/api/access/invite", json={"code": f"AAAA-BBB{i}"})
+        assert last.status_code == 403, last.text
+    blocked = client.post("/api/access/invite", json={"code": "ZZZZ-YYYY"})
+    assert blocked.status_code == 429
+    assert blocked.json()["error"] == "rate_limited"
+
+
+def test_ttl_env_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ASR_INVITE_TTL_HOURS", "0")
+    assert ag.invite_ttl_seconds() == 0
+    monkeypatch.setenv("ASR_INVITE_TTL_HOURS", "-3")
+    assert ag.invite_ttl_seconds() == 48 * 3600
+    monkeypatch.setenv("ASR_INVITE_TTL_HOURS", "nope")
+    assert ag.invite_ttl_seconds() == 48 * 3600
+    monkeypatch.setenv("ASR_INVITE_REDEEM_MAX", "0")
+    assert ag.redeem_max_attempts() == 10
+    monkeypatch.setenv("ASR_INVITE_REDEEM_WINDOW_SEC", "abc")
+    assert ag.redeem_window_seconds() == 900
+
+
+def test_status_exposes_ttl_flags() -> None:
+    with TestClient(app) as client:
+        st = client.get("/api/status").json()
+    assert st["version"] == "0.2.76"
+    assert st["access_invite_ttl_seconds"] == 48 * 3600
+    assert st["access_redeem_max"] >= 1
+    assert "live_enable" not in st
+    assert "ips" not in st

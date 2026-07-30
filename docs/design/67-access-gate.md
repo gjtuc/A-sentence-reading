@@ -50,4 +50,17 @@ Cost protection for Cloud Run / Gemini / TTS / GCS:
 
 ## Version
 
-Web **0.2.75** · `access_gate` / `mobile_access_gate` · pubspec `0.2.75+1`
+Web **0.2.76** · `access_gate` / `mobile_access_gate` · pubspec `0.2.76+1`
+
+
+## Hardening (0.2.76)
+
+| Control | Default | Env |
+|---------|---------|-----|
+| Invite TTL | 48h | `ASR_INVITE_TTL_HOURS` (`0` = no expiry) |
+| Redeem rate limit | 10 / 900s per uid | `ASR_INVITE_REDEEM_MAX` · `ASR_INVITE_REDEEM_WINDOW_SEC` |
+
+- Expired open codes → status `expired` · API `409 code_expired`
+- Excess redeem attempts → `429 rate_limited` (empty code does not count)
+- Mint response includes `expires_at` / `ttl_seconds`
+- Live Enable / IPS → Trading Gate only (ASR out)

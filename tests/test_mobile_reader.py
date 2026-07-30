@@ -1,4 +1,4 @@
-"""Flutter mobile reader + cursor PATCH (0.2.75 · design/33 · design/63)."""
+"""Flutter mobile reader + cursor PATCH (0.2.76 · design/33 · design/63)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "63-mobile-reader.md"
 def test_status_mobile_reader_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.75"
+    assert st["version"] == "0.2.76"
     assert st["mobile_reader"] is True
     assert st["mobile_library"] is True
     assert "live_enable" not in st
@@ -64,7 +64,7 @@ def test_session_cursor_patch_independent() -> None:
 
 def test_mobile_dart_reader_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.2.75" in pub
+    assert "0.2.76" in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "patchCursor" in client
     assert "/api/session/" in client
@@ -78,7 +78,7 @@ def test_mobile_dart_reader_sources() -> None:
     assert "Trading Gate" in reader or "Live Enable" in reader
     assert DESIGN.is_file()
     design = DESIGN.read_text(encoding="utf-8")
-    assert "0.2.75" in design
+    assert "0.2.76" in design
     assert "Trading Gate" in design or "ASR" in design
 
 
@@ -99,4 +99,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.2.75" in html
+    assert "app.js?v=0.2.76" in html
