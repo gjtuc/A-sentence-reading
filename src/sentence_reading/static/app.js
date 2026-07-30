@@ -236,6 +236,8 @@
     voiceSeqGen: 0,
     /** 되새김질 안에서 재녹음 중인 문장 id (노트 boundSentenceId 와 별개) */
     reviewRecordSid: null,
+    /** @type {{ sid: string, ta: HTMLTextAreaElement, section: string, pk: string } | null} */
+    flowEdit: null,
   };
 
   const TTS_STORAGE_KEY = "asr.tts.v2";
@@ -3036,6 +3038,8 @@
     // WHY: design/53 — prefs off 이면 호출되어도 no-op (인덱스·store 불변)
     if (!sectionReviewPrefs.enabled) return;
     if (!el.sectionReviewOverlay || !el.sectionReviewList || !AsrNotes) return;
+    // 재오픈 시 이전 편집 핸들만 버림 (저장은 close/commit 경로)
+    noteUi.flowEdit = null;
     if (noteUi.open) closeNoteOverlay();
     stopTts();
     stopVoicePlayback();
@@ -3059,8 +3063,8 @@
     // WHY: design/51+52 — 이어 보기 + ▶ 이어 듣기; 콕 수정은 후속
     if (el.sectionReviewHint) {
       el.sectionReviewHint.textContent = hasDigest
-        ? "위쪽은 이 구간 번역 정리본입니다. 아래는 기록을 이어서 본 것입니다. ▶ 이어 듣기 중 일시 정지하면 그 문장만 다시 듣거나 녹음할 수 있습니다."
-        : "아래는 이 구간 기록을 이어서 본 것입니다. ▶ 이어 듣기 중 일시 정지하면 그 문장만 다시 듣거나 녹음할 수 있습니다.";
+        ? "위쪽은 이 구간 번역 정리본입니다. 아래는 기록을 이어서 본 것입니다. 한 구간을 클릭하면 수정 · ▶ 이어 듣기로 목소리를 재생합니다 (문장 위치는 그대로)."
+        : "아래는 이 구간 기록을 이어서 본 것입니다. 한 구간을 클릭하면 수정 · ▶ 이어 듣기로 목소리를 재생합니다 (문장 위치는 그대로).";
     }
     var ids = AsrNotes.sentenceIdsInSection(state.sentences, section);
     var pk = currentPaperKey();
@@ -3101,13 +3105,13 @@
       return;
     }
 
-    // design/51 — 최신 노트를 등장 순으로 한 박스에 이어 붙임 (빈 노트 생략)
-    var flowParts = [];
+    // design/51+55 — 최신 노트를 등장 순 세그먼트로 이어 보기 · 클릭 시 그 문장만 수정
+    var flowEntries = [];
     var voiceEntries = [];
     ids.forEach(function (sid) {
       var latest = AsrNotes.latestText(store, pk, sid);
       var trimmed = latest ? String(latest).trim() : "";
-      if (trimmed) flowParts.push(trimmed);
+      if (trimmed) flowEntries.push({ sid: sid, text: trimmed });
       var voice = AsrNotes.latestVoice(store, pk, sid);
       if (voice && voice.blobKey) {
         voiceEntries.push({ sid: sid, voice: voice });
@@ -3119,11 +3123,38 @@
     flow.className = "section-review-flow";
     flow.setAttribute("role", "article");
     flow.setAttribute("aria-label", "구간 기록 이어 보기");
-    if (flowParts.length) {
-      flow.textContent = flowParts.join("\n\n");
-    } else {
+    if (!flowEntries.length) {
       flow.className = "section-review-flow is-empty";
       flow.textContent = "이 구간에 아직 기록이 없습니다.";
+    } else {
+      flowEntries.forEach(function (entry) {
+        var seg = document.createElement("div");
+        seg.className = "section-review-flow-seg";
+        seg.dataset.sentenceId = entry.sid;
+        seg.tabIndex = 0;
+        seg.setAttribute("role", "button");
+        seg.setAttribute(
+          "aria-label",
+          "이 문장 기록 수정 (읽기 위치는 바꾸지 않음)"
+        );
+        seg.title = "클릭하여 이 문장 기록만 수정";
+        var body = document.createElement("div");
+        body.className = "section-review-flow-seg-body";
+        body.textContent = entry.text;
+        seg.appendChild(body);
+        seg.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          beginSectionReviewFlowEdit(seg, entry, section, pk);
+        });
+        seg.addEventListener("keydown", function (ev) {
+          if (ev.key !== "Enter" && ev.key !== " ") return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          beginSectionReviewFlowEdit(seg, entry, section, pk);
+        });
+        flow.appendChild(seg);
+      });
     }
     flowLi.appendChild(flow);
     el.sectionReviewList.appendChild(flowLi);
@@ -3204,6 +3235,139 @@
       window.setTimeout(function () {
         el.sectionReviewSheet.focus();
       }, 0);
+    }
+  }
+
+  /**
+   * design/55 — flow 세그먼트 인라인 편집. sentence_index 불변.
+   * @param {HTMLElement} seg
+   * @param {{ sid: string, text: string }} entry
+   * @param {string} section
+   * @param {string} pk
+   */
+  function beginSectionReviewFlowEdit(seg, entry, section, pk) {
+    if (!seg || !entry || !entry.sid) return;
+    pk = pk || currentPaperKey();
+    // 다른 세그먼트 편집 중이면 저장 후 DOM 갱신 → 다시 이 세그먼트 편집
+    if (noteUi.flowEdit && noteUi.flowEdit.sid !== entry.sid) {
+      var prevSec = noteUi.flowEdit.section || section;
+      commitSectionReviewFlowEdit({ reopen: false });
+      openSectionReview(prevSec);
+      var sidSafe = String(entry.sid).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      var nextSeg =
+        el.sectionReviewList &&
+        el.sectionReviewList.querySelector(
+          '.section-review-flow-seg[data-sentence-id="' + sidSafe + '"]'
+        );
+      if (!nextSeg) return;
+      var latest = AsrNotes
+        ? AsrNotes.latestText(readNotesStore(), pk, entry.sid)
+        : entry.text;
+      beginSectionReviewFlowEdit(
+        nextSeg,
+        { sid: entry.sid, text: latest || "" },
+        section,
+        pk
+      );
+      return;
+    }
+    if (noteUi.flowEdit && noteUi.flowEdit.sid === entry.sid) return;
+
+    seg.classList.add("is-editing");
+    seg.innerHTML = "";
+    var ta = document.createElement("textarea");
+    ta.className = "section-review-flow-edit";
+    ta.value = entry.text || "";
+    ta.setAttribute("aria-label", "이 문장 기록 편집");
+    ta.rows = Math.min(
+      12,
+      Math.max(3, String(entry.text || "").split("\n").length + 1)
+    );
+    var actions = document.createElement("div");
+    actions.className = "section-review-flow-edit-actions";
+    var saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "upload-btn";
+    saveBtn.textContent = "저장";
+    var cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "upload-btn upload-btn-ghost";
+    cancelBtn.textContent = "취소";
+    var status = document.createElement("span");
+    status.className = "section-review-flow-edit-status";
+    status.setAttribute("aria-live", "polite");
+    actions.appendChild(saveBtn);
+    actions.appendChild(cancelBtn);
+    actions.appendChild(status);
+    seg.appendChild(ta);
+    seg.appendChild(actions);
+    noteUi.flowEdit = {
+      sid: String(entry.sid),
+      ta: ta,
+      section: section,
+      pk: pk,
+      statusEl: status,
+    };
+    saveBtn.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      commitSectionReviewFlowEdit({ reopen: true });
+    });
+    cancelBtn.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      cancelSectionReviewFlowEdit();
+    });
+    ta.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+    });
+    window.setTimeout(function () {
+      try {
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+      } catch (_) {
+        /* ignore */
+      }
+    }, 0);
+  }
+
+  /**
+   * @param {{ reopen?: boolean }} opts
+   */
+  function commitSectionReviewFlowEdit(opts) {
+    opts = opts || {};
+    var edit = noteUi.flowEdit;
+    if (!edit || !edit.sid || !edit.ta) {
+      noteUi.flowEdit = null;
+      return;
+    }
+    var sid = edit.sid;
+    var section = edit.section;
+    var pk = edit.pk || currentPaperKey();
+    var text = edit.ta.value;
+    noteUi.flowEdit = null;
+    // WHY: append-only · 동일 본문이면 no-op (notes_revisions)
+    try {
+      commitNoteRevision(pk, sid, text);
+    } catch (_) {
+      /* ignore */
+    }
+    // 노트 오버레이가 같은 문장이면 draft 동기화
+    if (noteUi.open && noteUi.boundSentenceId === sid && el.noteTextarea) {
+      el.noteTextarea.value = String(text || "").replace(/\s+$/g, "");
+      noteUi.draft = el.noteTextarea.value;
+    }
+    if (opts.reopen !== false && isSectionReviewOpen() && section) {
+      openSectionReview(section);
+    }
+  }
+
+  function cancelSectionReviewFlowEdit() {
+    var edit = noteUi.flowEdit;
+    var section = edit && edit.section;
+    noteUi.flowEdit = null;
+    if (isSectionReviewOpen() && section) {
+      openSectionReview(section);
     }
   }
 
@@ -3547,6 +3711,10 @@
   function closeSectionReview(opts) {
     opts = opts || {};
     if (!el.sectionReviewOverlay) return;
+    // WHY: design/55 — 시트 닫을 때 편집 중이면 저장
+    if (noteUi.flowEdit) {
+      commitSectionReviewFlowEdit({ reopen: false });
+    }
     // WHY: design/54 — 시트 닫을 때 재녹음도 정리
     if (noteUi.recording && noteUi.reviewRecordSid) {
       try {

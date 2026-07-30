@@ -74,6 +74,7 @@
 - ~~되새김질 목소리 이어 듣기~~ (0.2.60 — [52-section-review-voice-seq.md](52-section-review-voice-seq.md))
 - ~~되새김질 on/off~~ (0.2.61 — [53-section-review-optional.md](53-section-review-optional.md))
 - ~~되새김질 클립 다시 듣기/재녹음~~ (0.2.62 — [54-section-review-voice-clip.md](54-section-review-voice-clip.md))
+- ~~되새김질 flow 콕 수정~~ (0.2.63 — [55-section-review-flow-edit.md](55-section-review-flow-edit.md))
 - **Android Flutter MVP** — 로그인·보관·읽기·TTS · 실기 APK ([33-mobile-flutter.md](33-mobile-flutter.md); 플랫폼 이후)
 
 ### 구현됨 (참고)

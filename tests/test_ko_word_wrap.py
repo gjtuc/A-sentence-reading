@@ -22,7 +22,7 @@ def _sentence_ko_block() -> str:
 
 def test_status_ko_word_wrap() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.62"
+    assert st["version"] == "0.2.63"
     assert st["ko_word_wrap"] is True
     assert st["cite_display_clean"] is True
     assert "live_enable" not in st
@@ -53,5 +53,5 @@ def test_design_50_and_assets() -> None:
     assert "Trading Gate" in design or "ASR 밖" in design
     assert "design/50" in CSS.read_text(encoding="utf-8")
     html = TestClient(app).get("/").text
-    assert "styles.css?v=0.2.62" in html
-    assert "app.js?v=0.2.62" in html
+    assert "styles.css?v=0.2.63" in html
+    assert "app.js?v=0.2.63" in html
