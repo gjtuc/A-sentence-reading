@@ -1,6 +1,6 @@
 /// Thin HTTP client for the existing Cloud Run FastAPI surface.
 ///
-/// Auth (email·Google·Kakao) · library · reader · TTS (0.2.73 · design/61-65).
+/// Auth (email·Google·Kakao) · library · reader · TTS (0.2.74 · design/61-65).
 ///
 /// WHY separate from UI: screens must not know cookie jars / timeouts;
 /// cookie persistence stays in this layer (design/33).
@@ -32,6 +32,7 @@ class AsrStatus {
     this.mobileReader = false,
     this.mobileTts = false,
     this.mobileOauth = false,
+    this.mobileTheme = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -48,6 +49,7 @@ class AsrStatus {
       mobileReader: json['mobile_reader'] == true,
       mobileTts: json['mobile_tts'] == true,
       mobileOauth: json['mobile_oauth'] == true,
+      mobileTheme: json['mobile_theme'] == true,
     );
   }
 
@@ -61,6 +63,7 @@ class AsrStatus {
   final bool mobileReader;
   final bool mobileTts;
   final bool mobileOauth;
+  final bool mobileTheme;
 }
 
 class AsrClient {

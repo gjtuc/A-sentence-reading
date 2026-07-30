@@ -17,7 +17,7 @@
 | `asr.guide.v1` · UID별 키 | |
 | DOM 이동 (`guideOutsideSlot` ↔ 메뉴) | Live Enable / IPS |
 
-화면 단축키 `.hint` 기본 숨김 → **0.2.73** ([60-panel-hints.md](60-panel-hints.md)).
+화면 단축키 `.hint` 기본 숨김 → **0.2.74** ([60-panel-hints.md](60-panel-hints.md)).
 
 ## UX
 

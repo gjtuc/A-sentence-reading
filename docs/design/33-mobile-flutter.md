@@ -107,20 +107,20 @@ PC **웹**은 유지하고, 휴대폰용 **네이티브 앱**을 새로 둔다.
 
 - [x] `mobile/` 스캐폴드 · status 클라이언트 · 화면 자리 (0.2.55 · [47](47-flutter-scaffold.md))
 - [x] `android/` 플랫폼 · applicationId · 라벨 「문장 읽기」 (0.2.56 · [48](48-flutter-android-platform.md))
-- [x] 이메일 로그인·세션 쿠키 (0.2.73 · [61](61-mobile-email-auth.md)) — 수단 1/3
-- [x] Google·카카오 앱 로그인 배선 (0.2.73 · [65](65-mobile-oauth.md)) — 수단 3/3
+- [x] 이메일 로그인·세션 쿠키 (0.2.74 · [61](61-mobile-email-auth.md)) — 수단 1/3
+- [x] Google·카카오 앱 로그인 배선 (0.2.74 · [65](65-mobile-oauth.md)) — 수단 3/3
 - [ ] APK를 실기에 설치해 Cloud Run에 로그인 확인 — Android SDK 있는 환경
 - [x] 보관 목록에서 논문 열고 문장·그림 독립 이동 (0.2.70–0.2.71 · [62](62-mobile-library.md)·[63](63-mobile-reader.md))
-- [x] 현재 문장 TTS 재생 (0.2.73 · [64](64-mobile-tts.md))
-- [ ] 테마 3종 전환 유지(재실행 후)
+- [x] 현재 문장 TTS 재생 (0.2.74 · [64](64-mobile-tts.md))
+- [x] 테마 3종 전환 유지(재실행 후) (0.2.74 · [66](66-mobile-theme.md))
 - [x] 앱 소스에 Gemini/GCS secret **없음** (계약 테스트)
 
 ## 구현 순서
 
 1. ~~`mobile/` 스캐폴드 · 표시명 「문장 읽기」 · `/api/status`~~ (**0.2.55**)
 2. ~~`flutter create` → `android/` · applicationId~~ (**0.2.56**)
-3. ~~이메일·보관·읽기·TTS·Google/카카오~~ (0.2.69–0.2.73)
-4. release APK · 실기 사이드로드 (Android SDK)
+3. ~~이메일·보관·읽기·TTS·Google/카카오~~ (0.2.69–0.2.74)
+4. ~~테마 3종~~ (0.2.74) · release APK · 실기 사이드로드 (Android SDK)
 
 ## Live Enable / IPS
 
@@ -128,4 +128,4 @@ PC **웹**은 유지하고, 휴대폰용 **네이티브 앱**을 새로 둔다.
 
 ## 버전
 
-웹 **0.2.73** · `mobile_oauth` · pubspec `0.2.73+1`
+웹 **0.2.74** · `mobile_theme` · pubspec `0.2.74+1`

@@ -50,7 +50,7 @@ def test_status_version() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.73"
+    assert st["version"] == "0.2.74"
 
 
 def test_index_asset_cache_bust() -> None:
@@ -59,8 +59,8 @@ def test_index_asset_cache_bust() -> None:
     from sentence_reading.api.app import app
 
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.2.73" in html
-    assert "styles.css?v=0.2.73" in html
+    assert "app.js?v=0.2.74" in html
+    assert "styles.css?v=0.2.74" in html
     assert "__ASR_ASSET_V__" not in html
 
 

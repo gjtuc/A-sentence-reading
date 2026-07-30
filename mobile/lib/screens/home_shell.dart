@@ -2,24 +2,28 @@ import 'package:flutter/material.dart';
 
 import '../state/auth_controller.dart';
 import '../state/library_controller.dart';
+import '../state/theme_controller.dart';
 import '../state/tts_controller.dart';
 import 'library_screen.dart';
 import 'login_screen.dart';
 import 'reader_screen.dart';
+import 'settings_screen.dart';
 import 'status_screen.dart';
 
-/// Bottom-nav shell: Status · Login · Library · Reader.
+/// Bottom-nav shell: Status · Login · Library · Reader · Settings.
 class HomeShell extends StatefulWidget {
   const HomeShell({
     super.key,
     required this.auth,
     required this.library,
     required this.tts,
+    required this.theme,
   });
 
   final AuthController auth;
   final LibraryController library;
   final TtsController tts;
+  final ThemeController theme;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -28,7 +32,7 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  static const _titles = ['서버', '로그인', '보관', '읽기'];
+  static const _titles = ['서버', '로그인', '보관', '읽기', '설정'];
 
   void _goReader() => setState(() => _index = 3);
 
@@ -43,10 +47,16 @@ class _HomeShellState extends State<HomeShell> {
         onOpened: _goReader,
       ),
       ReaderScreen(library: widget.library, tts: widget.tts),
+      SettingsScreen(theme: widget.theme),
     ];
 
     return AnimatedBuilder(
-      animation: Listenable.merge([widget.auth, widget.library, widget.tts]),
+      animation: Listenable.merge([
+        widget.auth,
+        widget.library,
+        widget.tts,
+        widget.theme,
+      ]),
       builder: (context, _) {
         final logged = widget.auth.isLoggedIn;
         final titleExtra = logged ? ' · ${widget.auth.user!.displayLabel}' : '';
@@ -74,6 +84,10 @@ class _HomeShellState extends State<HomeShell> {
               const NavigationDestination(
                 icon: Icon(Icons.menu_book_outlined),
                 label: '읽기',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.settings_outlined),
+                label: '설정',
               ),
             ],
           ),

@@ -36,7 +36,7 @@ void main() {
       }
       if (path.endsWith('/api/status')) {
         return http.Response(
-          '{"ok":true,"version":"0.2.73","pipeline":"rich-v7","mobile_library":true}',
+          '{"ok":true,"version":"0.2.74","pipeline":"rich-v7","mobile_library":true}',
           200,
           headers: {'content-type': 'application/json'},
         );
