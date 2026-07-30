@@ -11,115 +11,150 @@
   <header class="app-header">
     <p class="stage-badge" id="stageBadge"></p>
     <div class="upload-bar" id="uploadBar">
+      <!-- WHY: design/58 — 헤더에는 파일 열기 + ⋯ 만 (나머지는 overflow) -->
       <button type="button" class="upload-btn" id="uploadBtn" title="PDF 또는 Word(.docx) 열기 (여러 개 가능)">
         파일 열기
       </button>
-      <button
-        type="button"
-        class="upload-btn upload-btn-ghost"
-        id="authLoginBtn"
-        title="Google 계정으로 로그인 — 기기 간 같은 창고"
-        hidden
-      >
-        로그인
-      </button>
-      <a
-        class="upload-btn upload-btn-ghost cloud-url-link"
-        id="cloudUrlLink"
-        href="#"
-        target="_blank"
-        rel="noopener noreferrer"
-        title="PC 꺼도 쓰는 클라우드 주소"
-        hidden
-      >클라우드</a>
-      <span class="auth-user" id="authUserLabel" hidden></span>
-      <button
-        type="button"
-        class="upload-btn upload-btn-ghost"
-        id="authLogoutBtn"
-        title="로그아웃"
-        hidden
-      >
-        로그아웃
-      </button>
-      <button
-        type="button"
-        class="upload-btn upload-btn-ghost"
-        id="authAccountBtn"
-        title="계정 · 로그인 수단 연결"
-        hidden
-      >
-        계정
-      </button>
-      <button
-        type="button"
-        class="upload-btn upload-btn-ghost"
-        id="usageBtn"
-        title="사용량 · 추정 비용"
-        hidden
-      >
-        사용량
-      </button>
-      <button
-        type="button"
-        class="upload-btn upload-btn-ghost"
-        id="libraryBtn"
-        title="보관된 논문 목록 — 다시 분석 없이 열기"
-      >
-        보관
-      </button>
-      <button
-        type="button"
-        class="upload-btn upload-btn-ghost"
-        id="sttPracticeBtn"
-        title="발음 연습 — 녹음 후 서버 인식·원문 비교 (점수 없음 · 브라우저 폴백)"
-        aria-pressed="false"
-      >
-        말하기
-      </button>
-      <button
-        type="button"
-        class="upload-btn upload-btn-ghost"
-        id="translateBtn"
-        title="영→한 다단계 번역 표시 on/off (기본 꺼짐)"
-        aria-pressed="false"
-      >
-        번역
-      </button>
-      <button
-        type="button"
-        class="upload-btn upload-btn-ghost"
-        id="sectionReviewBtn"
-        title="구간 되새김질 on/off (기본 켜짐) — 섹션이 바뀔 때 리뷰 시트"
-        aria-pressed="true"
-      >
-        되새김
-      </button>
-      <button
-        type="button"
-        class="upload-btn upload-btn-ghost"
-        id="ttsSettingsBtn"
-        title="TTS 목소리·속도"
-      >
-        TTS
-      </button>
-      <button
-        type="button"
-        class="upload-btn upload-btn-ghost"
-        id="veilBtn"
-        title="가림창 → 옆 모니터로 이동 → F11 전체화면 (창 모드에서 더블클릭도 동일)"
-      >
-        가림창
-      </button>
-      <button
-        type="button"
-        class="upload-btn upload-btn-danger"
-        id="cacheDeleteBtn"
-        title="현재 논문의 보관(증류)본 삭제 — 다음에 다시 분석"
-        hidden
-      >
-        보관 삭제
-      </button>
+      <div class="header-more" id="headerMore">
+        <button
+          type="button"
+          class="upload-btn upload-btn-ghost header-more-btn"
+          id="headerMoreBtn"
+          title="도구 · 설정"
+          aria-label="도구 메뉴"
+          aria-haspopup="true"
+          aria-expanded="false"
+          aria-controls="headerMoreMenu"
+        >
+          ⋯
+        </button>
+        <div
+          class="header-more-menu"
+          id="headerMoreMenu"
+          role="menu"
+          aria-label="도구 메뉴"
+          hidden
+        >
+          <button
+            type="button"
+            class="upload-btn upload-btn-ghost"
+            id="authLoginBtn"
+            role="menuitem"
+            title="Google 계정으로 로그인 — 기기 간 같은 창고"
+            hidden
+          >
+            로그인
+          </button>
+          <a
+            class="upload-btn upload-btn-ghost cloud-url-link"
+            id="cloudUrlLink"
+            href="#"
+            target="_blank"
+            rel="noopener noreferrer"
+            role="menuitem"
+            title="PC 꺼도 쓰는 클라우드 주소"
+            hidden
+          >클라우드</a>
+          <span class="auth-user header-more-user" id="authUserLabel" hidden></span>
+          <button
+            type="button"
+            class="upload-btn upload-btn-ghost"
+            id="authLogoutBtn"
+            role="menuitem"
+            title="로그아웃"
+            hidden
+          >
+            로그아웃
+          </button>
+          <button
+            type="button"
+            class="upload-btn upload-btn-ghost"
+            id="authAccountBtn"
+            role="menuitem"
+            title="계정 · 로그인 수단 연결"
+            hidden
+          >
+            계정
+          </button>
+          <button
+            type="button"
+            class="upload-btn upload-btn-ghost"
+            id="usageBtn"
+            role="menuitem"
+            title="사용량 · 추정 비용"
+            hidden
+          >
+            사용량
+          </button>
+          <button
+            type="button"
+            class="upload-btn upload-btn-ghost"
+            id="libraryBtn"
+            role="menuitem"
+            title="보관된 논문 목록 — 다시 분석 없이 열기"
+          >
+            보관
+          </button>
+          <button
+            type="button"
+            class="upload-btn upload-btn-ghost"
+            id="sttPracticeBtn"
+            role="menuitem"
+            title="발음 연습 — 녹음 후 서버 인식·원문 비교 (점수 없음 · 브라우저 폴백)"
+            aria-pressed="false"
+          >
+            말하기
+          </button>
+          <button
+            type="button"
+            class="upload-btn upload-btn-ghost"
+            id="translateBtn"
+            role="menuitem"
+            title="영→한 다단계 번역 표시 on/off (기본 꺼짐)"
+            aria-pressed="false"
+          >
+            번역
+          </button>
+          <button
+            type="button"
+            class="upload-btn upload-btn-ghost"
+            id="sectionReviewBtn"
+            role="menuitem"
+            title="구간 되새김질 on/off (기본 켜짐) — 섹션이 바뀔 때 리뷰 시트"
+            aria-pressed="true"
+          >
+            되새김
+          </button>
+          <button
+            type="button"
+            class="upload-btn upload-btn-ghost"
+            id="ttsSettingsBtn"
+            role="menuitem"
+            title="TTS 목소리·속도"
+          >
+            TTS
+          </button>
+          <button
+            type="button"
+            class="upload-btn upload-btn-ghost"
+            id="veilBtn"
+            role="menuitem"
+            title="가림창 → 옆 모니터로 이동 → F11 전체화면 (창 모드에서 더블클릭도 동일)"
+          >
+            가림창
+          </button>
+          <button
+            type="button"
+            class="upload-btn upload-btn-danger"
+            id="cacheDeleteBtn"
+            role="menuitem"
+            title="현재 논문의 보관(증류)본 삭제 — 다음에 다시 분석"
+            hidden
+          >
+            보관 삭제
+          </button>
+        </div>
+      </div>
       <input
         type="file"
         id="pdfInput"
