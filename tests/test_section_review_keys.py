@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "56-section-review-keys.md"
 
 def test_status_section_review_keys() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.64"
+    assert st["version"] == "0.2.65"
     assert st["section_review_keys"] is True
     assert st["section_review_flow_edit"] is True
     assert "live_enable" not in st
@@ -39,7 +39,7 @@ def test_key_handler_wiring() -> None:
     css = CSS.read_text(encoding="utf-8")
     assert ".section-review-flow-seg.is-flow-focus" in css
     html = INDEX.read_text(encoding="utf-8")
-    assert "←/→" in html or "구간 이동" in html
+    assert "←/→" in html or "흰 십자" in html or "구간" in html
 
 
 def test_edge_and_index_invariant() -> None:
@@ -65,5 +65,5 @@ def test_design_and_assets() -> None:
     assert "0.2.64" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.64" in served
-    assert "styles.css?v=0.2.64" in served
+    assert "app.js?v=0.2.65" in served
+    assert "styles.css?v=0.2.65" in served

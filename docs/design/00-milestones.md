@@ -76,6 +76,7 @@
 - ~~되새김질 클립 다시 듣기/재녹음~~ (0.2.62 — [54-section-review-voice-clip.md](54-section-review-voice-clip.md))
 - ~~되새김질 flow 콕 수정~~ (0.2.63 — [55-section-review-flow-edit.md](55-section-review-flow-edit.md))
 - ~~되새김질 키보드~~ (0.2.64 — [56-section-review-keys.md](56-section-review-keys.md))
+- ~~되새김질 흰 십자~~ (0.2.65 — [57-section-review-crosshair.md](57-section-review-crosshair.md))
 - **Android Flutter MVP** — 로그인·보관·읽기·TTS · 실기 APK ([33-mobile-flutter.md](33-mobile-flutter.md); 플랫폼 이후)
 
 ### 구현됨 (참고)
