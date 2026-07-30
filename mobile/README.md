@@ -1,16 +1,19 @@
 # 문장 읽기 — Android Flutter
 
 Monorepo path for the mobile client of [A-sentence-reading](../README.md).
-Design: [33](../docs/design/33-mobile-flutter.md) · [47](../docs/design/47-flutter-scaffold.md) · [48](../docs/design/48-flutter-android-platform.md).
+Design: [33](../docs/design/33-mobile-flutter.md) · [47](../docs/design/47-flutter-scaffold.md) · [48](../docs/design/48-flutter-android-platform.md) · [61](../docs/design/61-mobile-email-auth.md).
 
-## Status (0.2.56)
+## Status (0.2.69)
 
-- Dart scaffold: Material shell, placeholder screens, `/api/status` client
-- **`android/` platform** checked in (Gradle, Manifest, `MainActivity`)
+(Platform baseline: **0.2.56**  · scaffold 0.2.55)
+
+- Dart scaffold + **`android/`** platform
+- **이메일 로그인 / 가입 / 로그아웃** · `asr_session` 로컬 저장 · 재실행 시 `/api/auth/status` 복구
 - Display name 「문장 읽기」 · `applicationId` `com.gjtuc.sentence_reading`
 - **No secrets** — public Cloud Run URL only
+- Google / 카카오 · 보관 · 읽기 · TTS → 후속
 
-APK binary build needs a local **Android SDK + JDK**. This PC may only have Flutter SDK; `flutter build apk` then fails with `No Android SDK found` (expected until SDK is installed).
+APK binary build needs a local **Android SDK + JDK**.
 
 ## Application id
 
@@ -22,17 +25,9 @@ APK binary build needs a local **Android SDK + JDK**. This PC may only have Flut
 
 ## Prerequisites
 
-1. Install [Flutter](https://docs.flutter.dev/get-started/install) (stable). Example path used on the data PC: `Desktop/.cursor/tools/flutter` (**not** committed to this repo).
-2. `android/` is already present. To regenerate:
-
-```bash
-cd mobile
-flutter create . --org com.gjtuc --project-name sentence_reading --platforms=android
-flutter pub get
-flutter analyze
-```
-
-3. For APK: install Android Studio / command-line SDK, set `ANDROID_HOME`, then `flutter build apk`.
+1. Install [Flutter](https://docs.flutter.dev/get-started/install) (stable). Example path: `Desktop/.cursor/tools/flutter` (**not** committed).
+2. `cd mobile && flutter pub get && flutter test && flutter analyze`
+3. For APK: Android SDK + `flutter build apk`
 
 ## Out of scope
 

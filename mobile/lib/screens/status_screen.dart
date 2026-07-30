@@ -69,6 +69,14 @@ class _StatusScreenState extends State<StatusScreen> {
                       title: const Text('mobile_flutter_scaffold'),
                       subtitle: Text('${s.mobileFlutterScaffold}'),
                     ),
+                    ListTile(
+                      title: const Text('mobile_android_platform'),
+                      subtitle: Text('${s.mobileAndroidPlatform}'),
+                    ),
+                    ListTile(
+                      title: const Text('mobile_email_auth'),
+                      subtitle: Text('${s.mobileEmailAuth}'),
+                    ),
                   ],
                 );
               },

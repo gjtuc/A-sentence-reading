@@ -7,7 +7,7 @@ library;
 const String kDefaultApiBaseUrl =
     'https://asr-sentence-reading-984608876300.asia-northeast3.run.app';
 
-/// Runtime-overridable API settings (scaffold; auth cookies come later).
+/// Runtime-overridable API settings (email session cookie in SessionStore).
 class AsrConfig {
   AsrConfig({String? baseUrl}) : baseUrl = _normalize(baseUrl ?? kDefaultApiBaseUrl);
 

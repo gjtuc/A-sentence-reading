@@ -51,6 +51,7 @@
 | 58 | [58-header-overflow.md](58-header-overflow.md) | 헤더 파일 열기 + `⋯` · Live Enable/IPS 밖 |
 | 59 | [59-guide-header.md](59-guide-header.md) | Guide 밖/`⋯` 안 · 안내 dialog |
 | 60 | [60-panel-hints.md](60-panel-hints.md) | 패널 단축키 줄 기본 숨김 · Guide 옵션 |
+| 61 | [61-mobile-email-auth.md](61-mobile-email-auth.md) | Flutter 이메일 로그인 · asr_session |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -101,5 +102,6 @@
 57는 되새김질 흰 십자 (0.2.65).  
 58는 헤더 「파일 열기」+ `⋯` overflow (0.2.66).  
 59는 Guide 헤더 배치 · `⋯` 안 옵션 (0.2.67).  
-60는 패널 단축키 안내 줄 기본 숨김 (0.2.68).  
+60는 패널 단축키 안내 줄 기본 숨김 (0.2.68).
+61는 Flutter 이메일 로그인·세션 (0.2.69).  
 음절(30)은 **하지 않음** (원복).
