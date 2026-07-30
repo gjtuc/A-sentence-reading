@@ -44,4 +44,4 @@ Wire **real** Cloud Run OAuth into the Android app (not mocks). Email already wo
 
 ## Version
 
-Web **0.2.74** · status `mobile_oauth: true` · pubspec `0.2.74+1`
+Web **0.2.75** · status `mobile_oauth: true` · pubspec `0.2.75+1`

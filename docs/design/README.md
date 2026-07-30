@@ -57,6 +57,7 @@
 | 64 | [64-mobile-tts.md](64-mobile-tts.md) | Flutter TTS · POST /api/tts 재생 |
 | 65 | [65-mobile-oauth.md](65-mobile-oauth.md) | Flutter Google·카카오 OAuth |
 | 66 | [66-mobile-theme.md](66-mobile-theme.md) | Flutter 테마 system/light/dark |
+| 67 | [67-access-gate.md](67-access-gate.md) | OTP 초대 코드 · admin allow/deny |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -113,5 +114,6 @@
 63는 Flutter 읽기·독립 커서 (0.2.71).
 64는 Flutter TTS 현재 문장 재생 (0.2.72).
 65는 Flutter Google·카카오 로그인 (0.2.73).
-66는 Flutter 테마 3종 (0.2.74).  
+66는 Flutter 테마 3종 (0.2.74).
+67는 액세스 게이트 OTP·Allow/Deny (0.2.75).  
 음절(30)은 **하지 않음** (원복).

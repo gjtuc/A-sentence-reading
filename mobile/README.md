@@ -1,29 +1,23 @@
 # 문장 읽기 — Android Flutter
 
-Monorepo path for the mobile client of [A-sentence-reading](../README.md).
-Design: [33](../docs/design/33-mobile-flutter.md) · [61](../docs/design/61-mobile-email-auth.md)–[66](../docs/design/66-mobile-theme.md).
+Application id: `com.gjtuc.sentence_reading`
 
-## Status (0.2.74)
+Design: [33](../docs/design/33-mobile-flutter.md) · [61](../docs/design/61-mobile-email-auth.md)–[67](../docs/design/67-access-gate.md).
 
-- Scaffold baseline **0.2.56** (android/ applicationId)
-- 이메일 · Google · 카카오 · 보관 · 읽기 · TTS · **테마 3종**(system/light/dark, 재실행 유지)
+## Status (0.2.75)
+
+- Scaffold baseline **0.2.56**
+- Login · library · reader · TTS · theme
+- **Access gate**: OTP invite (`XXXX-XXXX`) + admin Allow/Deny before paid APIs
 - Live Enable / IPS: Trading Gate (ASR out)
 
-## Application id
+## Access codes
 
-| Field | Value |
-|-------|--------|
-| Display name | 문장 읽기 |
-| Android `applicationId` | `com.gjtuc.sentence_reading` |
-
-## Prerequisites
-
-1. Flutter stable
-2. `cd mobile && flutter pub get && flutter test && flutter analyze`
-3. APK sideload needs Android SDK + device (next)
+Admin Settings → mint → copy `TqG3-V12T`-style code (shown once).  
+User Settings → paste code → pending → admin Allow.
 
 ## Out of scope
 
 - Live Enable / IPS
-- Gemini / GCS secrets in the client
-- iOS · Play Store
+- Secrets in the APK
+- BYOK (follow-up)

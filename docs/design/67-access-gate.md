@@ -1,0 +1,53 @@
+# 67 — Access gate (OTP invite + admin allow/deny)
+
+Modules: `llm/access_gate.py` · `/api/access/*` · Flutter settings  
+See: [33-mobile-flutter.md](33-mobile-flutter.md) · [23-multi-auth-link.md](23-multi-auth-link.md) · [27](27-usage-meter.md)
+
+## What
+
+Cost protection for Cloud Run / Gemini / TTS / GCS:
+
+1. Admin mints a **random OTP-style code** `XXXX-XXXX` (e.g. `TqG3-V12T`) — not chosen by humans
+2. User logs in → enters code → status **pending**
+3. Admin **Allow** / **Deny**
+4. Only `allowed` (or admin / gate-off) may call paid APIs
+5. Failed/pending attempts append admin notifications
+
+| In | Out (follow-up) |
+|----|-----------------|
+| Single-use hashed invites | BYOK (own API keys) |
+| Admin mint / pending / decide | Email push alerts |
+| Paid API 403 `access_denied` | Live Enable / IPS |
+
+## Code format
+
+- Alphabet without ambiguous `0 O 1 I L`
+- Display `ABCD-EFGH`; input may omit dash/spaces
+- Server stores **SHA-256 only**; plaintext shown **once** at mint
+
+## Env
+
+| var | meaning |
+|-----|---------|
+| `ASR_ACCESS_GATE` | `0` off · `1` on · unset → **on** |
+| `ASR_ADMIN_EMAILS` | comma list — mint/decide/notifications |
+
+## API
+
+| | |
+|--|--|
+| `GET /api/access/status` | gate + user status |
+| `POST /api/access/invite` | `{ code }` → pending |
+| `POST /api/access/admin/mint` | → `{ code }` once |
+| `GET /api/access/admin/pending` | queue |
+| `GET /api/access/admin/notifications` | events |
+| `POST /api/access/admin/decide` | `{ uid, decision: allow\|deny }` |
+
+## Non-goals
+
+- Half-key embedded in APK (extractable)
+- Live Enable / IPS (Trading Gate)
+
+## Version
+
+Web **0.2.75** · `access_gate` / `mobile_access_gate` · pubspec `0.2.75+1`

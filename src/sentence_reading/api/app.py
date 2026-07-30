@@ -58,6 +58,17 @@ from sentence_reading.llm.auth_google import (
     set_gcs_uid,
     verify_google_id_token,
 )
+from sentence_reading.llm.access_gate import (
+    access_gate_enabled,
+    decide_access,
+    list_events,
+    list_open_invite_meta,
+    list_pending,
+    mint_invite_code,
+    public_access_view,
+    redeem_invite,
+    user_may_use_paid,
+)
 from sentence_reading.llm.auth_kakao import (
     exchange_code as kakao_exchange_code,
     kakao_authorize_url,
@@ -119,7 +130,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.74",
+    version="0.2.75",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -144,6 +155,49 @@ app.add_middleware(_GcsUidMiddleware)
 def _request_user(request: Request) -> AuthUser | None:
     user = getattr(request.state, "auth_user", None)
     return user if isinstance(user, AuthUser) else None
+
+
+
+def _is_admin_user(user: AuthUser | None) -> bool:
+    if user is None:
+        return False
+    from sentence_reading.llm.usage_meter import is_admin_email
+
+    return is_admin_email(user.email)
+
+
+def _paid_access_denied(request: Request) -> JSONResponse | None:
+    """Return 403/401 if access gate blocks paid APIs; else None."""
+    if not access_gate_enabled():
+        return None
+    user = _request_user(request)
+    if user is None:
+        if auth_enabled():
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "ok": False,
+                    "error": "auth_required",
+                    "message": "로그인 후 이용해 주세요.",
+                },
+            )
+        return None
+    if user_may_use_paid(
+        user.uid, email=user.email or "", is_admin=_is_admin_user(user)
+    ):
+        return None
+    view = public_access_view(
+        user.uid, email=user.email or "", is_admin=_is_admin_user(user)
+    )
+    return JSONResponse(
+        status_code=403,
+        content={
+            "ok": False,
+            "error": "access_denied",
+            "access": view,
+            "message": "초대 코드 승인 후 이용할 수 있습니다. (관리자 Allow 필요)",
+        },
+    )
 
 
 def _job_set(job_id: str, *, percent: int, stage: str, message: str = "") -> None:
@@ -215,7 +269,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.74",
+        "version": "0.2.75",
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -242,6 +296,9 @@ def status(request: Request) -> dict:
         "mobile_tts": True,
         "mobile_oauth": True,
         "mobile_theme": True,
+        "access_gate": True,
+        "mobile_access_gate": True,
+        "access_gate_enabled": access_gate_enabled(),
         "translate_en_ko": gemini_available(),
         "translate_pipeline": True,
         "translate_side_by_side": True,
@@ -288,6 +345,11 @@ def _kakao_redirect_uri(request: Request) -> str:
 def auth_status(request: Request) -> dict:
     user = _request_user(request)
     st = auth_status_fields(user)
+    st["access"] = public_access_view(
+        user.uid if user else None,
+        email=(user.email if user else "") or "",
+        is_admin=_is_admin_user(user),
+    )
     return {"ok": True, **st}
 
 
@@ -641,11 +703,13 @@ async def stt_compare(payload: dict = Body(...)) -> dict:
 
 
 @app.post("/api/stt/recognize")
-async def stt_recognize(
-    file: UploadFile = File(...),
+async def stt_recognize(request: Request, file: UploadFile = File(...),
     expected: str = Form(""),
 ) -> dict:
     """연습 오디오 → 영어 전사 (+선택 compare). 점수 없음 (design/38)."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
     from sentence_reading.stt.compare import diff_tokens
     from sentence_reading.stt.recognize import recognize_english_audio
 
@@ -709,8 +773,11 @@ async def cite_resolve(payload: dict = Body(...)) -> dict:
 
 
 @app.post("/api/translate")
-async def translate_sentence(payload: dict = Body(...)) -> dict:
+async def translate_sentence(request: Request, payload: dict = Body(...)) -> dict:
     """영→한 번역 (design/35 simple · design/36 pipeline 기본)."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
     from sentence_reading.llm.translate import translate_dispatch
 
     if not gemini_available():
@@ -768,6 +835,199 @@ def usage_admin(request: Request) -> dict:
     if not is_admin_email(user.email):
         return {"ok": False, "error": "forbidden"}
     return admin_usage_report()
+
+
+
+
+@app.get("/api/access/status")
+def access_status(request: Request) -> dict:
+    user = _request_user(request)
+    return {
+        "ok": True,
+        **public_access_view(
+            user.uid if user else None,
+            email=(user.email if user else "") or "",
+            is_admin=_is_admin_user(user),
+        ),
+    }
+
+
+@app.post("/api/access/invite")
+async def access_invite(request: Request, payload: dict = Body(...)) -> JSONResponse:
+    user = _request_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "auth_required",
+                "message": "로그인 후 초대 코드를 입력하세요.",
+            },
+        )
+    code = str(payload.get("code") or "") if isinstance(payload, dict) else ""
+    try:
+        view = redeem_invite(
+            user.uid, code, email=user.email or "", name=user.name or ""
+        )
+    except ValueError as exc:
+        code_e = str(exc)
+        messages = {
+            "gate_disabled": "액세스 게이트가 꺼져 있습니다.",
+            "empty_code": "초대 코드를 입력하세요. (예: TqG3-V12T)",
+            "bad_code": "초대 코드가 올바르지 않습니다.",
+            "code_used": "이미 사용된 초대 코드입니다.",
+            "code_revoked": "폐기된 초대 코드입니다.",
+            "auth_required": "로그인이 필요합니다.",
+        }
+        status = 400
+        if code_e == "bad_code":
+            status = 403
+        if code_e == "gate_disabled":
+            status = 503
+        if code_e in ("code_used", "code_revoked"):
+            status = 409
+        return JSONResponse(
+            status_code=status,
+            content={
+                "ok": False,
+                "error": code_e,
+                "message": messages.get(code_e, code_e),
+            },
+        )
+    return JSONResponse(
+        {
+            "ok": True,
+            "access": view,
+            "message": "pending" if view.get("status") == "pending" else "ok",
+        }
+    )
+
+
+@app.get("/api/access/admin/pending")
+def access_admin_pending(request: Request) -> JSONResponse:
+    user = _request_user(request)
+    if user is None or not _is_admin_user(user):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "error": "admin_required",
+                "message": "관리자만 볼 수 있습니다.",
+            },
+        )
+    return JSONResponse({"ok": True, "pending": list_pending()})
+
+
+@app.get("/api/access/admin/notifications")
+def access_admin_notifications(request: Request, limit: int = 50) -> JSONResponse:
+    user = _request_user(request)
+    if user is None or not _is_admin_user(user):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "error": "admin_required",
+                "message": "관리자만 볼 수 있습니다.",
+            },
+        )
+    try:
+        lim = int(limit)
+    except (TypeError, ValueError):
+        lim = 50
+    return JSONResponse({"ok": True, "events": list_events(limit=lim)})
+
+
+
+@app.post("/api/access/admin/mint")
+async def access_admin_mint(request: Request, payload: dict = Body(None)) -> JSONResponse:
+    """Mint one OTP-style invite (XXXX-XXXX). Plaintext returned once."""
+    user = _request_user(request)
+    if user is None or not _is_admin_user(user):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "error": "admin_required",
+                "message": "관리자만 초대 코드를 발급할 수 있습니다.",
+            },
+        )
+    note = ""
+    if isinstance(payload, dict):
+        note = str(payload.get("note") or "")
+    try:
+        minted = mint_invite_code(
+            admin_uid=user.uid, admin_email=user.email or "", note=note
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": str(exc), "message": str(exc)},
+        )
+    return JSONResponse(
+        {
+            "ok": True,
+            "code": minted["code"],
+            "created_at": minted["created_at"],
+            "single_use": True,
+            "message": "이 코드는 지금만 표시됩니다. 안전한 곳에 복사하세요.",
+        }
+    )
+
+
+@app.get("/api/access/admin/invites")
+def access_admin_invites(request: Request, limit: int = 20) -> JSONResponse:
+    user = _request_user(request)
+    if user is None or not _is_admin_user(user):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "error": "admin_required",
+                "message": "관리자만 볼 수 있습니다.",
+            },
+        )
+    try:
+        lim = int(limit)
+    except (TypeError, ValueError):
+        lim = 20
+    return JSONResponse({"ok": True, "open": list_open_invite_meta(limit=lim)})
+
+
+@app.post("/api/access/admin/decide")
+async def access_admin_decide(
+    request: Request, payload: dict = Body(...)
+) -> JSONResponse:
+    user = _request_user(request)
+    if user is None or not _is_admin_user(user):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "error": "admin_required",
+                "message": "관리자만 처리할 수 있습니다.",
+            },
+        )
+    if not isinstance(payload, dict):
+        payload = {}
+    uid = str(payload.get("uid") or "")
+    decision = str(payload.get("decision") or payload.get("action") or "")
+    note = str(payload.get("note") or "")
+    try:
+        view = decide_access(
+            uid,
+            decision,
+            admin_uid=user.uid,
+            admin_email=user.email or "",
+            note=note,
+        )
+    except ValueError as exc:
+        code_e = str(exc)
+        status = 404 if code_e == "user_not_found" else 400
+        return JSONResponse(
+            status_code=status,
+            content={"ok": False, "error": code_e, "message": code_e},
+        )
+    return JSONResponse({"ok": True, "access": view})
 
 
 @app.post("/api/auth/logout")
@@ -985,8 +1245,11 @@ def tts_voices() -> dict:
 
 
 @app.post("/api/tts")
-async def tts_synthesize(payload: dict = Body(...)) -> Response:
+async def tts_synthesize(request: Request, payload: dict = Body(...)) -> Response:
     """현재 문장 plain text → MP3."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
     if not tts_available():
         return JSONResponse(
             status_code=503,
@@ -1056,8 +1319,11 @@ def cache_papers() -> dict:
 
 
 @app.post("/api/cache/papers/{cache_id}/open")
-async def cache_open(cache_id: str) -> JSONResponse:
+async def cache_open(request: Request, cache_id: str) -> JSONResponse:
     """보관본을 즉시 세션으로 연다. 로컬 miss 시 GCS pull · KO 없으면 번역 백필."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
     loaded = load_cached_session(cache_id)
     if loaded is None:
         try:
@@ -1116,8 +1382,11 @@ async def cache_open(cache_id: str) -> JSONResponse:
 
 
 @app.post("/api/cache/papers/{cache_id}/reanalyze")
-async def cache_reanalyze(cache_id: str) -> JSONResponse:
+async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
     """보관된 원본(source.pdf|docx)으로 파이프라인 재실행. 같은 cache_id 유지."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
     cid = (cache_id or "").strip()
     try:
         from sentence_reading.llm.papers_gcs import ensure_paper_local
@@ -1831,8 +2100,11 @@ async def _run_ingest_job(
 
 
 @app.post("/api/ingest")
-async def ingest(file: UploadFile = File(...)) -> JSONResponse:
+async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse:
     """PDF/DOCX 업로드 → 백그라운드 정제. job_id 로 진행률 폴링."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
     filename = file.filename or "document.pdf"
     kind = _source_kind(filename)
     if kind is None:
