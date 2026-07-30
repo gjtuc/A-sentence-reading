@@ -54,6 +54,7 @@
 | 61 | [61-mobile-email-auth.md](61-mobile-email-auth.md) | Flutter 이메일 로그인 · asr_session |
 | 62 | [62-mobile-library.md](62-mobile-library.md) | Flutter 보관 목록 · open |
 | 63 | [63-mobile-reader.md](63-mobile-reader.md) | Flutter reader independent cursors |
+| 64 | [64-mobile-tts.md](64-mobile-tts.md) | Flutter TTS · POST /api/tts 재생 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -107,5 +108,6 @@
 60는 패널 단축키 안내 줄 기본 숨김 (0.2.68).
 61는 Flutter 이메일 로그인·세션 (0.2.69).
 62는 Flutter 보관 목록·open (0.2.70).
-63는 Flutter 읽기·독립 커서 (0.2.71).  
+63는 Flutter 읽기·독립 커서 (0.2.71).
+64는 Flutter TTS 현재 문장 재생 (0.2.72).  
 음절(30)은 **하지 않음** (원복).

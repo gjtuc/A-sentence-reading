@@ -2,19 +2,22 @@ import 'package:flutter/material.dart';
 
 import '../api/reading_models.dart';
 import '../state/library_controller.dart';
+import '../state/tts_controller.dart';
 
-/// Split reader: sentence panel + figure panel (design/63).
+/// Split reader: sentence panel + figure panel (design/63) + TTS (design/64).
 ///
 /// INVARIANT: sentence controls never call figure advance and vice versa.
+/// TTS never mutates cursors (Live Enable / IPS: ASR out).
 class ReaderScreen extends StatelessWidget {
-  const ReaderScreen({super.key, required this.library});
+  const ReaderScreen({super.key, required this.library, required this.tts});
 
   final LibraryController library;
+  final TtsController tts;
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: library,
+      animation: Listenable.merge([library, tts]),
       builder: (context, _) {
         final s = library.session;
         if (s == null || !s.isValid) {
@@ -22,7 +25,7 @@ class ReaderScreen extends StatelessWidget {
             child: Padding(
               padding: EdgeInsets.all(24),
               child: Text(
-                'No paper open. Open one from Library (sentence + figure). TTS next. Live Enable/IPS: ASR out.',
+                'No paper open. Open one from Library (sentence + figure + TTS). Live Enable/IPS: ASR out.',
                 textAlign: TextAlign.center,
               ),
             ),
@@ -39,7 +42,10 @@ class ReaderScreen extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleSmall,
               ),
             ),
-            Expanded(flex: 3, child: _SentencePanel(library: library, session: s)),
+            Expanded(
+              flex: 3,
+              child: _SentencePanel(library: library, tts: tts, session: s),
+            ),
             const Divider(height: 1),
             Expanded(flex: 2, child: _FigurePanel(library: library, session: s)),
             const Padding(
@@ -57,9 +63,14 @@ class ReaderScreen extends StatelessWidget {
 }
 
 class _SentencePanel extends StatelessWidget {
-  const _SentencePanel({required this.library, required this.session});
+  const _SentencePanel({
+    required this.library,
+    required this.tts,
+    required this.session,
+  });
 
   final LibraryController library;
+  final TtsController tts;
   final ReadingSession session;
 
   @override
@@ -79,7 +90,10 @@ class _SentencePanel extends StatelessWidget {
                 tooltip: 'prev sentence',
                 onPressed: session.sentenceCount == 0
                     ? null
-                    : () => library.advanceSentence(-1),
+                    : () async {
+                        await tts.stop();
+                        await library.advanceSentence(-1);
+                      },
                 icon: const Icon(Icons.chevron_left),
               ),
               Expanded(child: Text(label, textAlign: TextAlign.center)),
@@ -87,11 +101,53 @@ class _SentencePanel extends StatelessWidget {
                 tooltip: 'next sentence',
                 onPressed: session.sentenceCount == 0
                     ? null
-                    : () => library.advanceSentence(1),
+                    : () async {
+                        await tts.stop();
+                        await library.advanceSentence(1);
+                      },
                 icon: const Icon(Icons.chevron_right),
               ),
+              if (tts.loading)
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: Padding(
+                    padding: EdgeInsets.all(4),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              else
+                IconButton(
+                  tooltip: tts.playing ? 'stop TTS' : 'play TTS',
+                  onPressed: (cur == null || !cur.hasText)
+                      ? null
+                      : () async {
+                          if (tts.playing) {
+                            await tts.stop();
+                          } else {
+                            await tts.playCurrentSentence();
+                          }
+                        },
+                  icon: Icon(
+                    tts.playing
+                        ? Icons.stop_circle_outlined
+                        : Icons.volume_up,
+                  ),
+                ),
             ],
           ),
+          if (tts.error != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                tts.error!,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontSize: 12,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
           Expanded(
             child: Card(
               child: Padding(
@@ -118,6 +174,21 @@ class _SentencePanel extends StatelessWidget {
                 ),
               ),
             ),
+          ),
+          Row(
+            children: [
+              const Text('speed', style: TextStyle(fontSize: 12)),
+              Expanded(
+                child: Slider(
+                  value: tts.rate.clamp(0.5, 2.2),
+                  min: 0.5,
+                  max: 2.2,
+                  divisions: 17,
+                  label: tts.rate.toStringAsFixed(2),
+                  onChanged: (v) => tts.setRate(v),
+                ),
+              ),
+            ],
           ),
         ],
       ),
