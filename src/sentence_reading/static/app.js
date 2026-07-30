@@ -1614,7 +1614,12 @@
       el.sentenceText.textContent = text || "";
     } else {
       // WHY: design/13 — 서버 sanitize된 <sub>/<sup>/<i> 렌더
-      el.sentenceText.innerHTML = text || "";
+      // WHY: design/49 — 표시에서만 [n] 제거 (칩은 원문 sent.text로 파싱)
+      let html = text || "";
+      if (window.AsrCiteRefs && AsrCiteRefs.stripCiteMarkersForDisplay) {
+        html = AsrCiteRefs.stripCiteMarkersForDisplay(html);
+      }
+      el.sentenceText.innerHTML = html;
     }
   }
 
@@ -1692,6 +1697,14 @@
     return (d.textContent || "").replace(/\s+/g, " ").trim();
   }
 
+  /** design/49 — KO/STT 표시·기대문에서도 각주 마커 제거 */
+  function stripCitesForUi(text) {
+    if (window.AsrCiteRefs && AsrCiteRefs.stripCiteMarkersForDisplay) {
+      return AsrCiteRefs.stripCiteMarkersForDisplay(text || "");
+    }
+    return text || "";
+  }
+
   /**
    * 현재 문장 영→한 표시 (design/35·39·40·42·45).
    * ingest 시 저장된 text_ko 만 사용 — live /api/translate 폴백 없음 (design/42).
@@ -1729,16 +1742,17 @@
       frozenKoText != null
     ) {
       el.sentenceKo.classList.remove("is-error");
-      el.sentenceKo.textContent = frozenKoText;
+      el.sentenceKo.textContent = stripCitesForUi(frozenKoText);
       return;
     }
 
     const cachedKo = cur && String(cur.text_ko || "").trim();
     if (cachedKo) {
       el.sentenceKo.classList.remove("is-error");
-      el.sentenceKo.textContent = cachedKo;
+      const shown = stripCitesForUi(cachedKo);
+      el.sentenceKo.textContent = shown;
       frozenKoSentenceId = sid;
-      frozenKoText = cachedKo;
+      frozenKoText = shown;
       return;
     }
     // WHY: design/45 — 진행 중이면 「미리 번역 없음」대신 진행 안내
@@ -1763,7 +1777,7 @@
       const re = new RegExp(`^${lab}\\s*:\\s*`, "i");
       body = body.replace(re, "");
     }
-    return plainSentenceForTranslate(body);
+    return stripCitesForUi(plainSentenceForTranslate(body));
   }
 
   function sttSentenceKey() {

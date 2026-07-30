@@ -68,6 +68,7 @@
 - ~~번역 문장 병렬~~ (0.2.54 — [46-translate-parallel.md](46-translate-parallel.md); 동시 N)
 - ~~Flutter `mobile/` 스캐폴드~~ (0.2.55 — [47-flutter-scaffold.md](47-flutter-scaffold.md); [33](33-mobile-flutter.md) 1단계)
 - ~~Flutter Android 플랫폼~~ (0.2.56 — [48-flutter-android-platform.md](48-flutter-android-platform.md); `android/` · applicationId)
+- ~~각주 표시 정리~~ (0.2.57 — [49-cite-display-clean.md](49-cite-display-clean.md); 박스 [n] 숨김 · FS 칩 hover)
 - **Android Flutter MVP** — 로그인·보관·읽기·TTS · 실기 APK ([33-mobile-flutter.md](33-mobile-flutter.md); 플랫폼 이후)
 
 ### 구현됨 (참고)

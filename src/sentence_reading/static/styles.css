@@ -105,7 +105,9 @@ body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover * {
 :fullscreen .layout.is-sentence-focus .panel-sentence:hover .nav-btn,
 body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover .nav-btn,
 :fullscreen .layout.is-sentence-focus .panel-sentence:hover .fig-ref-chip,
-body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover .fig-ref-chip {
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover .fig-ref-chip,
+:fullscreen .layout.is-sentence-focus .panel-sentence:hover .cite-ref-chip,
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover .cite-ref-chip {
   cursor: pointer !important;
 }
 
@@ -389,19 +391,23 @@ body.is-browser-fullscreen .layout {
 
 /*
  * 브라우저 전체화면 + 문장 확대:
- * 글만 보이게. 문장 패널 hover → 라벨·화살표·힌트·Fig 칩 복귀.
- * WHY: Fig 칩을 항상 두면 글 밖에서도 보이고, 칩으로 마우스가 가며
- *       hover 경계가 헷갈림. 화살표와 동일하게 hover 때만.
+ * 글만 보이게. 문장 패널 hover → 라벨·화살표·힌트·Fig/각주 칩 복귀.
+ * WHY: Fig·각주 칩을 항상 두면 글 밖에서도 보이고, 칩으로 마우스가 가며
+ *       hover 경계가 헷갈림. 화살표와 동일하게 hover 때만 (design/49).
  *       그림 패널은 펼치지 않음 (↓ / 문장확대 해제).
  */
 :fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .panel-meta,
 :fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .hint,
 :fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .nav-btn,
 :fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .fig-ref-hints,
+:fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .cite-ref-hints,
+:fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .cite-ref-panel,
 body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .panel-meta,
 body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .hint,
 body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .nav-btn,
-body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .fig-ref-hints {
+body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .fig-ref-hints,
+body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .cite-ref-hints,
+body.is-browser-fullscreen .layout.is-sentence-focus:not(:has(.panel-sentence:hover)) .panel-sentence .cite-ref-panel {
   opacity: 0;
   pointer-events: none;
   max-height: 0;
@@ -444,10 +450,14 @@ body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence {
 :fullscreen .layout.is-sentence-focus .panel-sentence .hint,
 :fullscreen .layout.is-sentence-focus .panel-sentence .nav-btn,
 :fullscreen .layout.is-sentence-focus .panel-sentence .fig-ref-hints,
+:fullscreen .layout.is-sentence-focus .panel-sentence .cite-ref-hints,
+:fullscreen .layout.is-sentence-focus .panel-sentence .cite-ref-panel,
 body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence .panel-meta,
 body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence .hint,
 body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence .nav-btn,
-body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence .fig-ref-hints {
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence .fig-ref-hints,
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence .cite-ref-hints,
+body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence .cite-ref-panel {
   transition:
     opacity 0.25s var(--layout-ease),
     max-height 0.25s var(--layout-ease);
