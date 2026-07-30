@@ -10,7 +10,7 @@ Opened session shown as sentence (top) + figure (bottom); indexes move independe
 
 | In | Out |
 |----|-----|
-| split UI, sentence/figure chevrons | TTS |
+| split UI, sentence/figure chevrons | (TTS → [64](64-mobile-tts.md)) |
 | ReadingSession clamp/wrap | Google/Kakao |
 | PATCH cursor best-effort | app upload |
 | PNG/JPEG data-URL, http(s) | SVG preview |
@@ -34,4 +34,4 @@ Opened session shown as sentence (top) + figure (bottom); indexes move independe
 
 ## Version
 
-Web **0.2.71** · status mobile_reader: true · pubspec 0.2.71+1
+Web **0.2.72** · status mobile_reader: true · pubspec 0.2.72+1

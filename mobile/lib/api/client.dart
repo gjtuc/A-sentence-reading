@@ -1,13 +1,13 @@
 /// Thin HTTP client for the existing Cloud Run FastAPI surface.
 ///
-/// Auth (0.2.69 · design/61) + library list/open (0.2.71 · design/62).
-/// Reader/TTS calls land in later PRs.
+/// Auth · library · reader · TTS (0.2.72 · design/61-64).
 ///
 /// WHY separate from UI: screens must not know cookie jars / timeouts;
 /// cookie persistence stays in this layer (design/33).
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -16,6 +16,7 @@ import 'auth_models.dart';
 import 'paper_models.dart';
 import 'reading_models.dart';
 import 'session_store.dart';
+import 'tts_models.dart';
 
 /// Parsed `/api/status` JSON (subset used by the mobile shell).
 class AsrStatus {
@@ -28,6 +29,7 @@ class AsrStatus {
     this.mobileEmailAuth = false,
     this.mobileLibrary = false,
     this.mobileReader = false,
+    this.mobileTts = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -42,6 +44,7 @@ class AsrStatus {
       mobileEmailAuth: json['mobile_email_auth'] == true,
       mobileLibrary: json['mobile_library'] == true,
       mobileReader: json['mobile_reader'] == true,
+      mobileTts: json['mobile_tts'] == true,
     );
   }
 
@@ -53,6 +56,7 @@ class AsrStatus {
   final bool mobileEmailAuth;
   final bool mobileLibrary;
   final bool mobileReader;
+  final bool mobileTts;
 }
 
 class AsrClient {
@@ -265,6 +269,74 @@ class AsrClient {
         )
         .timeout(const Duration(seconds: 20));
     _decodeObject(res, 'session/cursor');
+  }
+
+
+  /// GET /api/tts/voices — availability + curated list (edge: missing fields → defaults).
+  Future<TtsVoicesInfo> fetchTtsVoices() async {
+    final res = await _http
+        .get(_uri('/api/tts/voices'), headers: await _headers())
+        .timeout(const Duration(seconds: 20));
+    final map = _decodeObject(res, 'tts/voices');
+    return TtsVoicesInfo.fromJson(map);
+  }
+
+  /// POST /api/tts — returns raw MP3 bytes (do not JSON-decode success body).
+  ///
+  /// EDGE: empty text refused locally; 4xx/5xx JSON errors decoded for message.
+  Future<Uint8List> synthesizeTts({
+    required String text,
+    String? voice,
+    double speakingRate = kTtsRateDefault,
+  }) async {
+    if (isEmptyTtsText(text)) {
+      throw AsrApiException('empty_text', 400);
+    }
+    final rate = clampSpeakingRate(speakingRate);
+    final payload = <String, dynamic>{
+      'text': text.trim(),
+      'speaking_rate': rate,
+    };
+    final v = (voice ?? '').trim();
+    if (v.isNotEmpty) payload['voice'] = v;
+
+    final headers = await _headers(jsonBody: true);
+    headers['Accept'] = 'audio/mpeg, application/json';
+
+    final res = await _http
+        .post(
+          _uri('/api/tts'),
+          headers: headers,
+          body: jsonEncode(payload),
+        )
+        .timeout(const Duration(seconds: 60));
+
+    final ctHdr = (res.headers['content-type'] ?? '').toLowerCase();
+    final okAudio = res.statusCode >= 200 &&
+        res.statusCode < 300 &&
+        (ctHdr.contains('audio') ||
+            (res.bodyBytes.isNotEmpty && !ctHdr.contains('json')));
+    if (okAudio) {
+      if (res.bodyBytes.isEmpty) {
+        throw AsrApiException('empty audio body', res.statusCode);
+      }
+      return res.bodyBytes;
+    }
+
+    String detail = 'tts HTTP ${res.statusCode}';
+    try {
+      final body = jsonDecode(res.body);
+      if (body is Map) {
+        if (body['message'] != null) {
+          detail = '${body['message']}';
+        } else if (body['error'] != null) {
+          detail = '${body['error']}';
+        }
+      }
+    } catch (_) {
+      // EDGE: non-JSON error page
+    }
+    throw AsrApiException(detail, res.statusCode);
   }
 
   /// POST /api/auth/logout — clears server cookie + local token.
