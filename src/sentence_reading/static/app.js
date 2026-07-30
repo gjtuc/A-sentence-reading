@@ -238,6 +238,8 @@
     reviewRecordSid: null,
     /** @type {{ sid: string, ta: HTMLTextAreaElement, section: string, pk: string } | null} */
     flowEdit: null,
+    /** design/56 — flow 세그먼트 키보드 포커스 인덱스 */
+    flowSegIndex: 0,
   };
 
   const TTS_STORAGE_KEY = "asr.tts.v2";
@@ -2930,6 +2932,234 @@
     );
   }
 
+  /** design/56 — flow 인라인 편집 textarea 포커스 여부 */
+  function isFocusInSectionReviewEdit() {
+    return !!(
+      noteUi.flowEdit &&
+      noteUi.flowEdit.ta &&
+      document.activeElement === noteUi.flowEdit.ta
+    );
+  }
+
+  /** @returns {HTMLElement[]} */
+  function getSectionReviewFlowSegs() {
+    if (!el.sectionReviewList) return [];
+    return Array.prototype.slice.call(
+      el.sectionReviewList.querySelectorAll(".section-review-flow-seg")
+    );
+  }
+
+  /**
+   * design/56 — 세그먼트 포커스 (sentence_index 불변).
+   * @param {number} index
+   */
+  function focusSectionReviewSeg(index) {
+    var segs = getSectionReviewFlowSegs();
+    if (!segs.length) {
+      noteUi.flowSegIndex = 0;
+      if (el.sectionReviewContinue) {
+        try {
+          el.sectionReviewContinue.focus();
+        } catch (_) {
+          /* ignore */
+        }
+      } else if (el.sectionReviewSheet) {
+        try {
+          el.sectionReviewSheet.focus();
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      return;
+    }
+    var i = index | 0;
+    if (i < 0) i = 0;
+    if (i >= segs.length) i = segs.length - 1;
+    noteUi.flowSegIndex = i;
+    segs.forEach(function (s, j) {
+      s.classList.toggle("is-flow-focus", j === i);
+    });
+    try {
+      segs[i].focus();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  /**
+   * design/56 — 되새김질 전용 키. 처리하면 true (문서 핸들러가 return).
+   * 문장 박스 ←/→ · Enter · Esc 감각에 맞춤 · 인덱스는 건드리지 않음.
+   * @param {KeyboardEvent} ev
+   * @returns {boolean}
+   */
+  function handleSectionReviewKeys(ev) {
+    if (!isSectionReviewOpen()) return false;
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return false;
+
+    // 편집 중(textarea): Esc=취소만 · 화살표는 캐럿 이동(문서 핸들러가 TEXTAREA 에서 return)
+    if (isFocusInSectionReviewEdit()) {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        cancelSectionReviewFlowEdit();
+        focusSectionReviewSeg(noteUi.flowSegIndex | 0);
+        return true;
+      }
+      return false;
+    }
+    if (noteUi.flowEdit && ev.key === "Escape") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      cancelSectionReviewFlowEdit();
+      focusSectionReviewSeg(noteUi.flowSegIndex | 0);
+      return true;
+    }
+
+    var tag = (ev.target && ev.target.tagName) || "";
+    // 목소리/계속 읽기 버튼 위에서는 Space/Enter 네이티브 클릭 유지
+    if (
+      tag === "BUTTON" &&
+      (ev.key === " " || ev.key === "Enter") &&
+      ev.target &&
+      ev.target.closest &&
+      ev.target.closest(".section-review-sheet")
+    ) {
+      return false;
+    }
+
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeSectionReview();
+      return true;
+    }
+
+    var segs = getSectionReviewFlowSegs();
+
+    if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (!segs.length) {
+        focusSectionReviewSeg(0);
+        return true;
+      }
+      var cur = noteUi.flowSegIndex | 0;
+      // activeElement 가 세그먼트면 그 인덱스 우선
+      var ae = document.activeElement;
+      for (var si = 0; si < segs.length; si++) {
+        if (segs[si] === ae) {
+          cur = si;
+          break;
+        }
+      }
+      var next = cur + (ev.key === "ArrowRight" ? 1 : -1);
+      if (next < 0) next = 0;
+      if (next >= segs.length) next = segs.length - 1;
+      focusSectionReviewSeg(next);
+      return true;
+    }
+
+    // Shift+←/→ · ↑/↓ 도 읽기 인덱스 변경 방지
+    if (
+      ev.key === "ArrowUp" ||
+      ev.key === "ArrowDown" ||
+      ((ev.key === "ArrowLeft" || ev.key === "ArrowRight") && ev.shiftKey)
+    ) {
+      ev.preventDefault();
+      return true;
+    }
+
+    if (
+      (ev.key === "Enter" || ev.key === " " || ev.code === "Space") &&
+      !ev.isComposing &&
+      !ev.shiftKey
+    ) {
+      // 세그먼트 있으면 포커스된 것 편집 · 없으면 계속 읽기
+      if (segs.length) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var ix = noteUi.flowSegIndex | 0;
+        var ae2 = document.activeElement;
+        for (var j = 0; j < segs.length; j++) {
+          if (segs[j] === ae2) {
+            ix = j;
+            break;
+          }
+        }
+        focusSectionReviewSeg(ix);
+        var seg = segs[ix];
+        if (seg) {
+          // click 핸들러와 동일 경로
+          seg.click();
+        }
+        return true;
+      }
+      if (ev.key === "Enter" && el.sectionReviewContinue) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        el.sectionReviewContinue.click();
+        return true;
+      }
+    }
+
+    // Tab: 논문 전환 대신 세그먼트·계속 읽기 순환
+    if (ev.key === "Tab") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (!segs.length) {
+        if (el.sectionReviewContinue) {
+          try {
+            el.sectionReviewContinue.focus();
+          } catch (_) {
+            /* ignore */
+          }
+        }
+        return true;
+      }
+      var tcur = noteUi.flowSegIndex | 0;
+      var tnext = tcur + (ev.shiftKey ? -1 : 1);
+      if (tnext < 0) {
+        if (el.sectionReviewContinue) {
+          noteUi.flowSegIndex = 0;
+          try {
+            el.sectionReviewContinue.focus();
+          } catch (_) {
+            /* ignore */
+          }
+          return true;
+        }
+        tnext = segs.length - 1;
+      }
+      if (tnext >= segs.length) {
+        if (el.sectionReviewContinue) {
+          try {
+            el.sectionReviewContinue.focus();
+          } catch (_) {
+            /* ignore */
+          }
+          return true;
+        }
+        tnext = 0;
+      }
+      focusSectionReviewSeg(tnext);
+      return true;
+    }
+
+    // 문장/그림/전체화면/숫자 탭 등 읽기 단축키 차단 (인덱스 불변)
+    if (
+      ev.key === "f" ||
+      ev.key === "F" ||
+      (ev.key >= "1" && ev.key <= "9") ||
+      (ev.code && /^Digit[1-9]$/.test(ev.code)) ||
+      (ev.code && /^Numpad[1-9]$/.test(ev.code))
+    ) {
+      ev.preventDefault();
+      return true;
+    }
+
+    return false;
+  }
+
   function playNoteSentence() {
     // WHY: 노트는 듣고 적기 — 문장 텍스트 대신 TTS
     speakCurrentSentence();
@@ -3060,11 +3290,11 @@
       translatePrefs.enabled &&
       digest &&
       (String(digest.ko || "").trim() || String(digest.en || "").trim());
-    // WHY: design/51+52 — 이어 보기 + ▶ 이어 듣기; 콕 수정은 후속
+    // WHY: design/51+55+56 — 이어 보기 · 콕 수정 · 키보드 세그먼트 이동
     if (el.sectionReviewHint) {
       el.sectionReviewHint.textContent = hasDigest
-        ? "위쪽은 이 구간 번역 정리본입니다. 아래는 기록을 이어서 본 것입니다. 한 구간을 클릭하면 수정 · ▶ 이어 듣기로 목소리를 재생합니다 (문장 위치는 그대로)."
-        : "아래는 이 구간 기록을 이어서 본 것입니다. 한 구간을 클릭하면 수정 · ▶ 이어 듣기로 목소리를 재생합니다 (문장 위치는 그대로).";
+        ? "위쪽은 이 구간 번역 정리본입니다. 아래는 기록을 이어서 본 것입니다. ←/→ 로 구간 이동 · Enter로 수정 · Esc로 닫기 (문장 위치는 그대로)."
+        : "아래는 이 구간 기록을 이어서 본 것입니다. ←/→ 로 구간 이동 · Enter로 수정 · Esc로 닫기 (문장 위치는 그대로).";
     }
     var ids = AsrNotes.sentenceIdsInSection(state.sentences, section);
     var pk = currentPaperKey();
@@ -3097,11 +3327,9 @@
       empty.className = "section-review-item-body is-empty";
       empty.textContent = "이 구간에 문장이 없습니다.";
       el.sectionReviewList.appendChild(empty);
-      if (el.sectionReviewSheet) {
-        window.setTimeout(function () {
-          el.sectionReviewSheet.focus();
-        }, 0);
-      }
+      window.setTimeout(function () {
+        focusSectionReviewSeg(0);
+      }, 0);
       return;
     }
 
@@ -3231,11 +3459,10 @@
       el.sectionReviewList.appendChild(barLi);
     }
 
-    if (el.sectionReviewSheet) {
-      window.setTimeout(function () {
-        el.sectionReviewSheet.focus();
-      }, 0);
-    }
+    noteUi.flowSegIndex = 0;
+    window.setTimeout(function () {
+      focusSectionReviewSeg(0);
+    }, 0);
   }
 
   /**
@@ -5015,6 +5242,14 @@
         closeNoteOverlayFromEscape(ev);
         return;
       }
+      // WHY: design/56 — 편집 중 Esc 는 시트 닫기보다 취소 우선
+      if (isSectionReviewOpen() && (isFocusInSectionReviewEdit() || noteUi.flowEdit)) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        cancelSectionReviewFlowEdit();
+        focusSectionReviewSeg(noteUi.flowSegIndex | 0);
+        return;
+      }
       if (isSectionReviewOpen()) {
         ev.preventDefault();
         ev.stopPropagation();
@@ -5029,6 +5264,10 @@
       closeNoteOverlayFromEscape(ev);
       return;
     }
+
+    // WHY: design/56 — 되새김질 키를 문장 박스 감각에 맞춤 (인덱스 불변)
+    if (handleSectionReviewKeys(ev)) return;
+
     if (ev.key === "Escape" && isSectionReviewOpen()) {
       ev.preventDefault();
       closeSectionReview();
