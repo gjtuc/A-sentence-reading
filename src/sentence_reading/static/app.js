@@ -111,6 +111,7 @@
     sentenceKoFrame: document.getElementById("sentenceKoFrame"),
     sentenceBilingual: document.getElementById("sentenceBilingual"),
     translateBtn: document.getElementById("translateBtn"),
+    sectionReviewBtn: document.getElementById("sectionReviewBtn"),
     sttPracticeBtn: document.getElementById("sttPracticeBtn"),
     sttPracticePanel: document.getElementById("sttPracticePanel"),
     sttStatus: document.getElementById("sttStatus"),
@@ -237,9 +238,13 @@
 
   const TTS_STORAGE_KEY = "asr.tts.v2";
   const TRANSLATE_STORAGE_BASE = "asr.translate.v1";
+  // WHY: design/53 — 되새김질(섹션 경계 리뷰) 사용자 on/off · 기본 켜짐(기존 UX 유지)
+  const SECTION_REVIEW_STORAGE_BASE = "asr.sectionReview.v1";
   /** @type {{ enabled: boolean, mode: "pipeline" | "simple" }} */
   // WHY: design/36 — 기본 pipeline(초안→감수→윤문); simple은 35 호환
   const translatePrefs = { enabled: false, mode: "pipeline" };
+  /** @type {{ enabled: boolean }} */
+  const sectionReviewPrefs = { enabled: true };
   /** @type {AbortController | null} */
   let translateAbort = null;
   /** @type {string | null} */
@@ -905,7 +910,7 @@
     frozenKoText = null;
     const next = state.sentences[state.sentenceIndex];
     const nextSec = next && next.section ? String(next.section) : "";
-    // WHY: 앞으로 갈 때만 섹션 경계 → 직전 구간 되새김질 (design/17)
+    // WHY: 앞으로 갈 때만 섹션 경계 → 직전 구간 되새김질 (design/17 · 53 on일 때만)
     const crossedForward =
       delta > 0 &&
       prevSec &&
@@ -915,7 +920,7 @@
     render();
     snapshotActivePaper();
     persistReadingProgress();
-    if (crossedForward) {
+    if (crossedForward && sectionReviewPrefs.enabled) {
       openSectionReview(prevSec);
       return;
     }
@@ -2139,6 +2144,7 @@
     setUploadStatus(msg || "로그인됨", "");
     if (el.authDialog && el.authDialog.open) el.authDialog.close();
     loadTranslatePrefs();
+    loadSectionReviewPrefs();
     if (translatePrefs.enabled) render();
     await pullNotesFromCloud();
   }
@@ -2307,6 +2313,7 @@
       applyAccountScope(authState.user && authState.user.uid);
       renderAuthChrome();
       loadTranslatePrefs();
+      loadSectionReviewPrefs();
       const params = new URLSearchParams(window.location.search);
       if (params.get("auth_error")) {
         setUploadStatus("로그인 실패: " + params.get("auth_error"), "error");
@@ -2330,6 +2337,7 @@
       };
       renderAuthChrome();
       loadTranslatePrefs();
+      loadSectionReviewPrefs();
     }
   }
 
@@ -2419,6 +2427,7 @@
     applyAccountScope(null);
     renderAuthChrome();
     loadTranslatePrefs();
+    loadSectionReviewPrefs();
     if (translatePrefs.enabled) render();
     else clearSentenceKo();
     setUploadStatus("로그아웃됨", "");
@@ -2883,7 +2892,60 @@
     return plainSentenceText(body).slice(0, 120);
   }
 
+  function sectionReviewStorageKey() {
+    const uid = authState.user && authState.user.uid;
+    return uid
+      ? SECTION_REVIEW_STORAGE_BASE + "." + String(uid)
+      : SECTION_REVIEW_STORAGE_BASE;
+  }
+
+  function loadSectionReviewPrefs() {
+    // WHY: design/53 — 손상·빈 값·이상 타입은 기본 켜짐으로 복구 (읽기 UX 유지)
+    try {
+      const raw = localStorage.getItem(sectionReviewStorageKey());
+      if (!raw) {
+        sectionReviewPrefs.enabled = true;
+      } else {
+        const data = JSON.parse(raw);
+        if (data && typeof data === "object" && "enabled" in data) {
+          sectionReviewPrefs.enabled = !!data.enabled;
+        } else if (typeof data === "boolean") {
+          sectionReviewPrefs.enabled = data;
+        } else {
+          sectionReviewPrefs.enabled = true;
+        }
+      }
+    } catch (_) {
+      sectionReviewPrefs.enabled = true;
+    }
+    syncSectionReviewBtn();
+  }
+
+  function saveSectionReviewPrefs() {
+    try {
+      localStorage.setItem(
+        sectionReviewStorageKey(),
+        JSON.stringify({ enabled: !!sectionReviewPrefs.enabled })
+      );
+    } catch (_) {
+      /* ignore quota / private mode */
+    }
+  }
+
+  function syncSectionReviewBtn() {
+    if (!el.sectionReviewBtn) return;
+    el.sectionReviewBtn.setAttribute(
+      "aria-pressed",
+      sectionReviewPrefs.enabled ? "true" : "false"
+    );
+    el.sectionReviewBtn.title = sectionReviewPrefs.enabled
+      ? "되새김질 켜짐 — 섹션이 바뀔 때 리뷰 (클릭하면 끔)"
+      : "되새김질 꺼짐 — 섹션 경계에서도 리뷰 없음 (클릭하면 켬)";
+  }
+
   function openSectionReview(section) {
+    // WHY: design/53 — prefs off 이면 호출되어도 no-op (인덱스·store 불변)
+    if (!sectionReviewPrefs.enabled) return;
     if (!el.sectionReviewOverlay || !el.sectionReviewList || !AsrNotes) return;
     if (noteUi.open) closeNoteOverlay();
     stopTts();
@@ -4645,6 +4707,7 @@
   applyLayout();
   loadTtsSettings();
   loadTranslatePrefs();
+  loadSectionReviewPrefs();
 
   if (el.translateBtn) {
     el.translateBtn.addEventListener("click", () => {
@@ -4653,6 +4716,18 @@
       syncTranslateBtn();
       if (translatePrefs.enabled) render();
       else clearSentenceKo();
+    });
+  }
+
+  // WHY: design/53 — 헤더「되새김」토글 · 끄면 열린 시트도 닫음
+  if (el.sectionReviewBtn) {
+    el.sectionReviewBtn.addEventListener("click", () => {
+      sectionReviewPrefs.enabled = !sectionReviewPrefs.enabled;
+      saveSectionReviewPrefs();
+      syncSectionReviewBtn();
+      if (!sectionReviewPrefs.enabled && isSectionReviewOpen()) {
+        closeSectionReview({ resume: false });
+      }
     });
   }
 

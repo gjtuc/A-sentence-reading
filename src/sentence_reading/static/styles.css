@@ -890,6 +890,12 @@ body.is-figure-chrome-out .figure-viewport:not(.is-cropped) img {
   color: var(--fg);
 }
 
+/* design/53 — 되새김질 on (번역 토글과 동일 accent) */
+#sectionReviewBtn[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
 #sttPracticeBtn[aria-pressed="true"] {
   border-color: var(--accent);
   color: var(--fg);
