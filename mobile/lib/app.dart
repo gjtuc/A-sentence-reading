@@ -3,16 +3,24 @@ import 'package:flutter/material.dart';
 import 'screens/home_shell.dart';
 import 'state/auth_controller.dart';
 import 'state/library_controller.dart';
+import 'state/theme_controller.dart';
 import 'state/tts_controller.dart';
 
 /// Root Material app — brand title 「문장 읽기」.
 class SentenceReadingApp extends StatefulWidget {
-  const SentenceReadingApp({super.key, this.auth, this.library, this.tts});
+  const SentenceReadingApp({
+    super.key,
+    this.auth,
+    this.library,
+    this.tts,
+    this.theme,
+  });
 
   /// Optional inject for tests (memory session / fake client).
   final AuthController? auth;
   final LibraryController? library;
   final TtsController? tts;
+  final ThemeController? theme;
 
   @override
   State<SentenceReadingApp> createState() => _SentenceReadingAppState();
@@ -24,10 +32,15 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       widget.library ?? LibraryController(client: _auth.client);
   late final TtsController _tts =
       widget.tts ?? TtsController(client: _auth.client, library: _library);
+  late final ThemeController _theme = widget.theme ?? ThemeController();
+
+  static const _seed = Color(0xFF1B4F72);
+
   @override
   void initState() {
     super.initState();
     _auth.bootstrap();
+    _theme.bootstrap();
   }
 
   @override
@@ -39,19 +52,41 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     if (widget.tts == null) {
       _tts.dispose();
     }
+    // ThemeController has no owned client.
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '문장 읽기',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B4F72)),
-        useMaterial3: true,
-      ),
-      home: HomeShell(auth: _auth, library: _library, tts: _tts),
+    return AnimatedBuilder(
+      animation: _theme,
+      builder: (context, _) {
+        return MaterialApp(
+          title: '문장 읽기',
+          debugShowCheckedModeBanner: false,
+          themeMode: _theme.mode,
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: _seed,
+              brightness: Brightness.light,
+            ),
+            useMaterial3: true,
+          ),
+          darkTheme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: _seed,
+              brightness: Brightness.dark,
+            ),
+            useMaterial3: true,
+          ),
+          home: HomeShell(
+            auth: _auth,
+            library: _library,
+            tts: _tts,
+            theme: _theme,
+          ),
+        );
+      },
     );
   }
 }
