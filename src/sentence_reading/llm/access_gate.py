@@ -474,6 +474,9 @@ def public_access_view(
         "status": status,
         "effective": effective,
         "can_use_paid": can,
+        # WHY expose is_admin: client must fail-closed hide mint/decide UI.
+        # Server still enforces mint/decide; UI flag is not authorization.
+        "is_admin": bool(is_admin),
         "invited_at": acc.get("invited_at"),
         "decided_at": acc.get("decided_at"),
         "decision_note": acc.get("note") or "",

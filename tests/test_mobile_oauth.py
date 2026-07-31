@@ -1,4 +1,4 @@
-"""Flutter mobile Google/Kakao OAuth wiring (0.2.77 · design/65)."""
+"""Flutter mobile Google/Kakao OAuth wiring (0.2.78 · design/65)."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_mobile_oauth_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.77"
+    assert st["version"] == "0.2.78"
     assert st["mobile_oauth"] is True
     assert st["mobile_tts"] is True
     assert "live_enable" not in st
@@ -122,7 +122,7 @@ def test_google_login_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_mobile_dart_oauth_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.2.77" in pub
+    assert "0.2.78" in pub
     assert "google_sign_in" in pub
     assert "flutter_web_auth_2" in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
@@ -140,7 +140,7 @@ def test_mobile_dart_oauth_sources() -> None:
     assert "oauth" in manifest
     assert DESIGN.is_file()
     design = DESIGN.read_text(encoding="utf-8")
-    assert "0.2.77" in design
+    assert "0.2.78" in design
     assert "Trading Gate" in design or "ASR" in design
 
 
@@ -161,4 +161,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.2.77" in html
+    assert "app.js?v=0.2.78" in html

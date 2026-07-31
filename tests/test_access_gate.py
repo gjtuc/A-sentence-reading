@@ -1,4 +1,4 @@
-"""Access gate OTP invite + TTL/rate-limit (0.2.77 · design/67)."""
+"""Access gate OTP invite + TTL/rate-limit (0.2.78 · design/67)."""
 
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def _login_user(client: TestClient, email: str = "user@example.com") -> str:
 def test_status_access_gate_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.77"
+    assert st["version"] == "0.2.78"
     assert st["access_gate"] is True
     assert st["mobile_access_gate"] is True
     assert "live_enable" not in st
@@ -153,19 +153,20 @@ def test_gate_off_allows() -> None:
 def test_mobile_sources() -> None:
     mobile = Path(__file__).resolve().parents[1] / "mobile"
     pub = (mobile / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.2.77" in pub
+    assert "0.2.78" in pub
     client = (mobile / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "redeemInviteCode" in client and "mintInviteCode" in client
     settings = (mobile / "lib" / "screens" / "settings_screen.dart").read_text(
         encoding="utf-8"
     )
     assert "Allow" in settings and "Deny" in settings
+    assert "isAdmin" in settings or "access?.isAdmin" in settings
     assert "TqG3" in settings or "XXXX-XXXX" in settings
     design = (
         Path(__file__).resolve().parents[1] / "docs" / "design" / "67-access-gate.md"
     )
     assert design.is_file()
-    assert "0.2.77" in design.read_text(encoding="utf-8")
+    assert "0.2.78" in design.read_text(encoding="utf-8")
 
 
 def test_invite_expires(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -220,8 +221,20 @@ def test_ttl_env_edges(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_status_exposes_ttl_flags() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.77"
+    assert st["version"] == "0.2.78"
     assert st["access_invite_ttl_seconds"] == 48 * 3600
     assert st["access_redeem_max"] >= 1
     assert "live_enable" not in st
     assert "ips" not in st
+
+
+def test_access_status_is_admin_flag() -> None:
+    client = TestClient(app)
+    _login_user(client)
+    st = client.get("/api/access/status").json()
+    assert st.get("is_admin") is False
+    client.post("/api/auth/logout")
+    _login_admin(client)
+    st2 = client.get("/api/access/status").json()
+    assert st2.get("is_admin") is True
+    assert "live_enable" not in client.get("/api/status").json()

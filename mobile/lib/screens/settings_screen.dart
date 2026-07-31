@@ -227,53 +227,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onPressed: _loading ? null : _redeem,
                 child: const Text('코드 제출'),
               ),
-              const SizedBox(height: 24),
-              Text('관리자', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              FilledButton.tonal(
-                onPressed: _loading ? null : _mint,
-                child: const Text('OTP 초대 코드 발급'),
-              ),
-              if (_minted != null) ...[
+              // WHY: admin chrome only when server says is_admin.
+              // EDGE: missing/false → hide (fail-closed). Mint still 403 server-side.
+              if (access?.isAdmin == true) ...[
+                const SizedBox(height: 24),
+                Text('관리자', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
-                SelectableText('방금 발급: $_minted'),
-              ],
-              const SizedBox(height: 12),
-              Text('승인 대기 (${_pending.length})'),
-              ..._pending.map((p) {
-                final uid = '${p['uid'] ?? ''}';
-                final email = '${p['email'] ?? ''}';
-                return ListTile(
-                  dense: true,
-                  title: Text(email.isEmpty ? uid : email),
-                  subtitle: Text(uid),
-                  trailing: Wrap(
-                    spacing: 4,
-                    children: [
-                      TextButton(
-                        onPressed: _loading ? null : () => _decide(uid, 'allow'),
-                        child: const Text('Allow'),
-                      ),
-                      TextButton(
-                        onPressed: _loading ? null : () => _decide(uid, 'deny'),
-                        child: const Text('Deny'),
-                      ),
-                    ],
-                  ),
-                );
-              }),
-              if (_events.isNotEmpty) ...[
+                FilledButton.tonal(
+                  onPressed: _loading ? null : _mint,
+                  child: const Text('OTP 초대 코드 발급'),
+                ),
+                if (_minted != null) ...[
+                  const SizedBox(height: 8),
+                  SelectableText('방금 발급: $_minted'),
+                ],
                 const SizedBox(height: 12),
-                Text('알림', style: Theme.of(context).textTheme.titleSmall),
-                ..._events.take(8).map((e) {
+                Text('승인 대기 (${_pending.length})'),
+                ..._pending.map((p) {
+                  final uid = '${p['uid'] ?? ''}';
+                  final email = '${p['email'] ?? ''}';
                   return ListTile(
                     dense: true,
-                    title: Text('${e['type'] ?? ''}'),
-                    subtitle: Text('${e['email'] ?? ''} ${e['message'] ?? ''}'),
+                    title: Text(email.isEmpty ? uid : email),
+                    subtitle: Text(uid),
+                    trailing: Wrap(
+                      spacing: 4,
+                      children: [
+                        TextButton(
+                          onPressed: _loading
+                              ? null
+                              : () => _decide(uid, 'allow'),
+                          child: const Text('Allow'),
+                        ),
+                        TextButton(
+                          onPressed: _loading
+                              ? null
+                              : () => _decide(uid, 'deny'),
+                          child: const Text('Deny'),
+                        ),
+                      ],
+                    ),
                   );
                 }),
+                if (_events.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text('알림', style: Theme.of(context).textTheme.titleSmall),
+                  ..._events.take(8).map((e) {
+                    return ListTile(
+                      dense: true,
+                      title: Text('${e['type'] ?? ''}'),
+                      subtitle:
+                          Text('${e['email'] ?? ''} ${e['message'] ?? ''}'),
+                    );
+                  }),
+                ],
               ],
-              TextButton(onPressed: _loading ? null : _reload, child: const Text('새로고침')),
+              TextButton(
+                onPressed: _loading ? null : _reload,
+                child: const Text('새로고침'),
+              ),
             ],
             if (_error != null) ...[
               const SizedBox(height: 8),

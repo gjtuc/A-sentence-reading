@@ -25,6 +25,7 @@ class AccessStatus {
     required this.gateEnabled,
     required this.status,
     required this.canUsePaid,
+    this.isAdmin = false,
     this.effective = '',
     this.invitePoolReady = false,
     this.decisionNote = '',
@@ -32,10 +33,12 @@ class AccessStatus {
 
   factory AccessStatus.fromJson(Map<String, dynamic>? json) {
     if (json == null) {
+      // EDGE: missing payload → treat as non-admin (fail-closed for admin chrome).
       return AccessStatus(
         gateEnabled: false,
         status: 'none',
         canUsePaid: true,
+        isAdmin: false,
       );
     }
     return AccessStatus(
@@ -44,6 +47,8 @@ class AccessStatus {
           ? 'none'
           : '${json['status']}'.trim(),
       canUsePaid: json['can_use_paid'] == true,
+      // EDGE: only explicit true counts — missing/false → hide admin UI.
+      isAdmin: json['is_admin'] == true,
       effective: '${json['effective'] ?? ''}',
       invitePoolReady: json['invite_pool_ready'] == true,
       decisionNote: '${json['decision_note'] ?? ''}',
@@ -53,6 +58,8 @@ class AccessStatus {
   final bool gateEnabled;
   final String status;
   final bool canUsePaid;
+  /// Server-attested admin email membership (ASR_ADMIN_EMAILS). Not a client trust.
+  final bool isAdmin;
   final String effective;
   final bool invitePoolReady;
   final String decisionNote;
