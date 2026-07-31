@@ -42,7 +42,7 @@ Wire **real** Cloud Run OAuth into the Android app (not mocks). Email already wo
 - malformed deep link / blank token → clear, error
 - web Kakao callback (mobile=0) unchanged → `/?auth=`
 
-## Android OAuth SHA-1 (0.2.80)
+## Android OAuth SHA-1 (0.2.81)
 
 Sideload release APK currently uses the **debug signing** key (`signingConfig = debug`).
 Google Sign-In requires an **Android** OAuth client in the same Cloud project as the Web `client_id`.
@@ -61,7 +61,7 @@ Google Sign-In requires an **Android** OAuth client in the same Cloud project as
 5. Keep using the existing **Web** client id as `serverClientId` / `ASR_GOOGLE_CLIENT_ID` (public)
 
 
-### Registration status (0.2.80)
+### Registration status (0.2.81)
 
 Ops completed in Google Cloud project `peaceful-basis-503207-t4`:
 
@@ -77,7 +77,7 @@ Device E2E (Samsung sideload): **Google로 계속** → account picker → **로
 
 Propagation note: Google may take minutes after create; retry Sign-In if account picker succeeds but session fails briefly.
 
-### App behaviour (0.2.80)
+### App behaviour (0.2.81)
 
 - `ApiException: 10` / `DEVELOPER_ERROR` → Korean fail-closed message (not success snackbar)
 - No client secret in the APK; id_token still verified only on Cloud Run
@@ -96,4 +96,4 @@ Live Enable / IPS → Trading Gate (ASR out) — unchanged.
 
 ## Version
 
-Web **0.2.80** · status `mobile_oauth` · `mobile_google_sha_runbook` · `mobile_google_android_oauth` · pubspec `0.2.80+1`
+Web **0.2.81** · status `mobile_oauth` · `mobile_google_sha_runbook` · `mobile_google_android_oauth` · pubspec `0.2.81+1`

@@ -86,7 +86,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final raw = _code.text;
     if (!isPlausibleInviteCode(raw)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('코드 형식: XXXX-XXXX (예: TqG3-V12T)')),
+        const SnackBar(content: Text('초대 코드 형식이 올바르지 않습니다.')),
       );
       return;
     }
@@ -196,8 +196,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text('액세스 (초대 코드)', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
-              '서버가 만든 OTP 코드(예: TqG3-V12T)를 입력하면 승인 대기가 됩니다. '
-              '관리자가 Allow해야 유료 API를 씁니다.',
+              '관리자에게 부여받은 OTP를 입력하면 승인 대기가 됩니다.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             if (!logged) ...[
@@ -218,7 +217,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 textCapitalization: TextCapitalization.characters,
                 decoration: const InputDecoration(
                   labelText: '초대 코드',
-                  hintText: 'XXXX-XXXX',
                   border: OutlineInputBorder(),
                 ),
               ),
