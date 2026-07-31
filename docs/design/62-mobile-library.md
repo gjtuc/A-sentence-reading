@@ -31,3 +31,7 @@ Android Flutter MVP **보관 목록**:
 ## 버전
 
 웹 **0.2.82** · pubspec `0.2.82+1`
+
+## Version pin
+
+Web/mobile **0.2.83**.

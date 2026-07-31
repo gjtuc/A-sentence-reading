@@ -97,3 +97,7 @@ Live Enable / IPS → Trading Gate (ASR out) — unchanged.
 ## Version
 
 Web **0.2.82** · status `mobile_oauth` · `mobile_google_sha_runbook` · `mobile_google_android_oauth` · pubspec `0.2.82+1`
+
+## Version pin
+
+Web/mobile **0.2.83**.

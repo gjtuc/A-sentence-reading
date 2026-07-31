@@ -17,7 +17,7 @@ ANDROID = MOBILE / "android"
 def test_status_android_platform_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.82"
+    assert st["version"] == "0.2.83"
     assert st["mobile_flutter_scaffold"] is True
     assert st["mobile_android_platform"] is True
     assert "live_enable" not in st
@@ -106,4 +106,4 @@ def test_design_48_and_readme() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.2.82" in html
+    assert "app.js?v=0.2.83" in html

@@ -48,3 +48,7 @@ Android Flutter MVP 구현 순서 **3번 중 로그인(수단 ≥1)**:
 - Password confirm field on register
 - Visibility toggle (eye icon) on password fields
 - Client validates match before POST (no password logging)
+
+## Version pin
+
+Web/mobile **0.2.83**.

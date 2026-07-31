@@ -43,3 +43,7 @@ flutter build apk
 ## 버전
 
 웹 **0.2.56** · `mobile_android_platform: true` · pubspec `0.2.56+1`
+
+## Version pin
+
+Web/mobile **0.2.83** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).

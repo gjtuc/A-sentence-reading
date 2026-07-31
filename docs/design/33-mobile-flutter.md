@@ -130,3 +130,8 @@ PC **웹**은 유지하고, 휴대폰용 **네이티브 앱**을 새로 둔다.
 ## 버전
 
 웹 **0.2.82** · `access_gate` · pubspec `0.2.82+1`
+
+## Access gate pin (0.2.83)
+
+Invite redeem E2E + Settings logout clears minted OTP (see [67](67-access-gate.md)).
+

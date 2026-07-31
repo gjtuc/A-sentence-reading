@@ -43,3 +43,7 @@ flutter build apk
 ## 버전
 
 출시 **0.2.55** · status `mobile_flutter_scaffold: true` (이후 앱 버전은 후속 문서 참고)
+
+## Version pin
+
+Web/mobile **0.2.83** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).

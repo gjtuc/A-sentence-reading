@@ -35,3 +35,7 @@ Opened session shown as sentence (top) + figure (bottom); indexes move independe
 ## Version
 
 Web **0.2.82** · status mobile_reader: true · pubspec 0.2.82+1
+
+## Version pin
+
+Web/mobile **0.2.83**.
