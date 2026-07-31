@@ -26,8 +26,8 @@ ADMIN_EMAILS="${ASR_ADMIN_EMAILS:-}"
 # EDGE: CD must set GitHub secret ASR_ADMIN_EMAILS; local deploy must export it.
 _admin_n=0
 if [[ -n "$ADMIN_EMAILS" ]]; then
-  _admin_n=$(printf '%s' "$ADMIN_EMAILS" | tr ',' '
-' | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')
+  # WHY: count commas+1 without printing addresses (no tr newline portability issues).
+  _admin_n=$(awk -F',' '{print NF}' <<<"$ADMIN_EMAILS")
 fi
 echo "ASR_ADMIN_EMAILS configured_count=${_admin_n} (values not printed)"
 
