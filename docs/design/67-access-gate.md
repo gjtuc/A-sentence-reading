@@ -50,10 +50,10 @@ Cost protection for Cloud Run / Gemini / TTS / GCS:
 
 ## Version
 
-Web **0.2.79** · `access_gate` / `mobile_access_gate` · pubspec `0.2.79+1`
+Web **0.2.80** · `access_gate` / `mobile_access_gate` · pubspec `0.2.80+1`
 
 
-## Hardening (0.2.79)
+## Hardening (0.2.80)
 
 | Control | Default | Env |
 |---------|---------|-----|
@@ -66,7 +66,7 @@ Web **0.2.79** · `access_gate` / `mobile_access_gate` · pubspec `0.2.79+1`
 - Live Enable / IPS → Trading Gate only (ASR out)
 
 
-## Admin UI gate (0.2.79)
+## Admin UI gate (0.2.80)
 
 - `/api/access/status` includes `is_admin` (from `ASR_ADMIN_EMAILS`)
 - Flutter Settings shows mint/pending/Allow **only** when `is_admin: true`

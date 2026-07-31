@@ -34,4 +34,4 @@ Opened session shown as sentence (top) + figure (bottom); indexes move independe
 
 ## Version
 
-Web **0.2.79** · status mobile_reader: true · pubspec 0.2.79+1
+Web **0.2.80** · status mobile_reader: true · pubspec 0.2.80+1
