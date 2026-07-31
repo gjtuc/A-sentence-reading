@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/client.dart';
+import '../api/oauth_models.dart';
 import '../state/auth_controller.dart';
 
 /// Email + Google + Kakao against Cloud Run (design/61 · design/65).
@@ -95,18 +96,24 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _google() async {
     try {
       await widget.auth.loginGoogle();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Google 로그인되었습니다.')),
-        );
+      if (!mounted) return;
+      // WHY: never show success unless session user is present (fail-closed).
+      if (widget.auth.user == null) {
+        final msg = widget.auth.error ?? 'Google 로그인에 실패했습니다.';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        return;
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Google 로그인되었습니다.')),
+      );
     } on AsrApiException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        final msg = widget.auth.error ?? describeGoogleSignInFailure(e);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       }
     }
   }

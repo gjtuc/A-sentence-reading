@@ -4,7 +4,9 @@ Application id: `com.gjtuc.sentence_reading`
 
 Design: [33](../docs/design/33-mobile-flutter.md) · [61](../docs/design/61-mobile-email-auth.md)–[67](../docs/design/67-access-gate.md).
 
-## Status (0.2.78)
+## Status (0.2.79)
+
+- Android Google OAuth SHA-1 runbook · DEVELOPER_ERROR fail-closed (`mobile_google_sha_runbook`) — see design/65
 
 - Scaffold baseline **0.2.56**
 - Login · library · reader · TTS · theme

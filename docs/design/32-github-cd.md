@@ -61,4 +61,4 @@ CD 배포는 `ASR_CD_SKIP_API_ENABLE=1` — **`gcloud services enable` 생략** 
 
 ## 버전
 
-0.2.78 (앱; CD 게이트 자체는 0.2.33–0.2.36)
+0.2.79 (앱; CD 게이트 자체는 0.2.33–0.2.36)

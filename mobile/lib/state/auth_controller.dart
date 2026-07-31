@@ -90,7 +90,9 @@ class AuthController extends ChangeNotifier {
       notifyListeners();
       rethrow;
     } catch (e) {
-      error = e.toString();
+      // WHY map: raw PlatformException(10) looks like a crash dump and can be
+      // mistaken for a half-success. Fail-closed Korean copy instead.
+      error = describeGoogleSignInFailure(e);
       busy = false;
       notifyListeners();
       rethrow;

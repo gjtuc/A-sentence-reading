@@ -42,6 +42,41 @@ Wire **real** Cloud Run OAuth into the Android app (not mocks). Email already wo
 - malformed deep link / blank token → clear, error
 - web Kakao callback (mobile=0) unchanged → `/?auth=`
 
+## Android OAuth SHA-1 (0.2.79)
+
+Sideload release APK currently uses the **debug signing** key (`signingConfig = debug`).
+Google Sign-In requires an **Android** OAuth client in the same Cloud project as the Web `client_id`.
+
+| Field | Value |
+|-------|--------|
+| Package name | `com.gjtuc.sentence_reading` |
+| SHA-1 (debug / current sideload) | `73:45:00:0C:68:F6:B3:A9:88:1D:9A:FC:42:E7:86:FD:E9:A0:CA:10` |
+
+### Console steps (ops — no secrets in git)
+
+1. Google Cloud Console → APIs & Services → Credentials
+2. Create OAuth client → **Android**
+3. Package name = `com.gjtuc.sentence_reading`
+4. SHA-1 = value above (recompute if the signing key changes)
+5. Keep using the existing **Web** client id as `serverClientId` / `ASR_GOOGLE_CLIENT_ID` (public)
+
+### App behaviour (0.2.79)
+
+- `ApiException: 10` / `DEVELOPER_ERROR` → Korean fail-closed message (not success snackbar)
+- No client secret in the APK; id_token still verified only on Cloud Run
+
+### Recompute SHA-1
+
+```bash
+# debug keystore (sideload today)
+keytool -exportcert -keystore "$HOME/.android/debug.keystore" \
+  -alias androiddebugkey -storepass android -file /tmp/debug.cer
+# then SHA-1 of the DER cert, or:
+apksigner verify --print-certs app-release.apk
+```
+
+Live Enable / IPS → Trading Gate (ASR out) — unchanged.
+
 ## Version
 
-Web **0.2.78** · status `mobile_oauth: true` · pubspec `0.2.78+1`
+Web **0.2.79** · status `mobile_oauth` · `mobile_google_sha_runbook` · pubspec `0.2.79+1`
