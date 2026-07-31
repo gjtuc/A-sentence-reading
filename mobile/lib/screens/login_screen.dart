@@ -6,6 +6,20 @@ import '../state/auth_controller.dart';
 /// Email + Google + Kakao against Cloud Run (design/61 · design/65).
 ///
 /// OAuth is real server verification — not a UI mock. Live Enable/IPS: ASR out.
+
+/// Client-only signup password checks (design/61 UX). Never log [password]/confirm].
+///
+/// Returns Korean error message or null when OK.
+String? validateRegisterPasswords(String password, String confirm) {
+  if (password.length < 8) {
+    return '비밀번호는 8자 이상이어야 합니다.';
+  }
+  if (password != confirm) {
+    return '비밀번호 확인이 일치하지 않습니다.';
+  }
+  return null;
+}
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, required this.auth});
 
@@ -18,13 +32,18 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
+  final _passwordConfirm = TextEditingController();
   final _name = TextEditingController();
   bool _registerMode = false;
+  // WHY: default hidden — reduce shoulder-surfing; user opts in via eye icon.
+  bool _obscurePassword = true;
+  bool _obscurePasswordConfirm = true;
 
   @override
   void dispose() {
     _email.dispose();
     _password.dispose();
+    _passwordConfirm.dispose();
     _name.dispose();
     super.dispose();
   }
@@ -38,11 +57,16 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       return;
     }
-    if (_registerMode && password.length < 8) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('비밀번호는 8자 이상이어야 합니다.')),
+    if (_registerMode) {
+      // EDGE: mistyped password on signup — block before network (no secret logged).
+      final err = validateRegisterPasswords(
+        password,
+        _passwordConfirm.text,
       );
-      return;
+      if (err != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+        return;
+      }
     }
     try {
       if (_registerMode) {
@@ -200,13 +224,43 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 12),
               TextField(
                 controller: _password,
-                obscureText: true,
-                decoration: const InputDecoration(
+                obscureText: _obscurePassword,
+                decoration: InputDecoration(
                   labelText: '비밀번호',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    tooltip: _obscurePassword ? '비밀번호 보기' : '비밀번호 숨기기',
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
+                    icon: Icon(
+                      _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                    ),
+                  ),
                 ),
               ),
               if (_registerMode) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _passwordConfirm,
+                  obscureText: _obscurePasswordConfirm,
+                  decoration: InputDecoration(
+                    labelText: '비밀번호 확인',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      tooltip: _obscurePasswordConfirm
+                          ? '비밀번호 보기'
+                          : '비밀번호 숨기기',
+                      onPressed: () => setState(
+                        () => _obscurePasswordConfirm = !_obscurePasswordConfirm,
+                      ),
+                      icon: Icon(
+                        _obscurePasswordConfirm
+                            ? Icons.visibility
+                            : Icons.visibility_off,
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _name,
@@ -230,7 +284,14 @@ class _LoginScreenState extends State<LoginScreen> {
               TextButton(
                 onPressed: auth.busy
                     ? null
-                    : () => setState(() => _registerMode = !_registerMode),
+                    : () => setState(() {
+                      _registerMode = !_registerMode;
+                      // EDGE: leaving signup — drop confirm so it cannot leak into login submit.
+                      if (!_registerMode) {
+                        _passwordConfirm.clear();
+                        _obscurePasswordConfirm = true;
+                      }
+                    }),
                 child: Text(_registerMode ? '이미 계정이 있나요? 로그인' : '계정이 없나요? 가입'),
               ),
             ] else

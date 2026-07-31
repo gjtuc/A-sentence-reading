@@ -40,4 +40,11 @@ Android Flutter MVP 구현 순서 **3번 중 로그인(수단 ≥1)**:
 
 ## 버전
 
-웹 **0.2.76** · pubspec `0.2.76+1`
+웹 **0.2.77** · pubspec `0.2.77+1`
+
+
+## Signup UX (0.2.77)
+
+- Password confirm field on register
+- Visibility toggle (eye icon) on password fields
+- Client validates match before POST (no password logging)
