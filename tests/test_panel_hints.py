@@ -1,4 +1,4 @@
-"""패널 단축키 안내 줄 기본 숨김 (0.2.81 · design/60)."""
+"""패널 단축키 안내 줄 기본 숨김 (0.2.82 · design/60)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "60-panel-hints.md"
 
 def test_status_panel_hints_optional() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.81"
+    assert st["version"] == "0.2.82"
     assert st["panel_hints_optional"] is True
     assert st["guide_header"] is True
     assert "live_enable" not in st
@@ -68,9 +68,9 @@ def test_edge_legacy_pref_and_missing_nodes() -> None:
     assert "getElementById(\"figureHint\")" in src
     assert "getElementById(\"noteHint\")" not in src
     design = DESIGN.read_text(encoding="utf-8")
-    assert "0.2.81" in design
+    assert "0.2.82" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.81" in served
-    assert "styles.css?v=0.2.81" in served
+    assert "app.js?v=0.2.82" in served
+    assert "styles.css?v=0.2.82" in served
     assert "sentenceHint" in served
