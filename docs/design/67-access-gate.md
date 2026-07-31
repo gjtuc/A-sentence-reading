@@ -56,6 +56,13 @@ Settings invite help is **minimal**: do not expose server generation, example co
 
 ## Admin emails ops (0.2.82)
 
+### Settings auth→access reload (0.2.82)
+
+Flutter Settings must re-fetch `/api/access/status` when `AuthController` becomes logged in.
+`initState` alone races session restore and left `is_admin` chrome hidden even when `ASR_ADMIN_EMAILS` matched.
+
+
+
 - Set GitHub secret / Cloud Run env `ASR_ADMIN_EMAILS` (comma list). **Do not commit real addresses.**
 - `scripts/deploy_cloud_run.sh` has **no hardcoded default** — empty list ⇒ nobody is admin (mint/decide fail-closed).
 - Deploy logs print `configured_count` only, not addresses.

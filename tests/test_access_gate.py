@@ -164,6 +164,7 @@ def test_mobile_sources() -> None:
     assert "Allow" in settings and "Deny" in settings
     assert "isAdmin" in settings or "access?.isAdmin" in settings
     assert "관리자에게 부여받은 OTP" in settings
+    assert "addListener" in settings and "_onAuthChanged" in settings
     assert "서버가 만든" not in settings
     assert "TqG3" not in settings
     assert "XXXX-XXXX" not in settings
