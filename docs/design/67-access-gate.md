@@ -48,12 +48,17 @@ Cost protection for Cloud Run / Gemini / TTS / GCS:
 - Half-key embedded in APK (extractable)
 - Live Enable / IPS (Trading Gate)
 
+
+## User-facing copy (0.2.81)
+
+Settings invite help is **minimal**: do not expose server generation, example codes, or Allow/paid-API wording to end users. Ops docs above keep format examples for admins.
+
 ## Version
 
-Web **0.2.80** · `access_gate` / `mobile_access_gate` · pubspec `0.2.80+1`
+Web **0.2.81** · `access_gate` / `mobile_access_gate` · `mobile_invite_copy_minimal` · pubspec `0.2.81+1`
 
 
-## Hardening (0.2.80)
+## Hardening (0.2.81)
 
 | Control | Default | Env |
 |---------|---------|-----|
@@ -66,7 +71,7 @@ Web **0.2.80** · `access_gate` / `mobile_access_gate` · pubspec `0.2.80+1`
 - Live Enable / IPS → Trading Gate only (ASR out)
 
 
-## Admin UI gate (0.2.80)
+## Admin UI gate (0.2.81)
 
 - `/api/access/status` includes `is_admin` (from `ASR_ADMIN_EMAILS`)
 - Flutter Settings shows mint/pending/Allow **only** when `is_admin: true`
