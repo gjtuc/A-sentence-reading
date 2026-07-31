@@ -50,10 +50,10 @@ Cost protection for Cloud Run / Gemini / TTS / GCS:
 
 ## Version
 
-Web **0.2.77** · `access_gate` / `mobile_access_gate` · pubspec `0.2.77+1`
+Web **0.2.78** · `access_gate` / `mobile_access_gate` · pubspec `0.2.78+1`
 
 
-## Hardening (0.2.77)
+## Hardening (0.2.78)
 
 | Control | Default | Env |
 |---------|---------|-----|
@@ -64,3 +64,11 @@ Web **0.2.77** · `access_gate` / `mobile_access_gate` · pubspec `0.2.77+1`
 - Excess redeem attempts → `429 rate_limited` (empty code does not count)
 - Mint response includes `expires_at` / `ttl_seconds`
 - Live Enable / IPS → Trading Gate only (ASR out)
+
+
+## Admin UI gate (0.2.78)
+
+- `/api/access/status` includes `is_admin` (from `ASR_ADMIN_EMAILS`)
+- Flutter Settings shows mint/pending/Allow **only** when `is_admin: true`
+- Non-admin still gets server `403 admin_required` on mint/decide (defense in depth)
+- Live Enable / IPS: Trading Gate (ASR out) — unchanged this chip

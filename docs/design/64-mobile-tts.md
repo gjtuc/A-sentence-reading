@@ -44,4 +44,4 @@ Reader plays the **current English sentence** via Cloud TTS. The app only fetche
 
 ## Version
 
-Web **0.2.77** · status `mobile_tts: true` · pubspec `0.2.77+1`
+Web **0.2.78** · status `mobile_tts: true` · pubspec `0.2.78+1`

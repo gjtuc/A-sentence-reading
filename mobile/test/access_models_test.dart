@@ -29,4 +29,23 @@ void main() {
       expect(b.canUsePaid, isFalse);
     });
   });
+
+  test('AccessStatus isAdmin fail-closed defaults', () {
+    final missing = AccessStatus.fromJson(null);
+    expect(missing.isAdmin, isFalse);
+    final plain = AccessStatus.fromJson({
+      'gate_enabled': true,
+      'status': 'none',
+      'can_use_paid': false,
+    });
+    expect(plain.isAdmin, isFalse);
+    final admin = AccessStatus.fromJson({
+      'gate_enabled': true,
+      'status': 'allowed',
+      'can_use_paid': true,
+      'is_admin': true,
+      'effective': 'admin',
+    });
+    expect(admin.isAdmin, isTrue);
+  });
 }
