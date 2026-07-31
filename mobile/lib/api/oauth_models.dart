@@ -92,3 +92,38 @@ bool isUsableGoogleCredential(String? raw) {
   if (t.split('.').length < 3) return false;
   return t.length >= 20;
 }
+
+/// Map plugin/platform Google Sign-In failures to a safe Korean message.
+///
+/// WHY: ApiException 10 / DEVELOPER_ERROR means package+SHA-1 are not registered
+/// in Google Cloud. Fail-closed: never imply login succeeded; never echo tokens.
+///
+/// EDGE: cancel/empty id_token is handled before this; network vs config separated.
+String describeGoogleSignInFailure(Object error) {
+  final s = error.toString();
+  final lower = s.toLowerCase();
+  // Google Play Services: PlatformException(sign_in_failed, ... ApiException: 10 ...)
+  final isDeveloper = lower.contains('developer_error') ||
+      (lower.contains('sign_in_failed') &&
+          (lower.contains(', 10,') ||
+              lower.contains(': 10') ||
+              lower.contains('apiexception: 10')));
+  if (isDeveloper) {
+    return 'Google 로그인 설정이 아직 안 됐습니다. '
+        'Google Cloud에 Android OAuth 클라이언트를 만들고 '
+        '패키지(com.gjtuc.sentence_reading)와 사이드로드용 SHA-1을 등록하세요. (design/65)';
+  }
+  if (lower.contains('network_error') ||
+      lower.contains('socketexception') ||
+      lower.contains('failed host lookup')) {
+    return '네트워크 오류로 Google 로그인을 완료하지 못했습니다.';
+  }
+  // EDGE: keep UI short; avoid dumping long traces / cookie-like strings
+  if (s.length > 160 ||
+      lower.contains('authorization') ||
+      lower.contains('bearer ')) {
+    return 'Google 로그인에 실패했습니다.';
+  }
+  return 'Google 로그인에 실패했습니다.';
+}
+

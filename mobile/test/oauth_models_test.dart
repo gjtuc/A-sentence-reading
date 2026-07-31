@@ -58,4 +58,24 @@ void main() {
       );
     });
   });
+
+  group('describeGoogleSignInFailure', () {
+    test('developer_error / code 10 fail-closed', () {
+      final msg = describeGoogleSignInFailure(
+        Exception(
+          'PlatformException(sign_in_failed, com.google.android.gms.common.api.ApiException: 10: , null, null)',
+        ),
+      );
+      expect(msg.contains('설정이 아직'), isTrue);
+      expect(msg.toLowerCase().contains('platformexception'), isFalse);
+    });
+
+    test('does not echo long / auth-like dumps', () {
+      final long = 'Authorization: Bearer ' + List.filled(200, 'x').join();
+      final msg = describeGoogleSignInFailure(Exception(long));
+      expect(msg, 'Google 로그인에 실패했습니다.');
+      expect(msg.toLowerCase().contains('bearer'), isFalse);
+    });
+  });
+
 }
