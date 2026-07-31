@@ -1,4 +1,4 @@
-"""CD secrets sync / deploy SA 스크립트 계약 (0.2.81)."""
+"""CD secrets sync / deploy SA 스크립트 계약 (0.2.82)."""
 
 from __future__ import annotations
 
@@ -109,7 +109,7 @@ def test_sync_dry_run_ok_with_sa_json() -> None:
 
 def test_design_and_status_version() -> None:
     design = (ROOT / "docs" / "design" / "32-github-cd.md").read_text(encoding="utf-8")
-    assert "0.2.81" in design
+    assert "0.2.82" in design
     assert "sync_github_cd_secrets" in design
     assert "ensure_github_deploy_sa" in design
     from fastapi.testclient import TestClient
@@ -117,5 +117,16 @@ def test_design_and_status_version() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.81"
+    assert st["version"] == "0.2.82"
     assert st.get("github_cd") is True
+
+
+def test_deploy_script_no_hardcoded_admin_email() -> None:
+    """Security: deploy_cloud_run.sh must not bake a real admin email default."""
+    text = (Path(__file__).resolve().parents[1] / "scripts" / "deploy_cloud_run.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "ASR_ADMIN_EMAILS:-}" in text or 'ASR_ADMIN_EMAILS:-"' in text or "${ASR_ADMIN_EMAILS:-}" in text
+    assert "@gmail.com" not in text
+    assert "configured_count" in text
+

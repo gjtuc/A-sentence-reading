@@ -36,11 +36,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    // WHY: session restore is async — first _reload often runs while logged out.
+    // EDGE: without this listener, invite form appears after login but access/is_admin stay null
+    // (admin mint chrome never shows even when ASR_ADMIN_EMAILS matches).
+    widget.auth.addListener(_onAuthChanged);
+    _reload();
+  }
+
+  void _onAuthChanged() {
+    if (!mounted) return;
+    // Re-fetch access when login/logout flips.
     _reload();
   }
 
   @override
   void dispose() {
+    widget.auth.removeListener(_onAuthChanged);
     _code.dispose();
     super.dispose();
   }

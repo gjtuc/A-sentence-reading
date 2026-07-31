@@ -21,7 +21,15 @@ cd "$ROOT"
 
 KAKAO_REST="${ASR_KAKAO_REST_API_KEY:-}"
 KAKAO_SECRET="${ASR_KAKAO_CLIENT_SECRET:-}"
-ADMIN_EMAILS="${ASR_ADMIN_EMAILS:-kimcha0809@gmail.com}"
+ADMIN_EMAILS="${ASR_ADMIN_EMAILS:-}"
+# WHY: no hardcoded admin email in git (PII/ops). Empty => nobody is admin (fail-closed mint).
+# EDGE: CD must set GitHub secret ASR_ADMIN_EMAILS; local deploy must export it.
+_admin_n=0
+if [[ -n "$ADMIN_EMAILS" ]]; then
+  # WHY: count commas+1 without printing addresses (no tr newline portability issues).
+  _admin_n=$(awk -F',' '{print NF}' <<<"$ADMIN_EMAILS")
+fi
+echo "ASR_ADMIN_EMAILS configured_count=${_admin_n} (values not printed)"
 
 # WHY: CI·로컬에서 gcloud/권한 없이 계약만 검증 (design/32).
 if [[ "${ASR_CD_DRY_RUN:-}" == "1" ]]; then
