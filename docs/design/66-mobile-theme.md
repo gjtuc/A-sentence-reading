@@ -28,3 +28,7 @@ User picks **시스템 / 밝음 / 어둠**. Choice survives app restart via Shar
 ## Version
 
 Web **0.2.82** · status `mobile_theme: true` · pubspec `0.2.82+1`
+
+## Version pin
+
+Web/mobile **0.2.83**.

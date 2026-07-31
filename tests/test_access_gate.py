@@ -1,4 +1,4 @@
-"""Access gate OTP invite + TTL/rate-limit (0.2.82 · design/67)."""
+"""Access gate OTP invite + TTL/rate-limit (0.2.83 · design/67)."""
 
 from __future__ import annotations
 
@@ -67,9 +67,11 @@ def _login_user(client: TestClient, email: str = "user@example.com") -> str:
 def test_status_access_gate_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.82"
+    assert st["version"] == "0.2.83"
     assert st.get("mobile_invite_copy_minimal") is True
     assert st.get("mobile_admin_emails_configured") is True
+    assert st.get("mobile_invite_redeem_e2e") is True
+    assert st.get("mobile_access_session_clear") is True
     assert st["access_gate"] is True
     assert st["mobile_access_gate"] is True
     assert "live_enable" not in st
@@ -155,7 +157,7 @@ def test_gate_off_allows() -> None:
 def test_mobile_sources() -> None:
     mobile = Path(__file__).resolve().parents[1] / "mobile"
     pub = (mobile / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.2.82" in pub
+    assert "0.2.83" in pub
     client = (mobile / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "redeemInviteCode" in client and "mintInviteCode" in client
     settings = (mobile / "lib" / "screens" / "settings_screen.dart").read_text(
@@ -172,7 +174,7 @@ def test_mobile_sources() -> None:
         Path(__file__).resolve().parents[1] / "docs" / "design" / "67-access-gate.md"
     )
     assert design.is_file()
-    assert "0.2.82" in design.read_text(encoding="utf-8")
+    assert "0.2.83" in design.read_text(encoding="utf-8")
 
 
 def test_invite_expires(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -227,7 +229,7 @@ def test_ttl_env_edges(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_status_exposes_ttl_flags() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.82"
+    assert st["version"] == "0.2.83"
     assert st["access_invite_ttl_seconds"] == 48 * 3600
     assert st["access_redeem_max"] >= 1
     assert "live_enable" not in st
@@ -244,3 +246,21 @@ def test_access_status_is_admin_flag() -> None:
     st2 = client.get("/api/access/status").json()
     assert st2.get("is_admin") is True
     assert "live_enable" not in client.get("/api/status").json()
+
+
+def test_settings_clears_mint_on_logout() -> None:
+    """MULTI-USER: Settings must wipe minted OTP + typed code when logged out."""
+    src = Path(__file__).resolve().parents[1] / "mobile/lib/screens/settings_screen.dart"
+    text = src.read_text(encoding="utf-8")
+    assert "_minted = null" in text
+    assert "_code.clear()" in text
+    assert "IndexedStack" in text or "next account" in text or "다음 계정" in text or "leftover _minted" in text
+
+
+def test_settings_allow_not_blocked_by_reload() -> None:
+    """MULTI-USER: Allow/Deny must not disable solely because _loading refresh is true."""
+    src = Path(__file__).resolve().parents[1] / "mobile/lib/screens/settings_screen.dart"
+    text = src.read_text(encoding="utf-8")
+    assert "bool _mutating" in text
+    assert "_mutating" in text
+    assert "onPressed: _mutating" in text

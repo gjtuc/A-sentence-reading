@@ -30,6 +30,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<Map<String, dynamic>> _pending = const [];
   List<Map<String, dynamic>> _events = const [];
   bool _loading = false;
+  /// WHY separate from _loading: refresh must not disable Allow/Deny.
+  /// EDGE: uiautomator/user tap during reload was ignored → invitee stayed pending.
+  bool _mutating = false;
   String? _error;
   String? _minted;
 
@@ -58,10 +61,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _reload() async {
     if (!widget.auth.isLoggedIn) {
+      // WHY: Settings may stay mounted across logout (IndexedStack / tab).
+      // EDGE: leftover _minted OTP or typed invite must not appear for the next account.
       setState(() {
         _access = null;
         _pending = const [];
         _events = const [];
+        _minted = null;
+        _error = null;
+        _code.clear();
       });
       return;
     }
@@ -147,7 +155,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _decide(String uid, String decision) async {
-    setState(() => _loading = true);
+    // WHY _mutating not _loading: admin may tap Allow while pending list refresh runs.
+    setState(() => _mutating = true);
     try {
       await widget.auth.client.decideAccess(uid: uid, decision: decision);
       await _reload();
@@ -156,7 +165,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _mutating = false);
     }
   }
 
@@ -263,13 +272,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       spacing: 4,
                       children: [
                         TextButton(
-                          onPressed: _loading
+                          // EDGE: do not gate on _loading (refresh) — only _mutating.
+                          onPressed: _mutating
                               ? null
                               : () => _decide(uid, 'allow'),
                           child: const Text('Allow'),
                         ),
                         TextButton(
-                          onPressed: _loading
+                          onPressed: _mutating
                               ? null
                               : () => _decide(uid, 'deny'),
                           child: const Text('Deny'),
@@ -291,6 +301,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   }),
                 ],
               ],
+              // WHY: after admin Allow, invitee status stays pending until re-fetch.
               TextButton(
                 onPressed: _loading ? null : _reload,
                 child: const Text('새로고침'),

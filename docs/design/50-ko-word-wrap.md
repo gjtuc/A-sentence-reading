@@ -29,3 +29,7 @@
 ## 버전
 
 웹 **0.2.58** · status `ko_word_wrap: true`
+
+## Version pin
+
+Web/mobile **0.2.83** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).

@@ -1,4 +1,4 @@
-"""번역 EN|KO 좌우 동형 (0.2.82 · design/39)."""
+"""번역 EN|KO 좌우 동형 (0.2.83 · design/39)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_side_by_side() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.82"
+    assert st["version"] == "0.2.83"
     assert st["translate_side_by_side"] is True
 
 
@@ -52,5 +52,5 @@ def test_dom_and_css_side_by_side() -> None:
     assert "setBilingualSplit" in js
     assert "design/39" in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.82" in served
-    assert "styles.css?v=0.2.82" in served
+    assert "app.js?v=0.2.83" in served
+    assert "styles.css?v=0.2.83" in served
