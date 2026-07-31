@@ -50,10 +50,10 @@ Cost protection for Cloud Run / Gemini / TTS / GCS:
 
 ## Version
 
-Web **0.2.76** · `access_gate` / `mobile_access_gate` · pubspec `0.2.76+1`
+Web **0.2.77** · `access_gate` / `mobile_access_gate` · pubspec `0.2.77+1`
 
 
-## Hardening (0.2.76)
+## Hardening (0.2.77)
 
 | Control | Default | Env |
 |---------|---------|-----|

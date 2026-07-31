@@ -70,11 +70,11 @@ src/sentence_reading/
 | POST | `/api/stt/recognize` | multipart 오디오 → `{ ok, heard, compare? }` (0.2.46 · design/38) |
 | UI | 번역 on | EN\|KO 좌우 · **ingest KO만** (0.2.50 · design/42 · live 폴백 없음) |
 | ingest | 번역 | 섹션 `text_ko` · `caption_ko` · `translate_digests` (0.2.48 · design/40) · 캐시 히트 시 백필 (0.2.50) · 진행 세분 (0.2.51 · design/43) · progressive 열기 (0.2.53 · design/45) · 병렬 (0.2.54 · design/46) |
-| 클라이언트 | Android | `mobile/` + `android/` + 이메일·보관 (0.2.55–0.2.56 · 0.2.69–0.2.76 · design/33·47·48·61·62) · Live Enable/IPS 없음 |
+| 클라이언트 | Android | `mobile/` + `android/` + 이메일·보관 (0.2.55–0.2.56 · 0.2.69–0.2.77 · design/33·47·48·61·62) · Live Enable/IPS 없음 |
 | UI | 각주 | 칩·원문 열기 (0.2.49) · 박스 [n] 숨김 · FS hover (0.2.57 · design/49) |
 | UI | 번역 KO | 어절 줄바꿈 keep-all (0.2.58 · design/50) |
 | UI | 되새김질 | 구간 노트 이어 보기 (0.2.59 · design/51) · 목소리 이어 듣기 (0.2.60 · design/52) · on/off (0.2.61 · design/53) · 클립 재듣기/재녹음 (0.2.62 · design/54) · flow 콕 수정 (0.2.63 · design/55) · 키보드 (0.2.64 · design/56) · 흰 십자 (0.2.65 · design/57) |
-| UI | 헤더 | 「파일 열기」+ `⋯` (0.2.66 · design/58) · Guide 밖/`⋯` 안 (0.2.67 · design/59) · 패널 hint 기본 숨김 (0.2.76 · design/60) · Live Enable/IPS 없음 (Trading Gate) |
+| UI | 헤더 | 「파일 열기」+ `⋯` (0.2.66 · design/58) · Guide 밖/`⋯` 안 (0.2.67 · design/59) · 패널 hint 기본 숨김 (0.2.77 · design/60) · Live Enable/IPS 없음 (Trading Gate) |
 | UI | 각주 | `[n]` 칩 · References 패널 · 원문 열기 (0.2.49 · design/41) |
 | GET | `/api/session/mock` | mock figures + sentences |
 | POST | `/api/ingest` | 논문 분석 잡 (Gemini 있으면 섹션 번역 · References 추출) |
@@ -104,6 +104,6 @@ CD를 켜려면 GitHub repository variable `ASR_CD_ENABLED=1` 과 Secrets(`GCP_S
 ## 구현 순서 (권위: design/)
 
 세부는 **[design/](design/README.md)** 가 권위 문서다. 번역은 ingest 전용(42)·각주 원문(41)까지 반영.  
-다음: Google/카카오 · 실기 APK (TTS 0.2.76 완료).
+다음: Google/카카오 · 실기 APK (TTS 0.2.77 완료).
 
 에러·한도·테스트: [08](design/08-errors.md) · [09](design/09-testing.md) · [10](design/10-security-limits.md)
