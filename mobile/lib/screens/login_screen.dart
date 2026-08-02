@@ -4,9 +4,7 @@ import '../api/client.dart';
 import '../api/oauth_models.dart';
 import '../state/auth_controller.dart';
 
-/// Email + Google + Kakao against Cloud Run (design/61 · design/65).
-///
-/// OAuth is real server verification — not a UI mock. Live Enable/IPS: ASR out.
+/// Email + Google + Kakao login (design/61 · design/65).
 
 /// Client-only signup password checks (design/61 UX). Never log [password]/confirm].
 ///
@@ -146,43 +144,10 @@ class _LoginScreenState extends State<LoginScreen> {
         if (auth.bootstrapping) {
           return const Center(child: CircularProgressIndicator());
         }
+        // WHY: account chrome lives in Settings (design/68). HomeShell hides this
+        // screen when logged in; if we still get here mid-transition, stay quiet.
         if (auth.isLoggedIn) {
-          final u = auth.user!;
-          return Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text('로그인됨', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 8),
-                Text(u.displayLabel),
-                if (u.uid.isNotEmpty)
-                  Text('uid: ${u.uid}', style: Theme.of(context).textTheme.bodySmall),
-                if (u.providers.isNotEmpty)
-                  Text(
-                    'providers: ${u.providers.join(", ")}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: auth.busy ? null : () => auth.logout(),
-                  child: auth.busy
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('로그아웃'),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  '세션은 Cloud Run asr_session (이메일 PBKDF2 · Google/카카오 실 OAuth).\n'
-                  'Live Enable / IPS: Trading Gate (ASR out).',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-          );
+          return const Center(child: CircularProgressIndicator());
         }
 
         final st = auth.lastStatus;
@@ -194,11 +159,6 @@ class _LoginScreenState extends State<LoginScreen> {
           padding: const EdgeInsets.all(24),
           children: [
             Text('로그인', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(
-              'Cloud Run 실계정 (이메일 · Google · 카카오). 앱에 API 비밀키 없음.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
             const SizedBox(height: 16),
             if (googleOn)
               FilledButton.tonal(
@@ -310,11 +270,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ],
-            const SizedBox(height: 24),
-            Text(
-              'Live Enable / IPS: Trading Gate · ASR 밖.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
           ],
         );
       },

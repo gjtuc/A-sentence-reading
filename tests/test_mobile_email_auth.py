@@ -1,4 +1,4 @@
-"""Flutter mobile email auth contract (0.2.83 · design/33 · design/61)."""
+"""Flutter mobile email auth contract (0.2.84 · design/33 · design/61)."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_mobile_email_auth_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.83"
+    assert st["version"] == "0.2.84"
     assert st["mobile_email_auth"] is True
     assert st["mobile_flutter_scaffold"] is True
     assert st["mobile_android_platform"] is True
@@ -80,7 +80,7 @@ def test_email_login_sets_session_cookie() -> None:
 
 def test_mobile_dart_auth_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.2.83" in pub
+    assert "0.2.84" in pub
     assert "shared_preferences:" in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "/api/auth/email/login" in client
@@ -93,14 +93,17 @@ def test_mobile_dart_auth_sources() -> None:
     login = (MOBILE / "lib" / "screens" / "login_screen.dart").read_text(encoding="utf-8")
     assert "loginEmail" in login
     assert "registerEmail" in login
-    assert "Live Enable" in login or "Trading Gate" in login
+    # WHY: login UI must not expose infra / Trading Gate jargon to users.
+    assert "Live Enable" not in login
+    assert "Trading Gate" not in login
+    assert "Cloud Run" not in login
     login = (MOBILE / "lib" / "screens" / "login_screen.dart").read_text(encoding="utf-8")
     assert "비밀번호 확인" in login
     assert "visibility" in login
     assert "validateRegisterPasswords" in login
     assert DESIGN.is_file()
     design = DESIGN.read_text(encoding="utf-8")
-    assert "0.2.83" in design
+    assert "0.2.84" in design
     assert "Trading Gate" in design or "ASR 밖" in design
 
 
@@ -121,5 +124,5 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.2.83" in html
-    assert "styles.css?v=0.2.83" in html
+    assert "app.js?v=0.2.84" in html
+    assert "styles.css?v=0.2.84" in html

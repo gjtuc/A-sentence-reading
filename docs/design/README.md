@@ -58,6 +58,7 @@
 | 65 | [65-mobile-oauth.md](65-mobile-oauth.md) | Flutter Google·카카오 OAuth |
 | 66 | [66-mobile-theme.md](66-mobile-theme.md) | Flutter 테마 system/light/dark |
 | 67 | [67-access-gate.md](67-access-gate.md) | OTP 초대 코드 · admin allow/deny |
+| 68 | [68-mobile-shell-nav.md](68-mobile-shell-nav.md) | 로그인 게이트 · 탭 3개 · 설정에 계정/서버 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  

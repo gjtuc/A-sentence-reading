@@ -50,7 +50,8 @@ Google Sign-In requires an **Android** OAuth client in the same Cloud project as
 | Field | Value |
 |-------|--------|
 | Package name | `com.gjtuc.sentence_reading` |
-| SHA-1 (debug / current sideload) | `73:45:00:0C:68:F6:B3:A9:88:1D:9A:FC:42:E7:86:FD:E9:A0:CA:10` |
+| SHA-1 (debug / PC-A sideload) | `73:45:00:0C:68:F6:B3:A9:88:1D:9A:FC:42:E7:86:FD:E9:A0:CA:10` |
+| SHA-1 (debug / PC-B sideload · 2026-08) | `C1:F6:F2:71:A2:E5:F6:FB:D2:09:9F:AA:1B:67:19:53:18:3B:14:DF` |
 
 ### Console steps (ops — no secrets in git)
 
@@ -70,10 +71,12 @@ Ops completed in Google Cloud project `peaceful-basis-503207-t4`:
 | Android OAuth client name | `ASR Android sideload` |
 | Type | Android |
 | Package | `com.gjtuc.sentence_reading` |
-| SHA-1 | same as table above (debug / current sideload) |
+| SHA-1 | PC-A value above (add PC-B fingerprint to the same Android client or a second Android client) |
 | Web client (unchanged) | `ASR local` — still used as `serverClientId` / `ASR_GOOGLE_CLIENT_ID` |
 
-Device E2E (Samsung sideload): **Google로 계속** → account picker → **로그인됨** · `providers: google` · logout available. No `DEVELOPER_ERROR` / fail-closed SHA copy.
+Device E2E (Samsung sideload, PC-A key): **Google로 계속** → account picker → **로그인됨** · `providers: google` · logout available. No `DEVELOPER_ERROR` / fail-closed SHA copy.
+
+PC-B (2026-08): debug keystore SHA-1 differs — register `C1:F6:…:14:DF` in Google Cloud Android OAuth before Google Sign-In E2E on that machine.
 
 Propagation note: Google may take minutes after create; retry Sign-In if account picker succeeds but session fails briefly.
 
@@ -100,4 +103,4 @@ Web **0.2.82** · status `mobile_oauth` · `mobile_google_sha_runbook` · `mobil
 
 ## Version pin
 
-Web/mobile **0.2.83**.
+Web/mobile **0.2.84**.

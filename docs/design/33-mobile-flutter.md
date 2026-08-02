@@ -135,3 +135,7 @@ PC **웹**은 유지하고, 휴대폰용 **네이티브 앱**을 새로 둔다.
 
 Invite redeem E2E + Settings logout clears minted OTP (see [67](67-access-gate.md)).
 
+## Shell nav pin (0.2.84)
+
+Auth gate + tabs 보관/읽기/설정 · account/server under Settings (see [68](68-mobile-shell-nav.md)).
+

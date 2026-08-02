@@ -50,7 +50,7 @@ Azure SDK를 쓰지 않고 **CSS로 재현**한다. ([RESEARCH.md](RESEARCH.md) 
 | 탭 드래그 | 논문 탭 순서 변경 — 잡은 탭이 커서를 따라감 (크롬식 · 0.2.39) |
 | 탭 × | 탭 닫기 — 진행·노트(탭 범위) 저장 후 닫기 · TTS/테마는 유지 (0.2.42) |
 | 번역 | 영→한 — EN|KO 좌우 (0.2.47) · **ingest 미리번역만** 표시 (0.2.50 · live 폴백 없음) · 보관본 KO 백필 · 번역 stage 세분 진행 (0.2.51) · progressive 열기 (0.2.53) · 번역 병렬 (0.2.54) |
-| 모바일 | Android Flutter · theme/OAuth + access gate OTP(0.2.82) · APK follow-up · Live Enable/IPS none|
+| 모바일 | Android Flutter · 로그인 게이트 후 보관/읽기/설정 (0.2.84 · design/68) · access OTP · Live Enable/IPS none|
 | 각주 | `[n]` 칩 → References → 원문 열기 (0.2.49) · **문장 박스에서는 [n] 숨김** · FS에서 Fig처럼 hover (0.2.57 · design/49) |
 | 번역 한글 | 어절(공백) 경계 줄바꿈 · `word-break: keep-all` (0.2.58 · design/50) |
 | 되새김질 키 | 시트 열림: `←`/`→` 구간 · `Enter` 수정 · `Esc` 취소/닫기 (0.2.64 · design/56) · 인덱스 불변 |

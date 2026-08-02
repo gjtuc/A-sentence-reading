@@ -1,4 +1,4 @@
-"""Flutter mobile theme prefs (0.2.83 · design/33 · design/66)."""
+"""Flutter mobile theme prefs (0.2.84 · design/33 · design/66)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ DESIGN = ROOT / "docs" / "design" / "66-mobile-theme.md"
 def test_status_mobile_theme_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.83"
+    assert st["version"] == "0.2.84"
     assert st["mobile_theme"] is True
     assert st["mobile_oauth"] is True
     assert "live_enable" not in st
@@ -26,7 +26,7 @@ def test_status_mobile_theme_flag() -> None:
 
 def test_mobile_dart_theme_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.2.83" in pub
+    assert "0.2.84" in pub
     models = (MOBILE / "lib" / "api" / "theme_models.dart").read_text(
         encoding="utf-8"
     )
@@ -43,16 +43,20 @@ def test_mobile_dart_theme_sources() -> None:
         encoding="utf-8"
     )
     assert "SegmentedButton" in settings
-    assert "Trading Gate" in settings or "Live Enable" in settings
+    # WHY: user-facing Settings must not show Trading Gate / Live Enable copy.
+    assert "Live Enable" not in settings
+    assert "Trading Gate" not in settings
     app = (MOBILE / "lib" / "app.dart").read_text(encoding="utf-8")
     assert "themeMode:" in app and "darkTheme:" in app
     shell = (MOBILE / "lib" / "screens" / "home_shell.dart").read_text(
         encoding="utf-8"
     )
     assert "SettingsScreen" in shell
+    assert "label: '보관'" in shell
+    assert "label: '서버'" not in shell
     assert DESIGN.is_file()
     design = DESIGN.read_text(encoding="utf-8")
-    assert "0.2.83" in design
+    assert "0.2.84" in design
     assert "Trading Gate" in design or "ASR" in design
 
 
@@ -73,4 +77,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.2.83" in html
+    assert "app.js?v=0.2.84" in html
