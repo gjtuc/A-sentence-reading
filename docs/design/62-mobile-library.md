@@ -34,4 +34,4 @@ Android Flutter MVP **보관 목록**:
 
 ## Version pin
 
-Web/mobile **0.2.83**.
+Web/mobile **0.2.84**.

@@ -93,6 +93,7 @@
 - ~~초대 코드 사용자 문구 최소 공개~~ (0.2.82 — [67-access-gate.md](67-access-gate.md))
 - ~~ASR_ADMIN_EMAILS ops · 하드코딩 기본값 제거~~ (0.2.82 — [67-access-gate.md](67-access-gate.md))
 - ~~초대 redeem E2E · Settings 로그아웃 OTP 잔여 제거~~ (0.2.83 — [67-access-gate.md](67-access-gate.md))
+- ~~모바일 셸 · 로그인 게이트 · 탭 3개~~ (0.2.84 — [68-mobile-shell-nav.md](68-mobile-shell-nav.md))
 - **Android Flutter MVP** — 실기 APK ([33-mobile-flutter.md](33-mobile-flutter.md); 게이트 이후)
 
 ### 구현됨 (참고)

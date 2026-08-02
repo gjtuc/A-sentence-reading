@@ -4,9 +4,7 @@ import '../api/client.dart';
 import '../api/oauth_models.dart';
 import '../state/auth_controller.dart';
 
-/// Email + Google + Kakao against Cloud Run (design/61 · design/65).
-///
-/// OAuth is real server verification — not a UI mock. Live Enable/IPS: ASR out.
+/// Email + Google + Kakao login (design/61 · design/65).
 
 /// Client-only signup password checks (design/61 UX). Never log [password]/confirm].
 ///
@@ -146,43 +144,10 @@ class _LoginScreenState extends State<LoginScreen> {
         if (auth.bootstrapping) {
           return const Center(child: CircularProgressIndicator());
         }
+        // WHY: account chrome lives in Settings (design/68). HomeShell hides this
+        // screen when logged in; if we still get here mid-transition, stay quiet.
         if (auth.isLoggedIn) {
-          final u = auth.user!;
-          return Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text('로그인됨', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 8),
-                Text(u.displayLabel),
-                if (u.uid.isNotEmpty)
-                  Text('uid: ${u.uid}', style: Theme.of(context).textTheme.bodySmall),
-                if (u.providers.isNotEmpty)
-                  Text(
-                    'providers: ${u.providers.join(", ")}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: auth.busy ? null : () => auth.logout(),
-                  child: auth.busy
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('로그아웃'),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  '세션은 Cloud Run asr_session (이메일 PBKDF2 · Google/카카오 실 OAuth).\n'
-                  'Live Enable / IPS: Trading Gate (ASR out).',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-          );
+          return const Center(child: CircularProgressIndicator());
         }
 
         final st = auth.lastStatus;
@@ -190,132 +155,156 @@ class _LoginScreenState extends State<LoginScreen> {
         final googleOn = st?.googleEnabled ?? false;
         final kakaoOn = st?.kakaoEnabled ?? false;
 
-        return ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            Text('로그인', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(
-              'Cloud Run 실계정 (이메일 · Google · 카카오). 앱에 API 비밀키 없음.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            if (googleOn)
-              FilledButton.tonal(
-                onPressed: auth.busy ? null : _google,
-                child: const Text('Google로 계속'),
-              ),
-            if (kakaoOn) ...[
-              const SizedBox(height: 8),
-              FilledButton.tonal(
-                onPressed: auth.busy ? null : _kakao,
-                child: const Text('카카오로 계속'),
-              ),
-            ],
-            if (googleOn || kakaoOn) const Divider(height: 32),
-            if (emailOn) ...[
-              Text(
-                _registerMode ? '이메일 가입' : '이메일 로그인',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _email,
-                keyboardType: TextInputType.emailAddress,
-                autocorrect: false,
-                decoration: const InputDecoration(
-                  labelText: '이메일',
-                  border: OutlineInputBorder(),
+        // WHY: reachability — phone thumbs struggle with top-glued chrome.
+        // EDGE: keyboard open — still scrollable via SingleChildScrollView.
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight - 48,
                 ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _password,
-                obscureText: _obscurePassword,
-                decoration: InputDecoration(
-                  labelText: '비밀번호',
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    tooltip: _obscurePassword ? '비밀번호 보기' : '비밀번호 숨기기',
-                    onPressed: () =>
-                        setState(() => _obscurePassword = !_obscurePassword),
-                    icon: Icon(
-                      _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      '로그인',
+                      style: Theme.of(context).textTheme.titleLarge,
+                      textAlign: TextAlign.center,
                     ),
-                  ),
-                ),
-              ),
-              if (_registerMode) ...[
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _passwordConfirm,
-                  obscureText: _obscurePasswordConfirm,
-                  decoration: InputDecoration(
-                    labelText: '비밀번호 확인',
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      tooltip: _obscurePasswordConfirm
-                          ? '비밀번호 보기'
-                          : '비밀번호 숨기기',
-                      onPressed: () => setState(
-                        () => _obscurePasswordConfirm = !_obscurePasswordConfirm,
+                    const SizedBox(height: 16),
+                    if (googleOn)
+                      FilledButton.tonal(
+                        onPressed: auth.busy ? null : _google,
+                        child: const Text('Google로 계속'),
                       ),
-                      icon: Icon(
-                        _obscurePasswordConfirm
-                            ? Icons.visibility
-                            : Icons.visibility_off,
+                    if (kakaoOn) ...[
+                      const SizedBox(height: 8),
+                      FilledButton.tonal(
+                        onPressed: auth.busy ? null : _kakao,
+                        child: const Text('카카오로 계속'),
                       ),
-                    ),
-                  ),
+                    ],
+                    if (googleOn || kakaoOn) const Divider(height: 32),
+                    if (emailOn) ...[
+                      Text(
+                        _registerMode ? '이메일 가입' : '이메일 로그인',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _email,
+                        keyboardType: TextInputType.emailAddress,
+                        autocorrect: false,
+                        decoration: const InputDecoration(
+                          labelText: '이메일',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _password,
+                        obscureText: _obscurePassword,
+                        decoration: InputDecoration(
+                          labelText: '비밀번호',
+                          border: const OutlineInputBorder(),
+                          suffixIcon: IconButton(
+                            tooltip:
+                                _obscurePassword ? '비밀번호 보기' : '비밀번호 숨기기',
+                            onPressed: () => setState(
+                              () => _obscurePassword = !_obscurePassword,
+                            ),
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (_registerMode) ...[
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _passwordConfirm,
+                          obscureText: _obscurePasswordConfirm,
+                          decoration: InputDecoration(
+                            labelText: '비밀번호 확인',
+                            border: const OutlineInputBorder(),
+                            suffixIcon: IconButton(
+                              tooltip: _obscurePasswordConfirm
+                                  ? '비밀번호 보기'
+                                  : '비밀번호 숨기기',
+                              onPressed: () => setState(
+                                () => _obscurePasswordConfirm =
+                                    !_obscurePasswordConfirm,
+                              ),
+                              icon: Icon(
+                                _obscurePasswordConfirm
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _name,
+                          decoration: const InputDecoration(
+                            labelText: '이름 (선택)',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed: auth.busy ? null : _submit,
+                        child: auth.busy
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Text(_registerMode ? '가입' : '로그인'),
+                      ),
+                      TextButton(
+                        onPressed: auth.busy
+                            ? null
+                            : () => setState(() {
+                                  _registerMode = !_registerMode;
+                                  // EDGE: leaving signup — drop confirm so it
+                                  // cannot leak into login submit.
+                                  if (!_registerMode) {
+                                    _passwordConfirm.clear();
+                                    _obscurePasswordConfirm = true;
+                                  }
+                                }),
+                        child: Text(
+                          _registerMode
+                              ? '이미 계정이 있나요? 로그인'
+                              : '계정이 없나요? 가입',
+                        ),
+                      ),
+                    ] else
+                      const Text('이메일 로그인이 서버에서 꺼져 있습니다.'),
+                    if (auth.error != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        auth.error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ],
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _name,
-                  decoration: const InputDecoration(
-                    labelText: '이름 (선택)',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: auth.busy ? null : _submit,
-                child: auth.busy
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(_registerMode ? '가입' : '로그인'),
               ),
-              TextButton(
-                onPressed: auth.busy
-                    ? null
-                    : () => setState(() {
-                      _registerMode = !_registerMode;
-                      // EDGE: leaving signup — drop confirm so it cannot leak into login submit.
-                      if (!_registerMode) {
-                        _passwordConfirm.clear();
-                        _obscurePasswordConfirm = true;
-                      }
-                    }),
-                child: Text(_registerMode ? '이미 계정이 있나요? 로그인' : '계정이 없나요? 가입'),
-              ),
-            ] else
-              const Text('이메일 로그인이 서버에서 꺼져 있습니다.'),
-            if (auth.error != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                auth.error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-            const SizedBox(height: 24),
-            Text(
-              'Live Enable / IPS: Trading Gate · ASR 밖.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+            );
+          },
         );
       },
     );

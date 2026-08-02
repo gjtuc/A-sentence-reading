@@ -6,10 +6,9 @@ import '../api/client.dart';
 import '../api/theme_models.dart';
 import '../state/auth_controller.dart';
 import '../state/theme_controller.dart';
+import 'status_screen.dart';
 
-/// Settings: theme + access gate (design/66 · design/67).
-///
-/// Live Enable / IPS: Trading Gate (ASR out).
+/// Settings: account · theme · access gate · admin server probe (design/66–68).
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
@@ -179,11 +178,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
         final logged = widget.auth.isLoggedIn;
         final access = _access;
+        final user = widget.auth.user;
         return ListView(
           padding: const EdgeInsets.all(24),
           children: [
             Text('설정', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 16),
+            // WHY: account tab removed — login identity + logout live here (design/68).
+            Text('계정', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            if (!logged || user == null)
+              const Text('로그인이 필요합니다.')
+            else ...[
+              Text(user.displayLabel),
+              if (user.providers.isNotEmpty)
+                Text(
+                  user.providers.join(', '),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: widget.auth.busy
+                    ? null
+                    : () => widget.auth.logout(),
+                child: widget.auth.busy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('로그아웃'),
+              ),
+            ],
+            // WHY: admin-only nested page — keeps Settings short (design/68).
+            // EDGE: non-admin must not see server flag dump.
+            if (access?.isAdmin == true) ...[
+              const SizedBox(height: 8),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.cloud_outlined),
+                title: const Text('서버'),
+                subtitle: const Text('연결 상태 확인'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => Scaffold(
+                        appBar: AppBar(title: const Text('서버')),
+                        body: const StatusScreen(),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+            const Divider(height: 32),
             Text('테마', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
             SegmentedButton<ThemeMode>(
@@ -311,11 +360,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 8),
               Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             ],
-            const SizedBox(height: 24),
-            Text(
-              'Live Enable / IPS: Trading Gate (ASR out)',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
           ],
         );
       },

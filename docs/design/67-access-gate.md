@@ -70,7 +70,7 @@ Flutter Settings must re-fetch `/api/access/status` when `AuthController` become
 
 ## Version
 
-Web **0.2.83** · `access_gate` / `mobile_access_gate` · `mobile_invite_copy_minimal` · `mobile_admin_emails_configured` · pubspec `0.2.83+1`
+Web **0.2.84** · `access_gate` / `mobile_access_gate` · `mobile_invite_copy_minimal` · `mobile_admin_emails_configured` · `mobile_shell_nav` · pubspec `0.2.84+1`
 
 
 ## Hardening (0.2.82)
@@ -94,7 +94,7 @@ Web **0.2.83** · `access_gate` / `mobile_access_gate` · `mobile_invite_copy_mi
 - Live Enable / IPS: Trading Gate (ASR out) — unchanged this chip
 
 
-## Invite redeem E2E (0.2.83)
+## Invite redeem E2E (0.2.84)
 
 Device path (two identities — do not paste OTP/emails in chat/PR):
 
@@ -103,13 +103,13 @@ Device path (two identities — do not paste OTP/emails in chat/PR):
 3. Admin Allow
 4. Invitee taps **새로고침** → `allowed` · paid OK
 
-### Session isolation (0.2.83)
+### Session isolation (0.2.84)
 
 Settings clears `_minted` / invite field / access lists on logout so the next account cannot see the previous OTP or typed code (fail-closed for account switch on one device).
 
 Live Enable / IPS: Trading Gate only (ASR out) — unchanged this chip.
 
-### Allow during refresh (0.2.83)
+### Allow during refresh (0.2.84)
 
 Settings uses `_mutating` for Allow/Deny so a concurrent **새로고침** (`_loading`) cannot swallow the admin tap (invitee would otherwise stay `pending`).
 

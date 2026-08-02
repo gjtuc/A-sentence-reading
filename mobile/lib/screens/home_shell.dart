@@ -8,9 +8,11 @@ import 'library_screen.dart';
 import 'login_screen.dart';
 import 'reader_screen.dart';
 import 'settings_screen.dart';
-import 'status_screen.dart';
 
-/// Bottom-nav shell: Status · Login · Library · Reader · Settings.
+/// Auth-gated shell (design/68).
+///
+/// Logged out → login only (no bottom nav).
+/// Logged in → 보관 · 읽기 · 설정. Account/server live under Settings.
 class HomeShell extends StatefulWidget {
   const HomeShell({
     super.key,
@@ -32,24 +34,21 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  static const _titles = ['서버', '로그인', '보관', '읽기', '설정'];
+  void _goReader() => setState(() => _index = 1);
 
-  void _goReader() => setState(() => _index = 3);
+  Widget _padded(Widget child) {
+    // WHY: no AppBar — SafeArea + small top pad (user preferred vs full toolbar gap).
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: child,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final pages = <Widget>[
-      const StatusScreen(),
-      LoginScreen(auth: widget.auth),
-      LibraryScreen(
-        auth: widget.auth,
-        library: widget.library,
-        onOpened: _goReader,
-      ),
-      ReaderScreen(library: widget.library, tts: widget.tts),
-      SettingsScreen(theme: widget.theme, auth: widget.auth),
-    ];
-
     return AnimatedBuilder(
       animation: Listenable.merge([
         widget.auth,
@@ -58,34 +57,48 @@ class _HomeShellState extends State<HomeShell> {
         widget.theme,
       ]),
       builder: (context, _) {
-        final logged = widget.auth.isLoggedIn;
-        final titleExtra = logged ? ' · ${widget.auth.user!.displayLabel}' : '';
-        return Scaffold(
-          appBar: AppBar(
-            title: Text('문장 읽기 · ${_titles[_index]}$titleExtra'),
+        final auth = widget.auth;
+
+        // EDGE: session restore in flight — do not flash tabs or login form.
+        if (auth.bootstrapping) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        // WHY: without login, library/reader/settings are unusable — gate first.
+        // EDGE: fail-closed — no bottom nav until session exists.
+        if (!auth.isLoggedIn) {
+          return Scaffold(
+            body: _padded(LoginScreen(auth: auth)),
+          );
+        }
+
+        final pages = <Widget>[
+          LibraryScreen(
+            auth: widget.auth,
+            library: widget.library,
+            onOpened: _goReader,
           ),
-          body: IndexedStack(index: _index, children: pages),
+          ReaderScreen(library: widget.library, tts: widget.tts),
+          SettingsScreen(theme: widget.theme, auth: widget.auth),
+        ];
+
+        return Scaffold(
+          body: _padded(IndexedStack(index: _index, children: pages)),
           bottomNavigationBar: NavigationBar(
             selectedIndex: _index,
             onDestinationSelected: (i) => setState(() => _index = i),
-            destinations: [
-              const NavigationDestination(
-                icon: Icon(Icons.cloud_outlined),
-                label: '서버',
-              ),
+            destinations: const [
               NavigationDestination(
-                icon: Icon(logged ? Icons.person_outline : Icons.login),
-                label: logged ? '계정' : '로그인',
-              ),
-              const NavigationDestination(
                 icon: Icon(Icons.library_books_outlined),
                 label: '보관',
               ),
-              const NavigationDestination(
+              NavigationDestination(
                 icon: Icon(Icons.menu_book_outlined),
                 label: '읽기',
               ),
-              const NavigationDestination(
+              NavigationDestination(
                 icon: Icon(Icons.settings_outlined),
                 label: '설정',
               ),
