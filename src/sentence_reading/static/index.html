@@ -6,6 +6,45 @@
   <!-- WHY: 문장을 위에 두고 읽기 — 그림은 아래 (docs/UX.md) -->
   <title>A-sentence-reading</title>
   <link rel="stylesheet" href="/static/styles.css?v=__ASR_ASSET_V__" />
+  <!--
+    WHY: Cursor Glass 등 일부 임베디드 브라우저는 Cloud Run 콜드스타트처럼
+    느린 HTML 스트림을 중간에 닫아, body 끝 <script> 가 통째로 유실될 수 있다.
+    defer 스크립트를 head 앞쪽에 두면 파서가 먼저 발견하고, 부팅 실패 시 1회 재로드한다.
+  -->
+  <script>
+    (function () {
+      var k = "asr.bootRetry.v1";
+      function retryOnce() {
+        try {
+          if (sessionStorage.getItem(k)) return;
+          sessionStorage.setItem(k, "1");
+          location.reload();
+        } catch (_) {}
+      }
+      function clearRetry() {
+        try {
+          sessionStorage.removeItem(k);
+        } catch (_) {}
+      }
+      window.addEventListener("load", function () {
+        if (window.__asrBootOk) clearRetry();
+        else retryOnce();
+      });
+      setTimeout(function () {
+        if (!window.__asrBootOk) retryOnce();
+      }, 4500);
+    })();
+  </script>
+  <script src="/static/notes_revisions.js?v=__ASR_ASSET_V__" defer></script>
+  <script src="/static/progress.js?v=__ASR_ASSET_V__" defer></script>
+  <script src="/static/voice_idb.js?v=__ASR_ASSET_V__" defer></script>
+  <script src="/static/stt_practice.js?v=__ASR_ASSET_V__" defer></script>
+  <!-- WHY: Signalsmith UMD → AsrStretch가 AudioWorklet stretch에 사용 (design/17) -->
+  <script src="/static/vendor/signalsmith-stretch/SignalsmithStretch.js?v=__ASR_ASSET_V__" defer></script>
+  <script src="/static/tts_stretch.js?v=__ASR_ASSET_V__" defer></script>
+  <script src="/static/fig_refs.js?v=__ASR_ASSET_V__" defer></script>
+  <script src="/static/cite_refs.js?v=__ASR_ASSET_V__" defer></script>
+  <script src="/static/app.js?v=__ASR_ASSET_V__" defer></script>
 </head>
 <body>
   <header class="app-header">
@@ -501,15 +540,5 @@
     <p class="pomo-break-hint" id="pomoBreakHint">F — 바로 읽기 재개</p>
   </aside>
 
-  <script src="/static/notes_revisions.js?v=__ASR_ASSET_V__" defer></script>
-  <script src="/static/progress.js?v=__ASR_ASSET_V__" defer></script>
-  <script src="/static/voice_idb.js?v=__ASR_ASSET_V__" defer></script>
-  <script src="/static/stt_practice.js?v=__ASR_ASSET_V__" defer></script>
-  <!-- WHY: Signalsmith UMD → AsrStretch가 AudioWorklet stretch에 사용 (design/17) -->
-  <script src="/static/vendor/signalsmith-stretch/SignalsmithStretch.js?v=__ASR_ASSET_V__" defer></script>
-  <script src="/static/tts_stretch.js?v=__ASR_ASSET_V__" defer></script>
-  <script src="/static/fig_refs.js?v=__ASR_ASSET_V__" defer></script>
-  <script src="/static/cite_refs.js?v=__ASR_ASSET_V__" defer></script>
-  <script src="/static/app.js?v=__ASR_ASSET_V__" defer></script>
 </body>
 </html>

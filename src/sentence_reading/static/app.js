@@ -7,6 +7,9 @@
 (() => {
   "use strict";
 
+  // WHY: index.html head 부팅 가드가 이 플래그로 스크립트 유실(부분 HTML) 여부를 판별
+  window.__asrBootOk = true;
+
   const COLLAPSED_PX = 48;
   const SNAP_COLLAPSE_PX = 110;
   const MIN_EXPANDED_PX = 120;

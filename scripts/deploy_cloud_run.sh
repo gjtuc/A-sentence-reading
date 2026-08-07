@@ -111,7 +111,7 @@ gcloud run deploy "$SERVICE" \
   --service-account "$SA_EMAIL" \
   --memory 1Gi \
   --cpu 1 \
-  --min-instances 0 \
+  --min-instances "${ASR_MIN_INSTANCES:-1}" \
   --max-instances 3 \
   --timeout 300 \
   --env-vars-file "$ENV_FILE"
