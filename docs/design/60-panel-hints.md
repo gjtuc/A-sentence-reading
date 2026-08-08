@@ -1,4 +1,4 @@
-# 60 — 패널 단축키 안내 줄 (기본 숨김)
+﻿# 60 — 패널 단축키 안내 줄 (기본 숨김)
 
 모듈: `static/index.html` · `styles.css` · `app.js` · Guide dialog ([59](59-guide-header.md))
 
@@ -41,4 +41,4 @@ EDGE: 구형 boolean → nestInMore만 반영 · hints 숨김
 
 ## 버전
 
-웹 **0.2.84** · status `panel_hints_optional: true`
+웹 **0.2.86** · status `panel_hints_optional: true`

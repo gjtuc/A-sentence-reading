@@ -1,4 +1,4 @@
-# 32 — GitHub CI · Cloud Run CD
+﻿# 32 — GitHub CI · Cloud Run CD
 
 모듈: `.github/workflows/ci.yml` · `deploy-cloud-run.yml` · `deploy_cloud_run.sh` · `check_github_cd_ready.py` · `ensure_github_deploy_sa.sh` · `sync_github_cd_secrets.sh`
 
@@ -61,4 +61,4 @@ CD 배포는 `ASR_CD_SKIP_API_ENABLE=1` — **`gcloud services enable` 생략** 
 
 ## 버전
 
-0.2.84 (앱; CD 게이트 자체는 0.2.33–0.2.36)
+0.2.86 (앱; CD 게이트 자체는 0.2.33–0.2.36)

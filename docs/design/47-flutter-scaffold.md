@@ -1,4 +1,4 @@
-# 47 — Flutter `mobile/` 스캐폴드 (MVP 1단계)
+﻿# 47 — Flutter `mobile/` 스캐폴드 (MVP 1단계)
 
 모듈: `mobile/` · 받침: [33-mobile-flutter.md](33-mobile-flutter.md)
 
@@ -46,4 +46,4 @@ flutter build apk
 
 ## Version pin
 
-Web/mobile **0.2.84** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).
+Web/mobile **0.2.86** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).

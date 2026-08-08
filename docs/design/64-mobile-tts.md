@@ -1,4 +1,4 @@
-# 64 — Flutter TTS (current sentence)
+﻿# 64 — Flutter TTS (current sentence)
 
 Modules: `tts_models.dart` · `tts_controller.dart` · `client.dart` · `reader_screen.dart`
 Server: existing `POST /api/tts` · `GET /api/tts/voices` ([15-tts-and-gestures.md](15-tts-and-gestures.md))
@@ -48,4 +48,4 @@ Web **0.2.82** · status `mobile_tts: true` · pubspec `0.2.82+1`
 
 ## Version pin
 
-Web/mobile **0.2.84**.
+Web/mobile **0.2.86**.

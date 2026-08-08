@@ -1,7 +1,7 @@
-name: sentence_reading
+﻿name: sentence_reading
 description: 문장 읽기 — Android Flutter client for A-sentence-reading Cloud Run API
 publish_to: "none"
-version: 0.2.84+1
+version: 0.2.86+1
 
 environment:
   sdk: ">=3.3.0 <4.0.0"

@@ -59,6 +59,7 @@
 | 66 | [66-mobile-theme.md](66-mobile-theme.md) | Flutter 테마 system/light/dark |
 | 67 | [67-access-gate.md](67-access-gate.md) | OTP 초대 코드 · admin allow/deny |
 | 68 | [68-mobile-shell-nav.md](68-mobile-shell-nav.md) | 로그인 게이트 · 탭 3개 · 설정에 계정/서버 |
+| 69 | [69-access-gate-gcs.md](69-access-gate-gcs.md) | 액세스 게이트 초대·이벤트·redeem → GCS 공유 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -117,4 +118,6 @@
 65는 Flutter Google·카카오 로그인 (0.2.73).
 66는 Flutter 테마 3종 (0.2.74).
 67는 액세스 게이트 OTP·Allow/Deny (0.2.82).  
+68는 모바일 셸 · 로그인 게이트 · 탭 3개 (0.2.84).  
+69는 액세스 게이트 GCS 공유 진실 (0.2.86).  
 음절(30)은 **하지 않음** (원복).
