@@ -89,7 +89,7 @@
 - ~~액세스 게이트 (OTP 초대·관리자 Allow/Deny)~~ (0.2.82 — [67-access-gate.md](67-access-gate.md))
 - ~~초대 코드 TTL·redeem rate limit~~ (0.2.82 — [67-access-gate.md](67-access-gate.md) Hardening)
 - ~~Android Google OAuth SHA-1 런북 · DEVELOPER_ERROR fail-closed~~ (0.2.82 — [65-mobile-oauth.md](65-mobile-oauth.md))
-- ~~Android OAuth SHA-1 콘솔 등록 · Google 실기 로그인~~ (0.2.82 — [65-mobile-oauth.md](65-mobile-oauth.md))
+- ~~Android OAuth SHA-1 콘솔 등록 · Google 실기 로그인~~ (0.2.82 — [65-mobile-oauth.md](65-mobile-oauth.md); PC-B SHA-1 실기 E2E 0.2.86)
 - ~~초대 코드 사용자 문구 최소 공개~~ (0.2.82 — [67-access-gate.md](67-access-gate.md))
 - ~~ASR_ADMIN_EMAILS ops · 하드코딩 기본값 제거~~ (0.2.82 — [67-access-gate.md](67-access-gate.md))
 - ~~초대 redeem E2E · Settings 로그아웃 OTP 잔여 제거~~ (0.2.83 — [67-access-gate.md](67-access-gate.md))
