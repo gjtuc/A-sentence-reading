@@ -1,4 +1,4 @@
-"""다단 reading order (0.2.32 · design/31)."""
+﻿"""다단 reading order (0.2.32 · design/31)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from sentence_reading.pdf.reading_order import (
 
 def test_status() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.84"
+    assert st["version"] == "0.2.86"
     assert st.get("reading_order") is True
     assert PIPELINE_VERSION == "rich-v7"
     assert st["pipeline_version"] == "rich-v7"

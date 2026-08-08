@@ -1,4 +1,4 @@
-# 68 — Mobile shell nav (auth gate · 3 tabs)
+﻿# 68 — Mobile shell nav (auth gate · 3 tabs)
 
 Modules: `home_shell.dart` · `login_screen.dart` · `settings_screen.dart` · `status_screen.dart`  
 See: [33-mobile-flutter.md](33-mobile-flutter.md) · [61](61-mobile-email-auth.md) · [67](67-access-gate.md)
@@ -30,4 +30,4 @@ See: [33-mobile-flutter.md](33-mobile-flutter.md) · [61](61-mobile-email-auth.m
 
 ## Version
 
-Web **0.2.84** · `mobile_shell_nav` · pubspec `0.2.84+1`
+Web **0.2.86** · `mobile_shell_nav` · pubspec `0.2.86+1`

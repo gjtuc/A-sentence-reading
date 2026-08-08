@@ -8,6 +8,10 @@ Hardening (0.2.76):
 - Invites expire after ASR_INVITE_TTL_HOURS (default 48; 0 = no expiry).
 - Redeem attempts are rate-limited per uid (ASR_INVITE_REDEEM_MAX /
   ASR_INVITE_REDEEM_WINDOW_SEC) to blunt online guessing.
+
+GCS durability (0.2.86 · design/69):
+- invite_codes / access_events / redeem_attempts push+pull like accounts.json.
+- WHY: Cloud Run ephemeral disk + multi-instance must share one gate truth.
 """
 from __future__ import annotations
 
@@ -54,6 +58,199 @@ def invites_path() -> Path:
 def redeem_attempts_path() -> Path:
     """Persisted redeem attempt windows (per uid) — survives process restart."""
     return project_root() / "data" / "auth" / "redeem_attempts.json"
+
+
+# WHY: redeemed must win over open so a late pull cannot resurrect a used OTP.
+_INVITE_STATUS_RANK = {
+    "open": 1,
+    "expired": 2,
+    "revoked": 3,
+    "redeemed": 4,
+}
+
+
+def _auth_gcs_object(filename: str) -> str | None:
+    """Shared auth object under {prefix}/auth/… — never under users/{uid}/."""
+    try:
+        from sentence_reading.llm.gcs_sync import object_name
+
+        return object_name("auth", filename)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _push_auth_json(path: Path, filename: str) -> None:
+    """
+    Local JSON → GCS. Fail-soft: local remains source for this process.
+    INVARIANT: plaintext invite codes are never written to these files.
+    """
+    try:
+        from sentence_reading.llm.gcs_sync import upload_bytes
+
+        obj = _auth_gcs_object(filename)
+        if not obj or not path.is_file():
+            return
+        raw = path.read_bytes()
+        if not raw:
+            return
+        upload_bytes(
+            obj, raw, content_type="application/json; charset=utf-8"
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.debug("access_gate gcs push skip %s: %s", filename, exc)
+
+
+def _download_auth_json(filename: str) -> dict[str, Any] | None:
+    """GCS → dict. Miss/disabled/error → None (caller keeps local)."""
+    try:
+        from sentence_reading.llm.gcs_sync import download_bytes
+
+        obj = _auth_gcs_object(filename)
+        if not obj:
+            return None
+        raw = download_bytes(obj)
+        if not raw:
+            return None
+        data = json.loads(raw.decode("utf-8"))
+        if not isinstance(data, dict):
+            return None
+        return data
+    except Exception as exc:  # noqa: BLE001
+        log.debug("access_gate gcs pull skip %s: %s", filename, exc)
+        return None
+
+
+def _merge_invite_stores(
+    local: dict[str, Any], remote: dict[str, Any]
+) -> dict[str, Any]:
+    """Same hash → higher status rank wins; tie → newer redeemed/created."""
+    by_hash: dict[str, dict[str, Any]] = {}
+    for src in (local, remote):
+        codes = src.get("codes") if isinstance(src.get("codes"), list) else []
+        for row in codes:
+            if not isinstance(row, dict):
+                continue
+            h = str(row.get("hash") or "").strip()
+            if not h or len(h) < 16:
+                continue
+            prev = by_hash.get(h)
+            if prev is None:
+                by_hash[h] = dict(row)
+                continue
+            r_new = _INVITE_STATUS_RANK.get(str(row.get("status") or ""), 0)
+            r_old = _INVITE_STATUS_RANK.get(str(prev.get("status") or ""), 0)
+            if r_new > r_old:
+                by_hash[h] = dict(row)
+                continue
+            if r_new < r_old:
+                continue
+            try:
+                t_new = int(row.get("redeemed_at") or row.get("created_at") or 0)
+                t_old = int(prev.get("redeemed_at") or prev.get("created_at") or 0)
+            except (TypeError, ValueError):
+                t_new, t_old = 0, 0
+            if t_new >= t_old:
+                by_hash[h] = dict(row)
+    return {"version": 1, "codes": list(by_hash.values())}
+
+
+def _merge_event_stores(
+    local: dict[str, Any], remote: dict[str, Any]
+) -> dict[str, Any]:
+    """Dedupe admin notification events; keep newest 500."""
+    seen: set[tuple[Any, ...]] = set()
+    items: list[dict[str, Any]] = []
+    for src in (local, remote):
+        raw_ev = src.get("events")
+        if not isinstance(raw_ev, list):
+            continue
+        for it in raw_ev:
+            if not isinstance(it, dict):
+                continue
+            key = (
+                it.get("ts"),
+                it.get("type"),
+                it.get("uid"),
+                it.get("message"),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(dict(it))
+    items.sort(key=lambda x: int(x.get("ts") or 0))
+    if len(items) > 500:
+        items = items[-500:]
+    return {"version": 1, "events": items}
+
+
+def _merge_redeem_stores(
+    local: dict[str, Any], remote: dict[str, Any]
+) -> dict[str, Any]:
+    """Union per-uid attempt stamps (rate-limit must not reset on other instance)."""
+    by: dict[str, list[int]] = {}
+    for src in (local, remote):
+        raw = src.get("by_uid")
+        if not isinstance(raw, dict):
+            continue
+        for uid, stamps in raw.items():
+            uid_s = sanitize_uid(str(uid))
+            if not uid_s or not isinstance(stamps, list):
+                continue
+            bucket = by.setdefault(uid_s, [])
+            for x in stamps:
+                try:
+                    bucket.append(int(x))
+                except (TypeError, ValueError):
+                    continue
+    out_by: dict[str, list[int]] = {}
+    for uid_s, stamps in by.items():
+        uniq = sorted(set(stamps))
+        out_by[uid_s] = uniq[-40:]
+    if len(out_by) > 5000:
+        # EDGE: cap map size — keep newest uids by last stamp
+        ranked = sorted(
+            out_by.items(),
+            key=lambda kv: kv[1][-1] if kv[1] else 0,
+        )
+        out_by = dict(ranked[-4000:])
+    return {"version": 1, "by_uid": out_by}
+
+
+def refresh_access_gate_from_gcs() -> bool:
+    """
+    Pull shared gate truth before mint/redeem/decide/paid checks.
+
+    WHY before critical ops: another Cloud Run instance may have minted/allowed.
+    Fail-soft: GCS down → keep local (may deny paid — fail-closed for cost).
+    """
+    changed = False
+    try:
+        from sentence_reading.llm.auth_accounts import pull_accounts_from_gcs
+
+        if pull_accounts_from_gcs():
+            changed = True
+    except Exception as exc:  # noqa: BLE001
+        log.debug("access_gate accounts pull skip: %s", exc)
+
+    remote_inv = _download_auth_json("invite_codes.json")
+    remote_ev = _download_auth_json("access_events.json")
+    remote_ra = _download_auth_json("redeem_attempts.json")
+
+    with _LOCK:
+        if remote_inv is not None:
+            merged = _merge_invite_stores(_read_invites(), remote_inv)
+            _write_json(invites_path(), merged)
+            changed = True
+        if remote_ev is not None:
+            local_ev = _read_json(events_path(), {"version": 1, "events": []})
+            merged_ev = _merge_event_stores(local_ev, remote_ev)
+            _write_json(events_path(), merged_ev)
+            changed = True
+        if remote_ra is not None:
+            merged_ra = _merge_redeem_stores(_read_redeem_attempts(), remote_ra)
+            _write_json(redeem_attempts_path(), merged_ra)
+            changed = True
+    return changed
 
 
 def access_gate_enabled() -> bool:
@@ -136,6 +333,8 @@ def _read_redeem_attempts() -> dict[str, Any]:
 
 def _write_redeem_attempts(store: dict[str, Any]) -> None:
     _write_json(redeem_attempts_path(), store)
+    # WHY: rate-limit counters must follow the user across instances (design/69)
+    _push_auth_json(redeem_attempts_path(), "redeem_attempts.json")
 
 
 def check_redeem_rate_limit(uid: str, *, now: int | None = None) -> None:
@@ -311,6 +510,8 @@ def _read_invites() -> dict[str, Any]:
 
 def _write_invites(store: dict[str, Any]) -> None:
     _write_json(invites_path(), store)
+    # WHY: mint on instance A must be redeemable on B (design/69)
+    _push_auth_json(invites_path(), "invite_codes.json")
 
 
 def invite_pool_nonempty() -> bool:
@@ -332,6 +533,8 @@ def mint_invite_code(
     Create one single-use invite. Returns plaintext `code` once.
     Store only hash + metadata (+ expires_at when TTL > 0).
     """
+    # WHY: pick up remote pool before appending (avoid blind local-only mint)
+    refresh_access_gate_from_gcs()
     # Retry on improbable hash collision
     plain = ""
     digest = ""
@@ -389,6 +592,7 @@ def mint_invite_code(
 
 def list_open_invite_meta(*, limit: int = 20) -> list[dict[str, Any]]:
     """Admin view — never returns plaintext codes."""
+    refresh_access_gate_from_gcs()
     with _LOCK:
         store = _read_invites()
         out: list[dict[str, Any]] = []
@@ -508,9 +712,12 @@ def append_event(event: dict[str, Any]) -> None:
             + "\n",
             encoding="utf-8",
         )
+    # WHY: admin notifications must be visible on any instance (design/69)
+    _push_auth_json(path, "access_events.json")
 
 
 def list_events(*, limit: int = 50) -> list[dict[str, Any]]:
+    refresh_access_gate_from_gcs()
     path = events_path()
     if not path.is_file():
         return []
@@ -529,6 +736,8 @@ def list_events(*, limit: int = 50) -> list[dict[str, Any]]:
 
 
 def list_pending() -> list[dict[str, Any]]:
+    # WHY: pending queue is on accounts.json — refresh before admin UI
+    refresh_access_gate_from_gcs()
     with _LOCK:
         store = _read_accounts()
         out: list[dict[str, Any]] = []
@@ -560,6 +769,8 @@ def redeem_invite(uid: str, code: str, *, email: str = "", name: str = "") -> di
         raise ValueError("auth_required")
     if not access_gate_enabled():
         raise ValueError("gate_disabled")
+    # WHY: code may have been minted on another instance (design/69)
+    refresh_access_gate_from_gcs()
     compact = normalize_invite_code(code)
     if not compact:
         raise ValueError("empty_code")
@@ -688,6 +899,8 @@ def decide_access(
     else:
         raise ValueError("bad_decision")
 
+    # WHY: decide against fresh accounts pull so we do not clobber remote status
+    refresh_access_gate_from_gcs()
     now = int(time.time())
     with _LOCK:
         store = _read_accounts()
@@ -726,5 +939,7 @@ def user_may_use_paid(
         return True
     if is_admin:
         return True
+    # WHY: Allow on another instance must take effect before paid API (design/69)
+    refresh_access_gate_from_gcs()
     st = str(get_access_for_uid(uid).get("status") or STATUS_NONE)
     return st in PAID_STATUSES

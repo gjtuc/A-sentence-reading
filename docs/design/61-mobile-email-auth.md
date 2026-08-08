@@ -1,4 +1,4 @@
-# 61 — Flutter 이메일 로그인 · 세션 쿠키
+﻿# 61 — Flutter 이메일 로그인 · 세션 쿠키
 
 모듈: `mobile/lib/api/*` · `mobile/lib/state/auth_controller.dart` · `mobile/lib/screens/login_screen.dart`  
 받침: [33-mobile-flutter.md](33-mobile-flutter.md) · [47](47-flutter-scaffold.md) · [48](48-flutter-android-platform.md)
@@ -51,4 +51,4 @@ Android Flutter MVP 구현 순서 **3번 중 로그인(수단 ≥1)**:
 
 ## Version pin
 
-Web/mobile **0.2.84**.
+Web/mobile **0.2.86**.

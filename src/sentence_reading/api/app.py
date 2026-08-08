@@ -70,6 +70,7 @@ from sentence_reading.llm.access_gate import (
     mint_invite_code,
     public_access_view,
     redeem_invite,
+    refresh_access_gate_from_gcs,
     user_may_use_paid,
 )
 from sentence_reading.llm.auth_kakao import (
@@ -128,12 +129,19 @@ async def _lifespan(_app: FastAPI):
         pull_accounts_from_gcs()
     except Exception:
         pass
+    try:
+        # WHY: invite/events/redeem must load shared truth on boot (design/69)
+        from sentence_reading.llm.access_gate import refresh_access_gate_from_gcs
+
+        refresh_access_gate_from_gcs()
+    except Exception:
+        pass
     yield
 
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.85",
+    version="0.2.86",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -272,7 +280,8 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.85",
+        "version": "0.2.86",
+        "access_gate_gcs": True,
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -857,6 +866,12 @@ def usage_admin(request: Request) -> dict:
 @app.get("/api/access/status")
 def access_status(request: Request) -> dict:
     user = _request_user(request)
+    # WHY: Settings「새로고침」must see Allow minted on another instance (design/69)
+    if user is not None:
+        try:
+            refresh_access_gate_from_gcs()
+        except Exception:
+            pass
     return {
         "ok": True,
         **public_access_view(

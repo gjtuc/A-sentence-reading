@@ -1,4 +1,4 @@
-# 48 — Flutter Android 플랫폼 (`android/`)
+﻿# 48 — Flutter Android 플랫폼 (`android/`)
 
 모듈: `mobile/android/` · 받침: [33-mobile-flutter.md](33-mobile-flutter.md) · [47-flutter-scaffold.md](47-flutter-scaffold.md)
 
@@ -46,4 +46,4 @@ flutter build apk
 
 ## Version pin
 
-Web/mobile **0.2.84** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).
+Web/mobile **0.2.86** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).

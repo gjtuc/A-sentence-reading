@@ -1,4 +1,4 @@
-# 66 — Flutter theme (system / light / dark)
+﻿# 66 — Flutter theme (system / light / dark)
 
 Modules: `theme_models.dart` · `theme_store.dart` · `theme_controller.dart` · `settings_screen.dart` · `app.dart`  
 See: [33-mobile-flutter.md](33-mobile-flutter.md) · [07-typography-tokens.md](07-typography-tokens.md)
@@ -31,4 +31,4 @@ Web **0.2.82** · status `mobile_theme: true` · pubspec `0.2.82+1`
 
 ## Version pin
 
-Web/mobile **0.2.84**.
+Web/mobile **0.2.86**.

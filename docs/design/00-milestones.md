@@ -1,4 +1,4 @@
-# 00 — Milestones
+﻿# 00 — Milestones
 
 구현을 **한 번에 다 하지 않는다.** 각 단계가 끝나면 수동/자동으로 검증 가능하게.
 
@@ -94,6 +94,7 @@
 - ~~ASR_ADMIN_EMAILS ops · 하드코딩 기본값 제거~~ (0.2.82 — [67-access-gate.md](67-access-gate.md))
 - ~~초대 redeem E2E · Settings 로그아웃 OTP 잔여 제거~~ (0.2.83 — [67-access-gate.md](67-access-gate.md))
 - ~~모바일 셸 · 로그인 게이트 · 탭 3개~~ (0.2.84 — [68-mobile-shell-nav.md](68-mobile-shell-nav.md))
+- ~~액세스 게이트 GCS 공유 진실~~ (0.2.86 — [69-access-gate-gcs.md](69-access-gate-gcs.md); Cloud Run 다 인스턴스)
 - **Android Flutter MVP** — 실기 APK ([33-mobile-flutter.md](33-mobile-flutter.md); 게이트 이후)
 
 ### 구현됨 (참고)
