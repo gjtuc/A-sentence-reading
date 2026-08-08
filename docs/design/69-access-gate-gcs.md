@@ -59,3 +59,17 @@ Cloud Run 등 **에페메랄 디스크·다 인스턴스**에서도 초대·허�
 - 두 신원: mint(A) → redeem(B) → allow(A) → B `can_use_paid` (refresh 후)
 - GCS 끄면 단위 테스트·로컬 디스크 경로 회귀 OK
 - 비밀·평문 OTP가 로그/PR/docs에 없음
+
+## Device E2E (0.2.86 · Samsung sideload)
+
+Against live Cloud Run `version=0.2.86` · `access_gate_gcs=true` (APK may lag; API path is the contract):
+
+1. App opens → bottom tabs (보관·읽기·설정) when session present
+2. **설정** → 계정 provider 표시 · `상태: allowed · 유료 API 가능` · admin chrome (OTP 발급 / pending / Allow·Deny) only if admin
+3. **새로고침** → status stays coherent (no success-fake empty; paid flag unchanged when still allowed)
+4. **로그아웃** → login-only shell (Google/Kakao/email); no prior email, no access status, no pending queue, no minted OTP
+5. Unauthenticated `GET /api/access/admin/pending` → **403**; `GET /api/access/status` → `can_use_paid=false` · `status=none`
+
+Do not paste OTP plaintext, emails, or session cookies into chat/PR.
+
+Live Enable / IPS: Trading Gate only (ASR out) — unchanged.
