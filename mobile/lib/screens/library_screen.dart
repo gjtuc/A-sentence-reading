@@ -1,9 +1,10 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../state/auth_controller.dart';
 import '../state/library_controller.dart';
 
-/// Authenticated paper list → open (design/62).
+/// Authenticated paper list → open · single PDF upload (design/62 · design/70).
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
     super.key,
@@ -63,6 +64,46 @@ class _LibraryScreenState extends State<LibraryScreen> {
     widget.onOpened?.call();
   }
 
+  Future<void> _pickAndUpload() async {
+    final lib = widget.library;
+    if (lib.uploading || lib.opening) return;
+
+    // WHY: single-file chip — multi-select deferred (resume also deferred).
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['pdf'],
+      allowMultiple: false,
+      withData: true,
+    );
+    if (!mounted) return;
+    if (picked == null || picked.files.isEmpty) {
+      // EDGE: user cancelled — stay silent (not a failure snackbar).
+      return;
+    }
+    final f = picked.files.first;
+    final name = f.name.trim();
+    final bytes = f.bytes;
+    if (name.isEmpty || bytes == null || bytes.isEmpty) {
+      // EDGE: some SAF providers omit bytes — fail-closed, no fake success.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('파일을 읽지 못했습니다. 다른 PDF를 골라 주세요.')),
+      );
+      return;
+    }
+
+    final result = await lib.uploadPdf(filename: name, bytes: bytes);
+    if (!mounted) return;
+    if (result == null) {
+      final msg = lib.error ?? '업로드에 실패했습니다.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      return;
+    }
+    final label = result.title.isNotEmpty ? result.title : name;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('보관에 추가됨: $label')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -80,11 +121,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
           );
         }
         final lib = widget.library;
-        if (lib.loading && lib.papers.isEmpty) {
+        if (lib.loading && lib.papers.isEmpty && !lib.uploading) {
           return const Center(child: CircularProgressIndicator());
         }
         return RefreshIndicator(
-          onRefresh: lib.refresh,
+          onRefresh: lib.uploading ? () async {} : lib.refresh,
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
@@ -100,7 +141,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ),
                       ),
                       IconButton(
-                        onPressed: lib.loading || lib.opening ? null : lib.refresh,
+                        onPressed: lib.loading || lib.opening || lib.uploading
+                            ? null
+                            : _pickAndUpload,
+                        icon: const Icon(Icons.upload_file),
+                        tooltip: 'PDF 올리기',
+                      ),
+                      IconButton(
+                        onPressed: lib.loading || lib.opening || lib.uploading
+                            ? null
+                            : lib.refresh,
                         icon: const Icon(Icons.refresh),
                         tooltip: '새로고침',
                       ),
@@ -108,6 +158,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                 ),
               ),
+              if (lib.uploading)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        LinearProgressIndicator(
+                          value: lib.uploadPercent > 0
+                              ? (lib.uploadPercent.clamp(0, 100) / 100.0)
+                              : null,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '올리는 중 ${lib.uploadPercent}%'
+                          '${lib.uploadStage.isEmpty ? '' : ' · ${lib.uploadStage}'}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               if (lib.error != null)
                 SliverToBoxAdapter(
                   child: Padding(
@@ -118,22 +190,32 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   ),
                 ),
-              if (lib.papers.isEmpty)
-                const SliverFillRemaining(
+              if (lib.papers.isEmpty && !lib.uploading)
+                SliverFillRemaining(
                   hasScrollBody: false,
                   child: Center(
                     child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text(
-                        '아직 보관한 논문이 없습니다.\n'
-                        'PC 웹에서 PDF를 업로드하면 여기에 나타납니다.\n'
-                        '(앱 업로드는 후속)',
-                        textAlign: TextAlign.center,
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            '아직 보관한 논문이 없습니다.\n'
+                            '아래 버튼으로 PDF를 올리면 클라우드 보관함에 저장됩니다.',
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 16),
+                          FilledButton.tonalIcon(
+                            onPressed: lib.loading ? null : _pickAndUpload,
+                            icon: const Icon(Icons.upload_file),
+                            label: const Text('PDF 올리기'),
+                          ),
+                        ],
                       ),
                     ),
                   ),
                 )
-              else
+              else if (lib.papers.isNotEmpty)
                 SliverList.builder(
                   itemCount: lib.papers.length,
                   itemBuilder: (context, i) {
@@ -154,7 +236,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.chevron_right),
-                      onTap: lib.opening ? null : () => _open(e),
+                      onTap: lib.opening || lib.uploading
+                          ? null
+                          : () => _open(e),
                     );
                   },
                 ),

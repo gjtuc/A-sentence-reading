@@ -409,13 +409,37 @@ def pull_paper_matching_text(text: str, *, source: str = "pdf") -> dict[str, Any
 
 
 def list_merged_paper_entries() -> list[dict[str, Any]]:
-    """로컬 ∪ 원격 index 메타 (다운로드는 open/ingest 시)."""
+    """로컬 ∪ 원격 index 메타 (다운로드는 open/ingest 시).
+
+    Multi-tenant (0.2.87 · design/70):
+    - auth on + no UID → empty (do not leak instance-local disk to strangers)
+    - personal GCS index present → only merge local rows already in that remote index
+    """
+    from sentence_reading.llm.auth_google import auth_enabled, current_gcs_uid
+
+    # WHY: Cloud Run disk cache is shared per instance; listing must not show
+    # another user's papers that happen to sit on the same volume.
+    # EDGE: unauthenticated probe with auth enabled → empty, not local dump.
+    if auth_enabled() and not current_gcs_uid():
+        return []
+
     local = list(_read_index().get("entries") or [])
     ready, _ = gcs_client_ready()
-    if gcs_config().enabled and ready:
+    if gcs_config().enabled and ready and papers_index_object():
         remote = download_remote_index().get("entries") or []
-        merged = merge_index_entries(local, remote)
+        remote_ids = {
+            e.get("id") for e in remote if isinstance(e, dict) and e.get("id")
+        }
+        # WHY: local-only orphans (GCS push failed / other tenant) stay hidden.
+        local_mine = [
+            e for e in local if isinstance(e, dict) and e.get("id") in remote_ids
+        ]
+        merged = merge_index_entries(local_mine, remote)
+    elif gcs_config().enabled and ready:
+        # EDGE: GCS configured but personal path unavailable → fail-closed empty
+        merged = []
     else:
+        # Local-only / GCS off (dev single-user)
         merged = [e for e in local if isinstance(e, dict)]
     out = []
     for entry in merged:

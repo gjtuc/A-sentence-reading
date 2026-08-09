@@ -1,4 +1,4 @@
-# 69 — Access gate durable store (GCS)
+﻿# 69 — Access gate durable store (GCS)
 
 모듈: `llm/access_gate.py` · `api` lifespan · status `access_gate_gcs`  
 받침: [67-access-gate.md](67-access-gate.md) · [22-google-auth-gcs.md](22-google-auth-gcs.md) · [25-cloud-run.md](25-cloud-run.md)
@@ -51,7 +51,7 @@ Cloud Run 등 **에페메랄 디스크·다 인스턴스**에서도 초대·허�
 
 ## status
 
-`access_gate_gcs: true` · version **0.2.86**
+`access_gate_gcs: true` · version **0.2.87**
 
 ## 합격
 

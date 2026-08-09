@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+﻿import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:sentence_reading/api/client.dart';
@@ -36,7 +36,7 @@ void main() {
       }
       if (path.endsWith('/api/status')) {
         return http.Response(
-          '{"ok":true,"version":"0.2.86","pipeline":"rich-v7","mobile_library":true,"mobile_shell_nav":true}',
+          '{"ok":true,"version":"0.2.87","pipeline":"rich-v7","mobile_library":true,"mobile_shell_nav":true,"mobile_upload":true}',
           200,
           headers: {'content-type': 'application/json'},
         );

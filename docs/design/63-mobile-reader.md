@@ -38,4 +38,4 @@ Web **0.2.82** · status mobile_reader: true · pubspec 0.2.82+1
 
 ## Version pin
 
-Web/mobile **0.2.86**.
+Web/mobile **0.2.87**.
