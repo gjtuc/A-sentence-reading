@@ -1,7 +1,7 @@
 ﻿name: sentence_reading
 description: 문장 읽기 — Android Flutter client for A-sentence-reading Cloud Run API
 publish_to: "none"
-version: 0.2.87+1
+version: 0.2.88+1
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -17,6 +17,9 @@ dependencies:
   # WHY: single-PDF pick from device storage for Cloud Run ingest (design/70).
   # EDGE: 8.x AAR metadata targets android-34; 10.x matches compileSdk 36 + lifecycle.
   file_picker: ^10.3.2
+  # WHY (design/71): content_hash match for same-file resume + local draft PDF path.
+  crypto: ^3.0.6
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:

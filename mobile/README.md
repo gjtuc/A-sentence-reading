@@ -4,9 +4,10 @@ Application id: `com.gjtuc.sentence_reading`
 
 Design: [33](../docs/design/33-mobile-flutter.md) · [61](../docs/design/61-mobile-email-auth.md)–[67](../docs/design/67-access-gate.md).
 
-## Status (0.2.87)
+## Status (0.2.88)
 
-- pubspec `0.2.87+1` · single PDF upload to Cloud Run (`mobile_upload`) — design/70
+- pubspec `0.2.88+1` · single PDF upload to Cloud Run (`mobile_upload`) — design/70
+- upload resume (`mobile_upload_resume` · `ingest_job_gcs`) — design/71
 - sideload APK pin — design/48
 - Android Google OAuth SHA-1 runbook — design/65
 - Shell nav (login gate · tabs) — design/68

@@ -1,18 +1,28 @@
-/// Paper library + opened reading session (design/62 · design/63 · design/70).
+/// Paper library + opened reading session (design/62 · design/63 · design/70 · design/71).
 library;
 
+import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
 import '../api/client.dart';
 import '../api/ingest_models.dart';
 import '../api/paper_models.dart';
 import '../api/reading_models.dart';
+import '../api/upload_draft_models.dart';
+import '../api/upload_draft_store.dart';
 
 /// Loads `/api/cache/papers`, opens a cache entry, advances cursors independently.
 class LibraryController extends ChangeNotifier {
-  LibraryController({required AsrClient client}) : _client = client;
+  LibraryController({
+    required AsrClient client,
+    UploadDraftStore? draftStore,
+  })  : _client = client,
+        _drafts = draftStore ?? PrefsUploadDraftStore();
 
   final AsrClient _client;
+  final UploadDraftStore _drafts;
 
   List<PaperEntry> papers = const [];
   ReadingSession? session;
@@ -114,7 +124,7 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void clearAll() {
+  Future<void> clearAll() async {
     papers = const [];
     session = null;
     error = null;
@@ -123,18 +133,55 @@ class LibraryController extends ChangeNotifier {
     uploading = false;
     uploadPercent = 0;
     uploadStage = '';
+    // WHY (MULTI-USER): next account must not resume previous user's job/PDF.
+    await _drafts.clear();
     notifyListeners();
   }
 
-  /// Single PDF → Cloud Run ingest → GCS library (mandatory) → refresh (design/70).
-  ///
-  /// Cloud archive is not optional: success means the paper is already in the
-  /// user’s GCS papers index. UI must not ask for a second “upload” tap.
-  ///
-  /// EDGE: on any failure leave [papers] unchanged and set [error] — never invent a row.
+  static String sha256Hex(Uint8List bytes) {
+    return sha256.convert(bytes).toString();
+  }
+
+  /// design/71 — on library open: auto reattach processing job or retry local draft.
+  Future<IngestJobResult?> resumePendingIfAny() async {
+    if (uploading) return null;
+    final draft = await _drafts.read();
+    if (draft == null) return null;
+
+    if (draft.canReattach) {
+      return _finishWithPoll(draft);
+    }
+
+    // A (minimal): local PDF still on disk → auto re-POST without user pick.
+    if (draft.localPath.isNotEmpty) {
+      final raw = await _drafts.readLocalPdf(draft.localPath);
+      if (raw == null || raw.isEmpty) {
+        await _drafts.clear();
+        return null;
+      }
+      final bytes = Uint8List.fromList(raw);
+      final hash = sha256Hex(bytes);
+      if (hash != draft.contentHash) {
+        // EDGE: corrupted draft — wipe, never upload wrong bytes as success.
+        await _drafts.clear();
+        error = '이어올리기 초안이 손상되어 삭제했습니다. 다시 골라 주세요.';
+        notifyListeners();
+        return null;
+      }
+      return uploadPdf(
+        filename: draft.filename,
+        bytes: bytes,
+        knownHash: hash,
+      );
+    }
+    return null;
+  }
+
+  /// Same-file pick: if draft hash matches, reattach or reuse bytes path.
   Future<IngestJobResult?> uploadPdf({
     required String filename,
     required Uint8List bytes,
+    String? knownHash,
   }) async {
     if (uploading) {
       // WHY: one-at-a-time chip — overlapping uploads confuse progress + list.
@@ -142,24 +189,52 @@ class LibraryController extends ChangeNotifier {
       notifyListeners();
       return null;
     }
+
+    final hash = knownHash ?? sha256Hex(bytes);
+    final existing = await _drafts.read();
+    // WHY: user re-picked same PDF → auto resume (product decision).
+    if (existing != null &&
+        existing.contentHash == hash &&
+        existing.canReattach) {
+      return _finishWithPoll(existing);
+    }
+
     uploading = true;
     uploadPercent = 0;
     uploadStage = '준비 중';
     error = null;
     notifyListeners();
     try {
-      final result = await _client.ingestPdfBytes(
+      final localPath = await _drafts.saveLocalPdf(hash, bytes);
+      var draft = UploadDraft(
+        contentHash: hash,
+        filename: filename.trim(),
+        phase: 'uploading',
+        localPath: localPath ?? '',
+        bytesLen: bytes.length,
+      );
+      await _drafts.write(draft);
+
+      final started = await _client.startIngestPdfBytes(
         filename: filename,
         bytes: bytes,
+      );
+      draft = draft.copyWith(jobId: started.jobId, phase: 'processing');
+      await _drafts.write(draft);
+      uploadPercent = 1;
+      uploadStage = '업로드 완료, 처리 중';
+      notifyListeners();
+
+      final result = await _client.pollIngestJob(
+        jobId: started.jobId,
         onProgress: (pct, msg) {
           uploadPercent = pct;
           uploadStage = msg.isEmpty ? '처리 중' : msg;
           notifyListeners();
         },
       );
-      // WHY: list is user-visible truth after GCS-scoped merge.
+      await _drafts.clear();
       await refresh();
-      // EDGE: rare race / other instance — cache_id not yet visible.
       final seen = papers.any((p) => p.id == result.cacheId);
       if (!seen) {
         error = '업로드는 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
@@ -168,6 +243,49 @@ class LibraryController extends ChangeNotifier {
       }
       return result;
     } on AsrApiException catch (e) {
+      error = e.message;
+      // Keep draft for auto/same-file resume — do not clear on failure.
+      return null;
+    } catch (e) {
+      error = e.toString();
+      return null;
+    } finally {
+      uploading = false;
+      uploadPercent = 0;
+      uploadStage = '';
+      notifyListeners();
+    }
+  }
+
+  Future<IngestJobResult?> _finishWithPoll(UploadDraft draft) async {
+    uploading = true;
+    uploadPercent = 0;
+    uploadStage = '이어올리는 중';
+    error = null;
+    notifyListeners();
+    try {
+      final result = await _client.pollIngestJob(
+        jobId: draft.jobId,
+        onProgress: (pct, msg) {
+          uploadPercent = pct;
+          uploadStage = msg.isEmpty ? '이어올리는 중' : msg;
+          notifyListeners();
+        },
+      );
+      await _drafts.clear();
+      await refresh();
+      final seen = papers.any((p) => p.id == result.cacheId);
+      if (!seen) {
+        error = '업로드는 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
+        notifyListeners();
+        return null;
+      }
+      return result;
+    } on AsrApiException catch (e) {
+      // EDGE: 404 after GCS miss — clear stuck draft so user can start clean.
+      if (e.statusCode == 404) {
+        await _drafts.clear();
+      }
       error = e.message;
       return null;
     } catch (e) {

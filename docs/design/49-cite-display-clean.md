@@ -1,4 +1,4 @@
-﻿# 49 — 각주 표시 정리 (문장 박스 · 전체화면 칩)
+# 49 — 각주 표시 정리 (문장 박스 · 전체화면 칩)
 
 모듈: `cite_refs` · `static/app.js` · `styles.css` · 받침 [41](41-cite-ref-open.md)
 
@@ -27,4 +27,4 @@
 
 ## Version pin
 
-Web/mobile **0.2.87** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).
+Web/mobile **0.2.88** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).

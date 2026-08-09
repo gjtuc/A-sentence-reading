@@ -1,4 +1,4 @@
-﻿# 65 — Flutter Google · Kakao login
+# 65 — Flutter Google · Kakao login
 
 Modules: `oauth_models.dart` · `client.dart` · `auth_controller.dart` · `login_screen.dart`  
 Server: existing `POST /api/auth/google` · `GET /api/auth/kakao/start|callback` (+ mobile deep link)  
@@ -114,4 +114,4 @@ Web **0.2.82** · status `mobile_oauth` · `mobile_google_sha_runbook` · `mobil
 
 ## Version pin
 
-Web/mobile **0.2.87**.
+Web/mobile **0.2.88**.

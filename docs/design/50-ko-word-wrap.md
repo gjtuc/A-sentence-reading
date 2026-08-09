@@ -1,4 +1,4 @@
-﻿# 50 — 한글 번역 어절 줄바꿈
+# 50 — 한글 번역 어절 줄바꿈
 
 모듈: `static/styles.css` (`.sentence-ko`) · 받침 [07](07-typography-tokens.md) · [39](39-translate-side-by-side.md)
 
@@ -32,4 +32,4 @@
 
 ## Version pin
 
-Web/mobile **0.2.87** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).
+Web/mobile **0.2.88** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).
