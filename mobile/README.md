@@ -4,13 +4,12 @@ Application id: `com.gjtuc.sentence_reading`
 
 Design: [33](../docs/design/33-mobile-flutter.md) · [61](../docs/design/61-mobile-email-auth.md)–[67](../docs/design/67-access-gate.md).
 
-## Status (0.2.83)
+## Status (0.2.86)
 
-- Android Google OAuth SHA-1 runbook · DEVELOPER_ERROR fail-closed (`mobile_google_sha_runbook`) — see design/65
-
-- Scaffold baseline **0.2.56**
-- Login · library · reader · TTS · theme
-- **Access gate**: OTP invite (48h TTL · redeem rate limit) (`XXXX-XXXX`) + admin Allow/Deny before paid APIs
+- pubspec `0.2.86+1` · sideload APK pin verified on Samsung (`versionName=0.2.86`) — design/48
+- Android Google OAuth SHA-1 runbook · DEVELOPER_ERROR fail-closed — design/65
+- Shell nav (login gate · tabs) — design/68
+- Login · library · reader · TTS · theme · access gate
 - Live Enable / IPS: Trading Gate (ASR out)
 
 ## Access codes

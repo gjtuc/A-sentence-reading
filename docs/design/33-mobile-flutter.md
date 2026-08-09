@@ -139,3 +139,7 @@ Invite redeem E2E + Settings logout clears minted OTP (see [67](67-access-gate.m
 
 Auth gate + tabs 보관/읽기/설정 · account/server under Settings (see [68](68-mobile-shell-nav.md)).
 
+## Sideload APK pin (0.2.86)
+
+Samsung device `versionName` matches pubspec / live API **0.2.86** after `flutter build apk` + `adb install -r` (see [48](48-flutter-android-platform.md) Device E2E). Prior gap: phone stayed on 0.2.84 while Cloud Run was already 0.2.86.
+
