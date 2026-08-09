@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../api/paper_models.dart';
 import '../state/auth_controller.dart';
 import '../state/library_controller.dart';
 
@@ -91,17 +92,31 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return;
     }
 
+    // WHY: ingest already writes user GCS papers — cloud library is mandatory, not a
+    // second "PDF 올리기" step after processing (design/70).
     final result = await lib.uploadPdf(filename: name, bytes: bytes);
     if (!mounted) return;
     if (result == null) {
-      final msg = lib.error ?? '업로드에 실패했습니다.';
+      final msg = lib.error ?? '처리에 실패했습니다.';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       return;
     }
-    final label = result.title.isNotEmpty ? result.title : name;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('보관에 추가됨: $label')),
-    );
+    PaperEntry? entry;
+    for (final p in lib.papers) {
+      if (p.id == result.cacheId) {
+        entry = p;
+        break;
+      }
+    }
+    if (entry == null) {
+      // EDGE: should be unreachable after uploadPdf list check — fail-closed.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('보관함에서 논문을 찾지 못했습니다.')),
+      );
+      return;
+    }
+    // Auto-open: user must not tap the paper (or PDF 올리기 again) to finish.
+    await _open(entry);
   }
 
   @override
@@ -145,7 +160,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             ? null
                             : _pickAndUpload,
                         icon: const Icon(Icons.upload_file),
-                        tooltip: 'PDF 올리기',
+                        tooltip: 'PDF 가져오기',
                       ),
                       IconButton(
                         onPressed: lib.loading || lib.opening || lib.uploading
@@ -172,8 +187,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          '올리는 중 ${lib.uploadPercent}%'
-                          '${lib.uploadStage.isEmpty ? '' : ' · ${lib.uploadStage}'}',
+                          // WHY: cloud archive is part of processing — not a separate upload tap.
+                          '처리 중 ${lib.uploadPercent}%'
+                          '${lib.uploadStage.isEmpty ? '' : ' · ${lib.uploadStage}'}'
+                          ' · 끝나면 클라우드 보관함에 자동 저장',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],
@@ -201,14 +218,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         children: [
                           const Text(
                             '아직 보관한 논문이 없습니다.\n'
-                            '아래 버튼으로 PDF를 올리면 클라우드 보관함에 저장됩니다.',
+                            'PDF를 고르면 처리가 끝난 뒤\n'
+                            '클라우드 보관함에 자동으로 저장됩니다.',
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 16),
                           FilledButton.tonalIcon(
                             onPressed: lib.loading ? null : _pickAndUpload,
                             icon: const Icon(Icons.upload_file),
-                            label: const Text('PDF 올리기'),
+                            label: const Text('PDF 가져오기'),
                           ),
                         ],
                       ),
