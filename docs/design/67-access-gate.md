@@ -1,4 +1,4 @@
-﻿# 67 — Access gate (OTP invite + admin allow/deny)
+# 67 — Access gate (OTP invite + admin allow/deny)
 
 Modules: `llm/access_gate.py` · `/api/access/*` · Flutter settings  
 See: [33-mobile-flutter.md](33-mobile-flutter.md) · [23-multi-auth-link.md](23-multi-auth-link.md) · [27](27-usage-meter.md)
@@ -70,7 +70,7 @@ Flutter Settings must re-fetch `/api/access/status` when `AuthController` become
 
 ## Version
 
-Web **0.2.87** · `access_gate` / `mobile_access_gate` · `access_gate_gcs` · `mobile_invite_copy_minimal` · `mobile_admin_emails_configured` · `mobile_shell_nav` · pubspec `0.2.87+1`
+Web **0.2.88** · `access_gate` / `mobile_access_gate` · `access_gate_gcs` · `mobile_invite_copy_minimal` · `mobile_admin_emails_configured` · `mobile_shell_nav` · pubspec `0.2.88+1`
 
 GCS durability for invites/events/redeem: [69-access-gate-gcs.md](69-access-gate-gcs.md).
 

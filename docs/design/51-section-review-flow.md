@@ -1,4 +1,4 @@
-﻿# 51 — 되새김질 이어 보기 (한 박스)
+# 51 — 되새김질 이어 보기 (한 박스)
 
 모듈: `static/app.js` · `styles.css` · 받침 [17](17-rumination-revisions.md)
 
@@ -40,4 +40,4 @@
 
 ## Version pin
 
-Web/mobile **0.2.87** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).
+Web/mobile **0.2.88** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).

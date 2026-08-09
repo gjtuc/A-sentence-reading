@@ -1,4 +1,4 @@
-﻿# 62 — Flutter 보관 목록 · open
+# 62 — Flutter 보관 목록 · open
 
 모듈: `mobile/lib/api/paper_models.dart` · `client.dart` · `library_controller.dart` · `library_screen.dart`  
 받침: [33-mobile-flutter.md](33-mobile-flutter.md) · [18-paper-library.md](18-paper-library.md) · [61](61-mobile-email-auth.md)
@@ -35,4 +35,4 @@ Android Flutter MVP **보관 목록**:
 
 ## Version pin
 
-Web/mobile **0.2.87** (upload → [70-mobile-upload.md](70-mobile-upload.md)).
+Web/mobile **0.2.88** (upload → [70-mobile-upload.md](70-mobile-upload.md)).

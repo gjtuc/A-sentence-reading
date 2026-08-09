@@ -297,15 +297,15 @@ class AsrClient {
 
   /// POST /api/ingest (multipart `file`) then poll `/api/ingest/jobs/{id}`.
   ///
-  /// WHY (design/70): mobile single-PDF → Cloud Run → user GCS papers.
+  /// WHY (design/70·71): mobile single-PDF → Cloud Run → user GCS papers.
   /// EDGE fail-closed: empty/non-PDF/oversize/no session → throw before network;
   /// interrupted or failed job → throw (caller must not show success / fake list row).
-  Future<IngestJobResult> ingestPdfBytes({
+  ///
+  /// Returns as soon as the server accepts the multipart (`job_id`). Caller may
+  /// persist the draft then [pollIngestJob].
+  Future<({String jobId, String contentHash})> startIngestPdfBytes({
     required String filename,
     required Uint8List bytes,
-    void Function(int percent, String message)? onProgress,
-    Duration pollInterval = const Duration(milliseconds: 500),
-    Duration timeout = const Duration(minutes: 12),
   }) async {
     final name = filename.trim();
     if (name.isEmpty) {
@@ -360,18 +360,35 @@ class AsrClient {
     if (jobId.isEmpty) {
       throw AsrApiException('작업 ID를 받지 못했습니다.', 500);
     }
+    final hash = '${start['content_hash'] ?? ''}'.trim().toLowerCase();
+    return (jobId: jobId, contentHash: hash);
+  }
 
+  /// Poll `/api/ingest/jobs/{id}` until done (design/71 reattach).
+  Future<IngestJobResult> pollIngestJob({
+    required String jobId,
+    void Function(int percent, String message)? onProgress,
+    Duration pollInterval = const Duration(milliseconds: 500),
+    Duration timeout = const Duration(minutes: 12),
+  }) async {
+    final jid = jobId.trim();
+    if (jid.isEmpty || !RegExp(r'^job_[a-f0-9]{12}$').hasMatch(jid)) {
+      throw AsrApiException('잘못된 작업 ID입니다.', 400);
+    }
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(pollInterval);
       final stRes = await _http
           .get(
-            _uri('/api/ingest/jobs/${Uri.encodeComponent(jobId)}'),
+            _uri('/api/ingest/jobs/${Uri.encodeComponent(jid)}'),
             headers: await _headers(),
           )
           .timeout(const Duration(seconds: 30));
+      if (stRes.statusCode == 401) {
+        throw AsrApiException('로그인이 필요합니다.', 401);
+      }
       if (stRes.statusCode == 404) {
-        // EDGE: job lost (instance recycle) — fail-closed, no fake success.
+        // EDGE: job lost even after GCS — fail-closed, no fake success.
         throw AsrApiException('작업을 찾을 수 없습니다. 다시 시도해 주세요.', 404);
       }
       if (stRes.statusCode < 200 || stRes.statusCode >= 300) {
@@ -410,14 +427,44 @@ class AsrClient {
         );
       }
       return IngestJobResult(
-        jobId: jobId,
+        jobId: jid,
         cacheId: cacheId,
         sessionId: sessionId,
         title: '${st['title'] ?? ''}'.trim(),
         percent: pct > 0 ? pct : 100,
+        contentHash: '${st['content_hash'] ?? ''}'.trim().toLowerCase(),
       );
     }
     throw AsrApiException('업로드 처리 시간이 초과되었습니다.', 504);
+  }
+
+  /// Full ingest: start + poll (design/70 compatibility).
+  Future<IngestJobResult> ingestPdfBytes({
+    required String filename,
+    required Uint8List bytes,
+    void Function(int percent, String message)? onProgress,
+    Duration pollInterval = const Duration(milliseconds: 500),
+    Duration timeout = const Duration(minutes: 12),
+  }) async {
+    final started = await startIngestPdfBytes(filename: filename, bytes: bytes);
+    onProgress?.call(1, '업로드 완료, 처리 중');
+    final result = await pollIngestJob(
+      jobId: started.jobId,
+      onProgress: onProgress,
+      pollInterval: pollInterval,
+      timeout: timeout,
+    );
+    if (result.contentHash.isEmpty && started.contentHash.isNotEmpty) {
+      return IngestJobResult(
+        jobId: result.jobId,
+        cacheId: result.cacheId,
+        sessionId: result.sessionId,
+        title: result.title,
+        percent: result.percent,
+        contentHash: started.contentHash,
+      );
+    }
+    return result;
   }
 
   /// POST /api/cache/papers/{id}/open — start a reading session from cache.

@@ -141,7 +141,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.87",
+    version="0.2.88",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -211,6 +211,20 @@ def _paid_access_denied(request: Request) -> JSONResponse | None:
     )
 
 
+def _persist_job(job_id: str, job: dict, *, force: bool = False) -> None:
+    """design/71 — mirror job to users/{uid}/ingest_jobs when GCS is on."""
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    if not ij.should_push_job(job, force=force):
+        return
+    try:
+        ij.save_ingest_job(job_id, job)
+    except Exception as exc:  # noqa: BLE001
+        # WHY: fail-soft — local poll still works on the worker instance.
+        log = __import__("logging").getLogger("sentence_reading.api")
+        log.warning("ingest job gcs push failed %s: %s", job_id, exc)
+
+
 def _job_set(job_id: str, *, percent: int, stage: str, message: str = "") -> None:
     job = _JOBS.get(job_id)
     if not job or job.get("done"):
@@ -219,6 +233,7 @@ def _job_set(job_id: str, *, percent: int, stage: str, message: str = "") -> Non
     job["stage"] = stage
     if message:
         job["message"] = message
+    _persist_job(job_id, job)
 
 
 def _job_publish_partial(job_id: str, data: dict, *, message: str = "") -> None:
@@ -235,6 +250,7 @@ def _job_publish_partial(job_id: str, data: dict, *, message: str = "") -> None:
     job["result"] = payload
     if message:
         job["message"] = message
+    _persist_job(job_id, job, force=True)
 
 
 def _remember_session(session: PaperSession) -> str:
@@ -258,6 +274,20 @@ def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
     job["message"] = message
     job["result"] = data
     job["done"] = True
+    _persist_job(job_id, job, force=True)
+    # WHY: source blob only needed while processing; drop after terminal success.
+    owner = str(job.get("owner_uid") or "").strip()
+    if owner:
+        from sentence_reading.llm import ingest_jobs_gcs as ij
+
+        suf = ".pdf"
+        fn = str(job.get("filename") or "").lower()
+        if fn.endswith(".docx"):
+            suf = ".docx"
+        try:
+            ij.delete_ingest_upload(job_id, owner_uid=owner, suffix=suf)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @app.get("/api/status")
@@ -280,9 +310,11 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.87",
+        "version": "0.2.88",
         "access_gate_gcs": True,
         "mobile_upload": True,
+        "ingest_job_gcs": True,
+        "mobile_upload_resume": True,
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -1470,6 +1502,11 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
         tmp_path = Path(tmp.name)
 
     filename = src.name
+    user = _request_user(request)
+    owner_uid = user.uid if user is not None else ""
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    content_hash = await asyncio.to_thread(_file_sha256, tmp_path)
     _JOBS[job_id] = {
         "percent": 1,
         "stage": "queued",
@@ -1477,8 +1514,12 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
         "done": False,
         "error": None,
         "result": None,
+        "owner_uid": owner_uid,
+        "content_hash": content_hash or "",
+        "filename": ij.safe_filename(filename),
     }
-    content_hash = await asyncio.to_thread(_file_sha256, tmp_path)
+    if owner_uid:
+        _persist_job(job_id, _JOBS[job_id], force=True)
     asyncio.create_task(
         _run_ingest_job(
             job_id,
@@ -1640,9 +1681,32 @@ async def session_patch_cursor(session_id: str, payload: dict = Body(...)) -> JS
 
 
 @app.get("/api/ingest/jobs/{job_id}")
-def ingest_job_status(job_id: str) -> JSONResponse:
-    """업로드·정제 진행률 폴링."""
-    job = _JOBS.get(job_id)
+def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
+    """업로드·정제 진행률 폴링 (design/71 — memory then owner-scoped GCS)."""
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    jid = (job_id or "").strip()
+    # EDGE: block path tricks (../); allow job_* memory keys used by tests.
+    if not jid.startswith("job_") or "/" in jid or "\\" in jid or ".." in jid:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "job_not_found",
+                "message": "작업을 찾을 수 없습니다.",
+            },
+        )
+
+    user = _request_user(request)
+    job = _JOBS.get(jid)
+    if job is None and user is not None:
+        # WHY: other Cloud Run instance — shared truth is users/{uid}/ingest_jobs.
+        loaded = ij.load_ingest_job(jid, owner_uid=user.uid)
+        if loaded is not None:
+            job = loaded
+            # Warm local cache so subsequent polls on this instance are cheap.
+            _JOBS[jid] = dict(loaded)
+
     if job is None:
         return JSONResponse(
             status_code=404,
@@ -1652,31 +1716,30 @@ def ingest_job_status(job_id: str) -> JSONResponse:
                 "message": "작업을 찾을 수 없습니다.",
             },
         )
-    out: dict = {
-        "ok": True,
-        "job_id": job_id,
-        "percent": job.get("percent", 0),
-        "stage": job.get("stage", ""),
-        "message": job.get("message", ""),
-        "done": bool(job.get("done")),
-    }
-    if job.get("error"):
-        out["ok"] = False
-        out["error"] = "ingest_failed"
-        out["message"] = job["error"]
-        out["done"] = True
-        return JSONResponse(out)
-    if job.get("done") and isinstance(job.get("result"), dict):
-        out.update(job["result"])
-        out["percent"] = 100
-        out["done"] = True
-        out["translate_pending"] = False
-    elif isinstance(job.get("result"), dict):
-        # WHY: design/45 — 번역 중에도 세션 열어 읽기
-        out.update(job["result"])
-        out["done"] = False
-        out["translate_pending"] = True
-    return JSONResponse(out)
+
+    owner = str(job.get("owner_uid") or "").strip()
+    # WHY: multi-user — never leak another account’s job by id guessing.
+    if owner:
+        if user is None:
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "ok": False,
+                    "error": "auth_required",
+                    "message": "로그인이 필요합니다.",
+                },
+            )
+        if user.uid != owner:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "ok": False,
+                    "error": "job_not_found",
+                    "message": "작업을 찾을 수 없습니다.",
+                },
+            )
+
+    return JSONResponse(ij.public_job_view(jid, job))
 
 
 def _source_kind(filename: str) -> str | None:
@@ -2123,12 +2186,14 @@ async def _run_ingest_job(
             job["error"] = str(exc)
             job["percent"] = job.get("percent", 0)
             job["stage"] = "error"
+            # WHY: durable error so mobile reattach does not spin on stale queued.
+            _persist_job(job_id, job, force=True)
     finally:
         try:
             tmp_path.unlink(missing_ok=True)
         except OSError:
             pass
-        # 오래된 job 정리
+        # 오래된 job 정리 (GCS copy remains for reattach until TTL/overwrite)
         while len(_JOBS) > 12:
             oldest = next(iter(_JOBS))
             if oldest == job_id:
@@ -2195,6 +2260,11 @@ async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse
         tmp_path = Path(tmp.name)
 
     content_hash = hashlib.sha256(raw).hexdigest()
+    user = _request_user(request)
+    owner_uid = user.uid if user is not None else ""
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    safe_name = ij.safe_filename(filename)
     _JOBS[job_id] = {
         "percent": 1,
         "stage": "queued",
@@ -2202,7 +2272,19 @@ async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse
         "done": False,
         "error": None,
         "result": None,
+        "owner_uid": owner_uid,
+        "content_hash": content_hash,
+        "filename": safe_name,
     }
+    # WHY (design/71): durable job + source blob so poll/reattach survives instance hop.
+    if owner_uid:
+        try:
+            ij.save_ingest_upload(
+                job_id, raw, owner_uid=owner_uid, suffix=suffix
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        _persist_job(job_id, _JOBS[job_id], force=True)
     asyncio.create_task(
         _run_ingest_job(
             job_id, tmp_path, filename, kind, content_hash=content_hash

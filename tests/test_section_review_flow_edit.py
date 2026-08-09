@@ -1,4 +1,4 @@
-﻿"""되새김질 flow 콕 수정 (0.2.63 · design/55)."""
+"""되새김질 flow 콕 수정 (0.2.63 · design/55)."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ DESIGN = ROOT / "docs" / "design" / "55-section-review-flow-edit.md"
 
 def test_status_flow_edit() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.87"
+    assert st["version"] == "0.2.88"
     assert st["section_review_flow_edit"] is True
     assert st["section_review_flow"] is True
     assert "live_enable" not in st
@@ -66,5 +66,5 @@ def test_design_and_assets() -> None:
     assert "0.2.63" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.87" in served
-    assert "styles.css?v=0.2.87" in served
+    assert "app.js?v=0.2.88" in served
+    assert "styles.css?v=0.2.88" in served

@@ -1,4 +1,4 @@
-﻿"""notes GCS merge · encode limits · API wiring."""
+"""notes GCS merge · encode limits · API wiring."""
 
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ def test_api_notes_sync_unavailable() -> None:
     if not body["available"]:
         assert body["store"] is None
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.87"
+    assert st["version"] == "0.2.88"
     assert st["gcs"]["notes_sync"] is True
     assert st["gcs"]["voice_blob_sync"] is True
     assert st["gcs"]["papers_sync"] is True

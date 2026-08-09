@@ -1,4 +1,4 @@
-﻿"""CD secrets sync / deploy SA 스크립트 계약 (0.2.87)."""
+"""CD secrets sync / deploy SA 스크립트 계약 (0.2.88)."""
 
 from __future__ import annotations
 
@@ -109,7 +109,7 @@ def test_sync_dry_run_ok_with_sa_json() -> None:
 
 def test_design_and_status_version() -> None:
     design = (ROOT / "docs" / "design" / "32-github-cd.md").read_text(encoding="utf-8")
-    assert "0.2.87" in design
+    assert "0.2.88" in design
     assert "sync_github_cd_secrets" in design
     assert "ensure_github_deploy_sa" in design
     from fastapi.testclient import TestClient
@@ -117,7 +117,7 @@ def test_design_and_status_version() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.87"
+    assert st["version"] == "0.2.88"
     assert st.get("github_cd") is True
 
 

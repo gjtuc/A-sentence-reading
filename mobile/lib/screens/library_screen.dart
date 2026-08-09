@@ -32,7 +32,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     // Load when already logged in at first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.auth.isLoggedIn) {
-        widget.library.refresh();
+        _loadAndResume();
       }
     });
   }
@@ -45,9 +45,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   void _onAuth() {
     if (widget.auth.isLoggedIn) {
-      widget.library.refresh();
+      _loadAndResume();
     } else {
+      // WHY (MULTI-USER): wipe list + upload draft so next account cannot resume.
       widget.library.clearAll();
+    }
+  }
+
+  Future<void> _loadAndResume() async {
+    await widget.library.refresh();
+    if (!mounted || !widget.auth.isLoggedIn) return;
+    // design/71 — app auto-resumes processing / local draft without a second tap.
+    final result = await widget.library.resumePendingIfAny();
+    if (!mounted || result == null) return;
+    PaperEntry? entry;
+    for (final p in widget.library.papers) {
+      if (p.id == result.cacheId) {
+        entry = p;
+        break;
+      }
+    }
+    if (entry != null) {
+      await _open(entry);
     }
   }
 
@@ -69,7 +88,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final lib = widget.library;
     if (lib.uploading || lib.opening) return;
 
-    // WHY: single-file chip — multi-select deferred (resume also deferred).
+    // WHY: single-file chip — multi-select deferred (design/70).
+    // design/71: same content_hash re-pick auto-reattaches inside uploadPdf.
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: const ['pdf'],
@@ -188,6 +208,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         const SizedBox(height: 6),
                         Text(
                           // WHY: cloud archive is part of processing — not a separate upload tap.
+                          // design/71: stage may say 이어올리는 중 when reattaching a job.
                           '처리 중 ${lib.uploadPercent}%'
                           '${lib.uploadStage.isEmpty ? '' : ' · ${lib.uploadStage}'}'
                           ' · 끝나면 클라우드 보관함에 자동 저장',

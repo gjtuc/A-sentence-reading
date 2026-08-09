@@ -1,4 +1,4 @@
-﻿"""Cloud Run 문지기 계약 (0.2.24)."""
+"""Cloud Run 문지기 계약 (0.2.24)."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def test_status_version() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.87"
+    assert st["version"] == "0.2.88"
 
 
 def test_index_asset_cache_bust() -> None:
@@ -59,8 +59,8 @@ def test_index_asset_cache_bust() -> None:
     from sentence_reading.api.app import app
 
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.2.87" in html
-    assert "styles.css?v=0.2.87" in html
+    assert "app.js?v=0.2.88" in html
+    assert "styles.css?v=0.2.88" in html
     assert "__ASR_ASSET_V__" not in html
 
 
