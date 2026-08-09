@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "com.gjtuc.sentence_reading"
-    compileSdk = flutter.compileSdkVersion
+    // WHY: file_picker + flutter_plugin_android_lifecycle require compileSdk ≥ 35 (design/70).
+    compileSdk = maxOf(36, flutter.compileSdkVersion)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

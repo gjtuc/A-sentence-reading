@@ -19,6 +19,7 @@ import 'session_store.dart';
 import 'tts_models.dart';
 import 'oauth_models.dart';
 import 'access_models.dart';
+import 'ingest_models.dart';
 
 /// Parsed `/api/status` JSON (subset used by the mobile shell).
 class AsrStatus {
@@ -35,6 +36,7 @@ class AsrStatus {
     this.mobileOauth = false,
     this.mobileTheme = false,
     this.mobileAccessGate = false,
+    this.mobileUpload = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -53,6 +55,7 @@ class AsrStatus {
       mobileOauth: json['mobile_oauth'] == true,
       mobileTheme: json['mobile_theme'] == true,
       mobileAccessGate: json['mobile_access_gate'] == true || json['access_gate'] == true,
+      mobileUpload: json['mobile_upload'] == true,
     );
   }
 
@@ -68,6 +71,7 @@ class AsrStatus {
   final bool mobileOauth;
   final bool mobileTheme;
   final bool mobileAccessGate;
+  final bool mobileUpload;
 }
 
 class AsrClient {
@@ -286,6 +290,134 @@ class AsrClient {
       if (e.isValid) out.add(e);
     }
     return out;
+  }
+
+  static final _pdfNameRe = RegExp(r'\.pdf$', caseSensitive: false);
+  static const _maxUploadBytes = 50 * 1024 * 1024;
+
+  /// POST /api/ingest (multipart `file`) then poll `/api/ingest/jobs/{id}`.
+  ///
+  /// WHY (design/70): mobile single-PDF → Cloud Run → user GCS papers.
+  /// EDGE fail-closed: empty/non-PDF/oversize/no session → throw before network;
+  /// interrupted or failed job → throw (caller must not show success / fake list row).
+  Future<IngestJobResult> ingestPdfBytes({
+    required String filename,
+    required Uint8List bytes,
+    void Function(int percent, String message)? onProgress,
+    Duration pollInterval = const Duration(milliseconds: 500),
+    Duration timeout = const Duration(minutes: 12),
+  }) async {
+    final name = filename.trim();
+    if (name.isEmpty) {
+      throw AsrApiException('파일 이름이 비어 있습니다.', 400);
+    }
+    if (!_pdfNameRe.hasMatch(name)) {
+      // WHY: this chip is PDF-only; docx stays web for now.
+      throw AsrApiException('PDF만 업로드할 수 있습니다.', 400);
+    }
+    if (bytes.isEmpty) {
+      throw AsrApiException('빈 파일입니다.', 400);
+    }
+    if (bytes.length > _maxUploadBytes) {
+      throw AsrApiException('파일이 너무 큽니다 (최대 50MB).', 413);
+    }
+    // %PDF magic — same as server; avoid round-trip on obvious non-PDF.
+    if (bytes.length < 5 ||
+        bytes[0] != 0x25 ||
+        bytes[1] != 0x50 ||
+        bytes[2] != 0x44 ||
+        bytes[3] != 0x46) {
+      throw AsrApiException('유효한 PDF가 아닙니다.', 400);
+    }
+
+    final token = await _sessions.readToken();
+    if (token == null || token.isEmpty) {
+      // WHY: server scopes GCS by session UID — never upload anonymously.
+      throw AsrApiException('로그인이 필요합니다.', 401);
+    }
+
+    final req = http.MultipartRequest('POST', _uri('/api/ingest'));
+    req.headers['Cookie'] = '$kAsrSessionCookieName=$token';
+    req.headers['Accept'] = 'application/json';
+    req.files.add(
+      http.MultipartFile.fromBytes('file', bytes, filename: name),
+    );
+
+    // WHY: must use injected [_http] so tests/mocks see the multipart POST.
+    // EDGE: MultipartRequest.send() without a client bypasses SessionStore tests.
+    final streamed =
+        await _http.send(req).timeout(const Duration(minutes: 3));
+    final startRes = await http.Response.fromStream(streamed);
+    await _captureSession(startRes);
+    final start = _decodeObject(startRes, 'ingest');
+    if (start['ok'] == false) {
+      throw AsrApiException(
+        '${start['message'] ?? '업로드에 실패했습니다.'}',
+        startRes.statusCode,
+      );
+    }
+    final jobId = '${start['job_id'] ?? ''}'.trim();
+    if (jobId.isEmpty) {
+      throw AsrApiException('작업 ID를 받지 못했습니다.', 500);
+    }
+
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(pollInterval);
+      final stRes = await _http
+          .get(
+            _uri('/api/ingest/jobs/${Uri.encodeComponent(jobId)}'),
+            headers: await _headers(),
+          )
+          .timeout(const Duration(seconds: 30));
+      if (stRes.statusCode == 404) {
+        // EDGE: job lost (instance recycle) — fail-closed, no fake success.
+        throw AsrApiException('작업을 찾을 수 없습니다. 다시 시도해 주세요.', 404);
+      }
+      if (stRes.statusCode < 200 || stRes.statusCode >= 300) {
+        throw AsrApiException('진행 상태 조회 실패', stRes.statusCode);
+      }
+      final decoded = jsonDecode(stRes.body);
+      if (decoded is! Map) {
+        throw AsrApiException('진행 상태 형식이 올바르지 않습니다.', 500);
+      }
+      final st = Map<String, dynamic>.from(decoded);
+      final pct = st['percent'] is num ? (st['percent'] as num).toInt() : 0;
+      final msg = '${st['message'] ?? ''}'.trim();
+      onProgress?.call(pct, msg);
+
+      final done = st['done'] == true;
+      if (!done) continue;
+
+      // EDGE: failed job may still be HTTP 200 with ok:false.
+      final sessionId = '${st['session_id'] ?? ''}'.trim();
+      if (st['ok'] == false && sessionId.isEmpty) {
+        throw AsrApiException(
+          msg.isEmpty ? '처리에 실패했습니다.' : msg,
+          500,
+        );
+      }
+      final cacheId = '${st['cache_id'] ?? ''}'.trim();
+      // WHY: library list is GCS/cache-backed — session_id alone is not durable.
+      // EDGE: short-title skip (`cache_skip_short_title`) finishes job with no cache_id
+      // → must not show “보관에 추가됨” with an empty list (fail-closed).
+      if (cacheId.isEmpty) {
+        throw AsrApiException(
+          msg.isEmpty
+              ? '처리는 끝났지만 보관함에 저장되지 않았습니다. 제목이 너무 짧은 PDF일 수 있습니다.'
+              : '보관 저장 실패: $msg',
+          500,
+        );
+      }
+      return IngestJobResult(
+        jobId: jobId,
+        cacheId: cacheId,
+        sessionId: sessionId,
+        title: '${st['title'] ?? ''}'.trim(),
+        percent: pct > 0 ? pct : 100,
+      );
+    }
+    throw AsrApiException('업로드 처리 시간이 초과되었습니다.', 504);
   }
 
   /// POST /api/cache/papers/{id}/open — start a reading session from cache.

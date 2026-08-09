@@ -1,9 +1,10 @@
-/// Paper library + opened reading session (design/62 · design/63).
+/// Paper library + opened reading session (design/62 · design/63 · design/70).
 library;
 
 import 'package:flutter/foundation.dart';
 
 import '../api/client.dart';
+import '../api/ingest_models.dart';
 import '../api/paper_models.dart';
 import '../api/reading_models.dart';
 
@@ -17,6 +18,9 @@ class LibraryController extends ChangeNotifier {
   ReadingSession? session;
   bool loading = false;
   bool opening = false;
+  bool uploading = false;
+  int uploadPercent = 0;
+  String uploadStage = '';
   String? error;
 
   /// Backward-compatible alias used by older reader scaffolding.
@@ -116,6 +120,61 @@ class LibraryController extends ChangeNotifier {
     error = null;
     loading = false;
     opening = false;
+    uploading = false;
+    uploadPercent = 0;
+    uploadStage = '';
     notifyListeners();
+  }
+
+  /// Single PDF → Cloud Run ingest → refresh list (design/70).
+  ///
+  /// EDGE: on any failure leave [papers] unchanged and set [error] — never invent a row.
+  Future<IngestJobResult?> uploadPdf({
+    required String filename,
+    required Uint8List bytes,
+  }) async {
+    if (uploading) {
+      // WHY: one-at-a-time chip — overlapping uploads confuse progress + list.
+      error = '이미 업로드 중입니다.';
+      notifyListeners();
+      return null;
+    }
+    uploading = true;
+    uploadPercent = 0;
+    uploadStage = '준비 중';
+    error = null;
+    notifyListeners();
+    try {
+      final result = await _client.ingestPdfBytes(
+        filename: filename,
+        bytes: bytes,
+        onProgress: (pct, msg) {
+          uploadPercent = pct;
+          uploadStage = msg.isEmpty ? '처리 중' : msg;
+          notifyListeners();
+        },
+      );
+      // WHY: list is user-visible truth after GCS-scoped merge.
+      await refresh();
+      // EDGE: rare race / other instance — cache_id not yet visible.
+      final seen = papers.any((p) => p.id == result.cacheId);
+      if (!seen) {
+        error = '업로드는 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
+        notifyListeners();
+        return null;
+      }
+      return result;
+    } on AsrApiException catch (e) {
+      error = e.message;
+      return null;
+    } catch (e) {
+      error = e.toString();
+      return null;
+    } finally {
+      uploading = false;
+      uploadPercent = 0;
+      uploadStage = '';
+      notifyListeners();
+    }
   }
 }

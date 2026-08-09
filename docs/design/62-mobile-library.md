@@ -10,10 +10,11 @@ Android Flutter MVP **보관 목록**:
 
 | 포함 | 미포함 (후속) |
 |------|----------------|
-| 목록 · 빈 상태 · 로그인 유도 | 문장/그림 읽기 UI |
-| open → `OpenedPaper` | TTS |
-| pull-to-refresh | 앱 업로드 |
-| status `mobile_library` | Google/카카오 |
+| 목록 · 빈 상태 · 로그인 유도 | 문장/그림 읽기 UI (→63) |
+| open → `OpenedPaper` | TTS (→64) |
+| pull-to-refresh | 여러 파일 · 이어올리기 |
+| status `mobile_library` | |
+| 단일 PDF 업로드 (→[70](70-mobile-upload.md)) | |
 
 ## EDGE
 
@@ -34,4 +35,4 @@ Android Flutter MVP **보관 목록**:
 
 ## Version pin
 
-Web/mobile **0.2.86**.
+Web/mobile **0.2.87** (upload → [70-mobile-upload.md](70-mobile-upload.md)).

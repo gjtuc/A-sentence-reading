@@ -1,4 +1,4 @@
-﻿"""Progressive 읽기 열기 (0.2.86 · design/45)."""
+﻿"""Progressive 읽기 열기 (0.2.87 · design/45)."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def _clear_cache() -> None:
 
 def test_status_progressive_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.86"
+    assert st["version"] == "0.2.87"
     assert st["translate_progressive"] is True
     assert st["translate_live_fallback"] is False
     assert st["compound_figures"] is False
@@ -162,4 +162,4 @@ def test_ui_progressive_contracts() -> None:
     assert "translate_pending" in js
     assert "design/45" in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.86" in served
+    assert "app.js?v=0.2.87" in served
