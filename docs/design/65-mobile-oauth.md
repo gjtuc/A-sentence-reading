@@ -62,7 +62,7 @@ Google Sign-In requires an **Android** OAuth client in the same Cloud project as
 5. Keep using the existing **Web** client id as `serverClientId` / `ASR_GOOGLE_CLIENT_ID` (public)
 
 
-### Registration status (0.2.82)
+### Registration status (0.2.82 · PC-B verified 0.2.86)
 
 Ops completed in Google Cloud project `peaceful-basis-503207-t4`:
 
@@ -71,14 +71,25 @@ Ops completed in Google Cloud project `peaceful-basis-503207-t4`:
 | Android OAuth client name | `ASR Android sideload` |
 | Type | Android |
 | Package | `com.gjtuc.sentence_reading` |
-| SHA-1 | PC-A value above (add PC-B fingerprint to the same Android client or a second Android client) |
+| SHA-1 | PC-A **and** PC-B fingerprints above (same Android client; both required for multi-machine sideload) |
 | Web client (unchanged) | `ASR local` — still used as `serverClientId` / `ASR_GOOGLE_CLIENT_ID` |
 
 Device E2E (Samsung sideload, PC-A key): **Google로 계속** → account picker → **로그인됨** · `providers: google` · logout available. No `DEVELOPER_ERROR` / fail-closed SHA copy.
 
-PC-B (2026-08): debug keystore SHA-1 differs — register `C1:F6:…:14:DF` in Google Cloud Android OAuth before Google Sign-In E2E on that machine.
+#### Device E2E — PC-B SHA-1 (0.2.86 · Samsung sideload)
 
-Propagation note: Google may take minutes after create; retry Sign-In if account picker succeeds but session fails briefly.
+Against live Cloud Run `version=0.2.86` · `google` provider on (installed APK may lag at `0.2.84`; OAuth + session path is the contract). This PC debug keystore SHA-1 matches the documented PC-B value `C1:F6:…:14:DF`.
+
+1. Force-stop → cold open → login-only shell (**Google로 계속** / Kakao / email)
+2. **Google로 계속** → account picker → snackbar **Google 로그인되었습니다.** → bottom tabs (보관·읽기·설정)
+3. **설정** → provider line `google` · access status coherent when allowed · logout available
+4. No `DEVELOPER_ERROR` / ApiException 10 in logcat; no fail-closed SHA copy shown (success path)
+5. **로그아웃** → login-only shell; no prior email, no access status, no tabs residue
+6. Unauthenticated `GET /api/access/admin/pending` → **403**; `POST /api/auth/google` with empty/`{}` credential → **401** `invalid_token` (not success)
+
+Do not paste account emails, id_tokens, or cookies into chat/PR.
+
+Propagation note: Google may take minutes after create/update; retry Sign-In if account picker succeeds but session fails briefly.
 
 ### App behaviour (0.2.82)
 
