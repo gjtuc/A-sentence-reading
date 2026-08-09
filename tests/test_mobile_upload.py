@@ -37,7 +37,8 @@ def test_design_70_and_pubspec() -> None:
     lib = (MOBILE / "lib" / "screens" / "library_screen.dart").read_text(
         encoding="utf-8"
     )
-    assert "PDF 올리기" in lib
+    assert "PDF 가져오기" in lib
+    assert "자동" in lib
     assert "앱 업로드는 후속" not in lib
 
 

@@ -19,11 +19,12 @@ Android 앱 **보관**에서 PDF **한 파일**을 골라 Cloud Run ingest → �
 ## Flows
 
 1. 로그인 + access allowed (기존 paid gate)
-2. 보관 → **PDF 올리기** → SAF 파일 선택 (1개)
+2. 보관 → **PDF 가져오기** → SAF 파일 선택 (1개)
 3. 클라이언트: 빈/비PDF/50MB초과/무세션 거절
-4. `POST /api/ingest` (Cookie `asr_session`) → poll job
-5. 성공 → `GET /api/cache/papers` refresh → 목록에 표시
-6. 실패·타임아웃·job 404 → 스낵바/에러 문구만 · 가짜 행 없음
+4. `POST /api/ingest` (Cookie `asr_session`) → poll job (진행 UI: 처리 중 · 끝나면 클라우드 자동 저장)
+5. 성공 → GCS 보관은 ingest 경로에서 **이미 강제** → 목록 refresh → **자동으로 해당 논문 open** (읽기 탭)
+6. 사용자는 처리 후 다시「PDF 올리기」를 누르지 않음
+7. 실패·타임아웃·job 404 → 스낵바/에러 문구만 · 가짜 행 없음
 
 ## INVARIANT
 
@@ -49,8 +50,8 @@ Android 앱 **보관**에서 PDF **한 파일**을 골라 Cloud Run ingest → �
 ## Device E2E (Samsung · 0.2.87)
 
 1. 로그인 → 보관 (`versionName=0.2.87`)
-2. **PDF 올리기** → DocumentsUI 루트 → **다운로드** → `asr_e2e_small.pdf` (제목 탭; 미리보기/연결 프로그램 창 회피)
-3. 진행률 표시 → 스낵바 **보관에 추가됨** → `보관 N건` N≥1
+2. **PDF 가져오기** → DocumentsUI 루트 → **다운로드** → `asr_e2e_small.pdf` (제목 탭; 미리보기/연결 프로그램 창 회피)
+3. 진행률(처리 중 · 자동 저장) → 목록에 등장 + **자동으로 읽기 탭 open** (추가 「올리기」 탭 없음)
 4. (참고) 대형 OCR PDF는 Cloud Run job이 수분 걸릴 수 있음 — 타임아웃 시 실패 문구, 빈 성공 금지
 5. 로그아웃 → 로그인 전용 셸 (PDF 올리기/목록 잔여 없음)
 

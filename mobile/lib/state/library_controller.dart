@@ -126,7 +126,10 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Single PDF → Cloud Run ingest → refresh list (design/70).
+  /// Single PDF → Cloud Run ingest → GCS library (mandatory) → refresh (design/70).
+  ///
+  /// Cloud archive is not optional: success means the paper is already in the
+  /// user’s GCS papers index. UI must not ask for a second “upload” tap.
   ///
   /// EDGE: on any failure leave [papers] unchanged and set [error] — never invent a row.
   Future<IngestJobResult?> uploadPdf({
