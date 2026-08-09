@@ -242,16 +242,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     );
                   },
                 ),
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    'Live Enable / IPS: Trading Gate · ASR 밖',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ),
-              ),
             ],
           ),
         );
