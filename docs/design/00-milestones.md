@@ -95,7 +95,8 @@
 - ~~초대 redeem E2E · Settings 로그아웃 OTP 잔여 제거~~ (0.2.83 — [67-access-gate.md](67-access-gate.md))
 - ~~모바일 셸 · 로그인 게이트 · 탭 3개~~ (0.2.84 — [68-mobile-shell-nav.md](68-mobile-shell-nav.md))
 - ~~액세스 게이트 GCS 공유 진실~~ (0.2.86 — [69-access-gate-gcs.md](69-access-gate-gcs.md); Cloud Run 다 인스턴스)
-- **Android Flutter MVP** — 실기 APK ([33-mobile-flutter.md](33-mobile-flutter.md); 게이트 이후)
+- ~~실기 사이드로드 APK pin (0.2.86)~~ ([48-flutter-android-platform.md](48-flutter-android-platform.md); 폰 `versionName` = live API)
+- **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 게이트·APK pin 이후)
 
 ### 구현됨 (참고)
 

@@ -8,7 +8,7 @@ import 'package:sentence_reading/state/auth_controller.dart';
 import 'package:sentence_reading/state/library_controller.dart';
 
 void main() {
-  testWidgets('library prompts login then lists papers when authenticated',
+  testWidgets('login gate then library lists papers when authenticated',
       (tester) async {
     var loggedIn = false;
     final mock = MockClient((request) async {
@@ -36,8 +36,24 @@ void main() {
       }
       if (path.endsWith('/api/status')) {
         return http.Response(
-          '{"ok":true,"version":"0.2.75","pipeline":"rich-v7","mobile_library":true}',
+          '{"ok":true,"version":"0.2.86","pipeline":"rich-v7","mobile_library":true,"mobile_shell_nav":true}',
           200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      // WHY: SettingsScreen (IndexedStack) may call access APIs after login.
+      // EDGE: missing mock → 404 noise / incomplete settle; not a success path.
+      if (path.endsWith('/api/access/status')) {
+        return http.Response(
+          '{"ok":true,"gate_enabled":true,"invite_pool_ready":false,"status":"none","effective":"none","can_use_paid":false,"is_admin":false,"invited_at":null,"decided_at":null,"decision_note":"","code_format":"XXXX-XXXX"}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      if (path.contains('/api/access/admin/')) {
+        return http.Response(
+          '{"ok":false,"error":"admin_required","message":"admin only"}',
+          403,
           headers: {'content-type': 'application/json'},
         );
       }
@@ -51,9 +67,13 @@ void main() {
 
     await tester.pumpWidget(SentenceReadingApp(auth: auth, library: library));
     await tester.pump();
-    await tester.tap(find.text('보관'));
-    await tester.pump();
-    expect(find.textContaining('먼저 로그인'), findsOneWidget);
+
+    // WHY (design/68): logged-out shell is login-only — no bottom nav / 보관 tab.
+    // EDGE: old smoke tapped 보관 while logged out; that destination is gone.
+    // EDGE: title 「로그인」 and submit button both say 로그인 — use email-mode label.
+    expect(find.text('보관'), findsNothing);
+    expect(find.text('이메일 로그인'), findsOneWidget);
+    expect(find.text('로그인'), findsWidgets);
 
     // Simulate login by writing session + re-bootstrap with user.
     loggedIn = true;
@@ -62,6 +82,8 @@ void main() {
     await tester.pump();
     await library.refresh();
     await tester.pump();
+
+    expect(find.text('보관'), findsOneWidget);
     expect(find.text('Sample Paper'), findsOneWidget);
   });
 }
