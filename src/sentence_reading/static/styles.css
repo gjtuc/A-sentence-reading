@@ -183,7 +183,11 @@ body.is-browser-fullscreen .layout.is-sentence-focus .panel-sentence:hover .cite
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid var(--border);
   max-height: 5.5rem;
-  overflow: hidden;
+  /* WHY: overflow:hidden clipped the ⋯ dropdown (position:absolute below the bar),
+     so the button looked dead on cloud/desktop. Keep height animation; allow menu. */
+  overflow: visible;
+  position: relative;
+  z-index: 50;
   transition:
     opacity var(--layout-ms) var(--layout-ease),
     max-height var(--layout-ms) var(--layout-ease),

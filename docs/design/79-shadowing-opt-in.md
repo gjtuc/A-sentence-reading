@@ -30,6 +30,8 @@ Modules: `shadowing_practice.py` · Guide/Settings toggle · status `shadowing_p
 
 ## Kill / rollback
 
+- Cloud Run: GitHub Actions variable `ASR_SHADOWING_PRACTICE` (deploy env). `1`=on · unset/`0`=off.  
+
 - unset / `ASR_SHADOWING_PRACTICE=0` → 서버 플래그 false · 클라이언트 토글 비활성  
 - `=1` → 토글 활성(선호만 저장; 연습 UI는 후속)  
 - Revert PR · APK 다운핀  
@@ -46,11 +48,11 @@ Modules: `shadowing_practice.py` · Guide/Settings toggle · status `shadowing_p
 
 ## Version
 
-**0.2.97** · pubspec `0.2.97+1`
+**0.2.98** · pubspec `0.2.98+1`
 
 ## Device / browser E2E (pre-merge)
 
-- status `version=0.2.97`, `shadowing_practice=false` on live default  
+- status `version=0.2.98`, `shadowing_practice=false` on live default  
 - 로컬 `ASR_SHADOWING_PRACTICE=1` 시 토글 ON/OFF 저장 · uid 전환 시 격리  
 - Live Enable / IPS: unchanged  
 

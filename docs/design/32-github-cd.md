@@ -36,7 +36,7 @@ python scripts/check_github_cd_ready.py   # ok:true · cd_enabled:true
 
 | 종류 | 이름 |
 |------|------|
-| var | `ASR_CD_ENABLED=1` · `GCP_PROJECT_ID` · `ASR_CLOUD_RUN_*` · `ASR_GCS_BUCKET` · `ASR_CLOUD_RUN_URL` |
+| var | `ASR_CD_ENABLED=1` · optional `ASR_SHADOWING_PRACTICE=1` · `GCP_PROJECT_ID` · `ASR_CLOUD_RUN_*` · `ASR_GCS_BUCKET` · `ASR_CLOUD_RUN_URL` |
 | secret | `GCP_SA_KEY` · `ASR_GOOGLE_CLIENT_ID` · `ASR_AUTH_SECRET` · `GEMINI_API_KEY` · `ASR_KAKAO_*` · `ASR_ADMIN_EMAILS` |
 
 배포 SA 역할: Run Admin, Cloud Build Editor, Artifact Registry Writer, Storage Admin, Service Usage Consumer, runtime SA 에 Service Account User.  
@@ -61,4 +61,4 @@ CD 배포는 `ASR_CD_SKIP_API_ENABLE=1` — **`gcloud services enable` 생략** 
 
 ## 버전
 
-0.2.97 (앱; CD 게이트 자체는 0.2.33–0.2.36)
+0.2.98 (앱; CD 게이트 자체는 0.2.33–0.2.36)

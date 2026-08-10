@@ -75,7 +75,7 @@ def test_open_redirect_sets_session_and_gate_not_auto_allow(
 
     client = TestClient(app_mod.app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.97"
+    assert st["version"] == "0.2.98"
     assert st["mobile_email_magic_link"] is True
 
     minted = ml.mint_magic_token("reader@example.com")

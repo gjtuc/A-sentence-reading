@@ -67,6 +67,8 @@ trap cleanup EXIT
   echo "GEMINI_API_KEY: \"${GEMINI_API_KEY}\""
   echo "ASR_CLOUD_RUN_URL: \"${CLOUD_URL}\""
   echo "ASR_ADMIN_EMAILS: \"${ADMIN_EMAILS}\""
+  # design/79·80 — shadowing kill (unset/0=off). CD sets via vars.ASR_SHADOWING_PRACTICE.
+  echo "ASR_SHADOWING_PRACTICE: \"${ASR_SHADOWING_PRACTICE:-0}\""
   if [[ -n "$KAKAO_REST" && -n "$KAKAO_SECRET" ]]; then
     echo "ASR_KAKAO_REST_API_KEY: \"${KAKAO_REST}\""
     echo "ASR_KAKAO_CLIENT_SECRET: \"${KAKAO_SECRET}\""

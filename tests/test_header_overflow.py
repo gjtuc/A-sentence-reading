@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "58-header-overflow.md"
 
 def test_status_header_overflow() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.97"
+    assert st["version"] == "0.2.98"
     assert st["header_overflow"] is True
     assert "live_enable" not in st
     assert "ips" not in st
@@ -60,6 +60,9 @@ def test_js_css_wiring() -> None:
     css = CSS.read_text(encoding="utf-8")
     assert ".header-more-menu" in css
     assert "design/58" in css
+    # design/81 — dropdown must not be clipped by the header bar
+    assert "overflow: visible" in css
+    assert "clipped the" in css or "overflow:hidden clipped" in css
 
 
 def test_edge_escape_and_outside_close() -> None:
@@ -78,6 +81,6 @@ def test_edge_escape_and_outside_close() -> None:
     assert "Trading Gate" in design or "ASR 밖" in design
     assert "Live Enable" in design or "IPS" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.97" in served
-    assert "styles.css?v=0.2.97" in served
+    assert "app.js?v=0.2.98" in served
+    assert "styles.css?v=0.2.98" in served
     assert "headerMoreBtn" in served
