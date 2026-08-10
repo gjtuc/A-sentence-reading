@@ -48,3 +48,13 @@ Web/mobile **0.2.92** · pubspec `0.2.92+1`
 4. 실패 시 성공 알림 없음
 
 Do not paste emails, cookies, or paper titles into chat/PR.
+
+## Live pin (post-merge)
+
+- Cloud Run /api/status: ersion=0.2.92, mobile_upload_interrupt_resume=true
+- Device APK ersionName=0.2.92 · SM-G986N
+- E2E: mid-upload airplane → STALL_VISIBLE → network/app resume → 
+esumeish=True
+- Kill: ASR_MOBILE_UPLOAD_INTERRUPT_RESUME=0
+- Live Enable / IPS: unchanged
+
