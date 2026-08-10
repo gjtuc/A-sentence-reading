@@ -55,3 +55,10 @@
 - Live Enable / IPS: unchanged (이번 칩 불필요)
 
 Do not paste emails, cookies, or paper titles into chat/PR.
+
+## Live pin (post-merge)
+
+- Cloud Run \/api/status\: \ersion=0.2.93\, \mobile_upload_workmanager=true- Device APK \ersionName=0.2.93\ · SM-G986N
+- E2E: mid-upload soft-kill → resume notification (\E2E76 PASS\)
+- Kill: \ASR_MOBILE_UPLOAD_WORKMANAGER=0- Live Enable / IPS: unchanged
+
