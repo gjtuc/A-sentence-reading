@@ -1,4 +1,4 @@
-"""Access gate OTP invite + TTL/rate-limit (0.2.88 · design/67)."""
+"""Access gate OTP invite + TTL/rate-limit (0.2.89 · design/67)."""
 
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def _login_user(client: TestClient, email: str = "user@example.com") -> str:
 def test_status_access_gate_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.88"
+    assert st["version"] == "0.2.89"
     assert st.get("mobile_invite_copy_minimal") is True
     assert st.get("mobile_admin_emails_configured") is True
     assert st.get("mobile_invite_redeem_e2e") is True
@@ -157,7 +157,7 @@ def test_gate_off_allows() -> None:
 def test_mobile_sources() -> None:
     mobile = Path(__file__).resolve().parents[1] / "mobile"
     pub = (mobile / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.2.88" in pub
+    assert "0.2.89" in pub
     client = (mobile / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "redeemInviteCode" in client and "mintInviteCode" in client
     settings = (mobile / "lib" / "screens" / "settings_screen.dart").read_text(
@@ -174,7 +174,7 @@ def test_mobile_sources() -> None:
         Path(__file__).resolve().parents[1] / "docs" / "design" / "67-access-gate.md"
     )
     assert design.is_file()
-    assert "0.2.88" in design.read_text(encoding="utf-8")
+    assert "0.2.89" in design.read_text(encoding="utf-8")
 
 
 def test_invite_expires(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -229,7 +229,7 @@ def test_ttl_env_edges(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_status_exposes_ttl_flags() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.88"
+    assert st["version"] == "0.2.89"
     assert st["access_invite_ttl_seconds"] == 48 * 3600
     assert st["access_redeem_max"] >= 1
     assert "live_enable" not in st

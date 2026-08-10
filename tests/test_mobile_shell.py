@@ -1,4 +1,4 @@
-"""Mobile shell nav — auth gate · 3 tabs (0.2.88 · design/68)."""
+"""Mobile shell nav — auth gate · 3 tabs (0.2.89 · design/68)."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 def test_status_mobile_shell_nav(client: TestClient) -> None:
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.88"
+    assert st["version"] == "0.2.89"
     assert st["mobile_shell_nav"] is True
 
 
@@ -33,7 +33,7 @@ def test_shell_source_structure() -> None:
     assert "label: '보관'" in shell
     assert "label: '읽기'" in shell
     assert "label: '설정'" in shell
-    # WHY: server/login are not bottom-nav destinations after 0.2.88.
+    # WHY: server/login are not bottom-nav destinations after 0.2.89.
     assert "label: '서버'" not in shell
     assert "label: '로그인'" not in shell
     settings = (MOBILE / "lib" / "screens" / "settings_screen.dart").read_text(
@@ -49,5 +49,5 @@ def test_shell_source_structure() -> None:
     assert "Trading Gate" not in login
     assert DESIGN.is_file()
     design = DESIGN.read_text(encoding="utf-8")
-    assert "0.2.88" in design
+    assert "0.2.89" in design
     assert "mobile_shell_nav" in design or "Shell" in design

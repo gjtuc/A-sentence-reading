@@ -1,4 +1,4 @@
-"""섹션 번역 진행 콜백 (0.2.88 · design/43)."""
+"""섹션 번역 진행 콜백 (0.2.89 · design/43)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def _clear_cache() -> None:
 
 def test_status_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.88"
+    assert st["version"] == "0.2.89"
 
 
 def test_design_43_contract() -> None:

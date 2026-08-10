@@ -141,7 +141,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.88",
+    version="0.2.89",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -310,11 +310,12 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.88",
+        "version": "0.2.89",
         "access_gate_gcs": True,
         "mobile_upload": True,
         "ingest_job_gcs": True,
         "mobile_upload_resume": True,
+        "ingest_chunked_upload": True,
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -2201,9 +2202,294 @@ async def _run_ingest_job(
             del _JOBS[oldest]
 
 
+def _begin_ingest_from_bytes(
+    raw: bytes,
+    filename: str,
+    kind: str,
+    *,
+    owner_uid: str,
+) -> dict:
+    """Shared start path for multipart + chunked-complete (design/72)."""
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    suffix = ".pdf" if kind == "pdf" else ".docx"
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(raw)
+        tmp_path = Path(tmp.name)
+
+    content_hash = hashlib.sha256(raw).hexdigest()
+    safe_name = ij.safe_filename(filename)
+    _JOBS[job_id] = {
+        "percent": 1,
+        "stage": "queued",
+        "message": "시작해요",
+        "done": False,
+        "error": None,
+        "result": None,
+        "owner_uid": owner_uid,
+        "content_hash": content_hash,
+        "filename": safe_name,
+    }
+    # WHY (design/71): durable job + source blob so poll/reattach survives instance hop.
+    if owner_uid:
+        try:
+            ij.save_ingest_upload(
+                job_id, raw, owner_uid=owner_uid, suffix=suffix
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        _persist_job(job_id, _JOBS[job_id], force=True)
+    asyncio.create_task(
+        _run_ingest_job(
+            job_id, tmp_path, filename, kind, content_hash=content_hash
+        )
+    )
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "percent": 1,
+        "message": "업로드 완료, 읽기 시작",
+        "content_hash": content_hash,
+    }
+
+
+@app.post("/api/ingest/uploads")
+async def ingest_upload_create(
+    request: Request, payload: dict = Body(default_factory=dict)
+) -> JSONResponse:
+    """design/72 — start chunked upload session (all PDFs)."""
+    from sentence_reading.llm import ingest_chunked as ic
+
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    if not ic.chunked_upload_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "chunked_upload_disabled",
+                "message": "조각 업로드가 일시적으로 꺼져 있습니다.",
+            },
+        )
+    user = _request_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "auth_required",
+                "message": "로그인이 필요합니다.",
+            },
+        )
+    body = payload if isinstance(payload, dict) else {}
+    filename = str(body.get("filename") or "document.pdf")
+    kind = _source_kind(filename)
+    if kind != "pdf":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "unsupported_type",
+                "message": "조각 업로드는 PDF만 지원합니다.",
+            },
+        )
+    try:
+        size = int(body.get("size") or 0)
+    except (TypeError, ValueError):
+        size = 0
+    content_hash = str(body.get("content_hash") or "").strip().lower()
+    view = ic.create_upload_session(
+        owner_uid=user.uid,
+        content_hash=content_hash,
+        filename=filename,
+        size=size,
+    )
+    if view is None:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "bad_upload_session",
+                "message": "업로드 세션을 만들 수 없습니다. 파일 크기·해시를 확인해 주세요.",
+            },
+        )
+    return JSONResponse(view)
+
+
+@app.get("/api/ingest/uploads/{upload_id}")
+def ingest_upload_status(request: Request, upload_id: str) -> JSONResponse:
+    """Resume probe — returns offset + prefix_sha256 for integrity check."""
+    from sentence_reading.llm import ingest_chunked as ic
+
+    user = _request_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "auth_required",
+                "message": "로그인이 필요합니다.",
+            },
+        )
+    view = ic.get_upload(upload_id, owner_uid=user.uid)
+    if view is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "upload_not_found",
+                "message": "업로드 세션을 찾을 수 없습니다.",
+            },
+        )
+    return JSONResponse(view)
+
+
+@app.put("/api/ingest/uploads/{upload_id}")
+async def ingest_upload_put(request: Request, upload_id: str) -> JSONResponse:
+    """Append one contiguous chunk (raw body). Query: offset. Header: X-Chunk-Sha256."""
+    from sentence_reading.llm import ingest_chunked as ic
+
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    user = _request_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "auth_required",
+                "message": "로그인이 필요합니다.",
+            },
+        )
+    if not ic.valid_upload_id(upload_id):
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "upload_not_found",
+                "message": "업로드 세션을 찾을 수 없습니다.",
+            },
+        )
+    try:
+        offset = int(request.query_params.get("offset") or -1)
+    except (TypeError, ValueError):
+        offset = -1
+    if offset < 0:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "bad_offset",
+                "message": "offset 이 필요합니다.",
+            },
+        )
+    data = await request.body()
+    chunk_sha = (request.headers.get("X-Chunk-Sha256") or "").strip()
+    try:
+        view = ic.append_chunk(
+            upload_id,
+            owner_uid=user.uid,
+            offset=offset,
+            data=data,
+            chunk_sha256=chunk_sha or None,
+        )
+    except LookupError:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "upload_not_found",
+                "message": "업로드 세션을 찾을 수 없습니다.",
+            },
+        )
+    except ValueError as exc:
+        code = str(exc)
+        return JSONResponse(
+            status_code=409 if code == "offset_mismatch" else 400,
+            content={
+                "ok": False,
+                "error": code,
+                "message": "조각 업로드를 이어갈 수 없습니다. 무결성 검사 후 다시 시도해 주세요.",
+            },
+        )
+    except Exception:  # noqa: BLE001
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ok": False,
+                "error": "chunk_store_failed",
+                "message": "조각 저장에 실패했습니다.",
+            },
+        )
+    return JSONResponse(view)
+
+
+@app.post("/api/ingest/uploads/{upload_id}/complete")
+async def ingest_upload_complete(
+    request: Request, upload_id: str
+) -> JSONResponse:
+    """Assemble chunks → verify content_hash → start ingest job."""
+    from sentence_reading.llm import ingest_chunked as ic
+
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    user = _request_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "auth_required",
+                "message": "로그인이 필요합니다.",
+            },
+        )
+    try:
+        raw, meta = ic.assemble_and_verify(upload_id, owner_uid=user.uid)
+    except LookupError:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "upload_not_found",
+                "message": "업로드 세션을 찾을 수 없습니다.",
+            },
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": str(exc),
+                "message": "업로드 조각을 검증하지 못했습니다. 처음부터 다시 올려 주세요.",
+            },
+        )
+    except Exception:  # noqa: BLE001
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ok": False,
+                "error": "assemble_failed",
+                "message": "업로드 조립에 실패했습니다.",
+            },
+        )
+    filename = str(meta.get("filename") or "document.pdf")
+    out = _begin_ingest_from_bytes(
+        raw, filename, "pdf", owner_uid=user.uid
+    )
+    try:
+        ic.delete_upload_session(upload_id, owner_uid=user.uid)
+    except Exception:  # noqa: BLE001
+        pass
+    return JSONResponse(out)
+
+
 @app.post("/api/ingest")
 async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse:
-    """PDF/DOCX 업로드 → 백그라운드 정제. job_id 로 진행률 폴링."""
+    """PDF/DOCX 업로드 → 백그라운드 정제. job_id 로 진행률 폴링 (웹·호환)."""
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
@@ -2240,7 +2526,6 @@ async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse
                     "message": "유효한 PDF가 아닙니다.",
                 },
             )
-        suffix = ".pdf"
     else:
         # docx = ZIP (PK)
         if len(raw) < 4 or raw[:2] != b"PK":
@@ -2252,52 +2537,11 @@ async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse
                     "message": "유효한 Word(.docx)가 아닙니다.",
                 },
             )
-        suffix = ".docx"
 
-    job_id = f"job_{uuid.uuid4().hex[:12]}"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(raw)
-        tmp_path = Path(tmp.name)
-
-    content_hash = hashlib.sha256(raw).hexdigest()
     user = _request_user(request)
     owner_uid = user.uid if user is not None else ""
-    from sentence_reading.llm import ingest_jobs_gcs as ij
-
-    safe_name = ij.safe_filename(filename)
-    _JOBS[job_id] = {
-        "percent": 1,
-        "stage": "queued",
-        "message": "시작해요",
-        "done": False,
-        "error": None,
-        "result": None,
-        "owner_uid": owner_uid,
-        "content_hash": content_hash,
-        "filename": safe_name,
-    }
-    # WHY (design/71): durable job + source blob so poll/reattach survives instance hop.
-    if owner_uid:
-        try:
-            ij.save_ingest_upload(
-                job_id, raw, owner_uid=owner_uid, suffix=suffix
-            )
-        except Exception:  # noqa: BLE001
-            pass
-        _persist_job(job_id, _JOBS[job_id], force=True)
-    asyncio.create_task(
-        _run_ingest_job(
-            job_id, tmp_path, filename, kind, content_hash=content_hash
-        )
-    )
     return JSONResponse(
-        {
-            "ok": True,
-            "job_id": job_id,
-            "percent": 1,
-            "message": "업로드 완료, 읽기 시작",
-            "content_hash": content_hash,
-        }
+        _begin_ingest_from_bytes(raw, filename, kind, owner_uid=owner_uid)
     )
 
 

@@ -3,7 +3,7 @@ import 'package:sentence_reading/api/upload_draft_models.dart';
 import 'package:sentence_reading/api/upload_draft_store.dart';
 
 void main() {
-  test('UploadDraft refuses bad hash / job id', () {
+  test('UploadDraft refuses bad hash / job id / upload id', () {
     expect(UploadDraft.tryParse(''), isNull);
     expect(
       UploadDraft.fromJson({
@@ -20,6 +20,14 @@ void main() {
       }),
       isNull,
     );
+    expect(
+      UploadDraft.fromJson({
+        'content_hash': 'a' * 64,
+        'filename': 'a.pdf',
+        'upload_id': 'upl_bad!!!!!',
+      }),
+      isNull,
+    );
   });
 
   test('UploadDraft round-trip + memory store clear', () async {
@@ -32,9 +40,21 @@ void main() {
       bytesLen: 12,
     );
     expect(d.canReattach, isTrue);
+    expect(d.canResumeChunks, isFalse);
     final parsed = UploadDraft.tryParse(d.encode());
     expect(parsed, isNotNull);
     expect(parsed!.jobId, d.jobId);
+
+    final chunking = UploadDraft(
+      contentHash: 'cd' * 32,
+      filename: 'chunk.pdf',
+      uploadId: 'upl_abcd1234ef01',
+      phase: 'uploading',
+      bytesLen: 300000,
+    );
+    expect(chunking.canResumeChunks, isTrue);
+    expect(chunking.canReattach, isFalse);
+    expect(UploadDraft.tryParse(chunking.encode())!.uploadId, chunking.uploadId);
 
     final store = MemoryUploadDraftStore();
     await store.write(d);

@@ -97,7 +97,8 @@
 - ~~액세스 게이트 GCS 공유 진실~~ (0.2.86 — [69-access-gate-gcs.md](69-access-gate-gcs.md); Cloud Run 다 인스턴스)
 - ~~실기 사이드로드 APK pin (0.2.86)~~ ([48-flutter-android-platform.md](48-flutter-android-platform.md); 폰 `versionName` = live API)
 - ~~모바일 단일 PDF 업로드 (클라우드)~~ (0.2.87 — [70-mobile-upload.md](70-mobile-upload.md))
-- ~~이어올리기 · GCS job 재접속~~ (0.2.88 — [71-mobile-upload-resume.md](71-mobile-upload-resume.md); 바이트 구간 resume는 후속)
+- ~~이어올리기 · GCS job 재접속~~ (0.2.88 — [71-mobile-upload-resume.md](71-mobile-upload-resume.md))
+- ~~조각 업로드 · prefix 무결성 이어보내기~~ (0.2.89 — [72-chunked-upload.md](72-chunked-upload.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

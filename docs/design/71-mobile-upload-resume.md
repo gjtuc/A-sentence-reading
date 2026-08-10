@@ -9,7 +9,7 @@
 
 | 포함 (이번 칩) | 미포함 (후속) |
 |----------------|---------------|
-| GCS `users/{uid}/ingest_jobs/{job_id}.json` | Content-Range / tus 바이트 구간 이어보내기 |
+| GCS `users/{uid}/ingest_jobs/{job_id}.json` | 바이트 구간 → [72](72-chunked-upload.md) |
 | 처리 중 앱 재실행 → `job_id` 폴링 재접속 (B) | Cloud Run 워커가 **다른 인스턴스에서 처리 재시작** |
 | 전송 전 로컬 초안 PDF + 실패 시 자동 재 POST (A 최소) | 여러 파일 · docx 앱 업로드 |
 | 같은 `content_hash` 재선택 → 재접속/재시도 | OS 백그라운드 알림 업로드 |
@@ -45,11 +45,11 @@
 
 ## Version
 
-Web/mobile **0.2.88** · pubspec `0.2.88+1`
+Web/mobile **0.2.89** · pubspec `0.2.89+1`
 
-## Device E2E (Samsung · 0.2.88)
+## Device E2E (Samsung · 0.2.89)
 
-1. APK `versionName=0.2.88` · live `/api/status` `ingest_job_gcs` · `mobile_upload_resume`
+1. APK `versionName=0.2.89` · live `/api/status` `ingest_job_gcs` · `mobile_upload_resume`
 2. PDF 가져오기 시작 후 **앱 강제 종료** → 재실행 → 보관에 **처리 중 N%** 자동 재개(파일 재선택 없음) → 완료까지 busy clear (B)
 3. 로그아웃 → 로그인 전용 셸 (탭/PDF 가져오기 없음) — draft wipe
 4. (A 최소 · Content-Range 아님) 로컬 draft 재 POST는 단위 테스트 + 코드 경로; 추가 kill-during-multipart는 자동화 flaky로 후속 재검증 가능
