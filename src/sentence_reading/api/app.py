@@ -61,6 +61,7 @@ from sentence_reading.llm.auth_google import (
     set_gcs_uid,
     verify_google_id_token,
 )
+from sentence_reading.llm.shadowing_practice import shadowing_practice_enabled
 from sentence_reading.llm.access_gate import (
     access_gate_enabled,
     invite_ttl_seconds,
@@ -144,7 +145,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.95",
+    version="0.2.96",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -396,7 +397,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.95",
+        "version": "0.2.96",
         "access_gate_gcs": True,
         "mobile_upload": True,
         "ingest_job_gcs": True,
@@ -412,6 +413,9 @@ def status(request: Request) -> dict:
         "mobile_upload_workmanager": _mobile_upload_workmanager_enabled(),
         # design/77 — email magic-link; false → clients hide request UI.
         "mobile_email_magic_link": _mobile_email_magic_link_enabled(),
+        # design/79 — shadowing opt-in UI; default off (ASR_SHADOWING_PRACTICE).
+        "shadowing_practice": shadowing_practice_enabled(),
+        "mobile_shadowing_practice": shadowing_practice_enabled(),
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,

@@ -144,6 +144,8 @@
     guideDialogClose: document.getElementById("guideDialogClose"),
     guideNestCheck: document.getElementById("guideNestCheck"),
     guideShowHintsCheck: document.getElementById("guideShowHintsCheck"),
+    shadowingPracticeCheck: document.getElementById("shadowingPracticeCheck"),
+    shadowingPracticeHint: document.getElementById("shadowingPracticeHint"),
     sentenceHint: document.getElementById("sentenceHint"),
     figureHint: document.getElementById("figureHint"),
     headerMoreBtn: document.getElementById("headerMoreBtn"),
@@ -262,6 +264,10 @@
   const SECTION_REVIEW_STORAGE_BASE = "asr.sectionReview.v1";
   // WHY: design/59 — Guide 헤더 밖(기본) vs ⋯ 안 · UID별 키
   const GUIDE_STORAGE_BASE = "asr.guide.v1";
+  // WHY: design/79 — shadowing opt-in; default OFF; uid-scoped like section review.
+  const SHADOWING_STORAGE_BASE = "asr.shadowing.v1";
+  const shadowingPrefs = { enabled: false, serverAvailable: false };
+
   /** @type {{ enabled: boolean, mode: "pipeline" | "simple" }} */
   // WHY: design/36 — 기본 pipeline(초안→감수→윤문); simple은 35 호환
   const translatePrefs = { enabled: false, mode: "pipeline" };
@@ -2041,6 +2047,10 @@
   };
 
   function applyAccountScope(uid) {
+    // design/79 — reload uid-scoped opt-in; logout clears via empty uid → OFF.
+    loadShadowingPrefs();
+    void refreshShadowingServerFlag();
+
     if (AsrNotes && typeof AsrNotes.setAccountScope === "function") {
       AsrNotes.setAccountScope(uid || null);
     }
@@ -3293,6 +3303,72 @@
     return uid ? GUIDE_STORAGE_BASE + "." + String(uid) : GUIDE_STORAGE_BASE;
   }
 
+
+  function shadowingStorageKey() {
+    const uid = authState.user && authState.user.uid;
+    return uid
+      ? SHADOWING_STORAGE_BASE + "." + String(uid)
+      : SHADOWING_STORAGE_BASE;
+  }
+
+  function loadShadowingPrefs() {
+    // WHY: product default OFF; garbage → false (fail-closed).
+    shadowingPrefs.enabled = false;
+    try {
+      const raw = localStorage.getItem(shadowingStorageKey());
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data && typeof data === "object" && "enabled" in data) {
+          shadowingPrefs.enabled = !!data.enabled;
+        } else if (typeof data === "boolean") {
+          shadowingPrefs.enabled = data;
+        }
+      }
+    } catch (_) {
+      shadowingPrefs.enabled = false;
+    }
+    syncShadowingPracticeUi();
+  }
+
+  function saveShadowingPrefs() {
+    try {
+      localStorage.setItem(
+        shadowingStorageKey(),
+        JSON.stringify({ enabled: !!shadowingPrefs.enabled })
+      );
+    } catch (_) {
+      /* ignore quota / private mode */
+    }
+  }
+
+  function syncShadowingPracticeUi() {
+    if (!el.shadowingPracticeCheck) return;
+    const avail = !!shadowingPrefs.serverAvailable;
+    el.shadowingPracticeCheck.disabled =
+      !avail || !(authState.user && authState.user.uid);
+    // WHY: kill off → show unchecked even if stale local ON (no false success).
+    el.shadowingPracticeCheck.checked = avail && !!shadowingPrefs.enabled;
+    if (el.shadowingPracticeHint) {
+      el.shadowingPracticeHint.textContent = avail
+        ? "기본은 꺼짐입니다. 켜면 따라 말하기 연습을 씁니다 (연습 UI는 후속)."
+        : "서버에서 쉐도잉 연습이 꺼져 있습니다.";
+    }
+  }
+
+  async function refreshShadowingServerFlag() {
+    try {
+      const res = await fetch("/api/status", { credentials: "same-origin" });
+      const st = await res.json().catch(() => ({}));
+      shadowingPrefs.serverAvailable = !!(
+        st &&
+        (st.shadowing_practice || st.mobile_shadowing_practice)
+      );
+    } catch (_) {
+      shadowingPrefs.serverAvailable = false;
+    }
+    syncShadowingPracticeUi();
+  }
+
   function loadGuidePrefs() {
     // EDGE: 손상 JSON · 비객체 → nestInMore=false · showPanelHints=false
     // WHY: design/60 — 예전 v1에 nestInMore만 있어도 showPanelHints는 기본 숨김
@@ -3389,6 +3465,10 @@
   }
 
   function openGuideDialog() {
+    void refreshShadowingServerFlag().then(function () {
+      loadShadowingPrefs();
+    });
+
     if (!el.guideDialog || typeof el.guideDialog.showModal !== "function") {
       return;
     }
@@ -5676,6 +5756,18 @@
       guidePrefs.showPanelHints = !!el.guideShowHintsCheck.checked;
       saveGuidePrefs();
       applyPanelHints();
+    });
+  }
+
+  if (el.shadowingPracticeCheck) {
+    el.shadowingPracticeCheck.addEventListener("change", function () {
+      if (!shadowingPrefs.serverAvailable) {
+        el.shadowingPracticeCheck.checked = false;
+        syncShadowingPracticeUi();
+        return;
+      }
+      shadowingPrefs.enabled = !!el.shadowingPracticeCheck.checked;
+      saveShadowingPrefs();
     });
   }
 

@@ -5,19 +5,22 @@ import '../api/access_models.dart';
 import '../api/client.dart';
 import '../api/theme_models.dart';
 import '../state/auth_controller.dart';
+import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import 'status_screen.dart';
 
-/// Settings: account · theme · access gate · admin server probe (design/66–68).
+/// Settings: account · theme · shadowing opt-in · access gate · admin server (design/66–68·79).
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
     required this.theme,
     required this.auth,
+    required this.shadowing,
   });
 
   final ThemeController theme;
   final AuthController auth;
+  final ShadowingController shadowing;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -171,7 +174,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([widget.theme, widget.auth]),
+      animation: Listenable.merge([widget.theme, widget.auth, widget.shadowing]),
       builder: (context, _) {
         if (!widget.theme.ready) {
           return const Center(child: CircularProgressIndicator());
@@ -261,6 +264,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 8),
             Text('현재: ${themeModeLabelKo(widget.theme.mode)}'),
+            const Divider(height: 32),
+            Text('쉐도잉 연습', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              widget.shadowing.serverAvailable
+                  ? '기본은 꺼져 있습니다. 켜면 문장 따라 말하기 연습을 씁니다 (연습 화면은 후속 연결).'
+                  : '서버에서 이 기능이 꺼져 있습니다. 켠 것처럼 보이지 않습니다.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('쉐도잉 연습 사용'),
+              value: widget.shadowing.serverAvailable && widget.shadowing.enabled,
+              // WHY: kill off → null onChanged (disabled); no false success.
+              onChanged: (!logged || !widget.shadowing.serverAvailable)
+                  ? null
+                  : (v) => widget.shadowing.setEnabled(v),
+            ),
+            if (widget.shadowing.error != null)
+              Text(
+                widget.shadowing.error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             const Divider(height: 32),
             Text('액세스 (초대 코드)', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../state/auth_controller.dart';
 import '../state/library_controller.dart';
+import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/tts_controller.dart';
 import 'library_screen.dart';
@@ -22,12 +23,14 @@ class HomeShell extends StatefulWidget {
     required this.library,
     required this.tts,
     required this.theme,
+    required this.shadowing,
   });
 
   final AuthController auth;
   final LibraryController library;
   final TtsController tts;
   final ThemeController theme;
+  final ShadowingController shadowing;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -134,7 +137,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             onOpened: _goReader,
           ),
           ReaderScreen(library: widget.library, tts: widget.tts),
-          SettingsScreen(theme: widget.theme, auth: widget.auth),
+          SettingsScreen(
+            theme: widget.theme,
+            auth: widget.auth,
+            shadowing: widget.shadowing,
+          ),
         ];
 
         return Scaffold(
