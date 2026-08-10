@@ -146,6 +146,9 @@
     guideShowHintsCheck: document.getElementById("guideShowHintsCheck"),
     shadowingPracticeCheck: document.getElementById("shadowingPracticeCheck"),
     shadowingPracticeHint: document.getElementById("shadowingPracticeHint"),
+    shadowingChunksBanner: document.getElementById("shadowingChunksBanner"),
+    shadowingChunksMsg: document.getElementById("shadowingChunksMsg"),
+    shadowingChunksRetry: document.getElementById("shadowingChunksRetry"),
     sentenceHint: document.getElementById("sentenceHint"),
     figureHint: document.getElementById("figureHint"),
     headerMoreBtn: document.getElementById("headerMoreBtn"),
@@ -3304,6 +3307,79 @@
   }
 
 
+
+  let shadowingChunksCacheId = null;
+
+  function setShadowingChunksBanner(message, { retry = false, cacheId = null } = {}) {
+    if (!el.shadowingChunksBanner) return;
+    shadowingChunksCacheId = cacheId;
+    if (!message) {
+      el.shadowingChunksBanner.hidden = true;
+      if (el.shadowingChunksRetry) el.shadowingChunksRetry.hidden = true;
+      return;
+    }
+    el.shadowingChunksBanner.hidden = false;
+    if (el.shadowingChunksMsg) el.shadowingChunksMsg.textContent = message;
+    if (el.shadowingChunksRetry) {
+      el.shadowingChunksRetry.hidden = !retry;
+    }
+  }
+
+  async function ensureShadowingChunks(cacheId) {
+    // WHY: only when server kill + user opt-in (like translate on).
+    if (!shadowingPrefs.serverAvailable || !shadowingPrefs.enabled) {
+      setShadowingChunksBanner("");
+      return;
+    }
+    if (!cacheId || !authState.user) {
+      return;
+    }
+    try {
+      const res = await fetch(
+        "/api/shadowing/chunks/" + encodeURIComponent(cacheId),
+        { credentials: "same-origin" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setShadowingChunksBanner(
+          (data && data.message) || "연습 구간을 확인하지 못했습니다.",
+          { retry: true, cacheId }
+        );
+        return;
+      }
+      const plan = data.plan || {};
+      if (plan.status === "ok") {
+        setShadowingChunksBanner("");
+        return;
+      }
+      // backfill / retry
+      setShadowingChunksBanner("연습 구간을 준비하는 중…", { retry: false, cacheId });
+      const built = await fetch(
+        "/api/shadowing/chunks/" + encodeURIComponent(cacheId) + "/build",
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ practice_enabled: true }),
+        }
+      );
+      const body = await built.json().catch(() => ({}));
+      if (!built.ok || !body.ok) {
+        setShadowingChunksBanner(
+          (body && body.message) || "연습 구간을 만들지 못했습니다. 다시 시도해 주세요.",
+          { retry: true, cacheId }
+        );
+        return;
+      }
+      setShadowingChunksBanner("");
+    } catch (_) {
+      setShadowingChunksBanner("연습 구간 준비 중 오류가 났습니다. 다시 시도해 주세요.", {
+        retry: true,
+        cacheId,
+      });
+    }
+  }
+
   function shadowingStorageKey() {
     const uid = authState.user && authState.user.uid;
     return uid
@@ -4440,7 +4516,11 @@
     body.append("file", file, name);
 
     try {
-      const res = await fetch("/api/ingest", { method: "POST", body });
+      const ingestUrl =
+        shadowingPrefs.serverAvailable && shadowingPrefs.enabled
+          ? "/api/ingest?shadowing_practice=1"
+          : "/api/ingest";
+      const res = await fetch(ingestUrl, { method: "POST", body });
       const start = await res.json().catch(() => ({}));
       if (!res.ok || start.ok === false) {
         throw new Error(start.message || `업로드 실패 (${res.status})`);
@@ -4506,6 +4586,21 @@
       }
       const nS = state.sentences.length;
       const nF = state.figures.length;
+      if (data.cache_id) {
+        void ensureShadowingChunks(String(data.cache_id));
+        const sc = data.shadowing_chunks;
+        if (
+          sc &&
+          sc.status &&
+          sc.status !== "ok" &&
+          sc.status !== "skipped"
+        ) {
+          setShadowingChunksBanner(
+            "연습 구간을 만들지 못했습니다. 다시 시도해 주세요.",
+            { retry: true, cacheId: String(data.cache_id) }
+          );
+        }
+      }
       if (data.from_cache) {
         setUploadStatus(`보관본 · 문장 ${nS} · 그림 ${nF}`, "");
       } else if (data.debone) {
@@ -5759,6 +5854,13 @@
     });
   }
 
+  if (el.shadowingChunksRetry) {
+    el.shadowingChunksRetry.addEventListener("click", function () {
+      if (shadowingChunksCacheId) {
+        void ensureShadowingChunks(shadowingChunksCacheId);
+      }
+    });
+  }
   if (el.shadowingPracticeCheck) {
     el.shadowingPracticeCheck.addEventListener("change", function () {
       if (!shadowingPrefs.serverAvailable) {
@@ -6030,6 +6132,7 @@
         throw new Error(data.message || "보관본을 열 수 없습니다.");
       }
       applySession(data, "ready", { asNewTab: true });
+      void ensureShadowingChunks(String(cacheId));
       const nS = state.sentences.length;
       const nF = state.figures.length;
       const stale = !!(data.stale || staleHint);

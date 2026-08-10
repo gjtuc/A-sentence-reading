@@ -15,6 +15,7 @@ import '../api/reading_models.dart';
 import '../api/upload_draft_models.dart';
 import '../api/upload_draft_store.dart';
 import '../api/upload_notify.dart';
+import '../api/shadowing_models.dart';
 
 /// Stall after this long without progress while an upload is marked active.
 const Duration kUploadStallAfter = Duration(seconds: 45);
@@ -41,6 +42,10 @@ class LibraryController extends ChangeNotifier {
   int uploadPercent = 0;
   String uploadStage = '';
   String? error;
+  /// design/80 — fail-closed banner when chunk plan missing/failed.
+  String? shadowingChunksError;
+  String? shadowingChunksCacheId;
+  bool shadowingChunksBusy = false;
 
   /// design/74 — set when notification permission blocked but upload continues.
   String? uploadBackgroundHint;
@@ -267,6 +272,8 @@ class LibraryController extends ChangeNotifier {
       final o = await _client.openPaper(entry.id);
       if (o.title.isEmpty) o.title = entry.title;
       session = o;
+      // design/80 — per-user chunk backfill (opt-in); errors surface on reader.
+      unawaited(ensureShadowingChunks(entry.id));
       return session;
     } on AsrApiException catch (e) {
       error = e.message;
@@ -341,11 +348,17 @@ class LibraryController extends ChangeNotifier {
   }
 
   void clearOpened() {
+    shadowingChunksError = null;
+    shadowingChunksCacheId = null;
+    shadowingChunksBusy = false;
     session = null;
     notifyListeners();
   }
 
   Future<void> clearAll() async {
+    shadowingChunksError = null;
+    shadowingChunksCacheId = null;
+    shadowingChunksBusy = false;
     papers = const [];
     session = null;
     error = null;
@@ -396,6 +409,81 @@ class LibraryController extends ChangeNotifier {
       bytes: bytes,
       knownHash: hash,
     );
+  }
+
+
+
+  /// design/80 — backfill/retry chunk plans when opt-in + kill ON.
+  Future<void> ensureShadowingChunks(String cacheId) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) return;
+    shadowingChunksCacheId = id;
+    final want = await _wantShadowingPractice();
+    if (!want) {
+      // WHY: preference/kill off → no banner success pretend.
+      shadowingChunksError = null;
+      shadowingChunksBusy = false;
+      notifyListeners();
+      return;
+    }
+    shadowingChunksBusy = true;
+    shadowingChunksError = null;
+    notifyListeners();
+    try {
+      final got = await _client.fetchShadowingChunks(id);
+      final plan = got['plan'];
+      final status = plan is Map ? plan['status']?.toString() : null;
+      if (status == 'ok') {
+        shadowingChunksError = null;
+        return;
+      }
+      final built = await _client.buildShadowingChunks(
+        id,
+        practiceEnabled: true,
+      );
+      if (built['ok'] == true) {
+        final p2 = built['plan'];
+        if (p2 is Map && p2['status']?.toString() == 'ok') {
+          shadowingChunksError = null;
+          return;
+        }
+      }
+      // EDGE: server returned non-ok — surface message, never silent success.
+      final msg = built['message']?.toString();
+      shadowingChunksError =
+          (msg != null && msg.isNotEmpty)
+              ? msg
+              : '연습 구간을 만들지 못했습니다. 다시 시도해 주세요.';
+    } on AsrApiException catch (e) {
+      shadowingChunksError = e.message;
+    } catch (_) {
+      shadowingChunksError = '연습 구간 준비 중 오류가 났습니다. 다시 시도해 주세요.';
+    } finally {
+      shadowingChunksBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> retryShadowingChunks() async {
+    final cache = shadowingChunksCacheId;
+    if (cache == null || cache.isEmpty) return;
+    await ensureShadowingChunks(cache);
+  }
+
+  Future<bool> _wantShadowingPractice() async {
+    try {
+      final st = await _client.fetchStatus();
+      if (!st.mobileShadowingPractice && !st.mobileShadowingChunks) {
+        return false;
+      }
+      final auth = await _client.fetchAuthStatus();
+      final uid = auth.user?.uid;
+      if (uid == null || uid.isEmpty) return false;
+      final p = await SharedPreferences.getInstance();
+      return parseShadowingEnabledPref(p.getString(shadowingPrefsKey(uid)));
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<IngestJobResult?> uploadPdf({
@@ -472,11 +560,13 @@ class LibraryController extends ChangeNotifier {
 
       late final String jobId;
       try {
+        final wantShadow = await _wantShadowingPractice();
         final started = await _client.startIngestPdfBytesChunked(
           filename: filename,
           bytes: bytes,
           contentHash: hash,
           existingUploadId: resumeUploadId,
+          shadowingPractice: wantShadow,
           onProgress: (pct, msg) {
             _touchProgress();
             uploadPercent = pct;
@@ -505,6 +595,7 @@ class LibraryController extends ChangeNotifier {
         final started = await _client.startIngestPdfBytes(
           filename: filename,
           bytes: bytes,
+          shadowingPractice: await _wantShadowingPractice(),
         );
         jobId = started.jobId;
         draft = draft.copyWith(

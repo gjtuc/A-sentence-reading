@@ -46,11 +46,11 @@ Modules: `shadowing_practice.py` · Guide/Settings toggle · status `shadowing_p
 
 ## Version
 
-**0.2.96** · pubspec `0.2.96+1`
+**0.2.97** · pubspec `0.2.97+1`
 
 ## Device / browser E2E (pre-merge)
 
-- status `version=0.2.96`, `shadowing_practice=false` on live default  
+- status `version=0.2.97`, `shadowing_practice=false` on live default  
 - 로컬 `ASR_SHADOWING_PRACTICE=1` 시 토글 ON/OFF 저장 · uid 전환 시 격리  
 - Live Enable / IPS: unchanged  
 

@@ -44,6 +44,7 @@ class AsrStatus {
     this.mobileEmailMagicLink = true,
     // design/79 — missing key → off (fail-closed; practice not ready by default).
     this.mobileShadowingPractice = false,
+    this.mobileShadowingChunks = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -84,6 +85,8 @@ class AsrStatus {
       // design/79 — missing / false → opt-in UI disabled (server kill).
       mobileShadowingPractice: json['mobile_shadowing_practice'] == true ||
           json['shadowing_practice'] == true,
+      mobileShadowingChunks: json['mobile_shadowing_chunks'] == true ||
+          json['shadowing_chunks'] == true,
     );
   }
 
@@ -105,6 +108,7 @@ class AsrStatus {
   final bool mobileUploadWorkmanager;
   final bool mobileEmailMagicLink;
   final bool mobileShadowingPractice;
+  final bool mobileShadowingChunks;
 }
 
 class AsrClient {
@@ -490,12 +494,14 @@ class AsrClient {
 
   /// Assemble + start ingest job from a completed chunk session.
   Future<({String jobId, String contentHash})> completeChunkedUpload(
-    String uploadId,
-  ) async {
+    String uploadId, {
+    bool shadowingPractice = false,
+  }) async {
     final id = uploadId.trim();
+    final q = shadowingPractice ? '?shadowing_practice=1' : '';
     final res = await _http
         .post(
-          _uri('/api/ingest/uploads/${Uri.encodeComponent(id)}/complete'),
+          _uri('/api/ingest/uploads/${Uri.encodeComponent(id)}/complete$q'),
           headers: await _headers(jsonBody: true),
           body: '{}',
         )
@@ -528,6 +534,7 @@ class AsrClient {
     String? existingUploadId,
     void Function(int percent, String message)? onProgress,
     Future<void> Function(String uploadId)? onUploadId,
+    bool shadowingPractice = false,
   }) async {
     _validatePdfBytes(filename, bytes);
     final token = await _sessions.readToken();
@@ -585,7 +592,10 @@ class AsrClient {
     }
 
     onProgress?.call(45, '조각 조립 · 처리 시작');
-    final done = await completeChunkedUpload(uploadId);
+    final done = await completeChunkedUpload(
+      uploadId,
+      shadowingPractice: shadowingPractice,
+    );
     return (
       jobId: done.jobId,
       contentHash: done.contentHash.isEmpty ? contentHash : done.contentHash,
@@ -600,6 +610,7 @@ class AsrClient {
   Future<({String jobId, String contentHash})> startIngestPdfBytes({
     required String filename,
     required Uint8List bytes,
+    bool shadowingPractice = false,
   }) async {
     _validatePdfBytes(filename, bytes);
 
@@ -608,7 +619,10 @@ class AsrClient {
       throw AsrApiException('로그인이 필요합니다.', 401);
     }
 
-    final req = http.MultipartRequest('POST', _uri('/api/ingest'));
+    final ingestPath = shadowingPractice
+        ? '/api/ingest?shadowing_practice=1'
+        : '/api/ingest';
+    final req = http.MultipartRequest('POST', _uri(ingestPath));
     req.headers['Cookie'] = '$kAsrSessionCookieName=$token';
     req.headers['Accept'] = 'application/json';
     req.files.add(
@@ -717,6 +731,7 @@ class AsrClient {
     Duration pollInterval = const Duration(milliseconds: 500),
     Duration timeout = const Duration(minutes: 12),
     String? existingUploadId,
+    bool shadowingPractice = false,
   }) async {
     _validatePdfBytes(filename, bytes);
     final hash = sha256Hex(bytes);
@@ -729,6 +744,7 @@ class AsrClient {
         contentHash: hash,
         existingUploadId: existingUploadId,
         onProgress: onProgress,
+        shadowingPractice: shadowingPractice,
       );
       jobId = started.jobId;
       contentHash = started.contentHash;
@@ -736,7 +752,11 @@ class AsrClient {
       // Kill switch / older server — multipart path.
       if (e.statusCode == 503) {
         final started =
-            await startIngestPdfBytes(filename: filename, bytes: bytes);
+            await startIngestPdfBytes(
+          filename: filename,
+          bytes: bytes,
+          shadowingPractice: shadowingPractice,
+        );
         jobId = started.jobId;
         contentHash = started.contentHash;
         onProgress?.call(1, '업로드 완료, 처리 중');
@@ -1009,6 +1029,45 @@ class AsrClient {
   }
 
   void close() => _http.close();
+
+  /// design/80 — GET per-uid chunk plan.
+  Future<Map<String, dynamic>> fetchShadowingChunks(String cacheId) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) {
+      throw AsrApiException('논문 id가 올바르지 않습니다.', 400);
+    }
+    final res = await _http.get(
+      _uri('/api/shadowing/chunks/${Uri.encodeComponent(id)}'),
+      headers: await _headers(),
+    );
+    return _decodeObject(res, 'shadowing/chunks');
+  }
+
+  /// design/80 — backfill/retry (requires practiceEnabled true).
+  Future<Map<String, dynamic>> buildShadowingChunks(
+    String cacheId, {
+    required bool practiceEnabled,
+    List<Map<String, dynamic>>? sentences,
+  }) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) {
+      throw AsrApiException('논문 id가 올바르지 않습니다.', 400);
+    }
+    final body = <String, dynamic>{
+      'practice_enabled': practiceEnabled,
+      if (sentences != null) 'sentences': sentences,
+    };
+    final res = await _http.post(
+      _uri('/api/shadowing/chunks/${Uri.encodeComponent(id)}/build'),
+      headers: {
+        ...await _headers(),
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(body),
+    );
+    return _decodeObject(res, 'shadowing/chunks/build');
+  }
+
 }
 
 class AsrApiException implements Exception {

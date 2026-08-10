@@ -42,6 +42,38 @@ class ReaderScreen extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleSmall,
               ),
             ),
+            if (library.shadowingChunksBusy)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                child: Text(
+                  '연습 구간을 준비하는 중…',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            if (library.shadowingChunksError != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        library.shadowingChunksError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: library.shadowingChunksBusy
+                          ? null
+                          : () => library.retryShadowingChunks(),
+                      child: const Text('다시 시도'),
+                    ),
+                  ],
+                ),
+              ),
             Expanded(
               flex: 3,
               child: _SentencePanel(library: library, tts: tts, session: s),
