@@ -424,6 +424,10 @@ class AsrClient {
           body: chunk,
         )
         .timeout(const Duration(seconds: 60));
+    if (res.statusCode == 429) {
+      // design/73 — surface server copy; never pretend chunk succeeded.
+      throw AsrApiException('요청이 너무 많습니다.', 429);
+    }
     if (res.statusCode == 409 || res.statusCode == 400) {
       throw AsrApiException('조각 무결성 검사에 실패했습니다. 다시 올려 주세요.', res.statusCode);
     }

@@ -141,7 +141,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.89",
+    version="0.2.90",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -209,6 +209,42 @@ def _paid_access_denied(request: Request) -> JSONResponse | None:
             "message": "초대 코드 승인 후 이용할 수 있습니다. (관리자 Allow 필요)",
         },
     )
+
+
+def _ingest_rate_limited(request: Request, action: str) -> JSONResponse | None:
+    """
+    design/73 — per-uid call-count limit for upload/ingest actions.
+    Returns 429 JSON or None. Never trusts body user_id.
+    """
+    from sentence_reading.llm import ingest_rate_limit as irl
+
+    user = _request_user(request)
+    # EDGE: unauthenticated → shared anon bucket (blunt spam without opening uid forge).
+    # WHY length≥6: sanitize_uid charset/length invariant.
+    uid = user.uid if user is not None else "anon_unauth"
+    try:
+        irl.check_and_record(uid, action)
+    except ValueError as exc:
+        code = str(exc)
+        if code == "auth_required":
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "ok": False,
+                    "error": "auth_required",
+                    "message": "로그인이 필요합니다.",
+                },
+            )
+        # Product copy: explicit, not advisory / investment language.
+        return JSONResponse(
+            status_code=429,
+            content={
+                "ok": False,
+                "error": "rate_limited",
+                "message": "요청이 너무 많습니다.",
+            },
+        )
+    return None
 
 
 def _persist_job(job_id: str, job: dict, *, force: bool = False) -> None:
@@ -293,6 +329,8 @@ def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
 @app.get("/api/status")
 def status(request: Request) -> dict:
     """기동 확인."""
+    from sentence_reading.llm.ingest_rate_limit import rate_limit_enabled
+
     user = _request_user(request)
     return {
         "ok": True,
@@ -310,12 +348,14 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.89",
+        "version": "0.2.90",
         "access_gate_gcs": True,
         "mobile_upload": True,
         "ingest_job_gcs": True,
         "mobile_upload_resume": True,
         "ingest_chunked_upload": True,
+        # design/73 — mirrors ASR_INGEST_RATE_LIMIT kill switch (False when off).
+        "ingest_rate_limit": rate_limit_enabled(),
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -2283,6 +2323,10 @@ async def ingest_upload_create(
                 "message": "로그인이 필요합니다.",
             },
         )
+    # WHY after auth: count only real session uids (not anon probes).
+    limited = _ingest_rate_limited(request, "upload_create")
+    if limited is not None:
+        return limited
     body = payload if isinstance(payload, dict) else {}
     filename = str(body.get("filename") or "document.pdf")
     kind = _source_kind(filename)
@@ -2364,6 +2408,9 @@ async def ingest_upload_put(request: Request, upload_id: str) -> JSONResponse:
                 "message": "로그인이 필요합니다.",
             },
         )
+    limited = _ingest_rate_limited(request, "upload_put")
+    if limited is not None:
+        return limited
     if not ic.valid_upload_id(upload_id):
         return JSONResponse(
             status_code=404,
@@ -2477,6 +2524,9 @@ async def ingest_upload_complete(
             },
         )
     filename = str(meta.get("filename") or "document.pdf")
+    limited = _ingest_rate_limited(request, "ingest_start")
+    if limited is not None:
+        return limited
     out = _begin_ingest_from_bytes(
         raw, filename, "pdf", owner_uid=user.uid
     )
@@ -2540,6 +2590,9 @@ async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse
 
     user = _request_user(request)
     owner_uid = user.uid if user is not None else ""
+    limited = _ingest_rate_limited(request, "ingest_start")
+    if limited is not None:
+        return limited
     return JSONResponse(
         _begin_ingest_from_bytes(raw, filename, kind, owner_uid=owner_uid)
     )

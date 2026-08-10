@@ -70,7 +70,7 @@ Flutter Settings must re-fetch `/api/access/status` when `AuthController` become
 
 ## Version
 
-Web **0.2.89** · `access_gate` / `mobile_access_gate` · `access_gate_gcs` · `mobile_invite_copy_minimal` · `mobile_admin_emails_configured` · `mobile_shell_nav` · pubspec `0.2.89+1`
+Web **0.2.90** · `access_gate` / `mobile_access_gate` · `access_gate_gcs` · `mobile_invite_copy_minimal` · `mobile_admin_emails_configured` · `mobile_shell_nav` · pubspec `0.2.90+1`
 
 GCS durability for invites/events/redeem: [69-access-gate-gcs.md](69-access-gate-gcs.md).
 

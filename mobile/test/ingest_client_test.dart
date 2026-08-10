@@ -192,6 +192,37 @@ void main() {
     );
   });
 
+  test('createChunkedUpload surfaces 429 rate limit copy', () async {
+    final store = MemorySessionStore();
+    await store.writeToken('tok');
+    final client = AsrClient(
+      httpClient: MockClient((request) async {
+        if (request.method == 'POST' &&
+            request.url.path.endsWith('/api/ingest/uploads')) {
+          return http.Response(
+            '{"ok":false,"error":"rate_limited","message":"요청이 너무 많습니다."}',
+            429,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+      sessionStore: store,
+    );
+    await expectLater(
+      client.createChunkedUpload(
+        filename: 'a.pdf',
+        contentHash: 'ab' * 32,
+        size: 12,
+      ),
+      throwsA(
+        isA<AsrApiException>()
+            .having((e) => e.statusCode, 'status', 429)
+            .having((e) => e.message, 'msg', contains('요청이 너무 많습니다')),
+      ),
+    );
+  });
+
   test('ingestPdfBytes fail-closed when job ok false', () async {
     final store = MemorySessionStore();
     await store.writeToken('tok');
