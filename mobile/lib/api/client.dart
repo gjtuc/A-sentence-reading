@@ -42,6 +42,8 @@ class AsrStatus {
     this.mobileUploadInterruptResume = false,
     this.mobileUploadWorkmanager = false,
     this.mobileEmailMagicLink = true,
+    // design/79 — missing key → off (fail-closed; practice not ready by default).
+    this.mobileShadowingPractice = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -79,6 +81,9 @@ class AsrStatus {
       mobileEmailMagicLink: json.containsKey('mobile_email_magic_link')
           ? json['mobile_email_magic_link'] == true
           : true,
+      // design/79 — missing / false → opt-in UI disabled (server kill).
+      mobileShadowingPractice: json['mobile_shadowing_practice'] == true ||
+          json['shadowing_practice'] == true,
     );
   }
 
@@ -99,6 +104,7 @@ class AsrStatus {
   final bool mobileUploadInterruptResume;
   final bool mobileUploadWorkmanager;
   final bool mobileEmailMagicLink;
+  final bool mobileShadowingPractice;
 }
 
 class AsrClient {
