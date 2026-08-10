@@ -101,6 +101,7 @@
 - ~~조각 업로드 · prefix 무결성 이어보내기~~ (0.2.89 — [72-chunked-upload.md](72-chunked-upload.md))
 - ~~업로드·ingest 호출 횟수 한도~~ (0.2.91 — [73-ingest-rate-limit.md](73-ingest-rate-limit.md); 횟수만 · daily/용량 한도 없음)
 - ~~백그라운드 업로드 알림 · FG · 완료 탭 열기~~ (0.2.91 — [74-bg-upload-notify.md](74-bg-upload-notify.md); ASR_MOBILE_UPLOAD_BACKGROUND)
+- **전화·OEM 중단 후 업로드 자동 재개** — [75-upload-interrupt-resume.md](75-upload-interrupt-resume.md) (74 위 · 아직 미구현)
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

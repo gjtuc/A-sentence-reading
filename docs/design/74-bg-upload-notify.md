@@ -15,6 +15,7 @@ PDF 업로드가 시작되면 **항상** 알림을 띄우고, 앱이 뒤로 가�
 | 알림 권한 거부 → 업로드는 진행 + 안내 | 매직링크 |
 | 완료 탭 → 해당 paper open | 다파일 동시 업로드 |
 | status `mobile_upload_background` | 알림에 파일명/이메일 노출 |
+| | 전화·OEM 중단 자동 재개 → [75](75-upload-interrupt-resume.md) |
 
 ## Product (locked)
 
@@ -54,9 +55,9 @@ Do not paste emails, cookies, or paper titles into chat/PR.
 
 ## Live pin (post-merge)
 
-- Cloud Run /api/status: ersion=0.2.91, mobile_upload_background=true
-- Device APK ersionName=0.2.91 (sideload) · SM-G986N
-- E2E: PDF 가져오기 → notify visible → Home after percent → 업로드 완료 tap → reader
-- Kill: ASR_MOBILE_UPLOAD_BACKGROUND=0
+- Cloud Run `/api/status`: `version=0.2.91`, `mobile_upload_background=true`
+- Device APK `versionName=0.2.91` (sideload) · SM-G986N
+- E2E: PDF 가져오기 → notify visible → Home after percent → `업로드 완료` tap → reader
+- Kill: `ASR_MOBILE_UPLOAD_BACKGROUND=0`
 - Live Enable / IPS: unchanged (not in this chip)
 
