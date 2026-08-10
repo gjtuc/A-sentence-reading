@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 import tempfile
 import uuid
 import urllib.parse
@@ -141,7 +142,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.90",
+    version="0.2.91",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -326,6 +327,16 @@ def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
             pass
 
 
+def _mobile_upload_background_enabled() -> bool:
+    """design/74 — server kill switch for mobile FG upload notification.
+
+    WHY: share/cloud path must be able to disable client FG/notify without a
+    forced APK rollback. Default on; ASR_MOBILE_UPLOAD_BACKGROUND=0 turns off.
+    """
+    v = (os.environ.get("ASR_MOBILE_UPLOAD_BACKGROUND") or "1").strip().lower()
+    return v not in ("0", "false", "off", "no")
+
+
 @app.get("/api/status")
 def status(request: Request) -> dict:
     """기동 확인."""
@@ -348,7 +359,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.90",
+        "version": "0.2.91",
         "access_gate_gcs": True,
         "mobile_upload": True,
         "ingest_job_gcs": True,
@@ -356,6 +367,8 @@ def status(request: Request) -> dict:
         "ingest_chunked_upload": True,
         # design/73 — mirrors ASR_INGEST_RATE_LIMIT kill switch (False when off).
         "ingest_rate_limit": rate_limit_enabled(),
+        # design/74 — clients skip FG/notify when False; upload path unchanged.
+        "mobile_upload_background": _mobile_upload_background_enabled(),
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,

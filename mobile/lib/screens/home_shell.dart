@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../state/auth_controller.dart';
@@ -31,10 +33,48 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
 
   void _goReader() => setState(() => _index = 1);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // design/74 — FG notification tap → open that paper in reader.
+    unawaited(widget.library.initUploadNotify());
+    widget.library.uploadNotify.setOpenCacheIdHandler(_onNotifyOpenCacheId);
+    unawaited(_consumePendingOpen());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    widget.library.uploadNotify.setOpenCacheIdHandler(null);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_consumePendingOpen());
+    }
+  }
+
+  Future<void> _onNotifyOpenCacheId(String cacheId) async {
+    final opened = await widget.library.openByCacheId(cacheId);
+    if (!mounted) return;
+    if (opened != null) {
+      _goReader();
+    }
+  }
+
+  Future<void> _consumePendingOpen() async {
+    final id = await widget.library.uploadNotify.takePendingOpenCacheId();
+    if (id == null || id.isEmpty) return;
+    await _onNotifyOpenCacheId(id);
+  }
 
   Widget _padded(Widget child) {
     // WHY: no AppBar — SafeArea + small top pad (user preferred vs full toolbar gap).

@@ -47,9 +47,9 @@ Android 앱 **보관**에서 PDF **한 파일**을 골라 Cloud Run ingest → �
 - status `mobile_upload` (계약) · 문제 시 revert PR
 - Cloud Run paid/Gemini off 시 ingest 자체가 실패 → 목록 불변
 
-## Device E2E (Samsung · 0.2.90)
+## Device E2E (Samsung · 0.2.91)
 
-1. 로그인 → 보관 (`versionName=0.2.90`)
+1. 로그인 → 보관 (`versionName=0.2.91`)
 2. **PDF 가져오기** → DocumentsUI 루트 → **다운로드** → `asr_e2e_small.pdf` (제목 탭; 미리보기/연결 프로그램 창 회피)
 3. 진행률(처리 중 · 자동 저장) → 목록에 등장 + **자동으로 읽기 탭 open** (추가 「올리기」 탭 없음)
 4. (참고) 대형 OCR PDF는 Cloud Run job이 수분 걸릴 수 있음 — 타임아웃 시 실패 문구, 빈 성공 금지
@@ -59,4 +59,4 @@ Do not paste paper titles that identify people, emails, or session cookies into 
 
 ## Version pin
 
-Web/mobile **0.2.90** · `mobile_upload: true` · pubspec `0.2.90+1`
+Web/mobile **0.2.91** · `mobile_upload: true` · pubspec `0.2.91+1`

@@ -99,7 +99,8 @@
 - ~~모바일 단일 PDF 업로드 (클라우드)~~ (0.2.87 — [70-mobile-upload.md](70-mobile-upload.md))
 - ~~이어올리기 · GCS job 재접속~~ (0.2.88 — [71-mobile-upload-resume.md](71-mobile-upload-resume.md))
 - ~~조각 업로드 · prefix 무결성 이어보내기~~ (0.2.89 — [72-chunked-upload.md](72-chunked-upload.md))
-- ~~업로드·ingest 호출 횟수 한도~~ (0.2.90 — [73-ingest-rate-limit.md](73-ingest-rate-limit.md); 횟수만 · daily/용량 한도 없음)
+- ~~업로드·ingest 호출 횟수 한도~~ (0.2.91 — [73-ingest-rate-limit.md](73-ingest-rate-limit.md); 횟수만 · daily/용량 한도 없음)
+- ~~백그라운드 업로드 알림 · FG · 완료 탭 열기~~ (0.2.91 — [74-bg-upload-notify.md](74-bg-upload-notify.md); ASR_MOBILE_UPLOAD_BACKGROUND)
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

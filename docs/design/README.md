@@ -64,6 +64,7 @@
 | 71 | [71-mobile-upload-resume.md](71-mobile-upload-resume.md) | 이어올리기 · GCS job · 앱 재접속 |
 | 72 | [72-chunked-upload.md](72-chunked-upload.md) | 조각 업로드 · prefix 무결성 이어보내기 |
 | 73 | [73-ingest-rate-limit.md](73-ingest-rate-limit.md) | 업로드·ingest 호출 횟수 한도 |
+| 74 | [74-bg-upload-notify.md](74-bg-upload-notify.md) | 백그라운드 업로드 알림 · FG · 완료 탭 열기 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -127,5 +128,5 @@
 70는 Flutter 단일 PDF 업로드 · 클라우드 (0.2.87).  
 71는 이어올리기 · GCS ingest job · 앱 재접속 (0.2.88).  
 72는 조각 업로드 · prefix 무결성 이어보내기 (0.2.89).  
-73는 업로드·ingest 호출 횟수 한도 (0.2.90).  
+73는 업로드·ingest 호출 횟수 한도 (0.2.91).  
 음절(30)은 **하지 않음** (원복).

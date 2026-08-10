@@ -41,4 +41,4 @@ EDGE: 구형 boolean → nestInMore만 반영 · hints 숨김
 
 ## 버전
 
-웹 **0.2.90** · status `panel_hints_optional: true`
+웹 **0.2.91** · status `panel_hints_optional: true`

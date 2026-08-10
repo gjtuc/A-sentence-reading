@@ -1,6 +1,7 @@
-/// Paper library + opened reading session (design/62 · 70 · 71 · 72).
+/// Paper library + opened reading session (design/62 · 70 · 71 · 72 · 74).
 library;
 
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -12,17 +13,21 @@ import '../api/paper_models.dart';
 import '../api/reading_models.dart';
 import '../api/upload_draft_models.dart';
 import '../api/upload_draft_store.dart';
+import '../api/upload_notify.dart';
 
 /// Loads `/api/cache/papers`, opens a cache entry, advances cursors independently.
 class LibraryController extends ChangeNotifier {
   LibraryController({
     required AsrClient client,
     UploadDraftStore? draftStore,
+    UploadNotify? uploadNotify,
   })  : _client = client,
-        _drafts = draftStore ?? PrefsUploadDraftStore();
+        _drafts = draftStore ?? PrefsUploadDraftStore(),
+        _notify = uploadNotify ?? createUploadNotify();
 
   final AsrClient _client;
   final UploadDraftStore _drafts;
+  final UploadNotify _notify;
 
   List<PaperEntry> papers = const [];
   ReadingSession? session;
@@ -33,7 +38,32 @@ class LibraryController extends ChangeNotifier {
   String uploadStage = '';
   String? error;
 
+  /// design/74 — set when notification permission blocked but upload continues.
+  String? uploadBackgroundHint;
+
   ReadingSession? get opened => session;
+
+  UploadNotify get uploadNotify => _notify;
+
+  Future<void> initUploadNotify() => _notify.init();
+
+  /// design/74 — honor server kill switch; on status failure skip FG only.
+  Future<bool> _backgroundNotifyEnabled() async {
+    try {
+      final st = await _client.fetchStatus();
+      return st.mobileUploadBackground;
+    } catch (_) {
+      // WHY: notify is optional; upload must still proceed fail-closed for FG.
+      return false;
+    }
+  }
+
+  Future<UploadNotifyStart> _maybeStartNotify(String stage) async {
+    if (!await _backgroundNotifyEnabled()) {
+      return const UploadNotifyStart(active: false);
+    }
+    return _notify.startUploading(stage: stage);
+  }
 
   Future<void> refresh() async {
     loading = true;
@@ -79,6 +109,34 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  /// design/74 — open by cache id after notification tap (product 4B).
+  Future<ReadingSession?> openByCacheId(String cacheId) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) return null;
+    PaperEntry? entry;
+    for (final p in papers) {
+      if (p.id == id) {
+        entry = p;
+        break;
+      }
+    }
+    if (entry == null) {
+      await refresh();
+      for (final p in papers) {
+        if (p.id == id) {
+          entry = p;
+          break;
+        }
+      }
+    }
+    if (entry == null) {
+      error = '알림의 논문을 찾지 못했습니다. 보관함에서 열어 주세요.';
+      notifyListeners();
+      return null;
+    }
+    return open(entry);
+  }
+
   Future<void> advanceSentence(int delta) async {
     final s = session;
     if (s == null || !s.isValid) return;
@@ -101,7 +159,7 @@ class LibraryController extends ChangeNotifier {
 
   Future<void> _syncCursor({bool sentence = false, bool figure = false}) async {
     final s = session;
-    if (s == null) return;
+    if (s == null || !s.isValid) return;
     try {
       await _client.patchCursor(
         sessionId: s.sessionId,
@@ -125,7 +183,9 @@ class LibraryController extends ChangeNotifier {
     uploading = false;
     uploadPercent = 0;
     uploadStage = '';
+    uploadBackgroundHint = null;
     await _drafts.clear();
+    await _notify.stop();
     notifyListeners();
   }
 
@@ -140,8 +200,9 @@ class LibraryController extends ChangeNotifier {
     if (draft.canReattach) {
       return _finishWithPoll(draft);
     }
-
-    if (draft.localPath.isEmpty) return null;
+    if (!draft.canResumeChunks || draft.localPath.isEmpty) {
+      return null;
+    }
     final raw = await _drafts.readLocalPdf(draft.localPath);
     if (raw == null || raw.isEmpty) {
       await _drafts.clear();
@@ -181,7 +242,6 @@ class LibraryController extends ChangeNotifier {
       return _finishWithPoll(existing);
     }
 
-    // Same-file re-pick / auto: resume chunks only after prefix integrity OK.
     String? resumeUploadId;
     if (existing != null &&
         existing.contentHash == hash &&
@@ -195,7 +255,6 @@ class LibraryController extends ChangeNotifier {
                     st.prefixSha256)) {
           resumeUploadId = existing.uploadId;
         } else {
-          // EDGE: prior chunks failed integrity — wipe and start clean.
           await _drafts.clear();
         }
       } on AsrApiException {
@@ -207,7 +266,17 @@ class LibraryController extends ChangeNotifier {
     uploadPercent = 0;
     uploadStage = '준비 중';
     error = null;
+    uploadBackgroundHint = null;
     notifyListeners();
+
+    // design/74 — product 1A: notify when enabled; upload continues either way.
+    final startedNotify = await _maybeStartNotify('준비 중');
+    if (startedNotify.permissionDeniedHint) {
+      uploadBackgroundHint =
+          '알림·백그라운드 권한이 없어 업로드가 중간에 끊길 수 있습니다.';
+      notifyListeners();
+    }
+
     try {
       final localPath = await _drafts.saveLocalPdf(hash, bytes);
       var draft = UploadDraft(
@@ -231,9 +300,14 @@ class LibraryController extends ChangeNotifier {
             uploadPercent = pct;
             uploadStage = msg.isEmpty ? '조각 올리는 중' : msg;
             notifyListeners();
+            unawaited(
+              _notify.updateProgress(
+                percent: uploadPercent,
+                stage: uploadStage,
+              ),
+            );
           },
           onUploadId: (upl) async {
-            // Persist before chunks so force-stop can integrity-resume.
             draft = draft.copyWith(uploadId: upl, phase: 'uploading');
             await _drafts.write(draft);
           },
@@ -245,7 +319,6 @@ class LibraryController extends ChangeNotifier {
           phase: 'processing',
         );
       } on AsrApiException catch (e) {
-        // Kill switch ASR_CHUNKED_UPLOAD=0 → 503; fall back to multipart.
         if (e.statusCode != 503) rethrow;
         final started = await _client.startIngestPdfBytes(
           filename: filename,
@@ -263,6 +336,7 @@ class LibraryController extends ChangeNotifier {
       uploadPercent = 50;
       uploadStage = '처리 중';
       notifyListeners();
+      await _notify.updateProgress(percent: 50, stage: '처리 중');
 
       final result = await _client.pollIngestJob(
         jobId: jobId,
@@ -270,6 +344,12 @@ class LibraryController extends ChangeNotifier {
           uploadPercent = 50 + (pct.clamp(0, 100) ~/ 2);
           uploadStage = msg.isEmpty ? '처리 중' : msg;
           notifyListeners();
+          unawaited(
+            _notify.updateProgress(
+              percent: uploadPercent,
+              stage: uploadStage,
+            ),
+          );
         },
       );
       await _drafts.clear();
@@ -277,19 +357,22 @@ class LibraryController extends ChangeNotifier {
       final seen = papers.any((p) => p.id == result.cacheId);
       if (!seen) {
         error = '업로드는 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
+        await _notify.showFailed(message: error!);
         notifyListeners();
         return null;
       }
+      await _notify.showCompleted(cacheId: result.cacheId);
       return result;
     } on AsrApiException catch (e) {
       if (e.statusCode == 409) {
-        // Integrity failure — do not keep a poisoned chunk session.
         await _drafts.clear();
       }
       error = e.message;
+      await _notify.showFailed(message: e.message);
       return null;
     } catch (e) {
       error = e.toString();
+      await _notify.showFailed(message: error!);
       return null;
     } finally {
       uploading = false;
@@ -304,7 +387,14 @@ class LibraryController extends ChangeNotifier {
     uploadPercent = 0;
     uploadStage = '이어올리는 중';
     error = null;
+    uploadBackgroundHint = null;
     notifyListeners();
+    final startedNotify = await _maybeStartNotify('이어올리는 중');
+    if (startedNotify.permissionDeniedHint) {
+      uploadBackgroundHint =
+          '알림·백그라운드 권한이 없어 업로드가 중간에 끊길 수 있습니다.';
+      notifyListeners();
+    }
     try {
       final result = await _client.pollIngestJob(
         jobId: draft.jobId,
@@ -312,6 +402,12 @@ class LibraryController extends ChangeNotifier {
           uploadPercent = pct;
           uploadStage = msg.isEmpty ? '이어올리는 중' : msg;
           notifyListeners();
+          unawaited(
+            _notify.updateProgress(
+              percent: uploadPercent,
+              stage: uploadStage,
+            ),
+          );
         },
       );
       await _drafts.clear();
@@ -319,18 +415,22 @@ class LibraryController extends ChangeNotifier {
       final seen = papers.any((p) => p.id == result.cacheId);
       if (!seen) {
         error = '업로드는 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
+        await _notify.showFailed(message: error!);
         notifyListeners();
         return null;
       }
+      await _notify.showCompleted(cacheId: result.cacheId);
       return result;
     } on AsrApiException catch (e) {
       if (e.statusCode == 404) {
         await _drafts.clear();
       }
       error = e.message;
+      await _notify.showFailed(message: e.message);
       return null;
     } catch (e) {
       error = e.toString();
+      await _notify.showFailed(message: error!);
       return null;
     } finally {
       uploading = false;

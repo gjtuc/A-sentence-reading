@@ -42,3 +42,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // WHY (design/74): NotificationCompat + ContextCompat for FG upload notify.
+    implementation("androidx.core:core-ktx:1.13.1")
+}
