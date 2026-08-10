@@ -65,6 +65,7 @@
 | 72 | [72-chunked-upload.md](72-chunked-upload.md) | 조각 업로드 · prefix 무결성 이어보내기 |
 | 73 | [73-ingest-rate-limit.md](73-ingest-rate-limit.md) | 업로드·ingest 호출 횟수 한도 |
 | 74 | [74-bg-upload-notify.md](74-bg-upload-notify.md) | 백그라운드 업로드 알림 · FG · 완료 탭 열기 |
+| 75 | [75-upload-interrupt-resume.md](75-upload-interrupt-resume.md) | 전화·중단 후 업로드 자동 재개 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
