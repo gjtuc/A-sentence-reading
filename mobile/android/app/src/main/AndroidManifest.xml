@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- WHY: Cloud Run API (status / later auth·library·TTS). No secrets in the APK. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- design/74: ongoing upload notification + FG service (chunk + process). -->

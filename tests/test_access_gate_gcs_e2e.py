@@ -1,4 +1,4 @@
-"""Two-identity gate flow with shared fake GCS (0.2.98 · design/69).
+"""Two-identity gate flow with shared fake GCS (0.2.99 · design/69).
 
 Simulates Cloud Run instance A mint → instance B redeem → A allow → B paid.
 """

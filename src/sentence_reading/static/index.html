@@ -44,6 +44,7 @@
   <script src="/static/tts_stretch.js?v=__ASR_ASSET_V__" defer></script>
   <script src="/static/fig_refs.js?v=__ASR_ASSET_V__" defer></script>
   <script src="/static/cite_refs.js?v=__ASR_ASSET_V__" defer></script>
+  <script src="/static/shadowing_practice.js?v=__ASR_ASSET_V__" defer></script>
   <script src="/static/app.js?v=__ASR_ASSET_V__" defer></script>
 </head>
 <body>
@@ -144,6 +145,16 @@
             title="보관된 논문 목록 — 다시 분석 없이 열기"
           >
             보관
+          </button>
+          <button
+            type="button"
+            class="upload-btn upload-btn-ghost"
+            id="shadowingPracticeBtn"
+            role="menuitem"
+            title="쉐도잉 연습 모드 — 따라 말하기"
+            hidden
+          >
+            연습
           </button>
           <button
             type="button"
@@ -490,7 +501,7 @@
         쉐도잉 연습 사용 (기본 꺼짐 · 따라 말하기)
       </label>
       <p class="auth-dialog-hint" id="shadowingPracticeHint">
-        서버에서 꺼져 있으면 체크할 수 없습니다. 연습 화면 연결은 후속 업데이트입니다.
+        서버에서 꺼져 있으면 체크할 수 없습니다. 켜면 헤더 ⋯「연습」에서 따라 말하기를 씁니다 (로그인·청크 준비 필요).
       </p>
       <p class="auth-dialog-hint">기본은 헤더에 Guide가 보이고, 문장·그림 아래 긴 안내 줄은 숨깁니다.</p>
       <div class="tts-dialog-actions">
@@ -550,6 +561,23 @@
     <p class="pomo-break-time" id="pomoBreakTime">5:00</p>
     <p class="pomo-break-hint" id="pomoBreakHint">F — 바로 읽기 재개</p>
   </aside>
+
+
+  <dialog class="tts-dialog shadowing-practice-dialog" id="shadowingPracticeDialog">
+    <form method="dialog" class="tts-dialog-head">
+      <h2>쉐도잉 연습</h2>
+      <button type="submit" class="upload-btn upload-btn-ghost" id="shadowingPracticeClose" value="close">닫기</button>
+    </form>
+    <p class="shadowing-practice-meta" id="shadowingPracticeMeta"></p>
+    <p class="shadowing-practice-prompt" id="shadowingPracticePrompt"></p>
+    <p class="upload-status" id="shadowingPracticeStatus" role="status"></p>
+    <div class="shadowing-practice-actions">
+      <button type="button" class="upload-btn" id="shadowingPracticeNext">다음</button>
+      <button type="button" class="upload-btn upload-btn-ghost" id="shadowingPracticeSkip">건너뛰기</button>
+      <button type="button" class="upload-btn upload-btn-ghost" id="shadowingPracticeContinue">이어듣기</button>
+    </div>
+    <p class="guide-lead">듣→같이 말하기(+2초)→내 녹음→다음. 건너뛰면 빈 칸. 이어듣기는 문장 전체 통과 녹음만.</p>
+  </dialog>
 
 </body>
 </html>

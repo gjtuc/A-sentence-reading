@@ -145,7 +145,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.98",
+    version="0.2.99",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -406,7 +406,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.98",
+        "version": "0.2.99",
         "access_gate_gcs": True,
         "mobile_upload": True,
         "ingest_job_gcs": True,
@@ -428,6 +428,9 @@ def status(request: Request) -> dict:
         # design/80 — chunk plans behind same kill; clients show backfill UI when true.
         "shadowing_chunks": shadowing_practice_enabled(),
         "mobile_shadowing_chunks": shadowing_practice_enabled(),
+        # design/82 — practice loop UI behind same kill.
+        "shadowing_practice_loop": shadowing_practice_enabled(),
+        "mobile_shadowing_practice_loop": shadowing_practice_enabled(),
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -2797,6 +2800,189 @@ async def shadowing_chunks_build(
         },
         status_code=200 if ok else 502,
     )
+
+
+
+
+@app.get("/api/shadowing/takes/{cache_id}")
+def shadowing_takes_get(request: Request, cache_id: str) -> JSONResponse:
+    """design/82 — load per-uid practice takes (no cross-user)."""
+    from sentence_reading.llm import shadowing_takes as st
+    from sentence_reading.llm.shadowing_practice import shadowing_practice_enabled
+
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    if not shadowing_practice_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "shadowing_disabled",
+                "message": "쉐도잉 연습이 서버에서 꺼져 있습니다.",
+            },
+        )
+    user = _request_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "error": "auth_required", "message": "로그인이 필요합니다."},
+        )
+    from sentence_reading.llm.shadowing_chunks import safe_cache_id as _safe_cid
+
+    cid = _safe_cid(cache_id)
+    if not cid:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "invalid_cache_id", "message": "논문 id가 올바르지 않습니다."},
+        )
+    try:
+        set_gcs_uid(user.uid)
+        takes = st.load_takes(uid=user.uid, cache_id=cid)
+    finally:
+        reset_gcs_uid()
+    return JSONResponse({"ok": True, "takes": takes})
+
+
+@app.post("/api/shadowing/takes/{cache_id}")
+async def shadowing_takes_post(
+    request: Request, cache_id: str, payload: dict = Body(default_factory=dict)
+) -> JSONResponse:
+    """design/82 — save one chunk take (recorded|skipped) or cursor. Session uid only."""
+    from sentence_reading.llm import shadowing_takes as st
+    from sentence_reading.llm.shadowing_chunks import safe_cache_id as _safe_cid
+    from sentence_reading.llm.shadowing_practice import shadowing_practice_enabled
+
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    if not shadowing_practice_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "shadowing_disabled",
+                "message": "쉐도잉 연습이 서버에서 꺼져 있습니다.",
+            },
+        )
+    user = _request_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "error": "auth_required", "message": "로그인이 필요합니다."},
+        )
+    # WHY: mirror translate-on — client must affirm practice_enabled (no silent write).
+    if not isinstance(payload, dict) or not payload.get("practice_enabled"):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "practice_off",
+                "message": "설정에서 쉐도잉 연습을 켠 뒤 다시 시도해 주세요.",
+            },
+        )
+    # EDGE: ignore client user_id if present (authz).
+    cid = _safe_cid(cache_id)
+    if not cid:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "invalid_cache_id", "message": "논문 id가 올바르지 않습니다."},
+        )
+    action = str(payload.get("action") or "take").strip().lower()
+    try:
+        set_gcs_uid(user.uid)
+        takes = st.load_takes(uid=user.uid, cache_id=cid)
+        if action == "cursor":
+            takes = st.set_cursor(
+                takes,
+                sentence_id=payload.get("sentence_id"),
+                chunk_index=int(payload.get("chunk_index") or 0),
+            )
+        else:
+            takes = st.apply_take(
+                takes,
+                sentence_id=str(payload.get("sentence_id") or ""),
+                chunk_index=int(payload.get("chunk_index") or 0),
+                chunk_count=int(payload.get("chunk_count") or 1),
+                status=str(payload.get("status") or ""),
+                blob_key=payload.get("blob_key"),
+                mime=payload.get("mime"),
+            )
+        st.save_takes(uid=user.uid, cache_id=cid, takes=takes)
+    except PermissionError:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "shadowing_disabled",
+                "message": "쉐도잉 연습이 서버에서 꺼져 있습니다.",
+            },
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": str(exc)[:80],
+                "message": "연습 기록 요청이 올바르지 않습니다.",
+            },
+        )
+    finally:
+        reset_gcs_uid()
+    return JSONResponse({"ok": True, "takes": takes})
+
+
+@app.post("/api/shadowing/takes/{cache_id}/continue")
+async def shadowing_takes_continue(
+    request: Request, cache_id: str, payload: dict = Body(default_factory=dict)
+) -> JSONResponse:
+    """design/82 — list full-pass sentence takes only (section continue-listen)."""
+    from sentence_reading.llm import shadowing_takes as st
+    from sentence_reading.llm.shadowing_chunks import safe_cache_id as _safe_cid
+    from sentence_reading.llm.shadowing_practice import shadowing_practice_enabled
+
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    if not shadowing_practice_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "shadowing_disabled",
+                "message": "쉐도잉 연습이 서버에서 꺼져 있습니다.",
+            },
+        )
+    user = _request_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "error": "auth_required", "message": "로그인이 필요합니다."},
+        )
+    if not isinstance(payload, dict) or not payload.get("practice_enabled"):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "practice_off",
+                "message": "설정에서 쉐도잉 연습을 켠 뒤 다시 시도해 주세요.",
+            },
+        )
+    cid = _safe_cid(cache_id)
+    if not cid:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "invalid_cache_id", "message": "논문 id가 올바르지 않습니다."},
+        )
+    ids = payload.get("sentence_ids") if isinstance(payload.get("sentence_ids"), list) else []
+    ids = [str(x) for x in ids][:400]
+    try:
+        set_gcs_uid(user.uid)
+        takes = st.load_takes(uid=user.uid, cache_id=cid)
+        playlist = st.full_pass_blob_keys(takes, ids)
+    finally:
+        reset_gcs_uid()
+    return JSONResponse({"ok": True, "playlist": playlist})
 
 
 @app.post("/api/ingest/uploads")

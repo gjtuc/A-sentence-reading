@@ -44,7 +44,7 @@ Modules: `shadowing_chunks.py` · `/api/shadowing/chunks` · ingest hook
 
 ## Version
 
-**0.2.98** · pubspec `0.2.98+1`
+**0.2.99** · pubspec `0.2.99+1`
 
 ## Device / browser E2E (pre-merge)
 

@@ -25,6 +25,8 @@ data/extracted/
 data/cache/
 data/tts_cache/
 data/auth/
+# design/80–82 local fallback for per-uid shadowing plans/takes (never commit)
+data/shadowing/
 *.pdf
 
 # Logs
