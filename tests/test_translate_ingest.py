@@ -1,4 +1,4 @@
-"""첨부 시 섹션 번역 + 요지 재감수 (0.2.91 · design/40)."""
+"""첨부 시 섹션 번역 + 요지 재감수 (0.2.92 · design/40)."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def _clear_cache() -> None:
 
 def test_status_ingest_translate_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.91"
+    assert st["version"] == "0.2.92"
     assert st["translate_ingest_sections"] is True
     assert st["translate_side_by_side"] is True
 
@@ -57,8 +57,8 @@ def test_ui_prefers_cached_ko() -> None:
     )
     assert "section-review-digest" in css
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.91" in served
-    assert "styles.css?v=0.2.91" in served
+    assert "app.js?v=0.2.92" in served
+    assert "styles.css?v=0.2.92" in served
 
 
 def test_public_dict_includes_ko_and_digests() -> None:

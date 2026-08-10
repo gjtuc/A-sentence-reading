@@ -1,4 +1,4 @@
-/// Paper library + opened reading session (design/62 · 70 · 71 · 72 · 74).
+/// Paper library + opened reading session (design/62 · 70 · 71 · 72 · 74 · 75).
 library;
 
 import 'dart:async';
@@ -14,6 +14,9 @@ import '../api/reading_models.dart';
 import '../api/upload_draft_models.dart';
 import '../api/upload_draft_store.dart';
 import '../api/upload_notify.dart';
+
+/// Stall after this long without progress while an upload is marked active.
+const Duration kUploadStallAfter = Duration(seconds: 45);
 
 /// Loads `/api/cache/papers`, opens a cache entry, advances cursors independently.
 class LibraryController extends ChangeNotifier {
@@ -41,6 +44,13 @@ class LibraryController extends ChangeNotifier {
   /// design/74 — set when notification permission blocked but upload continues.
   String? uploadBackgroundHint;
 
+  /// design/75 — true when progress heartbeat went silent (honest interrupt UI).
+  bool uploadStalled = false;
+
+  DateTime? _lastProgressAt;
+  Timer? _stallWatch;
+  bool _resumeInFlight = false;
+
   ReadingSession? get opened => session;
 
   UploadNotify get uploadNotify => _notify;
@@ -58,11 +68,90 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  Future<bool> _interruptResumeEnabled() async {
+    try {
+      final st = await _client.fetchStatus();
+      return st.mobileUploadInterruptResume;
+    } catch (_) {
+      // EDGE: status down → skip aggressive resume; cold 71 path still works.
+      return false;
+    }
+  }
+
   Future<UploadNotifyStart> _maybeStartNotify(String stage) async {
     if (!await _backgroundNotifyEnabled()) {
       return const UploadNotifyStart(active: false);
     }
     return _notify.startUploading(stage: stage);
+  }
+
+  void _touchProgress() {
+    _lastProgressAt = DateTime.now();
+    if (uploadStalled) {
+      uploadStalled = false;
+    }
+  }
+
+  void _startStallWatch() {
+    _stallWatch?.cancel();
+    _lastProgressAt = DateTime.now();
+    uploadStalled = false;
+    // WHY: periodic check — phone/OEM may freeze Dart without a lifecycle event.
+    _stallWatch = Timer.periodic(const Duration(seconds: 15), (_) {
+      unawaited(_checkStall());
+    });
+  }
+
+  void _stopStallWatch() {
+    _stallWatch?.cancel();
+    _stallWatch = null;
+    uploadStalled = false;
+    _lastProgressAt = null;
+  }
+
+  Future<void> _checkStall() async {
+    if (!uploading) return;
+    if (!await _interruptResumeEnabled()) return;
+    final last = _lastProgressAt;
+    if (last == null) return;
+    if (DateTime.now().difference(last) < kUploadStallAfter) return;
+    if (uploadStalled) return;
+    // Fail-closed honesty: do not keep a fake “still uploading” story.
+    uploadStalled = true;
+    uploadStage = '중단됨 · 앱을 열면 이어갑니다';
+    notifyListeners();
+    await _notify.showInterrupted(stage: uploadStage);
+  }
+
+  /// design/75 — call from HomeShell on AppLifecycleState.resumed.
+  Future<IngestJobResult?> onAppResumed() async {
+    if (_resumeInFlight) return null;
+    if (!await _interruptResumeEnabled()) return null;
+    final draft = await _drafts.read();
+    if (draft == null) return null;
+
+    if (uploading) {
+      final last = _lastProgressAt;
+      final stale = last == null ||
+          DateTime.now().difference(last) >= kUploadStallAfter ||
+          uploadStalled;
+      if (!stale) {
+        // Still receiving progress — do not start a second upload.
+        return null;
+      }
+      // WHY: frozen in-flight Future may never clear `uploading`; release lock
+      // so design/71 resume can reattach. Server job poll is idempotent.
+      uploading = false;
+      _stopStallWatch();
+      notifyListeners();
+    }
+
+    _resumeInFlight = true;
+    try {
+      return await resumePendingIfAny();
+    } finally {
+      _resumeInFlight = false;
+    }
   }
 
   Future<void> refresh() async {
@@ -186,6 +275,7 @@ class LibraryController extends ChangeNotifier {
     uploadBackgroundHint = null;
     await _drafts.clear();
     await _notify.stop();
+    _stopStallWatch();
     notifyListeners();
   }
 
@@ -267,6 +357,7 @@ class LibraryController extends ChangeNotifier {
     uploadStage = '준비 중';
     error = null;
     uploadBackgroundHint = null;
+    _startStallWatch();
     notifyListeners();
 
     // design/74 — product 1A: notify when enabled; upload continues either way.
@@ -297,6 +388,7 @@ class LibraryController extends ChangeNotifier {
           contentHash: hash,
           existingUploadId: resumeUploadId,
           onProgress: (pct, msg) {
+            _touchProgress();
             uploadPercent = pct;
             uploadStage = msg.isEmpty ? '조각 올리는 중' : msg;
             notifyListeners();
@@ -333,6 +425,7 @@ class LibraryController extends ChangeNotifier {
         uploadStage = '업로드 완료, 처리 중';
       }
       await _drafts.write(draft);
+      _touchProgress();
       uploadPercent = 50;
       uploadStage = '처리 중';
       notifyListeners();
@@ -341,6 +434,7 @@ class LibraryController extends ChangeNotifier {
       final result = await _client.pollIngestJob(
         jobId: jobId,
         onProgress: (pct, msg) {
+          _touchProgress();
           uploadPercent = 50 + (pct.clamp(0, 100) ~/ 2);
           uploadStage = msg.isEmpty ? '처리 중' : msg;
           notifyListeners();
@@ -378,6 +472,7 @@ class LibraryController extends ChangeNotifier {
       uploading = false;
       uploadPercent = 0;
       uploadStage = '';
+      _stopStallWatch();
       notifyListeners();
     }
   }
@@ -388,6 +483,7 @@ class LibraryController extends ChangeNotifier {
     uploadStage = '이어올리는 중';
     error = null;
     uploadBackgroundHint = null;
+    _startStallWatch();
     notifyListeners();
     final startedNotify = await _maybeStartNotify('이어올리는 중');
     if (startedNotify.permissionDeniedHint) {
@@ -399,6 +495,7 @@ class LibraryController extends ChangeNotifier {
       final result = await _client.pollIngestJob(
         jobId: draft.jobId,
         onProgress: (pct, msg) {
+          _touchProgress();
           uploadPercent = pct;
           uploadStage = msg.isEmpty ? '이어올리는 중' : msg;
           notifyListeners();
@@ -436,6 +533,7 @@ class LibraryController extends ChangeNotifier {
       uploading = false;
       uploadPercent = 0;
       uploadStage = '';
+      _stopStallWatch();
       notifyListeners();
     }
   }

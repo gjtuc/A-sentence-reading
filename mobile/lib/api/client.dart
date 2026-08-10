@@ -39,6 +39,7 @@ class AsrStatus {
     this.mobileAccessGate = false,
     this.mobileUpload = false,
     this.mobileUploadBackground = false,
+    this.mobileUploadInterruptResume = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -63,6 +64,11 @@ class AsrStatus {
       mobileUploadBackground: json.containsKey('mobile_upload_background')
           ? json['mobile_upload_background'] == true
           : true,
+      // design/75 — missing key → on (sideload before CD); explicit false kills.
+      mobileUploadInterruptResume:
+          json.containsKey('mobile_upload_interrupt_resume')
+              ? json['mobile_upload_interrupt_resume'] == true
+              : true,
     );
   }
 
@@ -80,6 +86,7 @@ class AsrStatus {
   final bool mobileAccessGate;
   final bool mobileUpload;
   final bool mobileUploadBackground;
+  final bool mobileUploadInterruptResume;
 }
 
 class AsrClient {

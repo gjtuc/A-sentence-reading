@@ -58,8 +58,21 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      // design/74 — open paper from complete notification if pending.
       unawaited(_consumePendingOpen());
+      // design/75 — auto-reattach draft after phone/OEM interrupt.
+      unawaited(_resumeAfterInterrupt());
     }
+  }
+
+  Future<void> _resumeAfterInterrupt() async {
+    if (!widget.auth.isLoggedIn) return;
+    final result = await widget.library.onAppResumed();
+    if (!mounted || result == null) return;
+    // Soft signal only — LibraryScreen also refreshes; avoid auto-open spam.
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('중단된 업로드를 이어서 처리합니다.')),
+    );
   }
 
   Future<void> _onNotifyOpenCacheId(String cacheId) async {
