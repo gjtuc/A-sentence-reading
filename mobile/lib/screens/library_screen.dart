@@ -57,7 +57,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (!mounted || !widget.auth.isLoggedIn) return;
     // design/71 — app auto-resumes processing / local draft without a second tap.
     final result = await widget.library.resumePendingIfAny();
-    if (!mounted || result == null) return;
+    if (!mounted) return;
+    final hint = widget.library.uploadBackgroundHint;
+    if (hint != null && hint.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(hint)));
+    }
+    if (result == null) return;
     PaperEntry? entry;
     for (final p in widget.library.papers) {
       if (p.id == result.cacheId) {
@@ -116,6 +121,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
     // second "PDF 올리기" step after processing (design/70).
     final result = await lib.uploadPdf(filename: name, bytes: bytes);
     if (!mounted) return;
+    // design/74 · product 3A: permission denied → upload still ran; warn once.
+    final hint = lib.uploadBackgroundHint;
+    if (hint != null && hint.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(hint)));
+    }
     if (result == null) {
       final msg = lib.error ?? '처리에 실패했습니다.';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));

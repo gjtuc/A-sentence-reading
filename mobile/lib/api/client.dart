@@ -38,6 +38,7 @@ class AsrStatus {
     this.mobileTheme = false,
     this.mobileAccessGate = false,
     this.mobileUpload = false,
+    this.mobileUploadBackground = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -57,6 +58,11 @@ class AsrStatus {
       mobileTheme: json['mobile_theme'] == true,
       mobileAccessGate: json['mobile_access_gate'] == true || json['access_gate'] == true,
       mobileUpload: json['mobile_upload'] == true,
+      // design/74 — kill switch only when server sends false.
+      // Missing key (pre-0.2.91): allow FG so sideload E2E works before CD.
+      mobileUploadBackground: json.containsKey('mobile_upload_background')
+          ? json['mobile_upload_background'] == true
+          : true,
     );
   }
 
@@ -73,6 +79,7 @@ class AsrStatus {
   final bool mobileTheme;
   final bool mobileAccessGate;
   final bool mobileUpload;
+  final bool mobileUploadBackground;
 }
 
 class AsrClient {
