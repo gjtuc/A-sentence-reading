@@ -11,7 +11,7 @@ Design: [33](../docs/design/33-mobile-flutter.md) · [61](../docs/design/61-mobi
 - background upload notify FG (`mobile_upload_background`) — design/74
 - interrupt stall + resume-on-foreground (`mobile_upload_interrupt_resume`) — design/75
 - WorkManager process-death resume (`mobile_upload_workmanager`) — design/76
-- email magic-link login (\mobile_email_magic_link\) — design/77
+- email magic-link login (`mobile_email_magic_link`) — design/77
 - sideload APK pin — design/48
 - Android Google OAuth SHA-1 runbook — design/65
 - Shell nav (login gate · tabs) — design/68
