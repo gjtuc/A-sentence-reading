@@ -39,11 +39,17 @@
 
 Web/mobile **0.2.89** · pubspec `0.2.89+1`
 
-## Device E2E
+## Device E2E (Samsung SM-G986N · 0.2.89)
 
-1. APK `0.2.89` · live `ingest_chunked_upload: true`
-2. PDF 가져오기 → 조각 진행 중 강제 종료 → 재실행 자동 이어올리기(무결성 OK) → 보관 완료
-3. (선택) 손상 draft 시뮬레이션 → 처음부터 / 실패 문구, 가짜 성공 없음
-4. 로그아웃 → draft 없음
+Evidence (2026-08-10, after Cloud Run deploy of PR #101):
+
+1. Live `/api/status`: `version=0.2.89`, `ingest_chunked_upload=true`
+2. Sideload APK `versionName=0.2.89`
+3. **PDF 가져오기** → multi-chunk PDF → UI `처리 중 24% · 조각 올리는 중`
+4. `adb shell am force-stop` mid-chunk → reopen → auto resume to `조각 조립 · 처리 시작` (prefix integrity path)
+5. Invalid pad-PDF ingest failed with extract error (not empty success) — fail-closed
+6. **로그아웃** → login gate; library `clearAll` wipes upload draft (no auto-resume without session)
+
+Cross-user GET `/api/ingest/uploads/{id}` → 404 covered by `tests/test_ingest_chunked.py`.
 
 Do not paste emails, cookies, or paper titles into chat/PR.
