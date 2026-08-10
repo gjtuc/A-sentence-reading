@@ -1,4 +1,4 @@
-"""Ingest job GCS durability + owner isolation (0.2.92 · design/71)."""
+"""Ingest job GCS durability + owner isolation (0.2.93 · design/71)."""
 
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ def _register(client: TestClient, email: str) -> None:
 
 def test_status_flags(fake_gcs, auth_root):
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.92"
+    assert st["version"] == "0.2.93"
     assert st["ingest_job_gcs"] is True
     assert st["mobile_upload_resume"] is True
 
@@ -173,6 +173,6 @@ def test_design_doc_mentions_resume():
     design = Path("docs/design/71-mobile-upload-resume.md")
     assert design.is_file()
     text = design.read_text(encoding="utf-8")
-    assert "0.2.92" in text
+    assert "0.2.93" in text
     assert "ingest_job_gcs" in text
     assert "이어올리" in text or "resume" in text.lower()

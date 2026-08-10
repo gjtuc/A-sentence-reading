@@ -45,11 +45,11 @@
 
 ## Version
 
-Web/mobile **0.2.92** · pubspec `0.2.92+1`
+Web/mobile **0.2.93** · pubspec `0.2.93+1`
 
-## Device E2E (Samsung · 0.2.92)
+## Device E2E (Samsung · 0.2.93)
 
-1. APK `versionName=0.2.92` · live `/api/status` `ingest_job_gcs` · `mobile_upload_resume`
+1. APK `versionName=0.2.93` · live `/api/status` `ingest_job_gcs` · `mobile_upload_resume`
 2. PDF 가져오기 시작 후 **앱 강제 종료** → 재실행 → 보관에 **처리 중 N%** 자동 재개(파일 재선택 없음) → 완료까지 busy clear (B)
 3. 로그아웃 → 로그인 전용 셸 (탭/PDF 가져오기 없음) — draft wipe
 4. (A 최소 · Content-Range 아님) 로컬 draft 재 POST는 단위 테스트 + 코드 경로; 추가 kill-during-multipart는 자동화 flaky로 후속 재검증 가능

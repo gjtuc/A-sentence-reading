@@ -232,6 +232,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 ),
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
+                        if (lib.uploadBatteryHint != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            lib.uploadBatteryHint!,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              TextButton(
+                                onPressed: () async {
+                                  await lib.openBatterySettings();
+                                },
+                                child: const Text('배터리 설정'),
+                              ),
+                              TextButton(
+                                onPressed: () => lib.dismissBatteryHint(),
+                                child: const Text('나중에'),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),

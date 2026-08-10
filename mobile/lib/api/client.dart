@@ -40,6 +40,7 @@ class AsrStatus {
     this.mobileUpload = false,
     this.mobileUploadBackground = false,
     this.mobileUploadInterruptResume = false,
+    this.mobileUploadWorkmanager = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -69,6 +70,10 @@ class AsrStatus {
           json.containsKey('mobile_upload_interrupt_resume')
               ? json['mobile_upload_interrupt_resume'] == true
               : true,
+      // design/76 — missing key → on; explicit false kills WorkManager enqueue.
+      mobileUploadWorkmanager: json.containsKey('mobile_upload_workmanager')
+          ? json['mobile_upload_workmanager'] == true
+          : true,
     );
   }
 
@@ -87,6 +92,7 @@ class AsrStatus {
   final bool mobileUpload;
   final bool mobileUploadBackground;
   final bool mobileUploadInterruptResume;
+  final bool mobileUploadWorkmanager;
 }
 
 class AsrClient {

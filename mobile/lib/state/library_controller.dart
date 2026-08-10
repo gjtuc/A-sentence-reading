@@ -1,4 +1,4 @@
-/// Paper library + opened reading session (design/62 · 70 · 71 · 72 · 74 · 75).
+/// Paper library + opened reading session (design/62 · 70 · 71 · 72 · 74 · 75 · 76).
 library;
 
 import 'dart:async';
@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/client.dart';
 import '../api/ingest_models.dart';
@@ -44,12 +45,21 @@ class LibraryController extends ChangeNotifier {
   /// design/74 — set when notification permission blocked but upload continues.
   String? uploadBackgroundHint;
 
+  /// design/76 — battery restrict guidance (button); null when not applicable.
+  String? uploadBatteryHint;
+
+  /// Content hash for the in-flight upload (battery dismiss scope).
+  String? _activeContentHash;
+
   /// design/75 — true when progress heartbeat went silent (honest interrupt UI).
   bool uploadStalled = false;
 
   DateTime? _lastProgressAt;
   Timer? _stallWatch;
   bool _resumeInFlight = false;
+  /// Cached for one upload session — avoid /api/status on every chunk heartbeat.
+  bool? _wmEnabledCache;
+  DateTime? _lastWmScheduleAt;
 
   ReadingSession? get opened => session;
 
@@ -78,6 +88,19 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  Future<bool> _workmanagerEnabled() async {
+    final cached = _wmEnabledCache;
+    if (cached != null) return cached;
+    try {
+      final st = await _client.fetchStatus();
+      _wmEnabledCache = st.mobileUploadWorkmanager;
+    } catch (_) {
+      // EDGE: status down → do not enqueue WM (fail closed for new surface).
+      _wmEnabledCache = false;
+    }
+    return _wmEnabledCache!;
+  }
+
   Future<UploadNotifyStart> _maybeStartNotify(String stage) async {
     if (!await _backgroundNotifyEnabled()) {
       return const UploadNotifyStart(active: false);
@@ -85,11 +108,68 @@ class LibraryController extends ChangeNotifier {
     return _notify.startUploading(stage: stage);
   }
 
+  /// design/76 — REPLACE + delay so live Flutter progress resets the death timer.
+  Future<void> _scheduleWorkmanager({required bool immediate}) async {
+    if (!await _workmanagerEnabled()) return;
+    if (!immediate) {
+      final last = _lastWmScheduleAt;
+      // WHY: throttle channel spam — chunk heartbeats are frequent.
+      if (last != null &&
+          DateTime.now().difference(last) < const Duration(seconds: 20)) {
+        return;
+      }
+    }
+    _lastWmScheduleAt = DateTime.now();
+    await _notify.scheduleUploadResume(immediate: immediate);
+  }
+
+  Future<void> _cancelWorkmanager() async {
+    _lastWmScheduleAt = null;
+    await _notify.cancelUploadResume();
+  }
+
+  /// Progress heartbeat also postpones WM so a live Dart upload is not raced.
   void _touchProgress() {
     _lastProgressAt = DateTime.now();
     if (uploadStalled) {
       uploadStalled = false;
     }
+    // WHY: resets the ~60s REPLACE delay — WM only fires if frozen/dead.
+    unawaited(_scheduleWorkmanager(immediate: false));
+  }
+
+  Future<void> _maybeOfferBatteryHint(String contentHash) async {
+    final hash = contentHash.trim().toLowerCase();
+    if (hash.isEmpty) return;
+    if (await _notify.isIgnoringBatteryOptimizations()) {
+      uploadBatteryHint = null;
+      return;
+    }
+    final p = await SharedPreferences.getInstance();
+    final dismissed = (p.getString(kBatteryHintDismissedHashKey) ?? '')
+        .trim()
+        .toLowerCase();
+    if (dismissed == hash) {
+      // Product 3: same content_hash job — user already dismissed; do not re-nag.
+      uploadBatteryHint = null;
+      return;
+    }
+    uploadBatteryHint =
+        '배터리 절전으로 백그라운드 이어올리기가 멈출 수 있습니다.';
+  }
+
+  /// UI: open OEM battery settings (design/76).
+  Future<bool> openBatterySettings() => _notify.openBatterySettings();
+
+  /// UI: dismiss battery guidance for this content_hash only.
+  Future<void> dismissBatteryHint() async {
+    final hash = (_activeContentHash ?? '').trim().toLowerCase();
+    if (hash.isNotEmpty) {
+      final p = await SharedPreferences.getInstance();
+      await p.setString(kBatteryHintDismissedHashKey, hash);
+    }
+    uploadBatteryHint = null;
+    notifyListeners();
   }
 
   void _startStallWatch() {
@@ -121,6 +201,8 @@ class LibraryController extends ChangeNotifier {
     uploadStage = '중단됨 · 앱을 열면 이어갑니다';
     notifyListeners();
     await _notify.showInterrupted(stage: uploadStage);
+    // design/76: stall → REPLACE immediate WorkManager (process may already be dying).
+    await _scheduleWorkmanager(immediate: true);
   }
 
   /// design/75 — call from HomeShell on AppLifecycleState.resumed.
@@ -273,6 +355,9 @@ class LibraryController extends ChangeNotifier {
     uploadPercent = 0;
     uploadStage = '';
     uploadBackgroundHint = null;
+    uploadBatteryHint = null;
+    _activeContentHash = null;
+    await _cancelWorkmanager();
     await _drafts.clear();
     await _notify.stop();
     _stopStallWatch();
@@ -357,6 +442,9 @@ class LibraryController extends ChangeNotifier {
     uploadStage = '준비 중';
     error = null;
     uploadBackgroundHint = null;
+    _wmEnabledCache = null;
+    _activeContentHash = hash;
+    await _maybeOfferBatteryHint(hash);
     _startStallWatch();
     notifyListeners();
 
@@ -367,6 +455,8 @@ class LibraryController extends ChangeNotifier {
           '알림·백그라운드 권한이 없어 업로드가 중간에 끊길 수 있습니다.';
       notifyListeners();
     }
+    // design/76 — arm delayed WM as soon as a draft can exist.
+    await _scheduleWorkmanager(immediate: false);
 
     try {
       final localPath = await _drafts.saveLocalPdf(hash, bytes);
@@ -447,6 +537,7 @@ class LibraryController extends ChangeNotifier {
         },
       );
       await _drafts.clear();
+      await _cancelWorkmanager();
       await refresh();
       final seen = papers.any((p) => p.id == result.cacheId);
       if (!seen) {
@@ -460,6 +551,7 @@ class LibraryController extends ChangeNotifier {
     } on AsrApiException catch (e) {
       if (e.statusCode == 409) {
         await _drafts.clear();
+        await _cancelWorkmanager();
       }
       error = e.message;
       await _notify.showFailed(message: e.message);
@@ -472,6 +564,8 @@ class LibraryController extends ChangeNotifier {
       uploading = false;
       uploadPercent = 0;
       uploadStage = '';
+      uploadBatteryHint = null;
+      _activeContentHash = null;
       _stopStallWatch();
       notifyListeners();
     }
@@ -483,6 +577,9 @@ class LibraryController extends ChangeNotifier {
     uploadStage = '이어올리는 중';
     error = null;
     uploadBackgroundHint = null;
+    _wmEnabledCache = null;
+    _activeContentHash = draft.contentHash;
+    await _maybeOfferBatteryHint(draft.contentHash);
     _startStallWatch();
     notifyListeners();
     final startedNotify = await _maybeStartNotify('이어올리는 중');
@@ -491,6 +588,7 @@ class LibraryController extends ChangeNotifier {
           '알림·백그라운드 권한이 없어 업로드가 중간에 끊길 수 있습니다.';
       notifyListeners();
     }
+    await _scheduleWorkmanager(immediate: false);
     try {
       final result = await _client.pollIngestJob(
         jobId: draft.jobId,
@@ -508,6 +606,7 @@ class LibraryController extends ChangeNotifier {
         },
       );
       await _drafts.clear();
+      await _cancelWorkmanager();
       await refresh();
       final seen = papers.any((p) => p.id == result.cacheId);
       if (!seen) {
@@ -521,6 +620,7 @@ class LibraryController extends ChangeNotifier {
     } on AsrApiException catch (e) {
       if (e.statusCode == 404) {
         await _drafts.clear();
+        await _cancelWorkmanager();
       }
       error = e.message;
       await _notify.showFailed(message: e.message);
@@ -533,6 +633,8 @@ class LibraryController extends ChangeNotifier {
       uploading = false;
       uploadPercent = 0;
       uploadStage = '';
+      uploadBatteryHint = null;
+      _activeContentHash = null;
       _stopStallWatch();
       notifyListeners();
     }
