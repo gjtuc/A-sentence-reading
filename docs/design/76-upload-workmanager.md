@@ -49,8 +49,11 @@
 ## Device E2E (pre-merge)
 
 - APK `versionName=0.2.93` · SM-G986N
-- Mid-upload soft-kill (`kill -9`, not `force-stop`) → upload/resume notification visible (`E2E76 PASS`)
+- Mid-upload soft-kill (`am crash` / process death; **not** `force-stop` which cancels WM). Shell `kill -9` may be denied (UID).
+- **Worker-only proof (no MainActivity reopen):** logcat `UploadResumeWorker: E2E76_WM doWork start` + `E2E76_WM resume phase=…` while FG upload notification stays (`E2E76 PASS`)
+- Manifest `<queries>` include `OPEN_DOCUMENT` / `GET_CONTENT` so file_picker works after clean boot
 - ProGuard keep for WorkManager Room (`proguard-rules.pro`) — prevents InitializationProvider crash
+- MULTI-USER: logout → `library.clearAll()` cancels unique WM work + clears draft
 - Kill: `ASR_MOBILE_UPLOAD_WORKMANAGER=0`
 - Live Enable / IPS: unchanged (이번 칩 불필요)
 
@@ -58,7 +61,9 @@ Do not paste emails, cookies, or paper titles into chat/PR.
 
 ## Live pin (post-merge)
 
-- Cloud Run \/api/status\: \ersion=0.2.93\, \mobile_upload_workmanager=true- Device APK \ersionName=0.2.93\ · SM-G986N
-- E2E: mid-upload soft-kill → resume notification (\E2E76 PASS\)
-- Kill: \ASR_MOBILE_UPLOAD_WORKMANAGER=0- Live Enable / IPS: unchanged
+- Cloud Run `/api/status`: `version=0.2.93`, `mobile_upload_workmanager=true`
+- Device APK `versionName=0.2.93` · SM-G986N
+- E2E: soft process death → `E2E76_WM` Worker log + resume notification (`E2E76 PASS`)
+- Kill: `ASR_MOBILE_UPLOAD_WORKMANAGER=0`
+- Live Enable / IPS: unchanged
 

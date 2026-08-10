@@ -124,12 +124,25 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun handleOpenIntent(intent: Intent?) {
-        if (intent?.action != UploadForegroundService.ACTION_OPEN_FROM_NOTIFY) return
+        if (intent == null) return
+        // Debuggable builds only: seed-based WM E2E without DocumentsUI (run-as + adb intent).
+        if (intent.action == ACTION_DEBUG_SCHEDULE_UPLOAD_RESUME && isDebuggableApp()) {
+            try {
+                UploadResumeScheduler.schedule(this, immediate = true)
+            } catch (_: Exception) {
+            }
+            return
+        }
+        if (intent.action != UploadForegroundService.ACTION_OPEN_FROM_NOTIFY) return
         val id = intent.getStringExtra(UploadForegroundService.EXTRA_CACHE_ID)?.trim()
         if (id.isNullOrEmpty()) return
         pendingOpenCacheId = id
         // Notify Dart if engine is ready.
         channel?.invokeMethod("openCacheId", mapOf("cacheId" to id))
+    }
+
+    private fun isDebuggableApp(): Boolean {
+        return (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
     }
 
     /**
@@ -189,5 +202,8 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val CHANNEL = "asr/upload_notify"
         private const val REQ_NOTIFY = 741
+        /** Debuggable-only adb E2E: schedule immediate UploadResumeWorker. */
+        const val ACTION_DEBUG_SCHEDULE_UPLOAD_RESUME =
+            "com.gjtuc.sentence_reading.DEBUG_SCHEDULE_UPLOAD_RESUME"
     }
 }

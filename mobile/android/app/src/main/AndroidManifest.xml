@@ -65,5 +65,19 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- WHY: file_picker 10.x uses ACTION_OPEN_DOCUMENT; plugin queries only declare
+             GET_CONTENT. Without OPEN_DOCUMENT visibility, resolveActivity is null after
+             a clean boot (invalid_format_type) even when DocumentsUI is installed. -->
+        <intent>
+            <action android:name="android.intent.action.GET_CONTENT"/>
+            <data android:mimeType="*/*"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.OPEN_DOCUMENT"/>
+            <data android:mimeType="*/*"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.OPEN_DOCUMENT_TREE"/>
+        </intent>
     </queries>
 </manifest>

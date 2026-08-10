@@ -25,10 +25,12 @@ class UploadResumeWorker(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
+        // WHY: unmistakable logcat marker for design/76 process-death E2E (do not rely on UI open).
+        Log.i(TAG, "E2E76_WM doWork start")
         return try {
             runResume()
         } catch (e: Exception) {
-            Log.w(TAG, "resume failed: ${e.javaClass.simpleName}")
+            Log.w(TAG, "E2E76_WM resume failed: ${e.javaClass.simpleName}")
             try {
                 UploadForegroundService.update(
                     applicationContext,
@@ -48,8 +50,10 @@ class UploadResumeWorker(
         val draftRaw = prefs.getString(KEY_DRAFT, null)?.trim().orEmpty()
         if (session.isEmpty() || draftRaw.isEmpty()) {
             // EDGE: nothing to resume — not a user-visible failure.
+            Log.i(TAG, "E2E76_WM noop empty session_or_draft")
             return Result.success()
         }
+        Log.i(TAG, "E2E76_WM resume phase=${JSONObject(draftRaw).optString("phase", "")}")
         val draft = JSONObject(draftRaw)
         val phase = draft.optString("phase", "")
         val uploadId = draft.optString("upload_id", "").trim()
