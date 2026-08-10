@@ -45,6 +45,26 @@ void main() {
     });
   });
 
+  group('parseMagicDeepLink', () {
+    test('success', () {
+      final r = parseMagicDeepLink(
+        'com.gjtuc.sentence_reading://oauth/magic?asr_session=tok.xyz&auth=magic',
+      );
+      expect(r.isSuccess, isTrue);
+      expect(r.sessionToken, 'tok.xyz');
+      expect(r.auth, 'magic');
+    });
+
+    test('wrong path is kakao-only failure', () {
+      expect(
+        parseMagicDeepLink(
+          'com.gjtuc.sentence_reading://oauth/kakao?asr_session=x',
+        ).error,
+        'bad_path',
+      );
+    });
+  });
+
   group('isUsableGoogleCredential', () {
     test('edges', () {
       expect(isUsableGoogleCredential(null), isFalse);

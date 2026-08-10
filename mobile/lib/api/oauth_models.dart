@@ -10,7 +10,10 @@ const String kMobileOAuthScheme = 'com.gjtuc.sentence_reading';
 /// Full deep-link prefix used by the server (host oauth, path /kakao).
 const String kMobileKakaoDeepLink = '$kMobileOAuthScheme://oauth/kakao';
 
-/// Result of parsing a Kakao mobile deep link.
+/// design/77 — email magic-link bounce into the app.
+const String kMobileMagicDeepLink = '$kMobileOAuthScheme://oauth/magic';
+
+/// Result of parsing a Kakao / magic mobile deep link.
 class KakaoDeepLinkResult {
   const KakaoDeepLinkResult({this.sessionToken, this.auth, this.error});
 
@@ -31,6 +34,19 @@ class KakaoDeepLinkResult {
 /// NOTE: Dart Uri.tryParse rejects some dotted custom schemes as invalid;
 /// we parse manually for the known Android callback shape.
 KakaoDeepLinkResult parseKakaoDeepLink(String? raw) {
+  return parseOAuthDeepLink(raw, expectedPath: 'kakao');
+}
+
+/// Parse com.gjtuc.sentence_reading://oauth/magic?...
+KakaoDeepLinkResult parseMagicDeepLink(String? raw) {
+  return parseOAuthDeepLink(raw, expectedPath: 'magic');
+}
+
+/// Shared custom-scheme OAuth/magic parse (design/65 · design/77).
+KakaoDeepLinkResult parseOAuthDeepLink(
+  String? raw, {
+  required String expectedPath,
+}) {
   final s = (raw ?? '').trim();
   if (s.isEmpty) {
     return const KakaoDeepLinkResult(error: 'empty_redirect');
@@ -45,13 +61,13 @@ KakaoDeepLinkResult parseKakaoDeepLink(String? raw) {
   final pathPart = qAt < 0 ? rest : rest.substring(0, qAt);
   final queryPart = qAt < 0 ? '' : rest.substring(qAt + 1);
 
-  // Expect host/path: oauth/kakao
+  // Expect host/path: oauth/{kakao|magic}
   final norm = pathPart.startsWith('/') ? pathPart.substring(1) : pathPart;
   final segments = norm.split('/').where((e) => e.isNotEmpty).toList();
   if (segments.length < 2 || segments[0] != 'oauth') {
     return const KakaoDeepLinkResult(error: 'bad_host');
   }
-  if (segments[1] != 'kakao') {
+  if (segments[1] != expectedPath) {
     return const KakaoDeepLinkResult(error: 'bad_path');
   }
 

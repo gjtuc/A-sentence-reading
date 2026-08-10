@@ -41,6 +41,7 @@ class AsrStatus {
     this.mobileUploadBackground = false,
     this.mobileUploadInterruptResume = false,
     this.mobileUploadWorkmanager = false,
+    this.mobileEmailMagicLink = true,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -74,6 +75,10 @@ class AsrStatus {
       mobileUploadWorkmanager: json.containsKey('mobile_upload_workmanager')
           ? json['mobile_upload_workmanager'] == true
           : true,
+      // design/77 — missing key → on; explicit false hides magic-link UI.
+      mobileEmailMagicLink: json.containsKey('mobile_email_magic_link')
+          ? json['mobile_email_magic_link'] == true
+          : true,
     );
   }
 
@@ -93,6 +98,7 @@ class AsrStatus {
   final bool mobileUploadBackground;
   final bool mobileUploadInterruptResume;
   final bool mobileUploadWorkmanager;
+  final bool mobileEmailMagicLink;
 }
 
 class AsrClient {
@@ -210,7 +216,7 @@ class AsrClient {
     return user;
   }
 
-  /// Persist a session token from Kakao mobile deep link (no Set-Cookie path).
+  /// Persist a session token from Kakao / magic mobile deep link (no Set-Cookie path).
   Future<AsrUser> applySessionToken(String token) async {
     final t = token.trim();
     if (t.isEmpty || t.toLowerCase() == 'deleted') {
@@ -224,6 +230,25 @@ class AsrClient {
       throw AsrApiException('session not accepted', 401);
     }
     return u;
+  }
+
+  /// POST /api/auth/email/magic/request — SMTP send; no session yet (design/77).
+  Future<String> requestMagicLink({required String email}) async {
+    final res = await _http
+        .post(
+          _uri('/api/auth/email/magic/request'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({'email': email.trim()}),
+        )
+        .timeout(const Duration(seconds: 30));
+    final map = _decodeObject(res, 'email/magic/request');
+    if (map['ok'] != true) {
+      throw AsrApiException(
+        '${map['message'] ?? map['error'] ?? 'magic_request_failed'}',
+        res.statusCode,
+      );
+    }
+    return '${map['message'] ?? '로그인 링크를 이메일로 보냈습니다.'}';
   }
 
   /// Absolute URL for Kakao Custom-Tab start (mobile=1).

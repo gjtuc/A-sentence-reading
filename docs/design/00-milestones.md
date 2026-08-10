@@ -103,6 +103,7 @@
 - ~~백그라운드 업로드 알림 · FG · 완료 탭 열기~~ (0.2.93 — [74-bg-upload-notify.md](74-bg-upload-notify.md); ASR_MOBILE_UPLOAD_BACKGROUND)
 - ~~전화·OEM 중단 후 업로드 자동 재개~~ (0.2.93 — [75-upload-interrupt-resume.md](75-upload-interrupt-resume.md); approach A · ASR_MOBILE_UPLOAD_INTERRUPT_RESUME)
 - ~~프로세스 종료 후 WorkManager 이어올리기~~ (0.2.93 · [76-upload-workmanager.md](76-upload-workmanager.md); ASR_MOBILE_UPLOAD_WORKMANAGER)
+- ~~이메일 매직링크 로그인 · 앱 딥링크~~ (0.2.94 · [77-email-magic-link.md](77-email-magic-link.md); ASR_EMAIL_MAGIC_LINK · OTP 게이트 유지)
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

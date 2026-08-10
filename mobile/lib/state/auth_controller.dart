@@ -4,6 +4,7 @@ library;
 import 'package:flutter/foundation.dart';
 
 import '../api/auth_models.dart';
+import '../api/auth_deeplink.dart';
 import '../api/client.dart';
 import '../api/oauth_bridges.dart';
 import '../api/oauth_models.dart';
@@ -14,13 +15,16 @@ class AuthController extends ChangeNotifier {
     AsrClient? client,
     GoogleIdTokenSource? googleTokens,
     KakaoOAuthBrowser? kakaoBrowser,
+    AuthDeepLinkBridge? deepLinks,
   })  : _client = client ?? AsrClient(),
         _googleTokens = googleTokens ?? GoogleSignInIdTokenSource(),
-        _kakaoBrowser = kakaoBrowser ?? FlutterWebAuthKakaoBrowser();
+        _kakaoBrowser = kakaoBrowser ?? FlutterWebAuthKakaoBrowser(),
+        _deepLinks = deepLinks ?? AuthDeepLinkBridge();
 
   final AsrClient _client;
   final GoogleIdTokenSource _googleTokens;
   final KakaoOAuthBrowser _kakaoBrowser;
+  final AuthDeepLinkBridge _deepLinks;
 
   AsrClient get client => _client;
 
@@ -29,14 +33,18 @@ class AuthController extends ChangeNotifier {
   bool bootstrapping = true;
   bool busy = false;
   String? error;
+  /// design/77 — last magic-link request feedback (not a session).
+  String? magicLinkHint;
 
   bool get isLoggedIn => user != null && !user!.isEmpty;
 
-  /// On cold start: load cookie → GET /api/auth/status.
+  /// On cold start: load cookie → GET /api/auth/status; wire magic deep link.
   Future<void> bootstrap() async {
     bootstrapping = true;
     error = null;
     notifyListeners();
+    _deepLinks.setHandler(_onMagicLink);
+    await _deepLinks.start();
     try {
       final st = await _client.fetchAuthStatus();
       lastStatus = st;
@@ -51,6 +59,39 @@ class AuthController extends ChangeNotifier {
     }
   }
 
+  Future<void> _onMagicLink({String? token, String? error}) async {
+    final err = (error ?? '').trim();
+    if (err.isNotEmpty) {
+      this.error = _describeMagicError(err);
+      notifyListeners();
+      return;
+    }
+    final t = (token ?? '').trim();
+    if (t.isEmpty) return;
+    try {
+      await _runAuth(() => _client.applySessionToken(t));
+    } catch (e) {
+      this.error = e.toString();
+      notifyListeners();
+    }
+  }
+
+  String _describeMagicError(String code) {
+    switch (code) {
+      case 'expired':
+        return '로그인 링크가 만료되었습니다. 다시 요청하세요.';
+      case 'used':
+        return '이미 사용된 로그인 링크입니다. 다시 요청하세요.';
+      case 'bad_token':
+      case 'missing_session':
+        return '로그인 링크가 올바르지 않습니다.';
+      case 'magic_disabled':
+        return '이메일 로그인 링크가 꺼져 있습니다.';
+      default:
+        return '로그인 링크를 처리하지 못했습니다.';
+    }
+  }
+
   Future<void> loginEmail(String email, String password) async {
     await _runAuth(() => _client.loginEmail(email: email, password: password));
   }
@@ -59,6 +100,34 @@ class AuthController extends ChangeNotifier {
     await _runAuth(
       () => _client.registerEmail(email: email, password: password, name: name),
     );
+  }
+
+  /// design/77 — request SMTP magic link (does not set session by itself).
+  Future<void> requestMagicLink(String email) async {
+    busy = true;
+    error = null;
+    magicLinkHint = null;
+    notifyListeners();
+    try {
+      try {
+        lastStatus = await _client.fetchAuthStatus();
+      } catch (_) {}
+      // Missing flag → treat as on for sideload before CD; explicit false hides.
+      final st = await _client.fetchStatus();
+      if (!st.mobileEmailMagicLink) {
+        throw AsrApiException('이메일 로그인 링크가 꺼져 있습니다.', 503);
+      }
+      magicLinkHint = await _client.requestMagicLink(email: email);
+    } on AsrApiException catch (e) {
+      error = e.message;
+      rethrow;
+    } catch (e) {
+      error = e.toString();
+      rethrow;
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
   }
 
   /// Real Google Sign-In → server verifies id_token (not a mock).

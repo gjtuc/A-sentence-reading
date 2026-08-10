@@ -18,8 +18,8 @@ See: [33-mobile-flutter.md](33-mobile-flutter.md) · [61](61-mobile-email-auth.m
 
 | This chip | Later |
 |-----------|--------|
-| Shell / nav / settings placement | Email magic-link auth |
-| | Keyboard notes → voice |
+| Shell / nav / settings placement | Keyboard notes → voice |
+| | |
 | Live Enable / IPS | Trading Gate only |
 
 ## Fail-closed

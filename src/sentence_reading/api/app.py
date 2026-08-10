@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -52,6 +52,7 @@ from sentence_reading.llm.auth_google import (
     email_auth_enabled,
     issue_oauth_state,
     mobile_kakao_deep_link,
+    mobile_magic_deep_link,
     issue_session_token,
     parse_oauth_state,
     parse_session_token,
@@ -142,7 +143,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.93",
+    version="0.2.94",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -357,6 +358,21 @@ def _mobile_upload_workmanager_enabled() -> bool:
     return v not in ("0", "false", "off", "no")
 
 
+def _mobile_email_magic_link_enabled() -> bool:
+    """design/77 — kill switch for email magic-link login."""
+    from sentence_reading.llm.auth_magic_link import magic_link_enabled
+
+    return magic_link_enabled() and email_auth_enabled()
+
+
+def _public_api_base(request: Request) -> str:
+    """Stable HTTPS base for email links (prefer ASR_CLOUD_RUN_URL)."""
+    env_url = (os.environ.get("ASR_CLOUD_RUN_URL") or "").strip().rstrip("/")
+    if env_url:
+        return env_url
+    return str(request.base_url).rstrip("/")
+
+
 @app.get("/api/status")
 def status(request: Request) -> dict:
     """기동 확인."""
@@ -379,7 +395,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.93",
+        "version": "0.2.94",
         "access_gate_gcs": True,
         "mobile_upload": True,
         "ingest_job_gcs": True,
@@ -393,6 +409,8 @@ def status(request: Request) -> dict:
         "mobile_upload_interrupt_resume": _mobile_upload_interrupt_resume_enabled(),
         # design/76 — WorkManager enqueue; false → clients skip (71/75 remain).
         "mobile_upload_workmanager": _mobile_upload_workmanager_enabled(),
+        # design/77 — email magic-link; false → clients hide request UI.
+        "mobile_email_magic_link": _mobile_email_magic_link_enabled(),
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -759,6 +777,185 @@ async def auth_email_login(payload: dict = Body(...)) -> JSONResponse:
         picture=str(row.get("picture") or ""),
     )
     return _session_response(user)
+
+
+def _user_from_magic_email(em: str) -> AuthUser:
+    """Redeem path: existing email user or passwordless create (design/77)."""
+    return resolve_or_create("email", em, email=em, name="", password=None)
+
+
+@app.post("/api/auth/email/magic/request")
+async def auth_email_magic_request(
+    request: Request, payload: dict = Body(...)
+) -> JSONResponse:
+    """Mint + SMTP send magic login link. Fail-closed if SMTP/kill missing."""
+    from sentence_reading.llm.auth_magic_link import mint_magic_token
+    from sentence_reading.llm.email_smtp import send_magic_link_email, smtp_configured
+
+    if not _mobile_email_magic_link_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "magic_disabled",
+                "message": "이메일 로그인 링크가 꺼져 있습니다.",
+            },
+        )
+    if not smtp_configured():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "smtp_not_configured",
+                "message": "이메일 발송 설정이 없어 링크를 보낼 수 없습니다.",
+            },
+        )
+    email = str(payload.get("email") or "") if isinstance(payload, dict) else ""
+    em = normalize_email(email)
+    if not em:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "bad_email",
+                "message": "이메일 형식이 올바르지 않습니다.",
+            },
+        )
+    try:
+        minted = mint_magic_token(em)
+    except ValueError as exc:
+        code = str(exc)
+        if code == "rate_limited":
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "ok": False,
+                    "error": "rate_limited",
+                    "message": "요청이 너무 많습니다. 잠시 후 다시 시도하세요.",
+                },
+            )
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": code, "message": "요청을 처리할 수 없습니다."},
+        )
+    open_url = (
+        _public_api_base(request)
+        + "/api/auth/email/magic/open?t="
+        + urllib.parse.quote(minted["token"], safe="")
+    )
+    try:
+        send_magic_link_email(to_email=em, open_url=open_url)
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": str(exc),
+                "message": "이메일 발송 설정이 없어 링크를 보낼 수 없습니다.",
+            },
+        )
+    except RuntimeError:
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "error": "smtp_send_failed",
+                "message": "이메일을 보내지 못했습니다. 잠시 후 다시 시도하세요.",
+            },
+        )
+    # WHY: same success copy whether or not the address already has an account.
+    return JSONResponse(
+        {
+            "ok": True,
+            "message": "로그인 링크를 이메일로 보냈습니다. 메일함에서 열어 주세요.",
+        }
+    )
+
+
+@app.get("/api/auth/email/magic/open")
+def auth_email_magic_open(request: Request, t: str = "") -> Response:
+    """Browser/email entry: redeem once → redirect into Android deep link."""
+    raw = (t or "").strip()
+    try:
+        from sentence_reading.llm.auth_magic_link import redeem_magic_token
+
+        em = redeem_magic_token(raw)
+        user = _user_from_magic_email(em)
+        token = issue_session_token(user)
+        dest = mobile_magic_deep_link(session=token, auth="magic")
+        return RedirectResponse(url=dest, status_code=302)
+    except ValueError as exc:
+        code = str(exc)
+        dest = mobile_magic_deep_link(error=code[:80])
+        return RedirectResponse(url=dest, status_code=302)
+
+
+@app.post("/api/auth/email/magic/admin/mint")
+async def auth_email_magic_admin_mint(
+    request: Request, payload: dict = Body(None)
+) -> JSONResponse:
+    """Admin-only: return one open URL (no SMTP). For device E2E / support."""
+    from sentence_reading.llm.auth_magic_link import mint_magic_token
+
+    user = _request_user(request)
+    if user is None or not _is_admin_user(user):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "error": "admin_required",
+                "message": "관리자만 로그인 링크를 발급할 수 있습니다.",
+            },
+        )
+    if not _mobile_email_magic_link_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "magic_disabled",
+                "message": "이메일 로그인 링크가 꺼져 있습니다.",
+            },
+        )
+    email = ""
+    if isinstance(payload, dict):
+        email = str(payload.get("email") or "")
+    em = normalize_email(email)
+    if not em:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "bad_email",
+                "message": "이메일 형식이 올바르지 않습니다.",
+            },
+        )
+    try:
+        minted = mint_magic_token(em)
+    except ValueError as exc:
+        code = str(exc)
+        status = 429 if code == "rate_limited" else 400
+        return JSONResponse(
+            status_code=status,
+            content={
+                "ok": False,
+                "error": code,
+                "message": "요청을 처리할 수 없습니다.",
+            },
+        )
+    open_url = (
+        _public_api_base(request)
+        + "/api/auth/email/magic/open?t="
+        + urllib.parse.quote(minted["token"], safe="")
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "open_url": open_url,
+            "expires_at": minted["expires_at"],
+            "ttl_seconds": minted["ttl_seconds"],
+            "message": "이 URL은 지금만 표시됩니다. 메일/채팅에 장시간 보관하지 마세요.",
+        }
+    )
 
 
 @app.post("/api/auth/email/link")
