@@ -135,6 +135,31 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _magicLink() async {
+    final email = _email.text.trim();
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('이메일을 입력한 뒤 로그인 링크를 요청하세요.')),
+      );
+      return;
+    }
+    try {
+      await widget.auth.requestMagicLink(email);
+      if (!mounted) return;
+      final hint = widget.auth.magicLinkHint ?? '로그인 링크를 이메일로 보냈습니다.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(hint)));
+    } on AsrApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } catch (e) {
+      if (mounted) {
+        final msg = widget.auth.error ?? '$e';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -154,6 +179,8 @@ class _LoginScreenState extends State<LoginScreen> {
         final emailOn = st?.emailEnabled ?? true;
         final googleOn = st?.googleEnabled ?? false;
         final kakaoOn = st?.kakaoEnabled ?? false;
+        // design/77 — show until status says false; sideload before CD still shows.
+        final magicOn = emailOn;
 
         // WHY: reachability — phone thumbs struggle with top-glued chrome.
         // EDGE: keyboard open — still scrollable via SingleChildScrollView.
@@ -203,6 +230,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           border: OutlineInputBorder(),
                         ),
                       ),
+                      if (!_registerMode && magicOn) ...[
+                        const SizedBox(height: 8),
+                        OutlinedButton(
+                          onPressed: auth.busy ? null : _magicLink,
+                          child: const Text('이메일로 로그인 링크 받기'),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       TextField(
                         controller: _password,

@@ -221,6 +221,7 @@ def verify_google_id_token(credential: str) -> AuthUser:
 # Kakao still redirects to HTTPS /api/auth/kakao/callback; we then bounce into the app.
 MOBILE_OAUTH_SCHEME = "com.gjtuc.sentence_reading"
 MOBILE_KAKAO_DEEP_LINK = "com.gjtuc.sentence_reading://oauth/kakao"
+MOBILE_MAGIC_DEEP_LINK = "com.gjtuc.sentence_reading://oauth/magic"
 
 
 def mobile_kakao_deep_link(*, session: str = "", auth: str = "", error: str = "") -> str:
@@ -234,6 +235,19 @@ def mobile_kakao_deep_link(*, session: str = "", auth: str = "", error: str = ""
         if session:
             q["asr_session"] = session
     return MOBILE_KAKAO_DEEP_LINK + ("?" + urllib.parse.urlencode(q) if q else "")
+
+
+def mobile_magic_deep_link(*, session: str = "", auth: str = "magic", error: str = "") -> str:
+    """design/77 — bounce from HTTPS open into the Flutter app with session."""
+    q: dict[str, str] = {}
+    if error:
+        q["auth_error"] = error[:120]
+    else:
+        if auth:
+            q["auth"] = auth[:64]
+        if session:
+            q["asr_session"] = session
+    return MOBILE_MAGIC_DEEP_LINK + ("?" + urllib.parse.urlencode(q) if q else "")
 
 
 def issue_oauth_state(

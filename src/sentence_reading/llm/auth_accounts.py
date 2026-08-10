@@ -241,9 +241,12 @@ def resolve_or_create(
             "providers": providers,
         }
         if p == "email":
-            if not password or len(password) < 8:
-                raise ValueError("password_too_short")
-            new_row["password_hash"] = hash_password(password)
+            # design/77: magic-link may create passwordless email accounts
+            # (password is None). Password register/login still requires ≥8.
+            if password is not None:
+                if len(password) < 8:
+                    raise ValueError("password_too_short")
+                new_row["password_hash"] = hash_password(password)
         elif row.get("password_hash"):
             new_row["password_hash"] = row["password_hash"]
 

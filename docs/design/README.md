@@ -67,6 +67,7 @@
 | 74 | [74-bg-upload-notify.md](74-bg-upload-notify.md) | 백그라운드 업로드 알림 · FG · 완료 탭 열기 |
 | 75 | [75-upload-interrupt-resume.md](75-upload-interrupt-resume.md) | 전화·중단 후 업로드 자동 재개 |
 | 76 | [76-upload-workmanager.md](76-upload-workmanager.md) | 프로세스 종료 후 WorkManager 이어올리기 |
+| 77 | [77-email-magic-link.md](77-email-magic-link.md) | 이메일 매직링크 로그인 · 앱 딥링크 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -130,7 +131,8 @@
 70는 Flutter 단일 PDF 업로드 · 클라우드 (0.2.87).  
 71는 이어올리기 · GCS ingest job · 앱 재접속 (0.2.88).  
 72는 조각 업로드 · prefix 무결성 이어보내기 (0.2.89).  
-73는 업로드·ingest 호출 횟수 한도 (0.2.93).  
-76은 프로세스 종료 후 WorkManager 이어올리기 (0.2.93).
+73는 업로드·ingest 호출 횟수 한도 (0.2.94).  
+76은 프로세스 종료 후 WorkManager 이어올리기 (0.2.94).  
+77은 이메일 매직링크 로그인 · 앱 딥링크 (0.2.94).
 
 음절(30)은 **하지 않음** (원복).

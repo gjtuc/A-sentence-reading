@@ -17,11 +17,16 @@ import io.flutter.plugin.common.MethodChannel
  * WHY: Single FlutterActivity host for 「문장 읽기」.
  * design/74: MethodChannel for upload FG notification (no secrets on the wire).
  * design/76: WorkManager schedule/cancel + battery-settings guidance (no tokens on wire).
+ * design/77: email magic-link VIEW intent → Dart applySessionToken.
  * Live Enable / IPS / Trading Gate: out of scope for ASR mobile (never wired here).
  */
 class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
+    private var authChannel: MethodChannel? = null
     private var pendingOpenCacheId: String? = null
+    /** design/77 — session from deep link before Dart handler is ready. */
+    private var pendingMagicSession: String? = null
+    private var pendingMagicError: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -113,6 +118,28 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+        authChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            AUTH_CHANNEL,
+        ).also { ch ->
+            ch.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "takePendingMagicSession" -> {
+                        val token = pendingMagicSession
+                        val err = pendingMagicError
+                        pendingMagicSession = null
+                        pendingMagicError = null
+                        result.success(
+                            mapOf(
+                                "token" to token,
+                                "error" to err,
+                            ),
+                        )
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
         // Deliver intent that launched / resumed this activity.
         handleOpenIntent(intent)
     }
@@ -133,12 +160,57 @@ class MainActivity : FlutterActivity() {
             }
             return
         }
+        // design/77 — custom scheme from email HTTPS bounce.
+        if (intent.action == Intent.ACTION_VIEW) {
+            val data = intent.data
+            if (data != null && handleMagicView(data)) {
+                return
+            }
+        }
         if (intent.action != UploadForegroundService.ACTION_OPEN_FROM_NOTIFY) return
         val id = intent.getStringExtra(UploadForegroundService.EXTRA_CACHE_ID)?.trim()
         if (id.isNullOrEmpty()) return
         pendingOpenCacheId = id
         // Notify Dart if engine is ready.
         channel?.invokeMethod("openCacheId", mapOf("cacheId" to id))
+    }
+
+    /**
+     * com.gjtuc.sentence_reading://oauth/magic?asr_session=… or auth_error=…
+     * INVARIANT: never log the token.
+     */
+    private fun handleMagicView(data: Uri): Boolean {
+        if (data.scheme != "com.gjtuc.sentence_reading") return false
+        if (data.host != "oauth") return false
+        val path = data.path ?: ""
+        if (!path.startsWith("/magic")) return false
+        val err = data.getQueryParameter("auth_error")?.trim().orEmpty()
+        val token = data.getQueryParameter("asr_session")?.trim().orEmpty()
+        if (err.isNotEmpty()) {
+            pendingMagicError = err.take(80)
+            pendingMagicSession = null
+            authChannel?.invokeMethod(
+                "magicLinkResult",
+                mapOf("error" to pendingMagicError),
+            )
+            return true
+        }
+        if (token.isEmpty() || token.equals("deleted", ignoreCase = true)) {
+            pendingMagicError = "missing_session"
+            pendingMagicSession = null
+            authChannel?.invokeMethod(
+                "magicLinkResult",
+                mapOf("error" to "missing_session"),
+            )
+            return true
+        }
+        pendingMagicSession = token
+        pendingMagicError = null
+        authChannel?.invokeMethod(
+            "magicLinkResult",
+            mapOf("token" to token),
+        )
+        return true
     }
 
     private fun isDebuggableApp(): Boolean {
@@ -201,6 +273,7 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val CHANNEL = "asr/upload_notify"
+        private const val AUTH_CHANNEL = "asr/auth_deeplink"
         private const val REQ_NOTIFY = 741
         /** Debuggable-only adb E2E: schedule immediate UploadResumeWorker. */
         const val ACTION_DEBUG_SCHEDULE_UPLOAD_RESUME =

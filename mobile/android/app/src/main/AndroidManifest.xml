@@ -49,6 +49,13 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="com.gjtuc.sentence_reading" android:host="oauth" android:pathPrefix="/kakao"/>
             </intent-filter>
+            <!-- design/77: email magic-link → app (HTTPS open redirects here). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="com.gjtuc.sentence_reading" android:host="oauth" android:pathPrefix="/magic"/>
+            </intent-filter>
         </activity>
         <!-- Required by Flutter tool — do not remove. -->
         <meta-data

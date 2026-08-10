@@ -1,4 +1,4 @@
-"""WorkManager upload resume contract (0.2.93 · design/76)."""
+"""WorkManager upload resume contract (0.2.94 · design/76)."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ KT = (
 def test_status_mobile_upload_workmanager_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.93"
+    assert st["version"] == "0.2.94"
     assert st["mobile_upload_workmanager"] is True
     assert st["mobile_upload_interrupt_resume"] is True
     assert st["mobile_upload_background"] is True
@@ -45,14 +45,14 @@ def test_kill_switch_disables_workmanager_flag(monkeypatch) -> None:
 
 def test_design_76_and_android_wiring() -> None:
     text = DESIGN.read_text(encoding="utf-8")
-    assert "0.2.93" in text
+    assert "0.2.94" in text
     assert "ASR_MOBILE_UPLOAD_WORKMANAGER" in text
     assert "mobile_upload_workmanager" in text
     assert "WorkManager" in text
     assert "Live Enable" in text or "IPS" in text
 
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.2.93" in pub
+    assert "0.2.94" in pub
 
     gradle = (MOBILE / "android" / "app" / "build.gradle.kts").read_text(
         encoding="utf-8"
@@ -116,4 +116,4 @@ def test_design_76_and_android_wiring() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.2.93" in html
+    assert "app.js?v=0.2.94" in html
