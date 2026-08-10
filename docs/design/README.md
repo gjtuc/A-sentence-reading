@@ -62,6 +62,7 @@
 | 69 | [69-access-gate-gcs.md](69-access-gate-gcs.md) | 액세스 게이트 초대·이벤트·redeem → GCS 공유 |
 | 70 | [70-mobile-upload.md](70-mobile-upload.md) | Flutter 단일 PDF 업로드 · 클라우드 |
 | 71 | [71-mobile-upload-resume.md](71-mobile-upload-resume.md) | 이어올리기 · GCS job · 앱 재접속 |
+| 72 | [72-chunked-upload.md](72-chunked-upload.md) | 조각 업로드 · prefix 무결성 이어보내기 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -123,5 +124,6 @@
 68는 모바일 셸 · 로그인 게이트 · 탭 3개 (0.2.84).  
 69는 액세스 게이트 GCS 공유 진실 (0.2.86).  
 70는 Flutter 단일 PDF 업로드 · 클라우드 (0.2.87).  
-71는 이어올리기 · GCS ingest job · 앱 재접속 (0.2.88).  
+71는 이어올리기 · GCS ingest job · 앱 재접속 (0.2.89).  
+72는 조각 업로드 · prefix 무결성 이어보내기 (0.2.89).  
 음절(30)은 **하지 않음** (원복).

@@ -1,4 +1,4 @@
-/// Paper library + opened reading session (design/62 · design/63 · design/70 · design/71).
+/// Paper library + opened reading session (design/62 · 70 · 71 · 72).
 library;
 
 import 'dart:typed_data';
@@ -33,7 +33,6 @@ class LibraryController extends ChangeNotifier {
   String uploadStage = '';
   String? error;
 
-  /// Backward-compatible alias used by older reader scaffolding.
   ReadingSession? get opened => session;
 
   Future<void> refresh() async {
@@ -66,9 +65,6 @@ class LibraryController extends ChangeNotifier {
     try {
       final o = await _client.openPaper(entry.id);
       if (o.title.isEmpty) o.title = entry.title;
-      if (o.cacheId.isEmpty) {
-        // cache_id should come from server; keep entry id as display fallback only
-      }
       session = o;
       return session;
     } on AsrApiException catch (e) {
@@ -83,7 +79,6 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  /// Sentence step — never changes figureIndex (PRODUCT invariant).
   Future<void> advanceSentence(int delta) async {
     final s = session;
     if (s == null || !s.isValid) return;
@@ -94,7 +89,6 @@ class LibraryController extends ChangeNotifier {
     await _syncCursor(sentence: true);
   }
 
-  /// Figure step — never changes sentenceIndex (PRODUCT invariant).
   Future<void> advanceFigure(int delta) async {
     final s = session;
     if (s == null || !s.isValid) return;
@@ -114,9 +108,7 @@ class LibraryController extends ChangeNotifier {
         sentenceIndex: sentence ? s.sentenceIndex : null,
         figureIndex: figure ? s.figureIndex : null,
       );
-    } catch (_) {
-      // EDGE: offline / 404 — UI already updated; sync is best-effort.
-    }
+    } catch (_) {}
   }
 
   void clearOpened() {
@@ -133,16 +125,13 @@ class LibraryController extends ChangeNotifier {
     uploading = false;
     uploadPercent = 0;
     uploadStage = '';
-    // WHY (MULTI-USER): next account must not resume previous user's job/PDF.
     await _drafts.clear();
     notifyListeners();
   }
 
-  static String sha256Hex(Uint8List bytes) {
-    return sha256.convert(bytes).toString();
-  }
+  static String sha256Hex(Uint8List bytes) => sha256.convert(bytes).toString();
 
-  /// design/71 — on library open: auto reattach processing job or retry local draft.
+  /// design/71·72 — auto resume processing job or chunked upload (with integrity).
   Future<IngestJobResult?> resumePendingIfAny() async {
     if (uploading) return null;
     final draft = await _drafts.read();
@@ -152,39 +141,33 @@ class LibraryController extends ChangeNotifier {
       return _finishWithPoll(draft);
     }
 
-    // A (minimal): local PDF still on disk → auto re-POST without user pick.
-    if (draft.localPath.isNotEmpty) {
-      final raw = await _drafts.readLocalPdf(draft.localPath);
-      if (raw == null || raw.isEmpty) {
-        await _drafts.clear();
-        return null;
-      }
-      final bytes = Uint8List.fromList(raw);
-      final hash = sha256Hex(bytes);
-      if (hash != draft.contentHash) {
-        // EDGE: corrupted draft — wipe, never upload wrong bytes as success.
-        await _drafts.clear();
-        error = '이어올리기 초안이 손상되어 삭제했습니다. 다시 골라 주세요.';
-        notifyListeners();
-        return null;
-      }
-      return uploadPdf(
-        filename: draft.filename,
-        bytes: bytes,
-        knownHash: hash,
-      );
+    if (draft.localPath.isEmpty) return null;
+    final raw = await _drafts.readLocalPdf(draft.localPath);
+    if (raw == null || raw.isEmpty) {
+      await _drafts.clear();
+      return null;
     }
-    return null;
+    final bytes = Uint8List.fromList(raw);
+    final hash = sha256Hex(bytes);
+    if (hash != draft.contentHash) {
+      await _drafts.clear();
+      error = '이어올리기 초안이 손상되어 삭제했습니다. 다시 골라 주세요.';
+      notifyListeners();
+      return null;
+    }
+    return uploadPdf(
+      filename: draft.filename,
+      bytes: bytes,
+      knownHash: hash,
+    );
   }
 
-  /// Same-file pick: if draft hash matches, reattach or reuse bytes path.
   Future<IngestJobResult?> uploadPdf({
     required String filename,
     required Uint8List bytes,
     String? knownHash,
   }) async {
     if (uploading) {
-      // WHY: one-at-a-time chip — overlapping uploads confuse progress + list.
       error = '이미 업로드 중입니다.';
       notifyListeners();
       return null;
@@ -192,11 +175,32 @@ class LibraryController extends ChangeNotifier {
 
     final hash = knownHash ?? sha256Hex(bytes);
     final existing = await _drafts.read();
-    // WHY: user re-picked same PDF → auto resume (product decision).
     if (existing != null &&
         existing.contentHash == hash &&
         existing.canReattach) {
       return _finishWithPoll(existing);
+    }
+
+    // Same-file re-pick / auto: resume chunks only after prefix integrity OK.
+    String? resumeUploadId;
+    if (existing != null &&
+        existing.contentHash == hash &&
+        existing.canResumeChunks) {
+      try {
+        final st = await _client.getChunkedUpload(existing.uploadId);
+        if (st.contentHash == hash &&
+            st.size == bytes.length &&
+            (st.receivedOffset == 0 ||
+                AsrClient.sha256Hex(bytes.sublist(0, st.receivedOffset)) ==
+                    st.prefixSha256)) {
+          resumeUploadId = existing.uploadId;
+        } else {
+          // EDGE: prior chunks failed integrity — wipe and start clean.
+          await _drafts.clear();
+        }
+      } on AsrApiException {
+        await _drafts.clear();
+      }
     }
 
     uploading = true;
@@ -212,23 +216,58 @@ class LibraryController extends ChangeNotifier {
         phase: 'uploading',
         localPath: localPath ?? '',
         bytesLen: bytes.length,
+        uploadId: resumeUploadId ?? '',
       );
       await _drafts.write(draft);
 
-      final started = await _client.startIngestPdfBytes(
-        filename: filename,
-        bytes: bytes,
-      );
-      draft = draft.copyWith(jobId: started.jobId, phase: 'processing');
+      late final String jobId;
+      try {
+        final started = await _client.startIngestPdfBytesChunked(
+          filename: filename,
+          bytes: bytes,
+          contentHash: hash,
+          existingUploadId: resumeUploadId,
+          onProgress: (pct, msg) {
+            uploadPercent = pct;
+            uploadStage = msg.isEmpty ? '조각 올리는 중' : msg;
+            notifyListeners();
+          },
+          onUploadId: (upl) async {
+            // Persist before chunks so force-stop can integrity-resume.
+            draft = draft.copyWith(uploadId: upl, phase: 'uploading');
+            await _drafts.write(draft);
+          },
+        );
+        jobId = started.jobId;
+        draft = draft.copyWith(
+          uploadId: started.uploadId,
+          jobId: started.jobId,
+          phase: 'processing',
+        );
+      } on AsrApiException catch (e) {
+        // Kill switch ASR_CHUNKED_UPLOAD=0 → 503; fall back to multipart.
+        if (e.statusCode != 503) rethrow;
+        final started = await _client.startIngestPdfBytes(
+          filename: filename,
+          bytes: bytes,
+        );
+        jobId = started.jobId;
+        draft = draft.copyWith(
+          uploadId: '',
+          jobId: started.jobId,
+          phase: 'processing',
+        );
+        uploadStage = '업로드 완료, 처리 중';
+      }
       await _drafts.write(draft);
-      uploadPercent = 1;
-      uploadStage = '업로드 완료, 처리 중';
+      uploadPercent = 50;
+      uploadStage = '처리 중';
       notifyListeners();
 
       final result = await _client.pollIngestJob(
-        jobId: started.jobId,
+        jobId: jobId,
         onProgress: (pct, msg) {
-          uploadPercent = pct;
+          uploadPercent = 50 + (pct.clamp(0, 100) ~/ 2);
           uploadStage = msg.isEmpty ? '처리 중' : msg;
           notifyListeners();
         },
@@ -243,8 +282,11 @@ class LibraryController extends ChangeNotifier {
       }
       return result;
     } on AsrApiException catch (e) {
+      if (e.statusCode == 409) {
+        // Integrity failure — do not keep a poisoned chunk session.
+        await _drafts.clear();
+      }
       error = e.message;
-      // Keep draft for auto/same-file resume — do not clear on failure.
       return null;
     } catch (e) {
       error = e.toString();
@@ -282,7 +324,6 @@ class LibraryController extends ChangeNotifier {
       }
       return result;
     } on AsrApiException catch (e) {
-      // EDGE: 404 after GCS miss — clear stuck draft so user can start clean.
       if (e.statusCode == 404) {
         await _drafts.clear();
       }

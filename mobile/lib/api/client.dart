@@ -9,6 +9,7 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import '../config.dart';
@@ -297,22 +298,12 @@ class AsrClient {
 
   /// POST /api/ingest (multipart `file`) then poll `/api/ingest/jobs/{id}`.
   ///
-  /// WHY (design/70·71): mobile single-PDF → Cloud Run → user GCS papers.
-  /// EDGE fail-closed: empty/non-PDF/oversize/no session → throw before network;
-  /// interrupted or failed job → throw (caller must not show success / fake list row).
-  ///
-  /// Returns as soon as the server accepts the multipart (`job_id`). Caller may
-  /// persist the draft then [pollIngestJob].
-  Future<({String jobId, String contentHash})> startIngestPdfBytes({
-    required String filename,
-    required Uint8List bytes,
-  }) async {
+  void _validatePdfBytes(String filename, Uint8List bytes) {
     final name = filename.trim();
     if (name.isEmpty) {
       throw AsrApiException('파일 이름이 비어 있습니다.', 400);
     }
     if (!_pdfNameRe.hasMatch(name)) {
-      // WHY: this chip is PDF-only; docx stays web for now.
       throw AsrApiException('PDF만 업로드할 수 있습니다.', 400);
     }
     if (bytes.isEmpty) {
@@ -321,7 +312,6 @@ class AsrClient {
     if (bytes.length > _maxUploadBytes) {
       throw AsrApiException('파일이 너무 큽니다 (최대 50MB).', 413);
     }
-    // %PDF magic — same as server; avoid round-trip on obvious non-PDF.
     if (bytes.length < 5 ||
         bytes[0] != 0x25 ||
         bytes[1] != 0x50 ||
@@ -329,10 +319,237 @@ class AsrClient {
         bytes[3] != 0x46) {
       throw AsrApiException('유효한 PDF가 아닙니다.', 400);
     }
+  }
+
+  /// design/72 — create chunked upload session for [contentHash]/[size].
+  Future<({String uploadId, int chunkSize, int receivedOffset, String prefixSha256})>
+      createChunkedUpload({
+    required String filename,
+    required String contentHash,
+    required int size,
+  }) async {
+    final token = await _sessions.readToken();
+    if (token == null || token.isEmpty) {
+      throw AsrApiException('로그인이 필요합니다.', 401);
+    }
+    final res = await _http
+        .post(
+          _uri('/api/ingest/uploads'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({
+            'filename': filename.trim(),
+            'content_hash': contentHash.trim().toLowerCase(),
+            'size': size,
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
+    await _captureSession(res);
+    final map = _decodeObject(res, 'ingest/uploads');
+    if (map['ok'] == false) {
+      throw AsrApiException(
+        '${map['message'] ?? '업로드 세션 실패'}',
+        res.statusCode,
+      );
+    }
+    final uploadId = '${map['upload_id'] ?? ''}'.trim();
+    if (!RegExp(r'^upl_[a-f0-9]{12}$').hasMatch(uploadId)) {
+      throw AsrApiException('업로드 ID를 받지 못했습니다.', 500);
+    }
+    final chunkSize =
+        map['chunk_size'] is num ? (map['chunk_size'] as num).toInt() : 262144;
+    final offset = map['received_offset'] is num
+        ? (map['received_offset'] as num).toInt()
+        : 0;
+    return (
+      uploadId: uploadId,
+      chunkSize: chunkSize > 0 ? chunkSize : 262144,
+      receivedOffset: offset < 0 ? 0 : offset,
+      prefixSha256: '${map['prefix_sha256'] ?? ''}'.trim().toLowerCase(),
+    );
+  }
+
+  /// GET upload session for integrity probe before resume.
+  Future<
+      ({
+        int receivedOffset,
+        String prefixSha256,
+        String contentHash,
+        int size,
+        int chunkSize,
+      })> getChunkedUpload(String uploadId) async {
+    final id = uploadId.trim();
+    if (!RegExp(r'^upl_[a-f0-9]{12}$').hasMatch(id)) {
+      throw AsrApiException('잘못된 업로드 ID입니다.', 400);
+    }
+    final res = await _http
+        .get(
+          _uri('/api/ingest/uploads/${Uri.encodeComponent(id)}'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 404) {
+      throw AsrApiException('업로드 세션을 찾을 수 없습니다.', 404);
+    }
+    final map = _decodeObject(res, 'ingest/uploads/get');
+    final cs =
+        map['chunk_size'] is num ? (map['chunk_size'] as num).toInt() : 262144;
+    return (
+      receivedOffset: map['received_offset'] is num
+          ? (map['received_offset'] as num).toInt()
+          : 0,
+      prefixSha256: '${map['prefix_sha256'] ?? ''}'.trim().toLowerCase(),
+      contentHash: '${map['content_hash'] ?? ''}'.trim().toLowerCase(),
+      size: map['size'] is num ? (map['size'] as num).toInt() : 0,
+      chunkSize: cs > 0 ? cs : 262144,
+    );
+  }
+
+  /// PUT one contiguous chunk at [offset].
+  Future<int> putChunkedUpload({
+    required String uploadId,
+    required int offset,
+    required Uint8List chunk,
+    required String chunkSha256,
+  }) async {
+    final id = uploadId.trim();
+    final res = await _http
+        .put(
+          _uri('/api/ingest/uploads/${Uri.encodeComponent(id)}')
+              .replace(queryParameters: {'offset': '$offset'}),
+          headers: {
+            ...await _headers(),
+            'Content-Type': 'application/octet-stream',
+            'X-Chunk-Sha256': chunkSha256,
+          },
+          body: chunk,
+        )
+        .timeout(const Duration(seconds: 60));
+    if (res.statusCode == 409 || res.statusCode == 400) {
+      throw AsrApiException('조각 무결성 검사에 실패했습니다. 다시 올려 주세요.', res.statusCode);
+    }
+    final map = _decodeObject(res, 'ingest/uploads/put');
+    return map['received_offset'] is num
+        ? (map['received_offset'] as num).toInt()
+        : offset + chunk.length;
+  }
+
+  /// Assemble + start ingest job from a completed chunk session.
+  Future<({String jobId, String contentHash})> completeChunkedUpload(
+    String uploadId,
+  ) async {
+    final id = uploadId.trim();
+    final res = await _http
+        .post(
+          _uri('/api/ingest/uploads/${Uri.encodeComponent(id)}/complete'),
+          headers: await _headers(jsonBody: true),
+          body: '{}',
+        )
+        .timeout(const Duration(seconds: 120));
+    final map = _decodeObject(res, 'ingest/uploads/complete');
+    if (map['ok'] == false) {
+      throw AsrApiException(
+        '${map['message'] ?? '업로드 완료 처리 실패'}',
+        res.statusCode,
+      );
+    }
+    final jobId = '${map['job_id'] ?? ''}'.trim();
+    if (jobId.isEmpty) {
+      throw AsrApiException('작업 ID를 받지 못했습니다.', 500);
+    }
+    return (
+      jobId: jobId,
+      contentHash: '${map['content_hash'] ?? ''}'.trim().toLowerCase(),
+    );
+  }
+
+  /// design/72 — all PDFs: chunked put → complete → returns job_id.
+  ///
+  /// [existingUploadId]: resume after integrity check (caller verified prefix).
+  Future<({String jobId, String contentHash, String uploadId})>
+      startIngestPdfBytesChunked({
+    required String filename,
+    required Uint8List bytes,
+    required String contentHash,
+    String? existingUploadId,
+    void Function(int percent, String message)? onProgress,
+    Future<void> Function(String uploadId)? onUploadId,
+  }) async {
+    _validatePdfBytes(filename, bytes);
+    final token = await _sessions.readToken();
+    if (token == null || token.isEmpty) {
+      throw AsrApiException('로그인이 필요합니다.', 401);
+    }
+
+    var uploadId = (existingUploadId ?? '').trim();
+    var offset = 0;
+    var chunkSize = 262144;
+    if (uploadId.isNotEmpty) {
+      final st = await getChunkedUpload(uploadId);
+      // EDGE: server session must match this file — else caller should have wiped.
+      if (st.contentHash != contentHash.toLowerCase() || st.size != bytes.length) {
+        throw AsrApiException('업로드 세션이 파일과 맞지 않습니다.', 409);
+      }
+      offset = st.receivedOffset;
+      chunkSize = st.chunkSize;
+      if (offset > 0) {
+        final prefix = bytes.sublist(0, offset);
+        final localPrefix = sha256Hex(prefix);
+        if (localPrefix != st.prefixSha256) {
+          // WHY (product): resume only after prior chunk integrity OK.
+          throw AsrApiException('이전 조각 무결성 검사에 실패했습니다.', 409);
+        }
+      }
+      if (onUploadId != null) await onUploadId(uploadId);
+    } else {
+      final created = await createChunkedUpload(
+        filename: filename,
+        contentHash: contentHash,
+        size: bytes.length,
+      );
+      uploadId = created.uploadId;
+      chunkSize = created.chunkSize;
+      offset = created.receivedOffset;
+      // WHY: persist upload_id before first PUT so kill mid-transfer can resume.
+      if (onUploadId != null) await onUploadId(uploadId);
+    }
+
+    while (offset < bytes.length) {
+      final end = (offset + chunkSize > bytes.length)
+          ? bytes.length
+          : offset + chunkSize;
+      final chunk = bytes.sublist(offset, end);
+      final chunkHash = sha256Hex(chunk);
+      offset = await putChunkedUpload(
+        uploadId: uploadId,
+        offset: offset,
+        chunk: chunk,
+        chunkSha256: chunkHash,
+      );
+      final pct = ((offset * 40) / bytes.length).floor().clamp(0, 40);
+      onProgress?.call(pct, '조각 올리는 중');
+    }
+
+    onProgress?.call(45, '조각 조립 · 처리 시작');
+    final done = await completeChunkedUpload(uploadId);
+    return (
+      jobId: done.jobId,
+      contentHash: done.contentHash.isEmpty ? contentHash : done.contentHash,
+      uploadId: uploadId,
+    );
+  }
+
+  static String sha256Hex(List<int> bytes) =>
+      sha256.convert(bytes).toString();
+
+  /// Legacy multipart start (web-compat / kill-switch fallback).
+  Future<({String jobId, String contentHash})> startIngestPdfBytes({
+    required String filename,
+    required Uint8List bytes,
+  }) async {
+    _validatePdfBytes(filename, bytes);
 
     final token = await _sessions.readToken();
     if (token == null || token.isEmpty) {
-      // WHY: server scopes GCS by session UID — never upload anonymously.
       throw AsrApiException('로그인이 필요합니다.', 401);
     }
 
@@ -340,11 +557,9 @@ class AsrClient {
     req.headers['Cookie'] = '$kAsrSessionCookieName=$token';
     req.headers['Accept'] = 'application/json';
     req.files.add(
-      http.MultipartFile.fromBytes('file', bytes, filename: name),
+      http.MultipartFile.fromBytes('file', bytes, filename: filename.trim()),
     );
 
-    // WHY: must use injected [_http] so tests/mocks see the multipart POST.
-    // EDGE: MultipartRequest.send() without a client bypasses SessionStore tests.
     final streamed =
         await _http.send(req).timeout(const Duration(minutes: 3));
     final startRes = await http.Response.fromStream(streamed);
@@ -438,30 +653,61 @@ class AsrClient {
     throw AsrApiException('업로드 처리 시간이 초과되었습니다.', 504);
   }
 
-  /// Full ingest: start + poll (design/70 compatibility).
+  /// Full ingest: chunked upload + poll (design/72). Falls back to multipart
+  /// only when chunked create returns 503 (kill switch).
   Future<IngestJobResult> ingestPdfBytes({
     required String filename,
     required Uint8List bytes,
     void Function(int percent, String message)? onProgress,
     Duration pollInterval = const Duration(milliseconds: 500),
     Duration timeout = const Duration(minutes: 12),
+    String? existingUploadId,
   }) async {
-    final started = await startIngestPdfBytes(filename: filename, bytes: bytes);
-    onProgress?.call(1, '업로드 완료, 처리 중');
+    _validatePdfBytes(filename, bytes);
+    final hash = sha256Hex(bytes);
+    late final String jobId;
+    late final String contentHash;
+    try {
+      final started = await startIngestPdfBytesChunked(
+        filename: filename,
+        bytes: bytes,
+        contentHash: hash,
+        existingUploadId: existingUploadId,
+        onProgress: onProgress,
+      );
+      jobId = started.jobId;
+      contentHash = started.contentHash;
+    } on AsrApiException catch (e) {
+      // Kill switch / older server — multipart path.
+      if (e.statusCode == 503) {
+        final started =
+            await startIngestPdfBytes(filename: filename, bytes: bytes);
+        jobId = started.jobId;
+        contentHash = started.contentHash;
+        onProgress?.call(1, '업로드 완료, 처리 중');
+      } else {
+        rethrow;
+      }
+    }
+    onProgress?.call(50, '처리 중');
     final result = await pollIngestJob(
-      jobId: started.jobId,
-      onProgress: onProgress,
+      jobId: jobId,
+      onProgress: (pct, msg) {
+        // Map server 0–100 into remaining half of bar after chunk phase.
+        final mapped = 50 + (pct.clamp(0, 100) ~/ 2);
+        onProgress?.call(mapped, msg);
+      },
       pollInterval: pollInterval,
       timeout: timeout,
     );
-    if (result.contentHash.isEmpty && started.contentHash.isNotEmpty) {
+    if (result.contentHash.isEmpty && contentHash.isNotEmpty) {
       return IngestJobResult(
         jobId: result.jobId,
         cacheId: result.cacheId,
         sessionId: result.sessionId,
         title: result.title,
         percent: result.percent,
-        contentHash: started.contentHash,
+        contentHash: contentHash,
       );
     }
     return result;

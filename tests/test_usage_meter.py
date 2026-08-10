@@ -1,4 +1,4 @@
-"""유저별 사용량 · 추정 비용 (0.2.88 · design/27 · 관리자 전용 UI/API)."""
+"""유저별 사용량 · 추정 비용 (0.2.89 · design/27 · 관리자 전용 UI/API)."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _iso_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_version() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.2.88"
+    assert st["version"] == "0.2.89"
     assert st.get("usage_meter") is True
 
 

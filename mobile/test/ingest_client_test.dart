@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -10,6 +12,97 @@ Uint8List _tinyPdf() {
   // Minimal %PDF header bytes — server would still reject as invalid PDF body,
   // but client magic check only needs the header for preflight.
   return Uint8List.fromList('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n'.codeUnits);
+}
+
+String _sha(List<int> b) => sha256.convert(b).toString();
+
+/// Mock that speaks design/72 chunked create/put/complete + job poll.
+MockClient _chunkedThenPoll({
+  required String jobId,
+  required http.Response Function(int polls) onPoll,
+}) {
+  var polls = 0;
+  var offset = 0;
+  final bytes = _tinyPdf();
+  final digest = _sha(bytes);
+  const upl = 'upl_abcd1234ef01';
+  return MockClient((request) async {
+    final path = request.url.path;
+    if (request.method == 'POST' && path.endsWith('/api/ingest/uploads')) {
+      return http.Response(
+        jsonEncode({
+          'ok': true,
+          'upload_id': upl,
+          'content_hash': digest,
+          'size': bytes.length,
+          'chunk_size': 262144,
+          'received_offset': 0,
+          'prefix_sha256': '',
+        }),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    }
+    if (request.method == 'PUT' && path.contains('/api/ingest/uploads/')) {
+      final body = request.bodyBytes;
+      offset += body.length;
+      return http.Response(
+        jsonEncode({
+          'ok': true,
+          'upload_id': upl,
+          'received_offset': offset,
+          'prefix_sha256': _sha(bytes.sublist(0, offset)),
+          'chunk_size': 262144,
+          'size': bytes.length,
+          'content_hash': digest,
+        }),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    }
+    if (request.method == 'POST' && path.endsWith('/complete')) {
+      return http.Response(
+        jsonEncode({
+          'ok': true,
+          'job_id': jobId,
+          'percent': 1,
+          'content_hash': digest,
+        }),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    }
+    if (path.contains('/api/ingest/jobs/')) {
+      polls += 1;
+      return onPoll(polls);
+    }
+    return http.Response('{}', 404);
+  });
+}
+
+/// Kill-switch path: chunked create 503 → multipart /api/ingest.
+MockClient _multipartFallbackThen({
+  required http.Response Function(http.Request request) afterIngest,
+}) {
+  return MockClient((request) async {
+    if (request.method == 'POST' &&
+        request.url.path.endsWith('/api/ingest/uploads')) {
+      return http.Response(
+        '{"ok":false,"error":"chunked_upload_disabled","message":"off"}',
+        503,
+        headers: {'content-type': 'application/json'},
+      );
+    }
+    if (request.method == 'POST' &&
+        request.url.path.endsWith('/api/ingest')) {
+      return http.Response(
+        '{"ok":true,"job_id":"job_abcd1234ef99","percent":1}',
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    }
+    return afterIngest(request);
+  });
 }
 
 void main() {
@@ -39,37 +132,27 @@ void main() {
     );
   });
 
-  test('ingestPdfBytes polls job then returns cache id', () async {
-    var polls = 0;
+  test('ingestPdfBytes chunked put → poll → cache id', () async {
     final store = MemorySessionStore();
     await store.writeToken('tok');
     final client = AsrClient(
-      httpClient: MockClient((request) async {
-        if (request.method == 'POST' &&
-            request.url.path.endsWith('/api/ingest')) {
-          return http.Response(
-            '{"ok":true,"job_id":"job_abc","percent":1}',
-            200,
-            headers: {'content-type': 'application/json'},
-          );
-        }
-        if (request.url.path.contains('/api/ingest/jobs/')) {
-          polls += 1;
+      httpClient: _chunkedThenPoll(
+        jobId: 'job_abcd1234ef01',
+        onPoll: (polls) {
           if (polls < 2) {
             return http.Response(
-              '{"ok":true,"job_id":"job_abc","percent":40,"done":false,"message":"processing"}',
+              '{"ok":true,"job_id":"job_abcd1234ef01","percent":40,"done":false,"message":"processing"}',
               200,
               headers: {'content-type': 'application/json'},
             );
           }
           return http.Response(
-            '{"ok":true,"job_id":"job_abc","percent":100,"done":true,"cache_id":"cafebabe12","session_id":"ses1","title":"T"}',
+            '{"ok":true,"job_id":"job_abcd1234ef01","percent":100,"done":true,"cache_id":"cafebabe12","session_id":"ses1","title":"T"}',
             200,
             headers: {'content-type': 'application/json'},
           );
-        }
-        return http.Response('{}', 404);
-      }),
+        },
+      ),
       sessionStore: store,
     );
 
@@ -89,21 +172,13 @@ void main() {
     final store = MemorySessionStore();
     await store.writeToken('tok');
     final client = AsrClient(
-      httpClient: MockClient((request) async {
-        if (request.method == 'POST' &&
-            request.url.path.endsWith('/api/ingest')) {
-          return http.Response(
-            '{"ok":true,"job_id":"job_y","percent":1}',
-            200,
-            headers: {'content-type': 'application/json'},
-          );
-        }
-        return http.Response(
+      httpClient: _multipartFallbackThen(
+        afterIngest: (_) => http.Response(
           '{"ok":true,"done":true,"session_id":"ses_only","percent":100,"message":"완료"}',
           200,
           headers: {'content-type': 'application/json'},
-        );
-      }),
+        ),
+      ),
       sessionStore: store,
     );
 
@@ -121,21 +196,13 @@ void main() {
     final store = MemorySessionStore();
     await store.writeToken('tok');
     final client = AsrClient(
-      httpClient: MockClient((request) async {
-        if (request.method == 'POST' &&
-            request.url.path.endsWith('/api/ingest')) {
-          return http.Response(
-            '{"ok":true,"job_id":"job_x","percent":1}',
-            200,
-            headers: {'content-type': 'application/json'},
-          );
-        }
-        return http.Response(
+      httpClient: _multipartFallbackThen(
+        afterIngest: (_) => http.Response(
           '{"ok":false,"done":true,"error":"ingest_failed","message":"boom"}',
           200,
           headers: {'content-type': 'application/json'},
-        );
-      }),
+        ),
+      ),
       sessionStore: store,
     );
 
