@@ -1,4 +1,4 @@
-"""Access gate GCS durability (0.2.96 · design/69)."""
+"""Access gate GCS durability (0.2.97 · design/69)."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_access_gate_gcs_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.96"
+    assert st["version"] == "0.2.97"
     assert st.get("access_gate_gcs") is True
     assert st.get("access_gate") is True
     assert "live_enable" not in st
@@ -131,7 +131,7 @@ def test_design_69_pin() -> None:
     design = (root / "docs" / "design" / "69-access-gate-gcs.md").read_text(
         encoding="utf-8"
     )
-    assert "0.2.96" in design
+    assert "0.2.97" in design
     assert "invite_codes.json" in design
     assert "Live Enable" in design
     assert "plaintext" in design.lower() or "평문" in design

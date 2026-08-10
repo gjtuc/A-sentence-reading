@@ -17,7 +17,7 @@ ANDROID = MOBILE / "android"
 def test_status_android_platform_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.96"
+    assert st["version"] == "0.2.97"
     assert st["mobile_flutter_scaffold"] is True
     assert st["mobile_android_platform"] is True
     assert "live_enable" not in st
@@ -104,11 +104,11 @@ def test_design_48_and_readme() -> None:
     assert "[x] 실기 사이드로드 APK" in d48
     readme = (MOBILE / "README.md").read_text(encoding="utf-8")
     assert "android/" in readme.lower() or "Android" in readme
-    assert "0.2.96" in readme
+    assert "0.2.97" in readme
     assert "sideload" in readme.lower() or "사이드로드" in readme
 
 
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.2.96" in html
+    assert "app.js?v=0.2.97" in html

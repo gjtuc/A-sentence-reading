@@ -145,7 +145,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.96",
+    version="0.2.97",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -213,6 +213,15 @@ def _paid_access_denied(request: Request) -> JSONResponse | None:
             "message": "초대 코드 승인 후 이용할 수 있습니다. (관리자 Allow 필요)",
         },
     )
+
+
+
+def _want_shadowing_chunks(request: Request) -> bool:
+    """Client opt-in (design/80). Body/query only as boolean flag — never trust user_id."""
+    q = (request.query_params.get("shadowing_practice") or "").strip().lower()
+    if q in ("1", "true", "yes", "on"):
+        return True
+    return False
 
 
 def _ingest_rate_limited(request: Request, action: str) -> JSONResponse | None:
@@ -397,7 +406,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.96",
+        "version": "0.2.97",
         "access_gate_gcs": True,
         "mobile_upload": True,
         "ingest_job_gcs": True,
@@ -416,6 +425,9 @@ def status(request: Request) -> dict:
         # design/79 — shadowing opt-in UI; default off (ASR_SHADOWING_PRACTICE).
         "shadowing_practice": shadowing_practice_enabled(),
         "mobile_shadowing_practice": shadowing_practice_enabled(),
+        # design/80 — chunk plans behind same kill; clients show backfill UI when true.
+        "shadowing_chunks": shadowing_practice_enabled(),
+        "mobile_shadowing_chunks": shadowing_practice_enabled(),
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,
@@ -2484,6 +2496,73 @@ async def _run_ingest_job(
             data["cached"] = True
             data["has_source"] = bool(cache_entry.get("has_source"))
 
+        # design/80 — shadowing chunk plans (per-uid) when client opted in.
+        job_meta = _JOBS.get(job_id) or {}
+        want_chunks = bool(job_meta.get("want_shadowing_chunks"))
+        cache_id = (cache_entry or {}).get("id") if cache_entry else None
+        owner = str(job_meta.get("owner_uid") or "")
+        if want_chunks and cache_id and owner:
+            from sentence_reading.llm.shadowing_practice import (
+                shadowing_practice_enabled,
+            )
+            from sentence_reading.llm import shadowing_chunks as sc
+
+            if shadowing_practice_enabled() and gemini_available():
+                _job_set(
+                    job_id,
+                    percent=99,
+                    stage="shadowing_chunks",
+                    message="쉐도잉 연습 구간 준비 중",
+                )
+                try:
+                    set_gcs_uid(owner)
+                    rows = []
+                    for i, s in enumerate(session.sentences):
+                        sid = getattr(s, "id", None) or str(i)
+                        text = getattr(s, "text", None) or getattr(s, "text_en", None) or ""
+                        rows.append({"id": str(sid), "text": str(text)})
+                    plan = await asyncio.to_thread(
+                        sc.build_chunk_plan,
+                        uid=owner,
+                        cache_id=str(cache_id),
+                        sentences=rows,
+                    )
+                    data["shadowing_chunks"] = {
+                        "status": plan.get("status"),
+                        "error": plan.get("error"),
+                        "sentence_count": len(plan.get("sentences") or {}),
+                    }
+                    if plan.get("status") != "ok":
+                        warnings.append(
+                            "shadowing_chunks_failed:"
+                            + str(plan.get("error") or "error")[:80]
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    warnings.append(f"shadowing_chunks_failed:{str(exc)[:80]}")
+                    data["shadowing_chunks"] = {
+                        "status": "error",
+                        "error": "build_failed",
+                        "sentence_count": 0,
+                    }
+                finally:
+                    reset_gcs_uid()
+            elif want_chunks and not shadowing_practice_enabled():
+                data["shadowing_chunks"] = {
+                    "status": "skipped",
+                    "error": "shadowing_disabled",
+                    "sentence_count": 0,
+                }
+            elif want_chunks and not gemini_available():
+                data["shadowing_chunks"] = {
+                    "status": "error",
+                    "error": "gemini_unavailable",
+                    "sentence_count": 0,
+                }
+                warnings.append("shadowing_chunks_failed:gemini_unavailable")
+
+        if warnings:
+            data["warnings"] = list(dict.fromkeys(list(data.get("warnings") or []) + warnings))
+
         _finish_job(
             job_id,
             data,
@@ -2517,6 +2596,7 @@ def _begin_ingest_from_bytes(
     kind: str,
     *,
     owner_uid: str,
+    want_shadowing_chunks: bool = False,
 ) -> dict:
     """Shared start path for multipart + chunked-complete (design/72)."""
     from sentence_reading.llm import ingest_jobs_gcs as ij
@@ -2539,6 +2619,8 @@ def _begin_ingest_from_bytes(
         "owner_uid": owner_uid,
         "content_hash": content_hash,
         "filename": safe_name,
+        # design/80 — client opt-in only; server kill checked again at build time.
+        "want_shadowing_chunks": bool(want_shadowing_chunks),
     }
     # WHY (design/71): durable job + source blob so poll/reattach survives instance hop.
     if owner_uid:
@@ -2561,6 +2643,160 @@ def _begin_ingest_from_bytes(
         "message": "업로드 완료, 읽기 시작",
         "content_hash": content_hash,
     }
+
+
+
+@app.get("/api/shadowing/chunks/{cache_id}")
+def shadowing_chunks_get(request: Request, cache_id: str) -> JSONResponse:
+    """design/80 — load per-uid chunk plan (no cross-user)."""
+    from sentence_reading.llm import shadowing_chunks as sc
+    from sentence_reading.llm.shadowing_practice import shadowing_practice_enabled
+
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    if not shadowing_practice_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "shadowing_disabled",
+                "message": "쉐도잉 연습이 서버에서 꺼져 있습니다.",
+            },
+        )
+    user = _request_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "error": "auth_required", "message": "로그인이 필요합니다."},
+        )
+    cid = sc.safe_cache_id(cache_id)
+    if not cid:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "invalid_cache_id", "message": "논문 id가 올바르지 않습니다."},
+        )
+    try:
+        set_gcs_uid(user.uid)
+        plan = sc.load_chunk_plan(uid=user.uid, cache_id=cid)
+    finally:
+        reset_gcs_uid()
+    return JSONResponse({"ok": True, "plan": plan})
+
+
+@app.post("/api/shadowing/chunks/{cache_id}/build")
+async def shadowing_chunks_build(
+    request: Request, cache_id: str, payload: dict = Body(default_factory=dict)
+) -> JSONResponse:
+    """design/80 — backfill / retry. Requires client practice_enabled true."""
+    from sentence_reading.llm import shadowing_chunks as sc
+    from sentence_reading.llm.shadowing_practice import shadowing_practice_enabled
+
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    if not shadowing_practice_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "shadowing_disabled",
+                "message": "쉐도잉 연습이 서버에서 꺼져 있습니다.",
+            },
+        )
+    user = _request_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "error": "auth_required", "message": "로그인이 필요합니다."},
+        )
+    # WHY: mirror translate-on gate — client setting must be on; no silent build.
+    if not isinstance(payload, dict) or not payload.get("practice_enabled"):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "practice_off",
+                "message": "설정에서 쉐도잉 연습을 켠 뒤 다시 시도해 주세요.",
+            },
+        )
+    cid = sc.safe_cache_id(cache_id)
+    if not cid:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "invalid_cache_id", "message": "논문 id가 올바르지 않습니다."},
+        )
+    if not gemini_available():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "gemini_unavailable",
+                "message": "연습 구간을 만들 수 없습니다. 잠시 후 다시 시도해 주세요.",
+            },
+        )
+    rows = payload.get("sentences") if isinstance(payload.get("sentences"), list) else None
+    if not rows:
+        # Load from cached paper session for this user.
+        from sentence_reading.cache.paper_cache import load_cached_session
+
+        try:
+            set_gcs_uid(user.uid)
+            loaded = load_cached_session(cid)
+        finally:
+            reset_gcs_uid()
+        if loaded is None:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "ok": False,
+                    "error": "paper_not_found",
+                    "message": "보관된 논문을 찾을 수 없습니다.",
+                },
+            )
+        session, _info = loaded
+        rows = []
+        for i, s in enumerate(session.sentences):
+            sid = getattr(s, "id", None) or str(i)
+            text = getattr(s, "text", None) or ""
+            rows.append({"id": str(sid), "text": str(text)})
+    try:
+        set_gcs_uid(user.uid)
+        plan = await asyncio.to_thread(
+            sc.build_chunk_plan, uid=user.uid, cache_id=cid, sentences=rows
+        )
+    except PermissionError:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "shadowing_disabled",
+                "message": "쉐도잉 연습이 서버에서 꺼져 있습니다.",
+            },
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": str(exc)[:80],
+                "message": "연습 구간 요청이 올바르지 않습니다.",
+            },
+        )
+    finally:
+        reset_gcs_uid()
+    ok = plan.get("status") == "ok"
+    return JSONResponse(
+        {
+            "ok": ok,
+            "plan": plan,
+            "error": None if ok else (plan.get("error") or "build_failed"),
+            "message": None
+            if ok
+            else "연습 구간을 만들지 못했습니다. 다시 시도해 주세요.",
+        },
+        status_code=200 if ok else 502,
+    )
 
 
 @app.post("/api/ingest/uploads")
@@ -2797,7 +3033,11 @@ async def ingest_upload_complete(
     if limited is not None:
         return limited
     out = _begin_ingest_from_bytes(
-        raw, filename, "pdf", owner_uid=user.uid
+        raw,
+        filename,
+        "pdf",
+        owner_uid=user.uid,
+        want_shadowing_chunks=_want_shadowing_chunks(request),
     )
     try:
         ic.delete_upload_session(upload_id, owner_uid=user.uid)
@@ -2863,7 +3103,13 @@ async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse
     if limited is not None:
         return limited
     return JSONResponse(
-        _begin_ingest_from_bytes(raw, filename, kind, owner_uid=owner_uid)
+        _begin_ingest_from_bytes(
+            raw,
+            filename,
+            kind,
+            owner_uid=owner_uid,
+            want_shadowing_chunks=_want_shadowing_chunks(request),
+        )
     )
 
 

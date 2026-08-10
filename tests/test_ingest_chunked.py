@@ -1,4 +1,4 @@
-"""Chunked upload + prefix integrity (0.2.96 · design/72)."""
+"""Chunked upload + prefix integrity (0.2.97 · design/72)."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def _register(client: TestClient, email: str = "u@example.com") -> None:
 
 def test_status_flag():
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.96"
+    assert st["version"] == "0.2.97"
     assert st["ingest_chunked_upload"] is True
 
 
@@ -57,7 +57,8 @@ def test_chunked_upload_resume_and_complete(monkeypatch: pytest.MonkeyPatch):
     # Avoid running full ingest pipeline — stub begin.
     from sentence_reading.api import app as app_mod
 
-    def fake_begin(raw, filename, kind, *, owner_uid):
+    def fake_begin(raw, filename, kind, *, owner_uid, want_shadowing_chunks=False):
+        # design/80 — accept shadowing flag; tests ignore it.
         return {
             "ok": True,
             "job_id": "job_aabbccddeeff",
