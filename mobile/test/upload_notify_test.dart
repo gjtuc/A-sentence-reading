@@ -10,17 +10,37 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  test('AsrStatus parses mobile_upload_interrupt_resume kill switch', () {
+    final on = AsrStatus.fromJson({
+      'ok': true,
+      'version': '0.2.92',
+      'mobile_upload_interrupt_resume': true,
+    });
+    expect(on.mobileUploadInterruptResume, isTrue);
+
+    final off = AsrStatus.fromJson({
+      'ok': true,
+      'version': '0.2.92',
+      'mobile_upload_interrupt_resume': false,
+    });
+    expect(off.mobileUploadInterruptResume, isFalse);
+
+    // Missing key → allow (sideload before CD).
+    final missing = AsrStatus.fromJson({'ok': true, 'version': '0.2.91'});
+    expect(missing.mobileUploadInterruptResume, isTrue);
+  });
+
   test('AsrStatus parses mobile_upload_background kill switch', () {
     final on = AsrStatus.fromJson({
       'ok': true,
-      'version': '0.2.91',
+      'version': '0.2.92',
       'mobile_upload_background': true,
     });
     expect(on.mobileUploadBackground, isTrue);
 
     final off = AsrStatus.fromJson({
       'ok': true,
-      'version': '0.2.91',
+      'version': '0.2.92',
       'mobile_upload_background': false,
     });
     expect(off.mobileUploadBackground, isFalse);

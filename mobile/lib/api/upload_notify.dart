@@ -42,6 +42,9 @@ abstract class UploadNotify {
 
   Future<void> showFailed({required String message});
 
+  /// design/75 — honest stall (not success). Tap should foreground the app.
+  Future<void> showInterrupted({required String stage});
+
   Future<void> stop();
 
   void setOpenCacheIdHandler(void Function(String cacheId)? handler);
@@ -77,6 +80,9 @@ class NoopUploadNotify implements UploadNotify {
 
   @override
   Future<void> showFailed({required String message}) async {}
+
+  @override
+  Future<void> showInterrupted({required String stage}) async {}
 
   @override
   Future<void> stop() async {}
@@ -202,6 +208,18 @@ class ChannelUploadNotify implements UploadNotify {
   @override
   Future<void> showFailed({required String message}) async {
     await stop();
+  }
+
+  @override
+  Future<void> showInterrupted({required String stage}) async {
+    // WHY: keep FG ongoing so tap returns to app; never claim completed.
+    if (!_active || !Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<void>('updateUploadNotify', {
+        'title': '업로드 중단됨',
+        'text': sanitizeNotifyStage(stage),
+      });
+    } catch (_) {}
   }
 
   @override

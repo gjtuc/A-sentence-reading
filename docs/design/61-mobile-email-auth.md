@@ -51,4 +51,4 @@ Android Flutter MVP 구현 순서 **3번 중 로그인(수단 ≥1)**:
 
 ## Version pin
 
-Web/mobile **0.2.91**.
+Web/mobile **0.2.92**.

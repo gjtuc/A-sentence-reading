@@ -211,17 +211,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         LinearProgressIndicator(
-                          value: lib.uploadPercent > 0
-                              ? (lib.uploadPercent.clamp(0, 100) / 100.0)
-                              : null,
+                          // EDGE (design/75): stalled → do not animate fake progress.
+                          value: lib.uploadStalled
+                              ? 0
+                              : (lib.uploadPercent > 0
+                                  ? (lib.uploadPercent.clamp(0, 100) / 100.0)
+                                  : null),
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          // WHY: cloud archive is part of processing — not a separate upload tap.
-                          // design/71: stage may say 이어올리는 중 when reattaching a job.
-                          '처리 중 ${lib.uploadPercent}%'
-                          '${lib.uploadStage.isEmpty ? '' : ' · ${lib.uploadStage}'}'
-                          ' · 끝나면 클라우드 보관함에 자동 저장',
+                          lib.uploadStalled
+                              ? (lib.uploadStage.isEmpty
+                                  ? '중단됨 · 앱을 열면 이어갑니다'
+                                  : lib.uploadStage)
+                              : (
+                                  // WHY: cloud archive is part of processing — not a separate upload tap.
+                                  '처리 중 ${lib.uploadPercent}%'
+                                  '${lib.uploadStage.isEmpty ? '' : ' · ${lib.uploadStage}'}'
+                                  ' · 끝나면 클라우드 보관함에 자동 저장'
+                                ),
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],
