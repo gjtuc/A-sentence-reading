@@ -51,3 +51,12 @@ Note: 일부 OEM 배터리 제한은 Dart HTTP를 멈출 수 있음 → FG+WakeL
 E2E는 `deviceidle whitelist` 후 HOME-after-percent로 확인.
 
 Do not paste emails, cookies, or paper titles into chat/PR.
+
+## Live pin (post-merge)
+
+- Cloud Run /api/status: ersion=0.2.91, mobile_upload_background=true
+- Device APK ersionName=0.2.91 (sideload) · SM-G986N
+- E2E: PDF 가져오기 → notify visible → Home after percent → 업로드 완료 tap → reader
+- Kill: ASR_MOBILE_UPLOAD_BACKGROUND=0
+- Live Enable / IPS: unchanged (not in this chip)
+
