@@ -40,12 +40,12 @@ PUT 상한은 50MB÷256KiB≈200에 여유. **크기 검사와 별개** — 이�
 
 ## Version
 
-Web/mobile **0.2.94** · pubspec `0.2.94+1`
+Web/mobile **0.2.95** · pubspec `0.2.95+1`
 
 ## Device / live E2E (2026-08-10)
 
-1. Live Cloud Run `/api/status`: `version=0.2.94`, `ingest_rate_limit=true` (browser + Invoke-RestMethod)
-2. Sideload APK `versionName=0.2.94` · Google 로그인 · Settings→서버: `version | 0.2.94`
+1. Live Cloud Run `/api/status`: `version=0.2.95`, `ingest_rate_limit=true` (browser + Invoke-RestMethod)
+2. Sideload APK `versionName=0.2.95` · Google 로그인 · Settings→서버: `version | 0.2.95`
 3. Local uvicorn (`ASR_UPLOAD_CREATE_MAX=2`, gate off): user A 3rd create → **429** `요청이 너무 많습니다.` · user B still 200 (isolation)
 4. Live throwaway email create → `access_denied` (gate) before quota — expected; paid-path 429 covered by local + pytest
 5. Flutter unit: `createChunkedUpload` surfaces 429 copy (no success)
