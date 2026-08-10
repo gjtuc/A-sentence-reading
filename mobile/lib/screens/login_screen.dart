@@ -4,20 +4,10 @@ import '../api/client.dart';
 import '../api/oauth_models.dart';
 import '../state/auth_controller.dart';
 
-/// Email + Google + Kakao login (design/61 · design/65).
-
-/// Client-only signup password checks (design/61 UX). Never log [password]/confirm].
+/// Google · Kakao · email magic-link login (design/65 · 77 · 78).
 ///
-/// Returns Korean error message or null when OK.
-String? validateRegisterPasswords(String password, String confirm) {
-  if (password.length < 8) {
-    return '비밀번호는 8자 이상이어야 합니다.';
-  }
-  if (password != confirm) {
-    return '비밀번호 확인이 일치하지 않습니다.';
-  }
-  return null;
-}
+/// WHY (design/78): no email+password signup/login fields — do not collect
+/// passwords into cloud accounts. Magic-link covers email sign-in.
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, required this.auth});
@@ -30,65 +20,11 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _email = TextEditingController();
-  final _password = TextEditingController();
-  final _passwordConfirm = TextEditingController();
-  final _name = TextEditingController();
-  bool _registerMode = false;
-  // WHY: default hidden — reduce shoulder-surfing; user opts in via eye icon.
-  bool _obscurePassword = true;
-  bool _obscurePasswordConfirm = true;
 
   @override
   void dispose() {
     _email.dispose();
-    _password.dispose();
-    _passwordConfirm.dispose();
-    _name.dispose();
     super.dispose();
-  }
-
-  Future<void> _submit() async {
-    final email = _email.text.trim();
-    final password = _password.text;
-    if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('이메일과 비밀번호를 입력하세요.')),
-      );
-      return;
-    }
-    if (_registerMode) {
-      // EDGE: mistyped password on signup — block before network (no secret logged).
-      final err = validateRegisterPasswords(
-        password,
-        _passwordConfirm.text,
-      );
-      if (err != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
-        return;
-      }
-    }
-    try {
-      if (_registerMode) {
-        await widget.auth.registerEmail(email, password, name: _name.text);
-      } else {
-        await widget.auth.loginEmail(email, password);
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_registerMode ? '가입·로그인되었습니다.' : '로그인되었습니다.'),
-          ),
-        );
-      }
-    } on AsrApiException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-      }
-    }
   }
 
   Future<void> _google() async {
@@ -179,11 +115,7 @@ class _LoginScreenState extends State<LoginScreen> {
         final emailOn = st?.emailEnabled ?? true;
         final googleOn = st?.googleEnabled ?? false;
         final kakaoOn = st?.kakaoEnabled ?? false;
-        // design/77 — show until status says false; sideload before CD still shows.
-        final magicOn = emailOn;
 
-        // WHY: reachability — phone thumbs struggle with top-glued chrome.
-        // EDGE: keyboard open — still scrollable via SingleChildScrollView.
         return LayoutBuilder(
           builder: (context, constraints) {
             return SingleChildScrollView(
@@ -217,7 +149,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     if (googleOn || kakaoOn) const Divider(height: 32),
                     if (emailOn) ...[
                       Text(
-                        _registerMode ? '이메일 가입' : '이메일 로그인',
+                        '이메일 로그인 링크',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 12),
@@ -230,70 +162,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           border: OutlineInputBorder(),
                         ),
                       ),
-                      if (!_registerMode && magicOn) ...[
-                        const SizedBox(height: 8),
-                        OutlinedButton(
-                          onPressed: auth.busy ? null : _magicLink,
-                          child: const Text('이메일로 로그인 링크 받기'),
-                        ),
-                      ],
                       const SizedBox(height: 12),
-                      TextField(
-                        controller: _password,
-                        obscureText: _obscurePassword,
-                        decoration: InputDecoration(
-                          labelText: '비밀번호',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: IconButton(
-                            tooltip:
-                                _obscurePassword ? '비밀번호 보기' : '비밀번호 숨기기',
-                            onPressed: () => setState(
-                              () => _obscurePassword = !_obscurePassword,
-                            ),
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility
-                                  : Icons.visibility_off,
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (_registerMode) ...[
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _passwordConfirm,
-                          obscureText: _obscurePasswordConfirm,
-                          decoration: InputDecoration(
-                            labelText: '비밀번호 확인',
-                            border: const OutlineInputBorder(),
-                            suffixIcon: IconButton(
-                              tooltip: _obscurePasswordConfirm
-                                  ? '비밀번호 보기'
-                                  : '비밀번호 숨기기',
-                              onPressed: () => setState(
-                                () => _obscurePasswordConfirm =
-                                    !_obscurePasswordConfirm,
-                              ),
-                              icon: Icon(
-                                _obscurePasswordConfirm
-                                    ? Icons.visibility
-                                    : Icons.visibility_off,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _name,
-                          decoration: const InputDecoration(
-                            labelText: '이름 (선택)',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 16),
                       FilledButton(
-                        onPressed: auth.busy ? null : _submit,
+                        onPressed: auth.busy ? null : _magicLink,
                         child: auth.busy
                             ? const SizedBox(
                                 width: 18,
@@ -302,25 +173,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   strokeWidth: 2,
                                 ),
                               )
-                            : Text(_registerMode ? '가입' : '로그인'),
-                      ),
-                      TextButton(
-                        onPressed: auth.busy
-                            ? null
-                            : () => setState(() {
-                                  _registerMode = !_registerMode;
-                                  // EDGE: leaving signup — drop confirm so it
-                                  // cannot leak into login submit.
-                                  if (!_registerMode) {
-                                    _passwordConfirm.clear();
-                                    _obscurePasswordConfirm = true;
-                                  }
-                                }),
-                        child: Text(
-                          _registerMode
-                              ? '이미 계정이 있나요? 로그인'
-                              : '계정이 없나요? 가입',
-                        ),
+                            : const Text('이메일로 로그인 링크 받기'),
                       ),
                     ] else
                       const Text('이메일 로그인이 서버에서 꺼져 있습니다.'),

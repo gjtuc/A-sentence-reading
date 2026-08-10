@@ -59,6 +59,20 @@ def email_auth_enabled() -> bool:
     return v not in ("0", "false", "no", "off")
 
 
+def email_password_auth_enabled() -> bool:
+    """design/78 — email+password register/login.
+
+    Default **off** so the app does not collect passwords into accounts/GCS.
+    Set ASR_EMAIL_PASSWORD=1 for tests or emergency rollback.
+    Magic-link (design/77) and OAuth stay independent.
+    """
+    load_asr_env()
+    if not email_auth_enabled():
+        return False
+    v = (os.environ.get("ASR_EMAIL_PASSWORD") or "0").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
 def auth_enabled() -> bool:
     """Google·카카오·이메일 중 하나라도 켜져 있으면 로그인 UI·UID 칸 모드."""
     from sentence_reading.llm.auth_kakao import kakao_enabled

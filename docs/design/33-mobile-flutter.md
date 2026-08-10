@@ -143,7 +143,7 @@ Auth gate + tabs 보관/읽기/설정 · account/server under Settings (see [68]
 
 Samsung device `versionName` matches pubspec / live API **0.2.86** after `flutter build apk` + `adb install -r` (see [48](48-flutter-android-platform.md) Device E2E). Prior gap: phone stayed on 0.2.84 while Cloud Run was already 0.2.86.
 
-## Mobile upload pin (0.2.94)
+## Mobile upload pin (0.2.95)
 
 Single PDF from 보관 → Cloud Run ingest → user GCS (see [70](70-mobile-upload.md)).
 

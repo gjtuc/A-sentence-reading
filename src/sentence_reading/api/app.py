@@ -50,6 +50,7 @@ from sentence_reading.llm.auth_google import (
     auth_status_fields,
     cookie_secure,
     email_auth_enabled,
+    email_password_auth_enabled,
     issue_oauth_state,
     mobile_kakao_deep_link,
     mobile_magic_deep_link,
@@ -143,7 +144,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.94",
+    version="0.2.95",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -395,7 +396,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.94",
+        "version": "0.2.95",
         "access_gate_gcs": True,
         "mobile_upload": True,
         "ingest_job_gcs": True,
@@ -432,6 +433,8 @@ def status(request: Request) -> dict:
         "mobile_flutter_scaffold": True,
         "mobile_android_platform": True,
         "mobile_email_auth": True,
+        # design/78 — false by default (ASR_EMAIL_PASSWORD unset/0).
+        "mobile_email_password": email_password_auth_enabled(),
         "mobile_library": True,
         "mobile_reader": True,
         "mobile_tts": True,
@@ -439,7 +442,7 @@ def status(request: Request) -> dict:
         "mobile_theme": True,
         "access_gate": True,
         "mobile_access_gate": True,
-        "mobile_password_ui": True,
+        "mobile_password_ui": email_password_auth_enabled(),
         "mobile_admin_ui_gate": True,
         "mobile_google_sha_runbook": True,
         "mobile_google_android_oauth": True,
@@ -704,6 +707,16 @@ async def auth_email_register(payload: dict = Body(...)) -> JSONResponse:
             status_code=503,
             content={"ok": False, "error": "email_disabled", "message": "이메일 가입이 꺼져 있습니다."},
         )
+    if not email_password_auth_enabled():
+        # design/78 — fail-closed: do not collect new password hashes by default.
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "email_password_disabled",
+                "message": "이메일 비밀번호 가입이 꺼져 있습니다. 로그인 링크로 들어가세요.",
+            },
+        )
     email = str(payload.get("email") or "") if isinstance(payload, dict) else ""
     password = str(payload.get("password") or "") if isinstance(payload, dict) else ""
     name = str(payload.get("name") or "") if isinstance(payload, dict) else ""
@@ -736,6 +749,15 @@ async def auth_email_login(payload: dict = Body(...)) -> JSONResponse:
         return JSONResponse(
             status_code=503,
             content={"ok": False, "error": "email_disabled", "message": "이메일 로그인이 꺼져 있습니다."},
+        )
+    if not email_password_auth_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "email_password_disabled",
+                "message": "이메일 비밀번호 로그인이 꺼져 있습니다. 로그인 링크로 들어가세요.",
+            },
         )
     email = str(payload.get("email") or "") if isinstance(payload, dict) else ""
     password = str(payload.get("password") or "") if isinstance(payload, dict) else ""
@@ -970,6 +992,15 @@ async def auth_email_link(request: Request, payload: dict = Body(...)) -> JSONRe
         return JSONResponse(
             status_code=503,
             content={"ok": False, "error": "email_disabled", "message": "이메일 연결이 꺼져 있습니다."},
+        )
+    if not email_password_auth_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "email_password_disabled",
+                "message": "이메일 비밀번호 연결이 꺼져 있습니다.",
+            },
         )
     email = str(payload.get("email") or "") if isinstance(payload, dict) else ""
     password = str(payload.get("password") or "") if isinstance(payload, dict) else ""

@@ -39,11 +39,11 @@ PDF 업로드가 시작되면 **항상** 알림을 띄우고, 앱이 뒤로 가�
 
 ## Version
 
-Web/mobile **0.2.94** · pubspec `0.2.94+1`
+Web/mobile **0.2.95** · pubspec `0.2.95+1`
 
 ## Device E2E (SM-G986N · sideload)
 
-1. APK `versionName=0.2.94` · `POST_NOTIFICATIONS` granted
+1. APK `versionName=0.2.95` · `POST_NOTIFICATIONS` granted
 2. PDF 가져오기 → 알림 `PDF 올리는 중` (+ `%` 진행) → HOME → 알림 유지·완료
 3. 완료 알림 탭 → 읽기 탭 (`readerish`)
 4. 권한 거부 경로: 업로드 계속 + snackbar 안내 (코드·단위)
@@ -55,8 +55,8 @@ Do not paste emails, cookies, or paper titles into chat/PR.
 
 ## Live pin (post-merge)
 
-- Cloud Run `/api/status`: `version=0.2.94`, `mobile_upload_background=true`
-- Device APK `versionName=0.2.94` (sideload) · SM-G986N
+- Cloud Run `/api/status`: `version=0.2.95`, `mobile_upload_background=true`
+- Device APK `versionName=0.2.95` (sideload) · SM-G986N
 - E2E: PDF 가져오기 → notify visible → Home after percent → `업로드 완료` tap → reader
 - Kill: `ASR_MOBILE_UPLOAD_BACKGROUND=0`
 - Live Enable / IPS: unchanged (not in this chip)
