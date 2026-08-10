@@ -61,4 +61,4 @@ APK uses debug signing today (same as design/65 SHA-1 runbook). Play Store relea
 
 ## Version pin
 
-Web/mobile **0.2.97** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).
+Web/mobile **0.2.98** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).

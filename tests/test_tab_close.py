@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.97"
+    assert st["version"] == "0.2.98"
 
 
 def test_design_tab_close_contract() -> None:
@@ -42,4 +42,4 @@ def test_app_js_has_close_helpers() -> None:
 
 def test_index_assets_version() -> None:
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.2.97" in html
+    assert "app.js?v=0.2.98" in html
