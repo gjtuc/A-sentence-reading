@@ -47,12 +47,12 @@
 
 Web/mobile **0.2.88** · pubspec `0.2.88+1`
 
-## Device E2E
+## Device E2E (Samsung · 0.2.88)
 
-1. 로그인 → 보관 → 작은 PDF 가져오기 시작
-2. 처리 중 앱 강제 종료 → 재실행 → **자동으로 이어올리는 중** 진행 → 목록+자동 open
-3. (A) 전송 직전 끊김 시뮬레이션: draft 있는 상태에서 같은 파일 재선택 → 재 POST 없이 또는 자동 재시도
-4. 로그아웃 → 다른 계정 로그인 → 이전 draft/진행 UI 없음
+1. APK `versionName=0.2.88` · live `/api/status` `ingest_job_gcs` · `mobile_upload_resume`
+2. PDF 가져오기 시작 후 **앱 강제 종료** → 재실행 → 보관에 **처리 중 N%** 자동 재개(파일 재선택 없음) → 완료까지 busy clear (B)
+3. 로그아웃 → 로그인 전용 셸 (탭/PDF 가져오기 없음) — draft wipe
+4. (A 최소 · Content-Range 아님) 로컬 draft 재 POST는 단위 테스트 + 코드 경로; 추가 kill-during-multipart는 자동화 flaky로 후속 재검증 가능
 
 Do not paste emails, cookies, or identifying paper titles into chat/PR.
 
