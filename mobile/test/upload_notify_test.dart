@@ -13,14 +13,14 @@ void main() {
   test('AsrStatus parses mobile_upload_interrupt_resume kill switch', () {
     final on = AsrStatus.fromJson({
       'ok': true,
-      'version': '0.2.92',
+      'version': '0.2.93',
       'mobile_upload_interrupt_resume': true,
     });
     expect(on.mobileUploadInterruptResume, isTrue);
 
     final off = AsrStatus.fromJson({
       'ok': true,
-      'version': '0.2.92',
+      'version': '0.2.93',
       'mobile_upload_interrupt_resume': false,
     });
     expect(off.mobileUploadInterruptResume, isFalse);
@@ -30,17 +30,45 @@ void main() {
     expect(missing.mobileUploadInterruptResume, isTrue);
   });
 
+  test('AsrStatus parses mobile_upload_workmanager kill switch', () {
+    final on = AsrStatus.fromJson({
+      'ok': true,
+      'version': '0.2.93',
+      'mobile_upload_workmanager': true,
+    });
+    expect(on.mobileUploadWorkmanager, isTrue);
+
+    final off = AsrStatus.fromJson({
+      'ok': true,
+      'version': '0.2.93',
+      'mobile_upload_workmanager': false,
+    });
+    expect(off.mobileUploadWorkmanager, isFalse);
+
+    // Missing key → allow (sideload before CD).
+    final missing = AsrStatus.fromJson({'ok': true, 'version': '0.2.92'});
+    expect(missing.mobileUploadWorkmanager, isTrue);
+  });
+
+  test('NoopUploadNotify schedule/cancel is trackable', () async {
+    final n = NoopUploadNotify();
+    expect(await n.scheduleUploadResume(immediate: false), isTrue);
+    expect(n.scheduled, isTrue);
+    await n.cancelUploadResume();
+    expect(n.scheduled, isFalse);
+  });
+
   test('AsrStatus parses mobile_upload_background kill switch', () {
     final on = AsrStatus.fromJson({
       'ok': true,
-      'version': '0.2.92',
+      'version': '0.2.93',
       'mobile_upload_background': true,
     });
     expect(on.mobileUploadBackground, isTrue);
 
     final off = AsrStatus.fromJson({
       'ok': true,
-      'version': '0.2.92',
+      'version': '0.2.93',
       'mobile_upload_background': false,
     });
     expect(off.mobileUploadBackground, isFalse);

@@ -1,4 +1,4 @@
-"""Flutter mobile library list/open contract (0.2.92 · design/33 · design/62)."""
+"""Flutter mobile library list/open contract (0.2.93 · design/33 · design/62)."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_mobile_library_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.2.92"
+    assert st["version"] == "0.2.93"
     assert st["mobile_library"] is True
     assert st["mobile_email_auth"] is True
     assert "live_enable" not in st
@@ -66,7 +66,7 @@ def test_cache_papers_empty_and_open_missing(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_mobile_dart_library_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.2.92" in pub
+    assert "0.2.93" in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "/api/cache/papers" in client
     assert "listPapers" in client
@@ -76,7 +76,7 @@ def test_mobile_dart_library_sources() -> None:
     assert "먼저 로그인" in lib
     assert DESIGN.is_file()
     design = DESIGN.read_text(encoding="utf-8")
-    assert "0.2.92" in design
+    assert "0.2.93" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     # Live Enable/IPS footer removed from library UI (PR #97); contract in design.
 
@@ -98,4 +98,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.2.92" in html
+    assert "app.js?v=0.2.93" in html

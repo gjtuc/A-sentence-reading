@@ -99,9 +99,10 @@
 - ~~모바일 단일 PDF 업로드 (클라우드)~~ (0.2.87 — [70-mobile-upload.md](70-mobile-upload.md))
 - ~~이어올리기 · GCS job 재접속~~ (0.2.88 — [71-mobile-upload-resume.md](71-mobile-upload-resume.md))
 - ~~조각 업로드 · prefix 무결성 이어보내기~~ (0.2.89 — [72-chunked-upload.md](72-chunked-upload.md))
-- ~~업로드·ingest 호출 횟수 한도~~ (0.2.92 — [73-ingest-rate-limit.md](73-ingest-rate-limit.md); 횟수만 · daily/용량 한도 없음)
-- ~~백그라운드 업로드 알림 · FG · 완료 탭 열기~~ (0.2.92 — [74-bg-upload-notify.md](74-bg-upload-notify.md); ASR_MOBILE_UPLOAD_BACKGROUND)
-- ~~전화·OEM 중단 후 업로드 자동 재개~~ (0.2.92 — [75-upload-interrupt-resume.md](75-upload-interrupt-resume.md); approach A · ASR_MOBILE_UPLOAD_INTERRUPT_RESUME)
+- ~~업로드·ingest 호출 횟수 한도~~ (0.2.93 — [73-ingest-rate-limit.md](73-ingest-rate-limit.md); 횟수만 · daily/용량 한도 없음)
+- ~~백그라운드 업로드 알림 · FG · 완료 탭 열기~~ (0.2.93 — [74-bg-upload-notify.md](74-bg-upload-notify.md); ASR_MOBILE_UPLOAD_BACKGROUND)
+- ~~전화·OEM 중단 후 업로드 자동 재개~~ (0.2.93 — [75-upload-interrupt-resume.md](75-upload-interrupt-resume.md); approach A · ASR_MOBILE_UPLOAD_INTERRUPT_RESUME)
+- ~~프로세스 종료 후 WorkManager 이어올리기~~ (0.2.93 · [76-upload-workmanager.md](76-upload-workmanager.md); ASR_MOBILE_UPLOAD_WORKMANAGER)
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

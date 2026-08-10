@@ -114,4 +114,4 @@ Web **0.2.82** · status `mobile_oauth` · `mobile_google_sha_runbook` · `mobil
 
 ## Version pin
 
-Web/mobile **0.2.92**.
+Web/mobile **0.2.93**.

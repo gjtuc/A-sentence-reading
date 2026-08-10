@@ -1,8 +1,9 @@
-/// Background upload notification host (design/74).
+/// Background upload notification host (design/74 · 76).
 ///
-/// Android: MethodChannel → UploadForegroundService.
+/// Android: MethodChannel → UploadForegroundService + WorkManager schedule.
 /// Tests / non-Android: [NoopUploadNotify].
 /// INVARIANT: notification text never includes emails, tokens, or file paths.
+/// INVARIANT: WorkManager input never carries session tokens (prefs only).
 library;
 
 import 'dart:async';
@@ -14,6 +15,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const String kPendingOpenCacheIdKey = 'asr.upload.pending_open_cache_id.v1';
 const String kUploadNotifyChannel = 'asr/upload_notify';
+
+/// Same content_hash dismissed battery guidance (design/76 product 3).
+const String kBatteryHintDismissedHashKey =
+    'asr.upload.battery_hint_dismissed.hash.v1';
 
 /// Result of trying to start the foreground upload notification.
 class UploadNotifyStart {
@@ -50,11 +55,24 @@ abstract class UploadNotify {
   void setOpenCacheIdHandler(void Function(String cacheId)? handler);
 
   Future<String?> takePendingOpenCacheId();
+
+  /// design/76 — schedule unique WorkManager resume (KEEP delayed / REPLACE now).
+  Future<bool> scheduleUploadResume({required bool immediate});
+
+  /// Cancel pending/running unique resume work.
+  Future<void> cancelUploadResume();
+
+  /// True when OS battery optimize will not restrict the app.
+  Future<bool> isIgnoringBatteryOptimizations();
+
+  /// Open battery / app settings. Returns false if the intent could not start.
+  Future<bool> openBatterySettings();
 }
 
 /// Test / desktop stub.
 class NoopUploadNotify implements UploadNotify {
   void Function(String cacheId)? _handler;
+  bool scheduled = false;
 
   @override
   Future<void> init() async {}
@@ -101,6 +119,23 @@ class NoopUploadNotify implements UploadNotify {
     _handler?.call(id);
     return id;
   }
+
+  @override
+  Future<bool> scheduleUploadResume({required bool immediate}) async {
+    scheduled = true;
+    return true;
+  }
+
+  @override
+  Future<void> cancelUploadResume() async {
+    scheduled = false;
+  }
+
+  @override
+  Future<bool> isIgnoringBatteryOptimizations() async => true;
+
+  @override
+  Future<bool> openBatterySettings() async => false;
 }
 
 /// Production Android notifier via platform channel.
@@ -252,6 +287,52 @@ class ChannelUploadNotify implements UploadNotify {
     final id = (p.getString(kPendingOpenCacheIdKey) ?? '').trim();
     await p.remove(kPendingOpenCacheIdKey);
     return id.isEmpty ? null : id;
+  }
+
+  @override
+  Future<bool> scheduleUploadResume({required bool immediate}) async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final ok = await _channel.invokeMethod<dynamic>('scheduleUploadResume', {
+        'immediate': immediate,
+      });
+      return ok == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<void> cancelUploadResume() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<void>('cancelUploadResume');
+    } catch (_) {}
+  }
+
+  @override
+  Future<bool> isIgnoringBatteryOptimizations() async {
+    if (!Platform.isAndroid) return true;
+    try {
+      final ok = await _channel.invokeMethod<dynamic>(
+        'isIgnoringBatteryOptimizations',
+      );
+      return ok == true;
+    } catch (_) {
+      // EDGE: channel missing → do not nag battery button.
+      return true;
+    }
+  }
+
+  @override
+  Future<bool> openBatterySettings() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final ok = await _channel.invokeMethod<dynamic>('openBatterySettings');
+      return ok == true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// WHY: notification text must never carry email/path/token-shaped strings.

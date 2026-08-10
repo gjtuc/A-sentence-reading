@@ -142,7 +142,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.92",
+    version="0.2.93",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -348,6 +348,15 @@ def _mobile_upload_interrupt_resume_enabled() -> bool:
     return v not in ("0", "false", "off", "no")
 
 
+def _mobile_upload_workmanager_enabled() -> bool:
+    """design/76 — kill switch for Android WorkManager process-death resume.
+
+    Default on; ASR_MOBILE_UPLOAD_WORKMANAGER=0 → clients skip enqueue (71/75 remain).
+    """
+    v = (os.environ.get("ASR_MOBILE_UPLOAD_WORKMANAGER") or "1").strip().lower()
+    return v not in ("0", "false", "off", "no")
+
+
 @app.get("/api/status")
 def status(request: Request) -> dict:
     """기동 확인."""
@@ -370,7 +379,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.92",
+        "version": "0.2.93",
         "access_gate_gcs": True,
         "mobile_upload": True,
         "ingest_job_gcs": True,
@@ -382,6 +391,8 @@ def status(request: Request) -> dict:
         "mobile_upload_background": _mobile_upload_background_enabled(),
         # design/75 — stall honesty + resume-on-app-foreground.
         "mobile_upload_interrupt_resume": _mobile_upload_interrupt_resume_enabled(),
+        # design/76 — WorkManager enqueue; false → clients skip (71/75 remain).
+        "mobile_upload_workmanager": _mobile_upload_workmanager_enabled(),
         "usage_meter": True,
         "fig_ref_hints": True,
         "cite_ref_open": True,

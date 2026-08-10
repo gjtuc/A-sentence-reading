@@ -3,8 +3,10 @@ package com.gjtuc.sentence_reading
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
-import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -14,6 +16,7 @@ import io.flutter.plugin.common.MethodChannel
 /**
  * WHY: Single FlutterActivity host for 「문장 읽기」.
  * design/74: MethodChannel for upload FG notification (no secrets on the wire).
+ * design/76: WorkManager schedule/cancel + battery-settings guidance (no tokens on wire).
  * Live Enable / IPS / Trading Gate: out of scope for ASR mobile (never wired here).
  */
 class MainActivity : FlutterActivity() {
@@ -82,6 +85,30 @@ class MainActivity : FlutterActivity() {
                         pendingOpenCacheId = null
                         result.success(id)
                     }
+                    // design/76 — enqueue unique resume work (KEEP delayed / REPLACE immediate).
+                    "scheduleUploadResume" -> {
+                        val immediate = call.argument<Boolean>("immediate") == true
+                        try {
+                            UploadResumeScheduler.schedule(this, immediate)
+                            result.success(true)
+                        } catch (_: Exception) {
+                            // EDGE: WM unavailable — fail closed (no fake scheduled=true).
+                            result.success(false)
+                        }
+                    }
+                    "cancelUploadResume" -> {
+                        try {
+                            UploadResumeScheduler.cancel(this)
+                        } catch (_: Exception) {
+                        }
+                        result.success(true)
+                    }
+                    "isIgnoringBatteryOptimizations" -> {
+                        result.success(isIgnoringBatteryOptimizations())
+                    }
+                    "openBatterySettings" -> {
+                        result.success(openBatterySettings())
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -125,6 +152,38 @@ class MainActivity : FlutterActivity() {
             this,
             Manifest.permission.POST_NOTIFICATIONS,
         ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * design/76 product 3 — true when OS will not kill the app for "battery optimize".
+     * WHY: guidance button only when restricted; never claim unrestricted without check.
+     */
+    private fun isIgnoringBatteryOptimizations(): Boolean {
+        if (Build.VERSION.SDK_INT < 23) return true
+        val pm = getSystemService(POWER_SERVICE) as? PowerManager ?: return true
+        return pm.isIgnoringBatteryOptimizations(packageName)
+    }
+
+    /**
+     * Open OEM battery / app-detail settings. Prefer ignore-list screen; fall back to app details.
+     * INVARIANT: no REQUEST_IGNORE prompt spam — user taps intentionally.
+     */
+    private fun openBatterySettings(): Boolean {
+        return try {
+            val ignoreList = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            if (ignoreList.resolveActivity(packageManager) != null) {
+                startActivity(ignoreList)
+                true
+            } else {
+                val detail = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(detail)
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
     }
 
     companion object {

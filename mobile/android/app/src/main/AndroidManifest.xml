@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- WHY: Cloud Run API (status / later auth·library·TTS). No secrets in the APK. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- design/74: ongoing upload notification + FG service (chunk + process). -->
@@ -16,6 +17,13 @@
             android:exported="false"
             android:stopWithTask="false"
             android:foregroundServiceType="dataSync"/>
+        <!-- design/76: WorkManager setForeground requires SystemForegroundService dataSync type. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:exported="false"
+            android:directBootAware="false"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"
