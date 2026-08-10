@@ -51,7 +51,7 @@ Cloud Run 등 **에페메랄 디스크·다 인스턴스**에서도 초대·허�
 
 ## status
 
-`access_gate_gcs: true` · version **0.2.93**
+`access_gate_gcs: true` · version **0.2.94**
 
 ## 합격
 
