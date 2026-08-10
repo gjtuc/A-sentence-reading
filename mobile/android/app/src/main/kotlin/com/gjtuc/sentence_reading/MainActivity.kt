@@ -18,11 +18,13 @@ import io.flutter.plugin.common.MethodChannel
  * design/74: MethodChannel for upload FG notification (no secrets on the wire).
  * design/76: WorkManager schedule/cancel + battery-settings guidance (no tokens on wire).
  * design/77: email magic-link VIEW intent → Dart applySessionToken.
+ * design/82: shadowing practice mic (MediaRecorder MethodChannel).
  * Live Enable / IPS / Trading Gate: out of scope for ASR mobile (never wired here).
  */
 class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
     private var authChannel: MethodChannel? = null
+    private var shadowingMicChannel: MethodChannel? = null
     private var pendingOpenCacheId: String? = null
     /** design/77 — session from deep link before Dart handler is ready. */
     private var pendingMagicSession: String? = null
@@ -139,6 +141,13 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        }
+        // design/82 — AAC mic for practice takes (no third-party record package).
+        shadowingMicChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            ShadowingMicHandler.CHANNEL,
+        ).also { ch ->
+            ch.setMethodCallHandler(ShadowingMicHandler(this))
         }
         // Deliver intent that launched / resumed this activity.
         handleOpenIntent(intent)

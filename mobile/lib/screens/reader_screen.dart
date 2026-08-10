@@ -1,18 +1,29 @@
 import 'package:flutter/material.dart';
 
+import '../api/client.dart';
 import '../api/reading_models.dart';
 import '../state/library_controller.dart';
+import '../state/shadowing_controller.dart';
 import '../state/tts_controller.dart';
+import 'shadowing_practice_screen.dart';
 
 /// Split reader: sentence panel + figure panel (design/63) + TTS (design/64).
 ///
 /// INVARIANT: sentence controls never call figure advance and vice versa.
 /// TTS never mutates cursors (Live Enable / IPS: ASR out).
 class ReaderScreen extends StatelessWidget {
-  const ReaderScreen({super.key, required this.library, required this.tts});
+  const ReaderScreen({
+    super.key,
+    required this.library,
+    required this.tts,
+    required this.client,
+    required this.shadowing,
+  });
 
   final LibraryController library;
   final TtsController tts;
+  final AsrClient client;
+  final ShadowingController shadowing;
 
   @override
   Widget build(BuildContext context) {
@@ -35,11 +46,34 @@ class ReaderScreen extends StatelessWidget {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-              child: Text(
-                s.title.isEmpty ? '(no title)' : s.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleSmall,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      s.title.isEmpty ? '(no title)' : s.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  // design/82 — separate practice mode (gated by kill + opt-in).
+                  TextButton(
+                    onPressed: (!shadowing.serverAvailable || !shadowing.enabled)
+                        ? null
+                        : () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ShadowingPracticeScreen(
+                                  client: client,
+                                  library: library,
+                                  shadowing: shadowing,
+                                ),
+                              ),
+                            );
+                          },
+                    child: const Text('연습'),
+                  ),
+                ],
               ),
             ),
             if (library.shadowingChunksBusy)

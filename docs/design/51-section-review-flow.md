@@ -40,4 +40,4 @@
 
 ## Version pin
 
-Web/mobile **0.2.98** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).
+Web/mobile **0.2.99** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).

@@ -45,6 +45,7 @@ class AsrStatus {
     // design/79 — missing key → off (fail-closed; practice not ready by default).
     this.mobileShadowingPractice = false,
     this.mobileShadowingChunks = false,
+    this.mobileShadowingPracticeLoop = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -87,6 +88,8 @@ class AsrStatus {
           json['shadowing_practice'] == true,
       mobileShadowingChunks: json['mobile_shadowing_chunks'] == true ||
           json['shadowing_chunks'] == true,
+      mobileShadowingPracticeLoop: json['mobile_shadowing_practice_loop'] == true ||
+          json['shadowing_practice_loop'] == true,
     );
   }
 
@@ -109,6 +112,7 @@ class AsrStatus {
   final bool mobileEmailMagicLink;
   final bool mobileShadowingPractice;
   final bool mobileShadowingChunks;
+  final bool mobileShadowingPracticeLoop;
 }
 
 class AsrClient {
@@ -1029,6 +1033,102 @@ class AsrClient {
   }
 
   void close() => _http.close();
+
+
+  /// design/82 — GET per-uid practice takes.
+  Future<Map<String, dynamic>> fetchShadowingTakes(String cacheId) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) {
+      throw AsrApiException('논문 id가 올바르지 않습니다.', 400);
+    }
+    final res = await _http.get(
+      _uri('/api/shadowing/takes/${Uri.encodeComponent(id)}'),
+      headers: await _headers(),
+    );
+    return _decodeObject(res, 'shadowing/takes');
+  }
+
+  /// design/82 — save take or skip.
+  Future<Map<String, dynamic>> postShadowingTake(
+    String cacheId, {
+    required bool practiceEnabled,
+    required String sentenceId,
+    required int chunkIndex,
+    required int chunkCount,
+    required String status,
+    String? blobKey,
+    String? mime,
+  }) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) {
+      throw AsrApiException('논문 id가 올바르지 않습니다.', 400);
+    }
+    final body = <String, dynamic>{
+      'practice_enabled': practiceEnabled,
+      'action': 'take',
+      'sentence_id': sentenceId,
+      'chunk_index': chunkIndex,
+      'chunk_count': chunkCount,
+      'status': status,
+      if (blobKey != null) 'blob_key': blobKey,
+      if (mime != null) 'mime': mime,
+    };
+    final res = await _http.post(
+      _uri('/api/shadowing/takes/${Uri.encodeComponent(id)}'),
+      headers: {
+        ...await _headers(),
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(body),
+    );
+    return _decodeObject(res, 'shadowing/takes/post');
+  }
+
+  /// design/82 — full-pass continue playlist.
+  Future<Map<String, dynamic>> continueShadowingTakes(
+    String cacheId, {
+    required bool practiceEnabled,
+    required List<String> sentenceIds,
+  }) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) {
+      throw AsrApiException('논문 id가 올바르지 않습니다.', 400);
+    }
+    final res = await _http.post(
+      _uri('/api/shadowing/takes/${Uri.encodeComponent(id)}/continue'),
+      headers: {
+        ...await _headers(),
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'practice_enabled': practiceEnabled,
+        'sentence_ids': sentenceIds,
+      }),
+    );
+    return _decodeObject(res, 'shadowing/takes/continue');
+  }
+
+  /// Upload voice bytes (reuse design/17 voice blobs).
+  Future<void> putVoiceBlob(String blobKey, List<int> bytes, {String? contentType}) async {
+    final key = blobKey.trim();
+    if (key.isEmpty) {
+      throw AsrApiException('blob key가 올바르지 않습니다.', 400);
+    }
+    final res = await _http.put(
+      _uri('/api/voice/blobs').replace(queryParameters: {'key': key}),
+      headers: {
+        ...await _headers(),
+        'Content-Type': contentType ?? 'application/octet-stream',
+      },
+      body: bytes,
+    );
+    if (res.statusCode == 401) {
+      throw AsrApiException('로그인이 필요합니다.', 401);
+    }
+    if (res.statusCode >= 400) {
+      throw AsrApiException('녹음 업로드에 실패했습니다.', res.statusCode);
+    }
+  }
 
   /// design/80 — GET per-uid chunk plan.
   Future<Map<String, dynamic>> fetchShadowingChunks(String cacheId) async {

@@ -149,6 +149,15 @@
     shadowingChunksBanner: document.getElementById("shadowingChunksBanner"),
     shadowingChunksMsg: document.getElementById("shadowingChunksMsg"),
     shadowingChunksRetry: document.getElementById("shadowingChunksRetry"),
+    shadowingPracticeBtn: document.getElementById("shadowingPracticeBtn"),
+    shadowingPracticeDialog: document.getElementById("shadowingPracticeDialog"),
+    shadowingPracticeClose: document.getElementById("shadowingPracticeClose"),
+    shadowingPracticeMeta: document.getElementById("shadowingPracticeMeta"),
+    shadowingPracticePrompt: document.getElementById("shadowingPracticePrompt"),
+    shadowingPracticeStatus: document.getElementById("shadowingPracticeStatus"),
+    shadowingPracticeNext: document.getElementById("shadowingPracticeNext"),
+    shadowingPracticeSkip: document.getElementById("shadowingPracticeSkip"),
+    shadowingPracticeContinue: document.getElementById("shadowingPracticeContinue"),
     sentenceHint: document.getElementById("sentenceHint"),
     figureHint: document.getElementById("figureHint"),
     headerMoreBtn: document.getElementById("headerMoreBtn"),
@@ -2052,6 +2061,7 @@
   function applyAccountScope(uid) {
     // design/79 — reload uid-scoped opt-in; logout clears via empty uid → OFF.
     loadShadowingPrefs();
+    if (window.AsrShadowingPractice) AsrShadowingPractice.syncEntryBtn();
     void refreshShadowingServerFlag();
 
     if (AsrNotes && typeof AsrNotes.setAccountScope === "function") {
@@ -3418,6 +3428,7 @@
   }
 
   function syncShadowingPracticeUi() {
+    if (window.AsrShadowingPractice) AsrShadowingPractice.syncEntryBtn();
     if (!el.shadowingPracticeCheck) return;
     const avail = !!shadowingPrefs.serverAvailable;
     el.shadowingPracticeCheck.disabled =
@@ -3426,7 +3437,7 @@
     el.shadowingPracticeCheck.checked = avail && !!shadowingPrefs.enabled;
     if (el.shadowingPracticeHint) {
       el.shadowingPracticeHint.textContent = avail
-        ? "기본은 꺼짐입니다. 켜면 따라 말하기 연습을 씁니다 (연습 UI는 후속)."
+        ? "기본은 꺼짐입니다. 켜면 헤더 ⋯「연습」에서 따라 말하기를 씁니다 (로그인·청크 준비 필요)."
         : "서버에서 쉐도잉 연습이 꺼져 있습니다.";
     }
   }
@@ -5861,6 +5872,62 @@
       }
     });
   }
+
+  // design/82 — shadowing practice mode (separate dialog; gated).
+  if (window.AsrShadowingPractice && typeof AsrShadowingPractice.configure === "function") {
+    AsrShadowingPractice.configure({
+      els: {
+        practiceBtn: el.shadowingPracticeBtn,
+        dialog: el.shadowingPracticeDialog,
+        closeBtn: el.shadowingPracticeClose,
+        meta: el.shadowingPracticeMeta,
+        prompt: el.shadowingPracticePrompt,
+        status: el.shadowingPracticeStatus,
+        nextBtn: el.shadowingPracticeNext,
+        skipBtn: el.shadowingPracticeSkip,
+        continueBtn: el.shadowingPracticeContinue,
+      },
+      serverAvailable: function () {
+        return !!shadowingPrefs.serverAvailable;
+      },
+      practiceEnabled: function () {
+        return !!shadowingPrefs.enabled;
+      },
+      isLoggedIn: function () {
+        return !!(authState.user && authState.user.uid);
+      },
+      cacheId: function () {
+        return state.cacheId ? String(state.cacheId) : null;
+      },
+      readerSnapshot: function () {
+        var sents = state.sentences || [];
+        var idx = state.sentenceIndex || 0;
+        var sent = sents[idx] || null;
+        var ids = sents.map(function (s, i) {
+          return String((s && (s.id || s.sentence_id)) || i);
+        });
+        var plain = "";
+        if (sent) {
+          plain = String(sent.text || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+        }
+        return {
+          sentenceIndex: idx,
+          sentenceCount: sents.length,
+          sentenceId: String((sent && (sent.id || sent.sentence_id)) || idx),
+          plainText: plain,
+          sentenceIds: ids,
+        };
+      },
+      goToSentence: function (i) {
+        var n = (state.sentences || []).length;
+        if (!n) return;
+        state.sentenceIndex = Math.max(0, Math.min(n - 1, i | 0));
+        renderSentence();
+      },
+    });
+    AsrShadowingPractice.boot();
+  }
+
   if (el.shadowingPracticeCheck) {
     el.shadowingPracticeCheck.addEventListener("change", function () {
       if (!shadowingPrefs.serverAvailable) {

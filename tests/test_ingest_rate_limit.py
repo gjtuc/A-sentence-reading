@@ -1,4 +1,4 @@
-"""Ingest/upload call-count rate limits (0.2.98 · design/73)."""
+"""Ingest/upload call-count rate limits (0.2.99 · design/73)."""
 
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ def _create(client: TestClient, raw: bytes):
 
 def test_status_flag():
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.98"
+    assert st["version"] == "0.2.99"
     assert st["ingest_rate_limit"] is True
 
 
@@ -133,7 +133,7 @@ def test_design_73():
     p = Path("docs/design/73-ingest-rate-limit.md")
     assert p.is_file()
     text = p.read_text(encoding="utf-8")
-    assert "0.2.98" in text
+    assert "0.2.99" in text
     assert "요청이 너무 많습니다" in text
     assert "daily" in text.lower() or "하루" in text
     assert "ASR_INGEST_RATE_LIMIT" in text
