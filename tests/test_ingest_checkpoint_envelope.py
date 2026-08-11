@@ -72,7 +72,7 @@ def _register(client: TestClient, email: str) -> None:
 
 def test_status_checkpoint_flag(fake_gcs, auth_root):
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.24"
+    assert st["version"] == "0.3.25"
     assert st["ingest_checkpoint"] is True
     assert st["pipeline_version"] == PIPELINE_VERSION
 
@@ -80,6 +80,7 @@ def test_status_checkpoint_flag(fake_gcs, auth_root):
 def test_design_110_exists():
     assert DESIGN.is_file()
     text = DESIGN.read_text(encoding="utf-8")
+    # WHY: chip 110 shipped at 0.3.24 — design pin is historical.
     assert "0.3.24" in text
     assert "checkpoint" in text.lower()
     assert "ASR_INGEST_CHECKPOINT" in text
@@ -87,7 +88,7 @@ def test_design_110_exists():
 
 
 def test_pubspec_pin():
-    assert "0.3.24" in PUB.read_text(encoding="utf-8")
+    assert "0.3.25" in PUB.read_text(encoding="utf-8")
 
 
 def test_checkpoint_valid_and_discard_reasons():

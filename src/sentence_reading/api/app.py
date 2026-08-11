@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.24",
+    version="0.3.25",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -477,7 +477,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.24",
+        "version": "0.3.25",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -1848,64 +1848,78 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
-    loaded = load_cached_session(cache_id)
-    if loaded is None:
-        try:
-            from sentence_reading.llm.papers_gcs import ensure_paper_local
+    try:
+        loaded = load_cached_session(cache_id)
+        if loaded is None:
+            try:
+                from sentence_reading.llm.papers_gcs import ensure_paper_local
 
-            ensure_paper_local(cache_id)
+                ensure_paper_local(cache_id)
+            except Exception:
+                pass
+            loaded = load_cached_session(cache_id)
+        if loaded is None:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "ok": False,
+                    "error": "cache_not_found",
+                    "message": "보관된 논문을 찾을 수 없습니다.",
+                },
+            )
+        session, info = loaded
+        src = "pdf"
+        # index source 힌트
+        try:
+            from sentence_reading.cache.paper_cache import list_cached_papers
+
+            for e in list_cached_papers():
+                if e.get("id") == cache_id:
+                    src = str(e.get("source") or "pdf")
+                    break
         except Exception:
             pass
-        loaded = load_cached_session(cache_id)
-    if loaded is None:
+        # design/99 — mobile may pass translate=0 to skip KO backfill until opted in.
+        bf_warn: list[str] = []
+        if _want_translate(request):
+            session, bf_warn = await _backfill_cached_translations(
+                None,
+                session,
+                kind=src,
+                source_path=get_source_path(cache_id),
+                content_hash=info.get("content_hash"),
+            )
+        session_id = _remember_session(session)
+        data = session.to_public_dict()
+        data["ok"] = True
+        data["session_id"] = session_id
+        data["debone"] = bool(info.get("debone"))
+        data["from_cache"] = True
+        data["cache_id"] = cache_id
+        data["pipeline_version"] = str(info.get("pipeline_version") or "")
+        data["current_pipeline"] = PIPELINE_VERSION
+        data["stale"] = bool(info.get("stale"))
+        data["has_source"] = bool(info.get("has_source")) or get_source_path(cache_id) is not None
+        if info.get("content_hash"):
+            data["content_hash"] = info["content_hash"]
+        # WHY: stale 도 열어 노트(cache:id) 유지 — 원본 있으면 재분석, 없으면 파일 재업로드
+        warnings = ["stale_pipeline"] if info.get("stale") else []
+        warnings.extend(bf_warn)
+        data["warnings"] = warnings
+        return JSONResponse(data)
+    except Exception as exc:  # noqa: BLE001
+        # design/111 — never leave clients with bare HTML 500 / empty body.
+        # EDGE: do not echo paths, stacks, or paper titles.
+        log = __import__("logging").getLogger("sentence_reading.api")
+        log.warning("cache_open failed: %s", type(exc).__name__)
         return JSONResponse(
-            status_code=404,
+            status_code=500,
             content={
                 "ok": False,
-                "error": "cache_not_found",
-                "message": "보관된 논문을 찾을 수 없습니다.",
+                "error": "cache_open_failed",
+                "message": "논문을 열지 못했습니다. 잠시 후 다시 시도해 주세요.",
             },
         )
-    session, info = loaded
-    src = "pdf"
-    # index source 힌트
-    try:
-        from sentence_reading.cache.paper_cache import list_cached_papers
-
-        for e in list_cached_papers():
-            if e.get("id") == cache_id:
-                src = str(e.get("source") or "pdf")
-                break
-    except Exception:
-        pass
-    # design/99 — mobile may pass translate=0 to skip KO backfill until opted in.
-    bf_warn: list[str] = []
-    if _want_translate(request):
-        session, bf_warn = await _backfill_cached_translations(
-            None,
-            session,
-            kind=src,
-            source_path=get_source_path(cache_id),
-            content_hash=info.get("content_hash"),
-        )
-    session_id = _remember_session(session)
-    data = session.to_public_dict()
-    data["ok"] = True
-    data["session_id"] = session_id
-    data["debone"] = bool(info.get("debone"))
-    data["from_cache"] = True
-    data["cache_id"] = cache_id
-    data["pipeline_version"] = str(info.get("pipeline_version") or "")
-    data["current_pipeline"] = PIPELINE_VERSION
-    data["stale"] = bool(info.get("stale"))
-    data["has_source"] = bool(info.get("has_source")) or get_source_path(cache_id) is not None
-    if info.get("content_hash"):
-        data["content_hash"] = info["content_hash"]
-    # WHY: stale 도 열어 노트(cache:id) 유지 — 원본 있으면 재분석, 없으면 파일 재업로드
-    warnings = ["stale_pipeline"] if info.get("stale") else []
-    warnings.extend(bf_warn)
-    data["warnings"] = warnings
-    return JSONResponse(data)
 
 
 @app.post("/api/cache/papers/{cache_id}/reanalyze")
@@ -2880,7 +2894,8 @@ async def _run_ingest_job_body(
                 _persist_job(job_id, job_err, force=True)
             return
 
-        # design/80 — shadowing chunk plans (per-uid) when client opted in.        want_chunks = bool(job_meta.get("want_shadowing_chunks"))
+        # design/80 — shadowing chunk plans (per-uid) when client opted in.
+        want_chunks = bool(job_meta.get("want_shadowing_chunks"))
         cache_id = (cache_entry or {}).get("id") if cache_entry else None
         owner = str(job_meta.get("owner_uid") or "")
         if want_chunks and cache_id and owner:
