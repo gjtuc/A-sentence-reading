@@ -55,7 +55,7 @@ Tesseract 로컬 OCR은 쓰지 않음.
 | `_FIGURE_CLIP_ZOOM` | **8.0** (0.2.41 · 이전 2.0) | 같은 clip을 더 촘촘히 찍음 (~576 dpi). **잘리는 범위는 불변** |
 | `_FIGURE_CLIP_MAX_SIDE_PX` | 6400 | 전면 그림 8× 시 긴 변 상한 (OOM). 영역은 유지·해상도만 캡 |
 
-`pipeline_version` → **`rich-v7`** (0.2.52 · compound off; 이전 rich-v6 는 고해상도 클립).
+`pipeline_version` → **`rich-v8`** (0.3.6 · caption-number figure order · [92](92-figure-caption-order.md); 이전 rich-v7 compound off).
 
 ### 1차 전략: embedded images
 

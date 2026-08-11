@@ -12,10 +12,10 @@ from sentence_reading.llm.tts_speak import spoken_text_for_tts
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_status_version_0_3_5() -> None:
+def test_status_version_0_3_6() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.5"
+    assert st["version"] == "0.3.6"
 
 
 def test_design_88_exists() -> None:
@@ -32,6 +32,15 @@ def test_design_90_unit_lexicon() -> None:
     text = p.read_text(encoding="utf-8")
     assert "0.3.5" in text
     assert "watt hour" in text.lower() or "Wh" in text
+
+
+def test_design_92_figure_caption_order() -> None:
+    p = ROOT / "docs" / "design" / "92-figure-caption-order.md"
+    assert p.is_file()
+    text = p.read_text(encoding="utf-8")
+    assert "0.3.6" in text
+    assert "rich-v8" in text
+    assert "Graphical abstract" in text or "caption" in text.lower()
 
 
 def test_flutter_rich_sentence_module() -> None:
