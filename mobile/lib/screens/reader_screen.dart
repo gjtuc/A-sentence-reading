@@ -210,30 +210,43 @@ class _SentencePanel extends StatelessWidget {
             ),
           Expanded(
             child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: SingleChildScrollView(
-                  child: cur == null || !cur.hasText
-                      ? const Text('No sentence at this index.')
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // design/88 — allowlisted <sub>/<sup>/<i> (not raw tags).
-                            richSentenceText(
-                              cur.text,
-                              style: Theme.of(context).textTheme.titleMedium ??
-                                  const TextStyle(fontSize: 18),
-                            ),
-                            if (cur.textKo.trim().isNotEmpty) ...[
-                              const SizedBox(height: 12),
+              child: _SwipePager(
+                enabled: session.sentenceCount > 0,
+                // design/95 — swipe left → prev, swipe right → next
+                onPrevious: () async {
+                  await tts.stop();
+                  await library.advanceSentence(-1);
+                },
+                onNext: () async {
+                  await tts.stop();
+                  await library.advanceSentence(1);
+                },
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: SingleChildScrollView(
+                    child: cur == null || !cur.hasText
+                        ? const Text('No sentence at this index.')
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // design/88 — allowlisted <sub>/<sup>/<i> (not raw tags).
                               richSentenceText(
-                                cur.textKo,
-                                style: Theme.of(context).textTheme.bodyMedium ??
-                                    const TextStyle(fontSize: 14),
+                                cur.text,
+                                style: Theme.of(context).textTheme.titleMedium ??
+                                    const TextStyle(fontSize: 18),
                               ),
+                              if (cur.textKo.trim().isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                richSentenceText(
+                                  cur.textKo,
+                                  style:
+                                      Theme.of(context).textTheme.bodyMedium ??
+                                          const TextStyle(fontSize: 14),
+                                ),
+                              ],
                             ],
-                          ],
-                        ),
+                          ),
+                  ),
                 ),
               ),
             ),
@@ -302,7 +315,14 @@ class _FigurePanel extends StatelessWidget {
                   ? const Center(child: Text('No figure.'))
                   : Column(
                       children: [
-                        Expanded(child: _FigureImage(src: cur.imageSrc)),
+                        Expanded(
+                          child: _FigureImage(
+                            src: cur.imageSrc,
+                            swipeEnabled: session.figureCount > 0,
+                            onPrevious: () => library.advanceFigure(-1),
+                            onNext: () => library.advanceFigure(1),
+                          ),
+                        ),
                         if (cur.caption.trim().isNotEmpty ||
                             cur.captionKo.trim().isNotEmpty)
                           Padding(
@@ -327,9 +347,17 @@ class _FigurePanel extends StatelessWidget {
 }
 
 class _FigureImage extends StatelessWidget {
-  const _FigureImage({required this.src});
+  const _FigureImage({
+    required this.src,
+    this.swipeEnabled = false,
+    this.onPrevious,
+    this.onNext,
+  });
 
   final String src;
+  final bool swipeEnabled;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
 
   @override
   Widget build(BuildContext context) {
@@ -339,6 +367,10 @@ class _FigureImage extends StatelessWidget {
     final decoded = decodeRasterDataUrl(src);
     if (decoded != null) {
       return _ZoomableFigureFrame(
+        key: ValueKey<String>('fig-mem-${src.length}-${src.hashCode}'),
+        swipeEnabled: swipeEnabled,
+        onPrevious: onPrevious,
+        onNext: onNext,
         child: Image.memory(
           decoded.bytes,
           fit: BoxFit.contain,
@@ -348,6 +380,10 @@ class _FigureImage extends StatelessWidget {
     }
     if (src.startsWith('http://') || src.startsWith('https://')) {
       return _ZoomableFigureFrame(
+        key: ValueKey<String>('fig-net-${src.hashCode}'),
+        swipeEnabled: swipeEnabled,
+        onPrevious: onPrevious,
+        onNext: onNext,
         child: Image.network(
           src,
           fit: BoxFit.contain,
@@ -369,11 +405,102 @@ class _FigureImage extends StatelessWidget {
   }
 }
 
-/// design/94 — zoom/pan the full figure frame, not just intrinsic image bounds.
-class _ZoomableFigureFrame extends StatelessWidget {
-  const _ZoomableFigureFrame({required this.child});
+/// design/95 — horizontal swipe: left→prev, right→next (figures only when not zoomed).
+class _SwipePager extends StatefulWidget {
+  const _SwipePager({
+    required this.child,
+    required this.onPrevious,
+    required this.onNext,
+    this.enabled = true,
+  });
 
   final Widget child;
+  final Future<void> Function()? onPrevious;
+  final Future<void> Function()? onNext;
+  final bool enabled;
+
+  @override
+  State<_SwipePager> createState() => _SwipePagerState();
+}
+
+class _SwipePagerState extends State<_SwipePager> {
+  static const double _minDistance = 56;
+  static const double _minVelocity = 180;
+  double _dx = 0;
+
+  void _handleDragEnd(DragEndDetails details) {
+    if (!widget.enabled) return;
+    final v = details.primaryVelocity ?? 0;
+    final goPrev = _dx < -_minDistance || v < -_minVelocity;
+    final goNext = _dx > _minDistance || v > _minVelocity;
+    _dx = 0;
+    if (goPrev && widget.onPrevious != null) {
+      widget.onPrevious!();
+    } else if (goNext && widget.onNext != null) {
+      widget.onNext!();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragStart: (_) => _dx = 0,
+      onHorizontalDragUpdate: (d) => _dx += d.delta.dx,
+      onHorizontalDragEnd: _handleDragEnd,
+      child: widget.child,
+    );
+  }
+}
+
+/// design/94+95 — full-frame zoom; swipe nav only at scale ≈ 1.
+class _ZoomableFigureFrame extends StatefulWidget {
+  const _ZoomableFigureFrame({
+    super.key,
+    required this.child,
+    this.swipeEnabled = false,
+    this.onPrevious,
+    this.onNext,
+  });
+
+  final Widget child;
+  final bool swipeEnabled;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  @override
+  State<_ZoomableFigureFrame> createState() => _ZoomableFigureFrameState();
+}
+
+class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
+  final TransformationController _transform = TransformationController();
+  static const double _minDistance = 56;
+  static const double _minVelocity = 180;
+  double _dx = 0;
+
+  bool get _zoomed {
+    final s = _transform.value.getMaxScaleOnAxis();
+    return s > 1.02;
+  }
+
+  @override
+  void dispose() {
+    _transform.dispose();
+    super.dispose();
+  }
+
+  void _onSwipeEnd(DragEndDetails details) {
+    if (!widget.swipeEnabled || _zoomed) return;
+    final v = details.primaryVelocity ?? 0;
+    final goPrev = _dx < -_minDistance || v < -_minVelocity;
+    final goNext = _dx > _minDistance || v > _minVelocity;
+    _dx = 0;
+    if (goPrev && widget.onPrevious != null) {
+      widget.onPrevious!();
+    } else if (goNext && widget.onNext != null) {
+      widget.onNext!();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -382,18 +509,35 @@ class _ZoomableFigureFrame extends StatelessWidget {
         final w = constraints.maxWidth;
         final h = constraints.maxHeight;
         if (!w.isFinite || !h.isFinite || w <= 0 || h <= 0) {
-          return child;
+          return widget.child;
         }
-        return InteractiveViewer(
-          minScale: 1.0,
-          maxScale: 8.0,
-          boundaryMargin: const EdgeInsets.all(48),
-          child: SizedBox(
-            width: w,
-            height: h,
-            child: ColoredBox(
-              color: Colors.black,
-              child: Center(child: child),
+        final allowSwipe = widget.swipeEnabled && !_zoomed;
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: allowSwipe ? (_) => _dx = 0 : null,
+          onHorizontalDragUpdate:
+              allowSwipe ? (d) => _dx += d.delta.dx : null,
+          onHorizontalDragEnd: allowSwipe ? _onSwipeEnd : null,
+          child: InteractiveViewer(
+            transformationController: _transform,
+            minScale: 1.0,
+            maxScale: 8.0,
+            // WHY: at 1×, disable pan so horizontal swipe can change figures.
+            panEnabled: _zoomed,
+            boundaryMargin: const EdgeInsets.all(48),
+            onInteractionUpdate: (_) {
+              if (mounted) setState(() {});
+            },
+            onInteractionEnd: (_) {
+              if (mounted) setState(() {});
+            },
+            child: SizedBox(
+              width: w,
+              height: h,
+              child: ColoredBox(
+                color: Colors.black,
+                child: Center(child: widget.child),
+              ),
             ),
           ),
         );
