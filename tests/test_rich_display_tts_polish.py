@@ -12,10 +12,10 @@ from sentence_reading.llm.tts_speak import spoken_text_for_tts
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_status_version_0_3_10() -> None:
+def test_status_version_0_3_11() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.10"
+    assert st["version"] == "0.3.11"
 
 
 def test_design_88_exists() -> None:
@@ -99,6 +99,19 @@ def test_design_96_tts_settings_tab() -> None:
     ).read_text(encoding="utf-8")
     assert "'speed'" not in reader and '"speed"' not in reader
     assert "연습" in reader
+
+
+def test_design_97_reader_panel_expand() -> None:
+    p = ROOT / "docs" / "design" / "97-reader-panel-expand.md"
+    assert p.is_file()
+    text = p.read_text(encoding="utf-8")
+    assert "0.3.11" in text
+    reader = (
+        ROOT / "mobile" / "lib" / "screens" / "reader_screen.dart"
+    ).read_text(encoding="utf-8")
+    assert "_ReaderLayoutMode" in reader
+    assert "onDoubleTapExpand" in reader
+    assert "sentenceOnly" in reader and "figureOnly" in reader
 
 
 def test_flutter_rich_sentence_module() -> None:
