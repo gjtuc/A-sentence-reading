@@ -1,4 +1,4 @@
-"""Live SMTP wiring contract (0.3.3 · design/86)."""
+﻿"""Live SMTP wiring contract (0.3.3 · design/86)."""
 from __future__ import annotations
 
 import os
@@ -16,7 +16,7 @@ def test_status_exposes_smtp_bool_without_secrets(monkeypatch: pytest.MonkeyPatc
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.19"
+    assert st["version"] == "0.3.20"
     assert st.get("email_smtp_configured") is False
     # SECURITY: never leak connection details on status.
     blob = str(st)

@@ -1,4 +1,4 @@
-"""헤더 파일 열기 + ⋯ overflow (0.2.66 ship · design/58; 앱 버전은 후속 범프)."""
+﻿"""헤더 파일 열기 + ⋯ overflow (0.2.66 ship · design/58; 앱 버전은 후속 범프)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "58-header-overflow.md"
 
 def test_status_header_overflow() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.19"
+    assert st["version"] == "0.3.20"
     assert st["header_overflow"] is True
     assert "live_enable" not in st
     assert "ips" not in st
@@ -81,6 +81,6 @@ def test_edge_escape_and_outside_close() -> None:
     assert "Trading Gate" in design or "ASR 밖" in design
     assert "Live Enable" in design or "IPS" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.19" in served
-    assert "styles.css?v=0.3.19" in served
+    assert "app.js?v=0.3.20" in served
+    assert "styles.css?v=0.3.20" in served
     assert "headerMoreBtn" in served

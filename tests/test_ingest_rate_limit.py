@@ -1,4 +1,4 @@
-"""Ingest/upload call-count rate limits (0.3.3 · design/73)."""
+﻿"""Ingest/upload call-count rate limits (0.3.3 · design/73)."""
 
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ def _create(client: TestClient, raw: bytes):
 
 def test_status_flag():
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.19"
+    assert st["version"] == "0.3.20"
     assert st["ingest_rate_limit"] is True
 
 

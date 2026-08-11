@@ -1,4 +1,4 @@
-"""stale pipeline_version 정책 계약."""
+﻿"""stale pipeline_version 정책 계약."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from sentence_reading.models import Figure, PaperSession, Sentence
 def test_status_exposes_pipeline() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.19"
+    assert st["version"] == "0.3.20"
     assert st["pipeline_version"] == PIPELINE_VERSION
 
 

@@ -209,7 +209,11 @@ def delete_ingest_upload(
 
 
 def should_push_job(job: dict[str, Any], *, force: bool = False) -> bool:
-    """Throttle GCS writes — stage change, +5% jump, or terminal."""
+    """Throttle GCS writes — stage change, +1% jump, or terminal.
+
+    design/106: quality bumps 12→16 (+4) must reach other Cloud Run instances;
+    the old +5% gate left polls stuck at 12% / 「추출 품질 보는 중」.
+    """
     if force or job.get("done") or job.get("error"):
         return True
     prev_p = int(job.get("_gcs_pushed_percent") or -1)
@@ -218,7 +222,7 @@ def should_push_job(job: dict[str, Any], *, force: bool = False) -> bool:
     cur_s = str(job.get("stage") or "")
     if cur_s != prev_s:
         return True
-    if cur_p - prev_p >= 5:
+    if cur_p - prev_p >= 1:
         return True
     return False
 

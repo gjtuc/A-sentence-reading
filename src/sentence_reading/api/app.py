@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.19",
+    version="0.3.20",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -458,7 +458,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.19",
+        "version": "0.3.20",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -2140,13 +2140,45 @@ def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
 
     user = _request_user(request)
     job = _JOBS.get(jid)
-    if job is None and user is not None:
+    if user is not None:
         # WHY: other Cloud Run instance — shared truth is users/{uid}/ingest_jobs.
+        # design/106: also re-load when local cache is non-terminal so a stale
+        # 12% quality snapshot cannot pin the poll forever after GCS advances.
         loaded = ij.load_ingest_job(jid, owner_uid=user.uid)
         if loaded is not None:
-            job = loaded
-            # Warm local cache so subsequent polls on this instance are cheap.
-            _JOBS[jid] = dict(loaded)
+            if job is None:
+                job = loaded
+                _JOBS[jid] = dict(loaded)
+            elif not job.get("done") and not job.get("error"):
+                gcs_p = int(loaded.get("percent") or 0)
+                loc_p = int(job.get("percent") or 0)
+                if (
+                    loaded.get("done")
+                    or loaded.get("error")
+                    or gcs_p > loc_p
+                    or (
+                        gcs_p == loc_p
+                        and str(loaded.get("stage") or "")
+                        != str(job.get("stage") or "")
+                    )
+                    or (
+                        gcs_p == loc_p
+                        and str(loaded.get("message") or "")
+                        != str(job.get("message") or "")
+                    )
+                ):
+                    for key in (
+                        "percent",
+                        "stage",
+                        "message",
+                        "done",
+                        "error",
+                        "result",
+                        "content_hash",
+                        "filename",
+                    ):
+                        if key in loaded:
+                            job[key] = loaded[key]
 
     if job is None:
         return JSONResponse(
