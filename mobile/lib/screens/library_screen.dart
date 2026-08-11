@@ -27,6 +27,11 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
+  /// design/102 — trash toggles multi-select delete mode.
+  bool _selecting = false;
+  final Set<String> _selected = <String>{};
+  bool _deleting = false;
+
   @override
   void initState() {
     super.initState();
@@ -50,8 +55,70 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _loadAndResume();
     } else {
       // WHY (MULTI-USER): wipe list + upload draft so next account cannot resume.
+      setState(() {
+        _selecting = false;
+        _selected.clear();
+      });
       widget.library.clearAll();
     }
+  }
+
+  void _toggleSelecting() {
+    setState(() {
+      _selecting = !_selecting;
+      if (!_selecting) _selected.clear();
+    });
+  }
+
+  void _toggleSelected(String id) {
+    setState(() {
+      if (_selected.contains(id)) {
+        _selected.remove(id);
+      } else {
+        _selected.add(id);
+      }
+    });
+  }
+
+  Future<void> _confirmDelete() async {
+    if (_deleting || _selected.isEmpty) return;
+    final count = _selected.length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('보관본 삭제'),
+        content: Text(
+          '선택한 $count건을 삭제할까요?\n'
+          '클라우드(GCS) 문서와 노트·연습 기록도 함께 지워집니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _deleting = true);
+    final ids = _selected.toList(growable: false);
+    final deleted = await widget.library.deletePapers(ids);
+    if (!mounted) return;
+    setState(() {
+      _deleting = false;
+      _selecting = false;
+      _selected.clear();
+    });
+    final msg = deleted == 0
+        ? (widget.library.error ?? '삭제에 실패했습니다.')
+        : deleted == ids.length
+            ? '$deleted건을 삭제했습니다.'
+            : '$deleted/${ids.length}건을 삭제했습니다.';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Future<void> _loadAndResume() async {
@@ -188,14 +255,33 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ),
                       ),
                       IconButton(
-                        onPressed: lib.loading || lib.opening || lib.uploading
+                        onPressed: lib.loading ||
+                                lib.opening ||
+                                lib.uploading ||
+                                _deleting ||
+                                lib.papers.isEmpty
+                            ? null
+                            : _toggleSelecting,
+                        icon: Icon(
+                          _selecting ? Icons.close : Icons.delete_outline,
+                        ),
+                        tooltip: _selecting ? '선택 취소' : '삭제',
+                      ),
+                      IconButton(
+                        onPressed: lib.loading ||
+                                lib.opening ||
+                                lib.uploading ||
+                                _deleting
                             ? null
                             : _pickAndUpload,
                         icon: const Icon(Icons.upload_file),
                         tooltip: 'PDF 가져오기',
                       ),
                       IconButton(
-                        onPressed: lib.loading || lib.opening || lib.uploading
+                        onPressed: lib.loading ||
+                                lib.opening ||
+                                lib.uploading ||
+                                _deleting
                             ? null
                             : lib.refresh,
                         icon: const Icon(Icons.refresh),
@@ -205,15 +291,49 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                 ),
               ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: Text(
-                    '이름을 길게 누른 뒤 끌어 순서를 바꿀 수 있습니다.',
-                    style: Theme.of(context).textTheme.bodySmall,
+              if (_selecting)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _selected.isEmpty
+                                ? '삭제할 문서를 선택하세요.'
+                                : '${_selected.length}건 선택됨',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        FilledButton.tonalIcon(
+                          onPressed: _deleting || _selected.isEmpty
+                              ? null
+                              : _confirmDelete,
+                          icon: _deleting
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.delete),
+                          label: const Text('삭제'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Text(
+                      '이름을 길게 누른 뒤 끌어 순서를 바꿀 수 있습니다.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                   ),
                 ),
-              ),
               if (lib.uploading)
                 SliverToBoxAdapter(
                   child: Padding(
@@ -310,37 +430,64 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 SliverReorderableList(
                   itemCount: lib.papers.length,
                   onReorder: (oldIndex, newIndex) {
-                    if (lib.opening || lib.uploading) return;
+                    if (_selecting || lib.opening || lib.uploading || _deleting) {
+                      return;
+                    }
                     unawaited(lib.reorderPapers(oldIndex, newIndex));
                   },
                   itemBuilder: (context, i) {
                     final e = lib.papers[i];
+                    final selected = _selected.contains(e.id);
+                    final tile = ListTile(
+                      leading: _selecting
+                          ? Checkbox(
+                              value: selected,
+                              onChanged: _deleting
+                                  ? null
+                                  : (_) => _toggleSelected(e.id),
+                            )
+                          : null,
+                      title: Text(e.title),
+                      subtitle: Text(
+                        [
+                          e.subtitle,
+                          if (e.updatedAt.isNotEmpty) e.updatedAt,
+                        ].where((s) => s.isNotEmpty).join('\n'),
+                      ),
+                      isThreeLine: e.updatedAt.isNotEmpty,
+                      selected: _selecting && selected,
+                      trailing: _selecting
+                          ? null
+                          : (lib.opening
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.drag_handle)),
+                      onTap: lib.opening || lib.uploading || _deleting
+                          ? null
+                          : () {
+                              if (_selecting) {
+                                _toggleSelected(e.id);
+                              } else {
+                                _open(e);
+                              }
+                            },
+                    );
+                    if (_selecting) {
+                      return KeyedSubtree(
+                        key: ValueKey<String>(e.id),
+                        child: tile,
+                      );
+                    }
                     return ReorderableDelayedDragStartListener(
                       key: ValueKey<String>(e.id),
                       index: i,
-                      enabled: !lib.opening && !lib.uploading,
-                      child: ListTile(
-                        title: Text(e.title),
-                        subtitle: Text(
-                          [
-                            e.subtitle,
-                            if (e.updatedAt.isNotEmpty) e.updatedAt,
-                          ].where((s) => s.isNotEmpty).join('\n'),
-                        ),
-                        isThreeLine: e.updatedAt.isNotEmpty,
-                        trailing: lib.opening
-                            ? const SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.drag_handle),
-                        onTap: lib.opening || lib.uploading
-                            ? null
-                            : () => _open(e),
-                      ),
+                      enabled: !lib.opening && !lib.uploading && !_deleting,
+                      child: tile,
                     );
                   },
                 ),

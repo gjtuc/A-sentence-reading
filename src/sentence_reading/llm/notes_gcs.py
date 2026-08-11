@@ -182,6 +182,38 @@ def push_notes_store(local: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def remove_paper_notes(paper_key: str) -> bool:
+    """design/102 — drop notes for one paper key (e.g. cache:{id}). Best-effort."""
+    key = (paper_key or "").strip()
+    if not key:
+        return False
+    ready, _ = gcs_client_ready()
+    if not gcs_config().enabled or not ready:
+        return False
+    store = download_notes_store() or empty_notes_store()
+    papers = store.get("papers")
+    if not isinstance(papers, dict) or key not in papers:
+        return True
+    # Collect voice blob keys before drop (best-effort cleanup).
+    blob_keys: list[str] = []
+    entry = papers.get(key)
+    if isinstance(entry, dict):
+        for item in entry.get("voice") or []:
+            if isinstance(item, dict) and item.get("blobKey"):
+                blob_keys.append(str(item["blobKey"]))
+    del papers[key]
+    ok = upload_notes_store({"version": 2, "papers": papers})
+    if ok and blob_keys:
+        try:
+            from sentence_reading.llm.voice_gcs import delete_voice_blob
+
+            for bk in blob_keys:
+                delete_voice_blob(bk)
+        except Exception:  # noqa: BLE001
+            pass
+    return ok
+
+
 def notes_gcs_status_fields() -> dict[str, Any]:
     return {
         "notes_sync": True,

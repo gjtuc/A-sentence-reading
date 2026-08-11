@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.15",
+    version="0.3.16",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -458,7 +458,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.15",
+        "version": "0.3.16",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -1977,8 +1977,11 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
 
 
 @app.delete("/api/cache/papers/{cache_id}")
-def cache_delete(cache_id: str) -> JSONResponse:
-    """보관(증류)본 삭제 — 다음에 같은 파일을 열면 다시 분석."""
+def cache_delete(request: Request, cache_id: str) -> JSONResponse:
+    """보관(증류)본 삭제 — 로컬·GCS 논문 + 같은 uid 사용자 기록 (design/102)."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
     deleted = delete_cached_paper(cache_id=cache_id)
     if deleted is None:
         return JSONResponse(
@@ -2000,8 +2003,11 @@ def cache_delete(cache_id: str) -> JSONResponse:
 
 
 @app.post("/api/cache/delete")
-async def cache_delete_by_meta(payload: dict = Body(...)) -> JSONResponse:
+async def cache_delete_by_meta(request: Request, payload: dict = Body(...)) -> JSONResponse:
     """cache_id 없거나 모를 때 title+source 로 삭제."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
     cache_id = str(payload.get("cache_id") or "").strip() or None
     title = str(payload.get("title") or "").strip() or None
     source = str(payload.get("source") or "").strip() or None

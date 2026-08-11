@@ -277,6 +277,36 @@ class LibraryController extends ChangeNotifier {
     await _persistOrder(next.map((e) => e.id).toList(growable: false));
   }
 
+  /// design/102 — delete selected papers (GCS + user records via API).
+  Future<int> deletePapers(Iterable<String> cacheIds) async {
+    final ids = cacheIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (ids.isEmpty) return 0;
+    var okCount = 0;
+    String? lastErr;
+    for (final id in ids) {
+      try {
+        await _client.deletePaper(id);
+        okCount += 1;
+        if (session?.cacheId == id) {
+          clearOpened();
+        }
+      } on AsrApiException catch (e) {
+        lastErr = e.message;
+      } catch (e) {
+        lastErr = e.toString();
+      }
+    }
+    papers = papers.where((p) => !ids.contains(p.id)).toList(growable: false);
+    await _persistOrder(papers.map((e) => e.id).toList(growable: false));
+    error = okCount == 0 ? (lastErr ?? '삭제에 실패했습니다.') : null;
+    notifyListeners();
+    return okCount;
+  }
+
   Future<List<PaperEntry>> _applySavedOrder(List<PaperEntry> fetched) async {
     try {
       final auth = await _client.fetchAuthStatus();

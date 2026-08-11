@@ -66,6 +66,19 @@ def download_voice_blob(blob_key: str) -> bytes | None:
     return data
 
 
+def delete_voice_blob(blob_key: str) -> bool:
+    """Best-effort remove personal voice object for blob_key."""
+    from sentence_reading.llm.gcs_sync import delete_bytes
+
+    obj = voice_blob_object(blob_key)
+    if not obj:
+        return False
+    try:
+        return bool(delete_bytes(obj))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def voice_gcs_status_fields() -> dict[str, Any]:
     ready, _ = gcs_client_ready()
     cfg = gcs_config()
