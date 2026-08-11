@@ -184,6 +184,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                   client: client,
                                   library: library,
                                   shadowing: shadowing,
+                                  tts: tts,
                                 ),
                               ),
                             );

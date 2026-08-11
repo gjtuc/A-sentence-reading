@@ -10,10 +10,10 @@ Reader plays the **current English sentence** via Cloud TTS. The app only fetche
 
 | In | Out |
 |----|-----|
-| Play / Stop on sentence panel | Random-mode UI (web-only for now) |
-| Client `playbackRate` (0.5–2.2) | Google / Kakao login |
-| Default Neural2 voice optional | App-side Gemini / GCS keys |
-| Stop on sentence advance | Upload / notes |
+| Play / Stop on sentence panel | Google / Kakao login |
+| Client `playbackRate` (0.5–2.2) | App-side Gemini / GCS keys |
+| Settings: voice · fixed/random mode ([103](103-mobile-tts-voice-random.md)) | Upload / notes |
+| Stop on sentence advance | |
 
 ## Cache (PC parity)
 

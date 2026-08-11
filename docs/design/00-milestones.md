@@ -1,4 +1,4 @@
-﻿# 00 — Milestones
+# 00 — Milestones
 
 구현을 **한 번에 다 하지 않는다.** 각 단계가 끝나면 수동/자동으로 검증 가능하게.
 
@@ -129,6 +129,7 @@
 - ~~읽기 프레임 헤더 탭 토글~~ (0.3.14 · [100-reader-chrome-toggle.md](100-reader-chrome-toggle.md))
 - ~~보관 목록 길게 눌러 순서 변경~~ (0.3.15 · [101-library-reorder.md](101-library-reorder.md))
 - ~~보관 삭제(휴지통) · GCS·사용자 기록 정리~~ (0.3.16 · [102-library-delete.md](102-library-delete.md))
+- ~~모바일 TTS 목소리·랜덤 난이도 (읽기·연습)~~ (0.3.17 · [103-mobile-tts-voice-random.md](103-mobile-tts-voice-random.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

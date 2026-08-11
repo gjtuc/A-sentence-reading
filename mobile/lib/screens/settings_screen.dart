@@ -13,7 +13,7 @@ import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
 import 'status_screen.dart';
 
-/// Settings: account, theme, TTS, translate, shadowing, access (design/66-68, 79, 96, 99).
+/// Settings: account, theme, TTS, translate, shadowing, access (design/66-68, 79, 96, 99, 103).
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
@@ -283,32 +283,123 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text('TTS', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
-              '읽기 탭 재생 배속입니다. 서버 음성은 1.0으로 받고 기기에서만 조절합니다.',
+              '읽기와 연습(쉐도잉) 듣기에 공통입니다. 서버는 1.0으로 합성하고 배속은 기기에서만 적용합니다.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             AnimatedBuilder(
               animation: widget.tts,
               builder: (context, _) {
-                return Row(
+                final tts = widget.tts;
+                final random = tts.isRandomMode;
+                final voiceItems = tts.voices.isEmpty
+                    ? <DropdownMenuItem<String>>[
+                        DropdownMenuItem(
+                          value: tts.voice,
+                          child: Text(tts.voice, overflow: TextOverflow.ellipsis),
+                        ),
+                      ]
+                    : tts.voices
+                        .map(
+                          (v) => DropdownMenuItem(
+                            value: v.id,
+                            child: Text(v.label, overflow: TextOverflow.ellipsis),
+                          ),
+                        )
+                        .toList(growable: false);
+                final voiceValue = voiceItems.any((e) => e.value == tts.voice)
+                    ? tts.voice
+                    : (voiceItems.first.value ?? kTtsDefaultVoice);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text('배속', style: TextStyle(fontSize: 14)),
-                    Expanded(
-                      child: Slider(
-                        value: widget.tts.rate.clamp(kTtsRateMin, kTtsRateMax),
-                        min: kTtsRateMin,
-                        max: kTtsRateMax,
-                        divisions: 17,
-                        label: widget.tts.rate.toStringAsFixed(2),
-                        onChanged: (v) => widget.tts.setRate(v),
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey('tts_mode'),
+                      decoration: const InputDecoration(
+                        labelText: '모드',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      value: normalizeTtsMode(tts.mode),
+                      items: [
+                        for (final m in [
+                          kTtsModeFixed,
+                          kTtsModeRandomNormal,
+                          kTtsModeRandomHard,
+                          kTtsModeRandomVeryHard,
+                        ])
+                          DropdownMenuItem(
+                            value: m,
+                            child: Text(ttsModeLabelKo(m)),
+                          ),
+                      ],
+                      onChanged: (v) {
+                        if (v == null) return;
+                        tts.setMode(v);
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      ttsModeHintKo(tts.mode),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 12),
+                    Opacity(
+                      opacity: random ? 0.45 : 1,
+                      child: IgnorePointer(
+                        ignoring: random,
+                        child: DropdownButtonFormField<String>(
+                          key: const ValueKey('tts_voice'),
+                          decoration: InputDecoration(
+                            labelText: '목소리',
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                            helperText: tts.voicesLoading
+                                ? '목소리 목록 불러오는 중…'
+                                : null,
+                          ),
+                          value: voiceValue,
+                          items: voiceItems,
+                          onChanged: (v) {
+                            if (v == null) return;
+                            tts.setVoice(v);
+                          },
+                        ),
                       ),
                     ),
-                    SizedBox(
-                      width: 44,
-                      child: Text(
-                        widget.tts.rate.toStringAsFixed(2),
-                        textAlign: TextAlign.end,
+                    const SizedBox(height: 8),
+                    Opacity(
+                      opacity: random ? 0.45 : 1,
+                      child: IgnorePointer(
+                        ignoring: random,
+                        child: Row(
+                          children: [
+                            const Text('배속', style: TextStyle(fontSize: 14)),
+                            Expanded(
+                              child: Slider(
+                                value: tts.rate.clamp(kTtsRateMin, kTtsRateMax),
+                                min: kTtsRateMin,
+                                max: kTtsRateMax,
+                                divisions: 17,
+                                label: tts.rate.toStringAsFixed(2),
+                                onChanged: (v) => tts.setRate(v),
+                              ),
+                            ),
+                            SizedBox(
+                              width: 44,
+                              child: Text(
+                                tts.rate.toStringAsFixed(2),
+                                textAlign: TextAlign.end,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
+                    if (tts.voices.isEmpty && !tts.voicesLoading)
+                      TextButton(
+                        onPressed: () => tts.ensureVoicesLoaded(force: true),
+                        child: const Text('목소리 목록 다시 불러오기'),
+                      ),
                   ],
                 );
               },
