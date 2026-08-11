@@ -38,11 +38,11 @@
 
 ## Version
 
-Web/mobile **0.3.0** · pubspec `0.3.0+1`
+Web/mobile **0.3.1** · pubspec `0.3.1+1`
 
 ## Device E2E
 
-1. APK `0.3.0` · live flag true
+1. APK `0.3.1` · live flag true
 2. 업로드 시작 → 알림 → (가능하면) 통화/장시간 pause 시뮬레이션 또는 force-stop 없이 Home+지연
 3. stall 문구 또는 resumed 후 이어올리기·완료
 4. 실패 시 성공 알림 없음
@@ -51,7 +51,7 @@ Do not paste emails, cookies, or paper titles into chat/PR.
 
 ## Live pin (post-merge)
 
-- Cloud Run \/api/status\: \ersion=0.3.0\, \mobile_upload_interrupt_resume=true- Device APK \ersionName=0.3.0\ · SM-G986N
+- Cloud Run \/api/status\: \ersion=0.3.1\, \mobile_upload_interrupt_resume=true- Device APK \ersionName=0.3.1\ · SM-G986N
 - E2E: mid-upload airplane → STALL_VISIBLE → network/app resume → resumeish=True
 - Kill: \ASR_MOBILE_UPLOAD_INTERRUPT_RESUME=0- Live Enable / IPS: unchanged
 

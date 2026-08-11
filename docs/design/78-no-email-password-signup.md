@@ -28,11 +28,11 @@ Modules: `login_screen.dart` · `/api/auth/email/register|login` kill · status 
 
 ## Version
 
-**0.3.0** · pubspec `0.3.0+1`
+**0.3.1** · pubspec `0.3.1+1`
 
 ## Device E2E (pre-merge)
 
-- APK `versionName=0.3.0` · SM-G986N  
+- APK `versionName=0.3.1` · SM-G986N  
 - 로그인 화면에 비밀번호/「가입」 없음 · Google/카카오/매직링크 버튼만  
 - Live Enable / IPS: unchanged  
 

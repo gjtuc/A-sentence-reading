@@ -184,6 +184,13 @@
     authDialogHint: document.getElementById("authDialogHint"),
     authDialogStatus: document.getElementById("authDialogStatus"),
     authDialogClose: document.getElementById("authDialogClose"),
+    accessWaitingPanel: document.getElementById("accessWaitingPanel"),
+    accessWaitingHint: document.getElementById("accessWaitingHint"),
+    accessWaitingStatus: document.getElementById("accessWaitingStatus"),
+    accessInviteInput: document.getElementById("accessInviteInput"),
+    accessInviteSubmit: document.getElementById("accessInviteSubmit"),
+    accessWaitingRefresh: document.getElementById("accessWaitingRefresh"),
+    accessWaitingLogout: document.getElementById("accessWaitingLogout"),
     authProviderStack: document.getElementById("authProviderStack"),
     authKakaoBtn: document.getElementById("authKakaoBtn"),
     authGoogleBtn: document.getElementById("authGoogleBtn"),
@@ -2192,15 +2199,12 @@
     setUploadStatus(msg || "로그인됨", "");
     applyLoginGateChrome(false);
     if (el.authDialog && el.authDialog.open) el.authDialog.close();
-    if (!loginGateUnlocked) {
-      loginGateUnlocked = true;
-      loadMock();
-    }
     loadTranslatePrefs();
     loadSectionReviewPrefs();
     loadGuidePrefs();
     if (translatePrefs.enabled) render();
-    await pullNotesFromCloud();
+    // design/84 — after identity, invite waiting before reader boot
+    await enterAppOrAccessWait();
   }
 
   async function completeGoogleCredential(credential, mode) {
@@ -2488,6 +2492,9 @@
     if (translatePrefs.enabled) render();
     else clearSentenceKo();
     setUploadStatus("로그아웃됨", "");
+    stopAccessPoll();
+    applyAccessWaitingChrome(false);
+    loginGateUnlocked = false;
     // design/83 — logout returns to login-only shell when gate on.
     if (loginRequiredFlag && authState.enabled) {
       applyLoginGateChrome(true);
@@ -6543,6 +6550,8 @@
   /** @type {boolean} fail-closed until /api/status says otherwise */
   let loginRequiredFlag = true;
   let loginGateUnlocked = false;
+  let accessWaitingUx = true;
+  let accessPollTimer = 0;
 
   function applyLoginGateChrome(active) {
     document.body.classList.toggle("asr-login-gate", !!active);
@@ -6552,29 +6561,168 @@
     }
   }
 
+  function applyAccessWaitingChrome(active) {
+    document.body.classList.toggle("asr-access-waiting", !!active);
+    if (el.accessWaitingPanel) el.accessWaitingPanel.hidden = !active;
+  }
+
+  function stopAccessPoll() {
+    if (accessPollTimer) {
+      window.clearInterval(accessPollTimer);
+      accessPollTimer = 0;
+    }
+  }
+
+  function paintAccessWaiting(access) {
+    const status = (access && access.status) || "none";
+    let hint = "초대 코드를 입력하면 관리자 승인 대기가 됩니다.";
+    if (status === "pending") {
+      hint = "코드가 확인되었습니다. 관리자 승인을 기다리는 중입니다.";
+    } else if (status === "denied") {
+      hint = "승인이 거절되었습니다. 새 초대 코드를 다시 입력할 수 있습니다.";
+    }
+    if (el.accessWaitingHint) el.accessWaitingHint.textContent = hint;
+    if (el.accessWaitingStatus) {
+      el.accessWaitingStatus.textContent = access
+        ? "상태: " + status
+        : "";
+    }
+  }
+
+  async function fetchAccessView() {
+    const res = await fetch("/api/access/status", {
+      credentials: "same-origin",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.message || "access_status_failed");
+    }
+    return data;
+  }
+
+  function startAccessPoll() {
+    stopAccessPoll();
+    // WHY: admin Allow on another instance — auto enter without refresh tap.
+    accessPollTimer = window.setInterval(function () {
+      void refreshAccessWaiting(true);
+    }, 5000);
+  }
+
+  async function refreshAccessWaiting(silent) {
+    try {
+      const access = await fetchAccessView();
+      paintAccessWaiting(access);
+      if (!access.gate_enabled || access.can_use_paid) {
+        await unlockMainAppFromAccess();
+        return true;
+      }
+      return false;
+    } catch (err) {
+      // FAIL-CLOSED: keep waiting; never pretend success.
+      if (!silent && el.accessWaitingStatus) {
+        el.accessWaitingStatus.textContent =
+          "상태를 확인하지 못했습니다. 다시 시도하세요.";
+      }
+      return false;
+    }
+  }
+
+  async function unlockMainAppFromAccess() {
+    stopAccessPoll();
+    applyAccessWaitingChrome(false);
+    if (!loginGateUnlocked) {
+      loginGateUnlocked = true;
+      loadMock();
+    }
+    await pullNotesFromCloud();
+  }
+
+  async function enterAppOrAccessWait() {
+    // EDGE: capability flag off → skip waiting shell (ops rollback).
+    if (!accessWaitingUx) {
+      await unlockMainAppFromAccess();
+      return;
+    }
+    try {
+      const access = await fetchAccessView();
+      // gate off / admin / allowed → main app
+      if (!access.gate_enabled || access.can_use_paid) {
+        await unlockMainAppFromAccess();
+        return;
+      }
+      applyAccessWaitingChrome(true);
+      paintAccessWaiting(access);
+      startAccessPoll();
+    } catch (_) {
+      // FAIL-CLOSED when waiting UX on: show waiting, do not loadMock.
+      applyAccessWaitingChrome(true);
+      paintAccessWaiting({ status: "none" });
+      startAccessPoll();
+    }
+  }
+
+  async function submitAccessInvite() {
+    const raw = el.accessInviteInput ? el.accessInviteInput.value : "";
+    const compact = String(raw || "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+    if (compact.length !== 8) {
+      if (el.accessWaitingStatus) {
+        el.accessWaitingStatus.textContent =
+          "초대 코드 형식이 올바르지 않습니다.";
+      }
+      return;
+    }
+    const res = await fetch("/api/access/invite", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: compact }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      if (el.accessWaitingStatus) {
+        el.accessWaitingStatus.textContent =
+          data.message || "초대 코드 제출에 실패했습니다.";
+      }
+      return;
+    }
+    if (el.accessInviteInput) el.accessInviteInput.value = "";
+    const access = data.access || data;
+    paintAccessWaiting(access);
+    if (!access.gate_enabled || access.can_use_paid) {
+      await unlockMainAppFromAccess();
+    }
+  }
+
   async function bootWithLoginGate() {
     try {
       const res = await fetch("/api/status", { credentials: "same-origin" });
       const st = await res.json().catch(() => ({}));
       // Missing key → require login (fail-closed for older/partial responses).
       loginRequiredFlag = st.login_required !== false;
+      // design/84 — missing key → waiting UX on (fail-closed).
+      accessWaitingUx = st.access_waiting_ux !== false;
     } catch (_) {
       loginRequiredFlag = true;
+      accessWaitingUx = true;
     }
     await initAuth();
     const mustGate =
       loginRequiredFlag && !!authState.enabled && !authState.user;
     if (mustGate) {
       applyLoginGateChrome(true);
+      applyAccessWaitingChrome(false);
       openAuthDialog("login");
       return;
     }
     applyLoginGateChrome(false);
-    if (!loginGateUnlocked) {
-      loginGateUnlocked = true;
-      loadMock();
+    if (authState.user) {
+      await enterAppOrAccessWait();
+      return;
     }
-    await pullNotesFromCloud();
+    // Auth disabled / anonymous allowed → main app.
+    await unlockMainAppFromAccess();
   }
 
   if (el.authDialog) {
@@ -6585,7 +6733,22 @@
       }
     });
   }
+  if (el.accessInviteSubmit) {
+    el.accessInviteSubmit.addEventListener("click", () => {
+      void submitAccessInvite().catch(() => {});
+    });
+  }
+  if (el.accessWaitingRefresh) {
+    el.accessWaitingRefresh.addEventListener("click", () => {
+      void refreshAccessWaiting(false);
+    });
+  }
+  if (el.accessWaitingLogout) {
+    el.accessWaitingLogout.addEventListener("click", () => {
+      void logoutAuth();
+    });
+  }
 
-  // design/83 — identity gate before mock/reader boot.
+  // design/83+84 — identity then access waiting before reader boot.
   void bootWithLoginGate();
 })();

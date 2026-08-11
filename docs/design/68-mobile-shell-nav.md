@@ -30,4 +30,4 @@ See: [33-mobile-flutter.md](33-mobile-flutter.md) · [61](61-mobile-email-auth.m
 
 ## Version
 
-Web **0.3.0** · `mobile_shell_nav` · pubspec `0.3.0+1`
+Web **0.3.1** · `mobile_shell_nav` · pubspec `0.3.1+1`
