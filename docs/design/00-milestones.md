@@ -141,6 +141,7 @@
 - ~~ingest mid-stage resume skip (payload)~~ (0.3.26 · [112-ingest-resume-skip.md](112-ingest-resume-skip.md))
 - ~~shadowing chunk build 시간 예산·이어하기 (504 회피)~~ (0.3.27 · [113-shadowing-chunk-budget.md](113-shadowing-chunk-budget.md))
 - ~~보관 열기 빈 세션 거절 · GCS 재pull~~ (0.3.28 · [114-library-open-empty-session.md](114-library-open-empty-session.md))
+- ~~읽기 패널 clipBehavior null 크래시~~ (0.3.29 · [115-reader-clip-without-decoration.md](115-reader-clip-without-decoration.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

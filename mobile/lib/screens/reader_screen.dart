@@ -267,22 +267,27 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     children: [
                       Column(
                         children: [
-                          AnimatedContainer(
-                            duration: Duration(milliseconds: animMs),
-                            curve: Curves.easeInOut,
-                            height: sentenceH,
-                            clipBehavior: Clip.hardEdge,
-                            child: sentenceH < 1
-                                ? const SizedBox.shrink()
-                                : _SentencePanel(
-                                    library: library,
-                                    tts: tts,
-                                    session: s,
-                                    showKo: showKo,
-                                    showChrome: _chromeVisible,
-                                    onToggleChrome: _toggleChrome,
-                                    onDoubleTapExpand: _toggleSentenceExpand,
-                                  ),
+                          // design/115 — NEVER put clipBehavior on Container/
+                          // AnimatedContainer without decoration: Flutter does
+                          // decoration! and the whole reader body goes blank
+                          // (title-only). ClipRect keeps hard edges safely.
+                          ClipRect(
+                            child: AnimatedContainer(
+                              duration: Duration(milliseconds: animMs),
+                              curve: Curves.easeInOut,
+                              height: sentenceH,
+                              child: sentenceH < 1
+                                  ? const SizedBox.shrink()
+                                  : _SentencePanel(
+                                      library: library,
+                                      tts: tts,
+                                      session: s,
+                                      showKo: showKo,
+                                      showChrome: _chromeVisible,
+                                      onToggleChrome: _toggleChrome,
+                                      onDoubleTapExpand: _toggleSentenceExpand,
+                                    ),
+                            ),
                           ),
                           if (showBar)
                             _SplitHandle(
@@ -294,21 +299,22 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                   _onSplitDragUpdate(dy, h),
                               onDragEnd: _onSplitDragEnd,
                             ),
-                          AnimatedContainer(
-                            duration: Duration(milliseconds: animMs),
-                            curve: Curves.easeInOut,
-                            height: figureH,
-                            clipBehavior: Clip.hardEdge,
-                            child: figureH < 1
-                                ? const SizedBox.shrink()
-                                : _FigurePanel(
-                                    library: library,
-                                    session: s,
-                                    showKo: showKo,
-                                    showChrome: _chromeVisible,
-                                    onToggleChrome: _toggleChrome,
-                                    onDoubleTapExpand: _toggleFigureExpand,
-                                  ),
+                          ClipRect(
+                            child: AnimatedContainer(
+                              duration: Duration(milliseconds: animMs),
+                              curve: Curves.easeInOut,
+                              height: figureH,
+                              child: figureH < 1
+                                  ? const SizedBox.shrink()
+                                  : _FigurePanel(
+                                      library: library,
+                                      session: s,
+                                      showKo: showKo,
+                                      showChrome: _chromeVisible,
+                                      onToggleChrome: _toggleChrome,
+                                      onDoubleTapExpand: _toggleFigureExpand,
+                                    ),
+                            ),
                           ),
                         ],
                       ),
