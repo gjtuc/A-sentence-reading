@@ -747,11 +747,12 @@ class AsrClient {
       if (!done) continue;
 
       // EDGE: failed job may still be HTTP 200 with ok:false.
+      // design/109: 422 = terminal (clear resume draft); not 5xx/retryable poll blip.
       final sessionId = '${st['session_id'] ?? ''}'.trim();
       if (st['ok'] == false && sessionId.isEmpty) {
         throw AsrApiException(
           msg.isEmpty ? '처리에 실패했습니다.' : msg,
-          500,
+          422,
         );
       }
       final cacheId = '${st['cache_id'] ?? ''}'.trim();
@@ -766,7 +767,7 @@ class AsrClient {
               : (msg.startsWith('보관') || msg.contains('보관함')
                   ? msg
                   : '보관 저장 실패: $msg'),
-          500,
+          422,
         );
       }
       return IngestJobResult(

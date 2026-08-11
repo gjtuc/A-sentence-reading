@@ -428,6 +428,13 @@ class LibraryController extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// design/109 — user dismisses sticky ingest/library error banner.
+  void dismissError() {
+    if (error == null) return;
+    error = null;
+    notifyListeners();
+  }
+
   void clearOpened() {
     shadowingChunksError = null;
     shadowingChunksCacheId = null;
@@ -737,7 +744,10 @@ class LibraryController extends ChangeNotifier {
       await _notify.showCompleted(cacheId: result.cacheId);
       return result;
     } on AsrApiException catch (e) {
-      if (e.statusCode == 409) {
+      // design/109: terminal job (422) or lost/conflict — do not reattach forever.
+      if (e.statusCode == 409 ||
+          e.statusCode == 404 ||
+          e.statusCode == 422) {
         await _drafts.clear();
         await _cancelWorkmanager();
       }
@@ -812,7 +822,10 @@ class LibraryController extends ChangeNotifier {
       await _notify.showCompleted(cacheId: result.cacheId);
       return result;
     } on AsrApiException catch (e) {
-      if (e.statusCode == 404) {
+      // design/109: same terminal cleanup as uploadPdf.
+      if (e.statusCode == 409 ||
+          e.statusCode == 404 ||
+          e.statusCode == 422) {
         await _drafts.clear();
         await _cancelWorkmanager();
       }

@@ -17,12 +17,13 @@ CLIENT = ROOT / "mobile" / "lib" / "api" / "client.dart"
 
 def test_status_version_pin() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.22"
+    assert st["version"] == "0.3.23"
 
 
 def test_design_108_exists() -> None:
     assert DESIGN.is_file()
     text = DESIGN.read_text(encoding="utf-8")
+    # WHY: chip 108 shipped at 0.3.22 — design pin is historical, not live status.
     assert "0.3.22" in text
     assert "cache" in text.lower()
     assert "fail-closed" in text.lower() or "금지" in text

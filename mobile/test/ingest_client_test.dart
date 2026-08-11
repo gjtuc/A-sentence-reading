@@ -188,7 +188,15 @@ void main() {
         bytes: _tinyPdf(),
         pollInterval: const Duration(milliseconds: 1),
       ),
-      throwsA(isA<AsrApiException>()),
+      throwsA(
+        isA<AsrApiException>()
+            .having((e) => e.statusCode, 'status', 422)
+            .having(
+              (e) => e.message,
+              'msg',
+              contains('제목이 너무 짧은'),
+            ),
+      ),
     );
   });
 
@@ -244,7 +252,9 @@ void main() {
         pollInterval: const Duration(milliseconds: 1),
       ),
       throwsA(
-        isA<AsrApiException>().having((e) => e.message, 'msg', contains('boom')),
+        isA<AsrApiException>()
+            .having((e) => e.statusCode, 'status', 422)
+            .having((e) => e.message, 'msg', contains('boom')),
       ),
     );
   });
