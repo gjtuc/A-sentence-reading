@@ -51,10 +51,10 @@ Then redeploy (push to main or workflow_dispatch). Confirm live `/api/status` �
 
 ## Live pin (post-merge)
 
-- Cloud Run `/api/status`: `version=0.3.3` · `email_smtp_configured=true` · `mobile_email_magic_link=true` (rev `asr-sentence-reading-00089-*`, 2026-08-11)
+- Cloud Run `/api/status`: `version=0.3.3` · `email_smtp_configured=true` · `mobile_email_magic_link=true` (rev `asr-sentence-reading-00087-pkk`+; live request returns send-ok)
 - GitHub Actions secrets `ASR_SMTP_HOST` / `_FROM` / `_USER` / `_PASS` / `_PORT` set (values never in chat/PR)
-- Live USER/PASS prefer Secret Manager `st-auth-smtp-user` / `st-auth-smtp-password` (runtime SA accessor)
-- Next: real-mail magic-link E2E (inbox → open → session)
+- Live USER/PASS may be Secret Manager `st-auth-smtp-user` / `st-auth-smtp-password` **or** plain env; CD plain mode uses `--remove-secrets` first to avoid type clash
+- Next: real-mail magic-link E2E (your inbox → open → session) — do not use example.com probes for inbox checks
 - Kill: omit SMTP secrets · or `ASR_EMAIL_MAGIC_LINK=0` · revert PR #123
 
 Do not paste SMTP passwords, magic URLs, or real mailboxes into chat/PR.

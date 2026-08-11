@@ -18,9 +18,13 @@ def test_dockerfile_and_deploy_script_exist() -> None:
     assert "${PORT}" in docker
     assert "GOOGLE_APPLICATION_CREDENTIALS" not in docker
     script = (ROOT / "scripts" / "deploy_cloud_run.sh").read_text(encoding="utf-8")
-    assert "gcloud run deploy" in script
+    # design/86 — deploy may use gcloud "${DEPLOY_ARGS[@]}" with "run deploy" parts.
+    assert "gcloud run deploy" in script or (
+        'gcloud "${DEPLOY_ARGS[@]}"' in script and "run deploy" in script
+    )
     assert "ASR_COOKIE_SECURE" in script
     assert "--env-vars-file" in script
+    assert "--remove-secrets=ASR_SMTP_USER,ASR_SMTP_PASS" in script
     assert "ASR_CD_SKIP_API_ENABLE" in (
         ROOT / ".github" / "workflows" / "deploy-cloud-run.yml"
     ).read_text(encoding="utf-8")

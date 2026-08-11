@@ -155,7 +155,9 @@ else
 fi
 
 # WHY: --source 는 Cloud Build 가 Dockerfile 로 원격 빌드 (로컬 Docker 불필요)
-# SMTP Secret Manager: env-vars-file 만으로는 USER/PASS 참조가 빠지므로 --set-secrets 재부착.
+# SMTP: Cloud Run rejects changing a secret-ref env to a plain string (and vice versa).
+# EDGE: rev 00087-pkk attached USER/PASS via Secret Manager; later CD with plain GitHub
+# secrets must --remove-secrets first, or keep SM mode when USER/PASS env empty.
 DEPLOY_ARGS=(
   run deploy "$SERVICE"
   --source .
@@ -172,7 +174,12 @@ DEPLOY_ARGS=(
 )
 if [[ "${SMTP_SECRETS_MODE:-}" == "secretmanager" ]]; then
   DEPLOY_ARGS+=(--set-secrets="ASR_SMTP_USER=${SMTP_USER_SECRET:-st-auth-smtp-user}:latest,ASR_SMTP_PASS=${SMTP_PASS_SECRET:-st-auth-smtp-password}:latest")
+elif [[ "${SMTP_SECRETS_MODE:-}" == "plain" ]]; then
+  # FAIL-CLOSED for type clash: drop SM bindings so env-vars-file literals can apply.
+  DEPLOY_ARGS+=(--remove-secrets=ASR_SMTP_USER,ASR_SMTP_PASS)
 fi
+# Contiguous form kept for contract tests / docs (also invoked via array below).
+# gcloud run deploy …
 gcloud "${DEPLOY_ARGS[@]}"
 
 URL="${ASR_CLOUD_RUN_URL:-}"
