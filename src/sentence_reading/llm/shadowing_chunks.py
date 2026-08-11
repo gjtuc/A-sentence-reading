@@ -154,6 +154,32 @@ def save_chunk_plan(*, uid: str, cache_id: str, plan: dict[str, Any]) -> None:
     path.write_bytes(raw)
 
 
+def delete_chunk_plan(*, uid: str, cache_id: str) -> bool:
+    """design/102 — remove chunk plan object + local file for uid+cache_id."""
+    from sentence_reading.llm.gcs_sync import delete_bytes
+
+    cid = safe_cache_id(cache_id)
+    u = sanitize_uid(uid)
+    if not cid or not u:
+        return False
+    ok = True
+    ready, _ = gcs_client_ready()
+    if ready:
+        name = chunks_object_name(cid)
+        if name:
+            try:
+                delete_bytes(name)
+            except Exception:  # noqa: BLE001
+                ok = False
+    path = _local_path(u, cid)
+    if path is not None and path.is_file():
+        try:
+            path.unlink()
+        except OSError:
+            ok = False
+    return ok
+
+
 def _parse_chunks_json(raw: str, full: str) -> list[str] | None:
     s = (raw or "").strip()
     if s.startswith("```"):

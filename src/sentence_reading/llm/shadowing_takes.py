@@ -146,6 +146,49 @@ def save_takes(*, uid: str, cache_id: str, takes: dict[str, Any]) -> None:
     path.write_bytes(raw)
 
 
+def delete_takes(*, uid: str, cache_id: str) -> bool:
+    """design/102 — delete takes JSON + referenced voice blobs + local file."""
+    from sentence_reading.llm.gcs_sync import delete_bytes
+    from sentence_reading.llm.voice_gcs import delete_voice_blob
+
+    cid = safe_cache_id(cache_id)
+    u = sanitize_uid(uid)
+    if not cid or not u:
+        return False
+    # Load first so we can purge voice blobs.
+    takes = load_takes(uid=u, cache_id=cid)
+    blob_keys: list[str] = []
+    sentences = takes.get("sentences") if isinstance(takes, dict) else None
+    if isinstance(sentences, dict):
+        for row in sentences.values():
+            if not isinstance(row, dict):
+                continue
+            for c in row.get("chunks") or []:
+                if isinstance(c, dict) and c.get("blob_key"):
+                    blob_keys.append(str(c["blob_key"]))
+    ok = True
+    ready, _ = gcs_client_ready()
+    if ready:
+        name = takes_object_name(cid)
+        if name:
+            try:
+                delete_bytes(name)
+            except Exception:  # noqa: BLE001
+                ok = False
+    path = _local_path(u, cid)
+    if path is not None and path.is_file():
+        try:
+            path.unlink()
+        except OSError:
+            ok = False
+    for bk in blob_keys:
+        try:
+            delete_voice_blob(bk)
+        except Exception:  # noqa: BLE001
+            ok = False
+    return ok
+
+
 def _slot(status: str, blob_key: str | None = None, mime: str | None = None) -> dict[str, Any]:
     st = status if status in _STATUSES else "empty"
     out: dict[str, Any] = {"status": st, "blob_key": None, "mime": None}

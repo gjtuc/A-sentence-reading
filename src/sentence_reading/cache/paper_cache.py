@@ -229,6 +229,21 @@ def delete_cached_paper(
     except Exception:
         remote_ok = False
 
+    # design/102 — purge same-uid notes / shadowing records (best-effort).
+    try:
+        from sentence_reading.llm.auth_google import current_gcs_uid
+        from sentence_reading.llm import notes_gcs as ng
+        from sentence_reading.llm import shadowing_chunks as sc
+        from sentence_reading.llm import shadowing_takes as st
+
+        uid = current_gcs_uid() or ""
+        ng.remove_paper_notes(f"cache:{tid}")
+        if uid:
+            sc.delete_chunk_plan(uid=uid, cache_id=tid)
+            st.delete_takes(uid=uid, cache_id=tid)
+    except Exception:
+        pass
+
     if had_local_entry:
         return target
     if had_local_dir or remote_ok:
