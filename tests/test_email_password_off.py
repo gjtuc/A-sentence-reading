@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """design/78 — email password signup/login off by default."""
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def password_off(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_password_flag_off(password_off: None) -> None:
     with TestClient(app_mod.app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.20"
+    assert st["version"] == "0.3.21"
     assert st["mobile_email_password"] is False
     assert st["mobile_password_ui"] is False
     assert st["mobile_email_magic_link"] is True

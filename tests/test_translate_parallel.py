@@ -1,4 +1,4 @@
-﻿"""번역 문장 병렬 (0.2.54 · design/46; 앱 버전은 후속 범프와 무관)."""
+"""번역 문장 병렬 (0.2.54 · design/46; 앱 버전은 후속 범프와 무관)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def _clear_cache() -> None:
 
 def test_status_parallel_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.20"
+    assert st["version"] == "0.3.21"
     assert st["translate_parallel"] is True
     assert 1 <= int(st["translate_workers"]) <= 8
 
@@ -120,4 +120,4 @@ def test_parallel_workers_one_matches_serial_shape(
 
 def test_asset_version() -> None:
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.20" in served
+    assert "app.js?v=0.3.21" in served

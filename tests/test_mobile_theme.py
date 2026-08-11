@@ -1,4 +1,4 @@
-﻿"""Flutter mobile theme prefs (0.3.3 · design/33 · design/66)."""
+"""Flutter mobile theme prefs (0.3.3 · design/33 · design/66)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ DESIGN = ROOT / "docs" / "design" / "66-mobile-theme.md"
 def test_status_mobile_theme_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.20"
+    assert st["version"] == "0.3.21"
     assert st["mobile_theme"] is True
     assert st["mobile_oauth"] is True
     assert "live_enable" not in st
@@ -26,7 +26,7 @@ def test_status_mobile_theme_flag() -> None:
 
 def test_mobile_dart_theme_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.20" in pub
+    assert "0.3.21" in pub
     models = (MOBILE / "lib" / "api" / "theme_models.dart").read_text(
         encoding="utf-8"
     )
@@ -81,4 +81,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.20" in html
+    assert "app.js?v=0.3.21" in html

@@ -1,4 +1,4 @@
-﻿"""Mobile shell nav — auth gate · 3 tabs (0.3.3 · design/68)."""
+"""Mobile shell nav — auth gate · 3 tabs (0.3.3 · design/68)."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 def test_status_mobile_shell_nav(client: TestClient) -> None:
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.20"
+    assert st["version"] == "0.3.21"
     assert st["mobile_shell_nav"] is True
 
 

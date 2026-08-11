@@ -10,7 +10,7 @@
 | 포함 (이번 칩) | 미포함 (후속) |
 |----------------|---------------|
 | GCS `users/{uid}/ingest_jobs/{job_id}.json` | 바이트 구간 → [72](72-chunked-upload.md) |
-| 처리 중 앱 재실행 → `job_id` 폴링 재접속 (B) | Cloud Run 워커가 **다른 인스턴스에서 처리 재시작** |
+| 처리 중 앱 재실행 → `job_id` 폴링 재접속 (B) | ~~Cloud Run 워커가 **다른 인스턴스에서 처리 재시작**~~ → [107](107-ingest-job-reclaim.md) |
 | 전송 전 로컬 초안 PDF + 실패 시 자동 재 POST (A 최소) | 여러 파일 · docx 앱 업로드 |
 | 같은 `content_hash` 재선택 → 재접속/재시도 | OS 백그라운드 알림 업로드 |
 | job `owner_uid` 인가 (남의 job_id → 404) | 매직링크 로그인 |

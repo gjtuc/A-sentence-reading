@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sentence_reading.llm.auth_google import current_gcs_uid, set_gcs_uid
@@ -28,13 +30,70 @@ log = logging.getLogger(__name__)
 _JOB_ID_RE = re.compile(r"^job_[a-f0-9]{12}$")
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9._\- ]{1,180}$")
 
+# design/107 — worker must refresh before this TTL or another instance may reclaim.
+_LEASE_TTL_S = 90
+_HEARTBEAT_INTERVAL_S = 25
+
 
 def ingest_jobs_gcs_enabled() -> bool:
     return bool(gcs_config().enabled)
 
 
+def ingest_job_reclaim_enabled() -> bool:
+    """Kill switch: ASR_INGEST_JOB_RECLAIM=0 disables cross-instance restart."""
+    raw = (os.environ.get("ASR_INGEST_JOB_RECLAIM") or "1").strip().lower()
+    return raw not in ("0", "false", "off", "no")
+
+
+def lease_ttl_seconds() -> int:
+    return _LEASE_TTL_S
+
+
+def heartbeat_interval_seconds() -> int:
+    return _HEARTBEAT_INTERVAL_S
+
+
 def valid_job_id(job_id: str) -> bool:
     return bool(_JOB_ID_RE.match((job_id or "").strip()))
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _parse_iso(ts: str | None) -> datetime | None:
+    raw = (ts or "").strip()
+    if not raw:
+        return None
+    try:
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def lease_expired(job: dict[str, Any], *, now: datetime | None = None) -> bool:
+    """True when no lease or lease_until is in the past — safe for another worker."""
+    until = _parse_iso(str(job.get("lease_until") or ""))
+    if until is None:
+        # WHY: legacy jobs without lease look abandoned once reclaim is on.
+        return True
+    clock = now or _utc_now()
+    return until <= clock
+
+
+def stamp_lease(job: dict[str, Any], *, token: str | None = None) -> str:
+    """Set lease_until / lease_token on the in-memory job. Returns token."""
+    tok = (token or "").strip() or uuid.uuid4().hex[:16]
+    job["lease_token"] = tok
+    job["lease_until"] = (
+        _utc_now() + timedelta(seconds=_LEASE_TTL_S)
+    ).isoformat()
+    return tok
 
 
 def _with_uid(uid: str | None):
@@ -108,7 +167,7 @@ def public_job_view(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
 def serialize_job_record(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
     """Persistable snapshot — no temp paths, no raw PDF."""
     result = job.get("result")
-    return {
+    out: dict[str, Any] = {
         "job_id": job_id,
         "owner_uid": str(job.get("owner_uid") or ""),
         "percent": int(job.get("percent") or 0),
@@ -121,6 +180,12 @@ def serialize_job_record(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
         "filename": str(job.get("filename") or "")[:180],
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    # design/107 — lease so other instances know a worker is still alive.
+    if job.get("lease_until"):
+        out["lease_until"] = str(job.get("lease_until"))
+    if job.get("lease_token"):
+        out["lease_token"] = str(job.get("lease_token"))[:32]
+    return out
 
 
 def save_ingest_job(job_id: str, job: dict[str, Any]) -> bool:
@@ -206,6 +271,52 @@ def delete_ingest_upload(
     if not obj:
         return False
     return delete_bytes(obj)
+
+
+def load_ingest_upload(
+    job_id: str, *, owner_uid: str, suffix: str = ".pdf"
+) -> bytes | None:
+    """Load source bytes for reclaim (design/107). Missing/wrong owner → None."""
+    uid = (owner_uid or "").strip()
+    if not uid or not valid_job_id(job_id):
+        return None
+    if not ingest_jobs_gcs_enabled():
+        return None
+    obj = ingest_upload_object(job_id, suffix=suffix, uid=uid)
+    if not obj:
+        return None
+    raw = download_bytes(obj)
+    if not raw:
+        return None
+    return bytes(raw)
+
+
+def try_claim_lease(job_id: str, *, owner_uid: str) -> str | None:
+    """
+    Atomically-ish claim an expired lease on GCS.
+    Returns lease_token if this caller won; None if still leased or missing.
+    WHY: two Cloud Run instances may poll at once — loser must not start a worker.
+    """
+    if not ingest_job_reclaim_enabled() or not ingest_jobs_gcs_enabled():
+        return None
+    uid = (owner_uid or "").strip()
+    if not uid or not valid_job_id(job_id):
+        return None
+    current = load_ingest_job(job_id, owner_uid=uid)
+    if current is None:
+        return None
+    if current.get("done") or current.get("error"):
+        return None
+    if not lease_expired(current):
+        return None
+    token = stamp_lease(current)
+    if not save_ingest_job(job_id, current):
+        return None
+    # EDGE: re-read — if another writer overwrote our token, we lost.
+    again = load_ingest_job(job_id, owner_uid=uid)
+    if again is None or str(again.get("lease_token") or "") != token:
+        return None
+    return token
 
 
 def should_push_job(job: dict[str, Any], *, force: bool = False) -> bool:

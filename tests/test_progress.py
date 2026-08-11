@@ -1,4 +1,4 @@
-﻿"""M5 진행 복원 계약 (0.2.24) — progress.js 규칙 미러 + API."""
+"""M5 진행 복원 계약 (0.2.24) — progress.js 규칙 미러 + API."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def progress_keys_for(paper: dict) -> list[str]:
 def test_status_progress_flag() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.20"
+    assert st["version"] == "0.3.21"
     assert st["progress_restore"] is True
 
 

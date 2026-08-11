@@ -1,4 +1,4 @@
-﻿"""되새김질 흰 십자 (0.2.65 ship · design/57; 앱 버전은 후속 범프)."""
+"""되새김질 흰 십자 (0.2.65 ship · design/57; 앱 버전은 후속 범프)."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ WHITE_CROSS_SVG = "stroke='%23ffffff'"
 
 def test_status_section_review_crosshair() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.20"
+    assert st["version"] == "0.3.21"
     assert st["section_review_crosshair"] is True
     assert st["section_review_keys"] is True
     assert "live_enable" not in st
@@ -61,5 +61,5 @@ def test_design_and_assets() -> None:
     assert "0.2.65" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.20" in served
-    assert "styles.css?v=0.3.20" in served
+    assert "app.js?v=0.3.21" in served
+    assert "styles.css?v=0.3.21" in served
