@@ -1222,6 +1222,7 @@ class AsrClient {
   }
 
   /// design/80 — backfill/retry (requires practiceEnabled true).
+  /// design/113 — client timeout under Cloud Run limit so we can continue slices.
   Future<Map<String, dynamic>> buildShadowingChunks(
     String cacheId, {
     required bool practiceEnabled,
@@ -1235,14 +1236,16 @@ class AsrClient {
       'practice_enabled': practiceEnabled,
       if (sentences != null) 'sentences': sentences,
     };
-    final res = await _http.post(
-      _uri('/api/shadowing/chunks/${Uri.encodeComponent(id)}/build'),
-      headers: {
-        ...await _headers(),
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode(body),
-    );
+    final res = await _http
+        .post(
+          _uri('/api/shadowing/chunks/${Uri.encodeComponent(id)}/build'),
+          headers: {
+            ...await _headers(),
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 150));
     return _decodeObject(res, 'shadowing/chunks/build');
   }
 
