@@ -741,8 +741,14 @@ class LibraryController extends ChangeNotifier {
         await _drafts.clear();
         await _cancelWorkmanager();
       }
-      error = e.message;
-      await _notify.showFailed(message: e.message);
+      // design/105 — surface last stage on timeout so failure is actionable.
+      final stage = uploadStage.trim();
+      if (e.statusCode == 504 && stage.isNotEmpty) {
+        error = '${e.message} ($stage)';
+      } else {
+        error = e.message;
+      }
+      await _notify.showFailed(message: error!);
       return null;
     } catch (e) {
       error = e.toString();
@@ -810,8 +816,13 @@ class LibraryController extends ChangeNotifier {
         await _drafts.clear();
         await _cancelWorkmanager();
       }
-      error = e.message;
-      await _notify.showFailed(message: e.message);
+      final stage = uploadStage.trim();
+      if (e.statusCode == 504 && stage.isNotEmpty) {
+        error = '${e.message} ($stage)';
+      } else {
+        error = e.message;
+      }
+      await _notify.showFailed(message: error!);
       return null;
     } catch (e) {
       error = e.toString();
