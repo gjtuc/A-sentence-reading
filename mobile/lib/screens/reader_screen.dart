@@ -11,7 +11,7 @@ import 'shadowing_practice_screen.dart';
 /// Split reader: sentence panel + figure panel (design/63) + TTS (design/64).
 ///
 /// INVARIANT: sentence controls never call figure advance and vice versa.
-/// TTS never mutates cursors (Live Enable / IPS: ASR out).
+/// TTS never mutates cursors.
 class ReaderScreen extends StatelessWidget {
   const ReaderScreen({
     super.key,
@@ -37,7 +37,7 @@ class ReaderScreen extends StatelessWidget {
             child: Padding(
               padding: EdgeInsets.all(24),
               child: Text(
-                'No paper open. Open one from Library (sentence + figure + TTS). Live Enable/IPS: ASR out.',
+                'No paper open. Open one from Library (sentence + figure + TTS).',
                 textAlign: TextAlign.center,
               ),
             ),
@@ -115,13 +115,6 @@ class ReaderScreen extends StatelessWidget {
             ),
             const Divider(height: 1),
             Expanded(flex: 2, child: _FigurePanel(library: library, session: s)),
-            const Padding(
-              padding: EdgeInsets.only(bottom: 6),
-              child: Text(
-                'Live Enable / IPS: Trading Gate (ASR out)',
-                style: TextStyle(fontSize: 11),
-              ),
-            ),
           ],
         );
       },

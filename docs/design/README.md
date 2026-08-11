@@ -83,6 +83,7 @@
 | 90 | [90-tts-unit-lexicon.md](90-tts-unit-lexicon.md) | TTS 단위 사전 · Wh/L≠텅스텐 |
 | 91 | [91-device-tts-unit-lexicon-e2e.md](91-device-tts-unit-lexicon-e2e.md) | 실기 Wh/L TTS 청취 확인 |
 | 92 | [92-figure-caption-order.md](92-figure-caption-order.md) | 그림·표 캡션 번호 순 · GA 예외 |
+| 93 | [93-remove-live-enable-footer.md](93-remove-live-enable-footer.md) | 앱 Live Enable/IPS 푸터 제거 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -164,3 +165,4 @@
 90은 TTS 단위 사전 · Wh/L → watt hour per liter (0.3.5).
 91은 실기 Wh/L TTS 청취 확인 (0.3.5).
 92는 그림·표 캡션 번호 순 정렬 · 초록 옆 GA (0.3.6 · rich-v8).
+93은 앱 읽기/쉐도잉 Live Enable·IPS 푸터 제거 (0.3.7).
