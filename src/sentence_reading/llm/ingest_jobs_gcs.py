@@ -55,6 +55,14 @@ def ingest_checkpoint_enabled() -> bool:
     return raw not in ("0", "false", "off", "no")
 
 
+def ingest_resume_skip_enabled() -> bool:
+    """Kill switch: ASR_INGEST_RESUME_SKIP=0 disables payload skip (full restart)."""
+    if not ingest_checkpoint_enabled():
+        return False
+    raw = (os.environ.get("ASR_INGEST_RESUME_SKIP") or "1").strip().lower()
+    return raw not in ("0", "false", "off", "no")
+
+
 def lease_ttl_seconds() -> int:
     return _LEASE_TTL_S
 
@@ -212,6 +220,7 @@ def build_checkpoint(
     pipeline_version: str,
     cursor: dict[str, Any] | None = None,
     now: datetime | None = None,
+    payload_ref: str | None = None,
 ) -> dict[str, Any]:
     """Minimal resume envelope — no paper body, no titles."""
     clock = now or _utc_now()
@@ -233,6 +242,10 @@ def build_checkpoint(
         total = max(0, min(total, 1_000_000))
         if total > 0:
             out["cursor"] = {"done": done, "total": total}
+    # design/112 — relative key only (job_*.json); never absolute path.
+    pref = str(payload_ref or "").strip()[:80]
+    if pref and ".." not in pref and "/" not in pref and "\\" not in pref:
+        out["payload_ref"] = pref
     return out
 
 
@@ -314,7 +327,7 @@ def stamp_checkpoint_on_job(
     pipeline_version: str,
     cursor: dict[str, Any] | None = None,
 ) -> None:
-    """Update in-memory checkpoint when progress advances (design/110)."""
+    """Update in-memory checkpoint when progress advances (design/110·112)."""
     if not ingest_checkpoint_enabled():
         job.pop("checkpoint", None)
         return
@@ -323,12 +336,142 @@ def stamp_checkpoint_on_job(
     stage = str(job.get("stage") or "").strip()
     if not stage or stage in ("done", "error"):
         return
+    prev = job.get("checkpoint") if isinstance(job.get("checkpoint"), dict) else {}
     job["checkpoint"] = build_checkpoint(
         stage=stage,
         content_hash=str(job.get("content_hash") or ""),
         pipeline_version=pipeline_version,
         cursor=cursor,
+        payload_ref=str((prev or {}).get("payload_ref") or "") or None,
     )
+
+
+def stage_percent_floor(stage: str) -> int:
+    """Progress floor so resume UI does not reset to extract 5%."""
+    floors = {
+        "extract": 5,
+        "cache": 10,
+        "quality": 12,
+        "vision": 20,
+        "figures": 42,
+        "debone": 48,
+        "split": 70,
+        "ready": 88,
+        "translate": 90,
+        "save": 98,
+        "shadowing_chunks": 99,
+    }
+    return int(floors.get(str(stage or "").strip(), 1))
+
+
+def ingest_payload_object(job_id: str, *, uid: str | None = None) -> str | None:
+    jid = (job_id or "").strip()
+    if not valid_job_id(jid):
+        return None
+    with _with_uid(uid):
+        return personal_object_name("ingest_payloads", f"{jid}.json")
+
+
+def save_ingest_payload(
+    job_id: str, payload: dict[str, Any], *, owner_uid: str
+) -> bool:
+    """Persist mid-stage artifacts under the owner kan (design/112)."""
+    if not ingest_jobs_gcs_enabled() or not ingest_resume_skip_enabled():
+        return False
+    uid = (owner_uid or "").strip()
+    if not uid or not isinstance(payload, dict):
+        return False
+    obj = ingest_payload_object(job_id, uid=uid)
+    if not obj:
+        return False
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    # EDGE: refuse oversized payloads (fail-closed → full restart later).
+    if len(raw) > 8 * 1024 * 1024:
+        return False
+    return upload_bytes(obj, raw, content_type="application/json")
+
+
+def load_ingest_payload(
+    job_id: str, *, owner_uid: str
+) -> dict[str, Any] | None:
+    """Load payload for verified uid. Wrong/missing → None."""
+    if not ingest_jobs_gcs_enabled() or not ingest_resume_skip_enabled():
+        return None
+    uid = (owner_uid or "").strip()
+    if not uid or not valid_job_id(job_id):
+        return None
+    obj = ingest_payload_object(job_id, uid=uid)
+    if not obj:
+        return None
+    raw = download_bytes(obj)
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if str(data.get("owner_uid") or "") != uid:
+        return None
+    if str(data.get("job_id") or "") != job_id:
+        return None
+    return data
+
+
+def delete_ingest_payload(job_id: str, *, owner_uid: str) -> bool:
+    uid = (owner_uid or "").strip()
+    obj = ingest_payload_object(job_id, uid=uid)
+    if not obj:
+        return False
+    return delete_bytes(obj)
+
+
+def payload_is_valid(
+    payload: Any,
+    *,
+    content_hash: str,
+    pipeline_version: str,
+    now: datetime | None = None,
+) -> tuple[bool, str]:
+    """Accept/discard gate for design/112 payloads."""
+    if not ingest_resume_skip_enabled():
+        return False, "disabled"
+    if not isinstance(payload, dict):
+        return False, "missing"
+    try:
+        ver = int(payload.get("v") or 0)
+    except (TypeError, ValueError):
+        return False, "schema"
+    if ver != _CHECKPOINT_SCHEMA_V:
+        return False, "schema"
+    if str(payload.get("pipeline_version") or "") != str(pipeline_version or ""):
+        return False, "pipeline"
+    p_hash = str(payload.get("content_hash") or "").strip().lower()
+    expect = str(content_hash or "").strip().lower()
+    if not expect or p_hash != expect:
+        return False, "hash"
+    updated = _parse_iso(str(payload.get("updated_at") or ""))
+    if updated is None:
+        return False, "ttl"
+    clock = now or _utc_now()
+    age = clock - updated
+    if age.total_seconds() > checkpoint_ttl_hours() * 3600:
+        return False, "ttl"
+    if age.total_seconds() < -300:
+        return False, "ttl"
+    completed = str(payload.get("completed") or "").strip()
+    if completed not in {
+        "vision",
+        "vision_partial",
+        "debone",
+        "ready",
+        "translate",
+    }:
+        return False, "stage"
+    return True, "ok"
 
 
 def serialize_job_record(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
@@ -377,6 +520,9 @@ def serialize_job_record(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
                     "done": max(0, min(done, 1_000_000)),
                     "total": max(0, min(total, 1_000_000)),
                 }
+        pref = str(cp.get("payload_ref") or "").strip()[:80]
+        if pref and ".." not in pref and "/" not in pref and "\\" not in pref:
+            out["checkpoint"]["payload_ref"] = pref
     return out
 
 
