@@ -77,6 +77,7 @@
 | 84 | [84-access-waiting-ux.md](84-access-waiting-ux.md) | 로그인 후 초대 대기 전용 셸 |
 | 85 | [85-web-magic-link-only.md](85-web-magic-link-only.md) | 웹 이메일 매직링크만 · 비밀번호 UI 제거 |
 | 86 | [86-live-smtp-wiring.md](86-live-smtp-wiring.md) | 라이브 SMTP 배선 · status · CD 전달 |
+| 87 | [87-device-apk-magic-invite-e2e.md](87-device-apk-magic-invite-e2e.md) | 실기 APK 0.3.3 · 매직→대기→초대 입력 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -152,3 +153,4 @@
 음절(30)은 **하지 않음** (원복).
 83은 로그인 강제 게이트(웹·API·앱) (0.3.3).
 84은 로그인 후 초대 대기 전용 셸 (0.3.3).
+87은 실기 APK 0.3.3 · 매직 딥링크 → 대기 → 초대 입력 (0.3.3).
