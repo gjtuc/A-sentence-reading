@@ -71,7 +71,9 @@ def send_magic_link_email(*, to_email: str, open_url: str) -> None:
     # WHY: plain text only — no HTML injection surface for mail clients.
     msg.set_content(
         "문장 읽기 로그인 링크입니다.\n\n"
-        "아래 주소를 열면 앱으로 이동합니다. 링크는 짧은 시간·1회만 유효합니다.\n\n"
+        # design/85/86 — open may land in browser (cookie) or app (mobile=1).
+        "아래 주소를 열면 브라우저 또는 앱에서 로그인됩니다. "
+        "링크는 짧은 시간·1회만 유효합니다.\n\n"
         f"{url}\n\n"
         "요청하지 않았다면 이 메일을 무시하세요.\n"
     )

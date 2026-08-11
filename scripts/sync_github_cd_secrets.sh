@@ -86,6 +86,33 @@ if [[ -n "${ASR_ADMIN_EMAILS:-}" ]]; then
   printf '%s' "$ASR_ADMIN_EMAILS" | gh secret set ASR_ADMIN_EMAILS
   echo "ok ASR_ADMIN_EMAILS set"
 fi
+# design/86 — optional SMTP (only when both host+from present in env file).
+if [[ -n "${ASR_SMTP_HOST:-}" && -n "${ASR_SMTP_FROM:-}" ]]; then
+  printf '%s' "$ASR_SMTP_HOST" | gh secret set ASR_SMTP_HOST
+  printf '%s' "$ASR_SMTP_FROM" | gh secret set ASR_SMTP_FROM
+  echo "ok ASR_SMTP_HOST+FROM set"
+  if [[ -n "${ASR_SMTP_USER:-}" ]]; then
+    printf '%s' "$ASR_SMTP_USER" | gh secret set ASR_SMTP_USER
+    echo "ok ASR_SMTP_USER set"
+  fi
+  if [[ -n "${ASR_SMTP_PASS:-}" ]]; then
+    printf '%s' "$ASR_SMTP_PASS" | gh secret set ASR_SMTP_PASS
+    echo "ok ASR_SMTP_PASS set"
+  fi
+  if [[ -n "${ASR_SMTP_PORT:-}" ]]; then
+    printf '%s' "$ASR_SMTP_PORT" | gh secret set ASR_SMTP_PORT
+    echo "ok ASR_SMTP_PORT set"
+  fi
+  if [[ -n "${ASR_SMTP_SSL:-}" ]]; then
+    printf '%s' "$ASR_SMTP_SSL" | gh secret set ASR_SMTP_SSL
+    echo "ok ASR_SMTP_SSL set"
+  fi
+elif [[ -n "${ASR_SMTP_HOST:-}" || -n "${ASR_SMTP_FROM:-}" || -n "${ASR_SMTP_USER:-}" || -n "${ASR_SMTP_PASS:-}" ]]; then
+  echo "SMTP partial in env file: set BOTH ASR_SMTP_HOST and ASR_SMTP_FROM (or neither)." >&2
+  exit 2
+else
+  echo "skip SMTP secrets (ASR_SMTP_HOST/FROM not in env file)"
+fi
 gh secret set GCP_SA_KEY <"$SA_JSON"
 echo "ok GCP_SA_KEY set from file"
 

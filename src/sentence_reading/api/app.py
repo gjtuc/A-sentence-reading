@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.2",
+    version="0.3.3",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -405,6 +405,13 @@ def _mobile_email_magic_link_enabled() -> bool:
     return magic_link_enabled() and email_auth_enabled()
 
 
+def _email_smtp_configured() -> bool:
+    """design/86 — public readiness bit only (no host/user/pass in status)."""
+    from sentence_reading.llm.email_smtp import smtp_configured
+
+    return smtp_configured()
+
+
 def _public_api_base(request: Request) -> str:
     """Stable HTTPS base for email links (prefer ASR_CLOUD_RUN_URL)."""
     env_url = (os.environ.get("ASR_CLOUD_RUN_URL") or "").strip().rstrip("/")
@@ -435,7 +442,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.2",
+        "version": "0.3.3",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -459,6 +466,8 @@ def status(request: Request) -> dict:
         "mobile_upload_workmanager": _mobile_upload_workmanager_enabled(),
         # design/77 — email magic-link; false → clients hide request UI.
         "mobile_email_magic_link": _mobile_email_magic_link_enabled(),
+        # design/86 — bool only (host+from present). Never expose SMTP user/pass/host.
+        "email_smtp_configured": _email_smtp_configured(),
         # design/79 — shadowing opt-in UI; default off (ASR_SHADOWING_PRACTICE).
         "shadowing_practice": shadowing_practice_enabled(),
         "mobile_shadowing_practice": shadowing_practice_enabled(),

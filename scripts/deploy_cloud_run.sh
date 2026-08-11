@@ -44,6 +44,20 @@ if [[ "${ASR_CD_DRY_RUN:-}" == "1" ]]; then
     echo "dry-run-warn: set both ASR_KAKAO_REST_API_KEY and ASR_KAKAO_CLIENT_SECRET (or neither)" >&2
     exit 2
   fi
+  # design/86 — same partial-guard as real deploy (no secret values printed).
+  smtp_host="${ASR_SMTP_HOST:-}"
+  smtp_from="${ASR_SMTP_FROM:-}"
+  smtp_state="off"
+  if [[ -n "$smtp_host" && -n "$smtp_from" ]]; then
+    smtp_state="on"
+  elif [[ -n "$smtp_host" || -n "$smtp_from" || -n "${ASR_SMTP_USER:-}" || -n "${ASR_SMTP_PASS:-}" ]]; then
+    smtp_state="partial"
+  fi
+  echo "dry-run: smtp=${smtp_state}"
+  if [[ "$smtp_state" == "partial" ]]; then
+    echo "dry-run-warn: set both ASR_SMTP_HOST and ASR_SMTP_FROM (or neither)" >&2
+    exit 2
+  fi
   exit 0
 fi
 
@@ -76,6 +90,34 @@ trap cleanup EXIT
     echo "ASR_KAKAO_CLIENT_SECRET: \"${KAKAO_SECRET}\""
   elif [[ -n "$KAKAO_REST" || -n "$KAKAO_SECRET" ]]; then
     echo "Kakao: set BOTH ASR_KAKAO_REST_API_KEY and ASR_KAKAO_CLIENT_SECRET (client secret is ON in console)." >&2
+    exit 2
+  fi
+  # design/86 — optional SMTP for magic-link mail. host+from required together.
+  SMTP_HOST="${ASR_SMTP_HOST:-}"
+  SMTP_FROM="${ASR_SMTP_FROM:-}"
+  SMTP_USER="${ASR_SMTP_USER:-}"
+  SMTP_PASS="${ASR_SMTP_PASS:-}"
+  SMTP_PORT="${ASR_SMTP_PORT:-}"
+  SMTP_SSL="${ASR_SMTP_SSL:-}"
+  if [[ -n "$SMTP_HOST" && -n "$SMTP_FROM" ]]; then
+    echo "ASR_SMTP_HOST: \"${SMTP_HOST}\""
+    echo "ASR_SMTP_FROM: \"${SMTP_FROM}\""
+    if [[ -n "$SMTP_PORT" ]]; then
+      echo "ASR_SMTP_PORT: \"${SMTP_PORT}\""
+    fi
+    if [[ -n "$SMTP_USER" ]]; then
+      echo "ASR_SMTP_USER: \"${SMTP_USER}\""
+    fi
+    if [[ -n "$SMTP_PASS" ]]; then
+      echo "ASR_SMTP_PASS: \"${SMTP_PASS}\""
+    fi
+    if [[ -n "$SMTP_SSL" ]]; then
+      echo "ASR_SMTP_SSL: \"${SMTP_SSL}\""
+    fi
+    echo "SMTP: configured (host/from present; values not printed)" >&2
+  elif [[ -n "$SMTP_HOST" || -n "$SMTP_FROM" || -n "$SMTP_USER" || -n "$SMTP_PASS" ]]; then
+    # FAIL-CLOSED: partial SMTP would look ready but cannot send.
+    echo "SMTP: set BOTH ASR_SMTP_HOST and ASR_SMTP_FROM (or neither)." >&2
     exit 2
   fi
 } >"$ENV_FILE"
