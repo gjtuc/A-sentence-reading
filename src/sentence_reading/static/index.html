@@ -403,14 +403,10 @@
           <span>이메일</span>
           <input type="email" id="authEmailInput" autocomplete="username" />
         </label>
-        <label class="tts-field">
-          <span>비밀번호 (8자 이상)</span>
-          <input type="password" id="authPasswordInput" autocomplete="current-password" />
-        </label>
+        <!-- design/85 — password/register removed; magic-link only (match mobile 78) -->
         <div class="tts-dialog-actions">
-          <button type="button" class="upload-btn" id="authEmailLoginBtn">로그인</button>
-          <button type="button" class="upload-btn upload-btn-ghost" id="authEmailRegisterBtn">
-            가입
+          <button type="button" class="upload-btn" id="authEmailMagicBtn">
+            로그인 링크 받기
           </button>
         </div>
       </div>

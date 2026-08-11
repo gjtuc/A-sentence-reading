@@ -35,4 +35,4 @@ Android Flutter MVP **보관 목록**:
 
 ## Version pin
 
-Web/mobile **0.3.1** (upload → [70-mobile-upload.md](70-mobile-upload.md)).
+Web/mobile **0.3.2** (upload → [70-mobile-upload.md](70-mobile-upload.md)).

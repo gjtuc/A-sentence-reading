@@ -197,9 +197,7 @@
     authEmailToggleBtn: document.getElementById("authEmailToggleBtn"),
     authEmailPanel: document.getElementById("authEmailPanel"),
     authEmailInput: document.getElementById("authEmailInput"),
-    authPasswordInput: document.getElementById("authPasswordInput"),
-    authEmailLoginBtn: document.getElementById("authEmailLoginBtn"),
-    authEmailRegisterBtn: document.getElementById("authEmailRegisterBtn"),
+    authEmailMagicBtn: document.getElementById("authEmailMagicBtn"),
     authLinkPanel: document.getElementById("authLinkPanel"),
     authLinkList: document.getElementById("authLinkList"),
     authLinkKakaoBtn: document.getElementById("authLinkKakaoBtn"),
@@ -2139,7 +2137,8 @@
     if (el.authEmailToggleBtn) el.authEmailToggleBtn.hidden = linking || !p.email;
     if (el.authLinkKakaoBtn) el.authLinkKakaoBtn.hidden = !linking || !p.kakao;
     if (el.authLinkGoogleBtn) el.authLinkGoogleBtn.hidden = !linking || !p.google;
-    if (el.authLinkEmailBtn) el.authLinkEmailBtn.hidden = !linking || !p.email;
+    // design/85 — email link-via-password removed; OAuth link only.
+    if (el.authLinkEmailBtn) el.authLinkEmailBtn.hidden = true;
     if (el.authEmailPanel) {
       el.authEmailPanel.hidden = true;
     }
@@ -2311,32 +2310,27 @@
     document.head.appendChild(s);
   }
 
-  async function emailAuth(kind) {
+  /** design/85 — web email login is magic-link only (no password UI). */
+  async function requestEmailMagicLink() {
     const email = el.authEmailInput ? el.authEmailInput.value.trim() : "";
-    const password = el.authPasswordInput ? el.authPasswordInput.value : "";
-    const path =
-      kind === "register"
-        ? "/api/auth/email/register"
-        : kind === "link"
-          ? "/api/auth/email/link"
-          : "/api/auth/email/login";
-    const res = await fetch(path, {
+    if (!email) {
+      throw new Error("이메일을 입력하세요.");
+    }
+    // WHY: omit client → server builds browser open URL (cookie + /?auth=).
+    const res = await fetch("/api/auth/email/magic/request", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, client: "web" }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.ok === false) {
-      throw new Error(data.message || "이메일 인증에 실패했습니다.");
+      // FAIL-CLOSED: never claim the link was sent on error.
+      throw new Error(data.message || "로그인 링크를 보내지 못했습니다.");
     }
-    await afterAuthSuccess(
-      data,
-      kind === "register"
-        ? "가입·로그인됨"
-        : kind === "link"
-          ? "이메일 연결됨"
-          : "이메일 로그인됨"
+    setAuthDialogStatus(
+      data.message || "로그인 링크를 이메일로 보냈습니다. 메일함에서 열어 주세요.",
+      ""
     );
   }
 
@@ -6518,21 +6512,17 @@
     });
   }
   if (el.authLinkEmailBtn) {
+    // design/85 — password email-link UI removed; button stays hidden.
     el.authLinkEmailBtn.addEventListener("click", () => {
-      if (el.authEmailPanel) el.authEmailPanel.hidden = false;
+      setAuthDialogStatus(
+        "이메일 연결은 지원하지 않습니다. Google·카카오를 사용하세요.",
+        "error"
+      );
     });
   }
-  if (el.authEmailLoginBtn) {
-    el.authEmailLoginBtn.addEventListener("click", () => {
-      const kind = authState.dialogMode === "link" ? "link" : "login";
-      void emailAuth(kind).catch((err) => {
-        setAuthDialogStatus(String(err.message || err), "error");
-      });
-    });
-  }
-  if (el.authEmailRegisterBtn) {
-    el.authEmailRegisterBtn.addEventListener("click", () => {
-      void emailAuth("register").catch((err) => {
+  if (el.authEmailMagicBtn) {
+    el.authEmailMagicBtn.addEventListener("click", () => {
+      void requestEmailMagicLink().catch((err) => {
         setAuthDialogStatus(String(err.message || err), "error");
       });
     });

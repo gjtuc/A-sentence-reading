@@ -1,4 +1,4 @@
-"""GitHub CI/CD 계약 (0.3.1 · design/32)."""
+"""GitHub CI/CD 계약 (0.3.2 · design/32)."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def test_workflow_files_parse_and_gate() -> None:
     assert "ASR_SHADOWING_PRACTICE" in deploy_text
     assert "ASR_SHADOWING_PRACTICE" in SCRIPT.read_text(encoding="utf-8")
     design = DESIGN.read_text(encoding="utf-8")
-    assert "0.3.1" in design
+    assert "0.3.2" in design
     assert "env-vars-file" in design or "env-vars-file" in SCRIPT.read_text(encoding="utf-8")
     assert "--env-vars-file" in SCRIPT.read_text(encoding="utf-8")
 
@@ -164,7 +164,7 @@ def test_status_github_cd_flag() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.1"
+    assert st["version"] == "0.3.2"
     assert st.get("github_cd") is True
 
 

@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.1",
+    version="0.3.2",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -435,13 +435,15 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.1",
+        "version": "0.3.2",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
         # design/84 — waiting-only shell when logged in but invite not paid.
         "access_waiting_ux": True,
         "mobile_access_waiting_ux": True,
+        # design/85 — web email UI is magic-link only (password UI removed).
+        "web_email_magic_link_only": True,
         "access_gate_gcs": True,
         "mobile_upload": True,
         "ingest_job_gcs": True,
@@ -887,6 +889,11 @@ async def auth_email_magic_request(
             },
         )
     email = str(payload.get("email") or "") if isinstance(payload, dict) else ""
+    # design/85 — android/app mail must deep-link; web omits mobile=1 (browser cookie).
+    client_hint = ""
+    if isinstance(payload, dict):
+        client_hint = str(payload.get("client") or "").strip().lower()
+    for_mobile = client_hint in ("android", "mobile", "app")
     em = normalize_email(email)
     if not em:
         return JSONResponse(
@@ -919,6 +926,8 @@ async def auth_email_magic_request(
         + "/api/auth/email/magic/open?t="
         + urllib.parse.quote(minted["token"], safe="")
     )
+    if for_mobile:
+        open_url += "&mobile=1"
     try:
         send_magic_link_email(to_email=em, open_url=open_url)
     except ValueError as exc:
@@ -949,21 +958,52 @@ async def auth_email_magic_request(
 
 
 @app.get("/api/auth/email/magic/open")
-def auth_email_magic_open(request: Request, t: str = "") -> Response:
-    """Browser/email entry: redeem once → redirect into Android deep link."""
+def auth_email_magic_open(
+    request: Request, t: str = "", mobile: str = ""
+) -> Response:
+    """Redeem once → set session cookie; web lands on `/`, Android may deep-link.
+
+    design/85 — browser click must establish web session (product).
+    EDGE: ``mobile=1`` keeps Android deep-link for app mail clients (77).
+    """
     raw = (t or "").strip()
+    want_mobile = (mobile or "").strip().lower() in ("1", "true", "yes", "android", "app")
     try:
         from sentence_reading.llm.auth_magic_link import redeem_magic_token
 
         em = redeem_magic_token(raw)
         user = _user_from_magic_email(em)
         token = issue_session_token(user)
-        dest = mobile_magic_deep_link(session=token, auth="magic")
-        return RedirectResponse(url=dest, status_code=302)
+        if want_mobile:
+            # WHY: Flutter cold-start reads asr_session from custom-scheme query.
+            resp = RedirectResponse(
+                url=mobile_magic_deep_link(session=token, auth="magic"),
+                status_code=302,
+            )
+        else:
+            # design/85 — web session for browser mail opens.
+            resp = RedirectResponse(url="/?auth=logged_in", status_code=302)
+        resp.set_cookie(
+            key=COOKIE_NAME,
+            value=token,
+            httponly=True,
+            samesite="lax",
+            secure=cookie_secure(),
+            max_age=SESSION_MAX_AGE_SEC,
+            path="/",
+        )
+        return resp
     except ValueError as exc:
-        code = str(exc)
-        dest = mobile_magic_deep_link(error=code[:80])
-        return RedirectResponse(url=dest, status_code=302)
+        code = str(exc)[:80]
+        if want_mobile:
+            return RedirectResponse(
+                url=mobile_magic_deep_link(error=code), status_code=302
+            )
+        # FAIL-CLOSED: do not pretend login; surface safe error code only.
+        return RedirectResponse(
+            url="/?auth_error=" + urllib.parse.quote(code, safe=""),
+            status_code=302,
+        )
 
 
 @app.post("/api/auth/email/magic/admin/mint")
@@ -993,8 +1033,13 @@ async def auth_email_magic_admin_mint(
             },
         )
     email = ""
+    client_hint = "android"  # WHY: admin mint historically for device E2E deep-link.
     if isinstance(payload, dict):
         email = str(payload.get("email") or "")
+        if payload.get("client") is not None:
+            client_hint = str(payload.get("client") or "").strip().lower()
+    # EDGE: client=web → browser cookie path (design/85); else keep mobile deep-link.
+    for_mobile = client_hint not in ("web", "browser")
     em = normalize_email(email)
     if not em:
         return JSONResponse(
@@ -1023,6 +1068,8 @@ async def auth_email_magic_admin_mint(
         + "/api/auth/email/magic/open?t="
         + urllib.parse.quote(minted["token"], safe="")
     )
+    if for_mobile:
+        open_url += "&mobile=1"
     return JSONResponse(
         {
             "ok": True,
