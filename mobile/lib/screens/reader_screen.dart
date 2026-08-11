@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../api/client.dart';
 import '../api/reading_models.dart';
+import '../api/rich_sentence.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/tts_controller.dart';
@@ -224,15 +225,18 @@ class _SentencePanel extends StatelessWidget {
                       : Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
+                            // design/88 — allowlisted <sub>/<sup>/<i> (not raw tags).
+                            richSentenceText(
                               cur.text,
-                              style: Theme.of(context).textTheme.titleMedium,
+                              style: Theme.of(context).textTheme.titleMedium ??
+                                  const TextStyle(fontSize: 18),
                             ),
                             if (cur.textKo.trim().isNotEmpty) ...[
                               const SizedBox(height: 12),
-                              Text(
+                              richSentenceText(
                                 cur.textKo,
-                                style: Theme.of(context).textTheme.bodyMedium,
+                                style: Theme.of(context).textTheme.bodyMedium ??
+                                    const TextStyle(fontSize: 14),
                               ),
                             ],
                           ],

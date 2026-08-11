@@ -1,7 +1,7 @@
 """
-무엇을: TTS에 넘기기 전 말할 말로 정규화 (첨자·기호·구역 접두).
+무엇을: TTS에 넘기기 전 말할 말로 정규화 (첨자·기호·구역 접두·단위).
 왜: plain_text 만 쓰면 H2O·cm−1·Title: 을 글자 그대로 읽어 어색하다.
-다음에: 단위(cm−1→per centimeter) 사전 확장. 원소는 _expand_element_symbols.
+다음에: 더 많은 단위·반응식 관용 표현.
 """
 
 from __future__ import annotations
@@ -167,7 +167,10 @@ _SYMBOL_SPOKEN = (
     ("×", " times "),
     ("·", " times "),
     ("→", " goes to "),
+    ("⟶", " goes to "),
+    ("⇒", " goes to "),
     ("↔", " exchange "),
+    ("⇌", " equilibrium "),
     ("∞", " infinity "),
     ("°C", " degrees Celsius "),
     ("°F", " degrees Fahrenheit "),
@@ -191,6 +194,43 @@ _SYMBOL_SPOKEN = (
     ("−", " minus "),
     ("–", " "),
     ("—", " "),
+)
+
+# design/88 — 단위 역수·첨자 발음 (HTML/유니코드/평문 공통 후처리)
+_UNIT_SPOKEN_RES = (
+    (
+        re.compile(
+            r"\bcm(?:\s+to\s+the\s+minus\s+one|\s*[⁻−\-]1)\b",
+            re.IGNORECASE,
+        ),
+        " per centimeter ",
+    ),
+    (
+        re.compile(
+            r"\bm(?:\s+to\s+the\s+minus\s+one|\s*[⁻−\-]1)\b",
+            re.IGNORECASE,
+        ),
+        " per meter ",
+    ),
+    (
+        re.compile(
+            r"\bs(?:\s+to\s+the\s+minus\s+one|\s*[⁻−\-]1)\b",
+            re.IGNORECASE,
+        ),
+        " per second ",
+    ),
+    (
+        re.compile(r"\bcm\s*\^\s*\{?\s*[−\-]1\s*\}?", re.IGNORECASE),
+        " per centimeter ",
+    ),
+    (
+        re.compile(r"\b10\s+to\s+the\s+minus\s+", re.IGNORECASE),
+        " ten to the minus ",
+    ),
+)
+
+_LITERAL_TAG_RE = re.compile(
+    r"</?\s*(?:sub|sup|i|em)\s*>", re.IGNORECASE
 )
 
 
@@ -348,16 +388,29 @@ def _expand_element_symbols(text: str) -> str:
     return s
 
 
+def _expand_units(text: str) -> str:
+    """cm⁻¹ / cm-1 / 'cm to the minus one' → per centimeter (design/88)."""
+    s = text
+    for pat, spoken in _UNIT_SPOKEN_RES:
+        s = pat.sub(spoken, s)
+    return s
+
+
+def _strip_literal_tags(text: str) -> str:
+    """EDGE: escaped/failed markup left as visible tags — do not speak 'sub'."""
+    return _LITERAL_TAG_RE.sub(" ", text)
+
+
 def spoken_text_for_tts(raw: str) -> str:
     """
     화면용 HTML/plain → TTS용 영어 말할 말.
-    Title: 접두 제거 · sub/sup 풀어 읽기 · 흔한 기호 발음화.
+    Title: 접두 제거 · sub/sup 풀어 읽기 · 흔한 기호·단위 발음화.
     """
     s = (raw or "").strip()
     if not s:
         return ""
 
-    # HTML 엔티티
+    # HTML 엔티티 (한 겹) — &lt;sub&gt; → <sub>
     if "&" in s:
         s = html_lib.unescape(s)
 
@@ -370,12 +423,14 @@ def spoken_text_for_tts(raw: str) -> str:
         except Exception:  # noqa: BLE001
             s = re.sub(r"<[^>]+>", " ", s)
 
-    # HTML 경로 후에도 남은 평문 첨자·화학식 숫자 → 기호 → 원소 이름
+    # HTML 경로 후에도 남은 평문 첨자·화학식 숫자 → 기호 → 단위 → 원소 이름
     # WHY: °C 를 원소 C보다 먼저 치환해야 degrees Celsius 가 됨
+    s = _strip_literal_tags(s)
     s = _expand_unicode_scripts(s)
     s = _expand_plain_chem_digits(s)
     s = _SECTION_PREFIX.sub("", s)
     s = _apply_symbols(s)
+    s = _expand_units(s)
     s = _expand_element_symbols(s)
     s = re.sub(r"\s+", " ", s).strip()
     s = s.strip(" \t\"'`")
