@@ -1669,13 +1669,65 @@
     if (isStatus) {
       el.sentenceText.textContent = text || "";
     } else {
-      // WHY: design/13 — 서버 sanitize된 <sub>/<sup>/<i> 렌더
-      // WHY: design/49 — 표시에서만 [n] 제거 (칩은 원문 sent.text로 파싱)
-      let html = text || "";
+      // WHY: design/13+88 — sanitize + unescape escaped <sub> before paint
+      let html = sanitizeSentenceHtmlClient(text || "");
       if (window.AsrCiteRefs && AsrCiteRefs.stripCiteMarkersForDisplay) {
         html = AsrCiteRefs.stripCiteMarkersForDisplay(html);
       }
       el.sentenceText.innerHTML = html;
+    }
+  }
+
+  /** design/88 — allowlist sub/sup/i/em; decode one &lt;sub&gt; layer; drop other tags. */
+  function sanitizeSentenceHtmlClient(raw) {
+    let s = String(raw || "");
+    if (!s) return "";
+    // EDGE: double-escaped markup shows as visible "<sub>" if painted as text/entities.
+    if (/&lt;\/?(?:sub|sup|i|em)\b/i.test(s)) {
+      const ta = document.createElement("textarea");
+      ta.innerHTML = s;
+      s = ta.value;
+    }
+    if (s.indexOf("<") < 0) {
+      const d = document.createElement("div");
+      d.textContent = s;
+      return d.innerHTML;
+    }
+    const wrap = document.createElement("div");
+    wrap.innerHTML = s;
+    const allowed = { SUB: 1, SUP: 1, I: 1, EM: 1 };
+    function walk(node) {
+      const kids = Array.prototype.slice.call(node.childNodes);
+      for (let i = 0; i < kids.length; i++) {
+        const child = kids[i];
+        if (child.nodeType === 1) {
+          const tag = child.tagName;
+          if (!allowed[tag]) {
+            while (child.firstChild) {
+              node.insertBefore(child.firstChild, child);
+            }
+            node.removeChild(child);
+            continue;
+          }
+          // Strip all attributes (XSS / style injection).
+          while (child.attributes && child.attributes.length) {
+            child.removeAttribute(child.attributes[0].name);
+          }
+          walk(child);
+        }
+      }
+    }
+    walk(wrap);
+    return wrap.innerHTML;
+  }
+
+  function setSentenceKoDisplay(text) {
+    // design/88 — KO may carry the same allowlisted tags; never leave raw <sub>.
+    const raw = text || "";
+    if (/<\s*\/?\s*(sub|sup|i|em)\b/i.test(raw) || /&lt;\/?(?:sub|sup|i|em)\b/i.test(raw)) {
+      el.sentenceKo.innerHTML = sanitizeSentenceHtmlClient(raw);
+    } else {
+      el.sentenceKo.textContent = raw;
     }
   }
 
@@ -1798,7 +1850,7 @@
       frozenKoText != null
     ) {
       el.sentenceKo.classList.remove("is-error");
-      el.sentenceKo.textContent = stripCitesForUi(frozenKoText);
+      setSentenceKoDisplay(stripCitesForUi(frozenKoText));
       return;
     }
 
@@ -1806,7 +1858,7 @@
     if (cachedKo) {
       el.sentenceKo.classList.remove("is-error");
       const shown = stripCitesForUi(cachedKo);
-      el.sentenceKo.textContent = shown;
+      setSentenceKoDisplay(shown);
       frozenKoSentenceId = sid;
       frozenKoText = shown;
       return;

@@ -16,7 +16,7 @@ MOBILE = ROOT / "mobile"
 def test_status_mobile_upload_background_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.3"
+    assert st["version"] == "0.3.4"
     assert st["mobile_upload_background"] is True
     assert st["mobile_upload"] is True
     assert st["ingest_chunked_upload"] is True
@@ -40,7 +40,7 @@ def test_design_74_and_android_wiring() -> None:
     assert "Live Enable" in text or "IPS" in text
 
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.3" in pub
+    assert "0.3.4" in pub
 
     notify = (MOBILE / "lib" / "api" / "upload_notify.dart").read_text(
         encoding="utf-8"
@@ -103,4 +103,4 @@ def test_design_74_and_android_wiring() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.3" in html
+    assert "app.js?v=0.3.4" in html

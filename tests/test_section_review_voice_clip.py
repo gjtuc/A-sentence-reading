@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "54-section-review-voice-clip.md"
 
 def test_status_voice_clip_actions() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.3"
+    assert st["version"] == "0.3.4"
     assert st["section_review_voice_clip_actions"] is True
     assert st["section_review_voice_seq"] is True
     assert "live_enable" not in st
@@ -67,5 +67,5 @@ def test_design_and_assets() -> None:
     assert "0.2.62" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.3" in served
-    assert "styles.css?v=0.3.3" in served
+    assert "app.js?v=0.3.4" in served
+    assert "styles.css?v=0.3.4" in served
