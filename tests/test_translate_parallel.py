@@ -24,7 +24,7 @@ def _clear_cache() -> None:
 
 def test_status_parallel_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.21"
+    assert st["version"] == "0.3.22"
     assert st["translate_parallel"] is True
     assert 1 <= int(st["translate_workers"]) <= 8
 
@@ -120,4 +120,4 @@ def test_parallel_workers_one_matches_serial_shape(
 
 def test_asset_version() -> None:
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.21" in served
+    assert "app.js?v=0.3.22" in served

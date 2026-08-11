@@ -134,6 +134,7 @@
 - ~~업로드 실패 알림 · 처리 폴링 20분~~ (0.3.19 · [105-upload-fail-notify.md](105-upload-fail-notify.md))
 - ~~품질 단계 Gemini 타임아웃 · GCS 진행률~~ (0.3.20 · [106-ingest-quality-timeout.md](106-ingest-quality-timeout.md))
 - ~~Cloud Run ingest job lease·재시작~~ (0.3.21 · [107-ingest-job-reclaim.md](107-ingest-job-reclaim.md))
+- ~~보관 cache 없이 완료 금지~~ (0.3.22 · [108-fail-closed-no-cache.md](108-fail-closed-no-cache.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)
