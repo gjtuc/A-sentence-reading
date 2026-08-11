@@ -120,6 +120,7 @@
 - ~~실기 Wh/L TTS 청취~~ (0.3.5 · [91-device-tts-unit-lexicon-e2e.md](91-device-tts-unit-lexicon-e2e.md))
 - ~~그림·표 캡션 번호 순 · graphical abstract~~ (0.3.6 · [92-figure-caption-order.md](92-figure-caption-order.md); rich-v8)
 - ~~앱 Live Enable/IPS 푸터 제거~~ (0.3.7 · [93-remove-live-enable-footer.md](93-remove-live-enable-footer.md))
+- ~~그림 줌 프레임 전체 사용~~ (0.3.8 · [94-figure-zoom-fill-frame.md](94-figure-zoom-fill-frame.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)
