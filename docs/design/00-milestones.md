@@ -113,6 +113,7 @@
 - ~~로그인 후 초대 대기 전용 셸~~ (0.3.3 · [84-access-waiting-ux.md](84-access-waiting-ux.md))
 - ~~웹 이메일 매직링크만 (비밀번호 UI 제거)~~ (0.3.3 · [85-web-magic-link-only.md](85-web-magic-link-only.md); ASR_EMAIL_MAGIC_LINK)
 - ~~라이브 SMTP 배선 (status · CD)~~ (0.3.3 · [86-live-smtp-wiring.md](86-live-smtp-wiring.md); ASR_SMTP_*)
+- ~~실기 APK pin · 매직→대기→초대 redeem~~ (0.3.3 · [87-device-apk-magic-invite-e2e.md](87-device-apk-magic-invite-e2e.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)
