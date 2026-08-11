@@ -1,4 +1,4 @@
-"""문헌 각주 → References → DOI/Crossref (0.2.99 · design/41)."""
+"""문헌 각주 → References → DOI/Crossref (0.3.0 · design/41)."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ References
 
 def test_status_cite_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.99"
+    assert st["version"] == "0.3.0"
     assert st["cite_ref_open"] is True
 
 
@@ -65,8 +65,8 @@ def test_ui_assets() -> None:
     assert "/api/cite/resolve" in js
     assert "design/41" in js or "citeRefOpenBtn" in js
     served = TestClient(app).get("/").text
-    assert "cite_refs.js?v=0.2.99" in served
-    assert "app.js?v=0.2.99" in served
+    assert "cite_refs.js?v=0.3.0" in served
+    assert "app.js?v=0.3.0" in served
 
 
 def test_parse_and_extract() -> None:

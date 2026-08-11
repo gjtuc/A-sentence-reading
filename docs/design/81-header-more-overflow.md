@@ -10,7 +10,7 @@
 
 ## Version
 
-**0.2.99**
+**0.3.0**
 
 ## Live Enable / IPS
 

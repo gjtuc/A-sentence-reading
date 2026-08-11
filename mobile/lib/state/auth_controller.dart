@@ -35,6 +35,8 @@ class AuthController extends ChangeNotifier {
   String? error;
   /// design/77 — last magic-link request feedback (not a session).
   String? magicLinkHint;
+  /// design/83 — server kill; missing/true → gate login. Fail-closed default.
+  bool loginRequired = true;
 
   bool get isLoggedIn => user != null && !user!.isEmpty;
 
@@ -49,10 +51,18 @@ class AuthController extends ChangeNotifier {
       final st = await _client.fetchAuthStatus();
       lastStatus = st;
       user = st.user;
+      try {
+        final status = await _client.fetchStatus();
+        loginRequired = status.mobileLoginRequired;
+      } catch (_) {
+        // EDGE: status fetch fail → keep require-login (fail-closed).
+        loginRequired = true;
+      }
     } catch (e) {
       // EDGE: offline / 5xx — stay logged out; keep local cookie for retry.
       error = e.toString();
       user = null;
+      loginRequired = true;
     } finally {
       bootstrapping = false;
       notifyListeners();

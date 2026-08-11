@@ -62,6 +62,10 @@ from sentence_reading.llm.auth_google import (
     verify_google_id_token,
 )
 from sentence_reading.llm.shadowing_practice import shadowing_practice_enabled
+from sentence_reading.llm.login_required import (
+    is_login_public_path,
+    login_required_enabled,
+)
 from sentence_reading.llm.access_gate import (
     access_gate_enabled,
     invite_ttl_seconds,
@@ -145,20 +149,45 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.2.99",
+    version="0.3.0",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
 
 
 class _GcsUidMiddleware(BaseHTTPMiddleware):
-    """쿠키 세션 → 요청 동안 GCS personal_object_name 용 UID."""
+    """쿠키 세션 → GCS UID + design/83 login-required gate.
+
+    WHY gate lives here (not a second middleware): Starlette runs the *last*
+    added middleware outermost; auth_user must already be set before we decide
+    401. EDGE: auth not configured → do not lock the whole app (local mock).
+    """
 
     async def dispatch(self, request: Request, call_next):
         user = parse_session_token(request.cookies.get(COOKIE_NAME))
         request.state.auth_user = user
         set_gcs_uid(user.uid if user else None)
         try:
+            # design/83 — identity lock before invite/cost gate (67).
+            if (
+                login_required_enabled()
+                and auth_enabled()
+                and user is None
+                and not is_login_public_path(request.url.path)
+            ):
+                path = request.url.path or "/"
+                if path.startswith("/api/"):
+                    # FAIL-CLOSED: never return a fake-ok body for protected APIs.
+                    return JSONResponse(
+                        status_code=401,
+                        content={
+                            "ok": False,
+                            "error": "auth_required",
+                            "message": "로그인 후 이용해 주세요.",
+                        },
+                    )
+                # Non-API pages (veil, docs, …) → send browser to login shell.
+                return RedirectResponse(url="/", status_code=302)
             return await call_next(request)
         finally:
             reset_gcs_uid()
@@ -406,7 +435,10 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.2.99",
+        "version": "0.3.0",
+        # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
+        "login_required": login_required_enabled(),
+        "mobile_login_required": login_required_enabled(),
         "access_gate_gcs": True,
         "mobile_upload": True,
         "ingest_job_gcs": True,

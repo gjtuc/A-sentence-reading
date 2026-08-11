@@ -123,8 +123,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         }
 
         // WHY: without login, library/reader/settings are unusable — gate first.
-        // EDGE: fail-closed — no bottom nav until session exists.
-        if (!auth.isLoggedIn) {
+        // design/83 — when server kill ASR_LOGIN_REQUIRED=0, allow anonymous shell.
+        // EDGE: fail-closed — no bottom nav until session exists (default).
+        if (!auth.isLoggedIn && auth.loginRequired) {
           return Scaffold(
             body: _padded(LoginScreen(auth: auth)),
           );

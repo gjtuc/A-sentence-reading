@@ -2190,7 +2190,12 @@
     }
     renderAuthChrome();
     setUploadStatus(msg || "로그인됨", "");
+    applyLoginGateChrome(false);
     if (el.authDialog && el.authDialog.open) el.authDialog.close();
+    if (!loginGateUnlocked) {
+      loginGateUnlocked = true;
+      loadMock();
+    }
     loadTranslatePrefs();
     loadSectionReviewPrefs();
     loadGuidePrefs();
@@ -2483,6 +2488,11 @@
     if (translatePrefs.enabled) render();
     else clearSentenceKo();
     setUploadStatus("로그아웃됨", "");
+    // design/83 — logout returns to login-only shell when gate on.
+    if (loginRequiredFlag && authState.enabled) {
+      applyLoginGateChrome(true);
+      openAuthDialog("login");
+    }
   }
 
   function writeNotesStore(store) {
@@ -6530,7 +6540,52 @@
     }
   });
 
-  loadMock();
-  // WHY: 로그인 칸 → 그다음 GCS 노트 pull (design/22)
-  void initAuth().then(() => pullNotesFromCloud());
+  /** @type {boolean} fail-closed until /api/status says otherwise */
+  let loginRequiredFlag = true;
+  let loginGateUnlocked = false;
+
+  function applyLoginGateChrome(active) {
+    document.body.classList.toggle("asr-login-gate", !!active);
+    if (el.authDialogClose) {
+      // WHY: product = login-only; closing would reveal empty shell.
+      el.authDialogClose.hidden = !!active;
+    }
+  }
+
+  async function bootWithLoginGate() {
+    try {
+      const res = await fetch("/api/status", { credentials: "same-origin" });
+      const st = await res.json().catch(() => ({}));
+      // Missing key → require login (fail-closed for older/partial responses).
+      loginRequiredFlag = st.login_required !== false;
+    } catch (_) {
+      loginRequiredFlag = true;
+    }
+    await initAuth();
+    const mustGate =
+      loginRequiredFlag && !!authState.enabled && !authState.user;
+    if (mustGate) {
+      applyLoginGateChrome(true);
+      openAuthDialog("login");
+      return;
+    }
+    applyLoginGateChrome(false);
+    if (!loginGateUnlocked) {
+      loginGateUnlocked = true;
+      loadMock();
+    }
+    await pullNotesFromCloud();
+  }
+
+  if (el.authDialog) {
+    el.authDialog.addEventListener("cancel", (ev) => {
+      // EDGE: Esc must not dismiss forced login dialog.
+      if (document.body.classList.contains("asr-login-gate")) {
+        ev.preventDefault();
+      }
+    });
+  }
+
+  // design/83 — identity gate before mock/reader boot.
+  void bootWithLoginGate();
 })();
