@@ -756,13 +756,16 @@ class AsrClient {
       }
       final cacheId = '${st['cache_id'] ?? ''}'.trim();
       // WHY: library list is GCS/cache-backed — session_id alone is not durable.
-      // EDGE: short-title skip (`cache_skip_short_title`) finishes job with no cache_id
-      // → must not show “보관에 추가됨” with an empty list (fail-closed).
+      // EDGE: short-title skip finishes without cache_id — must not look like success.
+      // design/108: avoid「보관 저장 실패: 완료」when server used bare「완료」.
       if (cacheId.isEmpty) {
+        final bareDone = msg.isEmpty || msg == '완료';
         throw AsrApiException(
-          msg.isEmpty
+          bareDone
               ? '처리는 끝났지만 보관함에 저장되지 않았습니다. 제목이 너무 짧은 PDF일 수 있습니다.'
-              : '보관 저장 실패: $msg',
+              : (msg.startsWith('보관') || msg.contains('보관함')
+                  ? msg
+                  : '보관 저장 실패: $msg'),
           500,
         );
       }

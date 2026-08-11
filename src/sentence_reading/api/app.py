@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.21",
+    version="0.3.22",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -459,7 +459,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.21",
+        "version": "0.3.22",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -2810,9 +2810,32 @@ async def _run_ingest_job_body(
             data["cache_id"] = cache_entry.get("id")
             data["cached"] = True
             data["has_source"] = bool(cache_entry.get("has_source"))
+        else:
+            # design/108 — fail-closed: never terminal-success without durable cache_id.
+            # WHY: client mapped bare message「완료」→「보관 저장 실패: 완료」(모순·고착).
+            # EDGE: keep ingest upload blob (do not call _finish_job) so reclaim/retry can run.
+            if "cache_skip_short_title" in warnings or not session.sentences:
+                reason = (
+                    "논문 제목이 너무 짧거나 문장이 없어 보관함에 넣지 못했습니다. "
+                    "제목이 분명한 PDF인지 확인해 주세요."
+                )
+            else:
+                reason = (
+                    "처리는 끝났지만 보관함 저장에 실패했습니다. "
+                    "잠시 후 다시 시도해 주세요."
+                )
+            job_err = _JOBS.get(job_id)
+            if job_err is not None:
+                job_err["done"] = True
+                job_err["error"] = reason
+                job_err["percent"] = int(job_err.get("percent") or 98)
+                job_err["stage"] = "error"
+                job_err["message"] = reason
+                job_err["result"] = None
+                _persist_job(job_id, job_err, force=True)
+            return
 
-        # design/80 — shadowing chunk plans (per-uid) when client opted in.
-        want_chunks = bool(job_meta.get("want_shadowing_chunks"))
+        # design/80 — shadowing chunk plans (per-uid) when client opted in.        want_chunks = bool(job_meta.get("want_shadowing_chunks"))
         cache_id = (cache_entry or {}).get("id") if cache_entry else None
         owner = str(job_meta.get("owner_uid") or "")
         if want_chunks and cache_id and owner:
