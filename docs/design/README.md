@@ -96,6 +96,7 @@
 | 103 | [103-mobile-tts-voice-random.md](103-mobile-tts-voice-random.md) | 모바일 TTS 목소리·랜덤 난이도 |
 | 104 | [104-hide-settings-invite-when-allowed.md](104-hide-settings-invite-when-allowed.md) | 설정 초대 코드 승인·관리자 숨김 |
 | 105 | [105-upload-fail-notify.md](105-upload-fail-notify.md) | 업로드 실패 알림 · 폴링 20분 |
+| 106 | [106-ingest-quality-timeout.md](106-ingest-quality-timeout.md) | 품질 단계 Gemini 타임아웃 · GCS 진행률 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -190,3 +191,4 @@
 103은 모바일 TTS 목소리·랜덤 난이도 · 읽기·연습 공유 (0.3.17).
 104는 설정 초대 코드 칸을 승인·관리자에게 숨김 · Deny 재입력 (0.3.18).
 105는 업로드 실패 알림 · 인제스트 폴링 20분 (0.3.19).
+106은 품질 단계 Gemini 타임아웃 · GCS +1% 진행률 반영 (0.3.20).

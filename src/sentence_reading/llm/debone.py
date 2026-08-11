@@ -252,47 +252,63 @@ def _recover_sentence_objects(text: str) -> list[dict]:
     return out
 
 
-def _call_gemini(system: str, user: str) -> str:
-    from google import genai
-    from google.genai import types
+# design/106 — hard cap so quality/debone cannot block ingest forever.
+_GEMINI_TEXT_TIMEOUT_S = 90.0
+
+
+def _call_gemini(system: str, user: str, *, timeout_s: float | None = None) -> str:
+    import concurrent.futures
 
     key = gemini_api_key()
     if not key:
         raise RuntimeError("GEMINI_API_KEY missing")
 
-    client = genai.Client(api_key=key)
-    response = client.models.generate_content(
-        model=gemini_model(),
-        contents=user,
-        config=types.GenerateContentConfig(
-            system_instruction=system,
-            temperature=0.15,
-            max_output_tokens=16384,
-            response_mime_type="application/json",
-        ),
-    )
-    try:
-        from sentence_reading.llm.usage_meter import record_gemini_response
+    limit = float(_GEMINI_TEXT_TIMEOUT_S if timeout_s is None else timeout_s)
 
-        record_gemini_response(f"{system}\n{user}", response)
-    except Exception:  # noqa: BLE001
-        pass
-    text = (getattr(response, "text", None) or "").strip()
-    if text:
-        return text
-    parts: list[str] = []
-    for cand in getattr(response, "candidates", None) or []:
-        content = getattr(cand, "content", None)
-        for part in getattr(content, "parts", None) or []:
-            if getattr(part, "thought", False):
-                continue
-            t = getattr(part, "text", None) or ""
-            if t:
-                parts.append(t)
-    out = "".join(parts).strip()
-    if not out:
-        raise RuntimeError("Gemini empty response")
-    return out
+    def _run() -> str:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=key)
+        response = client.models.generate_content(
+            model=gemini_model(),
+            contents=user,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                temperature=0.15,
+                max_output_tokens=16384,
+                response_mime_type="application/json",
+            ),
+        )
+        try:
+            from sentence_reading.llm.usage_meter import record_gemini_response
+
+            record_gemini_response(f"{system}\n{user}", response)
+        except Exception:  # noqa: BLE001
+            pass
+        text = (getattr(response, "text", None) or "").strip()
+        if text:
+            return text
+        parts: list[str] = []
+        for cand in getattr(response, "candidates", None) or []:
+            content = getattr(cand, "content", None)
+            for part in getattr(content, "parts", None) or []:
+                if getattr(part, "thought", False):
+                    continue
+                t = getattr(part, "text", None) or ""
+                if t:
+                    parts.append(t)
+        out = "".join(parts).strip()
+        if not out:
+            raise RuntimeError("Gemini empty response")
+        return out
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(_run)
+        try:
+            return fut.result(timeout=limit)
+        except concurrent.futures.TimeoutError as exc:
+            raise TimeoutError(f"Gemini text timed out after {limit:.0f}s") from exc
 
 
 def _normalize_section(raw: str) -> str:

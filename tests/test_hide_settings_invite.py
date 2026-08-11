@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """design/104 — hide Settings invite redeem when allowed / admin."""
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ DESIGN = os.path.join(
 def test_status_version_pin() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.19"
+    assert st["version"] == "0.3.20"
 
 
 def test_design_104_exists() -> None:
@@ -62,7 +62,7 @@ def test_settings_gates_invite_field() -> None:
 
 def test_pubspec_pin() -> None:
     pub = open(os.path.join(MOBILE, "pubspec.yaml"), encoding="utf-8").read()
-    assert "0.3.19" in pub
+    assert "0.3.20" in pub
 
 
 def test_no_secrets() -> None:

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """design/102 - mobile library delete + GCS/user purge."""
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from sentence_reading.api import app as app_mod
 def test_status_version_pin() -> None:
     with TestClient(app_mod.app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.19"
+    assert st["version"] == "0.3.20"
 
 
 def test_mobile_library_delete_wiring() -> None:
@@ -48,7 +48,7 @@ def test_mobile_library_delete_wiring() -> None:
     pub = open(
         os.path.join(root, "mobile", "pubspec.yaml"), encoding="utf-8"
     ).read()
-    assert "0.3.19" in pub
+    assert "0.3.20" in pub
 
 
 def test_delete_endpoint_has_paid_gate() -> None:

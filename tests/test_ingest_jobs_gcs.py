@@ -66,7 +66,7 @@ def _register(client: TestClient, email: str) -> None:
 
 def test_status_flags(fake_gcs, auth_root):
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.19"
+    assert st["version"] == "0.3.20"
     assert st["ingest_job_gcs"] is True
     assert st["mobile_upload_resume"] is True
 
@@ -176,3 +176,59 @@ def test_design_doc_mentions_resume():
     assert "0.3.3" in text
     assert "ingest_job_gcs" in text
     assert "이어올리" in text or "resume" in text.lower()
+
+
+def test_should_push_job_on_plus_one_percent():
+    """design/106 — quality 12→16 (+4) must push (old gate was +5)."""
+    job = {
+        "percent": 16,
+        "stage": "quality",
+        "_gcs_pushed_percent": 12,
+        "_gcs_pushed_stage": "quality",
+    }
+    assert ij.should_push_job(job) is True
+    job2 = {
+        "percent": 12,
+        "stage": "quality",
+        "_gcs_pushed_percent": 12,
+        "_gcs_pushed_stage": "quality",
+    }
+    assert ij.should_push_job(job2) is False
+
+
+def test_stale_local_job_refreshes_from_gcs(fake_gcs, auth_root):
+    """design/106 — non-terminal warm cache must not pin an old 12% forever."""
+    client = TestClient(app)
+    _register(client, "refresh@example.com")
+    uid = client.get("/api/auth/status").json()["user"]["uid"]
+    jid = "job_cccccccccccc"
+    app_mod._JOBS[jid] = {
+        "percent": 12,
+        "stage": "quality",
+        "message": "추출 품질 보는 중",
+        "done": False,
+        "error": None,
+        "result": None,
+        "owner_uid": uid,
+        "content_hash": "c" * 64,
+        "filename": "y.pdf",
+    }
+    # Worker on another instance advanced + wrote GCS.
+    advanced = {
+        "percent": 20,
+        "stage": "quality",
+        "message": "text_ok",
+        "done": False,
+        "error": None,
+        "result": None,
+        "owner_uid": uid,
+        "content_hash": "c" * 64,
+        "filename": "y.pdf",
+    }
+    assert ij.save_ingest_job(jid, advanced) is True
+    st = client.get(f"/api/ingest/jobs/{jid}")
+    assert st.status_code == 200, st.text
+    body = st.json()
+    assert body["percent"] == 20
+    assert body["message"] == "text_ok"
+    assert app_mod._JOBS[jid]["percent"] == 20

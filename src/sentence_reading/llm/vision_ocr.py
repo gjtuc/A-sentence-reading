@@ -40,54 +40,72 @@ class RecoverResult:
     decision: QualityDecision | None = None
 
 
-def _call_gemini_vision(system: str, user_text: str, png: bytes) -> str:
-    from google import genai
-    from google.genai import types
+# design/106 — per-page vision must not hang the whole ingest job.
+_GEMINI_VISION_TIMEOUT_S = 60.0
+
+
+def _call_gemini_vision(
+    system: str, user_text: str, png: bytes, *, timeout_s: float | None = None
+) -> str:
+    import concurrent.futures
 
     key = gemini_api_key()
     if not key:
         raise RuntimeError("GEMINI_API_KEY missing")
 
-    client = genai.Client(api_key=key)
-    contents = [
-        types.Content(
-            role="user",
-            parts=[
-                types.Part.from_text(text=user_text),
-                types.Part.from_bytes(data=png, mime_type="image/png"),
-            ],
-        )
-    ]
-    response = client.models.generate_content(
-        model=gemini_model(),
-        contents=contents,
-        config=types.GenerateContentConfig(
-            system_instruction=system,
-            temperature=0.1,
-            max_output_tokens=8192,
-        ),
-    )
-    try:
-        from sentence_reading.llm.usage_meter import record_gemini_response
+    limit = float(_GEMINI_VISION_TIMEOUT_S if timeout_s is None else timeout_s)
 
-        # WHY: 이미지는 토큰 usage_metadata 우선 · 없으면 프롬프트 문자만
-        record_gemini_response(f"{system}\n{user_text}", response)
-    except Exception:  # noqa: BLE001
-        pass
-    text = (getattr(response, "text", None) or "").strip()
-    if text:
-        return text
-    parts: list[str] = []
-    for cand in getattr(response, "candidates", None) or []:
-        content = getattr(cand, "content", None)
-        for part in getattr(content, "parts", None) or []:
-            if getattr(part, "thought", False):
-                continue
-            t = getattr(part, "text", None) or ""
-            if t:
-                parts.append(t)
-    # WHY: 빈 페이지는 빈 문자열이 정상 — 예외로 치지 않음
-    return "".join(parts).strip()
+    def _run() -> str:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=key)
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(text=user_text),
+                    types.Part.from_bytes(data=png, mime_type="image/png"),
+                ],
+            )
+        ]
+        response = client.models.generate_content(
+            model=gemini_model(),
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                temperature=0.1,
+                max_output_tokens=8192,
+            ),
+        )
+        try:
+            from sentence_reading.llm.usage_meter import record_gemini_response
+
+            # WHY: 이미지는 토큰 usage_metadata 우선 · 없으면 프롬프트 문자만
+            record_gemini_response(f"{system}\n{user_text}", response)
+        except Exception:  # noqa: BLE001
+            pass
+        text = (getattr(response, "text", None) or "").strip()
+        if text:
+            return text
+        parts: list[str] = []
+        for cand in getattr(response, "candidates", None) or []:
+            content = getattr(cand, "content", None)
+            for part in getattr(content, "parts", None) or []:
+                if getattr(part, "thought", False):
+                    continue
+                t = getattr(part, "text", None) or ""
+                if t:
+                    parts.append(t)
+        # WHY: 빈 페이지는 빈 문자열이 정상 — 예외로 치지 않음
+        return "".join(parts).strip()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(_run)
+        try:
+            return fut.result(timeout=limit)
+        except concurrent.futures.TimeoutError as exc:
+            raise TimeoutError(f"Gemini vision timed out after {limit:.0f}s") from exc
 
 
 def ocr_page_png(png: bytes, *, page_index: int, page_count: int) -> str:
