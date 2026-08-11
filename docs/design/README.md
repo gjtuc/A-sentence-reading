@@ -79,6 +79,7 @@
 | 86 | [86-live-smtp-wiring.md](86-live-smtp-wiring.md) | 라이브 SMTP 배선 · status · CD 전달 |
 | 87 | [87-device-apk-magic-invite-e2e.md](87-device-apk-magic-invite-e2e.md) | 실기 APK 0.3.3 · 매직→대기→초대 입력 |
 | 88 | [88-rich-display-tts-polish.md](88-rich-display-tts-polish.md) | 웹·앱 첨자 표시 · TTS 단위 손질 |
+| 89 | [89-device-rich-display-e2e.md](89-device-rich-display-e2e.md) | 실기 보관 논문 · 첨자 표시+TTS E2E |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -156,3 +157,4 @@
 84은 로그인 후 초대 대기 전용 셸 (0.3.3).
 87은 실기 APK 0.3.3 · 매직 딥링크 → 대기 → 초대 입력 (0.3.3).
 88은 웹·앱 rich 첨자 표시 · TTS 단위·기호 손질 (0.3.4).
+89은 실기 보관 논문에서 첨자 표시+TTS 확인 (0.3.4).
