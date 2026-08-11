@@ -32,7 +32,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_version() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.1"
+    assert st["version"] == "0.3.2"
     assert st["auth"]["providers"]["email"] is True
 
 
@@ -95,8 +95,12 @@ def test_ui_multi_auth() -> None:
     assert "authDialog" in html
     js = (root / "app.js").read_text(encoding="utf-8")
     assert "openAuthDialog" in js
-    assert "/api/auth/email/login" in js
+    assert "/api/auth/email/magic/request" in js
+    assert "requestEmailMagicLink" in js
     assert "authAccountBtn" in js
+    assert "authPasswordInput" not in html
+    assert "authEmailRegisterBtn" not in html
+    assert "/api/auth/email/login" not in js
 
 
 if __name__ == "__main__":

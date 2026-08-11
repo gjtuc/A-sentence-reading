@@ -265,12 +265,16 @@ class AsrClient {
   }
 
   /// POST /api/auth/email/magic/request — SMTP send; no session yet (design/77).
+  /// [client] ``android`` appends ``mobile=1`` so open deep-links the app (design/85).
   Future<String> requestMagicLink({required String email}) async {
     final res = await _http
         .post(
           _uri('/api/auth/email/magic/request'),
           headers: await _headers(jsonBody: true),
-          body: jsonEncode({'email': email.trim()}),
+          body: jsonEncode({
+            'email': email.trim(),
+            'client': 'android',
+          }),
         )
         .timeout(const Duration(seconds: 30));
     final map = _decodeObject(res, 'email/magic/request');

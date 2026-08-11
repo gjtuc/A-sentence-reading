@@ -52,6 +52,6 @@ Android `MediaRecorder` via MethodChannel `asr/shadowing_mic` (no pub.dev `recor
 
 ## Version
 
-**0.3.1** · pubspec `0.3.1+1`
+**0.3.2** · pubspec `0.3.2+1`
 
 Do not paste emails, cookies, or tokens into chat/PR.
