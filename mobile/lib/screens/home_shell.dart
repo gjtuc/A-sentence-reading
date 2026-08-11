@@ -198,6 +198,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             theme: widget.theme,
             auth: widget.auth,
             shadowing: widget.shadowing,
+            tts: widget.tts,
           ),
         ];
 

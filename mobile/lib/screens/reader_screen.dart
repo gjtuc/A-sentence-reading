@@ -251,21 +251,6 @@ class _SentencePanel extends StatelessWidget {
               ),
             ),
           ),
-          Row(
-            children: [
-              const Text('speed', style: TextStyle(fontSize: 12)),
-              Expanded(
-                child: Slider(
-                  value: tts.rate.clamp(0.5, 2.2),
-                  min: 0.5,
-                  max: 2.2,
-                  divisions: 17,
-                  label: tts.rate.toStringAsFixed(2),
-                  onChanged: (v) => tts.setRate(v),
-                ),
-              ),
-            ],
-          ),
         ],
       ),
     );
