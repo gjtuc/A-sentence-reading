@@ -24,7 +24,7 @@ from sentence_reading.pdf import extract as pdf_extract
 
 def test_status_compound_off() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.4"
+    assert st["version"] == "0.3.5"
     assert st["pipeline_version"] == "rich-v7"
     assert PIPELINE_VERSION == "rich-v7"
     assert st.get("compound_figures") is False

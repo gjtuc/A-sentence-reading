@@ -116,6 +116,7 @@
 - ~~실기 APK pin · 매직→대기→초대 redeem~~ (0.3.3 · [87-device-apk-magic-invite-e2e.md](87-device-apk-magic-invite-e2e.md))
 - ~~웹·앱 첨자 표시 · TTS 손질~~ (0.3.4 · [88-rich-display-tts-polish.md](88-rich-display-tts-polish.md))
 - ~~실기 보관 논문 첨자·TTS E2E~~ (0.3.4 · [89-device-rich-display-e2e.md](89-device-rich-display-e2e.md))
+- ~~TTS 단위 사전 (Wh/L · SI energy)~~ (0.3.5 · [90-tts-unit-lexicon.md](90-tts-unit-lexicon.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)
