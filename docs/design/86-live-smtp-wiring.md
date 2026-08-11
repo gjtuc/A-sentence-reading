@@ -54,7 +54,7 @@ Then redeploy (push to main or workflow_dispatch). Confirm live `/api/status` �
 - Cloud Run `/api/status`: `version=0.3.3` · `email_smtp_configured=true` · `mobile_email_magic_link=true` (rev `asr-sentence-reading-00087-pkk`+; live request returns send-ok)
 - GitHub Actions secrets `ASR_SMTP_HOST` / `_FROM` / `_USER` / `_PASS` / `_PORT` set (values never in chat/PR)
 - Live USER/PASS may be Secret Manager `st-auth-smtp-user` / `st-auth-smtp-password` **or** plain env; CD plain mode uses `--remove-secrets` first to avoid type clash
-- Next: real-mail magic-link E2E (your inbox → open → session) — do not use example.com probes for inbox checks
+- Next: ~~real-mail magic-link E2E~~ **done** (2026-08-11): web request → Naver inbox → browser open → session → access waiting shell (invite). Values/URLs not recorded here.
 - Kill: omit SMTP secrets · or `ASR_EMAIL_MAGIC_LINK=0` · revert PR #123
 
 Do not paste SMTP passwords, magic URLs, or real mailboxes into chat/PR.
