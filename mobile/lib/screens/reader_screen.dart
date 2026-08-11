@@ -15,6 +15,7 @@ import 'shadowing_practice_screen.dart';
 /// TTS never mutates cursors.
 /// design/97 — double-tap a panel to fill the screen; double-tap again to restore.
 /// design/98 — drag the split bar; magnet at default; edge tension → full-panel snap.
+/// design/100 — single tap toggles panel chrome; split mode syncs both frames.
 enum _ReaderLayoutMode { split, sentenceOnly, figureOnly }
 
 class ReaderScreen extends StatefulWidget {
@@ -51,6 +52,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _inMagnet = false;
   bool _edgePreviewSentence = false;
   bool _edgePreviewFigure = false;
+  /// design/100 — shared chrome for sentence + figure headers.
+  bool _chromeVisible = true;
+
+  void _toggleChrome() {
+    setState(() => _chromeVisible = !_chromeVisible);
+  }
 
   void _toggleSentenceExpand() {
     setState(() {
@@ -254,6 +261,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                     tts: tts,
                                     session: s,
                                     showKo: showKo,
+                                    showChrome: _chromeVisible,
+                                    onToggleChrome: _toggleChrome,
                                     onDoubleTapExpand: _toggleSentenceExpand,
                                   ),
                           ),
@@ -278,6 +287,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                     library: library,
                                     session: s,
                                     showKo: showKo,
+                                    showChrome: _chromeVisible,
+                                    onToggleChrome: _toggleChrome,
                                     onDoubleTapExpand: _toggleFigureExpand,
                                   ),
                           ),
@@ -375,6 +386,8 @@ class _SentencePanel extends StatelessWidget {
     required this.tts,
     required this.session,
     required this.showKo,
+    required this.showChrome,
+    this.onToggleChrome,
     this.onDoubleTapExpand,
   });
 
@@ -382,6 +395,8 @@ class _SentencePanel extends StatelessWidget {
   final TtsController tts;
   final ReadingSession session;
   final bool showKo;
+  final bool showChrome;
+  final VoidCallback? onToggleChrome;
   final VoidCallback? onDoubleTapExpand;
 
   @override
@@ -395,59 +410,66 @@ class _SentencePanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              IconButton(
-                tooltip: 'prev sentence',
-                onPressed: session.sentenceCount == 0
-                    ? null
-                    : () async {
-                        await tts.stop();
-                        await library.advanceSentence(-1);
-                      },
-                icon: const Icon(Icons.chevron_left),
-              ),
-              Expanded(child: Text(label, textAlign: TextAlign.center)),
-              IconButton(
-                tooltip: 'next sentence',
-                onPressed: session.sentenceCount == 0
-                    ? null
-                    : () async {
-                        await tts.stop();
-                        await library.advanceSentence(1);
-                      },
-                icon: const Icon(Icons.chevron_right),
-              ),
-              if (tts.loading)
-                const SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: Padding(
-                    padding: EdgeInsets.all(4),
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                )
-              else
-                IconButton(
-                  tooltip: tts.playing ? 'stop TTS' : 'play TTS',
-                  onPressed: (cur == null || !cur.hasText)
-                      ? null
-                      : () async {
-                          if (tts.playing) {
-                            await tts.stop();
-                          } else {
-                            await tts.playCurrentSentence();
-                          }
-                        },
-                  icon: Icon(
-                    tts.playing
-                        ? Icons.stop_circle_outlined
-                        : Icons.volume_up,
-                  ),
-                ),
-            ],
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: showChrome
+                ? Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'prev sentence',
+                        onPressed: session.sentenceCount == 0
+                            ? null
+                            : () async {
+                                await tts.stop();
+                                await library.advanceSentence(-1);
+                              },
+                        icon: const Icon(Icons.chevron_left),
+                      ),
+                      Expanded(child: Text(label, textAlign: TextAlign.center)),
+                      IconButton(
+                        tooltip: 'next sentence',
+                        onPressed: session.sentenceCount == 0
+                            ? null
+                            : () async {
+                                await tts.stop();
+                                await library.advanceSentence(1);
+                              },
+                        icon: const Icon(Icons.chevron_right),
+                      ),
+                      if (tts.loading)
+                        const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: Padding(
+                            padding: EdgeInsets.all(4),
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      else
+                        IconButton(
+                          tooltip: tts.playing ? 'stop TTS' : 'play TTS',
+                          onPressed: (cur == null || !cur.hasText)
+                              ? null
+                              : () async {
+                                  if (tts.playing) {
+                                    await tts.stop();
+                                  } else {
+                                    await tts.playCurrentSentence();
+                                  }
+                                },
+                          icon: Icon(
+                            tts.playing
+                                ? Icons.stop_circle_outlined
+                                : Icons.volume_up,
+                          ),
+                        ),
+                    ],
+                  )
+                : const SizedBox(width: double.infinity),
           ),
-          if (tts.error != null)
+          if (showChrome && tts.error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Text(
@@ -472,6 +494,7 @@ class _SentencePanel extends StatelessWidget {
                   await tts.stop();
                   await library.advanceSentence(1);
                 },
+                onTap: onToggleChrome,
                 onDoubleTap: onDoubleTapExpand,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -514,12 +537,16 @@ class _FigurePanel extends StatelessWidget {
     required this.library,
     required this.session,
     required this.showKo,
+    required this.showChrome,
+    this.onToggleChrome,
     this.onDoubleTapExpand,
   });
 
   final LibraryController library;
   final ReadingSession session;
   final bool showKo;
+  final bool showChrome;
+  final VoidCallback? onToggleChrome;
   final VoidCallback? onDoubleTapExpand;
 
   @override
@@ -533,30 +560,43 @@ class _FigurePanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              IconButton(
-                tooltip: 'prev figure',
-                onPressed: session.figureCount == 0
-                    ? null
-                    : () => library.advanceFigure(-1),
-                icon: const Icon(Icons.chevron_left),
-              ),
-              Expanded(child: Text(label, textAlign: TextAlign.center)),
-              IconButton(
-                tooltip: 'next figure',
-                onPressed: session.figureCount == 0
-                    ? null
-                    : () => library.advanceFigure(1),
-                icon: const Icon(Icons.chevron_right),
-              ),
-            ],
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: showChrome
+                ? Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'prev figure',
+                        onPressed: session.figureCount == 0
+                            ? null
+                            : () => library.advanceFigure(-1),
+                        icon: const Icon(Icons.chevron_left),
+                      ),
+                      Expanded(
+                        child: Text(label, textAlign: TextAlign.center),
+                      ),
+                      IconButton(
+                        tooltip: 'next figure',
+                        onPressed: session.figureCount == 0
+                            ? null
+                            : () => library.advanceFigure(1),
+                        icon: const Icon(Icons.chevron_right),
+                      ),
+                    ],
+                  )
+                : const SizedBox(width: double.infinity),
           ),
           Expanded(
             child: Card(
               clipBehavior: Clip.antiAlias,
               child: cur == null
-                  ? const Center(child: Text('No figure.'))
+                  ? GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: onToggleChrome,
+                      child: const Center(child: Text('No figure.')),
+                    )
                   : Column(
                       children: [
                         Expanded(
@@ -565,6 +605,7 @@ class _FigurePanel extends StatelessWidget {
                             swipeEnabled: session.figureCount > 0,
                             onPrevious: () => library.advanceFigure(-1),
                             onNext: () => library.advanceFigure(1),
+                            onTap: onToggleChrome,
                             onDoubleTapExpand: onDoubleTapExpand,
                           ),
                         ),
@@ -597,6 +638,7 @@ class _FigureImage extends StatelessWidget {
     this.swipeEnabled = false,
     this.onPrevious,
     this.onNext,
+    this.onTap,
     this.onDoubleTapExpand,
   });
 
@@ -604,12 +646,17 @@ class _FigureImage extends StatelessWidget {
   final bool swipeEnabled;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
+  final VoidCallback? onTap;
   final VoidCallback? onDoubleTapExpand;
 
   @override
   Widget build(BuildContext context) {
     if (src.isEmpty) {
-      return const Center(child: Text('No image'));
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: const Center(child: Text('No image')),
+      );
     }
     final decoded = decodeRasterDataUrl(src);
     if (decoded != null) {
@@ -618,6 +665,7 @@ class _FigureImage extends StatelessWidget {
         swipeEnabled: swipeEnabled,
         onPrevious: onPrevious,
         onNext: onNext,
+        onTap: onTap,
         onDoubleTapExpand: onDoubleTapExpand,
         child: Image.memory(
           decoded.bytes,
@@ -632,6 +680,7 @@ class _FigureImage extends StatelessWidget {
         swipeEnabled: swipeEnabled,
         onPrevious: onPrevious,
         onNext: onNext,
+        onTap: onTap,
         onDoubleTapExpand: onDoubleTapExpand,
         child: Image.network(
           src,
@@ -642,12 +691,16 @@ class _FigureImage extends StatelessWidget {
         ),
       );
     }
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(12),
-        child: Text(
-          'Preview not available for this image type (caption only).',
-          textAlign: TextAlign.center,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: const Center(
+        child: Padding(
+          padding: EdgeInsets.all(12),
+          child: Text(
+            'Preview not available for this image type (caption only).',
+            textAlign: TextAlign.center,
+          ),
         ),
       ),
     );
@@ -655,11 +708,13 @@ class _FigureImage extends StatelessWidget {
 }
 
 /// design/95 — horizontal swipe: left→prev, right→next (figures only when not zoomed).
+/// design/100 — single tap toggles chrome (deferred so double-tap expand wins).
 class _SwipePager extends StatefulWidget {
   const _SwipePager({
     required this.child,
     required this.onPrevious,
     required this.onNext,
+    this.onTap,
     this.onDoubleTap,
     this.enabled = true,
   });
@@ -667,6 +722,7 @@ class _SwipePager extends StatefulWidget {
   final Widget child;
   final Future<void> Function()? onPrevious;
   final Future<void> Function()? onNext;
+  final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
   final bool enabled;
 
@@ -696,6 +752,7 @@ class _SwipePagerState extends State<_SwipePager> {
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
+      onTap: widget.onTap,
       onDoubleTap: widget.onDoubleTap,
       onHorizontalDragStart: (_) => _dx = 0,
       onHorizontalDragUpdate: (d) => _dx += d.delta.dx,
@@ -705,7 +762,7 @@ class _SwipePagerState extends State<_SwipePager> {
   }
 }
 
-/// design/94+95+97 — full-frame zoom; swipe at 1×; double-tap expands panel.
+/// design/94+95+97+100 — full-frame zoom; swipe at 1×; tap chrome; double-tap expand.
 class _ZoomableFigureFrame extends StatefulWidget {
   const _ZoomableFigureFrame({
     super.key,
@@ -713,6 +770,7 @@ class _ZoomableFigureFrame extends StatefulWidget {
     this.swipeEnabled = false,
     this.onPrevious,
     this.onNext,
+    this.onTap,
     this.onDoubleTapExpand,
   });
 
@@ -720,6 +778,7 @@ class _ZoomableFigureFrame extends StatefulWidget {
   final bool swipeEnabled;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
+  final VoidCallback? onTap;
   final VoidCallback? onDoubleTapExpand;
 
   @override
@@ -768,6 +827,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
         final allowSwipe = widget.swipeEnabled && !_zoomed;
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
           onDoubleTap: widget.onDoubleTapExpand,
           onHorizontalDragStart: allowSwipe ? (_) => _dx = 0 : null,
           onHorizontalDragUpdate:

@@ -32,7 +32,7 @@ def _iso_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_version() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.13"
+    assert st["version"] == "0.3.14"
     assert st.get("usage_meter") is True
 
 
