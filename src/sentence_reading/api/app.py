@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.27",
+    version="0.3.28",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -483,7 +483,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.27",
+        "version": "0.3.28",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -504,6 +504,8 @@ def status(request: Request) -> dict:
         "ingest_resume_skip": ingest_resume_skip_enabled(),
         # design/113 — chunk build returns pending slices (no gateway 504).
         "shadowing_chunk_budget": True,
+        # design/114 — open rejects empty sentence sessions.
+        "paper_open_require_sentences": True,
         "ingest_chunked_upload": True,
         # design/73 — mirrors ASR_INGEST_RATE_LIMIT kill switch (False when off).
         "ingest_rate_limit": rate_limit_enabled(),
@@ -1859,11 +1861,18 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
     if denied is not None:
         return denied
     try:
-        loaded = load_cached_session(cache_id)
-        if loaded is None:
-            try:
-                from sentence_reading.llm.papers_gcs import ensure_paper_local
+        from sentence_reading.llm.papers_gcs import (
+            ensure_paper_local,
+            paper_open_require_sentences,
+        )
 
+        loaded = load_cached_session(cache_id)
+        # design/114 — empty local session is not a hit; force GCS refresh.
+        need_pull = loaded is None or (
+            paper_open_require_sentences() and not loaded[0].sentences
+        )
+        if need_pull:
+            try:
                 ensure_paper_local(cache_id)
             except Exception:
                 pass
@@ -1878,6 +1887,16 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                 },
             )
         session, info = loaded
+        # design/114 — never return ok with title-only / zero sentences.
+        if paper_open_require_sentences() and not session.sentences:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "ok": False,
+                    "error": "empty_session",
+                    "message": "보관본에 문장이 없습니다. 원본이 있으면 재분석하거나 PDF를 다시 올려 주세요.",
+                },
+            )
         src = "pdf"
         # index source 힌트
         try:

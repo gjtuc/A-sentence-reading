@@ -54,6 +54,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _edgePreviewFigure = false;
   /// design/100 — shared chrome for sentence + figure headers.
   bool _chromeVisible = true;
+  /// design/114 — reset split when a different paper is opened.
+  String? _layoutSessionKey;
+
+  void _ensureLayoutForSession(ReadingSession s) {
+    final key = '${s.sessionId}|${s.cacheId}';
+    if (_layoutSessionKey == key) return;
+    _layoutSessionKey = key;
+    _layout = _ReaderLayoutMode.split;
+    _sentenceFraction = _kDefaultFraction;
+    _chromeVisible = true;
+    _dragging = false;
+    _inMagnet = false;
+    _edgePreviewSentence = false;
+    _edgePreviewFigure = false;
+  }
 
   void _toggleChrome() {
     setState(() => _chromeVisible = !_chromeVisible);
@@ -150,12 +165,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
             child: Padding(
               padding: EdgeInsets.all(24),
               child: Text(
-                'No paper open. Open one from Library (sentence + figure + TTS).',
+                'No paper open. Open one from Library\n'
+                '(sentence + figure + TTS).',
                 textAlign: TextAlign.center,
               ),
             ),
           );
         }
+        _ensureLayoutForSession(s);
         final showKo = translate.enabled;
         final showSentence = _layout != _ReaderLayoutMode.figureOnly;
         final showFigure = _layout != _ReaderLayoutMode.sentenceOnly;

@@ -361,14 +361,47 @@ def download_paper_cache(cache_id: str, *, entry: dict[str, Any] | None = None) 
     return True
 
 
-def ensure_paper_local(cache_id: str) -> bool:
-    """로컬에 session 있으면 True · 없으면 GCS pull."""
+def local_session_has_sentences(cache_id: str) -> bool:
+    """True when local session.json exists and has ≥1 non-empty sentence text."""
     cid = (cache_id or "").strip()
     if not _CACHE_ID_RE.match(cid):
         return False
-    if (cache_root() / cid / _SESSION_NAME).is_file():
+    meta_path = cache_root() / cid / _SESSION_NAME
+    if not meta_path.is_file():
+        return False
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(meta, dict):
+        return False
+    for s in meta.get("sentences") or []:
+        if isinstance(s, dict) and str(s.get("text") or "").strip():
+            return True
+    return False
+
+
+def ensure_paper_local(cache_id: str) -> bool:
+    """Ensure a usable local session (design/114).
+
+    WHY: a zero-byte / title-only local session.json made open succeed with
+    empty reader (title from library index). Re-pull from GCS when unusable.
+    """
+    cid = (cache_id or "").strip()
+    if not _CACHE_ID_RE.match(cid):
+        return False
+    if local_session_has_sentences(cid):
         return True
+    # EDGE: missing or empty local → always try GCS (overwrite).
     return download_paper_cache(cid)
+
+
+def paper_open_require_sentences() -> bool:
+    """Kill: ASR_PAPER_OPEN_REQUIRE_SENTENCES=0 allows empty open (debug only)."""
+    import os
+
+    raw = (os.environ.get("ASR_PAPER_OPEN_REQUIRE_SENTENCES") or "1").strip().lower()
+    return raw not in ("0", "false", "off", "no")
 
 
 def pull_paper_matching_text(text: str, *, source: str = "pdf") -> dict[str, Any] | None:
