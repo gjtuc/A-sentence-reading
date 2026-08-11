@@ -34,6 +34,10 @@ _SAFE_NAME = re.compile(r"^[A-Za-z0-9._\- ]{1,180}$")
 _LEASE_TTL_S = 90
 _HEARTBEAT_INTERVAL_S = 25
 
+# design/110 — checkpoint envelope (mid-stage skip comes later; TTL ≠ lease).
+_CHECKPOINT_SCHEMA_V = 1
+_CHECKPOINT_TTL_HOURS_DEFAULT = 168  # 7 days — product: stale → discard
+
 
 def ingest_jobs_gcs_enabled() -> bool:
     return bool(gcs_config().enabled)
@@ -45,12 +49,36 @@ def ingest_job_reclaim_enabled() -> bool:
     return raw not in ("0", "false", "off", "no")
 
 
+def ingest_checkpoint_enabled() -> bool:
+    """Kill switch: ASR_INGEST_CHECKPOINT=0 disables envelope write/accept."""
+    raw = (os.environ.get("ASR_INGEST_CHECKPOINT") or "1").strip().lower()
+    return raw not in ("0", "false", "off", "no")
+
+
 def lease_ttl_seconds() -> int:
     return _LEASE_TTL_S
 
 
 def heartbeat_interval_seconds() -> int:
     return _HEARTBEAT_INTERVAL_S
+
+
+def checkpoint_schema_version() -> int:
+    return _CHECKPOINT_SCHEMA_V
+
+
+def checkpoint_ttl_hours() -> int:
+    raw = (os.environ.get("ASR_INGEST_CHECKPOINT_TTL_HOURS") or "").strip()
+    if not raw:
+        return _CHECKPOINT_TTL_HOURS_DEFAULT
+    try:
+        hours = int(raw)
+    except ValueError:
+        return _CHECKPOINT_TTL_HOURS_DEFAULT
+    # EDGE: refuse non-positive / absurd values — fail-closed to default.
+    if hours < 1 or hours > 24 * 90:
+        return _CHECKPOINT_TTL_HOURS_DEFAULT
+    return hours
 
 
 def valid_job_id(job_id: str) -> bool:
@@ -146,6 +174,19 @@ def public_job_view(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
     }
     if job.get("content_hash"):
         out["content_hash"] = str(job["content_hash"])
+    # design/110 — resume hint only (stage/cursor); never paper text.
+    cp = job.get("checkpoint")
+    if isinstance(cp, dict) and cp.get("stage"):
+        out["checkpoint_stage"] = str(cp.get("stage") or "")[:40]
+        cursor = cp.get("cursor")
+        if isinstance(cursor, dict):
+            try:
+                done = int(cursor.get("done") or 0)
+                total = int(cursor.get("total") or 0)
+            except (TypeError, ValueError):
+                done, total = 0, 0
+            if total > 0:
+                out["checkpoint_cursor"] = {"done": done, "total": total}
     if job.get("error"):
         out["ok"] = False
         out["error"] = "ingest_failed"
@@ -164,6 +205,132 @@ def public_job_view(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def build_checkpoint(
+    *,
+    stage: str,
+    content_hash: str,
+    pipeline_version: str,
+    cursor: dict[str, Any] | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Minimal resume envelope — no paper body, no titles."""
+    clock = now or _utc_now()
+    out: dict[str, Any] = {
+        "v": _CHECKPOINT_SCHEMA_V,
+        "pipeline_version": str(pipeline_version or "").strip()[:32],
+        "stage": str(stage or "").strip()[:40],
+        "content_hash": str(content_hash or "").strip().lower()[:64],
+        "updated_at": clock.isoformat(),
+    }
+    if isinstance(cursor, dict):
+        try:
+            done = int(cursor.get("done") or 0)
+            total = int(cursor.get("total") or 0)
+        except (TypeError, ValueError):
+            done, total = 0, 0
+        # EDGE: clamp absurd cursors — never trust unbounded client-like values.
+        done = max(0, min(done, 1_000_000))
+        total = max(0, min(total, 1_000_000))
+        if total > 0:
+            out["cursor"] = {"done": done, "total": total}
+    return out
+
+
+def checkpoint_is_valid(
+    checkpoint: Any,
+    *,
+    content_hash: str,
+    pipeline_version: str,
+    now: datetime | None = None,
+) -> tuple[bool, str]:
+    """
+    Accept/discard gate for design/110.
+    Returns (ok, reason). reason is machine-short for logs/tests — not user email.
+    """
+    if not ingest_checkpoint_enabled():
+        return False, "disabled"
+    if not isinstance(checkpoint, dict):
+        return False, "missing"
+    try:
+        ver = int(checkpoint.get("v") or 0)
+    except (TypeError, ValueError):
+        return False, "schema"
+    if ver != _CHECKPOINT_SCHEMA_V:
+        return False, "schema"
+    if str(checkpoint.get("pipeline_version") or "") != str(pipeline_version or ""):
+        return False, "pipeline"
+    cp_hash = str(checkpoint.get("content_hash") or "").strip().lower()
+    expect = str(content_hash or "").strip().lower()
+    if not expect or cp_hash != expect:
+        return False, "hash"
+    updated = _parse_iso(str(checkpoint.get("updated_at") or ""))
+    if updated is None:
+        return False, "ttl"
+    clock = now or _utc_now()
+    age = clock - updated
+    if age.total_seconds() > checkpoint_ttl_hours() * 3600:
+        return False, "ttl"
+    if age.total_seconds() < -300:
+        # EDGE: clock skew far in the future → discard (fail-closed).
+        return False, "ttl"
+    stage = str(checkpoint.get("stage") or "").strip()
+    if not stage or stage in ("done", "error", "queued"):
+        return False, "stage"
+    return True, "ok"
+
+
+def checkpoint_resume_message(checkpoint: dict[str, Any]) -> str:
+    """Human poll message: where we *intend* to resume (skip wired later)."""
+    stage = str(checkpoint.get("stage") or "").strip()
+    labels = {
+        "extract": "추출",
+        "cache": "보관본",
+        "quality": "품질",
+        "vision": "비전",
+        "figures": "그림",
+        "debone": "다듬기",
+        "split": "문장 나누기",
+        "ready": "읽기 준비",
+        "translate": "번역",
+        "save": "저장",
+        "shadowing_chunks": "연습 구간",
+    }
+    label = labels.get(stage, stage or "처리")
+    cursor = checkpoint.get("cursor")
+    if isinstance(cursor, dict):
+        try:
+            done = int(cursor.get("done") or 0)
+            total = int(cursor.get("total") or 0)
+        except (TypeError, ValueError):
+            done, total = 0, 0
+        if total > 0:
+            return f"이어받을 지점 유지 · {label} {done}/{total}"
+    return f"이어받을 지점 유지 · {label}"
+
+
+def stamp_checkpoint_on_job(
+    job: dict[str, Any],
+    *,
+    pipeline_version: str,
+    cursor: dict[str, Any] | None = None,
+) -> None:
+    """Update in-memory checkpoint when progress advances (design/110)."""
+    if not ingest_checkpoint_enabled():
+        job.pop("checkpoint", None)
+        return
+    if job.get("done") or job.get("error"):
+        return
+    stage = str(job.get("stage") or "").strip()
+    if not stage or stage in ("done", "error"):
+        return
+    job["checkpoint"] = build_checkpoint(
+        stage=stage,
+        content_hash=str(job.get("content_hash") or ""),
+        pipeline_version=pipeline_version,
+        cursor=cursor,
+    )
+
+
 def serialize_job_record(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
     """Persistable snapshot — no temp paths, no raw PDF."""
     result = job.get("result")
@@ -179,12 +346,37 @@ def serialize_job_record(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
         "content_hash": str(job.get("content_hash") or ""),
         "filename": str(job.get("filename") or "")[:180],
         "updated_at": datetime.now(timezone.utc).isoformat(),
+        # design/110 — reclaim must keep opt-in flags (defaults lied after GCS round-trip).
+        "want_translate": bool(job.get("want_translate", True)),
+        "want_shadowing_chunks": bool(job.get("want_shadowing_chunks", False)),
     }
     # design/107 — lease so other instances know a worker is still alive.
     if job.get("lease_until"):
         out["lease_until"] = str(job.get("lease_until"))
     if job.get("lease_token"):
         out["lease_token"] = str(job.get("lease_token"))[:32]
+    # design/110 — envelope only (no paper text).
+    cp = job.get("checkpoint")
+    if isinstance(cp, dict) and cp.get("stage"):
+        out["checkpoint"] = {
+            "v": int(cp.get("v") or _CHECKPOINT_SCHEMA_V),
+            "pipeline_version": str(cp.get("pipeline_version") or "")[:32],
+            "stage": str(cp.get("stage") or "")[:40],
+            "content_hash": str(cp.get("content_hash") or "")[:64],
+            "updated_at": str(cp.get("updated_at") or ""),
+        }
+        cursor = cp.get("cursor")
+        if isinstance(cursor, dict):
+            try:
+                done = int(cursor.get("done") or 0)
+                total = int(cursor.get("total") or 0)
+            except (TypeError, ValueError):
+                done, total = 0, 0
+            if total > 0:
+                out["checkpoint"]["cursor"] = {
+                    "done": max(0, min(done, 1_000_000)),
+                    "total": max(0, min(total, 1_000_000)),
+                }
     return out
 
 

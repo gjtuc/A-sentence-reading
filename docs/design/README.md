@@ -100,6 +100,7 @@
 | 107 | [107-ingest-job-reclaim.md](107-ingest-job-reclaim.md) | Cloud Run 인스턴스 간 ingest job 재개 |
 | 108 | [108-fail-closed-no-cache.md](108-fail-closed-no-cache.md) | 보관 cache 없이 완료 금지 |
 | 109 | [109-dismiss-library-ingest-error.md](109-dismiss-library-ingest-error.md) | 보관함 인제스트 에러 닫기 · terminal 초안 정리 |
+| 110 | [110-ingest-checkpoint-envelope.md](110-ingest-checkpoint-envelope.md) | ingest checkpoint 봉투 · reclaim 수락/폐기 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -198,3 +199,4 @@
 107은 Cloud Run 인스턴스 간 ingest job lease·재시작 (0.3.21).
 108은 보관 cache 없이「완료」금지 · 실패 시 blob 유지 (0.3.22).
 109는 보관함 인제스트 에러 닫기 · terminal 시 초안 정리 (0.3.23).
+110은 ingest checkpoint 봉투 · TTL/버전 폐기 (0.3.24).

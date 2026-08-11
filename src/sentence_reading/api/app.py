@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.23",
+    version="0.3.24",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -319,7 +319,14 @@ def _persist_job(job_id: str, job: dict, *, force: bool = False) -> None:
         log.warning("ingest job gcs push failed %s: %s", job_id, exc)
 
 
-def _job_set(job_id: str, *, percent: int, stage: str, message: str = "") -> None:
+def _job_set(
+    job_id: str,
+    *,
+    percent: int,
+    stage: str,
+    message: str = "",
+    cursor: dict | None = None,
+) -> None:
     job = _JOBS.get(job_id)
     if not job or job.get("done"):
         return
@@ -327,6 +334,14 @@ def _job_set(job_id: str, *, percent: int, stage: str, message: str = "") -> Non
     job["stage"] = stage
     if message:
         job["message"] = message
+    # design/110 — stamp resume envelope (no paper text); skip wired later.
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    ij.stamp_checkpoint_on_job(
+        job,
+        pipeline_version=PIPELINE_VERSION,
+        cursor=cursor,
+    )
     _persist_job(job_id, job)
 
 
@@ -440,7 +455,10 @@ def _public_api_base(request: Request) -> str:
 def status(request: Request) -> dict:
     """기동 확인."""
     from sentence_reading.llm.ingest_rate_limit import rate_limit_enabled
-    from sentence_reading.llm.ingest_jobs_gcs import ingest_job_reclaim_enabled
+    from sentence_reading.llm.ingest_jobs_gcs import (
+    ingest_checkpoint_enabled,
+    ingest_job_reclaim_enabled,
+)
 
     user = _request_user(request)
     return {
@@ -459,7 +477,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.23",
+        "version": "0.3.24",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -474,6 +492,8 @@ def status(request: Request) -> dict:
         "mobile_upload_resume": True,
         # design/107 — cross-instance reclaim when worker lease expires.
         "ingest_job_reclaim": ingest_job_reclaim_enabled(),
+        # design/110 — checkpoint envelope (skip logic later).
+        "ingest_checkpoint": ingest_checkpoint_enabled(),
         "ingest_chunked_upload": True,
         # design/73 — mirrors ASR_INGEST_RATE_LIMIT kill switch (False when off).
         "ingest_rate_limit": rate_limit_enabled(),
@@ -2169,14 +2189,28 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
         return False
     meta = ij.load_ingest_job(job_id, owner_uid=owner_uid) or {}
     filename = ij.safe_filename(str(meta.get("filename") or f"reclaim{suffix}"))
+    content_hash = str(meta.get("content_hash") or "").strip() or None
+    # design/110 — accept/discard checkpoint; skip not wired yet (full restart).
+    cp_raw = meta.get("checkpoint")
+    cp_ok, cp_reason = ij.checkpoint_is_valid(
+        cp_raw,
+        content_hash=content_hash or "",
+        pipeline_version=PIPELINE_VERSION,
+    )
+    kept_cp = cp_raw if cp_ok and isinstance(cp_raw, dict) else None
+    if kept_cp is not None:
+        reclaim_msg = ij.checkpoint_resume_message(kept_cp)
+    else:
+        reclaim_msg = "처리 다시 시작"
+        # WHY: stale/mismatched envelope must not linger for a later skip chip.
+        kept_cp = None
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(raw)
         tmp_path = Path(tmp.name)
-    content_hash = str(meta.get("content_hash") or "").strip() or None
     job = {
         "percent": max(1, int(meta.get("percent") or 1)),
         "stage": str(meta.get("stage") or "queued"),
-        "message": "처리 다시 시작",
+        "message": reclaim_msg,
         "done": False,
         "error": None,
         "result": None,
@@ -2187,6 +2221,8 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
         "want_translate": bool(meta.get("want_translate", True)),
         "lease_token": token,
         "lease_until": meta.get("lease_until"),
+        "checkpoint": kept_cp,
+        "_checkpoint_reclaim": cp_reason,
         "_local_running": True,
     }
     ij.stamp_lease(job, token=token)
@@ -2548,7 +2584,15 @@ async def _run_ingest_job_body(
                     pct = 20 + int(18 * (done / total))
                 else:
                     pct = 18
-                _job_set(job_id, percent=pct, stage=stage, message=message)
+                # WHY: cursor feeds checkpoint envelope for later mid-stage skip.
+                cur = {"done": done, "total": total} if total > 0 else None
+                _job_set(
+                    job_id,
+                    percent=pct,
+                    stage=stage,
+                    message=message,
+                    cursor=cur,
+                )
 
             _job_set(job_id, percent=12, stage="quality", message="추출 품질 보는 중")
             recovered = await asyncio.to_thread(
@@ -2639,6 +2683,7 @@ async def _run_ingest_job_body(
                     percent=pct,
                     stage="debone",
                     message=msg,
+                    cursor={"done": done, "total": total},
                 )
 
             _job_set(job_id, percent=48, stage="debone", message="논문 훑는 중")
