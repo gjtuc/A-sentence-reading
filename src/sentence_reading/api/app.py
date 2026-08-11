@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.25",
+    version="0.3.26",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -397,6 +397,11 @@ def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
             ij.delete_ingest_upload(job_id, owner_uid=owner, suffix=suf)
         except Exception:  # noqa: BLE001
             pass
+        # design/112 — drop mid-stage payload on terminal success.
+        try:
+            ij.delete_ingest_payload(job_id, owner_uid=owner)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _mobile_upload_background_enabled() -> bool:
@@ -456,9 +461,10 @@ def status(request: Request) -> dict:
     """기동 확인."""
     from sentence_reading.llm.ingest_rate_limit import rate_limit_enabled
     from sentence_reading.llm.ingest_jobs_gcs import (
-    ingest_checkpoint_enabled,
-    ingest_job_reclaim_enabled,
-)
+        ingest_checkpoint_enabled,
+        ingest_job_reclaim_enabled,
+        ingest_resume_skip_enabled,
+    )
 
     user = _request_user(request)
     return {
@@ -477,7 +483,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.25",
+        "version": "0.3.26",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -494,6 +500,8 @@ def status(request: Request) -> dict:
         "ingest_job_reclaim": ingest_job_reclaim_enabled(),
         # design/110 — checkpoint envelope (skip logic later).
         "ingest_checkpoint": ingest_checkpoint_enabled(),
+        # design/112 — mid-stage payload skip.
+        "ingest_resume_skip": ingest_resume_skip_enabled(),
         "ingest_chunked_upload": True,
         # design/73 — mirrors ASR_INGEST_RATE_LIMIT kill switch (False when off).
         "ingest_rate_limit": rate_limit_enabled(),
@@ -2204,7 +2212,7 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
     meta = ij.load_ingest_job(job_id, owner_uid=owner_uid) or {}
     filename = ij.safe_filename(str(meta.get("filename") or f"reclaim{suffix}"))
     content_hash = str(meta.get("content_hash") or "").strip() or None
-    # design/110 — accept/discard checkpoint; skip not wired yet (full restart).
+    # design/110·112 — accept/discard checkpoint; load payload for skip when enabled.
     cp_raw = meta.get("checkpoint")
     cp_ok, cp_reason = ij.checkpoint_is_valid(
         cp_raw,
@@ -2212,22 +2220,58 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
         pipeline_version=PIPELINE_VERSION,
     )
     kept_cp = cp_raw if cp_ok and isinstance(cp_raw, dict) else None
-    if kept_cp is not None:
+    resume_payload = None
+    if kept_cp is not None and ij.ingest_resume_skip_enabled():
+        loaded_pl = ij.load_ingest_payload(job_id, owner_uid=owner_uid)
+        pl_ok, pl_reason = ij.payload_is_valid(
+            loaded_pl,
+            content_hash=content_hash or "",
+            pipeline_version=PIPELINE_VERSION,
+        )
+        if pl_ok:
+            resume_payload = loaded_pl
+            reclaim_msg = ij.checkpoint_resume_message(kept_cp)
+            cp_reason = "ok"
+        else:
+            # WHY: envelope without usable payload → honest full restart.
+            kept_cp = None
+            reclaim_msg = "처리 다시 시작"
+            cp_reason = pl_reason
+            try:
+                ij.delete_ingest_payload(job_id, owner_uid=owner_uid)
+            except Exception:  # noqa: BLE001
+                pass
+    elif kept_cp is not None:
         reclaim_msg = ij.checkpoint_resume_message(kept_cp)
     else:
         reclaim_msg = "처리 다시 시작"
-        # WHY: stale/mismatched envelope must not linger for a later skip chip.
         kept_cp = None
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(raw)
         tmp_path = Path(tmp.name)
+    seed_stage = str(
+        (resume_payload or {}).get("completed")
+        or (kept_cp or {}).get("stage")
+        or meta.get("stage")
+        or "queued"
+    )
+    seed_pct = max(
+        ij.stage_percent_floor(seed_stage),
+        int(meta.get("percent") or 1),
+    )
+    # design/112 — keep partial result only when translating from ready payload.
+    keep_result = None
+    if isinstance(meta.get("result"), dict) and str(
+        (resume_payload or {}).get("completed") or ""
+    ) in ("ready", "translate"):
+        keep_result = meta.get("result")
     job = {
-        "percent": max(1, int(meta.get("percent") or 1)),
-        "stage": str(meta.get("stage") or "queued"),
+        "percent": seed_pct,
+        "stage": seed_stage if seed_stage != "queued" else str(meta.get("stage") or "queued"),
         "message": reclaim_msg,
         "done": False,
         "error": None,
-        "result": None,
+        "result": keep_result,
         "owner_uid": owner_uid,
         "content_hash": content_hash or "",
         "filename": filename,
@@ -2237,6 +2281,7 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
         "lease_until": meta.get("lease_until"),
         "checkpoint": kept_cp,
         "_checkpoint_reclaim": cp_reason,
+        "_resume_payload": resume_payload,
         "_local_running": True,
     }
     ij.stamp_lease(job, token=token)
@@ -2527,29 +2572,129 @@ async def _run_ingest_job_body(
     warnings: list[str],
 ) -> None:
     try:
+        from sentence_reading.llm import ingest_jobs_gcs as ij
+        from sentence_reading.llm import ingest_resume_payload as irp
+
         label = "PDF" if kind == "pdf" else "Word"
         if not content_hash:
             content_hash = await asyncio.to_thread(_file_sha256, tmp_path)
-        _job_set(job_id, percent=5, stage="extract", message=f"{label} 읽는 중")
-        pdf_pages: list[str] | None = None
-        try:
-            if kind == "pdf":
-                pdf_pages = await asyncio.to_thread(
-                    pdf_extract.extract_text_by_page, tmp_path
+
+        job0 = _JOBS.get(job_id) or {}
+        resume_pl = job0.get("_resume_payload")
+        if not isinstance(resume_pl, dict):
+            resume_pl = None
+        # design/112 — if reclaim handed a payload, skip prior Gemini stages.
+        resume_completed = str((resume_pl or {}).get("completed") or "")
+        skip_vision = resume_completed in {
+            "vision",
+            "debone",
+            "ready",
+            "translate",
+        }
+        skip_debone = resume_completed in {"debone", "ready", "translate"}
+        jump_ready = resume_completed in {"ready", "translate"}
+        # WHY: completed=translate means KO already in payload — skip Gemini enrich.
+        skip_translate = resume_completed == "translate"
+        vision_resume = None
+        if resume_completed == "vision_partial" and isinstance(resume_pl, dict):
+            vision_resume = {
+                "decision": resume_pl.get("decision") or {},
+                "vision_indices": resume_pl.get("vision_indices") or [],
+                "vision_done": int(resume_pl.get("vision_done") or 0),
+                "pages": resume_pl.get("pages"),
+                "warnings": resume_pl.get("warnings") or [],
+            }
+
+        def _owner() -> str:
+            return str((_JOBS.get(job_id) or {}).get("owner_uid") or "")
+
+        def _save_payload(doc: dict) -> None:
+            owner = _owner()
+            if not owner or not ij.ingest_resume_skip_enabled():
+                return
+            doc = dict(doc)
+            doc.setdefault("job_id", job_id)
+            doc.setdefault("owner_uid", owner)
+            doc.setdefault("content_hash", str(content_hash or ""))
+            doc.setdefault("pipeline_version", PIPELINE_VERSION)
+            doc["updated_at"] = irp.utc_now_iso()
+            ok = ij.save_ingest_payload(job_id, doc, owner_uid=owner)
+            if not ok:
+                return
+            j = _JOBS.get(job_id)
+            if j is not None:
+                # WHY: envelope points at server-minted relative key only.
+                pref = f"{job_id}.json"
+                cur = j.get("checkpoint") if isinstance(j.get("checkpoint"), dict) else {}
+                j["checkpoint"] = ij.build_checkpoint(
+                    stage=str(j.get("stage") or doc.get("completed") or "vision"),
+                    content_hash=str(content_hash or ""),
+                    pipeline_version=PIPELINE_VERSION,
+                    cursor=(cur or {}).get("cursor")
+                    if isinstance((cur or {}).get("cursor"), dict)
+                    else None,
+                    payload_ref=pref,
                 )
-                text = pdf_extract.join_page_texts(pdf_pages)
-            else:
-                text = await asyncio.to_thread(docx_extract.extract_text, tmp_path)
-        except ValueError as exc:
-            if str(exc) == "encrypted_pdf":
-                raise RuntimeError("암호로 보호된 PDF는 열 수 없습니다.") from exc
-            raise
-        except Exception as exc:
-            raise RuntimeError(f"{label} 텍스트 추출 실패: {exc}") from exc
+                _persist_job(job_id, j, force=True)
+
+        def _discard_resume(reason: str) -> None:
+            # Product: resume failure → discard + continue as full restart.
+            j = _JOBS.get(job_id)
+            if j is not None:
+                j.pop("_resume_payload", None)
+                j["checkpoint"] = None
+            owner = _owner()
+            if owner:
+                try:
+                    ij.delete_ingest_payload(job_id, owner_uid=owner)
+                except Exception:  # noqa: BLE001
+                    pass
+            _ = reason  # machine reason kept out of user-facing copy
+
+        if resume_pl and (
+            skip_vision or vision_resume is not None
+        ) and isinstance(resume_pl.get("pages"), list):
+            # WHY: vision_partial also reuses pages so we do not re-extract then overwrite.
+            pdf_pages = [str(p or "") for p in resume_pl["pages"]]
+            text = str(resume_pl.get("text") or pdf_extract.join_page_texts(pdf_pages))
+            warnings.extend(str(w) for w in (resume_pl.get("warnings") or []) if w)
+            floor = ij.stage_percent_floor(
+                "vision" if vision_resume is not None else "vision"
+            )
+            _job_set(
+                job_id,
+                percent=max(floor, int((_JOBS.get(job_id) or {}).get("percent") or floor)),
+                stage="vision",
+                message=str(
+                    (_JOBS.get(job_id) or {}).get("message")
+                    or (
+                        "비전 이어받는 중"
+                        if vision_resume is not None
+                        else "이어받는 중"
+                    )
+                ),
+            )
+        else:
+            _job_set(job_id, percent=5, stage="extract", message=f"{label} 읽는 중")
+            pdf_pages = None
+            try:
+                if kind == "pdf":
+                    pdf_pages = await asyncio.to_thread(
+                        pdf_extract.extract_text_by_page, tmp_path
+                    )
+                    text = pdf_extract.join_page_texts(pdf_pages)
+                else:
+                    text = await asyncio.to_thread(docx_extract.extract_text, tmp_path)
+            except ValueError as exc:
+                if str(exc) == "encrypted_pdf":
+                    raise RuntimeError("암호로 보호된 PDF는 열 수 없습니다.") from exc
+                raise
+            except Exception as exc:
+                raise RuntimeError(f"{label} 텍스트 추출 실패: {exc}") from exc
 
         # WHY: 파일명 말고 논문 제목 — 원문 앞부분에 캐시 제목이 있으면 즉시 로드
         # 재분석(skip_cache) 또는 원본 백필은 히트 경로에서도 진행
-        if not skip_cache:
+        if not skip_cache and not jump_ready:
             _job_set(job_id, percent=10, stage="cache", message="제목으로 보관본 찾는 중")
             cached = await asyncio.to_thread(_try_cache_hit, text, kind)
             if cached is not None:
@@ -2587,7 +2732,7 @@ async def _run_ingest_job_body(
                 return
 
         # WHY: PDF만 적응형 vision — 스캔·손상 페이지 복구 후 캐시 재조회
-        if kind == "pdf" and pdf_pages is not None:
+        if kind == "pdf" and pdf_pages is not None and not skip_vision:
 
             def on_recover(
                 stage: str, done: int, total: int, message: str
@@ -2595,10 +2740,17 @@ async def _run_ingest_job_body(
                 if stage == "quality":
                     pct = 12 + (8 if total and done >= total else 4)
                 elif stage == "vision" and total > 0:
-                    pct = 20 + int(18 * (done / total))
+                    # Seed near resume floor when mid-vision reclaim.
+                    base = 20
+                    if vision_resume is not None:
+                        base = max(
+                            20,
+                            int((_JOBS.get(job_id) or {}).get("percent") or 20),
+                        )
+                    pct = base + int(18 * (done / total))
+                    pct = min(38, pct)
                 else:
                     pct = 18
-                # WHY: cursor feeds checkpoint envelope for later mid-stage skip.
                 cur = {"done": done, "total": total} if total > 0 else None
                 _job_set(
                     job_id,
@@ -2608,12 +2760,66 @@ async def _run_ingest_job_body(
                     cursor=cur,
                 )
 
-            _job_set(job_id, percent=12, stage="quality", message="추출 품질 보는 중")
+            def on_vision_checkpoint(snap: dict) -> None:
+                # Persist vision_partial under owner only — never on public poll.
+                dec = snap.get("decision")
+                _save_payload(
+                    {
+                        **irp.base_payload(
+                            job_id=job_id,
+                            owner_uid=_owner(),
+                            content_hash=str(content_hash or ""),
+                            completed="vision_partial",
+                        ),
+                        "pages": list(snap.get("pages") or []),
+                        "text": pdf_extract.join_page_texts(
+                            list(snap.get("pages") or [])
+                        ),
+                        "warnings": list(snap.get("warnings") or []),
+                        "decision": irp.decision_to_dict(dec),
+                        "vision_indices": list(snap.get("vision_indices") or []),
+                        "vision_done": int(snap.get("vision_done") or 0),
+                    }
+                )
+
+            if vision_resume is not None:
+                _job_set(
+                    job_id,
+                    percent=max(20, int((_JOBS.get(job_id) or {}).get("percent") or 20)),
+                    stage="vision",
+                    message="비전 이어받는 중",
+                )
+            else:
+                _job_set(job_id, percent=12, stage="quality", message="추출 품질 보는 중")
             recovered = await asyncio.to_thread(
-                recover_pdf_text, tmp_path, pdf_pages, on_progress=on_recover
+                recover_pdf_text,
+                tmp_path,
+                pdf_pages,
+                on_progress=on_recover,
+                resume=vision_resume,
+                on_checkpoint=on_vision_checkpoint,
             )
             text = recovered.text
+            pdf_pages = recovered.pages
             warnings.extend(recovered.warnings)
+            # design/112 — durable vision boundary for later reclaim skip.
+            _save_payload(
+                {
+                    **irp.base_payload(
+                        job_id=job_id,
+                        owner_uid=_owner(),
+                        content_hash=str(content_hash or ""),
+                        completed="vision",
+                    ),
+                    "pages": list(pdf_pages or []),
+                    "text": text,
+                    "warnings": list(warnings),
+                    "vision_pages": list(recovered.vision_pages or []),
+                    "decision": irp.decision_to_dict(recovered.decision),
+                    "vision_indices": list(recovered.vision_pages or []),
+                    "vision_done": len(recovered.vision_pages or []),
+                }
+            )
             if recovered.vision_pages and not skip_cache:
                 # 복구 후 제목이 보이면 보관본 재사용
                 _job_set(job_id, percent=40, stage="cache", message="복구 후 보관본 확인")
@@ -2676,77 +2882,149 @@ async def _run_ingest_job_body(
             ]
 
         debone_ok = False
-        sentences = []
-        if gemini_available() and text.strip():
-
-            def on_progress(done: int, total: int) -> None:
-                if total <= 0:
-                    return
-                # 48% ~ 92% 구간 — survey(1단위) + 청크 (앞에 quality/vision 예약)
-                pct = 48 + int(44 * (done / total))
-                if done <= 0:
-                    msg = "논문 훑는 중"
-                elif done == 1 and total > 1:
-                    msg = "다듬기 시작"
-                else:
-                    chunk_done = max(0, done - 1)
-                    chunk_total = max(1, total - 1)
-                    msg = f"다듬는 중 {chunk_done}/{chunk_total}"
+        sentences: list = []
+        references: list = []
+        title = Path(filename).stem or "Untitled"
+        digests: dict = {}
+        resumed_debone = False
+        if skip_debone and isinstance(resume_pl, dict) and resume_pl.get("sentences"):
+            try:
+                restored = []
+                for row in resume_pl.get("sentences") or []:
+                    s = irp.sentence_from_dict(row) if isinstance(row, dict) else None
+                    if s is not None:
+                        restored.append(s)
+                if not restored:
+                    raise ValueError("empty_sentences")
+                sentences = restored
+                debone_ok = bool(resume_pl.get("debone_ok"))
+                title = str(resume_pl.get("title") or title)
+                references = list(resume_pl.get("references") or [])
+                digests = dict(resume_pl.get("translate_digests") or {})
+                warnings.extend(
+                    str(w) for w in (resume_pl.get("warnings") or []) if w
+                )
+                resumed_debone = True
+                floor = ij.stage_percent_floor("debone")
                 _job_set(
                     job_id,
-                    percent=pct,
+                    percent=max(
+                        floor, int((_JOBS.get(job_id) or {}).get("percent") or floor)
+                    ),
                     stage="debone",
-                    message=msg,
-                    cursor={"done": done, "total": total},
+                    message=str(
+                        (_JOBS.get(job_id) or {}).get("message") or "다듬기 이어받음"
+                    ),
                 )
+            except Exception:  # noqa: BLE001
+                _discard_resume("debone_load")
+                skip_debone = False
+                jump_ready = False
+                skip_translate = False
+                resumed_debone = False
+                sentences = []
 
-            _job_set(job_id, percent=48, stage="debone", message="논문 훑는 중")
-            result: DeboneResult = await asyncio.to_thread(
-                debone_sentences, text, on_progress
-            )
-            if result.ok and result.sentences:
-                sentences = result.sentences
-                debone_ok = True
-                if result.warning:
-                    warnings.append(result.warning)
+        if not resumed_debone:
+            if gemini_available() and text.strip():
+
+                def on_progress(done: int, total: int) -> None:
+                    if total <= 0:
+                        return
+                    pct = 48 + int(44 * (done / total))
+                    if done <= 0:
+                        msg = "논문 훑는 중"
+                    elif done == 1 and total > 1:
+                        msg = "다듬기 시작"
+                    else:
+                        chunk_done = max(0, done - 1)
+                        chunk_total = max(1, total - 1)
+                        msg = f"다듬는 중 {chunk_done}/{chunk_total}"
+                    _job_set(
+                        job_id,
+                        percent=pct,
+                        stage="debone",
+                        message=msg,
+                        cursor={"done": done, "total": total},
+                    )
+
+                _job_set(job_id, percent=48, stage="debone", message="논문 훑는 중")
+                result: DeboneResult = await asyncio.to_thread(
+                    debone_sentences, text, on_progress
+                )
+                if result.ok and result.sentences:
+                    sentences = result.sentences
+                    debone_ok = True
+                    if result.warning:
+                        warnings.append(result.warning)
+                else:
+                    warnings.append(result.warning or "gemini_debone_failed")
+                    _job_set(job_id, percent=90, stage="split", message="기본 문장 나누기")
+                    sentences = await asyncio.to_thread(split_into_sentences, text)
             else:
-                warnings.append(result.warning or "gemini_debone_failed")
-                _job_set(job_id, percent=90, stage="split", message="기본 문장 나누기")
+                if not gemini_available() and "gemini_key_missing" not in warnings:
+                    warnings.append("gemini_key_missing")
+                _job_set(job_id, percent=70, stage="split", message="문장 나누는 중")
                 sentences = await asyncio.to_thread(split_into_sentences, text)
-        else:
-            if not gemini_available() and "gemini_key_missing" not in warnings:
-                warnings.append("gemini_key_missing")
-            _job_set(job_id, percent=70, stage="split", message="문장 나누는 중")
-            sentences = await asyncio.to_thread(split_into_sentences, text)
 
-        # WHY: debone 경로도 apply_glossary가 이미 정규화함 — 폴백·누락 lookalike 한 번 더
-        sentences = [
-            Sentence(
-                id=s.id,
-                text=normalize_scientific_glyphs(s.text),
-                section=s.section,
-                start_char=s.start_char,
-                end_char=s.end_char,
+            # WHY: debone 경로도 apply_glossary가 이미 정규화함 — 폴백·누락 lookalike 한 번 더
+            sentences = [
+                Sentence(
+                    id=s.id,
+                    text=normalize_scientific_glyphs(s.text),
+                    section=s.section,
+                    start_char=s.start_char,
+                    end_char=s.end_char,
+                    text_ko=getattr(s, "text_ko", "") or "",
+                    text_ko_stage=getattr(s, "text_ko_stage", "") or "",
+                )
+                for s in sentences
+            ]
+
+            from sentence_reading.cite_refs import (
+                bibliography_public,
+                extract_bibliography,
             )
-            for s in sentences
-        ]
 
-        # WHY: design/41 — debone이 References를 버려도 원문에서 별도 추출
-        from sentence_reading.cite_refs import (
-            bibliography_public,
-            extract_bibliography,
-        )
-
-        references = bibliography_public(extract_bibliography(text))
-
-        title = Path(filename).stem or "Untitled"
-        for s in sentences:
-            if s.section == "title" and plain_text(s.text):
-                title = plain_text(s.text)
-                break
+            references = bibliography_public(extract_bibliography(text))
+            title = Path(filename).stem or "Untitled"
+            for s in sentences:
+                if s.section == "title" and plain_text(s.text):
+                    title = plain_text(s.text)
+                    break
+            digests = {}
+            _save_payload(
+                {
+                    **irp.base_payload(
+                        job_id=job_id,
+                        owner_uid=_owner(),
+                        content_hash=str(content_hash or ""),
+                        completed="debone",
+                    ),
+                    "pages": list(pdf_pages or []),
+                    "text": text,
+                    "warnings": list(warnings),
+                    "sentences": [irp.sentence_to_dict(s) for s in sentences],
+                    "debone_ok": debone_ok,
+                    "title": title,
+                    "references": references,
+                }
+            )
+        else:
+            # resumed — still normalize glyphs on EN text
+            sentences = [
+                Sentence(
+                    id=s.id,
+                    text=normalize_scientific_glyphs(s.text),
+                    section=s.section,
+                    start_char=s.start_char,
+                    end_char=s.end_char,
+                    text_ko=s.text_ko or "",
+                    text_ko_stage=s.text_ko_stage or "",
+                )
+                for s in sentences
+            ]
 
         # WHY: design/45 — 번역 전에 영어 세션을 먼저 열어 읽기 시작
-        digests: dict = {}
         session = PaperSession(
             title=title,
             figures=figures,
@@ -2785,13 +3063,49 @@ async def _run_ingest_job_body(
             early["cache_id"] = cache_entry.get("id")
             early["cached"] = True
             early["has_source"] = bool(cache_entry.get("has_source"))
+            _save_payload(
+                {
+                    **irp.base_payload(
+                        job_id=job_id,
+                        owner_uid=_owner(),
+                        content_hash=str(content_hash or ""),
+                        completed="ready",
+                    ),
+                    "pages": list(pdf_pages or []),
+                    "text": text,
+                    "warnings": list(warnings),
+                    "sentences": [irp.sentence_to_dict(s) for s in session.sentences],
+                    "debone_ok": debone_ok,
+                    "title": title,
+                    "references": references,
+                    "translate_digests": dict(session.translate_digests or {}),
+                    "cache_id": str(cache_entry.get("id") or ""),
+                }
+            )
         _job_publish_partial(job_id, early, message="읽기 가능 · 번역 중")
 
         # design/99 — skip Gemini KO when client opted out (mobile Settings).
         job_meta = _JOBS.get(job_id) or {}
         want_translate = bool(job_meta.get("want_translate", True))
 
-        if want_translate and gemini_available():
+        if skip_translate and want_translate:
+            # design/112 — payload already carried KO; do not re-bill Gemini.
+            floor = ij.stage_percent_floor("translate")
+            _job_set(
+                job_id,
+                percent=max(
+                    floor, int((_JOBS.get(job_id) or {}).get("percent") or floor)
+                ),
+                stage="translate",
+                message="번역 이어받음",
+            )
+            packed = _pack(pending=False)
+            if cache_entry:
+                packed["cache_id"] = cache_entry.get("id")
+                packed["cached"] = True
+                packed["has_source"] = bool(cache_entry.get("has_source"))
+            _job_publish_partial(job_id, packed, message="번역 이어받음")
+        elif want_translate and gemini_available():
             _job_set(
                 job_id,
                 percent=90,
@@ -2827,6 +3141,33 @@ async def _run_ingest_job_body(
                     packed["cached"] = True
                     packed["has_source"] = bool(cache_entry.get("has_source"))
                 _job_publish_partial(job_id, packed)
+                # Durable translate boundary for reclaim skip (owner payload only).
+                if index > 0 and index % 8 == 0:
+                    _save_payload(
+                        {
+                            **irp.base_payload(
+                                job_id=job_id,
+                                owner_uid=_owner(),
+                                content_hash=str(content_hash or ""),
+                                completed="translate",
+                            ),
+                            "pages": list(pdf_pages or []),
+                            "text": text,
+                            "warnings": list(warnings),
+                            "sentences": [
+                                irp.sentence_to_dict(s) for s in session.sentences
+                            ],
+                            "debone_ok": debone_ok,
+                            "title": title,
+                            "references": references,
+                            "translate_digests": dict(
+                                session.translate_digests or {}
+                            ),
+                            "cache_id": str(
+                                (cache_entry or {}).get("id") or ""
+                            ),
+                        }
+                    )
 
             try:
                 new_s, new_f, digests, tr_warn = await asyncio.to_thread(
@@ -2969,10 +3310,12 @@ async def _run_ingest_job_body(
         job = _JOBS.get(job_id)
         if job is not None:
             job["done"] = True
+            # WHY: user-facing only — no stack / paths / tokens.
             job["error"] = str(exc)
             job["percent"] = job.get("percent", 0)
             job["stage"] = "error"
             # WHY: durable error so mobile reattach does not spin on stale queued.
+            # EDGE: keep ingest_payload for reclaim mid-stage skip (not a success).
             _persist_job(job_id, job, force=True)
     finally:
         try:

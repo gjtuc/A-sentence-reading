@@ -138,54 +138,94 @@ def recover_pdf_text(
     pages: list[str],
     *,
     on_progress: Callable[[str, int, int, str], None] | None = None,
+    resume: dict | None = None,
+    on_checkpoint: Callable[[dict], None] | None = None,
 ) -> RecoverResult:
     """
     품질 판정 후 필요 시 vision OCR로 페이지 텍스트를 교체한다.
     on_progress(stage, done, total, message)
+    design/112 — resume: {decision, vision_indices, vision_done, pages?} skips quality.
+    on_checkpoint: after each vision page (durable vision_partial for reclaim).
     """
     warnings: list[str] = []
     working = list(pages)
     n = len(working)
 
-    if on_progress:
-        on_progress("quality", 0, 1, "추출 품질 보는 중")
+    resume_doc = resume if isinstance(resume, dict) else None
+    decision: QualityDecision | None = None
+    vision_indices: list[int] = []
+    start_k = 0
 
-    if not gemini_api_key():
+    if resume_doc is not None:
+        # WHY: reclaim mid-vision — do not re-pay quality Gemini.
+        try:
+            d = resume_doc.get("decision") or {}
+            decision = QualityDecision(
+                verdict=str(d.get("verdict") or "text_ok"),
+                bad_pages=[int(x) for x in (d.get("bad_pages") or []) if str(x).lstrip("-").isdigit()],
+                notes=str(d.get("notes") or ""),
+                source=str(d.get("source") or "resume"),
+                warning=(str(d["warning"]) if d.get("warning") else None),
+            )
+            vision_indices = [
+                int(x)
+                for x in (resume_doc.get("vision_indices") or [])
+                if str(x).lstrip("-").isdigit()
+            ]
+            start_k = max(0, int(resume_doc.get("vision_done") or 0))
+            if isinstance(resume_doc.get("pages"), list) and len(resume_doc["pages"]) == n:
+                working = [str(p or "") for p in resume_doc["pages"]]
+            warnings.extend(
+                str(w) for w in (resume_doc.get("warnings") or []) if w
+            )
+        except Exception:  # noqa: BLE001
+            # EDGE: corrupt resume → fall through to full quality+vision.
+            decision = None
+            vision_indices = []
+            start_k = 0
+            resume_doc = None
+
+    if decision is None:
         if on_progress:
-            on_progress("quality", 1, 1, "키 없음 — 텍스트만")
-        return RecoverResult(
-            text=join_page_texts(working),
-            pages=working,
-            warnings=["gemini_key_missing"],
-            decision=QualityDecision(
-                verdict="text_ok",
-                source="fallback",
-                warning="gemini_key_missing",
-            ),
-        )
+            on_progress("quality", 0, 1, "추출 품질 보는 중")
 
-    decision = decide_extract_quality(working)
-    if decision.warning:
-        warnings.append(decision.warning)
+        if not gemini_api_key():
+            if on_progress:
+                on_progress("quality", 1, 1, "키 없음 — 텍스트만")
+            return RecoverResult(
+                text=join_page_texts(working),
+                pages=working,
+                warnings=["gemini_key_missing"],
+                decision=QualityDecision(
+                    verdict="text_ok",
+                    source="fallback",
+                    warning="gemini_key_missing",
+                ),
+            )
 
-    # WHY: 기하 2단 페이지는 비용 무시하고 vision 으로 읽는 순서 재확인 (design/31)
-    try:
-        from sentence_reading.pdf.reading_order import (
-            detect_multicolumn_pages,
-            merge_multicolumn_decision,
-        )
+        decision = decide_extract_quality(working)
+        if decision.warning:
+            warnings.append(decision.warning)
 
-        multi = detect_multicolumn_pages(pdf_path)
-        decision = merge_multicolumn_decision(decision, multi, n)
-        if multi:
-            warnings.append(f"multicolumn_pages:{len(multi)}")
-    except Exception as exc:  # noqa: BLE001
-        warnings.append(f"multicolumn_detect_failed:{exc}")
+        # WHY: 기하 2단 페이지는 비용 무시하고 vision 으로 읽는 순서 재확인 (design/31)
+        try:
+            from sentence_reading.pdf.reading_order import (
+                detect_multicolumn_pages,
+                merge_multicolumn_decision,
+            )
 
-    if on_progress:
-        on_progress("quality", 1, 1, decision.notes or decision.verdict)
+            multi = detect_multicolumn_pages(pdf_path)
+            decision = merge_multicolumn_decision(decision, multi, n)
+            if multi:
+                warnings.append(f"multicolumn_pages:{len(multi)}")
+        except Exception as exc:  # noqa: BLE001
+            warnings.append(f"multicolumn_detect_failed:{exc}")
 
-    vision_indices = _select_vision_pages(decision, n)
+        if on_progress:
+            on_progress("quality", 1, 1, decision.notes or decision.verdict)
+
+        vision_indices = _select_vision_pages(decision, n)
+
     if not vision_indices:
         return RecoverResult(
             text=join_page_texts(working),
@@ -197,11 +237,15 @@ def recover_pdf_text(
     if len(decision.bad_pages) > _VISION_PAGE_CAP or (
         decision.verdict == "full_vision" and n > _VISION_PAGE_CAP
     ):
-        warnings.append("vision_page_cap")
+        if "vision_page_cap" not in warnings:
+            warnings.append("vision_page_cap")
 
     total = len(vision_indices)
     failed = 0
-    for k, page_index in enumerate(vision_indices):
+    # design/112 — resume from vision_done (already OCR'd pages kept in working).
+    start_k = min(start_k, total)
+    for k in range(start_k, total):
+        page_index = vision_indices[k]
         if on_progress:
             on_progress(
                 "vision",
@@ -215,13 +259,28 @@ def recover_pdf_text(
             working[page_index] = (text or "").strip()
         except Exception:  # noqa: BLE001
             failed += 1
+        # WHY: persist after each page so reclaim can skip OCR already paid for.
+        # EDGE: checkpoint failures must not abort OCR — reclaim falls back to full.
+        if on_checkpoint is not None:
+            try:
+                on_checkpoint(
+                    {
+                        "decision": decision,
+                        "vision_indices": list(vision_indices),
+                        "vision_done": k + 1,
+                        "pages": list(working),
+                        "warnings": list(warnings),
+                    }
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
     if on_progress:
         on_progress("vision", total, total, "이미지 읽기 끝")
 
     if failed:
-        warnings.append(f"vision_failed:{failed}/{total}")
-    if failed == total:
+        warnings.append(f"vision_failed:{failed}/{max(1, total - start_k)}")
+    if failed == (total - start_k) and (total - start_k) > 0 and start_k == 0:
         warnings.append("vision_failed")
         # WHY: 전부 실패면 원본 PyMuPDF 텍스트 유지
         return RecoverResult(
@@ -232,7 +291,8 @@ def recover_pdf_text(
             decision=decision,
         )
 
-    warnings.append("vision_ocr_used")
+    if "vision_ocr_used" not in warnings:
+        warnings.append("vision_ocr_used")
     warnings.append(
         "vision_pages:" + ",".join(str(i) for i in vision_indices)
     )

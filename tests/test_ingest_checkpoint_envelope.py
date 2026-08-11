@@ -72,7 +72,7 @@ def _register(client: TestClient, email: str) -> None:
 
 def test_status_checkpoint_flag(fake_gcs, auth_root):
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.25"
+    assert st["version"] == "0.3.26"
     assert st["ingest_checkpoint"] is True
     assert st["pipeline_version"] == PIPELINE_VERSION
 
@@ -88,7 +88,7 @@ def test_design_110_exists():
 
 
 def test_pubspec_pin():
-    assert "0.3.25" in PUB.read_text(encoding="utf-8")
+    assert "0.3.26" in PUB.read_text(encoding="utf-8")
 
 
 def test_checkpoint_valid_and_discard_reasons():
@@ -216,19 +216,33 @@ def test_kill_switch_disables_checkpoint(monkeypatch: pytest.MonkeyPatch):
 def test_reclaim_message_keeps_valid_checkpoint(
     fake_gcs, auth_root, monkeypatch: pytest.MonkeyPatch
 ):
-    """Owner poll reclaim: valid CP → resume hint message; pipeline still restarts."""
+    """Owner poll reclaim: valid CP+payload → resume hint; missing payload → restart."""
     client = TestClient(app)
     _register(client, "resume-hint@example.com")
     uid = client.get("/api/auth/status").json()["user"]["uid"]
     jid = "job_abc123abc123"
     h = "aa" * 32
     past = (datetime.now(timezone.utc) - timedelta(seconds=200)).isoformat()
+    now = datetime.now(timezone.utc)
     cp = ij.build_checkpoint(
         stage="vision",
         content_hash=h,
         pipeline_version=PIPELINE_VERSION,
         cursor={"done": 12, "total": 40},
+        payload_ref=f"{jid}.json",
+        now=now,
     )
+    pl = {
+        "v": 1,
+        "job_id": jid,
+        "owner_uid": uid,
+        "pipeline_version": PIPELINE_VERSION,
+        "content_hash": h,
+        "completed": "vision",
+        "updated_at": now.isoformat(),
+        "pages": ["p"],
+        "text": "p",
+    }
     job = {
         "percent": 28,
         "stage": "vision",
@@ -244,6 +258,7 @@ def test_reclaim_message_keeps_valid_checkpoint(
         "checkpoint": cp,
     }
     assert ij.save_ingest_job(jid, job) is True
+    assert ij.save_ingest_payload(jid, pl, owner_uid=uid) is True
     assert ij.save_ingest_upload(
         jid, b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n", owner_uid=uid
     )
@@ -271,6 +286,7 @@ def test_reclaim_message_keeps_valid_checkpoint(
     mem = app_mod._JOBS[jid]
     assert isinstance(mem.get("checkpoint"), dict)
     assert mem["checkpoint"]["stage"] == "vision"
+    assert isinstance(mem.get("_resume_payload"), dict)
 
 
 def test_reclaim_discards_stale_checkpoint(
