@@ -117,6 +117,8 @@
 - ~~웹·앱 첨자 표시 · TTS 손질~~ (0.3.4 · [88-rich-display-tts-polish.md](88-rich-display-tts-polish.md))
 - ~~실기 보관 논문 첨자·TTS E2E~~ (0.3.4 · [89-device-rich-display-e2e.md](89-device-rich-display-e2e.md))
 - ~~TTS 단위 사전 (Wh/L · SI energy)~~ (0.3.5 · [90-tts-unit-lexicon.md](90-tts-unit-lexicon.md))
+- ~~실기 Wh/L TTS 청취~~ (0.3.5 · [91-device-tts-unit-lexicon-e2e.md](91-device-tts-unit-lexicon-e2e.md))
+- ~~그림·표 캡션 번호 순 · graphical abstract~~ (0.3.6 · [92-figure-caption-order.md](92-figure-caption-order.md); rich-v8)
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

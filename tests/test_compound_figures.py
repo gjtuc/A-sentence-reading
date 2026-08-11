@@ -24,9 +24,9 @@ from sentence_reading.pdf import extract as pdf_extract
 
 def test_status_compound_off() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.5"
-    assert st["pipeline_version"] == "rich-v7"
-    assert PIPELINE_VERSION == "rich-v7"
+    assert st["version"] == "0.3.6"
+    assert st["pipeline_version"] == "rich-v8"
+    assert PIPELINE_VERSION == "rich-v8"
     assert st.get("compound_figures") is False
 
 
@@ -84,7 +84,10 @@ def test_design_44_and_29() -> None:
     d44 = (root / "docs" / "design" / "44-compound-off.md").read_text(encoding="utf-8")
     assert "0.2.52" in d44
     assert "expand_compound_png" in d44 or "끊" in d44
-    assert "rich-v7" in d44
+    assert "rich-v7" in d44  # historical pin when compound turned off
+    from sentence_reading.llm.typography import PIPELINE_VERSION
+
+    assert PIPELINE_VERSION == "rich-v8"
     d29 = (root / "docs" / "design" / "29-compound-figures.md").read_text(
         encoding="utf-8"
     )

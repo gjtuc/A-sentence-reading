@@ -31,11 +31,90 @@ _TABLE_CAPTION_START = re.compile(
     r"^\s*(Table\.?\s*S?\d+[a-z]?)\b",
     re.IGNORECASE,
 )
+# design/92 — 캐러셀 정렬용 캡션 키 (Fig → Scheme → Table, 번호·문자)
+_CAPTION_SORT_RE = re.compile(
+    r"^\s*(Fig(?:ure)?|Scheme|Table)\.?\s*(S?)(\d+)([a-z])?\b",
+    re.IGNORECASE,
+)
+_ABSTRACT_WORD = re.compile(r"\babstract\b", re.IGNORECASE)
+# 초록 옆 graphical abstract: 앞쪽 페이지·큰 면적만 (로고 완화)
+_GA_MAX_PAGE_INDEX = 1
+_GA_MIN_AREA_PT2 = 12_000.0
+_GA_MIN_SIDE_PT = 80.0
+_RECT_OVERLAP_FRAC = 0.55
 
 
 def _normalize_caption(text: str) -> str:
     t = re.sub(r"\s+", " ", (text or "").strip())
     return t[:900]
+
+
+def _caption_sort_key(caption: str) -> tuple:
+    """
+    캡션 번호 순 정렬 키 (design/92).
+    종류: Fig/Figure=0, Scheme=1, Table=2, 기타(GA·플레이스홀더)=3.
+    S-번호(보충)는 본 번호 뒤(1).
+    """
+    raw = (caption or "").strip()
+    m = _CAPTION_SORT_RE.match(raw)
+    if not m:
+        # Graphical abstract 등 — 본 Fig보다 앞(TOC)에 두되 번호군 밖
+        if raw.lower().startswith("graphical abstract"):
+            return (-1, 0, 0, "")
+        return (3, 0, 10**9, "")
+    kind = m.group(1).lower()
+    if kind.startswith("fig"):
+        kind_ord = 0
+    elif kind.startswith("scheme"):
+        kind_ord = 1
+    else:
+        kind_ord = 2
+    supp = 1 if m.group(2) else 0
+    num = int(m.group(3))
+    letter = (m.group(4) or "").lower()
+    return (kind_ord, supp, num, letter)
+
+
+def _rects_heavily_overlap(a, b) -> bool:
+    try:
+        inter = a & b
+        return inter.get_area() > _RECT_OVERLAP_FRAC * min(a.get_area(), b.get_area())
+    except Exception:
+        return False
+
+
+def _page_has_abstract_near(page, img_rect) -> bool:
+    """이미지와 같은 페이지에서 Abstract 라벨이 가로·세로로 가깝게 있는지."""
+    for x0, y0, x1, y1, text in _text_blocks(page):
+        if not _ABSTRACT_WORD.search(text or ""):
+            continue
+        # 세로: 이미지와 같은 밴드(위·옆·약간 아래)
+        if y1 < img_rect.y0 - 80 or y0 > img_rect.y1 + 40:
+            continue
+        # 가로: 옆이거나 겹침
+        mid = (x0 + x1) / 2
+        if _horiz_ok(x0, x1, img_rect.x0, img_rect.x1, mid):
+            return True
+        gap = max(0.0, max(img_rect.x0 - x1, x0 - img_rect.x1))
+        if gap < 120:
+            return True
+    return False
+
+
+def _is_graphical_abstract_candidate(page, page_index: int, img_rect) -> bool:
+    """캡션 없는 큰 임베디드가 초록 옆 TOC/GA 인지 (design/92)."""
+    if page_index > _GA_MAX_PAGE_INDEX:
+        return False
+    if img_rect is None:
+        return False
+    if min(img_rect.width, img_rect.height) < _GA_MIN_SIDE_PT:
+        return False
+    if img_rect.get_area() < _GA_MIN_AREA_PT2:
+        return False
+    # 페이지 상단 헤더 로고 완화: 맨 위 8% 밴드는 제외
+    if img_rect.y1 < page.rect.y0 + 0.08 * page.rect.height:
+        return False
+    return _page_has_abstract_near(page, img_rect)
 
 
 def _text_blocks(page) -> list[tuple[float, float, float, float, str]]:
@@ -142,12 +221,15 @@ def _render_page_clip(page, rect, *, zoom: float = _FIGURE_CLIP_ZOOM) -> bytes |
     return png
 
 
-def _extract_embedded_images(page, page_index: int, start_i: int) -> list[tuple[float, Figure]]:
-    """embedded 이미지 + 하단 Fig 캡션. (sort_y, Figure) 목록."""
+def _extract_embedded_images(
+    page, page_index: int, start_i: int
+) -> list[tuple[float, float, Figure]]:
+    """embedded 이미지 + 하단 Fig 캡션. (sort_y, sort_x, Figure) 목록. design/92."""
     import fitz
 
-    items: list[tuple[float, Figure]] = []
+    items: list[tuple[float, float, Figure]] = []
     seen_xref: set[int] = set()
+    used_rects: list[object] = []
     fig_i = start_i
 
     for img in page.get_images(full=True):
@@ -157,10 +239,11 @@ def _extract_embedded_images(page, page_index: int, start_i: int) -> list[tuple[
         seen_xref.add(xref)
 
         try:
-            rects = page.get_image_rects(xref) or []
+            rects = list(page.get_image_rects(xref) or [])
         except Exception:
             rects = []
-        img_rect = rects[0] if rects else None
+        if not rects:
+            continue
 
         try:
             pix = fitz.Pixmap(page.parent, xref)
@@ -170,51 +253,56 @@ def _extract_embedded_images(page, page_index: int, start_i: int) -> list[tuple[
                 pix = fitz.Pixmap(fitz.csRGB, pix)
             if min(pix.width, pix.height) < _MIN_SIDE_PX:
                 continue
-            png = pix.tobytes("png")
+            base_png = pix.tobytes("png")
         except Exception:
             continue
 
-        if len(png) < _MIN_BYTES:
+        if len(base_png) < _MIN_BYTES:
             continue
 
-        caption = _caption_under_image(page, img_rect) if img_rect is not None else ""
-        # WHY: 표지·Elsevier 로고 등 Fig/Scheme 캡션 없는 임베디드는 캐러셀에서 제외
-        if not caption:
-            continue
+        for img_rect in rects:
+            if any(_rects_heavily_overlap(img_rect, prev) for prev in used_rects):
+                continue
 
-        # 캡션까지 포함해 페이지 클립 (전체화면에서 설명 잘 보이게)
-        clip = fitz.Rect(img_rect)
-        clip.y1 = min(page.rect.y1, img_rect.y1 + _CAPTION_BELOW_PT)
-        rendered = _render_page_clip(page, clip)
-        if rendered:
-            png = rendered
+            caption = _caption_under_image(page, img_rect)
+            if not caption:
+                # WHY: 일반 로고는 제외. 초록 옆 GA만 예외 (design/92).
+                if not _is_graphical_abstract_candidate(page, page_index, img_rect):
+                    continue
+                caption = f"Graphical abstract (p.{page_index + 1})"
 
-        # WHY: design/44 — compound (a/b) 자동 분리 파이프라인에서 끊음. 통짜만 유지.
-        # 드래그 크롭은 UI 제스처로 별개.
-        y0 = float(img_rect.y0)
-        fig_i += 1
-        items.append(
-            (
-                y0,
-                Figure(
-                    id=f"fig-{fig_i:04d}",
-                    image_src=_png_data_url(png),
-                    caption=caption,
-                    page_index=page_index,
-                ),
+            clip = fitz.Rect(img_rect)
+            clip.y1 = min(page.rect.y1, img_rect.y1 + _CAPTION_BELOW_PT)
+            rendered = _render_page_clip(page, clip)
+            png = rendered if rendered else base_png
+
+            used_rects.append(img_rect)
+            fig_i += 1
+            items.append(
+                (
+                    float(img_rect.y0),
+                    float(img_rect.x0),
+                    Figure(
+                        id=f"fig-{fig_i:04d}",
+                        image_src=_png_data_url(png),
+                        caption=caption,
+                        page_index=page_index,
+                    ),
+                )
             )
-        )
-        if len(items) + start_i >= 200:
-            break
+            if len(items) + start_i >= 200:
+                return items
 
     return items
 
 
-def _extract_tables(page, page_index: int, start_i: int) -> list[tuple[float, Figure]]:
-    """find_tables + 위쪽 Table 캡션을 한 장으로 렌더."""
+def _extract_tables(
+    page, page_index: int, start_i: int
+) -> list[tuple[float, float, Figure]]:
+    """find_tables + 위쪽 Table 캡션을 한 장으로 렌더. (y0, x0, Figure)."""
     import fitz
 
-    items: list[tuple[float, Figure]] = []
+    items: list[tuple[float, float, Figure]] = []
     fig_i = start_i
     try:
         finder = page.find_tables()
@@ -231,7 +319,6 @@ def _extract_tables(page, page_index: int, start_i: int) -> list[tuple[float, Fi
             continue
         if bbox.width < 40 or bbox.height < 30:
             continue
-        # 이미 잡은 표와 크게 겹치면 skip
         skip = False
         for prev in used:
             inter = bbox & prev
@@ -246,7 +333,6 @@ def _extract_tables(page, page_index: int, start_i: int) -> list[tuple[float, Fi
         if cap_rect is not None:
             clip |= cap_rect
         else:
-            # 캡션 텍스트를 못 찾으면 위쪽 여백만 조금 포함
             clip.y0 = max(page.rect.y0, clip.y0 - 28)
 
         png = _render_page_clip(page, clip)
@@ -260,6 +346,7 @@ def _extract_tables(page, page_index: int, start_i: int) -> list[tuple[float, Fi
         items.append(
             (
                 float(clip.y0),
+                float(clip.x0),
                 Figure(
                     id=f"tbl-{fig_i:04d}",
                     image_src=_png_data_url(png),
@@ -276,7 +363,7 @@ def _extract_tables(page, page_index: int, start_i: int) -> list[tuple[float, Fi
 
 def extract_figures(pdf_path: Path) -> list[Figure]:
     """
-    그림(embedded) + 표(find_tables)를 페이지·세로 순으로 합친다.
+    그림(embedded) + 표(find_tables)를 캡션 번호 순으로 합친다 (design/92).
     표는 캡션(위)과 표 본문을 한 PNG로 잘라 캐러셀에 넣는다.
     """
     import fitz
@@ -286,27 +373,27 @@ def extract_figures(pdf_path: Path) -> list[Figure]:
         if doc.is_encrypted:
             raise ValueError("encrypted_pdf")
 
-        ordered: list[tuple[int, float, Figure]] = []
+        # (caption_key, page, y0, x0, Figure)
+        ordered: list[tuple[tuple, int, float, float, Figure]] = []
         seq = 0
 
         for page_index, page in enumerate(doc):
             imgs = _extract_embedded_images(page, page_index, seq)
             seq += len(imgs)
-            for y0, fig in imgs:
-                ordered.append((page_index, y0, fig))
+            for y0, x0, fig in imgs:
+                ordered.append((_caption_sort_key(fig.caption), page_index, y0, x0, fig))
 
             tables = _extract_tables(page, page_index, seq)
             seq += len(tables)
-            for y0, fig in tables:
-                ordered.append((page_index, y0, fig))
+            for y0, x0, fig in tables:
+                ordered.append((_caption_sort_key(fig.caption), page_index, y0, x0, fig))
 
             if len(ordered) >= 200:
                 break
 
-        ordered.sort(key=lambda t: (t[0], t[1]))
-        # id 재부여 — 읽기 순서
+        ordered.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
         out: list[Figure] = []
-        for i, (_, _, fig) in enumerate(ordered[:200], start=1):
+        for i, (*_, fig) in enumerate(ordered[:200], start=1):
             prefix = "tbl" if fig.id.startswith("tbl-") else "fig"
             out.append(
                 Figure(
