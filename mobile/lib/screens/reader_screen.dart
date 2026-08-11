@@ -12,7 +12,10 @@ import 'shadowing_practice_screen.dart';
 ///
 /// INVARIANT: sentence controls never call figure advance and vice versa.
 /// TTS never mutates cursors.
-class ReaderScreen extends StatelessWidget {
+/// design/97 — double-tap a panel to fill the screen; double-tap again to restore.
+enum _ReaderLayoutMode { split, sentenceOnly, figureOnly }
+
+class ReaderScreen extends StatefulWidget {
   const ReaderScreen({
     super.key,
     required this.library,
@@ -27,7 +30,34 @@ class ReaderScreen extends StatelessWidget {
   final ShadowingController shadowing;
 
   @override
+  State<ReaderScreen> createState() => _ReaderScreenState();
+}
+
+class _ReaderScreenState extends State<ReaderScreen> {
+  _ReaderLayoutMode _layout = _ReaderLayoutMode.split;
+
+  void _toggleSentenceExpand() {
+    setState(() {
+      _layout = _layout == _ReaderLayoutMode.sentenceOnly
+          ? _ReaderLayoutMode.split
+          : _ReaderLayoutMode.sentenceOnly;
+    });
+  }
+
+  void _toggleFigureExpand() {
+    setState(() {
+      _layout = _layout == _ReaderLayoutMode.figureOnly
+          ? _ReaderLayoutMode.split
+          : _ReaderLayoutMode.figureOnly;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final library = widget.library;
+    final tts = widget.tts;
+    final client = widget.client;
+    final shadowing = widget.shadowing;
     return AnimatedBuilder(
       animation: Listenable.merge([library, tts]),
       builder: (context, _) {
@@ -43,6 +73,8 @@ class ReaderScreen extends StatelessWidget {
             ),
           );
         }
+        final showSentence = _layout != _ReaderLayoutMode.figureOnly;
+        final showFigure = _layout != _ReaderLayoutMode.sentenceOnly;
         return Column(
           children: [
             Padding(
@@ -110,11 +142,51 @@ class ReaderScreen extends StatelessWidget {
                 ),
               ),
             Expanded(
-              flex: 3,
-              child: _SentencePanel(library: library, tts: tts, session: s),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final h = constraints.maxHeight;
+                  final sentenceH = !showSentence
+                      ? 0.0
+                      : (showFigure ? h * 0.6 : h);
+                  final figureH = !showFigure
+                      ? 0.0
+                      : (showSentence ? h * 0.4 : h);
+                  return Column(
+                    children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 280),
+                        curve: Curves.easeInOut,
+                        height: sentenceH,
+                        clipBehavior: Clip.hardEdge,
+                        child: sentenceH < 1
+                            ? const SizedBox.shrink()
+                            : _SentencePanel(
+                                library: library,
+                                tts: tts,
+                                session: s,
+                                onDoubleTapExpand: _toggleSentenceExpand,
+                              ),
+                      ),
+                      if (showSentence && showFigure)
+                        const Divider(height: 1),
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 280),
+                        curve: Curves.easeInOut,
+                        height: figureH,
+                        clipBehavior: Clip.hardEdge,
+                        child: figureH < 1
+                            ? const SizedBox.shrink()
+                            : _FigurePanel(
+                                library: library,
+                                session: s,
+                                onDoubleTapExpand: _toggleFigureExpand,
+                              ),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
-            const Divider(height: 1),
-            Expanded(flex: 2, child: _FigurePanel(library: library, session: s)),
           ],
         );
       },
@@ -127,11 +199,13 @@ class _SentencePanel extends StatelessWidget {
     required this.library,
     required this.tts,
     required this.session,
+    this.onDoubleTapExpand,
   });
 
   final LibraryController library;
   final TtsController tts;
   final ReadingSession session;
+  final VoidCallback? onDoubleTapExpand;
 
   @override
   Widget build(BuildContext context) {
@@ -221,6 +295,7 @@ class _SentencePanel extends StatelessWidget {
                   await tts.stop();
                   await library.advanceSentence(1);
                 },
+                onDoubleTap: onDoubleTapExpand,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: SingleChildScrollView(
@@ -258,10 +333,15 @@ class _SentencePanel extends StatelessWidget {
 }
 
 class _FigurePanel extends StatelessWidget {
-  const _FigurePanel({required this.library, required this.session});
+  const _FigurePanel({
+    required this.library,
+    required this.session,
+    this.onDoubleTapExpand,
+  });
 
   final LibraryController library;
   final ReadingSession session;
+  final VoidCallback? onDoubleTapExpand;
 
   @override
   Widget build(BuildContext context) {
@@ -306,6 +386,7 @@ class _FigurePanel extends StatelessWidget {
                             swipeEnabled: session.figureCount > 0,
                             onPrevious: () => library.advanceFigure(-1),
                             onNext: () => library.advanceFigure(1),
+                            onDoubleTapExpand: onDoubleTapExpand,
                           ),
                         ),
                         if (cur.caption.trim().isNotEmpty ||
@@ -337,12 +418,14 @@ class _FigureImage extends StatelessWidget {
     this.swipeEnabled = false,
     this.onPrevious,
     this.onNext,
+    this.onDoubleTapExpand,
   });
 
   final String src;
   final bool swipeEnabled;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
+  final VoidCallback? onDoubleTapExpand;
 
   @override
   Widget build(BuildContext context) {
@@ -356,6 +439,7 @@ class _FigureImage extends StatelessWidget {
         swipeEnabled: swipeEnabled,
         onPrevious: onPrevious,
         onNext: onNext,
+        onDoubleTapExpand: onDoubleTapExpand,
         child: Image.memory(
           decoded.bytes,
           fit: BoxFit.contain,
@@ -369,6 +453,7 @@ class _FigureImage extends StatelessWidget {
         swipeEnabled: swipeEnabled,
         onPrevious: onPrevious,
         onNext: onNext,
+        onDoubleTapExpand: onDoubleTapExpand,
         child: Image.network(
           src,
           fit: BoxFit.contain,
@@ -396,12 +481,14 @@ class _SwipePager extends StatefulWidget {
     required this.child,
     required this.onPrevious,
     required this.onNext,
+    this.onDoubleTap,
     this.enabled = true,
   });
 
   final Widget child;
   final Future<void> Function()? onPrevious;
   final Future<void> Function()? onNext;
+  final VoidCallback? onDoubleTap;
   final bool enabled;
 
   @override
@@ -430,6 +517,7 @@ class _SwipePagerState extends State<_SwipePager> {
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
+      onDoubleTap: widget.onDoubleTap,
       onHorizontalDragStart: (_) => _dx = 0,
       onHorizontalDragUpdate: (d) => _dx += d.delta.dx,
       onHorizontalDragEnd: _handleDragEnd,
@@ -438,7 +526,7 @@ class _SwipePagerState extends State<_SwipePager> {
   }
 }
 
-/// design/94+95 — full-frame zoom; swipe nav only at scale ≈ 1.
+/// design/94+95+97 — full-frame zoom; swipe at 1×; double-tap expands panel.
 class _ZoomableFigureFrame extends StatefulWidget {
   const _ZoomableFigureFrame({
     super.key,
@@ -446,12 +534,14 @@ class _ZoomableFigureFrame extends StatefulWidget {
     this.swipeEnabled = false,
     this.onPrevious,
     this.onNext,
+    this.onDoubleTapExpand,
   });
 
   final Widget child;
   final bool swipeEnabled;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
+  final VoidCallback? onDoubleTapExpand;
 
   @override
   State<_ZoomableFigureFrame> createState() => _ZoomableFigureFrameState();
@@ -499,6 +589,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
         final allowSwipe = widget.swipeEnabled && !_zoomed;
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
+          onDoubleTap: widget.onDoubleTapExpand,
           onHorizontalDragStart: allowSwipe ? (_) => _dx = 0 : null,
           onHorizontalDragUpdate:
               allowSwipe ? (d) => _dx += d.delta.dx : null,
