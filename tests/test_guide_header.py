@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "59-guide-header.md"
 
 def test_status_guide_header() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.11"
+    assert st["version"] == "0.3.12"
     assert st["guide_header"] is True
     assert st["header_overflow"] is True
     assert "live_enable" not in st
@@ -74,7 +74,7 @@ def test_edge_corrupt_pref_and_missing_dom() -> None:
     assert "Trading Gate" in design or "ASR 밖" in design
     assert "Live Enable" in design or "IPS" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.11" in served
-    assert "styles.css?v=0.3.11" in served
+    assert "app.js?v=0.3.12" in served
+    assert "styles.css?v=0.3.12" in served
     assert "guideBtn" in served
     assert "guideDialog" in served
