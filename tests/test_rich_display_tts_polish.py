@@ -12,10 +12,10 @@ from sentence_reading.llm.tts_speak import spoken_text_for_tts
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_status_version_0_3_6() -> None:
+def test_status_version_0_3_7() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.6"
+    assert st["version"] == "0.3.7"
 
 
 def test_design_88_exists() -> None:
@@ -41,6 +41,23 @@ def test_design_92_figure_caption_order() -> None:
     assert "0.3.6" in text
     assert "rich-v8" in text
     assert "Graphical abstract" in text or "caption" in text.lower()
+
+
+def test_design_93_remove_live_enable_footer() -> None:
+    p = ROOT / "docs" / "design" / "93-remove-live-enable-footer.md"
+    assert p.is_file()
+    text = p.read_text(encoding="utf-8")
+    assert "0.3.7" in text
+    reader = (
+        ROOT / "mobile" / "lib" / "screens" / "reader_screen.dart"
+    ).read_text(encoding="utf-8")
+    assert "Live Enable" not in reader
+    shadow = (
+        ROOT / "mobile" / "lib" / "screens" / "shadowing_practice_screen.dart"
+    ).read_text(encoding="utf-8")
+    # no user-facing widget string (doc comments may still mention)
+    assert "'Live Enable" not in shadow
+    assert '"Live Enable' not in shadow
 
 
 def test_flutter_rich_sentence_module() -> None:

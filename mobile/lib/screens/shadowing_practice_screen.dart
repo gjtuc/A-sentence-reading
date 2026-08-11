@@ -1,7 +1,7 @@
 /// design/82 — separate shadowing practice mode (mobile).
 ///
 /// Gates: login (shell) · kill · opt-in · chunks built before loop.
-/// Loop: listen → record(+2s) → next/skip. Live Enable/IPS: ASR out.
+/// Loop: listen → record(+2s) → next/skip.
 library;
 
 import 'dart:async';
@@ -299,11 +299,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Live Enable / IPS: ASR out',
-              style: TextStyle(fontSize: 11),
-              textAlign: TextAlign.center,
-            ),
           ],
         ),
       ),
