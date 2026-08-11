@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "63-mobile-reader.md"
 def test_status_mobile_reader_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.8"
+    assert st["version"] == "0.3.9"
     assert st["mobile_reader"] is True
     assert st["mobile_library"] is True
     assert "live_enable" not in st
@@ -64,7 +64,7 @@ def test_session_cursor_patch_independent() -> None:
 
 def test_mobile_dart_reader_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.8" in pub
+    assert "0.3.9" in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "patchCursor" in client
     assert "/api/session/" in client
@@ -80,6 +80,8 @@ def test_mobile_dart_reader_sources() -> None:
     assert "Trading Gate" not in reader
     # design/94 — zoom uses full figure frame
     assert "_ZoomableFigureFrame" in reader
+    # design/95 — swipe pager
+    assert "_SwipePager" in reader
     assert DESIGN.is_file()
     design = DESIGN.read_text(encoding="utf-8")
     assert "0.3.3" in design
@@ -103,4 +105,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.8" in html
+    assert "app.js?v=0.3.9" in html
