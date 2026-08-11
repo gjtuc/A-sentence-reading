@@ -324,7 +324,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   ),
                 )
-              else
+              else if (!lib.uploading)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -359,7 +359,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   // WHY: cloud archive is part of processing — not a separate upload tap.
                                   '처리 중 ${lib.uploadPercent}%'
                                   '${lib.uploadStage.isEmpty ? '' : ' · ${lib.uploadStage}'}'
-                                  ' · 끝나면 클라우드 보관함에 자동 저장'
+                                  ' · 클라우드 보관함에 자동 저장'
                                 ),
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
@@ -393,10 +393,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
               if (lib.error != null)
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      lib.error!,
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            lib.error!,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: lib.dismissError,
+                          icon: const Icon(Icons.close),
+                          tooltip: '닫기',
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ],
                     ),
                   ),
                 ),
