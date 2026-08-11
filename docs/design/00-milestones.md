@@ -137,6 +137,7 @@
 - ~~보관 cache 없이 완료 금지~~ (0.3.22 · [108-fail-closed-no-cache.md](108-fail-closed-no-cache.md))
 - ~~보관함 인제스트 에러 닫기 · terminal 초안 정리~~ (0.3.23 · [109-dismiss-library-ingest-error.md](109-dismiss-library-ingest-error.md))
 - ~~ingest checkpoint 봉투 · TTL/버전 폐기~~ (0.3.24 · [110-ingest-checkpoint-envelope.md](110-ingest-checkpoint-envelope.md))
+- ~~want_chunks NameError 복구 · open JSON 실패~~ (0.3.25 · [111-fix-want-chunks-nameerror.md](111-fix-want-chunks-nameerror.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)
