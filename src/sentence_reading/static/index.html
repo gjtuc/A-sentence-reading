@@ -579,5 +579,27 @@
     <p class="guide-lead">듣→같이 말하기(+2초)→내 녹음→다음. 건너뛰면 빈 칸. 이어듣기는 문장 전체 통과 녹음만.</p>
   </dialog>
 
+  <!-- design/84 — login OK but invite pending/denied: waiting-only shell -->
+  <div id="accessWaitingPanel" class="access-waiting-panel" hidden>
+    <h2 class="access-waiting-title">액세스 승인 대기</h2>
+    <p class="access-waiting-hint" id="accessWaitingHint">
+      초대 코드를 입력하면 관리자 승인 대기가 됩니다.
+    </p>
+    <p class="access-waiting-status" id="accessWaitingStatus" aria-live="polite"></p>
+    <label class="tts-field">
+      <span>초대 코드</span>
+      <input type="text" id="accessInviteInput" autocomplete="off" spellcheck="false" />
+    </label>
+    <div class="tts-dialog-actions">
+      <button type="button" class="upload-btn" id="accessInviteSubmit">코드 제출</button>
+      <button type="button" class="upload-btn upload-btn-ghost" id="accessWaitingRefresh">
+        상태 새로고침
+      </button>
+      <button type="button" class="upload-btn upload-btn-ghost" id="accessWaitingLogout">
+        로그아웃
+      </button>
+    </div>
+  </div>
+
 </body>
 </html>

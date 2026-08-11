@@ -7,15 +7,17 @@ import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/tts_controller.dart';
+import 'access_waiting_screen.dart';
 import 'library_screen.dart';
 import 'login_screen.dart';
 import 'reader_screen.dart';
 import 'settings_screen.dart';
 
-/// Auth-gated shell (design/68).
+/// Auth-gated shell (design/68) + access waiting (design/84).
 ///
 /// Logged out → login only (no bottom nav).
-/// Logged in → 보관 · 읽기 · 설정. Account/server live under Settings.
+/// Logged in · invite pending/denied → waiting only.
+/// Allowed / gate off → 보관 · 읽기 · 설정.
 class HomeShell extends StatefulWidget {
   const HomeShell({
     super.key,
@@ -38,6 +40,8 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
+  /// null = not checked yet; true = may enter main tabs.
+  bool? _accessUnlocked;
 
   void _goReader() => setState(() => _index = 1);
 
@@ -45,40 +49,70 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.auth.addListener(_onAuthChanged);
     // design/74 — FG notification tap → open that paper in reader.
     unawaited(widget.library.initUploadNotify());
     widget.library.uploadNotify.setOpenCacheIdHandler(_onNotifyOpenCacheId);
     unawaited(_consumePendingOpen());
+    unawaited(_refreshAccessGate());
   }
 
   @override
   void dispose() {
+    widget.auth.removeListener(_onAuthChanged);
     WidgetsBinding.instance.removeObserver(this);
     widget.library.uploadNotify.setOpenCacheIdHandler(null);
     super.dispose();
   }
 
+  void _onAuthChanged() {
+    if (!widget.auth.isLoggedIn) {
+      // EDGE: logout must not leave previous user's unlocked shell.
+      setState(() => _accessUnlocked = null);
+      return;
+    }
+    unawaited(_refreshAccessGate());
+  }
+
+  Future<void> _refreshAccessGate() async {
+    if (!widget.auth.isLoggedIn) {
+      if (mounted) setState(() => _accessUnlocked = null);
+      return;
+    }
+    try {
+      final st = await widget.auth.client.fetchAccessStatus();
+      if (!mounted) return;
+      // WHY: gate off or can_use_paid → main app; else waiting-only.
+      setState(() => _accessUnlocked = !st.gateEnabled || st.canUsePaid);
+    } catch (_) {
+      if (!mounted) return;
+      // FAIL-CLOSED: unknown access → waiting screen (retry via poll), not main app.
+      setState(() => _accessUnlocked = false);
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // design/74 — open paper from complete notification if pending.
       unawaited(_consumePendingOpen());
-      // design/75 — auto-reattach draft after phone/OEM interrupt.
       unawaited(_resumeAfterInterrupt());
+      // design/84 — Allow may have happened while backgrounded.
+      unawaited(_refreshAccessGate());
     }
   }
 
   Future<void> _resumeAfterInterrupt() async {
     if (!widget.auth.isLoggedIn) return;
+    if (_accessUnlocked != true) return;
     final result = await widget.library.onAppResumed();
     if (!mounted || result == null) return;
-    // Soft signal only — LibraryScreen also refreshes; avoid auto-open spam.
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('중단된 업로드를 이어서 처리합니다.')),
     );
   }
 
   Future<void> _onNotifyOpenCacheId(String cacheId) async {
+    if (_accessUnlocked != true) return;
     final opened = await widget.library.openByCacheId(cacheId);
     if (!mounted) return;
     if (opened != null) {
@@ -93,7 +127,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   Widget _padded(Widget child) {
-    // WHY: no AppBar — SafeArea + small top pad (user preferred vs full toolbar gap).
     return SafeArea(
       bottom: false,
       child: Padding(
@@ -115,20 +148,38 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       builder: (context, _) {
         final auth = widget.auth;
 
-        // EDGE: session restore in flight — do not flash tabs or login form.
         if (auth.bootstrapping) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
 
-        // WHY: without login, library/reader/settings are unusable — gate first.
-        // design/83 — when server kill ASR_LOGIN_REQUIRED=0, allow anonymous shell.
-        // EDGE: fail-closed — no bottom nav until session exists (default).
+        // design/83 — identity gate first.
         if (!auth.isLoggedIn && auth.loginRequired) {
           return Scaffold(
             body: _padded(LoginScreen(auth: auth)),
           );
+        }
+
+        // design/84 — invite waiting after login.
+        if (auth.isLoggedIn) {
+          if (_accessUnlocked == null) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (_accessUnlocked == false) {
+            return Scaffold(
+              body: _padded(
+                AccessWaitingScreen(
+                  auth: auth,
+                  onUnlocked: () {
+                    if (mounted) setState(() => _accessUnlocked = true);
+                  },
+                ),
+              ),
+            );
+          }
         }
 
         final pages = <Widget>[

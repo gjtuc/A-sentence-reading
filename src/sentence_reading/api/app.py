@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.0",
+    version="0.3.1",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -435,10 +435,13 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.0",
+        "version": "0.3.1",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
+        # design/84 — waiting-only shell when logged in but invite not paid.
+        "access_waiting_ux": True,
+        "mobile_access_waiting_ux": True,
         "access_gate_gcs": True,
         "mobile_upload": True,
         "ingest_job_gcs": True,

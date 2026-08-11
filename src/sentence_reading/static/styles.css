@@ -2492,3 +2492,39 @@ body.asr-login-gate #authDialog {
   visibility: visible;
   pointer-events: auto;
 }
+
+
+/* design/84 — access waiting shell (after login, before paid app) */
+body.asr-access-waiting .app-header,
+body.asr-access-waiting .paper-tabs,
+body.asr-access-waiting #layout {
+  visibility: hidden;
+  pointer-events: none;
+}
+.access-waiting-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.75rem;
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+  background: var(--bg);
+  color: var(--fg);
+}
+.access-waiting-panel[hidden] {
+  display: none !important;
+}
+.access-waiting-title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+.access-waiting-hint,
+.access-waiting-status {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}

@@ -48,6 +48,8 @@ class AsrStatus {
     this.mobileShadowingPracticeLoop = false,
     // design/83 — missing key → on (fail-closed; require login).
     this.mobileLoginRequired = true,
+    // design/84 — missing key → on (fail-closed; waiting shell).
+    this.mobileAccessWaitingUx = true,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -98,6 +100,12 @@ class AsrStatus {
           : (json.containsKey('login_required')
               ? json['login_required'] == true
               : true),
+      // design/84 — missing key → waiting UX on.
+      mobileAccessWaitingUx: json.containsKey('mobile_access_waiting_ux')
+          ? json['mobile_access_waiting_ux'] == true
+          : (json.containsKey('access_waiting_ux')
+              ? json['access_waiting_ux'] == true
+              : true),
     );
   }
 
@@ -122,6 +130,7 @@ class AsrStatus {
   final bool mobileShadowingChunks;
   final bool mobileShadowingPracticeLoop;
   final bool mobileLoginRequired;
+  final bool mobileAccessWaitingUx;
 }
 
 class AsrClient {

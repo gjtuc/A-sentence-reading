@@ -53,11 +53,11 @@ Modules: `auth_magic_link.py` · `email_smtp.py` · `/api/auth/email/magic/*` ·
 
 ## Version
 
-**0.3.0** · pubspec `0.3.0+1`
+**0.3.1** · pubspec `0.3.1+1`
 
 ## Device E2E (pre-merge)
 
-- APK `versionName=0.3.0` · SM-G986N
+- APK `versionName=0.3.1` · SM-G986N
 - Local API + `adb reverse` (pre-CD) · admin mint → HTTPS open → custom-scheme VIEW
 - Deep link → shell tabs · Settings shows `magic-user@…` · **상태: none · 유료 API 차단** (OTP 게이트 유지)
 - Logout → login screen (탭/보관 잔여 없음)
@@ -68,9 +68,9 @@ Do not paste emails, cookies, or paper titles into chat/PR.
 
 ## Live pin (post-merge)
 
-- Cloud Run `/api/status`: `version=0.3.0`, `mobile_email_magic_link=true`
+- Cloud Run `/api/status`: `version=0.3.1`, `mobile_email_magic_link=true`
 - SMTP: `ASR_SMTP_*` required for user request path; admin mint for support/E2E
-- Device APK `versionName=0.3.0` · SM-G986N
+- Device APK `versionName=0.3.1` · SM-G986N
 - E2E: magic deep link → session · access status not auto-allowed (`E2E77 PASS`)
 - Kill: `ASR_EMAIL_MAGIC_LINK=0`
 - Live Enable / IPS: unchanged
