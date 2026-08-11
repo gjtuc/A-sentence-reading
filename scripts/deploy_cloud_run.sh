@@ -111,13 +111,14 @@ trap cleanup EXIT
     if [[ -n "$SMTP_SSL" ]]; then
       echo "ASR_SMTP_SSL: \"${SMTP_SSL}\""
     fi
-    if [[ -n "$SMTP_USER" && -n "$SMTP_PASS" ]]; then
+    # WHY: live 00087-pkk uses Secret Manager for USER/PASS (Trading mailbox).
+    # Prefer SM unless ASR_SMTP_FORCE_PLAIN=1 — avoids secret↔literal type clash on CD.
+    if [[ "${ASR_SMTP_FORCE_PLAIN:-}" == "1" && -n "$SMTP_USER" && -n "$SMTP_PASS" ]]; then
       echo "ASR_SMTP_USER: \"${SMTP_USER}\""
       echo "ASR_SMTP_PASS: \"${SMTP_PASS}\""
       SMTP_SECRETS_MODE="plain"
-      echo "SMTP: configured (plain USER/PASS in env-vars-file; values not printed)" >&2
+      echo "SMTP: configured (FORCE_PLAIN USER/PASS in env-vars-file; values not printed)" >&2
     else
-      # WHY: Trading Naver mailbox already in Secret Manager — CD can omit USER/PASS.
       SMTP_SECRETS_MODE="secretmanager"
       echo "SMTP: configured (USER/PASS via Secret Manager ${SMTP_USER_SECRET}/${SMTP_PASS_SECRET})" >&2
     fi
@@ -175,8 +176,12 @@ DEPLOY_ARGS=(
 if [[ "${SMTP_SECRETS_MODE:-}" == "secretmanager" ]]; then
   DEPLOY_ARGS+=(--set-secrets="ASR_SMTP_USER=${SMTP_USER_SECRET:-st-auth-smtp-user}:latest,ASR_SMTP_PASS=${SMTP_PASS_SECRET:-st-auth-smtp-password}:latest")
 elif [[ "${SMTP_SECRETS_MODE:-}" == "plain" ]]; then
-  # FAIL-CLOSED for type clash: drop SM bindings so env-vars-file literals can apply.
-  DEPLOY_ARGS+=(--remove-secrets=ASR_SMTP_USER,ASR_SMTP_PASS)
+  # WHY: Cloud Run rejects secret→literal in one deploy call; clear bindings first.
+  echo "SMTP: clearing Secret Manager bindings for ASR_SMTP_USER/PASS before plain env" >&2
+  gcloud run services update "$SERVICE" \
+    --region "$REGION" \
+    --remove-secrets=ASR_SMTP_USER,ASR_SMTP_PASS \
+    || echo "warn: remove-secrets skipped (keys may already be plain or absent)" >&2
 fi
 # Contiguous form kept for contract tests / docs (also invoked via array below).
 # gcloud run deploy …

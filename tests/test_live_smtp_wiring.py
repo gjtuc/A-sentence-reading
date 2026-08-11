@@ -42,7 +42,8 @@ def test_deploy_script_secretmanager_fallback() -> None:
     assert "--set-secrets" in deploy
     assert "st-auth-smtp-user" in deploy
     assert "ASR_SMTP_PASS" in deploy
-    # plain GitHub USER/PASS must clear SM bindings first (type clash on Cloud Run).
+    # plain FORCE path still documents remove-secrets pre-step.
+    assert "ASR_SMTP_FORCE_PLAIN" in deploy
     assert "--remove-secrets=ASR_SMTP_USER,ASR_SMTP_PASS" in deploy
 
 
