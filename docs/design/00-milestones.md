@@ -127,6 +127,7 @@
 - ~~분할 바 드래그 · 자석 · 엣지 스냅~~ (0.3.12 · [98-reader-split-drag.md](98-reader-split-drag.md))
 - ~~모바일 번역 설정 옵트인(ingest/open 게이트)~~ (0.3.13 · [99-mobile-translate-opt-in.md](99-mobile-translate-opt-in.md))
 - ~~읽기 프레임 헤더 탭 토글~~ (0.3.14 · [100-reader-chrome-toggle.md](100-reader-chrome-toggle.md))
+- ~~보관 목록 길게 눌러 순서 변경~~ (0.3.15 · [101-library-reorder.md](101-library-reorder.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

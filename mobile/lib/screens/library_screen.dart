@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
@@ -203,6 +205,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                 ),
               ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Text(
+                    '이름을 길게 누른 뒤 끌어 순서를 바꿀 수 있습니다.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ),
               if (lib.uploading)
                 SliverToBoxAdapter(
                   child: Padding(
@@ -296,29 +307,40 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                 )
               else if (lib.papers.isNotEmpty)
-                SliverList.builder(
+                SliverReorderableList(
                   itemCount: lib.papers.length,
+                  onReorder: (oldIndex, newIndex) {
+                    if (lib.opening || lib.uploading) return;
+                    unawaited(lib.reorderPapers(oldIndex, newIndex));
+                  },
                   itemBuilder: (context, i) {
                     final e = lib.papers[i];
-                    return ListTile(
-                      title: Text(e.title),
-                      subtitle: Text(
-                        [
-                          e.subtitle,
-                          if (e.updatedAt.isNotEmpty) e.updatedAt,
-                        ].where((s) => s.isNotEmpty).join('\n'),
+                    return ReorderableDelayedDragStartListener(
+                      key: ValueKey<String>(e.id),
+                      index: i,
+                      enabled: !lib.opening && !lib.uploading,
+                      child: ListTile(
+                        title: Text(e.title),
+                        subtitle: Text(
+                          [
+                            e.subtitle,
+                            if (e.updatedAt.isNotEmpty) e.updatedAt,
+                          ].where((s) => s.isNotEmpty).join('\n'),
+                        ),
+                        isThreeLine: e.updatedAt.isNotEmpty,
+                        trailing: lib.opening
+                            ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.drag_handle),
+                        onTap: lib.opening || lib.uploading
+                            ? null
+                            : () => _open(e),
                       ),
-                      isThreeLine: e.updatedAt.isNotEmpty,
-                      trailing: lib.opening
-                          ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.chevron_right),
-                      onTap: lib.opening || lib.uploading
-                          ? null
-                          : () => _open(e),
                     );
                   },
                 ),

@@ -17,6 +17,7 @@ import '../api/upload_draft_store.dart';
 import '../api/upload_notify.dart';
 import '../api/shadowing_models.dart';
 import '../api/translate_models.dart';
+import '../api/library_order_models.dart';
 
 /// Stall after this long without progress while an upload is marked active.
 const Duration kUploadStallAfter = Duration(seconds: 45);
@@ -247,7 +248,8 @@ class LibraryController extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      papers = await _client.listPapers();
+      final fetched = await _client.listPapers();
+      papers = await _applySavedOrder(fetched);
     } on AsrApiException catch (e) {
       error = e.message;
       papers = const [];
@@ -257,6 +259,53 @@ class LibraryController extends ChangeNotifier {
     } finally {
       loading = false;
       notifyListeners();
+    }
+  }
+
+  /// design/101 — long-press drag reorder; persist uid-scoped prefs.
+  Future<void> reorderPapers(int oldIndex, int newIndex) async {
+    if (oldIndex < 0 || oldIndex >= papers.length) return;
+    var dest = newIndex;
+    if (dest > oldIndex) dest -= 1;
+    if (dest < 0 || dest >= papers.length) return;
+    if (oldIndex == dest) return;
+    final next = List<PaperEntry>.from(papers);
+    final item = next.removeAt(oldIndex);
+    next.insert(dest, item);
+    papers = next;
+    notifyListeners();
+    await _persistOrder(next.map((e) => e.id).toList(growable: false));
+  }
+
+  Future<List<PaperEntry>> _applySavedOrder(List<PaperEntry> fetched) async {
+    try {
+      final auth = await _client.fetchAuthStatus();
+      final uid = auth.user?.uid;
+      if (uid == null || uid.isEmpty) return fetched;
+      final p = await SharedPreferences.getInstance();
+      final order = parseLibraryOrderPref(p.getString(libraryOrderPrefsKey(uid)));
+      return applyLibraryOrder(
+        papers: fetched,
+        orderIds: order,
+        idOf: (e) => e.id,
+      );
+    } catch (_) {
+      return fetched;
+    }
+  }
+
+  Future<void> _persistOrder(List<String> ids) async {
+    try {
+      final auth = await _client.fetchAuthStatus();
+      final uid = auth.user?.uid;
+      if (uid == null || uid.isEmpty) return;
+      final p = await SharedPreferences.getInstance();
+      await p.setString(
+        libraryOrderPrefsKey(uid),
+        serializeLibraryOrderPref(ids),
+      );
+    } catch (_) {
+      // EDGE: prefs fail → in-memory order still shown until next refresh.
     }
   }
 
