@@ -33,7 +33,7 @@ Modules: web `accessWaitingPanel` · Flutter `AccessWaitingScreen` · `HomeShell
 
 ## Version
 
-**0.3.2** · pubspec `0.3.2+1`
+**0.3.3** · pubspec `0.3.3+1`
 
 ## Fail-closed
 

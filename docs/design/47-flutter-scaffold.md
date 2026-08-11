@@ -46,4 +46,4 @@ flutter build apk
 
 ## Version pin
 
-Web/mobile **0.3.2** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).
+Web/mobile **0.3.3** (invite redeem E2E · access session clear — see [67-access-gate.md](67-access-gate.md)).

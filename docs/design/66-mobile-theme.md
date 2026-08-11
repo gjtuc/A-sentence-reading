@@ -31,4 +31,4 @@ Web **0.2.82** · status `mobile_theme: true` · pubspec `0.2.82+1`
 
 ## Version pin
 
-Web/mobile **0.3.2**.
+Web/mobile **0.3.3**.

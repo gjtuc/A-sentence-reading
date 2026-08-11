@@ -65,6 +65,13 @@ jobs:
           ASR_ADMIN_EMAILS: ${{ secrets.ASR_ADMIN_EMAILS }}
           ASR_KAKAO_REST_API_KEY: ${{ secrets.ASR_KAKAO_REST_API_KEY }}
           ASR_KAKAO_CLIENT_SECRET: ${{ secrets.ASR_KAKAO_CLIENT_SECRET }}
+          # design/86 — optional; empty → magic request stays smtp_not_configured.
+          ASR_SMTP_HOST: ${{ secrets.ASR_SMTP_HOST }}
+          ASR_SMTP_FROM: ${{ secrets.ASR_SMTP_FROM }}
+          ASR_SMTP_USER: ${{ secrets.ASR_SMTP_USER }}
+          ASR_SMTP_PASS: ${{ secrets.ASR_SMTP_PASS }}
+          ASR_SMTP_PORT: ${{ secrets.ASR_SMTP_PORT }}
+          ASR_SMTP_SSL: ${{ secrets.ASR_SMTP_SSL }}
           ASR_CLOUD_RUN_URL: ${{ vars.ASR_CLOUD_RUN_URL || 'https://asr-sentence-reading-984608876300.asia-northeast3.run.app' }}
           ASR_GCS_BUCKET: ${{ vars.ASR_GCS_BUCKET || 'asr-chaheon-warehouse' }}
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'peaceful-basis-503207-t4' }}

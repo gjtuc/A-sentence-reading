@@ -29,7 +29,7 @@ Modules: `index.html` auth dialog · `app.js` magic request · `/api/auth/email/
 
 ## Version
 
-**0.3.2** · pubspec `0.3.2+1`
+**0.3.3** · pubspec `0.3.3+1`
 
 ## Fail-closed
 
@@ -43,7 +43,7 @@ Modules: `index.html` auth dialog · `app.js` magic request · `/api/auth/email/
 
 ## Live pin (post-merge)
 
-- Cloud Run `/api/status`: `version=0.3.2` · `web_email_magic_link_only=true` · `mobile_email_magic_link=true`
+- Cloud Run `/api/status`: `version=0.3.3` · `web_email_magic_link_only=true` · `mobile_email_magic_link=true`
 - Kill: `ASR_EMAIL_MAGIC_LINK=0` · rollback: revert PR #122
 
 Do not paste emails, cookies, tokens, or magic URLs into chat/PR.
