@@ -49,4 +49,10 @@ Example names only: host=`smtp.REDACTED.example`, from=`noreply@REDACTED.example
 
 Then redeploy (push to main or workflow_dispatch). Confirm live `/api/status` → `email_smtp_configured=true` before real-mail E2E.
 
+## Live pin (post-merge)
+
+- Cloud Run `/api/status`: `version=0.3.3` · `email_smtp_configured=false` · `mobile_email_magic_link=true`
+- request still `smtp_not_configured` until GitHub `ASR_SMTP_*` secrets are set and redeployed
+- Kill: omit SMTP secrets · or `ASR_EMAIL_MAGIC_LINK=0` · revert PR #123
+
 Do not paste SMTP passwords, magic URLs, or real mailboxes into chat/PR.
