@@ -71,5 +71,6 @@ jobs:
           ASR_CLOUD_RUN_REGION: ${{ vars.ASR_CLOUD_RUN_REGION || 'asia-northeast3' }}
           ASR_CLOUD_RUN_SERVICE: ${{ vars.ASR_CLOUD_RUN_SERVICE || 'asr-sentence-reading' }}
           ASR_SHADOWING_PRACTICE: ${{ vars.ASR_SHADOWING_PRACTICE || '0' }}
+          ASR_LOGIN_REQUIRED: ${{ vars.ASR_LOGIN_REQUIRED || '1' }}
           ASR_CD_SKIP_API_ENABLE: "1"
         run: bash scripts/deploy_cloud_run.sh

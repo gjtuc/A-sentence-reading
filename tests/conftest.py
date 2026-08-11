@@ -3,6 +3,9 @@
 design/78 — production defaults ASR_EMAIL_PASSWORD off; enable it here so
 fixtures that still register via email+password keep working. Tests that
 assert the kill override with ASR_EMAIL_PASSWORD=0.
+
+design/83 — production defaults ASR_LOGIN_REQUIRED on; disable here so
+legacy unauth fixture routes keep working. Dedicated tests turn it back on.
 """
 
 from __future__ import annotations
@@ -16,6 +19,8 @@ def _isolate_asr_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ASR_SKIP_ENV_FILE", "1")
     monkeypatch.setenv("ASR_EMAIL_AUTH", "0")
     monkeypatch.setenv("ASR_EMAIL_PASSWORD", "1")
+    # design/83 — suite default off; test_login_required.py re-enables.
+    monkeypatch.setenv("ASR_LOGIN_REQUIRED", "0")
     monkeypatch.delenv("ASR_GOOGLE_CLIENT_ID", raising=False)
     monkeypatch.delenv("ASR_KAKAO_REST_API_KEY", raising=False)
     monkeypatch.delenv("ASR_GCS_BUCKET", raising=False)

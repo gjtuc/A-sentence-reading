@@ -1,4 +1,4 @@
-"""영→한 단순 번역 (0.2.99 · design/35)."""
+"""영→한 단순 번역 (0.3.0 · design/35)."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def _install_fake_gemini(monkeypatch: pytest.MonkeyPatch, calls: list[str], text
 
 def test_status_flags_translate() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.2.99"
+    assert st["version"] == "0.3.0"
     assert "translate_en_ko" in st
     assert st["tab_close"] is True
 
@@ -88,7 +88,7 @@ def test_ui_wiring_contract() -> None:
     assert "미리 번역 없음" in js or "text_ko" in js
     assert "design/35" in js or "design/42" in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.2.99" in served
+    assert "app.js?v=0.3.0" in served
 
 
 def test_empty_and_whitespace(monkeypatch: pytest.MonkeyPatch) -> None:

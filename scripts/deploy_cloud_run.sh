@@ -69,6 +69,8 @@ trap cleanup EXIT
   echo "ASR_ADMIN_EMAILS: \"${ADMIN_EMAILS}\""
   # design/79·80 — shadowing kill (unset/0=off). CD sets via vars.ASR_SHADOWING_PRACTICE.
   echo "ASR_SHADOWING_PRACTICE: \"${ASR_SHADOWING_PRACTICE:-0}\""
+  # design/83 — login-required (unset/1=on). Kill with ASR_LOGIN_REQUIRED=0.
+  echo "ASR_LOGIN_REQUIRED: \"${ASR_LOGIN_REQUIRED:-1}\""
   if [[ -n "$KAKAO_REST" && -n "$KAKAO_SECRET" ]]; then
     echo "ASR_KAKAO_REST_API_KEY: \"${KAKAO_REST}\""
     echo "ASR_KAKAO_CLIENT_SECRET: \"${KAKAO_SECRET}\""

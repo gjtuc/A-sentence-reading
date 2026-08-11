@@ -2478,3 +2478,17 @@ body.is-browser-fullscreen .pomo-break {
   gap: 0.5rem;
   margin: 0.5rem 0 0.75rem;
 }
+
+
+/* design/83 — login-required gate: hide product chrome until session exists */
+body.asr-login-gate .app-header,
+body.asr-login-gate .paper-tabs,
+body.asr-login-gate #layout {
+  visibility: hidden;
+  pointer-events: none;
+}
+body.asr-login-gate #authDialog {
+  /* keep login dialog interactive above hidden chrome */
+  visibility: visible;
+  pointer-events: auto;
+}
