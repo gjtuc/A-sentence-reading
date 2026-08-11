@@ -13,7 +13,7 @@ import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
 import 'status_screen.dart';
 
-/// Settings: account, theme, TTS, translate, shadowing, access (design/66-68, 79, 96, 99, 103).
+/// Settings: account, theme, TTS, translate, shadowing, access (design/66-68, 79, 96, 99, 103, 104).
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
@@ -455,44 +455,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 widget.shadowing.error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
-            const Divider(height: 32),
-            Text('액세스 (초대 코드)', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text(
-              '관리자에게 부여받은 OTP를 입력하면 승인 대기가 됩니다.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            if (!logged) ...[
-              const SizedBox(height: 12),
-              const Text('로그인 후 초대 코드를 입력할 수 있습니다.'),
-            ] else ...[
-              const SizedBox(height: 12),
-              if (_loading) const LinearProgressIndicator(),
-              if (access != null)
-                Text(
-                  '상태: ${access.status}'
-                  '${access.gateEnabled ? '' : ' (게이트 꺼짐)'}'
-                  '${access.canUsePaid ? ' · 유료 API 가능' : ' · 유료 API 차단'}',
-                ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _code,
-                textCapitalization: TextCapitalization.characters,
-                decoration: const InputDecoration(
-                  labelText: '초대 코드',
-                  border: OutlineInputBorder(),
-                ),
-              ),
+            // design/104 — invite redeem only for none/pending/denied non-admin.
+            // Admin keeps mint/Allow/Deny but does not self-redeem.
+            if (logged) ...[
               const SizedBox(height: 8),
-              FilledButton(
-                onPressed: _loading ? null : _redeem,
-                child: const Text('코드 제출'),
-              ),
+              if (_loading) const LinearProgressIndicator(),
+              if (shouldShowSettingsInviteRedeem(access)) ...[
+                const Divider(height: 32),
+                Text(
+                  '액세스 (초대 코드)',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  access?.isDenied == true
+                      ? '거절되었습니다. 새 초대 코드를 다시 입력할 수 있습니다.'
+                      : '관리자에게 부여받은 OTP를 입력하면 승인 대기가 됩니다.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                if (access != null)
+                  Text(
+                    '상태: ${access.status}'
+                    '${access.gateEnabled ? '' : ' (게이트 꺼짐)'}'
+                    '${access.canUsePaid ? ' · 유료 API 가능' : ' · 유료 API 차단'}',
+                  ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _code,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: const InputDecoration(
+                    labelText: '초대 코드',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                FilledButton(
+                  onPressed: _loading ? null : _redeem,
+                  child: const Text('코드 제출'),
+                ),
+              ],
               // WHY: admin chrome only when server says is_admin.
               // EDGE: missing/false → hide (fail-closed). Mint still 403 server-side.
               if (access?.isAdmin == true) ...[
-                const SizedBox(height: 24),
+                const Divider(height: 32),
                 Text('관리자', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                Text(
+                  '초대 코드 발급과 승인만 합니다. 본인 초대 입력은 필요 없습니다.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
                 const SizedBox(height: 8),
                 FilledButton.tonal(
                   onPressed: _loading ? null : _mint,
@@ -545,10 +557,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ],
               // WHY: after admin Allow, invitee status stays pending until re-fetch.
-              TextButton(
-                onPressed: _loading ? null : _reload,
-                child: const Text('새로고침'),
-              ),
+              if (shouldShowSettingsInviteRedeem(access) ||
+                  access?.isAdmin == true)
+                TextButton(
+                  onPressed: _loading ? null : _reload,
+                  child: const Text('새로고침'),
+                ),
             ],
             if (_error != null) ...[
               const SizedBox(height: 8),
