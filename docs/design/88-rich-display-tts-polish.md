@@ -34,4 +34,13 @@ Modules: `mobile/` reader · `static/app.js` · `llm/tts_speak.py` · `llm/richt
 
 이번 칩에서 불필요함.
 
+## Device pin (E2E)
+
+- APK release `versionName=0.3.4` · `adb install -r` (SM-G986N)
+- Flutter unit: `rich_sentence_test` (escaped `<sub>` decode · plain extract · no raw tags in plain)
+- pytest: `test_tts_speak` · `test_rich_display_tts_polish` (cm⁻¹ → per centimeter)
+- Device shell: admin magic deep-link → library tab (0 papers on magic-email admin uid this run)
+- **Paper open with chem subscripts:** open an existing Google-account paper on device after merge, or re-upload when rate limit clears — confirm sentence UI has no visible `<sub>`/`<sup>` strings
+- Live TTS polish applies after Cloud Run CD of **0.3.4**
+
 Do not paste session cookies, magic URLs, or invite codes into long-lived docs.
