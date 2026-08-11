@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """design/79 — shadowing practice kill + status flags."""
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def test_shadowing_default_off(monkeypatch) -> None:
     assert sp.shadowing_practice_enabled() is False
     with TestClient(app_mod.app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.20"
+    assert st["version"] == "0.3.21"
     assert st["shadowing_practice"] is False
     assert st["mobile_shadowing_practice"] is False
 

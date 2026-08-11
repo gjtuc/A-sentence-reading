@@ -1,4 +1,4 @@
-﻿"""되새김질 키보드 패리티 (0.2.64 · design/56)."""
+"""되새김질 키보드 패리티 (0.2.64 · design/56)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "56-section-review-keys.md"
 
 def test_status_section_review_keys() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.20"
+    assert st["version"] == "0.3.21"
     assert st["section_review_keys"] is True
     assert st["section_review_flow_edit"] is True
     assert "live_enable" not in st
@@ -65,5 +65,5 @@ def test_design_and_assets() -> None:
     assert "0.2.64" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.20" in served
-    assert "styles.css?v=0.3.20" in served
+    assert "app.js?v=0.3.21" in served
+    assert "styles.css?v=0.3.21" in served

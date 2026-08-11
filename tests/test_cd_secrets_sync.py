@@ -1,4 +1,4 @@
-﻿"""CD secrets sync / deploy SA 스크립트 계약 (0.3.3)."""
+"""CD secrets sync / deploy SA 스크립트 계약 (0.3.3)."""
 
 from __future__ import annotations
 
@@ -117,7 +117,7 @@ def test_design_and_status_version() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.20"
+    assert st["version"] == "0.3.21"
     assert st.get("github_cd") is True
 
 

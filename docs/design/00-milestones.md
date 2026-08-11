@@ -133,6 +133,7 @@
 - ~~설정 초대 코드: 승인·관리자 숨김 · Deny 재입력~~ (0.3.18 · [104-hide-settings-invite-when-allowed.md](104-hide-settings-invite-when-allowed.md))
 - ~~업로드 실패 알림 · 처리 폴링 20분~~ (0.3.19 · [105-upload-fail-notify.md](105-upload-fail-notify.md))
 - ~~품질 단계 Gemini 타임아웃 · GCS 진행률~~ (0.3.20 · [106-ingest-quality-timeout.md](106-ingest-quality-timeout.md))
+- ~~Cloud Run ingest job lease·재시작~~ (0.3.21 · [107-ingest-job-reclaim.md](107-ingest-job-reclaim.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

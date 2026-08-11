@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.20",
+    version="0.3.21",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -440,6 +440,7 @@ def _public_api_base(request: Request) -> str:
 def status(request: Request) -> dict:
     """기동 확인."""
     from sentence_reading.llm.ingest_rate_limit import rate_limit_enabled
+    from sentence_reading.llm.ingest_jobs_gcs import ingest_job_reclaim_enabled
 
     user = _request_user(request)
     return {
@@ -458,7 +459,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.20",
+        "version": "0.3.21",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -471,6 +472,8 @@ def status(request: Request) -> dict:
         "mobile_upload": True,
         "ingest_job_gcs": True,
         "mobile_upload_resume": True,
+        # design/107 — cross-instance reclaim when worker lease expires.
+        "ingest_job_reclaim": ingest_job_reclaim_enabled(),
         "ingest_chunked_upload": True,
         # design/73 — mirrors ASR_INGEST_RATE_LIMIT kill switch (False when off).
         "ingest_rate_limit": rate_limit_enabled(),
@@ -2121,8 +2124,88 @@ async def session_patch_cursor(session_id: str, payload: dict = Body(...)) -> JS
     return JSONResponse(data)
 
 
+async def _ingest_lease_heartbeat(job_id: str) -> None:
+    """design/107 — keep lease fresh while this instance runs the worker."""
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    interval = ij.heartbeat_interval_seconds()
+    while True:
+        await asyncio.sleep(interval)
+        job = _JOBS.get(job_id)
+        if not job or job.get("done") or job.get("error"):
+            return
+        if not job.get("_local_running"):
+            return
+        ij.stamp_lease(job, token=str(job.get("lease_token") or "") or None)
+        _persist_job(job_id, job, force=True)
+
+
+async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
+    """
+    Restart processing from GCS upload blob when the prior worker lease expired.
+    WHY: root fix for orphaned 12% jobs — not a fake percent bump.
+    EDGE: no blob → False (fail-closed, no empty success).
+    """
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    if not ij.ingest_job_reclaim_enabled():
+        return False
+    existing = _JOBS.get(job_id)
+    # WHY: this instance already has an active worker — do not double-start.
+    if existing is not None and existing.get("_local_running"):
+        return False
+    token = ij.try_claim_lease(job_id, owner_uid=owner_uid)
+    if not token:
+        return False
+    raw = ij.load_ingest_upload(job_id, owner_uid=owner_uid, suffix=".pdf")
+    kind = "pdf"
+    suffix = ".pdf"
+    if not raw:
+        raw = ij.load_ingest_upload(job_id, owner_uid=owner_uid, suffix=".docx")
+        kind = "docx"
+        suffix = ".docx"
+    if not raw:
+        # EDGE: lease claimed but bytes gone — leave job as-is; next poll can retry.
+        return False
+    meta = ij.load_ingest_job(job_id, owner_uid=owner_uid) or {}
+    filename = ij.safe_filename(str(meta.get("filename") or f"reclaim{suffix}"))
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(raw)
+        tmp_path = Path(tmp.name)
+    content_hash = str(meta.get("content_hash") or "").strip() or None
+    job = {
+        "percent": max(1, int(meta.get("percent") or 1)),
+        "stage": str(meta.get("stage") or "queued"),
+        "message": "처리 다시 시작",
+        "done": False,
+        "error": None,
+        "result": None,
+        "owner_uid": owner_uid,
+        "content_hash": content_hash or "",
+        "filename": filename,
+        "want_shadowing_chunks": bool(meta.get("want_shadowing_chunks", False)),
+        "want_translate": bool(meta.get("want_translate", True)),
+        "lease_token": token,
+        "lease_until": meta.get("lease_until"),
+        "_local_running": True,
+    }
+    ij.stamp_lease(job, token=token)
+    _JOBS[job_id] = job
+    _persist_job(job_id, job, force=True)
+    asyncio.create_task(
+        _run_ingest_job(
+            job_id,
+            tmp_path,
+            filename,
+            kind,
+            content_hash=content_hash,
+        )
+    )
+    return True
+
+
 @app.get("/api/ingest/jobs/{job_id}")
-def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
+async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
     """업로드·정제 진행률 폴링 (design/71 — memory then owner-scoped GCS)."""
     from sentence_reading.llm import ingest_jobs_gcs as ij
 
@@ -2166,6 +2249,11 @@ def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
                         and str(loaded.get("message") or "")
                         != str(job.get("message") or "")
                     )
+                    or (
+                        # design/107 — pick up fresher lease from GCS
+                        str(loaded.get("lease_until") or "")
+                        != str(job.get("lease_until") or "")
+                    )
                 ):
                     for key in (
                         "percent",
@@ -2176,6 +2264,8 @@ def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
                         "result",
                         "content_hash",
                         "filename",
+                        "lease_until",
+                        "lease_token",
                     ):
                         if key in loaded:
                             job[key] = loaded[key]
@@ -2211,6 +2301,16 @@ def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
                     "message": "작업을 찾을 수 없습니다.",
                 },
             )
+        # design/107 — owner poll may restart an abandoned worker (lease expired).
+        if (
+            not job.get("done")
+            and not job.get("error")
+            and not job.get("_local_running")
+            and ij.ingest_job_reclaim_enabled()
+            and ij.lease_expired(job)
+        ):
+            await _reclaim_ingest_job_from_gcs(jid, owner)
+            job = _JOBS.get(jid) or job
 
     return JSONResponse(ij.public_job_view(jid, job))
 
@@ -2336,7 +2436,46 @@ async def _run_ingest_job(
     skip_cache: bool = False,
     content_hash: str | None = None,
 ) -> None:
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
     warnings: list[str] = []
+    job = _JOBS.get(job_id)
+    if job is not None:
+        job["_local_running"] = True
+        ij.stamp_lease(job)
+        _persist_job(job_id, job, force=True)
+    heartbeat = asyncio.create_task(_ingest_lease_heartbeat(job_id))
+    try:
+        await _run_ingest_job_body(
+            job_id,
+            tmp_path,
+            filename,
+            kind,
+            skip_cache=skip_cache,
+            content_hash=content_hash,
+            warnings=warnings,
+        )
+    finally:
+        heartbeat.cancel()
+        try:
+            await heartbeat
+        except asyncio.CancelledError:
+            pass
+        fin = _JOBS.get(job_id)
+        if fin is not None:
+            fin["_local_running"] = False
+
+
+async def _run_ingest_job_body(
+    job_id: str,
+    tmp_path: Path,
+    filename: str,
+    kind: str,
+    *,
+    skip_cache: bool = False,
+    content_hash: str | None = None,
+    warnings: list[str],
+) -> None:
     try:
         label = "PDF" if kind == "pdf" else "Word"
         if not content_hash:

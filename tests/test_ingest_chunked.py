@@ -1,4 +1,4 @@
-﻿"""Chunked upload + prefix integrity (0.3.3 · design/72)."""
+"""Chunked upload + prefix integrity (0.3.3 · design/72)."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def _register(client: TestClient, email: str = "u@example.com") -> None:
 
 def test_status_flag():
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.20"
+    assert st["version"] == "0.3.21"
     assert st["ingest_chunked_upload"] is True
 
 
