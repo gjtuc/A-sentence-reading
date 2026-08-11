@@ -338,15 +338,20 @@ class _FigureImage extends StatelessWidget {
     }
     final decoded = decodeRasterDataUrl(src);
     if (decoded != null) {
-      return InteractiveViewer(
-        child: Image.memory(decoded.bytes, fit: BoxFit.contain),
+      return _ZoomableFigureFrame(
+        child: Image.memory(
+          decoded.bytes,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+        ),
       );
     }
     if (src.startsWith('http://') || src.startsWith('https://')) {
-      return InteractiveViewer(
+      return _ZoomableFigureFrame(
         child: Image.network(
           src,
           fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
           errorBuilder: (_, __, ___) =>
               const Center(child: Text('Image load failed')),
         ),
@@ -360,6 +365,39 @@ class _FigureImage extends StatelessWidget {
           textAlign: TextAlign.center,
         ),
       ),
+    );
+  }
+}
+
+/// design/94 — zoom/pan the full figure frame, not just intrinsic image bounds.
+class _ZoomableFigureFrame extends StatelessWidget {
+  const _ZoomableFigureFrame({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final h = constraints.maxHeight;
+        if (!w.isFinite || !h.isFinite || w <= 0 || h <= 0) {
+          return child;
+        }
+        return InteractiveViewer(
+          minScale: 1.0,
+          maxScale: 8.0,
+          boundaryMargin: const EdgeInsets.all(48),
+          child: SizedBox(
+            width: w,
+            height: h,
+            child: ColoredBox(
+              color: Colors.black,
+              child: Center(child: child),
+            ),
+          ),
+        );
+      },
     );
   }
 }
