@@ -130,6 +130,7 @@
 - ~~보관 목록 길게 눌러 순서 변경~~ (0.3.15 · [101-library-reorder.md](101-library-reorder.md))
 - ~~보관 삭제(휴지통) · GCS·사용자 기록 정리~~ (0.3.16 · [102-library-delete.md](102-library-delete.md))
 - ~~모바일 TTS 목소리·랜덤 난이도 (읽기·연습)~~ (0.3.17 · [103-mobile-tts-voice-random.md](103-mobile-tts-voice-random.md))
+- ~~설정 초대 코드: 승인·관리자 숨김 · Deny 재입력~~ (0.3.18 · [104-hide-settings-invite-when-allowed.md](104-hide-settings-invite-when-allowed.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

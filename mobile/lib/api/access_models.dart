@@ -68,3 +68,21 @@ class AccessStatus {
   bool get isAllowed => status == 'allowed' || effective == 'admin';
   bool get isDenied => status == 'denied';
 }
+
+/// Whether Settings should show the invite-code redeem field (design/104).
+///
+/// WHY: approved users and admins do not redeem; none/pending/denied still may
+/// (Deny re-enter). Waiting shell ([84]) is the primary path; Settings is fallback.
+///
+/// FAIL-CLOSED UI: unknown [access] → hide field (no flash of redeem for allowed).
+bool shouldShowSettingsInviteRedeem(AccessStatus? access) {
+  if (access == null) return false;
+  // EDGE: admin already can_use_paid via effective=admin — no self-redeem needed.
+  if (access.isAdmin) return false;
+  // EDGE: gate off → paid open for everyone; invite UI is noise.
+  if (!access.gateEnabled) return false;
+  // Allowed (or equivalent paid unlock) → hide.
+  if (access.canUsePaid || access.status == 'allowed') return false;
+  // none / pending / denied → show (Deny = re-enter per product).
+  return true;
+}
