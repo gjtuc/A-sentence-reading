@@ -6,6 +6,7 @@ import '../state/auth_controller.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
+import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
 import 'access_waiting_screen.dart';
 import 'library_screen.dart';
@@ -26,6 +27,7 @@ class HomeShell extends StatefulWidget {
     required this.tts,
     required this.theme,
     required this.shadowing,
+    required this.translate,
   });
 
   final AuthController auth;
@@ -33,6 +35,7 @@ class HomeShell extends StatefulWidget {
   final TtsController tts;
   final ThemeController theme;
   final ShadowingController shadowing;
+  final TranslateController translate;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -193,12 +196,15 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             tts: widget.tts,
             client: widget.auth.client,
             shadowing: widget.shadowing,
+            translate: widget.translate,
           ),
           SettingsScreen(
             theme: widget.theme,
             auth: widget.auth,
             shadowing: widget.shadowing,
             tts: widget.tts,
+            translate: widget.translate,
+            library: widget.library,
           ),
         ];
 

@@ -5,6 +5,7 @@ import '../api/reading_models.dart';
 import '../api/rich_sentence.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
+import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
 import 'shadowing_practice_screen.dart';
 
@@ -23,12 +24,14 @@ class ReaderScreen extends StatefulWidget {
     required this.tts,
     required this.client,
     required this.shadowing,
+    required this.translate,
   });
 
   final LibraryController library;
   final TtsController tts;
   final AsrClient client;
   final ShadowingController shadowing;
+  final TranslateController translate;
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
@@ -130,8 +133,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final tts = widget.tts;
     final client = widget.client;
     final shadowing = widget.shadowing;
+    final translate = widget.translate;
     return AnimatedBuilder(
-      animation: Listenable.merge([library, tts]),
+      animation: Listenable.merge([library, tts, translate]),
       builder: (context, _) {
         final s = library.session;
         if (s == null || !s.isValid) {
@@ -145,6 +149,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
             ),
           );
         }
+        final showKo = translate.enabled;
         final showSentence = _layout != _ReaderLayoutMode.figureOnly;
         final showFigure = _layout != _ReaderLayoutMode.sentenceOnly;
         return Column(
@@ -248,6 +253,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                     library: library,
                                     tts: tts,
                                     session: s,
+                                    showKo: showKo,
                                     onDoubleTapExpand: _toggleSentenceExpand,
                                   ),
                           ),
@@ -271,6 +277,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                 : _FigurePanel(
                                     library: library,
                                     session: s,
+                                    showKo: showKo,
                                     onDoubleTapExpand: _toggleFigureExpand,
                                   ),
                           ),
@@ -367,12 +374,14 @@ class _SentencePanel extends StatelessWidget {
     required this.library,
     required this.tts,
     required this.session,
+    required this.showKo,
     this.onDoubleTapExpand,
   });
 
   final LibraryController library;
   final TtsController tts;
   final ReadingSession session;
+  final bool showKo;
   final VoidCallback? onDoubleTapExpand;
 
   @override
@@ -478,7 +487,7 @@ class _SentencePanel extends StatelessWidget {
                                 style: Theme.of(context).textTheme.titleMedium ??
                                     const TextStyle(fontSize: 18),
                               ),
-                              if (cur.textKo.trim().isNotEmpty) ...[
+                              if (showKo && cur.textKo.trim().isNotEmpty) ...[
                                 const SizedBox(height: 12),
                                 richSentenceText(
                                   cur.textKo,
@@ -504,11 +513,13 @@ class _FigurePanel extends StatelessWidget {
   const _FigurePanel({
     required this.library,
     required this.session,
+    required this.showKo,
     this.onDoubleTapExpand,
   });
 
   final LibraryController library;
   final ReadingSession session;
+  final bool showKo;
   final VoidCallback? onDoubleTapExpand;
 
   @override
@@ -558,11 +569,11 @@ class _FigurePanel extends StatelessWidget {
                           ),
                         ),
                         if (cur.caption.trim().isNotEmpty ||
-                            cur.captionKo.trim().isNotEmpty)
+                            (showKo && cur.captionKo.trim().isNotEmpty))
                           Padding(
                             padding: const EdgeInsets.all(8),
                             child: Text(
-                              cur.captionKo.trim().isNotEmpty
+                              (showKo && cur.captionKo.trim().isNotEmpty)
                                   ? cur.captionKo
                                   : cur.caption,
                               maxLines: 2,
