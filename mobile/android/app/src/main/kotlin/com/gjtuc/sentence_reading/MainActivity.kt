@@ -80,6 +80,21 @@ class MainActivity : FlutterActivity() {
                             result.success(false)
                         }
                     }
+                    // design/105 — stop FG + post DEFAULT result notification (fail).
+                    "showUploadFailed" -> {
+                        val title = call.argument<String>("title") ?: "업로드 실패"
+                        val text = call.argument<String>("text") ?: "처리에 실패했습니다."
+                        try {
+                            UploadForegroundService.showFailed(this, title, text)
+                            result.success(true)
+                        } catch (_: Exception) {
+                            try {
+                                UploadForegroundService.stop(this)
+                            } catch (_: Exception) {
+                            }
+                            result.success(false)
+                        }
+                    }
                     "stopUploadNotify" -> {
                         try {
                             UploadForegroundService.stop(this)

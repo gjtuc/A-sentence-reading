@@ -242,6 +242,22 @@ class ChannelUploadNotify implements UploadNotify {
 
   @override
   Future<void> showFailed({required String message}) async {
+    // design/105 — never silently remove FG on fail (looks like "nothing happened").
+    final text = sanitizeNotifyStage(message);
+    if (Platform.isAndroid) {
+      try {
+        await _channel.invokeMethod<void>('showUploadFailed', {
+          'title': '업로드 실패',
+          'text': text,
+        });
+      } catch (_) {
+        // EDGE: older APK without method → fall through to stop.
+        await stop();
+        return;
+      }
+      _active = false;
+      return;
+    }
     await stop();
   }
 

@@ -709,7 +709,7 @@ class AsrClient {
     required String jobId,
     void Function(int percent, String message)? onProgress,
     Duration pollInterval = const Duration(milliseconds: 500),
-    Duration timeout = const Duration(minutes: 12),
+    Duration timeout = const Duration(minutes: 20),
   }) async {
     final jid = jobId.trim();
     if (jid.isEmpty || !RegExp(r'^job_[a-f0-9]{12}$').hasMatch(jid)) {
@@ -775,7 +775,10 @@ class AsrClient {
         contentHash: '${st['content_hash'] ?? ''}'.trim().toLowerCase(),
       );
     }
-    throw AsrApiException('업로드 처리 시간이 초과되었습니다.', 504);
+    throw AsrApiException(
+      '업로드 처리 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.',
+      504,
+    );
   }
 
   /// Full ingest: chunked upload + poll (design/72). Falls back to multipart
@@ -785,7 +788,7 @@ class AsrClient {
     required Uint8List bytes,
     void Function(int percent, String message)? onProgress,
     Duration pollInterval = const Duration(milliseconds: 500),
-    Duration timeout = const Duration(minutes: 12),
+    Duration timeout = const Duration(minutes: 20),
     String? existingUploadId,
     bool shadowingPractice = false,
     bool translate = true,
