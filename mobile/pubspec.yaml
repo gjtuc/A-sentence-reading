@@ -1,4 +1,4 @@
-﻿name: sentence_reading
+name: sentence_reading
 description: Android Flutter client for A-sentence-reading Cloud Run API
 publish_to: "none"
 version: 0.3.20+1
