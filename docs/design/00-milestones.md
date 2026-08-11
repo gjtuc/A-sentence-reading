@@ -124,6 +124,7 @@
 - ~~문장·그림 스와이프 이전/다음~~ (0.3.9 · [95-reader-swipe-nav.md](95-reader-swipe-nav.md))
 - ~~TTS 배속 → 설정 탭~~ (0.3.10 · [96-tts-settings-tab.md](96-tts-settings-tab.md))
 - ~~문장/그림 더블탭 전체 화면~~ (0.3.11 · [97-reader-panel-expand.md](97-reader-panel-expand.md))
+- ~~분할 바 드래그 · 자석 · 엣지 스냅~~ (0.3.12 · [98-reader-split-drag.md](98-reader-split-drag.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

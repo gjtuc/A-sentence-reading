@@ -13,6 +13,7 @@ import 'shadowing_practice_screen.dart';
 /// INVARIANT: sentence controls never call figure advance and vice versa.
 /// TTS never mutates cursors.
 /// design/97 — double-tap a panel to fill the screen; double-tap again to restore.
+/// design/98 — drag the split bar; magnet at default; edge tension → full-panel snap.
 enum _ReaderLayoutMode { split, sentenceOnly, figureOnly }
 
 class ReaderScreen extends StatefulWidget {
@@ -34,21 +35,92 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen> {
+  static const double _kDefaultFraction = 0.6;
+  static const double _kMagnetEps = 0.028;
+  static const double _kEdgeSnap = 0.14;
+  static const double _kHardMin = 0.02;
+  static const double _kHardMax = 0.98;
+  static const double _kSplitBar = 16;
+
   _ReaderLayoutMode _layout = _ReaderLayoutMode.split;
+  double _sentenceFraction = _kDefaultFraction;
+  bool _dragging = false;
+  bool _inMagnet = false;
+  bool _edgePreviewSentence = false;
+  bool _edgePreviewFigure = false;
 
   void _toggleSentenceExpand() {
     setState(() {
-      _layout = _layout == _ReaderLayoutMode.sentenceOnly
-          ? _ReaderLayoutMode.split
-          : _ReaderLayoutMode.sentenceOnly;
+      if (_layout == _ReaderLayoutMode.sentenceOnly) {
+        _layout = _ReaderLayoutMode.split;
+        _sentenceFraction = _kDefaultFraction;
+      } else {
+        _layout = _ReaderLayoutMode.sentenceOnly;
+      }
+      _edgePreviewSentence = false;
+      _edgePreviewFigure = false;
     });
   }
 
   void _toggleFigureExpand() {
     setState(() {
-      _layout = _layout == _ReaderLayoutMode.figureOnly
-          ? _ReaderLayoutMode.split
-          : _ReaderLayoutMode.figureOnly;
+      if (_layout == _ReaderLayoutMode.figureOnly) {
+        _layout = _ReaderLayoutMode.split;
+        _sentenceFraction = _kDefaultFraction;
+      } else {
+        _layout = _ReaderLayoutMode.figureOnly;
+      }
+      _edgePreviewSentence = false;
+      _edgePreviewFigure = false;
+    });
+  }
+
+  void _onSplitDragUpdate(double deltaDy, double totalH) {
+    if (totalH <= _kSplitBar + 1) return;
+    final usable = totalH - _kSplitBar;
+    setState(() {
+      _dragging = true;
+      _layout = _ReaderLayoutMode.split;
+      // Edge tension: drag moves slower near full-panel snap zones.
+      final nearEdge = _sentenceFraction < _kEdgeSnap ||
+          _sentenceFraction > 1 - _kEdgeSnap;
+      final scale = nearEdge ? 0.32 : 1.0;
+      var next =
+          (_sentenceFraction + (deltaDy / usable) * scale).clamp(_kHardMin, _kHardMax);
+      // Magnetic soft pull toward default while inside band.
+      if ((next - _kDefaultFraction).abs() <= _kMagnetEps) {
+        if (!_inMagnet) {
+          _inMagnet = true;
+          Feedback.forTap(context);
+        }
+        next = _kDefaultFraction;
+      } else {
+        _inMagnet = false;
+      }
+      _sentenceFraction = next;
+      _edgePreviewSentence = next >= 1 - _kEdgeSnap;
+      _edgePreviewFigure = next <= _kEdgeSnap;
+    });
+  }
+
+  void _onSplitDragEnd() {
+    setState(() {
+      _dragging = false;
+      if (_sentenceFraction >= 1 - _kEdgeSnap) {
+        _layout = _ReaderLayoutMode.sentenceOnly;
+        _sentenceFraction = _kDefaultFraction;
+      } else if (_sentenceFraction <= _kEdgeSnap) {
+        _layout = _ReaderLayoutMode.figureOnly;
+        _sentenceFraction = _kDefaultFraction;
+      } else if ((_sentenceFraction - _kDefaultFraction).abs() <= _kMagnetEps) {
+        _sentenceFraction = _kDefaultFraction;
+        _layout = _ReaderLayoutMode.split;
+      } else {
+        _layout = _ReaderLayoutMode.split;
+      }
+      _edgePreviewSentence = false;
+      _edgePreviewFigure = false;
+      _inMagnet = false;
     });
   }
 
@@ -145,43 +217,88 @@ class _ReaderScreenState extends State<ReaderScreen> {
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final h = constraints.maxHeight;
-                  final sentenceH = !showSentence
-                      ? 0.0
-                      : (showFigure ? h * 0.6 : h);
-                  final figureH = !showFigure
-                      ? 0.0
-                      : (showSentence ? h * 0.4 : h);
-                  return Column(
+                  final showBar = showSentence && showFigure;
+                  final bar = showBar ? _kSplitBar : 0.0;
+                  final usable = (h - bar).clamp(0.0, h);
+                  late final double sentenceH;
+                  late final double figureH;
+                  if (!showSentence) {
+                    sentenceH = 0;
+                    figureH = h;
+                  } else if (!showFigure) {
+                    sentenceH = h;
+                    figureH = 0;
+                  } else {
+                    sentenceH = usable * _sentenceFraction;
+                    figureH = usable - sentenceH;
+                  }
+                  final animMs = _dragging ? 0 : 280;
+                  return Stack(
                     children: [
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 280),
-                        curve: Curves.easeInOut,
-                        height: sentenceH,
-                        clipBehavior: Clip.hardEdge,
-                        child: sentenceH < 1
-                            ? const SizedBox.shrink()
-                            : _SentencePanel(
-                                library: library,
-                                tts: tts,
-                                session: s,
-                                onDoubleTapExpand: _toggleSentenceExpand,
-                              ),
+                      Column(
+                        children: [
+                          AnimatedContainer(
+                            duration: Duration(milliseconds: animMs),
+                            curve: Curves.easeInOut,
+                            height: sentenceH,
+                            clipBehavior: Clip.hardEdge,
+                            child: sentenceH < 1
+                                ? const SizedBox.shrink()
+                                : _SentencePanel(
+                                    library: library,
+                                    tts: tts,
+                                    session: s,
+                                    onDoubleTapExpand: _toggleSentenceExpand,
+                                  ),
+                          ),
+                          if (showBar)
+                            _SplitHandle(
+                              height: _kSplitBar,
+                              magnetActive: _inMagnet,
+                              edgePreviewSentence: _edgePreviewSentence,
+                              edgePreviewFigure: _edgePreviewFigure,
+                              onDragUpdate: (dy) =>
+                                  _onSplitDragUpdate(dy, h),
+                              onDragEnd: _onSplitDragEnd,
+                            ),
+                          AnimatedContainer(
+                            duration: Duration(milliseconds: animMs),
+                            curve: Curves.easeInOut,
+                            height: figureH,
+                            clipBehavior: Clip.hardEdge,
+                            child: figureH < 1
+                                ? const SizedBox.shrink()
+                                : _FigurePanel(
+                                    library: library,
+                                    session: s,
+                                    onDoubleTapExpand: _toggleFigureExpand,
+                                  ),
+                          ),
+                        ],
                       ),
-                      if (showSentence && showFigure)
-                        const Divider(height: 1),
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 280),
-                        curve: Curves.easeInOut,
-                        height: figureH,
-                        clipBehavior: Clip.hardEdge,
-                        child: figureH < 1
-                            ? const SizedBox.shrink()
-                            : _FigurePanel(
-                                library: library,
-                                session: s,
-                                onDoubleTapExpand: _toggleFigureExpand,
+                      // Smart guide: default split position while near magnet.
+                      if (showBar && (_inMagnet || _dragging))
+                        Positioned(
+                          top: usable * _kDefaultFraction,
+                          left: 24,
+                          right: 24,
+                          child: IgnorePointer(
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 120),
+                              opacity: _inMagnet ? 1 : 0.35,
+                              child: Container(
+                                height: 2,
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primary
+                                      .withOpacity(_inMagnet ? 0.85 : 0.4),
+                                  borderRadius: BorderRadius.circular(1),
+                                ),
                               ),
-                      ),
+                            ),
+                          ),
+                        ),
                     ],
                   );
                 },
@@ -190,6 +307,57 @@ class _ReaderScreenState extends State<ReaderScreen> {
           ],
         );
       },
+    );
+  }
+}
+
+/// design/98 — draggable split bar with magnet / edge-snap affordances.
+class _SplitHandle extends StatelessWidget {
+  const _SplitHandle({
+    required this.height,
+    required this.onDragUpdate,
+    required this.onDragEnd,
+    this.magnetActive = false,
+    this.edgePreviewSentence = false,
+    this.edgePreviewFigure = false,
+  });
+
+  final double height;
+  final ValueChanged<double> onDragUpdate;
+  final VoidCallback onDragEnd;
+  final bool magnetActive;
+  final bool edgePreviewSentence;
+  final bool edgePreviewFigure;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    Color barColor = scheme.outlineVariant;
+    if (magnetActive) {
+      barColor = scheme.primary;
+    } else if (edgePreviewSentence || edgePreviewFigure) {
+      barColor = scheme.tertiary;
+    }
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragUpdate: (d) => onDragUpdate(d.delta.dy),
+      onVerticalDragEnd: (_) => onDragEnd(),
+      onVerticalDragCancel: onDragEnd,
+      child: SizedBox(
+        height: height,
+        width: double.infinity,
+        child: Center(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            width: magnetActive ? 72 : 48,
+            height: 4,
+            decoration: BoxDecoration(
+              color: barColor,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
