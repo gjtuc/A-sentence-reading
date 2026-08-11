@@ -89,6 +89,11 @@
 | 96 | [96-tts-settings-tab.md](96-tts-settings-tab.md) | TTS 배속을 설정 탭으로 |
 | 97 | [97-reader-panel-expand.md](97-reader-panel-expand.md) | 문장/그림 더블탭 전체 화면 |
 | 98 | [98-reader-split-drag.md](98-reader-split-drag.md) | 분할 바 드래그 · 자석 · 엣지 스냅 |
+| 99 | [99-mobile-translate-opt-in.md](99-mobile-translate-opt-in.md) | 모바일 번역 설정 옵트인 |
+| 100 | [100-reader-chrome-toggle.md](100-reader-chrome-toggle.md) | 읽기 프레임 헤더 탭 토글 |
+| 101 | [101-library-reorder.md](101-library-reorder.md) | 보관 목록 드래그 순서 |
+| 102 | [102-library-delete.md](102-library-delete.md) | 보관 휴지통 삭제 · 기록 정리 |
+| 103 | [103-mobile-tts-voice-random.md](103-mobile-tts-voice-random.md) | 모바일 TTS 목소리·랜덤 난이도 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -180,3 +185,4 @@
 100은 읽기 프레임 헤더 탭 토글 · 분할 시 양쪽 동기 (0.3.14).
 101은 보관 목록 길게 눌러 드래그 순서 변경 (0.3.15).
 102는 보관 휴지통 삭제 · GCS·노트·쉐도잉 기록 정리 (0.3.16).
+103은 모바일 TTS 목소리·랜덤 난이도 · 읽기·연습 공유 (0.3.17).

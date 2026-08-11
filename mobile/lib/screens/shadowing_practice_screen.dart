@@ -15,8 +15,10 @@ import 'package:path_provider/path_provider.dart';
 
 import '../api/client.dart';
 import '../api/reading_models.dart';
+import '../api/tts_models.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
+import '../state/tts_controller.dart';
 
 class ShadowingPracticeScreen extends StatefulWidget {
   const ShadowingPracticeScreen({
@@ -24,11 +26,13 @@ class ShadowingPracticeScreen extends StatefulWidget {
     required this.client,
     required this.library,
     required this.shadowing,
+    required this.tts,
   });
 
   final AsrClient client;
   final LibraryController library;
   final ShadowingController shadowing;
+  final TtsController tts;
 
   @override
   State<ShadowingPracticeScreen> createState() =>
@@ -150,8 +154,19 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
   }
 
   Future<void> _playTts(String text) async {
-    final bytes = await widget.client.synthesizeTts(text: text);
+    // design/103 — same mode/voice/rate pick as reader TTS.
+    final params = widget.tts.pickPlaybackParams();
+    final bytes = await widget.client.synthesizeTts(
+      text: text,
+      voice: params.voice,
+      speakingRate: kTtsRateDefault,
+    );
     await _player.stop();
+    try {
+      await _player.setPlaybackRate(clampSpeakingRate(params.speakingRate));
+    } catch (_) {
+      // EDGE: player rate unsupported on some devices — still play.
+    }
     final done = _player.onPlayerComplete.first;
     await _player.play(BytesSource(Uint8List.fromList(bytes)));
     await done;
