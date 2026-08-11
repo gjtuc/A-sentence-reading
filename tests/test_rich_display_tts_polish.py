@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Rich display + TTS polish contract (0.3.4 · design/88)."""
+"""Rich display + TTS polish contract (0.3.4 · design/88; lexicon 0.3.5 · design/90)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,10 +12,10 @@ from sentence_reading.llm.tts_speak import spoken_text_for_tts
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_status_version_0_3_4() -> None:
+def test_status_version_0_3_5() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.4"
+    assert st["version"] == "0.3.5"
 
 
 def test_design_88_exists() -> None:
@@ -24,6 +24,14 @@ def test_design_88_exists() -> None:
     text = p.read_text(encoding="utf-8")
     assert "0.3.4" in text
     assert "TTS" in text
+
+
+def test_design_90_unit_lexicon() -> None:
+    p = ROOT / "docs" / "design" / "90-tts-unit-lexicon.md"
+    assert p.is_file()
+    text = p.read_text(encoding="utf-8")
+    assert "0.3.5" in text
+    assert "watt hour" in text.lower() or "Wh" in text
 
 
 def test_flutter_rich_sentence_module() -> None:
@@ -44,3 +52,9 @@ def test_web_client_sanitize_present() -> None:
 
 def test_tts_cm_inverse_contract() -> None:
     assert "per centimeter" in spoken_text_for_tts("1650 cm<sup>−1</sup>").lower()
+
+
+def test_tts_wh_per_liter_not_tungsten() -> None:
+    out = spoken_text_for_tts("2800 W h L<sup>-1</sup>").lower()
+    assert "watt hour per liter" in out
+    assert "tungsten" not in out

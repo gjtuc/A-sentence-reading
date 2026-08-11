@@ -196,33 +196,175 @@ _SYMBOL_SPOKEN = (
     ("—", " "),
 )
 
-# design/88 — 단위 역수·첨자 발음 (HTML/유니코드/평문 공통 후처리)
-_UNIT_SPOKEN_RES = (
+# design/88+90 — 단위 역수 꼬리 (HTML 풀어쓴 뒤 · 유니코드 · 평문)
+_INV = (
+    r"(?:\s*(?:to\s+the\s+minus\s+one|[⁻−\-]1|⁻¹|\^\s*\{?\s*[−\-]1\s*\}?))"
+)
+_INV2 = (
+    r"(?:\s*(?:to\s+the\s+minus\s+two|[⁻−\-]2|⁻²|\^\s*\{?\s*[−\-]2\s*\}?))"
+)
+_SLASH_L = r"(?:\s*/\s*L|\s+per\s+L)"
+_SLASH_KG = r"(?:\s*/\s*kg|\s+per\s+kg)"
+_SLASH_G = r"(?:\s*/\s*g|\s+per\s+g)"
+_SLASH_MOL = r"(?:\s*/\s*mol|\s+per\s+mol)"
+
+# 긴 복합 단위 우선 (W≠텅스텐 충돌 전에 처리). design/90.
+_UNIT_SPOKEN_RES: tuple[tuple[re.Pattern[str], str], ...] = (
+    # --- energy / electricity density ---
     (
         re.compile(
-            r"\bcm(?:\s+to\s+the\s+minus\s+one|\s*[⁻−\-]1)\b",
+            rf"\bW\s*h\s*L{_INV}\b|\bW\s*h{_SLASH_L}\b|\bWh\s*L{_INV}\b|\bWh{_SLASH_L}\b",
+            re.IGNORECASE,
+        ),
+        " watt hour per liter ",
+    ),
+    (
+        re.compile(
+            rf"\bW\s*h\s*kg{_INV}\b|\bW\s*h{_SLASH_KG}\b|\bWh\s*kg{_INV}\b|\bWh{_SLASH_KG}\b",
+            re.IGNORECASE,
+        ),
+        " watt hour per kilogram ",
+    ),
+    (
+        re.compile(
+            rf"\bW\s*h\s*g{_INV}\b|\bW\s*h{_SLASH_G}\b|\bWh\s*g{_INV}\b|\bWh{_SLASH_G}\b",
+            re.IGNORECASE,
+        ),
+        " watt hour per gram ",
+    ),
+    (re.compile(r"\bkW\s*h\b|\bkWh\b", re.IGNORECASE), " kilowatt hour "),
+    (re.compile(r"\bMW\s*h\b|\bMWh\b", re.IGNORECASE), " megawatt hour "),
+    (re.compile(r"\bW\s*h\b|\bWh\b", re.IGNORECASE), " watt hour "),
+    (
+        re.compile(
+            rf"\bmA\s*h\s*g{_INV}\b|\bmA\s*h{_SLASH_G}\b|\bmAh\s*g{_INV}\b|\bmAh{_SLASH_G}\b",
+            re.IGNORECASE,
+        ),
+        " milliampere hour per gram ",
+    ),
+    (
+        re.compile(
+            rf"\bA\s*h\s*g{_INV}\b|\bA\s*h{_SLASH_G}\b|\bAh\s*g{_INV}\b|\bAh{_SLASH_G}\b",
+            re.IGNORECASE,
+        ),
+        " ampere hour per gram ",
+    ),
+    (re.compile(r"\bmA\s*h\b|\bmAh\b", re.IGNORECASE), " milliampere hour "),
+    (re.compile(r"\bA\s*h\b|\bAh\b", re.IGNORECASE), " ampere hour "),
+    (
+        re.compile(
+            rf"\bmA\s*(?:/\s*)?cm{_INV2}\b|\bmA\s*/\s*cm\s*(?:\^?\s*2|²)\b",
+            re.IGNORECASE,
+        ),
+        " milliampere per square centimeter ",
+    ),
+    # --- thermo / chem ---
+    (
+        re.compile(rf"\bkJ\s*mol{_INV}\b|\bkJ{_SLASH_MOL}\b", re.IGNORECASE),
+        " kilojoule per mole ",
+    ),
+    (
+        re.compile(rf"\bJ\s*mol{_INV}\b|\bJ{_SLASH_MOL}\b", re.IGNORECASE),
+        " joule per mole ",
+    ),
+    (
+        re.compile(rf"\bkJ\s*kg{_INV}\b|\bkJ{_SLASH_KG}\b", re.IGNORECASE),
+        " kilojoule per kilogram ",
+    ),
+    (re.compile(r"\beV\b"), " electron volt "),
+    (
+        re.compile(
+            rf"\bmol\s*L{_INV}\b|\bmol{_SLASH_L}\b|\bmol\s*/\s*dm\s*(?:to\s+the\s+three|[⁻−\-]3|⁻³|\^3)\b",
+            re.IGNORECASE,
+        ),
+        " mole per liter ",
+    ),
+    # --- mass / volume concentration ---
+    (
+        re.compile(
+            rf"\bmg\s*mL{_INV}\b|\bmg\s*/\s*mL\b|\bmg\s+per\s+mL\b",
+            re.IGNORECASE,
+        ),
+        " milligram per milliliter ",
+    ),
+    (
+        re.compile(rf"\bg\s*L{_INV}\b|\bg{_SLASH_L}\b", re.IGNORECASE),
+        " gram per liter ",
+    ),
+    (
+        re.compile(rf"\bmg\s*L{_INV}\b|\bmg{_SLASH_L}\b", re.IGNORECASE),
+        " milligram per liter ",
+    ),
+    (
+        re.compile(
+            rf"\bµg\s*mL{_INV}\b|\bug\s*mL{_INV}\b|\bµg\s*/\s*mL\b|\bug\s*/\s*mL\b",
+            re.IGNORECASE,
+        ),
+        " microgram per milliliter ",
+    ),
+    # --- spectroscopy / rates ---
+    (
+        re.compile(
+            rf"\bcm{_INV}\b|\bcm\s*\^\s*\{{\s*[−\-]1\s*\}}",
             re.IGNORECASE,
         ),
         " per centimeter ",
     ),
+    (re.compile(rf"\bs{_INV}\b", re.IGNORECASE), " per second "),
+    (re.compile(r"\bHz\b"), " hertz "),
+    (re.compile(r"\brpm\b", re.IGNORECASE), " revolutions per minute "),
+    (
+        re.compile(r"\bsccm\b", re.IGNORECASE),
+        " standard cubic centimeters per minute ",
+    ),
+    # --- length / area / volume ---
     (
         re.compile(
-            r"\bm(?:\s+to\s+the\s+minus\s+one|\s*[⁻−\-]1)\b",
+            r"\bcm\s*(?:to\s+the\s+(?:minus\s+)?two|[⁻−\-]2|⁻²|\^\s*2)\b",
             re.IGNORECASE,
         ),
-        " per meter ",
+        " square centimeter ",
     ),
     (
         re.compile(
-            r"\bs(?:\s+to\s+the\s+minus\s+one|\s*[⁻−\-]1)\b",
+            r"\bm\s*(?:to\s+the\s+(?:minus\s+)?two|[⁻−\-]2|⁻²|\^\s*2)\b",
             re.IGNORECASE,
         ),
-        " per second ",
+        " square meter ",
     ),
     (
-        re.compile(r"\bcm\s*\^\s*\{?\s*[−\-]1\s*\}?", re.IGNORECASE),
-        " per centimeter ",
+        re.compile(
+            r"\bm\s*(?:to\s+the\s+(?:minus\s+)?three|[⁻−\-]3|⁻³|\^\s*3)\b",
+            re.IGNORECASE,
+        ),
+        " cubic meter ",
     ),
+    (re.compile(rf"\bm{_INV}\b", re.IGNORECASE), " per meter "),
+    (re.compile(rf"\bL{_INV}\b", re.IGNORECASE), " per liter "),
+    (re.compile(rf"\bkg{_INV}\b", re.IGNORECASE), " per kilogram "),
+    (re.compile(rf"\bg{_INV}\b", re.IGNORECASE), " per gram "),
+    # --- pressure / temp / misc ---
+    (re.compile(r"\bMPa\b"), " megapascal "),
+    (re.compile(r"\bkPa\b"), " kilopascal "),
+    (re.compile(r"\bPa\b"), " pascal "),
+    (re.compile(r"\batm\b", re.IGNORECASE), " atmosphere "),
+    (re.compile(r"\bbar\b", re.IGNORECASE), " bar "),
+    (re.compile(r"(?<=\d)\s*K\b"), " kelvin "),
+    (re.compile(r"\bwt\.?\s*%", re.IGNORECASE), " weight percent "),
+    (re.compile(r"\bmol\s*%", re.IGNORECASE), " mole percent "),
+    (re.compile(r"\bppm\b", re.IGNORECASE), " parts per million "),
+    (re.compile(r"\bppb\b", re.IGNORECASE), " parts per billion "),
+    # --- bare SI after a digit (unit context; avoids tungsten/vanadium…) ---
+    (re.compile(r"(?<=\d)\s*kW\b"), " kilowatt "),
+    (re.compile(r"(?<=\d)\s*MW\b"), " megawatt "),
+    (re.compile(r"(?<=\d)\s*mW\b"), " milliwatt "),
+    (re.compile(r"(?<=\d)\s*W\b"), " watt "),
+    (re.compile(r"(?<=\d)\s*mV\b"), " millivolt "),
+    (re.compile(r"(?<=\d)\s*V\b"), " volt "),
+    (re.compile(r"(?<=\d)\s*mA\b"), " milliampere "),
+    (re.compile(r"(?<=\d)\s*A\b"), " ampere "),
+    (re.compile(r"(?<=\d)\s*(?:Ω|ohm)\b", re.IGNORECASE), " ohm "),
+    # scientific 10^n leftover phrasing
     (
         re.compile(r"\b10\s+to\s+the\s+minus\s+", re.IGNORECASE),
         " ten to the minus ",
@@ -389,7 +531,7 @@ def _expand_element_symbols(text: str) -> str:
 
 
 def _expand_units(text: str) -> str:
-    """cm⁻¹ / cm-1 / 'cm to the minus one' → per centimeter (design/88)."""
+    """SI/energy units → spoken quantities before element names (design/88+90)."""
     s = text
     for pat, spoken in _UNIT_SPOKEN_RES:
         s = pat.sub(spoken, s)

@@ -1,8 +1,37 @@
 # -*- coding: utf-8 -*-
-"""design/88 — spoken_text_for_tts polish."""
+"""design/88+90 — spoken_text_for_tts polish · unit lexicon."""
 from __future__ import annotations
 
 from sentence_reading.llm.tts_speak import spoken_text_for_tts
+
+
+def test_wh_per_liter_not_tungsten() -> None:
+    """design/90 — W h L⁻¹ is energy density, not tungsten."""
+    for raw in (
+        "2800 W h L<sup>-1</sup>",
+        "2800 W h L⁻¹",
+        "750 Wh/L",
+        "750 W h / L",
+    ):
+        out = spoken_text_for_tts(raw).lower()
+        assert "watt hour per liter" in out
+        assert "tungsten" not in out
+
+
+def test_mah_per_gram() -> None:
+    out = spoken_text_for_tts("150 mAh g⁻¹").lower()
+    assert "milliampere hour per gram" in out
+
+
+def test_kj_per_mole() -> None:
+    out = spoken_text_for_tts("100 kJ mol<sup>−1</sup>").lower()
+    assert "kilojoule per mole" in out
+
+
+def test_bare_watt_after_digit() -> None:
+    out = spoken_text_for_tts("rated at 100 W").lower()
+    assert "watt" in out
+    assert "tungsten" not in out
 
 
 def test_sub_html_spoken() -> None:
