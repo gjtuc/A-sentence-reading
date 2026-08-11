@@ -4,23 +4,27 @@ import 'package:flutter/services.dart';
 import '../api/access_models.dart';
 import '../api/client.dart';
 import '../api/theme_models.dart';
+import '../api/tts_models.dart';
 import '../state/auth_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
+import '../state/tts_controller.dart';
 import 'status_screen.dart';
 
-/// Settings: account · theme · shadowing opt-in · access gate · admin server (design/66–68·79).
+/// Settings: account · theme · TTS · shadowing opt-in · access gate · admin (design/66–68·79·96).
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
     required this.theme,
     required this.auth,
     required this.shadowing,
+    required this.tts,
   });
 
   final ThemeController theme;
   final AuthController auth;
   final ShadowingController shadowing;
+  final TtsController tts;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -264,6 +268,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 8),
             Text('현재: ${themeModeLabelKo(widget.theme.mode)}'),
+            const Divider(height: 32),
+            Text('TTS', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              '읽기 탭 재생 배속입니다. 서버 음성은 1.0으로 받고 기기에서만 조절합니다.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            AnimatedBuilder(
+              animation: widget.tts,
+              builder: (context, _) {
+                return Row(
+                  children: [
+                    const Text('배속', style: TextStyle(fontSize: 14)),
+                    Expanded(
+                      child: Slider(
+                        value: widget.tts.rate.clamp(kTtsRateMin, kTtsRateMax),
+                        min: kTtsRateMin,
+                        max: kTtsRateMax,
+                        divisions: 17,
+                        label: widget.tts.rate.toStringAsFixed(2),
+                        onChanged: (v) => widget.tts.setRate(v),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 44,
+                      child: Text(
+                        widget.tts.rate.toStringAsFixed(2),
+                        textAlign: TextAlign.end,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
             const Divider(height: 32),
             Text('쉐도잉 연습', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),

@@ -46,6 +46,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     super.initState();
     _auth.bootstrap();
     _theme.bootstrap();
+    _tts.bootstrap();
     _auth.addListener(_onAuthForShadowing);
     _syncShadowingFromAuth();
   }

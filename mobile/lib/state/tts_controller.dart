@@ -6,19 +6,24 @@ library;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/client.dart';
 import '../api/tts_models.dart';
 import 'library_controller.dart';
+
+const String kTtsRatePrefsKey = 'asr_tts_rate_v1';
 
 class TtsController extends ChangeNotifier {
   TtsController({
     required AsrClient client,
     required LibraryController library,
     AudioPlayer? player,
+    SharedPreferences? prefs,
   })  : _client = client,
         _library = library,
-        _player = player ?? AudioPlayer() {
+        _player = player ?? AudioPlayer(),
+        _prefs = prefs {
     _library.addListener(_onLibraryChanged);
     _player.onPlayerComplete.listen((_) {
       playing = false;
@@ -29,9 +34,11 @@ class TtsController extends ChangeNotifier {
   final AsrClient _client;
   final LibraryController _library;
   final AudioPlayer _player;
+  SharedPreferences? _prefs;
 
   bool loading = false;
   bool playing = false;
+  bool ready = false;
   String? error;
 
   /// Client-side speed only (server caches native 1.0).
@@ -42,6 +49,26 @@ class TtsController extends ChangeNotifier {
 
   int? _lastSentenceIndex;
   String? _lastSessionId;
+
+  Future<SharedPreferences> _readyPrefs() async {
+    return _prefs ??= await SharedPreferences.getInstance();
+  }
+
+  /// Load persisted playback rate once at cold start (design/96).
+  Future<void> bootstrap() async {
+    try {
+      final p = await _readyPrefs();
+      final raw = p.getDouble(kTtsRatePrefsKey);
+      rate = clampSpeakingRate(raw ?? kTtsRateDefault);
+      error = null;
+    } catch (e) {
+      rate = kTtsRateDefault;
+      error = e.toString();
+    } finally {
+      ready = true;
+      notifyListeners();
+    }
+  }
 
   void _onLibraryChanged() {
     final s = _library.session;
@@ -63,6 +90,13 @@ class TtsController extends ChangeNotifier {
       await _player.setPlaybackRate(rate);
     } catch (_) {
       // EDGE: player not ready
+    }
+    try {
+      final p = await _readyPrefs();
+      await p.setDouble(kTtsRatePrefsKey, rate);
+      error = null;
+    } catch (e) {
+      error = e.toString();
     }
     notifyListeners();
   }

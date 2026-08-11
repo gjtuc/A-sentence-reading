@@ -12,10 +12,10 @@ from sentence_reading.llm.tts_speak import spoken_text_for_tts
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_status_version_0_3_9() -> None:
+def test_status_version_0_3_10() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.9"
+    assert st["version"] == "0.3.10"
 
 
 def test_design_88_exists() -> None:
@@ -82,6 +82,23 @@ def test_design_95_reader_swipe_nav() -> None:
     ).read_text(encoding="utf-8")
     assert "_SwipePager" in reader
     assert "panEnabled: _zoomed" in reader or "panEnabled:_zoomed" in reader.replace(" ", "")
+
+
+def test_design_96_tts_settings_tab() -> None:
+    p = ROOT / "docs" / "design" / "96-tts-settings-tab.md"
+    assert p.is_file()
+    text = p.read_text(encoding="utf-8")
+    assert "0.3.10" in text
+    settings = (
+        ROOT / "mobile" / "lib" / "screens" / "settings_screen.dart"
+    ).read_text(encoding="utf-8")
+    assert "required this.tts" in settings or "required this.tts," in settings
+    assert "kTtsRateMin" in settings
+    reader = (
+        ROOT / "mobile" / "lib" / "screens" / "reader_screen.dart"
+    ).read_text(encoding="utf-8")
+    assert "'speed'" not in reader and '"speed"' not in reader
+    assert "연습" in reader
 
 
 def test_flutter_rich_sentence_module() -> None:
