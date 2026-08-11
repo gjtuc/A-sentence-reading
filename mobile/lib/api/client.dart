@@ -876,6 +876,13 @@ class AsrClient {
     if (!opened.isValid) {
       throw AsrApiException('open returned empty session_id', res.statusCode);
     }
+    // design/114 — refuse title-only opens (empty reader).
+    if (opened.sentenceCount < 1) {
+      throw AsrApiException(
+        '보관본에 문장이 없습니다. 재분석하거나 PDF를 다시 올려 주세요.',
+        res.statusCode,
+      );
+    }
     return opened;
   }
 
