@@ -35,6 +35,15 @@ def test_status_smtp_true_when_host_and_from(monkeypatch: pytest.MonkeyPatch) ->
     assert "noreply@example.test" not in str(st)
 
 
+def test_deploy_script_secretmanager_fallback() -> None:
+    """host+from without USER/PASS → Secret Manager attach path (no password in env file)."""
+    deploy = (ROOT / "scripts" / "deploy_cloud_run.sh").read_text(encoding="utf-8")
+    assert "secretmanager" in deploy
+    assert "--set-secrets" in deploy
+    assert "st-auth-smtp-user" in deploy
+    assert "ASR_SMTP_PASS" in deploy
+
+
 def test_deploy_script_and_workflow_wire_smtp() -> None:
     deploy = (ROOT / "scripts" / "deploy_cloud_run.sh").read_text(encoding="utf-8")
     assert "ASR_SMTP_HOST" in deploy

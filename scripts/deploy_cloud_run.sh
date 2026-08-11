@@ -99,22 +99,28 @@ trap cleanup EXIT
   SMTP_PASS="${ASR_SMTP_PASS:-}"
   SMTP_PORT="${ASR_SMTP_PORT:-}"
   SMTP_SSL="${ASR_SMTP_SSL:-}"
+  SMTP_USER_SECRET="${ASR_SMTP_USER_SECRET:-st-auth-smtp-user}"
+  SMTP_PASS_SECRET="${ASR_SMTP_PASSWORD_SECRET:-st-auth-smtp-password}"
+  SMTP_SECRETS_MODE=""
   if [[ -n "$SMTP_HOST" && -n "$SMTP_FROM" ]]; then
     echo "ASR_SMTP_HOST: \"${SMTP_HOST}\""
     echo "ASR_SMTP_FROM: \"${SMTP_FROM}\""
     if [[ -n "$SMTP_PORT" ]]; then
       echo "ASR_SMTP_PORT: \"${SMTP_PORT}\""
     fi
-    if [[ -n "$SMTP_USER" ]]; then
-      echo "ASR_SMTP_USER: \"${SMTP_USER}\""
-    fi
-    if [[ -n "$SMTP_PASS" ]]; then
-      echo "ASR_SMTP_PASS: \"${SMTP_PASS}\""
-    fi
     if [[ -n "$SMTP_SSL" ]]; then
       echo "ASR_SMTP_SSL: \"${SMTP_SSL}\""
     fi
-    echo "SMTP: configured (host/from present; values not printed)" >&2
+    if [[ -n "$SMTP_USER" && -n "$SMTP_PASS" ]]; then
+      echo "ASR_SMTP_USER: \"${SMTP_USER}\""
+      echo "ASR_SMTP_PASS: \"${SMTP_PASS}\""
+      SMTP_SECRETS_MODE="plain"
+      echo "SMTP: configured (plain USER/PASS in env-vars-file; values not printed)" >&2
+    else
+      # WHY: Trading Naver mailbox already in Secret Manager — CD can omit USER/PASS.
+      SMTP_SECRETS_MODE="secretmanager"
+      echo "SMTP: configured (USER/PASS via Secret Manager ${SMTP_USER_SECRET}/${SMTP_PASS_SECRET})" >&2
+    fi
   elif [[ -n "$SMTP_HOST" || -n "$SMTP_FROM" || -n "$SMTP_USER" || -n "$SMTP_PASS" ]]; then
     # FAIL-CLOSED: partial SMTP would look ready but cannot send.
     echo "SMTP: set BOTH ASR_SMTP_HOST and ASR_SMTP_FROM (or neither)." >&2
@@ -149,18 +155,25 @@ else
 fi
 
 # WHY: --source 는 Cloud Build 가 Dockerfile 로 원격 빌드 (로컬 Docker 불필요)
-gcloud run deploy "$SERVICE" \
-  --source . \
-  --region "$REGION" \
-  --platform managed \
-  --allow-unauthenticated \
-  --service-account "$SA_EMAIL" \
-  --memory 1Gi \
-  --cpu 1 \
-  --min-instances "${ASR_MIN_INSTANCES:-1}" \
-  --max-instances 3 \
-  --timeout 300 \
+# SMTP Secret Manager: env-vars-file 만으로는 USER/PASS 참조가 빠지므로 --set-secrets 재부착.
+DEPLOY_ARGS=(
+  run deploy "$SERVICE"
+  --source .
+  --region "$REGION"
+  --platform managed
+  --allow-unauthenticated
+  --service-account "$SA_EMAIL"
+  --memory 1Gi
+  --cpu 1
+  --min-instances "${ASR_MIN_INSTANCES:-1}"
+  --max-instances 3
+  --timeout 300
   --env-vars-file "$ENV_FILE"
+)
+if [[ "${SMTP_SECRETS_MODE:-}" == "secretmanager" ]]; then
+  DEPLOY_ARGS+=(--set-secrets="ASR_SMTP_USER=${SMTP_USER_SECRET:-st-auth-smtp-user}:latest,ASR_SMTP_PASS=${SMTP_PASS_SECRET:-st-auth-smtp-password}:latest")
+fi
+gcloud "${DEPLOY_ARGS[@]}"
 
 URL="${ASR_CLOUD_RUN_URL:-}"
 if [[ -z "$URL" ]]; then
