@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.12",
+    version="0.3.13",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -251,6 +251,22 @@ def _want_shadowing_chunks(request: Request) -> bool:
     if q in ("1", "true", "yes", "on"):
         return True
     return False
+
+
+def _want_translate(request: Request) -> bool:
+    """Client opt-in for Gemini KO work (design/99).
+
+    Query absent → True (web always-translate compat).
+    Explicit 0/false/off → False. Explicit 1/true/on → True.
+    """
+    if "translate" not in request.query_params:
+        return True
+    q = (request.query_params.get("translate") or "").strip().lower()
+    if q in ("0", "false", "no", "off"):
+        return False
+    if q in ("1", "true", "yes", "on"):
+        return True
+    return True
 
 
 def _ingest_rate_limited(request: Request, action: str) -> JSONResponse | None:
@@ -442,7 +458,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.12",
+        "version": "0.3.13",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -1839,13 +1855,16 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                 break
     except Exception:
         pass
-    session, bf_warn = await _backfill_cached_translations(
-        None,
-        session,
-        kind=src,
-        source_path=get_source_path(cache_id),
-        content_hash=info.get("content_hash"),
-    )
+    # design/99 — mobile may pass translate=0 to skip KO backfill until opted in.
+    bf_warn: list[str] = []
+    if _want_translate(request):
+        session, bf_warn = await _backfill_cached_translations(
+            None,
+            session,
+            kind=src,
+            source_path=get_source_path(cache_id),
+            content_hash=info.get("content_hash"),
+        )
     session_id = _remember_session(session)
     data = session.to_public_dict()
     data["ok"] = True
@@ -2311,13 +2330,20 @@ async def _run_ingest_job(
                 await asyncio.to_thread(
                     attach_source_file, str(hit["id"]), tmp_path, source=kind
                 )
-                session, bf_warn = await _backfill_cached_translations(
-                    job_id,
-                    session,
-                    kind=kind,
-                    source_path=tmp_path,
-                    content_hash=content_hash,
+                want_tr = bool(
+                    (_JOBS.get(job_id) or {}).get("want_translate", True)
                 )
+                bf_warn: list[str] = []
+                if want_tr:
+                    session, bf_warn = await _backfill_cached_translations(
+                        job_id,
+                        session,
+                        kind=kind,
+                        source_path=tmp_path,
+                        content_hash=content_hash,
+                    )
+                else:
+                    bf_warn = ["translate_skipped_opt_out"]
                 session_id = _remember_session(session)
                 data = session.to_public_dict()
                 data["ok"] = True
@@ -2362,13 +2388,20 @@ async def _run_ingest_job(
                     await asyncio.to_thread(
                         attach_source_file, str(hit["id"]), tmp_path, source=kind
                     )
-                    session, bf_warn = await _backfill_cached_translations(
-                        job_id,
-                        session,
-                        kind=kind,
-                        source_path=tmp_path,
-                        content_hash=content_hash,
+                    want_tr = bool(
+                        (_JOBS.get(job_id) or {}).get("want_translate", True)
                     )
+                    bf_warn = []
+                    if want_tr:
+                        session, bf_warn = await _backfill_cached_translations(
+                            job_id,
+                            session,
+                            kind=kind,
+                            source_path=tmp_path,
+                            content_hash=content_hash,
+                        )
+                    else:
+                        bf_warn = ["translate_skipped_opt_out"]
                     session_id = _remember_session(session)
                     data = session.to_public_dict()
                     data["ok"] = True
@@ -2518,7 +2551,11 @@ async def _run_ingest_job(
             early["has_source"] = bool(cache_entry.get("has_source"))
         _job_publish_partial(job_id, early, message="읽기 가능 · 번역 중")
 
-        if gemini_available():
+        # design/99 — skip Gemini KO when client opted out (mobile Settings).
+        job_meta = _JOBS.get(job_id) or {}
+        want_translate = bool(job_meta.get("want_translate", True))
+
+        if want_translate and gemini_available():
             _job_set(
                 job_id,
                 percent=90,
@@ -2569,20 +2606,27 @@ async def _run_ingest_job(
                 session.translate_digests = digests
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"translate_failed:{str(exc)[:80]}")
-        else:
+        elif want_translate:
             warnings.append("translate_skipped_no_gemini")
+        else:
+            warnings.append("translate_skipped_opt_out")
 
-        _job_set(job_id, percent=98, stage="save", message="번역 저장 중")
-        cache_entry = await asyncio.to_thread(
-            save_paper_session,
-            session,
-            debone=debone_ok,
-            source=kind,
-            source_path=tmp_path,
-            content_hash=content_hash,
-        )
-        if cache_entry is None and debone_ok and "cache_skip_short_title" not in warnings:
-            warnings.append("cache_skip_short_title")
+        if want_translate:
+            _job_set(job_id, percent=98, stage="save", message="번역 저장 중")
+            cache_entry = await asyncio.to_thread(
+                save_paper_session,
+                session,
+                debone=debone_ok,
+                source=kind,
+                source_path=tmp_path,
+                content_hash=content_hash,
+            )
+            if (
+                cache_entry is None
+                and debone_ok
+                and "cache_skip_short_title" not in warnings
+            ):
+                warnings.append("cache_skip_short_title")
 
         data = _pack(pending=False)
         if cache_entry:
@@ -2591,7 +2635,6 @@ async def _run_ingest_job(
             data["has_source"] = bool(cache_entry.get("has_source"))
 
         # design/80 — shadowing chunk plans (per-uid) when client opted in.
-        job_meta = _JOBS.get(job_id) or {}
         want_chunks = bool(job_meta.get("want_shadowing_chunks"))
         cache_id = (cache_entry or {}).get("id") if cache_entry else None
         owner = str(job_meta.get("owner_uid") or "")
@@ -2691,6 +2734,7 @@ def _begin_ingest_from_bytes(
     *,
     owner_uid: str,
     want_shadowing_chunks: bool = False,
+    want_translate: bool = True,
 ) -> dict:
     """Shared start path for multipart + chunked-complete (design/72)."""
     from sentence_reading.llm import ingest_jobs_gcs as ij
@@ -2715,6 +2759,8 @@ def _begin_ingest_from_bytes(
         "filename": safe_name,
         # design/80 — client opt-in only; server kill checked again at build time.
         "want_shadowing_chunks": bool(want_shadowing_chunks),
+        # design/99 — default True (web); mobile sends translate=0 to skip.
+        "want_translate": bool(want_translate),
     }
     # WHY (design/71): durable job + source blob so poll/reattach survives instance hop.
     if owner_uid:
@@ -3315,6 +3361,7 @@ async def ingest_upload_complete(
         "pdf",
         owner_uid=user.uid,
         want_shadowing_chunks=_want_shadowing_chunks(request),
+        want_translate=_want_translate(request),
     )
     try:
         ic.delete_upload_session(upload_id, owner_uid=user.uid)
@@ -3386,6 +3433,7 @@ async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse
             kind,
             owner_uid=owner_uid,
             want_shadowing_chunks=_want_shadowing_chunks(request),
+            want_translate=_want_translate(request),
         )
     )
 

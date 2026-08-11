@@ -16,6 +16,7 @@ import '../api/upload_draft_models.dart';
 import '../api/upload_draft_store.dart';
 import '../api/upload_notify.dart';
 import '../api/shadowing_models.dart';
+import '../api/translate_models.dart';
 
 /// Stall after this long without progress while an upload is marked active.
 const Duration kUploadStallAfter = Duration(seconds: 45);
@@ -269,7 +270,8 @@ class LibraryController extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      final o = await _client.openPaper(entry.id);
+      final wantTr = await _wantTranslate();
+      final o = await _client.openPaper(entry.id, translate: wantTr);
       if (o.title.isEmpty) o.title = entry.title;
       session = o;
       // design/80 — per-user chunk backfill (opt-in); errors surface on reader.
@@ -486,6 +488,19 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  /// design/99 — Settings translate opt-in (default OFF).
+  Future<bool> _wantTranslate() async {
+    try {
+      final auth = await _client.fetchAuthStatus();
+      final uid = auth.user?.uid;
+      if (uid == null || uid.isEmpty) return false;
+      final p = await SharedPreferences.getInstance();
+      return parseTranslateEnabledPref(p.getString(translatePrefsKey(uid)));
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<IngestJobResult?> uploadPdf({
     required String filename,
     required Uint8List bytes,
@@ -561,12 +576,14 @@ class LibraryController extends ChangeNotifier {
       late final String jobId;
       try {
         final wantShadow = await _wantShadowingPractice();
+        final wantTr = await _wantTranslate();
         final started = await _client.startIngestPdfBytesChunked(
           filename: filename,
           bytes: bytes,
           contentHash: hash,
           existingUploadId: resumeUploadId,
           shadowingPractice: wantShadow,
+          translate: wantTr,
           onProgress: (pct, msg) {
             _touchProgress();
             uploadPercent = pct;
@@ -596,6 +613,7 @@ class LibraryController extends ChangeNotifier {
           filename: filename,
           bytes: bytes,
           shadowingPractice: await _wantShadowingPractice(),
+          translate: await _wantTranslate(),
         );
         jobId = started.jobId;
         draft = draft.copyWith(

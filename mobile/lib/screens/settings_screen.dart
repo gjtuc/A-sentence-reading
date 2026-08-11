@@ -6,12 +6,14 @@ import '../api/client.dart';
 import '../api/theme_models.dart';
 import '../api/tts_models.dart';
 import '../state/auth_controller.dart';
+import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
+import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
 import 'status_screen.dart';
 
-/// Settings: account · theme · TTS · shadowing opt-in · access gate · admin (design/66–68·79·96).
+/// Settings: account, theme, TTS, translate, shadowing, access (design/66-68, 79, 96, 99).
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
@@ -19,12 +21,16 @@ class SettingsScreen extends StatefulWidget {
     required this.auth,
     required this.shadowing,
     required this.tts,
+    required this.translate,
+    required this.library,
   });
 
   final ThemeController theme;
   final AuthController auth;
   final ShadowingController shadowing;
   final TtsController tts;
+  final TranslateController translate;
+  final LibraryController library;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -178,7 +184,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([widget.theme, widget.auth, widget.shadowing]),
+      animation: Listenable.merge([
+        widget.theme,
+        widget.auth,
+        widget.shadowing,
+        widget.translate,
+      ]),
       builder: (context, _) {
         if (!widget.theme.ready) {
           return const Center(child: CircularProgressIndicator());
@@ -302,6 +313,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 );
               },
             ),
+            const Divider(height: 32),
+            Text('번역', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              '기본은 꺼져 있습니다. 끄면 문서 만들 때 번역하지 않고, 켠 뒤 그 문서를 열면 번역을 채웁니다.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('번역 사용'),
+              value: widget.translate.enabled,
+              onChanged: !logged
+                  ? null
+                  : (v) async {
+                      await widget.translate.setEnabled(v);
+                      // design/99 — turning ON while a paper is open → re-open for KO backfill.
+                      if (!v) return;
+                      final cacheId =
+                          (widget.library.session?.cacheId ?? '').trim();
+                      if (cacheId.isEmpty) return;
+                      await widget.library.openByCacheId(cacheId);
+                    },
+            ),
+            if (widget.translate.error != null)
+              Text(
+                widget.translate.error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             const Divider(height: 32),
             Text('쉐도잉 연습', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),

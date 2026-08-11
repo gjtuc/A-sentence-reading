@@ -522,9 +522,13 @@ class AsrClient {
   Future<({String jobId, String contentHash})> completeChunkedUpload(
     String uploadId, {
     bool shadowingPractice = false,
+    bool translate = true,
   }) async {
     final id = uploadId.trim();
-    final q = shadowingPractice ? '?shadowing_practice=1' : '';
+    final q = _ingestOptQuery(
+      shadowingPractice: shadowingPractice,
+      translate: translate,
+    );
     final res = await _http
         .post(
           _uri('/api/ingest/uploads/${Uri.encodeComponent(id)}/complete$q'),
@@ -561,6 +565,7 @@ class AsrClient {
     void Function(int percent, String message)? onProgress,
     Future<void> Function(String uploadId)? onUploadId,
     bool shadowingPractice = false,
+    bool translate = true,
   }) async {
     _validatePdfBytes(filename, bytes);
     final token = await _sessions.readToken();
@@ -621,6 +626,7 @@ class AsrClient {
     final done = await completeChunkedUpload(
       uploadId,
       shadowingPractice: shadowingPractice,
+      translate: translate,
     );
     return (
       jobId: done.jobId,
@@ -637,6 +643,7 @@ class AsrClient {
     required String filename,
     required Uint8List bytes,
     bool shadowingPractice = false,
+    bool translate = true,
   }) async {
     _validatePdfBytes(filename, bytes);
 
@@ -645,9 +652,8 @@ class AsrClient {
       throw AsrApiException('로그인이 필요합니다.', 401);
     }
 
-    final ingestPath = shadowingPractice
-        ? '/api/ingest?shadowing_practice=1'
-        : '/api/ingest';
+    final ingestPath =
+        '/api/ingest${_ingestOptQuery(shadowingPractice: shadowingPractice, translate: translate)}';
     final req = http.MultipartRequest('POST', _uri(ingestPath));
     req.headers['Cookie'] = '$kAsrSessionCookieName=$token';
     req.headers['Accept'] = 'application/json';
@@ -758,6 +764,7 @@ class AsrClient {
     Duration timeout = const Duration(minutes: 12),
     String? existingUploadId,
     bool shadowingPractice = false,
+    bool translate = true,
   }) async {
     _validatePdfBytes(filename, bytes);
     final hash = sha256Hex(bytes);
@@ -771,6 +778,7 @@ class AsrClient {
         existingUploadId: existingUploadId,
         onProgress: onProgress,
         shadowingPractice: shadowingPractice,
+        translate: translate,
       );
       jobId = started.jobId;
       contentHash = started.contentHash;
@@ -782,6 +790,7 @@ class AsrClient {
           filename: filename,
           bytes: bytes,
           shadowingPractice: shadowingPractice,
+          translate: translate,
         );
         jobId = started.jobId;
         contentHash = started.contentHash;
@@ -815,14 +824,18 @@ class AsrClient {
   }
 
   /// POST /api/cache/papers/{id}/open — start a reading session from cache.
-  Future<ReadingSession> openPaper(String cacheId) async {
+  Future<ReadingSession> openPaper(
+    String cacheId, {
+    bool translate = true,
+  }) async {
     final id = cacheId.trim();
     if (id.isEmpty) {
       throw AsrApiException('cache id is empty', 400);
     }
+    final q = translate ? '?translate=1' : '?translate=0';
     final res = await _http
         .post(
-          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/open'),
+          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/open$q'),
           headers: await _headers(jsonBody: true),
           body: '{}',
         )
@@ -833,6 +846,18 @@ class AsrClient {
       throw AsrApiException('open returned empty session_id', res.statusCode);
     }
     return opened;
+  }
+
+  /// design/99 — ingest/open query flags (mobile always sends translate explicitly).
+  static String _ingestOptQuery({
+    bool shadowingPractice = false,
+    bool translate = true,
+  }) {
+    final parts = <String>[
+      if (shadowingPractice) 'shadowing_practice=1',
+      translate ? 'translate=1' : 'translate=0',
+    ];
+    return '?${parts.join('&')}';
   }
 
   /// PATCH /api/session/{id}/cursor — best-effort sync (local UI stays source of truth on fail).

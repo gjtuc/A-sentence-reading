@@ -5,6 +5,7 @@ import 'state/auth_controller.dart';
 import 'state/library_controller.dart';
 import 'state/shadowing_controller.dart';
 import 'state/theme_controller.dart';
+import 'state/translate_controller.dart';
 import 'state/tts_controller.dart';
 
 /// Root Material app — brand title 「문장 읽기」.
@@ -16,6 +17,7 @@ class SentenceReadingApp extends StatefulWidget {
     this.tts,
     this.theme,
     this.shadowing,
+    this.translate,
   });
 
   /// Optional inject for tests (memory session / fake client).
@@ -24,6 +26,7 @@ class SentenceReadingApp extends StatefulWidget {
   final TtsController? tts;
   final ThemeController? theme;
   final ShadowingController? shadowing;
+  final TranslateController? translate;
 
   @override
   State<SentenceReadingApp> createState() => _SentenceReadingAppState();
@@ -38,6 +41,8 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
   late final ThemeController _theme = widget.theme ?? ThemeController();
   late final ShadowingController _shadowing =
       widget.shadowing ?? ShadowingController();
+  late final TranslateController _translate =
+      widget.translate ?? TranslateController();
 
   static const _seed = Color(0xFF1B4F72);
 
@@ -47,19 +52,21 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     _auth.bootstrap();
     _theme.bootstrap();
     _tts.bootstrap();
-    _auth.addListener(_onAuthForShadowing);
-    _syncShadowingFromAuth();
+    _auth.addListener(_onAuthPrefs);
+    _syncPrefsFromAuth();
   }
 
-  void _onAuthForShadowing() => _syncShadowingFromAuth();
+  void _onAuthPrefs() => _syncPrefsFromAuth();
 
-  Future<void> _syncShadowingFromAuth() async {
+  Future<void> _syncPrefsFromAuth() async {
     if (!_auth.isLoggedIn || _auth.user == null) {
       _shadowing.clearSession();
       _shadowing.setServerAvailable(false);
+      _translate.clearSession();
       return;
     }
     await _shadowing.bindUid(_auth.user!.uid);
+    await _translate.bindUid(_auth.user!.uid);
     try {
       final st = await _auth.client.fetchStatus();
       _shadowing.setServerAvailable(st.mobileShadowingPractice);
@@ -71,7 +78,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
 
   @override
   void dispose() {
-    _auth.removeListener(_onAuthForShadowing);
+    _auth.removeListener(_onAuthPrefs);
     if (widget.auth == null) {
       _auth.dispose();
     }
@@ -79,7 +86,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     if (widget.tts == null) {
       _tts.dispose();
     }
-    // ThemeController / ShadowingController have no owned client.
+    // Theme / Shadowing / Translate have no owned client.
     super.dispose();
   }
 
@@ -112,6 +119,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
             tts: _tts,
             theme: _theme,
             shadowing: _shadowing,
+            translate: _translate,
           ),
         );
       },
