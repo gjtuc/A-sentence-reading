@@ -28,6 +28,26 @@ _CACHE_ID_RE = re.compile(r"^[a-zA-Z0-9]{8,32}$")
 _MAX_SENTENCE_CHARS = 2000
 _MAX_SENTENCES = 400
 _MAX_STORE_BYTES = 2_000_000
+# WHY: Cloud Run --timeout 300; leave headroom so we return JSON before gateway 504.
+_DEFAULT_BUDGET_S = 90.0
+_MIN_BUDGET_S = 15.0
+_MAX_BUDGET_S = 240.0
+
+
+def chunk_build_budget_seconds() -> float:
+    """Per-request wall time for Gemini slice (design/113)."""
+    import os
+
+    raw = (os.environ.get("ASR_SHADOWING_CHUNK_BUDGET_S") or "").strip()
+    if not raw:
+        return _DEFAULT_BUDGET_S
+    try:
+        val = float(raw)
+    except ValueError:
+        return _DEFAULT_BUDGET_S
+    if val < _MIN_BUDGET_S or val > _MAX_BUDGET_S:
+        return _DEFAULT_BUDGET_S
+    return val
 
 _SYSTEM = """You plan shadowing (listen-and-speak) practice chunks for ONE sentence.
 Return ONLY a JSON array of strings. Each string is a growing practice unit:
@@ -274,11 +294,18 @@ def build_chunk_plan(
     cache_id: str,
     sentences: list[dict[str, Any]],
     generate: Callable[[str, str], str | None] | None = None,
+    budget_s: float | None = None,
+    resume: bool = True,
 ) -> dict[str, Any]:
     """
-    Build full plan for a paper. Fail-closed: any hard failure → status=error
-    (partial sentences may still be present for debugging; UI must not treat as ok).
+    Build plan for a paper in time-budgeted slices (design/113).
+
+    WHY: full-paper sync Gemini exceeded Cloud Run → HTTP 504 with no JSON.
+    EDGE: budget hit → status=pending + partial sentences saved (not ok, not silent).
+    Hard Gemini/parse failure → status=error (UI may retry; partial kept for resume).
     """
+    import time
+
     if not shadowing_practice_enabled():
         raise PermissionError("shadowing_disabled")
     if not sanitize_uid(uid) or not safe_cache_id(cache_id):
@@ -286,11 +313,43 @@ def build_chunk_plan(
     if not isinstance(sentences, list) or len(sentences) > _MAX_SENTENCES:
         raise ValueError("bad_sentences")
 
+    if budget_s is None:
+        limit = float(chunk_build_budget_seconds())
+    else:
+        # Explicit override (tests / callers); still cap absurd highs.
+        limit = float(budget_s)
+        if limit < 0.01:
+            limit = 0.01
+        if limit > _MAX_BUDGET_S:
+            limit = _MAX_BUDGET_S
+
+    # Resume: keep already-built sentence chunks (cost + consistency).
+    built: dict[str, Any] = {}
+    if resume:
+        prev = load_chunk_plan(uid=uid, cache_id=cache_id)
+        prev_sents = prev.get("sentences") if isinstance(prev, dict) else None
+        if isinstance(prev_sents, dict):
+            for sid, row in prev_sents.items():
+                if not isinstance(row, dict):
+                    continue
+                chunks = row.get("chunks")
+                text = _plain(str(row.get("text") or ""))
+                if isinstance(chunks, list) and chunks and text:
+                    built[str(sid)] = {"text": text, "chunks": list(chunks)}
+
     plan = empty_plan(cache_id)
     plan["status"] = "pending"
     plan["error"] = None
-    built: dict[str, Any] = {}
     err: str | None = None
+    started = time.monotonic()
+    new_this_slice = 0
+    total_work = 0
+    for row in sentences:
+        if not isinstance(row, dict):
+            continue
+        text = _plain(str(row.get("text") or row.get("text_en") or ""))
+        if text:
+            total_work += 1
 
     for i, row in enumerate(sentences):
         if not isinstance(row, dict):
@@ -300,22 +359,55 @@ def build_chunk_plan(
         text = _plain(str(row.get("text") or row.get("text_en") or ""))
         if not text:
             continue
+        # Already planned on a prior slice — skip Gemini.
+        if sid in built and isinstance(built[sid].get("chunks"), list):
+            continue
+        elapsed = time.monotonic() - started
+        # WHY: stop before gateway kill; leave ~few seconds for save+JSON.
+        if elapsed >= limit and new_this_slice > 0:
+            break
+        if elapsed >= limit and new_this_slice == 0:
+            # EDGE: first sentence alone exceeded budget — still try one, then pending.
+            pass
         try:
             chunks = plan_sentence_chunks(text, generate=generate)
         except ValueError as exc:
             err = str(exc)[:120]
             break
         built[sid] = {"text": text, "chunks": chunks}
+        new_this_slice += 1
+        # Persist mid-slice so reclaim/retry after crash keeps progress.
+        if new_this_slice % 5 == 0:
+            plan["sentences"] = built
+            plan["status"] = "pending"
+            plan["progress"] = {
+                "done": len(built),
+                "total": max(total_work, len(built)),
+            }
+            try:
+                save_chunk_plan(uid=uid, cache_id=cache_id, plan=plan)
+            except Exception:  # noqa: BLE001
+                pass
+        if time.monotonic() - started >= limit:
+            break
 
     plan["sentences"] = built
+    plan["progress"] = {
+        "done": len(built),
+        "total": max(total_work, len(built)),
+    }
     if err:
         plan["status"] = "error"
         plan["error"] = err
-    elif not built:
+    elif not built and total_work == 0:
         plan["status"] = "error"
         plan["error"] = "no_sentences"
-    else:
+    elif total_work > 0 and len(built) >= total_work:
         plan["status"] = "ok"
+        plan["error"] = None
+    else:
+        # Incomplete slice — honest pending (client continues).
+        plan["status"] = "pending"
         plan["error"] = None
     save_chunk_plan(uid=uid, cache_id=cache_id, plan=plan)
     return plan

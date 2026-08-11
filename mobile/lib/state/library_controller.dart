@@ -501,7 +501,7 @@ class LibraryController extends ChangeNotifier {
 
 
 
-  /// design/80 — backfill/retry chunk plans when opt-in + kill ON.
+  /// design/80 · design/113 — backfill/retry; pending slices auto-continue.
   Future<void> ensureShadowingChunks(String cacheId) async {
     final id = cacheId.trim();
     if (id.isEmpty) return;
@@ -525,23 +525,48 @@ class LibraryController extends ChangeNotifier {
         shadowingChunksError = null;
         return;
       }
-      final built = await _client.buildShadowingChunks(
-        id,
-        practiceEnabled: true,
-      );
-      if (built['ok'] == true) {
+      // design/113 — several budget slices until ok/error (cap avoids infinite).
+      const maxSlices = 40;
+      for (var i = 0; i < maxSlices; i++) {
+        Map<String, dynamic> built;
+        try {
+          built = await _client.buildShadowingChunks(
+            id,
+            practiceEnabled: true,
+          );
+        } on AsrApiException catch (e) {
+          // EDGE: legacy gateway 504 before budget fix — retry a few times.
+          if (e.statusCode == 504 && i < 5) {
+            await Future<void>.delayed(Duration(seconds: 2 + i));
+            continue;
+          }
+          rethrow;
+        }
         final p2 = built['plan'];
-        if (p2 is Map && p2['status']?.toString() == 'ok') {
+        final st2 = p2 is Map ? p2['status']?.toString() : null;
+        if (st2 == 'ok') {
           shadowingChunksError = null;
           return;
         }
+        if (st2 == 'pending' || built['continue'] == true) {
+          // Honest in-progress — keep busy banner, next slice immediately.
+          notifyListeners();
+          continue;
+        }
+        if (st2 == 'error' || built['ok'] == false) {
+          final msg = built['message']?.toString();
+          shadowingChunksError =
+              (msg != null && msg.isNotEmpty)
+                  ? msg
+                  : '연습 구간을 만들지 못했습니다. 다시 시도해 주세요.';
+          return;
+        }
+        // Unknown shape — fail closed (no silent success).
+        shadowingChunksError = '연습 구간을 만들지 못했습니다. 다시 시도해 주세요.';
+        return;
       }
-      // EDGE: server returned non-ok — surface message, never silent success.
-      final msg = built['message']?.toString();
       shadowingChunksError =
-          (msg != null && msg.isNotEmpty)
-              ? msg
-              : '연습 구간을 만들지 못했습니다. 다시 시도해 주세요.';
+          '연습 구간 준비가 길어집니다. 다시 시도해 주세요.';
     } on AsrApiException catch (e) {
       shadowingChunksError = e.message;
     } catch (_) {

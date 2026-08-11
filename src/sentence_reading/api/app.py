@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.26",
+    version="0.3.27",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -483,7 +483,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.26",
+        "version": "0.3.27",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -502,6 +502,8 @@ def status(request: Request) -> dict:
         "ingest_checkpoint": ingest_checkpoint_enabled(),
         # design/112 — mid-stage payload skip.
         "ingest_resume_skip": ingest_resume_skip_enabled(),
+        # design/113 — chunk build returns pending slices (no gateway 504).
+        "shadowing_chunk_budget": True,
         "ingest_chunked_upload": True,
         # design/73 — mirrors ASR_INGEST_RATE_LIMIT kill switch (False when off).
         "ingest_rate_limit": rate_limit_enabled(),
@@ -3269,8 +3271,12 @@ async def _run_ingest_job_body(
                         "status": plan.get("status"),
                         "error": plan.get("error"),
                         "sentence_count": len(plan.get("sentences") or {}),
+                        "progress": plan.get("progress"),
                     }
-                    if plan.get("status") != "ok":
+                    # design/113 — pending is not failure; mobile open continues slices.
+                    if plan.get("status") == "pending":
+                        warnings.append("shadowing_chunks_pending")
+                    elif plan.get("status") != "ok":
                         warnings.append(
                             "shadowing_chunks_failed:"
                             + str(plan.get("error") or "error")[:80]
@@ -3528,10 +3534,23 @@ async def shadowing_chunks_build(
         )
     finally:
         reset_gcs_uid()
-    ok = plan.get("status") == "ok"
+    status = str(plan.get("status") or "")
+    # design/113 — pending is an honest in-progress slice (HTTP 200), not gateway 504.
+    if status == "pending":
+        return JSONResponse(
+            {
+                "ok": True,
+                "continue": True,
+                "plan": plan,
+                "error": None,
+                "message": "연습 구간을 이어서 준비하는 중…",
+            }
+        )
+    ok = status == "ok"
     return JSONResponse(
         {
             "ok": ok,
+            "continue": False,
             "plan": plan,
             "error": None if ok else (plan.get("error") or "build_failed"),
             "message": None

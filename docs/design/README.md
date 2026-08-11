@@ -103,6 +103,7 @@
 | 110 | [110-ingest-checkpoint-envelope.md](110-ingest-checkpoint-envelope.md) | ingest checkpoint 봉투 · reclaim 수락/폐기 |
 | 111 | [111-fix-want-chunks-nameerror.md](111-fix-want-chunks-nameerror.md) | want_chunks NameError 복구 · open JSON 실패 |
 | 112 | [112-ingest-resume-skip.md](112-ingest-resume-skip.md) | ingest mid-stage resume skip (payload 소비) |
+| 113 | [113-shadowing-chunk-budget.md](113-shadowing-chunk-budget.md) | shadowing chunk build 시간 예산·이어하기 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -204,3 +205,4 @@
 110은 ingest checkpoint 봉투 · TTL/버전 폐기 (0.3.24).
 111은 ingest `want_chunks` NameError 복구 · open JSON 실패 (0.3.25).
 112는 ingest checkpoint payload를 소비해 mid-stage skip (0.3.26).
+113은 shadowing chunk build 시간 예산·이어하기로 HTTP 504 회피 (0.3.27).
