@@ -24,14 +24,18 @@ Modules: `auth_magic_link.py` · `email_smtp.py` · `/api/auth/email/magic/*` ·
 
 ## 동작
 
-1. `POST /api/auth/email/magic/request` `{email}`  
+1. `POST /api/auth/email/magic/request` `{email, client?}`  
+   - `client=android|mobile|app` → open URL에 `&mobile=1` (앱 딥링크)  
+   - `client=web` 또는 생략 → 브라우저 쿠키 경로 (design/85)  
    - 형식 불량이면 400  
    - SMTP 미설정·킬스위치 → 503 fail-closed (보낸 척 금지)  
    - 성공 시 동일 문구 (계정 유무 누설 최소화: 유효 이메일이면 mint+발송 시도; 신규는 redeem 시 passwordless 계정 생성)
-2. 메일 본문: `https://…/api/auth/email/magic/open?t=…` (토큰 원문 1회)
-3. `GET …/open` → 단회 redeem → 302 → `…://oauth/magic?asr_session=…&auth=magic`
+2. 메일 본문: `https://…/api/auth/email/magic/open?t=…` (+ 앱이면 `&mobile=1`)
+3. `GET …/open`  
+   - 기본(웹): 단회 redeem → `asr_session` 쿠키 + 302 `/?auth=logged_in` (design/85)  
+   - `mobile=1`: 단회 redeem → 쿠키 + 302 `…://oauth/magic?asr_session=…&auth=magic`
 4. 앱 intent → MethodChannel → `applySessionToken` → `/api/auth/status`  
-5. 미승인 계정은 기존처럼 Settings에서 초대 OTP
+5. 미승인 계정은 기존처럼 Settings에서 초대 OTP (웹은 design/84 waiting shell)
 
 ## INVARIANT
 
