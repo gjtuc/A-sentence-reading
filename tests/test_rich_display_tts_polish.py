@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_status_version_0_3_12() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.13"
+    assert st["version"] == "0.3.14"
 
 
 def test_design_88_exists() -> None:
@@ -125,6 +125,20 @@ def test_design_98_reader_split_drag() -> None:
     assert "_SplitHandle" in reader
     assert "_onSplitDragUpdate" in reader
     assert "_kDefaultFraction" in reader
+
+
+def test_design_100_reader_chrome_toggle() -> None:
+    p = ROOT / "docs" / "design" / "100-reader-chrome-toggle.md"
+    assert p.is_file()
+    text = p.read_text(encoding="utf-8")
+    assert "0.3.14" in text
+    reader = (
+        ROOT / "mobile" / "lib" / "screens" / "reader_screen.dart"
+    ).read_text(encoding="utf-8")
+    assert "_chromeVisible" in reader
+    assert "_toggleChrome" in reader
+    assert "showChrome" in reader
+    assert "onToggleChrome" in reader
 
 
 def test_flutter_rich_sentence_module() -> None:

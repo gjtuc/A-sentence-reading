@@ -1,7 +1,7 @@
 name: sentence_reading
 description: Android Flutter client for A-sentence-reading Cloud Run API
 publish_to: "none"
-version: 0.3.13+1
+version: 0.3.14+1
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
