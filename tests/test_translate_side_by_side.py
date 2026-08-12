@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_side_by_side() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.30"
+    assert st["version"] == "0.3.31"
     assert st["translate_side_by_side"] is True
 
 
@@ -52,5 +52,5 @@ def test_dom_and_css_side_by_side() -> None:
     assert "setBilingualSplit" in js
     assert "design/39" in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.30" in served
-    assert "styles.css?v=0.3.30" in served
+    assert "app.js?v=0.3.31" in served
+    assert "styles.css?v=0.3.31" in served
