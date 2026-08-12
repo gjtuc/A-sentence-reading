@@ -334,23 +334,33 @@ def load_cached_session(cache_id: str) -> tuple[PaperSession, dict] | None:
         if not isinstance(f, dict):
             continue
         rel = f.get("file")
-        if not rel:
-            continue
-        img_path = root / str(rel)
-        if not img_path.is_file():
-            continue
-        try:
-            src = _figure_to_data_url(img_path)
-        except OSError:
-            continue
+        fig_id = str(f.get("id") or f"fig-{i + 1:04d}")
+        caption = str(f.get("caption") or "")
+        caption_ko = str(f.get("caption_ko") or "")
+        caption_ko_stage = str(f.get("caption_ko_stage") or "")
+        page_index = f.get("page_index")
+        src = ""
+        # design/124 — keep caption slot when PNG missing (honest empty, not silent drop).
+        if rel:
+            img_path = root / str(rel)
+            if img_path.is_file():
+                try:
+                    src = _figure_to_data_url(img_path)
+                except OSError:
+                    # EDGE: unreadable file → empty image_src, still list the row.
+                    src = ""
+            # else: file path recorded but bytes gone (GCS partial / disk loss)
+        elif f.get("image_src"):
+            # Legacy session rows that still embed data URLs.
+            src = str(f.get("image_src") or "")
         figures.append(
             Figure(
-                id=str(f.get("id") or f"fig-{i + 1:04d}"),
+                id=fig_id,
                 image_src=src,
-                caption=str(f.get("caption") or ""),
-                page_index=f.get("page_index"),
-                caption_ko=str(f.get("caption_ko") or ""),
-                caption_ko_stage=str(f.get("caption_ko_stage") or ""),
+                caption=caption,
+                page_index=page_index,
+                caption_ko=caption_ko,
+                caption_ko_stage=caption_ko_stage,
             )
         )
 

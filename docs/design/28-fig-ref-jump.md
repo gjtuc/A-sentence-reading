@@ -22,8 +22,9 @@
 
 ## UI
 
-문장 프레임 아래 `#figRefHints` — ghost 칩.  
-이미 그 그림이면 `is-current`.
+문장 프레임 아래 `#figRefHints` — ghost 칩 (웹).  
+앱: 문장 패널 `ActionChip` (design/124).  
+이미 그 그림이면 `is-current` / secondaryContainer.
 
 ## 불변
 
@@ -32,4 +33,4 @@
 
 ## 버전
 
-0.2.25
+0.2.25 · 앱 칩 0.3.38 (design/124)

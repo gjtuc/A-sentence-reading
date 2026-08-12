@@ -52,6 +52,8 @@ class AsrStatus {
     this.mobileAccessWaitingUx = true,
     // design/123 — missing key → fail-closed (refuse bad progress).
     this.progressFailClosed = true,
+    // design/28 · 124 — missing key → on (show Fig chips when server advertises).
+    this.figRefHints = true,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -112,6 +114,10 @@ class AsrStatus {
       progressFailClosed: json.containsKey('progress_fail_closed')
           ? json['progress_fail_closed'] == true
           : true,
+      // design/124 — missing key → show chips; explicit false hides (server kill).
+      figRefHints: json.containsKey('fig_ref_hints')
+          ? json['fig_ref_hints'] == true
+          : true,
     );
   }
 
@@ -138,6 +144,7 @@ class AsrStatus {
   final bool mobileLoginRequired;
   final bool mobileAccessWaitingUx;
   final bool progressFailClosed;
+  final bool figRefHints;
 }
 
 class AsrClient {

@@ -2012,26 +2012,53 @@
 
     if (fig) {
       const prevSrc = el.figureImage.getAttribute("src");
-      el.figureImage.src = fig.image_src;
-      el.figureImage.alt = fig.caption || fig.id;
-      // WHY: design/40 — 번역 on이면 caption_ko 우선, 없으면 영문
+      const imgSrc = String(fig.image_src || "").trim();
       const capEn = fig.caption || "";
       const capKo =
         translatePrefs.enabled && String(fig.caption_ko || "").trim()
           ? String(fig.caption_ko).trim()
           : "";
-      el.figureCaption.textContent = capKo || capEn;
-      el.figureCaption.hidden = !(capKo || capEn);
-      if (prevSrc !== fig.image_src) {
-        el.figureImage.addEventListener(
-          "load",
-          () => {
-            if (layout.fullscreen) applyCropZoom();
-          },
-          { once: true }
-        );
-      } else if (layout.fullscreen) {
-        applyCropZoom();
+      const capShow = capKo || capEn;
+      // design/124 — empty/broken image: keep caption slot, honest message (no fake success).
+      if (!imgSrc) {
+        clearCropZoom();
+        el.figureImage.removeAttribute("src");
+        el.figureImage.alt = "";
+        el.figureCaption.textContent = capShow
+          ? capShow + " · 이미지 없음"
+          : "이미지 없음";
+        el.figureCaption.hidden = false;
+      } else {
+        el.figureImage.src = imgSrc;
+        el.figureImage.alt = fig.caption || fig.id;
+        el.figureCaption.textContent = capShow;
+        el.figureCaption.hidden = !capShow;
+        if (!el.figureImage._asrErrBound) {
+          el.figureImage._asrErrBound = true;
+          el.figureImage.addEventListener("error", () => {
+            // WHY: broken data URL / network — do not leave blank success chrome.
+            el.figureImage.removeAttribute("src");
+            const base = (el.figureCaption.textContent || "").replace(
+              /\s*·\s*이미지 없음$/,
+              ""
+            );
+            el.figureCaption.textContent = base
+              ? base + " · 이미지 없음"
+              : "이미지 없음";
+            el.figureCaption.hidden = false;
+          });
+        }
+        if (prevSrc !== imgSrc) {
+          el.figureImage.addEventListener(
+            "load",
+            () => {
+              if (layout.fullscreen) applyCropZoom();
+            },
+            { once: true }
+          );
+        } else if (layout.fullscreen) {
+          applyCropZoom();
+        }
       }
     } else {
       clearCropZoom();
