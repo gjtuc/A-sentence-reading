@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/client.dart';
+import '../api/figure_swipe_gate.dart';
 import '../api/reading_models.dart';
 import '../api/rich_sentence.dart';
 import '../state/library_controller.dart';
@@ -786,11 +787,14 @@ class _SwipePagerState extends State<_SwipePager> {
   }
 }
 
-/// design/94+95+97+100+116 — full-frame zoom; swipe at 1×; tap chrome; double-tap expand.
+/// design/94+95+97+100+116+117 — full-frame zoom; swipe at 1×; tap chrome; double-tap expand.
 ///
 /// design/116 — do NOT put [onHorizontalDrag*] on a parent [GestureDetector]
 /// around [InteractiveViewer]: that arena fight breaks pinch (esp. figure-only).
 /// Keep full-surface tap/double-tap; detect 1× figure swipe from pan-at-identity.
+///
+/// design/117 — figure advance only when the gesture stayed **one-finger**.
+/// Pinch (incl. scale back to 1× while fingers down) must not change index.
 class _ZoomableFigureFrame extends StatefulWidget {
   const _ZoomableFigureFrame({
     super.key,
@@ -818,6 +822,8 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
   static const double _minDistance = 56;
   static const double _zoomEps = 1.02;
   Offset _panAtStart = Offset.zero;
+  /// Peak [ScaleUpdateDetails.pointerCount] for the in-flight gesture.
+  int _maxPointers = 0;
 
   @override
   void dispose() {
@@ -829,6 +835,14 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     // WHY: capture translation at gesture start for 1× horizontal swipe.
     final t = _transform.value.getTranslation();
     _panAtStart = Offset(t.x, t.y);
+    _maxPointers = details.pointerCount;
+  }
+
+  void _onInteractionUpdate(ScaleUpdateDetails details) {
+    // WHY: pinch often starts as 1 pointer then becomes 2 — track the peak.
+    if (details.pointerCount > _maxPointers) {
+      _maxPointers = details.pointerCount;
+    }
   }
 
   void _onInteractionEnd(ScaleEndDetails details) {
@@ -836,6 +850,9 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     final scale = _transform.value.getMaxScaleOnAxis();
     final t = _transform.value.getTranslation();
     final dx = t.x - _panAtStart.dx;
+    final maxPointers = _maxPointers;
+    // Reset for the next gesture (after fingers up, one-finger swipe works again).
+    _maxPointers = 0;
 
     // EDGE: pinch ended above 1× — keep pan/zoom; no figure change.
     if (scale > _zoomEps) {
@@ -843,7 +860,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     }
 
     // WHY: 1× pan was only for swipe affordance — snap matrix back so the
-    // figure does not sit offset after a failed/short drag.
+    // figure does not sit offset after a failed/short drag / pinch-out.
     final needsSnap = (t.x.abs() > 0.5 ||
         t.y.abs() > 0.5 ||
         (scale - 1.0).abs() > 0.001);
@@ -852,6 +869,14 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     }
 
     if (!widget.swipeEnabled) return;
+    // design/117 — never advance on multi-touch, even at 1×.
+    if (!allowFigureSwipeAfterPan(
+      maxPointerCount: maxPointers,
+      scale: scale,
+      zoomEps: _zoomEps,
+    )) {
+      return;
+    }
     // Primary velocity is in logical px/s when available from scale end.
     final v = details.velocity.pixelsPerSecond.dx;
     final goPrev = dx < -_minDistance || v < -180;
@@ -887,6 +912,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
             scaleEnabled: true,
             boundaryMargin: const EdgeInsets.all(48),
             onInteractionStart: _onInteractionStart,
+            onInteractionUpdate: _onInteractionUpdate,
             onInteractionEnd: _onInteractionEnd,
             child: SizedBox(
               width: w,

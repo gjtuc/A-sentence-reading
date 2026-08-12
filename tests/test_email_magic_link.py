@@ -75,7 +75,7 @@ def test_open_redirect_sets_session_and_gate_not_auto_allow(
 
     client = TestClient(app_mod.app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.30"
+    assert st["version"] == "0.3.31"
     assert st["mobile_email_magic_link"] is True
     assert st.get("web_email_magic_link_only") is True
 

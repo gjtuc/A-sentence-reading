@@ -36,7 +36,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_mobile_email_auth_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.30"
+    assert st["version"] == "0.3.31"
     assert st["mobile_email_auth"] is True
     assert st["mobile_flutter_scaffold"] is True
     assert st["mobile_android_platform"] is True
@@ -80,7 +80,7 @@ def test_email_login_sets_session_cookie() -> None:
 
 def test_mobile_dart_auth_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.30" in pub
+    assert "0.3.31" in pub
     assert "shared_preferences:" in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "/api/auth/email/login" in client
@@ -124,5 +124,5 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.30" in html
-    assert "styles.css?v=0.3.30" in html
+    assert "app.js?v=0.3.31" in html
+    assert "styles.css?v=0.3.31" in html
