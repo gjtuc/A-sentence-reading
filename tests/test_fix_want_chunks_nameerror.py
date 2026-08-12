@@ -80,7 +80,8 @@ def test_cache_open_unexpected_error_returns_json(
         raise RuntimeError("synthetic_open_boom")
 
     monkeypatch.setattr(app_mod, "load_cached_session", boom)
-    r = client.post("/api/cache/papers/cache_deadbeef01/open")
+    # Valid cache_id charset (design/121 validates before load).
+    r = client.post("/api/cache/papers/deadbeef01cafe00/open")
     assert r.status_code == 500
     body = r.json()
     assert body.get("ok") is False

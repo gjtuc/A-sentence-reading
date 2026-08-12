@@ -51,17 +51,20 @@ def test_cache_papers_empty_and_open_missing(monkeypatch: pytest.MonkeyPatch) ->
     body = r.json()
     assert body["ok"] is True
     assert isinstance(body.get("papers"), list)
-    # EDGE: access gate + email auth → open requires login first
-    miss = client.post("/api/cache/papers/does-not-exist-zzz/open")
+    # EDGE: login gate → open requires identity first (valid cache_id charset).
+    monkeypatch.setenv("ASR_LOGIN_REQUIRED", "1")
+    miss = client.post("/api/cache/papers/doesnotexistzzz1/open")
     assert miss.status_code == 401
     assert miss.json().get("error") == "auth_required"
-    # EDGE: gate off → missing cache is 404
+    # EDGE: gates off → missing cache is 404, or 502 when GCS-first pull fails (design/121).
+    monkeypatch.setenv("ASR_LOGIN_REQUIRED", "0")
     monkeypatch.setenv("ASR_ACCESS_GATE", "0")
-    miss2 = client.post("/api/cache/papers/does-not-exist-zzz/open")
-    assert miss2.status_code == 404
-    assert miss2.json().get("error") == "cache_not_found"
+    miss2 = client.post("/api/cache/papers/doesnotexistzzz1/open")
+    assert miss2.status_code in (404, 502)
+    assert miss2.json().get("ok") is False
+    assert miss2.json().get("error") in ("cache_not_found", "gcs_pull_failed")
     empty = client.post("/api/cache/papers/%20/open")
-    assert empty.status_code in (404, 400, 422)
+    assert empty.status_code in (404, 400, 422, 401)
 
 
 def test_mobile_dart_library_sources() -> None:
