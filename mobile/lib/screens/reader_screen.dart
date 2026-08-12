@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/client.dart';
+import '../api/figure_pinch_sensitivity.dart';
 import '../api/figure_swipe_gate.dart';
 import '../api/reading_models.dart';
 import '../api/rich_sentence.dart';
@@ -787,7 +788,7 @@ class _SwipePagerState extends State<_SwipePager> {
   }
 }
 
-/// design/94+95+97+100+116+117 — full-frame zoom; swipe at 1×; tap chrome; double-tap expand.
+/// design/94+95+97+100+116+117+118 — full-frame zoom; swipe at 1×; tap chrome; double-tap expand.
 ///
 /// design/116 — do NOT put [onHorizontalDrag*] on a parent [GestureDetector]
 /// around [InteractiveViewer]: that arena fight breaks pinch (esp. figure-only).
@@ -795,6 +796,8 @@ class _SwipePagerState extends State<_SwipePager> {
 ///
 /// design/117 — figure advance only when the gesture stayed **one-finger**.
 /// Pinch (incl. scale back to 1× while fingers down) must not change index.
+///
+/// design/118 — amplify pinch scale so the same finger travel feels stronger.
 class _ZoomableFigureFrame extends StatefulWidget {
   const _ZoomableFigureFrame({
     super.key,
@@ -821,9 +824,12 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
   final TransformationController _transform = TransformationController();
   static const double _minDistance = 56;
   static const double _zoomEps = 1.02;
+  static const double _maxScale = 8.0;
   Offset _panAtStart = Offset.zero;
   /// Peak [ScaleUpdateDetails.pointerCount] for the in-flight gesture.
   int _maxPointers = 0;
+  /// Scale on axis at [onInteractionStart] — base for design/118 amplify.
+  double _scaleAtGestureStart = 1.0;
 
   @override
   void dispose() {
@@ -836,6 +842,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     final t = _transform.value.getTranslation();
     _panAtStart = Offset(t.x, t.y);
     _maxPointers = details.pointerCount;
+    _scaleAtGestureStart = _transform.value.getMaxScaleOnAxis();
   }
 
   void _onInteractionUpdate(ScaleUpdateDetails details) {
@@ -843,6 +850,24 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     if (details.pointerCount > _maxPointers) {
       _maxPointers = details.pointerCount;
     }
+    // design/118 — InteractiveViewer already applied 1:1 scale; strengthen it.
+    // One-finger pan must stay untouched (117 swipe path).
+    if (details.pointerCount < 2) return;
+    final amplified = amplifyFigurePinchScale(rawScale: details.scale);
+    final target =
+        (_scaleAtGestureStart * amplified).clamp(1.0, _maxScale).toDouble();
+    final current = _transform.value.getMaxScaleOnAxis();
+    // EDGE: degenerate matrix — do not divide / explode.
+    if (!current.isFinite || current < 1e-6) return;
+    final factor = target / current;
+    if (!factor.isFinite || (factor - 1.0).abs() < 1e-4) return;
+    // Scale about the focal point so the figure does not jump sideways.
+    final focalScene = _transform.toScene(details.localFocalPoint);
+    final next = Matrix4.copy(_transform.value)
+      ..translate(focalScene.dx, focalScene.dy)
+      ..scale(factor)
+      ..translate(-focalScene.dx, -focalScene.dy);
+    _transform.value = next;
   }
 
   void _onInteractionEnd(ScaleEndDetails details) {
@@ -905,7 +930,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
           child: InteractiveViewer(
             transformationController: _transform,
             minScale: 1.0,
-            maxScale: 8.0,
+            maxScale: _maxScale,
             // WHY: pan at 1× enables swipe detection without HorizontalDrag.
             // Zoomed pan still moves the figure; 1× pan snaps back on end.
             panEnabled: true,

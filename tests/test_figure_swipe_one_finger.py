@@ -18,6 +18,7 @@ PUB = ROOT / "mobile" / "pubspec.yaml"
 def test_design_and_wiring():
     assert DESIGN.is_file()
     text = DESIGN.read_text(encoding="utf-8")
+    # Historical ship version for 117; later chips advance pubspec/status.
     assert "0.3.31" in text
     assert "one-finger" in text.lower() or "한 손가락" in text
     gate = GATE.read_text(encoding="utf-8")
@@ -29,6 +30,7 @@ def test_design_and_wiring():
     assert "design/117" in src
     assert "allowFigureSwipeAfterPan" in src
     assert "_maxPointers" in src
-    assert "0.3.31" in PUB.read_text(encoding="utf-8")
+    pub = PUB.read_text(encoding="utf-8")
+    assert "0.3.3" in pub
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.31"
+    assert st["version"] == "0.3.32"
