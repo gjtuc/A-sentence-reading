@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/client.dart';
 import '../api/ingest_models.dart';
 import '../api/paper_models.dart';
+import '../api/progress_gate.dart';
+import '../api/progress_store.dart';
 import '../api/reading_models.dart';
 import '../api/upload_draft_models.dart';
 import '../api/upload_draft_store.dart';
@@ -339,6 +341,45 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  /// design/123 — kill switch from /api/status (missing key → fail-closed).
+  Future<bool> _progressFailClosed() async {
+    try {
+      final st = await _client.fetchStatus();
+      return st.progressFailClosed;
+    } catch (_) {
+      // EDGE: status down → refuse bad progress (safer than silent clamp).
+      return true;
+    }
+  }
+
+  Future<String?> _authUid() async {
+    try {
+      final auth = await _client.fetchAuthStatus();
+      final uid = auth.user?.uid;
+      if (uid == null || uid.isEmpty) return null;
+      return uid;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Persist opened cursors to uid-scoped prefs (design/123 product 5C).
+  Future<void> persistOpenedProgress() async {
+    final s = session;
+    if (s == null || !s.isValid || s.cacheId.isEmpty) return;
+    try {
+      final uid = await _authUid();
+      await saveProgressRow(
+        uid: uid,
+        cacheId: s.cacheId,
+        sentenceIndex: s.sentenceIndex,
+        figureIndex: s.figureIndex,
+      );
+    } catch (_) {
+      // EDGE: prefs fail must not block reading UI.
+    }
+  }
+
   Future<ReadingSession?> open(PaperEntry entry) async {
     // design/121 — open goes through GCS-first /open; errors stay in ``error``.
     if (!entry.isValid) {
@@ -358,6 +399,45 @@ class LibraryController extends ChangeNotifier {
         return null;
       }
       if (o.title.isEmpty) o.title = entry.title;
+
+      // design/123 — precise restore; invalid stored row → refuse open (no clamp).
+      final uid = await _authUid();
+      final raw = await loadProgressRaw(uid: uid, cacheId: o.cacheId);
+      if (raw != null) {
+        final v = validateProgressIndices(
+          sentenceIndex: raw.sentenceIndex,
+          figureIndex: raw.figureIndex,
+          sentenceCount: o.sentenceCount,
+          figureCount: o.figureCount,
+        );
+        if (!v.ok) {
+          if (await _progressFailClosed()) {
+            // WHY: product 4B — do not show a success reader with wrong cursor.
+            error =
+                '저장된 읽기 위치가 이 논문과 맞지 않습니다. 진행을 초기화한 뒤 다시 열어 주세요.';
+            session = null;
+            return null;
+          }
+          // KILL: ASR_PROGRESS_FAIL_CLOSED=0 — legacy clamp of stored values only.
+          final si = raw.sentenceIndex;
+          final fi = raw.figureIndex;
+          o.sentenceIndex = si is int
+              ? si
+              : (si is num
+                  ? si.toInt()
+                  : int.tryParse('$si') ?? 0);
+          o.figureIndex = fi is int
+              ? fi
+              : (fi is num
+                  ? fi.toInt()
+                  : int.tryParse('$fi') ?? 0);
+          o.clampIndices();
+        } else {
+          o.sentenceIndex = v.sentenceIndex!;
+          o.figureIndex = v.figureIndex!;
+        }
+      }
+
       session = o;
       // design/80 — per-user chunk backfill (opt-in); errors surface on reader.
       unawaited(ensureShadowingChunks(entry.id));
@@ -411,6 +491,8 @@ class LibraryController extends ChangeNotifier {
     assert(s.figureIndex == beforeFig, 'figure index must stay put');
     notifyListeners();
     await _syncCursor(sentence: true);
+    // design/123 — durable prefs on every sentence move (product 5C).
+    await persistOpenedProgress();
   }
 
   Future<void> advanceFigure(int delta) async {
@@ -421,6 +503,8 @@ class LibraryController extends ChangeNotifier {
     assert(s.sentenceIndex == beforeSent, 'sentence index must stay put');
     notifyListeners();
     await _syncCursor(figure: true);
+    // design/123 — durable prefs on every figure move (product 5C).
+    await persistOpenedProgress();
   }
 
   Future<void> _syncCursor({bool sentence = false, bool figure = false}) async {

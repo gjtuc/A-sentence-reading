@@ -50,6 +50,8 @@ class AsrStatus {
     this.mobileLoginRequired = true,
     // design/84 — missing key → on (fail-closed; waiting shell).
     this.mobileAccessWaitingUx = true,
+    // design/123 — missing key → fail-closed (refuse bad progress).
+    this.progressFailClosed = true,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -106,6 +108,10 @@ class AsrStatus {
           : (json.containsKey('access_waiting_ux')
               ? json['access_waiting_ux'] == true
               : true),
+      // design/123 — missing key → fail-closed; explicit false enables clamp kill.
+      progressFailClosed: json.containsKey('progress_fail_closed')
+          ? json['progress_fail_closed'] == true
+          : true,
     );
   }
 
@@ -131,6 +137,7 @@ class AsrStatus {
   final bool mobileShadowingPracticeLoop;
   final bool mobileLoginRequired;
   final bool mobileAccessWaitingUx;
+  final bool progressFailClosed;
 }
 
 class AsrClient {

@@ -18,6 +18,7 @@ PUB = ROOT / "mobile" / "pubspec.yaml"
 def test_design_and_wiring() -> None:
     assert DESIGN.is_file()
     text = DESIGN.read_text(encoding="utf-8")
+    # Chip 122 shipped at 0.3.36; later chips bump pub/status only.
     assert "0.3.36" in text
     assert "proxyDecorator" in text or "proxy" in text.lower()
     proxy = PROXY.read_text(encoding="utf-8")
@@ -30,6 +31,6 @@ def test_design_and_wiring() -> None:
     assert "libraryReorderProxyDecorator" in src
     # Product 4A — reorderPapers still used; no rewrite of save path in this chip.
     assert "reorderPapers" in src
-    assert "0.3.36" in PUB.read_text(encoding="utf-8")
+    assert "0.3.37" in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.36"
+    assert st["version"] == "0.3.37"

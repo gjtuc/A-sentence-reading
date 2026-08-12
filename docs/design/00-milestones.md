@@ -149,6 +149,7 @@
 - ~~쉐도잉 「다시」(말하기만) · 「다시 듣기」(내 녹음)~~ (0.3.34 · [120-shadowing-retry-replay.md](120-shadowing-retry-replay.md))
 - ~~보관 열기 GCS-first · pull 실패 시 로컬 폴백 금지~~ (0.3.35 · [121-library-open-gcs-first.md](121-library-open-gcs-first.md))
 - ~~보관 드래그 흰 섬광 제거~~ (0.3.36 · [122-library-reorder-no-white-flash.md](122-library-reorder-no-white-flash.md))
+- ~~진행 복원: 문장+그림 정밀 · fail-closed~~ (0.3.37 · [123-progress-restore-precise.md](123-progress-restore-precise.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

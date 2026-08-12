@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.36",
+    version="0.3.37",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -404,6 +404,16 @@ def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
             pass
 
 
+def _progress_fail_closed_enabled() -> bool:
+    """design/123 — refuse open when stored progress indices are invalid.
+
+    Default on (fail-closed). ASR_PROGRESS_FAIL_CLOSED=0 → clients may clamp
+    (emergency only; not for shared default).
+    """
+    v = (os.environ.get("ASR_PROGRESS_FAIL_CLOSED") or "1").strip().lower()
+    return v not in ("0", "false", "off", "no")
+
+
 def _mobile_upload_background_enabled() -> bool:
     """design/74 — server kill switch for mobile FG upload notification.
 
@@ -487,7 +497,9 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.36",
+        # design/123 — true → clients refuse bad stored indices; false = clamp kill.
+        "progress_fail_closed": _progress_fail_closed_enabled(),
+        "version": "0.3.37",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),

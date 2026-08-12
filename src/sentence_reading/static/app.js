@@ -1586,17 +1586,26 @@
       crop: emptyCrop(),
     };
 
-    // WHY: mock 제외 — 저장된 읽기 위치가 있으면 서버 기본(0)보다 우선 (design/21)
+    // WHY: mock 제외 — 저장된 읽기 위치가 있으면 서버 기본(0)보다 우선 (design/21·123)
+    // EDGE: 이상 저장값 → papers 에 넣기 전에 throw (성공 UI 금지 · fail-closed).
     if (
       phase !== "mock" &&
       typeof AsrProgress !== "undefined" &&
       AsrProgress
     ) {
-      AsrProgress.applyStoredProgress(
+      const outcome = AsrProgress.applyStoredProgress(
         paper,
         paper.figures.length,
-        paper.sentences.length
+        paper.sentences.length,
+        { failClosed: progressFailClosedFlag !== false }
       );
+      if (outcome && outcome.ok === false) {
+        throw new Error(
+          (outcome && outcome.message) ||
+            (AsrProgress.INVALID_PROGRESS_MSG) ||
+            "저장된 읽기 위치가 이 논문과 맞지 않습니다."
+        );
+      }
     }
 
     if (phase === "mock" || !asNewTab) {
@@ -6626,8 +6635,30 @@
     }
   });
 
+  // design/123 — also persist on tab hide / pagehide (mobile browsers may skip beforeunload).
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      try {
+        snapshotActivePaper();
+        persistReadingProgress();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  });
+  window.addEventListener("pagehide", () => {
+    try {
+      snapshotActivePaper();
+      persistReadingProgress();
+    } catch (_) {
+      /* ignore */
+    }
+  });
+
   /** @type {boolean} fail-closed until /api/status says otherwise */
   let loginRequiredFlag = true;
+  /** design/123 — true → refuse open on bad progress; false = clamp kill switch */
+  let progressFailClosedFlag = true;
   let loginGateUnlocked = false;
   let accessWaitingUx = true;
   let accessPollTimer = 0;
@@ -6782,9 +6813,12 @@
       loginRequiredFlag = st.login_required !== false;
       // design/84 — missing key → waiting UX on (fail-closed).
       accessWaitingUx = st.access_waiting_ux !== false;
+      // design/123 — missing key → fail-closed (refuse bad progress); explicit false clamps.
+      progressFailClosedFlag = st.progress_fail_closed !== false;
     } catch (_) {
       loginRequiredFlag = true;
       accessWaitingUx = true;
+      progressFailClosedFlag = true;
     }
     await initAuth();
     const mustGate =
