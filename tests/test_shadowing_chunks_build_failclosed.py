@@ -37,6 +37,7 @@ def shadowing_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_design_wiring_and_version() -> None:
     assert DESIGN.is_file()
     text = DESIGN.read_text(encoding="utf-8")
+    # Historical ship version for 119; later chips advance pubspec/status.
     assert "0.3.33" in text
     assert "pending" in text.lower()
     js = PRACTICE_JS.read_text(encoding="utf-8")
@@ -49,9 +50,9 @@ def test_design_wiring_and_version() -> None:
     dart = MOBILE.read_text(encoding="utf-8")
     assert "maxRounds" in dart
     assert "continue" in dart
-    assert "0.3.33" in PUB.read_text(encoding="utf-8")
+    assert "0.3.34" in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.33"
+    assert st["version"] == "0.3.34"
 
 
 def test_api_unexpected_exception_is_502_not_500(
