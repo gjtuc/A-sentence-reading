@@ -3,11 +3,12 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../api/library_reorder_proxy.dart';
 import '../api/paper_models.dart';
 import '../state/auth_controller.dart';
 import '../state/library_controller.dart';
 
-/// Authenticated paper list → open · single PDF upload (design/62 · design/70).
+/// Authenticated paper list → open · single PDF upload (design/62 · design/70 · design/122).
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
     super.key,
@@ -444,10 +445,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
               else if (lib.papers.isNotEmpty)
                 SliverReorderableList(
                   itemCount: lib.papers.length,
+                  // design/122 — custom proxy: no M3 white flash; keep lifted row.
+                  proxyDecorator: (child, index, animation) {
+                    final scheme = Theme.of(context).colorScheme;
+                    return libraryReorderProxyDecorator(
+                      child,
+                      index,
+                      animation,
+                      colorScheme: scheme,
+                    );
+                  },
                   onReorder: (oldIndex, newIndex) {
                     if (_selecting || lib.opening || lib.uploading || _deleting) {
                       return;
                     }
+                    // WHY: save path unchanged this chip (product 4A).
                     unawaited(lib.reorderPapers(oldIndex, newIndex));
                   },
                   itemBuilder: (context, i) {
