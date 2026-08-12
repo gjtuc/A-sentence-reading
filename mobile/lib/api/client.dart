@@ -877,6 +877,7 @@ class AsrClient {
       throw AsrApiException('open returned empty session_id', res.statusCode);
     }
     // design/114 — refuse title-only opens (empty reader).
+    // design/121 — server already refuses GCS pull failure; still guard empty payload.
     if (opened.sentenceCount < 1) {
       throw AsrApiException(
         '보관본에 문장이 없습니다. 재분석하거나 PDF를 다시 올려 주세요.',

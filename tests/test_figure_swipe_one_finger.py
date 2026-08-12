@@ -33,4 +33,4 @@ def test_design_and_wiring():
     pub = PUB.read_text(encoding="utf-8")
     assert "0.3.3" in pub
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.34"
+    assert st["version"] == "0.3.35"

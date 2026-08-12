@@ -88,9 +88,9 @@ def test_ensure_repulls_when_local_empty(cache_dir: Path, monkeypatch: pytest.Mo
 
 def test_open_empty_session_is_422(cache_dir: Path, monkeypatch: pytest.MonkeyPatch):
     _write_session(cache_dir, "empty0000001", sentences=[], title="OnlyTitle")
-    monkeypatch.setattr(pg, "ensure_paper_local", lambda _cid: True)
+    # design/121 — skip GCS path so empty local still surfaces as 422 (114).
+    monkeypatch.setattr(pg, "refresh_paper_for_open", lambda _cid: (True, "gcs_skipped"))
     monkeypatch.setattr(pg, "download_paper_cache", lambda *_a, **_k: False)
-    # After ensure no-op, load still empty → 422
     client = TestClient(app)
     r = client.post("/api/cache/papers/empty0000001/open?translate=0")
     assert r.status_code == 422, r.text

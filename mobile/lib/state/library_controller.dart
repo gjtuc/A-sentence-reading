@@ -340,6 +340,7 @@ class LibraryController extends ChangeNotifier {
   }
 
   Future<ReadingSession?> open(PaperEntry entry) async {
+    // design/121 — open goes through GCS-first /open; errors stay in ``error``.
     if (!entry.isValid) {
       error = '잘못된 보관 항목입니다.';
       notifyListeners();
@@ -351,12 +352,18 @@ class LibraryController extends ChangeNotifier {
     try {
       final wantTr = await _wantTranslate();
       final o = await _client.openPaper(entry.id, translate: wantTr);
+      // Fail-closed: never keep a previous session when this open failed upstream.
+      if (o.sentenceCount < 1) {
+        error = '보관본에 문장이 없습니다. 재분석하거나 PDF를 다시 올려 주세요.';
+        return null;
+      }
       if (o.title.isEmpty) o.title = entry.title;
       session = o;
       // design/80 — per-user chunk backfill (opt-in); errors surface on reader.
       unawaited(ensureShadowingChunks(entry.id));
       return session;
     } on AsrApiException catch (e) {
+      // WHY: leave prior session untouched only if we never assigned; clear on fail.
       error = e.message;
       return null;
     } catch (e) {

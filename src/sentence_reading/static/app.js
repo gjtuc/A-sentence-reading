@@ -6273,6 +6273,7 @@
    * @param {boolean} [staleHint]
    */
   async function openCachedPaper(cacheId, titleHint, staleHint) {
+    // design/121 — server pulls owner GCS first; clients must not treat errors as open.
     if (!cacheId) return;
     setLibraryStatus("여는 중…", "busy");
     setUploadStatus("보관본 여는 중…", "busy");
@@ -6283,8 +6284,19 @@
         { method: "POST" }
       );
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.message || "보관본을 열 수 없습니다.");
+      // Fail-closed: HTTP error or explicit ok:false → never applySession.
+      if (!res.ok || data.ok === false) {
+        throw new Error(
+          data.message || "보관본을 열 수 없습니다."
+        );
+      }
+      const nSent = Array.isArray(data.sentences) ? data.sentences.length : 0;
+      // design/114+121 — refuse title-only / empty sentence payloads.
+      if (nSent < 1) {
+        throw new Error(
+          data.message ||
+            "보관본에 문장이 없습니다. 재분석하거나 PDF를 다시 올려 주세요."
+        );
       }
       applySession(data, "ready", { asNewTab: true });
       void ensureShadowingChunks(String(cacheId));
