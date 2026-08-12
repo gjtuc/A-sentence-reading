@@ -114,6 +114,7 @@
 | 121 | [121-library-open-gcs-first.md](121-library-open-gcs-first.md) | 보관 열기 GCS-first · pull 실패 시 로컬 금지 |
 | 122 | [122-library-reorder-no-white-flash.md](122-library-reorder-no-white-flash.md) | 보관 드래그 흰 섬광 제거 |
 | 123 | [123-progress-restore-precise.md](123-progress-restore-precise.md) | 진행 복원 문장+그림 정밀 · fail-closed |
+| 124 | [124-missing-figures.md](124-missing-figures.md) | 빠진 그림 정직한 빈 슬롯 · 앱 Fig. 점프 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -226,3 +227,4 @@
 121은 보관 열기 시 소유자 GCS를 항상 pull · 실패 시 로컬 폴백 금지 (0.3.35).
 122는 보관 목록 드래그 시 Material 흰 섬광 제거 · proxyDecorator (0.3.36).
 123은 진행 복원 문장+그림 정밀 · 이상값 fail-closed · 앱 prefs (0.3.37).
+124는 빠진 그림 정직한 빈 슬롯 · 앱 Fig.N 점프 칩 (0.3.38).

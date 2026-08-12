@@ -507,6 +507,23 @@ class LibraryController extends ChangeNotifier {
     await persistOpenedProgress();
   }
 
+  /// design/28 · 124 — Fig. chip jump: figure index only (sentence unchanged).
+  ///
+  /// WHY fail-closed on OOB: do not clamp to a wrong figure (looks like success).
+  Future<void> goToFigureIndex(int index) async {
+    final s = session;
+    if (s == null || !s.isValid) return;
+    if (s.figureCount < 1) return;
+    if (index < 0 || index >= s.figureCount) return;
+    if (index == s.figureIndex) return;
+    final beforeSent = s.sentenceIndex;
+    s.figureIndex = index;
+    assert(s.sentenceIndex == beforeSent, 'figure jump must not move sentence');
+    notifyListeners();
+    await _syncCursor(figure: true);
+    await persistOpenedProgress();
+  }
+
   Future<void> _syncCursor({bool sentence = false, bool figure = false}) async {
     final s = session;
     if (s == null || !s.isValid) return;

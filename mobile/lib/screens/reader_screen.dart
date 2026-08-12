@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/client.dart';
+import '../api/fig_refs.dart';
 import '../api/figure_pinch_sensitivity.dart';
 import '../api/figure_swipe_gate.dart';
 import '../api/reading_models.dart';
@@ -58,6 +59,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _chromeVisible = true;
   /// design/114 — reset split when a different paper is opened.
   String? _layoutSessionKey;
+  /// design/124 — server kill `fig_ref_hints=false` hides chips; missing/error → show.
+  bool _figRefHints = true;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.client.fetchStatus().then((st) {
+      if (!mounted) return;
+      // WHY: explicit false is the kill switch; do not invent a hide on status miss.
+      setState(() => _figRefHints = st.figRefHints);
+    }).catchError((_) {
+      // EDGE: status unreachable → keep local chips (matching only; no new auth surface).
+    });
+  }
 
   void _ensureLayoutForSession(ReadingSession s) {
     final key = '${s.sessionId}|${s.cacheId}';
@@ -545,6 +560,8 @@ class _SentencePanel extends StatelessWidget {
                                           const TextStyle(fontSize: 14),
                                 ),
                               ],
+                              // design/28 · 124 — Fig./Scheme/Table chips (matched only).
+                              ..._figRefChipRow(context),
                             ],
                           ),
                   ),
@@ -555,6 +572,40 @@ class _SentencePanel extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  List<Widget> _figRefChipRow(BuildContext context) {
+    // Kill: /api/status fig_ref_hints=false → no chips (design/124).
+    if (!_figRefHints) return const [];
+    final cur = session.currentSentence;
+    if (cur == null || !cur.hasText) return const [];
+    final captions = session.figures.map((f) => f.caption).toList();
+    final hints = hintsForSentence(text: cur.text, captions: captions);
+    if (hints.isEmpty) return const [];
+    return [
+      const SizedBox(height: 10),
+      Wrap(
+        spacing: 6,
+        runSpacing: 4,
+        children: [
+          for (final h in hints)
+            TextButton(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                backgroundColor: h.figureIndex == session.figureIndex
+                    ? Theme.of(context).colorScheme.secondaryContainer
+                    : null,
+              ),
+              onPressed: () {
+                // WHY: figure only — sentence index must stay (design/28 invariant).
+                library.goToFigureIndex(h.figureIndex);
+              },
+              child: Text('${h.ref} →'),
+            ),
+        ],
+      ),
+    ];
   }
 }
 
@@ -681,7 +732,8 @@ class _FigureImage extends StatelessWidget {
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
-        child: const Center(child: Text('No image')),
+        // design/124 — honest empty (product 3A); do not fake a successful image.
+        child: const Center(child: Text('이미지 없음')),
       );
     }
     final decoded = decodeRasterDataUrl(src);
@@ -713,7 +765,7 @@ class _FigureImage extends StatelessWidget {
           fit: BoxFit.contain,
           filterQuality: FilterQuality.high,
           errorBuilder: (_, __, ___) =>
-              const Center(child: Text('Image load failed')),
+              const Center(child: Text('이미지 없음')),
         ),
       );
     }
@@ -724,7 +776,7 @@ class _FigureImage extends StatelessWidget {
         child: Padding(
           padding: EdgeInsets.all(12),
           child: Text(
-            'Preview not available for this image type (caption only).',
+            '이미지 없음 (이 형식은 미리보기 불가 · 캡션만)',
             textAlign: TextAlign.center,
           ),
         ),
