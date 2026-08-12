@@ -279,14 +279,21 @@ def plan_sentence_chunks(
         return (getattr(response, "text", None) or "").strip() or None
 
     gen = generate or _default_generate
-    raw = gen(_SYSTEM, f"Sentence:\n{full}")
+    try:
+        raw = gen(_SYSTEM, f"Sentence:\n{full}")
+    except ValueError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        # WHY: google.genai / network errors must not become raw HTTP 500 (design/119).
+        # EDGE: log type only — never API key or prompt body.
+        log.warning("shadowing chunk gemini failed: %s", type(exc).__name__)
+        raise ValueError("gemini_unavailable") from exc
     if not raw:
         raise ValueError("gemini_unavailable")
     chunks = _parse_chunks_json(raw, full)
     if not chunks:
         raise ValueError("bad_chunk_plan")
     return chunks
-
 
 def build_chunk_plan(
     *,

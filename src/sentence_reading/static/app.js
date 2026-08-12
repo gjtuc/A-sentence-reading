@@ -3425,26 +3425,47 @@
         setShadowingChunksBanner("");
         return;
       }
-      // backfill / retry
+      // backfill / retry — design/119: pending must continue; never clear as done early
       setShadowingChunksBanner("연습 구간을 준비하는 중…", { retry: false, cacheId });
-      const built = await fetch(
-        "/api/shadowing/chunks/" + encodeURIComponent(cacheId) + "/build",
-        {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ practice_enabled: true }),
+      var maxRounds = 40;
+      var body = {};
+      for (var round = 0; round < maxRounds; round++) {
+        if (round > 0) {
+          setShadowingChunksBanner(
+            "연습 구간을 이어서 준비하는 중… (" + (round + 1) + "/" + maxRounds + ")",
+            { retry: false, cacheId }
+          );
         }
-      );
-      const body = await built.json().catch(() => ({}));
-      if (!built.ok || !body.ok) {
+        const built = await fetch(
+          "/api/shadowing/chunks/" + encodeURIComponent(cacheId) + "/build",
+          {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ practice_enabled: true }),
+          }
+        );
+        body = await built.json().catch(() => ({}));
+        var st = body.plan && body.plan.status;
+        // Fail-closed: only status=ok clears the banner (pending ≠ success).
+        if (built.ok && body.ok && st === "ok") {
+          setShadowingChunksBanner("");
+          return;
+        }
+        if (built.ok && body.ok && body.continue && st === "pending") {
+          continue;
+        }
         setShadowingChunksBanner(
           (body && body.message) || "연습 구간을 만들지 못했습니다. 다시 시도해 주세요.",
           { retry: true, cacheId }
         );
         return;
       }
-      setShadowingChunksBanner("");
+      setShadowingChunksBanner(
+        (body && body.message) ||
+          "연습 구간 준비가 끝나지 않았습니다. 다시 시도해 주세요.",
+        { retry: true, cacheId }
+      );
     } catch (_) {
       setShadowingChunksBanner("연습 구간 준비 중 오류가 났습니다. 다시 시도해 주세요.", {
         retry: true,

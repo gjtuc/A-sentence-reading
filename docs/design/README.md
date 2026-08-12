@@ -109,6 +109,7 @@
 | 116 | [116-figure-pinch-vs-swipe.md](116-figure-pinch-vs-swipe.md) | 그림 핀치 vs 스와이프 제스처 충돌 완화 |
 | 117 | [117-figure-swipe-one-finger.md](117-figure-swipe-one-finger.md) | 그림 넘기기 = 한 손가락만 |
 | 118 | [118-figure-pinch-sensitivity.md](118-figure-pinch-sensitivity.md) | 그림 핀치 줌 민감도 (확실히 체감) |
+| 119 | [119-shadowing-chunks-build-failclosed.md](119-shadowing-chunks-build-failclosed.md) | shadowing chunks/build 500·pending 이어받기 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -216,3 +217,4 @@
 116는 그림 핀치가 부모 스와이프 드래그에 안 지게 제스처 분리 (0.3.30).
 117는 그림 넘기기를 한 손가락 제스처만 허용 (핀치→1× 오인 스와이프 금지) (0.3.31).
 118는 그림 핀치 스케일을 증폭해 같은 손가락 이동이 확실히 체감되게 (0.3.32).
+119는 shadowing chunks/build raw 500 차단 · pending 이어받기 · 빈 성공 배너 금지 (0.3.33).

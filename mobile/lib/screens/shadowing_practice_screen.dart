@@ -99,22 +99,46 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
     });
     try {
       // WHY: product B — chunks must succeed before practice room.
+      // design/113+119 — pending slices must continue; never treat pending as done.
       var got = await widget.client.fetchShadowingChunks(cacheId);
       var plan = got['plan'];
       if (plan is! Map || plan['status']?.toString() != 'ok') {
-        final built = await widget.client.buildShadowingChunks(
-          cacheId,
-          practiceEnabled: true,
-        );
-        if (built['ok'] != true ||
-            built['plan'] is! Map ||
-            (built['plan'] as Map)['status']?.toString() != 'ok') {
+        Map<String, dynamic>? built;
+        // EDGE: long papers need many budget slices; cap avoids infinite loop.
+        const maxRounds = 40;
+        for (var round = 0; round < maxRounds; round++) {
+          if (!mounted) return;
+          setState(() {
+            _status = round == 0
+                ? '연습 구간 준비 중…'
+                : '연습 구간을 이어서 준비하는 중… (${round + 1}/$maxRounds)';
+          });
+          built = await widget.client.buildShadowingChunks(
+            cacheId,
+            practiceEnabled: true,
+          );
+          final p = built['plan'];
+          final st = (p is Map) ? p['status']?.toString() : null;
+          // Fail-closed: only status=ok enters practice (pending ≠ success).
+          if (built['ok'] == true && st == 'ok') {
+            plan = p;
+            break;
+          }
+          if (built['continue'] == true && st == 'pending') {
+            continue;
+          }
           throw AsrApiException(
             built['message']?.toString() ?? '연습 구간을 만들지 못했습니다.',
             502,
           );
         }
-        plan = built['plan'];
+        if (plan is! Map || plan['status']?.toString() != 'ok') {
+          throw AsrApiException(
+            built?['message']?.toString() ??
+                '연습 구간 준비가 끝나지 않았습니다. 다시 시도해 주세요.',
+            502,
+          );
+        }
       }
       _plan = Map<String, dynamic>.from(plan as Map);
       _bindSentence(session);

@@ -145,6 +145,7 @@
 - ~~그림 핀치 vs 스와이프 제스처 충돌 완화~~ (0.3.30 · [116-figure-pinch-vs-swipe.md](116-figure-pinch-vs-swipe.md))
 - ~~그림 넘기기 = 한 손가락만~~ (0.3.31 · [117-figure-swipe-one-finger.md](117-figure-swipe-one-finger.md))
 - ~~그림 핀치 줌 민감도 (확실히 체감)~~ (0.3.32 · [118-figure-pinch-sensitivity.md](118-figure-pinch-sensitivity.md))
+- ~~shadowing chunks/build fail-closed · pending 이어받기~~ (0.3.33 · [119-shadowing-chunks-build-failclosed.md](119-shadowing-chunks-build-failclosed.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

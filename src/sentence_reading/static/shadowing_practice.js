@@ -54,25 +54,38 @@
     }
     var plan = data.plan || {};
     if (plan.status === "ok") return plan;
-    var built = await fetch(
-      "/api/shadowing/chunks/" + encodeURIComponent(cacheId) + "/build",
-      {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ practice_enabled: true }),
+    // design/113+119 — continue pending slices; never treat pending as ready.
+    var maxRounds = 40;
+    var body = null;
+    for (var round = 0; round < maxRounds; round++) {
+      var built = await fetch(
+        "/api/shadowing/chunks/" + encodeURIComponent(cacheId) + "/build",
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ practice_enabled: true }),
+        }
+      );
+      body = await built.json().catch(function () {
+        return {};
+      });
+      var st = body.plan && body.plan.status;
+      if (built.ok && body.ok && st === "ok") {
+        return body.plan;
       }
-    );
-    var body = await built.json().catch(function () {
-      return {};
-    });
-    if (!built.ok || !body.ok || !(body.plan && body.plan.status === "ok")) {
+      if (built.ok && body.ok && body.continue && st === "pending") {
+        continue;
+      }
       throw new Error(
         (body && body.message) ||
           "연습 구간을 만들지 못했습니다. 다시 시도해 주세요."
       );
     }
-    return body.plan;
+    throw new Error(
+      (body && body.message) ||
+        "연습 구간 준비가 끝나지 않았습니다. 다시 시도해 주세요."
+    );
   }
 
   function sentenceChunks(plan, sentenceId, plainText) {
