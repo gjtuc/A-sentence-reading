@@ -197,6 +197,109 @@ def _text_blocks(page) -> list[tuple[float, float, float, float, str]]:
     return out
 
 
+# design/127 — label-only crumb left when Elsevier splits "Fig." from "3. Title".
+_CAPTION_LABEL_ONLY = re.compile(
+    r"^\s*(Fig(?:ure)?|Scheme|Table)\.?\s*$",
+    re.IGNORECASE,
+)
+_CAPTION_NUM_START = re.compile(r"^\s*S?\d+[a-z]?\b", re.IGNORECASE)
+# Mid-line caption only when not preceded by a letter (rejects ``in Fig. 3``).
+# Two-column bleed is handled by x-gap splits in ``_page_caption_lines``.
+_CAPTION_INLINE_START = re.compile(
+    r"(?i)(?:^|(?<![A-Za-z])\s+)((?:Fig(?:ure)?|Scheme|Table)\.?\s*S?\d+[a-z]?\b.*)$"
+)
+
+
+def _page_caption_lines(page) -> list[tuple[str, object]]:
+    """
+    design/127 — rebuild reading lines from words (Elsevier word-per-newline).
+    Returns (line_text, line_rect). Same-y words are split on large x-gaps
+    (two-column bleed). Nearby crumbs like ``Fig.`` + ``4. Title`` are merged.
+    """
+    import fitz
+
+    try:
+        words = page.get_text("words") or []
+    except Exception:
+        words = []
+    if not words:
+        out: list[tuple[str, object]] = []
+        for x0, y0, x1, y1, text in _text_blocks(page):
+            joined = _normalize_caption(text)
+            if joined:
+                out.append((joined, fitz.Rect(x0, y0, x1, y1)))
+        return _merge_label_num_crumbs(out)
+
+    buckets: dict[int, list[tuple[float, float, float, float, str]]] = {}
+    for w in words:
+        if len(w) < 5:
+            continue
+        x0, y0, x1, y1, token = (
+            float(w[0]),
+            float(w[1]),
+            float(w[2]),
+            float(w[3]),
+            str(w[4] or ""),
+        )
+        if not token.strip():
+            continue
+        key = int(round(y0 / 2.0) * 2)
+        buckets.setdefault(key, []).append((x0, y0, x1, y1, token))
+
+    lines: list[tuple[str, object]] = []
+    gap_pt = 14.0
+    for key in sorted(buckets):
+        parts = sorted(buckets[key], key=lambda t: t[0])
+        run: list[tuple[float, float, float, float, str]] = [parts[0]]
+        for p in parts[1:]:
+            prev = run[-1]
+            if p[0] - prev[2] > gap_pt:
+                text = _normalize_caption(" ".join(t[4] for t in run))
+                if text:
+                    x0 = min(t[0] for t in run)
+                    y0 = min(t[1] for t in run)
+                    x1 = max(t[2] for t in run)
+                    y1 = max(t[3] for t in run)
+                    lines.append((text, fitz.Rect(x0, y0, x1, y1)))
+                run = [p]
+            else:
+                run.append(p)
+        text = _normalize_caption(" ".join(t[4] for t in run))
+        if text:
+            x0 = min(t[0] for t in run)
+            y0 = min(t[1] for t in run)
+            x1 = max(t[2] for t in run)
+            y1 = max(t[3] for t in run)
+            lines.append((text, fitz.Rect(x0, y0, x1, y1)))
+    return _merge_label_num_crumbs(lines)
+
+
+def _merge_label_num_crumbs(
+    lines: list[tuple[str, object]],
+) -> list[tuple[str, object]]:
+    """Join ``Fig.`` + ``4. Title…`` when they sit on the same baseline band."""
+    import fitz
+
+    if not lines:
+        return lines
+    out: list[tuple[str, object]] = []
+    i = 0
+    while i < len(lines):
+        text, rect = lines[i]
+        if _CAPTION_LABEL_ONLY.match(text) and i + 1 < len(lines):
+            nxt, nrect = lines[i + 1]
+            same_band = abs(float(rect.y0) - float(nrect.y0)) <= 4.0
+            if same_band and _CAPTION_NUM_START.match(nxt):
+                merged = _normalize_caption(f"{text} {nxt}")
+                union = fitz.Rect(rect) | fitz.Rect(nrect)
+                out.append((merged, union))
+                i += 2
+                continue
+        out.append((text, rect))
+        i += 1
+    return out
+
+
 def _horiz_ok(bx0: float, bx1: float, rx0: float, rx1: float, mid: float) -> bool:
     overlap = min(bx1, rx1) - max(bx0, rx0)
     width = max(rx1 - rx0, 1.0)
@@ -296,65 +399,56 @@ def _labeled_caption_hits(
     page, *, fig_scheme: bool, table: bool
 ) -> list[tuple[str, str, object]]:
     """
-    design/125–126 — scan text blocks for Fig/Scheme/Table captions
-    (punct after number OR soft title-like remainder; body verbs rejected).
+    design/125–127 — scan rebuilt text lines for Fig/Scheme/Table captions
+    (word-join · punct/soft · body verbs rejected).
     Returns list of (caption_key, caption_text, caption_rect).
-    EDGE: one PDF text block may contain two side-by-side captions — split by line.
     """
-    import fitz
     from sentence_reading.fig_refs import caption_key
 
     def _is_cap_line(s: str) -> bool:
         return _is_caption_line(s, fig_scheme=fig_scheme, table=table)
 
-    def _line_rect(line: str, block_rect: object) -> object:
-        # Prefer PDF search so side-by-side captions get distinct x ranges.
-        needle = (line or "").strip()[:48]
-        if needle:
-            try:
-                found = page.search_for(needle) or []
-                if found:
-                    return found[0]
-                found = page.search_for(needle[:24]) or []
-                if found:
-                    return found[0]
-            except Exception:
-                pass
-        return block_rect
-
     hits: list[tuple[str, str, object]] = []
-    for x0, y0, x1, y1, text in _text_blocks(page):
-        raw = (text or "").strip()
-        if not raw:
+    lines = _page_caption_lines(page)
+    li = 0
+    while li < len(lines):
+        s, line_rect = lines[li]
+        if not s:
+            li += 1
             continue
-        block_rect = fitz.Rect(x0, y0, x1, y1)
-        lines = raw.split("\n")
-        li = 0
-        while li < len(lines):
-            s = lines[li].strip()
-            if not s or not _is_cap_line(s):
-                li += 1
+        # Line may start mid-sentence; take suffix from first caption label.
+        m_inline = _CAPTION_INLINE_START.search(s)
+        head = m_inline.group(1).strip() if m_inline else s
+        if not head or not _is_cap_line(head):
+            li += 1
+            continue
+        # Caption body = this line + following non-caption lines (not the next Fig.).
+        parts = [head]
+        union = line_rect
+        j = li + 1
+        while j < len(lines):
+            nxt, nrect = lines[j]
+            nxt_m = _CAPTION_INLINE_START.search(nxt) if nxt else None
+            nxt_head = nxt_m.group(1).strip() if nxt_m else nxt
+            if nxt_head and _is_cap_line(nxt_head):
+                break
+            # Only absorb tightly following lines (same column band / close below).
+            if float(nrect.y0) > float(line_rect.y1) + 28:
+                break
+            parts.append(nxt)
+            union = union | nrect
+            j += 1
+        cap = _normalize_caption(" ".join(parts))
+        key = caption_key(cap)
+        if key:
+            if fig_scheme and key.startswith("table:"):
+                li = j
                 continue
-            # Caption body = this line + following non-caption lines (not the next Fig.).
-            parts = [lines[li]]
-            j = li + 1
-            while j < len(lines):
-                nxt = lines[j].strip()
-                if nxt and _is_cap_line(nxt):
-                    break
-                parts.append(lines[j])
-                j += 1
-            cap = _normalize_caption("\n".join(parts))
-            key = caption_key(cap)
-            if key:
-                if fig_scheme and key.startswith("table:"):
-                    li = j
-                    continue
-                if table and not key.startswith("table:"):
-                    li = j
-                    continue
-                hits.append((key, cap, _line_rect(s, block_rect)))
-            li = j
+            if table and not key.startswith("table:"):
+                li = j
+                continue
+            hits.append((key, cap, union))
+        li = j
     return hits
 
 
