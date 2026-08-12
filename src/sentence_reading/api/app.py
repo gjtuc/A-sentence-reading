@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.38",
+    version="0.3.39",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -499,7 +499,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.38",
+        "version": "0.3.39",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),

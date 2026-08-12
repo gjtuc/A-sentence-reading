@@ -13,7 +13,8 @@ Li–S 등에서 캐러셀 그림·표가 **뒤섞이거나** 일부만 보이�
 | Fig→Scheme→Table 번호 정렬 · (page,y,x) 타이브레이크 | 벡터-only 그림 · vision layout |
 | `get_image_rects` 전 위치 | compound 1a/1b 재활성 |
 | 초록 옆 큰 무캡션 → `Graphical abstract (p.N)` | 일반 무캡션 로고 전부 허용 |
-| `rich-v8` · pytest | Live Enable / IPS |
+| `rich-v8` (이 칩) · 이후 `rich-v9`([125](125-caption-anchored-figures.md)) · pytest | Live Enable / IPS |
+
 
 ## Product (locked this chip)
 
@@ -27,7 +28,9 @@ Li–S 등에서 캐러셀 그림·표가 **뒤섞이거나** 일부만 보이�
 
 ## Version
 
-**0.3.6** · status + pubspec · pipeline **rich-v8**
+**0.3.6** · status + pubspec · pipeline **rich-v8**  
+후속: **rich-v9** (0.3.39 · caption-anchored · [125](125-caption-anchored-figures.md))
+
 
 ## Live Enable / IPS
 
