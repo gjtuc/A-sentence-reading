@@ -66,7 +66,7 @@ def _register(client: TestClient, email: str) -> None:
 
 def test_status_flags(fake_gcs, auth_root):
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.35"
+    assert st["version"] == "0.3.36"
     assert st["ingest_job_gcs"] is True
     assert st["mobile_upload_resume"] is True
 
