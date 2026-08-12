@@ -81,7 +81,9 @@ def test_design_95_reader_swipe_nav() -> None:
         ROOT / "mobile" / "lib" / "screens" / "reader_screen.dart"
     ).read_text(encoding="utf-8")
     assert "_SwipePager" in reader
-    assert "panEnabled: _zoomed" in reader or "panEnabled:_zoomed" in reader.replace(" ", "")
+    # design/116 — pan always on; 1× swipe from pan-end (not parent HorizontalDrag).
+    assert "panEnabled: true" in reader or "panEnabled:true" in reader.replace(" ", "")
+    assert "design/116" in reader
 
 
 def test_design_96_tts_settings_tab() -> None:
