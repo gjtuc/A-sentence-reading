@@ -1,7 +1,10 @@
 /**
  * 무엇을: 논문별 문장·그림 인덱스 진행 저장 (localStorage).
- * 왜: 새로고침·재열기 후에도 읽던 위치로 (design/05 · design/21).
+ * 왜: 새로고침·재열기 후에도 읽던 위치로 (design/05 · design/21 · design/123).
  * 키 우선: cache:id → hash:sha256 → ses:id (노트 paperKey 와 맞춤).
+ *
+ * design/123: 저장된 인덱스가 범위 밖/비정수면 clamp 하지 않고 거절(fail-closed).
+ * 킬스위치: applyStoredProgress({ failClosed: false }) 또는 서버 ASR_PROGRESS_FAIL_CLOSED=0.
  */
 (function (global) {
   "use strict";
@@ -35,6 +38,55 @@
     if (x < 0) return 0;
     if (x >= n) return n - 1;
     return x;
+  }
+
+  /** Strict int: number whole or decimal-free digit string (no Number("12px")). */
+  function isStrictInt(v) {
+    if (typeof v === "number") {
+      return Number.isFinite(v) && Math.floor(v) === v;
+    }
+    if (typeof v === "string") {
+      var t = v.trim();
+      return /^-?\d+$/.test(t);
+    }
+    return false;
+  }
+
+  function toStrictInt(v) {
+    if (typeof v === "number") return v;
+    return parseInt(String(v).trim(), 10);
+  }
+
+  /**
+   * WHY: product 4B — refuse open when stored progress cannot be applied exactly.
+   * @returns {{ ok: true, sentence_index: number, figure_index: number } |
+   *           { ok: false, error: string }}
+   */
+  function validateProgressIndices(
+    sentenceIndex,
+    figureIndex,
+    sentenceCount,
+    figureCount
+  ) {
+    if (!sentenceCount || sentenceCount < 1) {
+      return { ok: false, error: "empty_sentences" };
+    }
+    if (!isStrictInt(sentenceIndex) || !isStrictInt(figureIndex)) {
+      return { ok: false, error: "non_integer_index" };
+    }
+    var si = toStrictInt(sentenceIndex);
+    var fi = toStrictInt(figureIndex);
+    if (si < 0 || si >= sentenceCount) {
+      return { ok: false, error: "sentence_out_of_range" };
+    }
+    if (!figureCount || figureCount < 1) {
+      if (fi !== 0) {
+        return { ok: false, error: "figure_out_of_range" };
+      }
+    } else if (fi < 0 || fi >= figureCount) {
+      return { ok: false, error: "figure_out_of_range" };
+    }
+    return { ok: true, sentence_index: si, figure_index: fi };
   }
 
   /**
@@ -96,21 +148,42 @@
   }
 
   /**
-   * @returns {{ figure_index: number, sentence_index: number } | null}
+   * Raw row without coercing (null = no stored progress).
+   * WHY: fail-closed needs original types (string "9", float, etc.).
    */
-  function loadProgress(paper) {
+  function loadProgressRow(paper) {
     var keys = progressKeysFor(paper);
     if (!keys.length) return null;
     var store = readRaw();
     for (var i = 0; i < keys.length; i++) {
       var row = store.papers[keys[i]];
       if (!row || typeof row !== "object") continue;
+      if (
+        !Object.prototype.hasOwnProperty.call(row, "sentence_index") ||
+        !Object.prototype.hasOwnProperty.call(row, "figure_index")
+      ) {
+        continue;
+      }
       return {
-        figure_index: Number(row.figure_index) || 0,
-        sentence_index: Number(row.sentence_index) || 0,
+        figure_index: row.figure_index,
+        sentence_index: row.sentence_index,
+        at: row.at || "",
       };
     }
     return null;
+  }
+
+  /**
+   * @returns {{ figure_index: number, sentence_index: number } | null}
+   * Coerced view for callers that only need display numbers (not open gate).
+   */
+  function loadProgress(paper) {
+    var row = loadProgressRow(paper);
+    if (!row) return null;
+    return {
+      figure_index: Number(row.figure_index) || 0,
+      sentence_index: Number(row.sentence_index) || 0,
+    };
   }
 
   /**
@@ -138,17 +211,49 @@
     return writeRaw(store);
   }
 
+  var INVALID_PROGRESS_MSG =
+    "저장된 읽기 위치가 이 논문과 맞지 않습니다. 진행을 초기화한 뒤 다시 열어 주세요.";
+
   /**
-   * 세션 적용 시 저장된 진행으로 인덱스 덮어쓰기 (clamp).
-   * @returns {boolean} 복원했는지
+   * 세션 적용 시 저장된 진행으로 인덱스 덮어쓰기.
+   * design/123: failClosed(default true) → 이상값이면 ok:false (열기 거절).
+   * failClosed false → legacy clamp (ASR_PROGRESS_FAIL_CLOSED=0).
+   *
+   * @returns {{ ok: boolean, restored: boolean, clamped?: boolean, error?: string, message?: string }}
    */
-  function applyStoredProgress(paper, nFigures, nSentences) {
-    if (!paper) return false;
-    var prog = loadProgress(paper);
-    if (!prog) return false;
-    paper.figureIndex = clampIndex(prog.figure_index, nFigures);
-    paper.sentenceIndex = clampIndex(prog.sentence_index, nSentences);
-    return true;
+  function applyStoredProgress(paper, nFigures, nSentences, opts) {
+    if (!paper) {
+      return { ok: true, restored: false };
+    }
+    var failClosed = !(opts && opts.failClosed === false);
+    var row = loadProgressRow(paper);
+    if (!row) {
+      return { ok: true, restored: false };
+    }
+    var v = validateProgressIndices(
+      row.sentence_index,
+      row.figure_index,
+      nSentences,
+      nFigures
+    );
+    if (!v.ok) {
+      if (!failClosed) {
+        // KILL: emergency clamp path — do not use for shared/default.
+        paper.figureIndex = clampIndex(row.figure_index, nFigures);
+        paper.sentenceIndex = clampIndex(row.sentence_index, nSentences);
+        return { ok: true, restored: true, clamped: true, error: v.error };
+      }
+      // WHY: do not mutate paper indices — caller must refuse open (fail-closed).
+      return {
+        ok: false,
+        restored: false,
+        error: v.error,
+        message: INVALID_PROGRESS_MSG,
+      };
+    }
+    paper.figureIndex = v.figure_index;
+    paper.sentenceIndex = v.sentence_index;
+    return { ok: true, restored: true };
   }
 
   global.AsrProgress = {
@@ -159,10 +264,14 @@
     storageKeyForUid: storageKeyForUid,
     emptyStore: emptyStore,
     clampIndex: clampIndex,
+    isStrictInt: isStrictInt,
+    validateProgressIndices: validateProgressIndices,
     progressKeysFor: progressKeysFor,
     readRaw: readRaw,
     loadProgress: loadProgress,
+    loadProgressRow: loadProgressRow,
     saveProgress: saveProgress,
     applyStoredProgress: applyStoredProgress,
+    INVALID_PROGRESS_MSG: INVALID_PROGRESS_MSG,
   };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -96,6 +96,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // design/123 — persist sentence+figure on background/exit (product 5C).
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      unawaited(widget.library.persistOpenedProgress());
+    }
     if (state == AppLifecycleState.resumed) {
       unawaited(_consumePendingOpen());
       unawaited(_resumeAfterInterrupt());
