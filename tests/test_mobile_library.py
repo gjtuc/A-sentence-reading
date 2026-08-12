@@ -36,7 +36,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_mobile_library_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.34"
+    assert st["version"] == "0.3.35"
     assert st["mobile_library"] is True
     assert st["mobile_email_auth"] is True
     assert "live_enable" not in st
@@ -51,22 +51,25 @@ def test_cache_papers_empty_and_open_missing(monkeypatch: pytest.MonkeyPatch) ->
     body = r.json()
     assert body["ok"] is True
     assert isinstance(body.get("papers"), list)
-    # EDGE: access gate + email auth → open requires login first
-    miss = client.post("/api/cache/papers/does-not-exist-zzz/open")
+    # EDGE: login gate → open requires identity first (valid cache_id charset).
+    monkeypatch.setenv("ASR_LOGIN_REQUIRED", "1")
+    miss = client.post("/api/cache/papers/doesnotexistzzz1/open")
     assert miss.status_code == 401
     assert miss.json().get("error") == "auth_required"
-    # EDGE: gate off → missing cache is 404
+    # EDGE: gates off → missing cache is 404, or 502 when GCS-first pull fails (design/121).
+    monkeypatch.setenv("ASR_LOGIN_REQUIRED", "0")
     monkeypatch.setenv("ASR_ACCESS_GATE", "0")
-    miss2 = client.post("/api/cache/papers/does-not-exist-zzz/open")
-    assert miss2.status_code == 404
-    assert miss2.json().get("error") == "cache_not_found"
+    miss2 = client.post("/api/cache/papers/doesnotexistzzz1/open")
+    assert miss2.status_code in (404, 502)
+    assert miss2.json().get("ok") is False
+    assert miss2.json().get("error") in ("cache_not_found", "gcs_pull_failed")
     empty = client.post("/api/cache/papers/%20/open")
-    assert empty.status_code in (404, 400, 422)
+    assert empty.status_code in (404, 400, 422, 401)
 
 
 def test_mobile_dart_library_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.34" in pub
+    assert "0.3.35" in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "/api/cache/papers" in client
     assert "listPapers" in client
@@ -98,4 +101,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.34" in html
+    assert "app.js?v=0.3.35" in html

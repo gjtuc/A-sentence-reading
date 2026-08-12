@@ -147,6 +147,7 @@
 - ~~그림 핀치 줌 민감도 (확실히 체감)~~ (0.3.32 · [118-figure-pinch-sensitivity.md](118-figure-pinch-sensitivity.md))
 - ~~shadowing chunks/build fail-closed · pending 이어받기~~ (0.3.33 · [119-shadowing-chunks-build-failclosed.md](119-shadowing-chunks-build-failclosed.md))
 - ~~쉐도잉 「다시」(말하기만) · 「다시 듣기」(내 녹음)~~ (0.3.34 · [120-shadowing-retry-replay.md](120-shadowing-retry-replay.md))
+- ~~보관 열기 GCS-first · pull 실패 시 로컬 폴백 금지~~ (0.3.35 · [121-library-open-gcs-first.md](121-library-open-gcs-first.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

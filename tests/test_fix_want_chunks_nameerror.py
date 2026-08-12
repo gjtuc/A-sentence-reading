@@ -45,7 +45,7 @@ def _register(client: TestClient, email: str) -> None:
 
 def test_status_version_pin(auth_root):
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.34"
+    assert st["version"] == "0.3.35"
 
 
 def test_design_111_exists():
@@ -56,7 +56,7 @@ def test_design_111_exists():
 
 
 def test_pubspec_pin():
-    assert "0.3.34" in PUB.read_text(encoding="utf-8")
+    assert "0.3.35" in PUB.read_text(encoding="utf-8")
 
 
 def test_want_chunks_assignment_not_inside_comment():
@@ -80,7 +80,8 @@ def test_cache_open_unexpected_error_returns_json(
         raise RuntimeError("synthetic_open_boom")
 
     monkeypatch.setattr(app_mod, "load_cached_session", boom)
-    r = client.post("/api/cache/papers/cache_deadbeef01/open")
+    # Valid cache_id charset (design/121 validates before load).
+    r = client.post("/api/cache/papers/deadbeef01cafe00/open")
     assert r.status_code == 500
     body = r.json()
     assert body.get("ok") is False

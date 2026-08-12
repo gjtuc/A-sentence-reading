@@ -386,6 +386,9 @@ def ensure_paper_local(cache_id: str) -> bool:
 
     WHY: a zero-byte / title-only local session.json made open succeed with
     empty reader (title from library index). Re-pull from GCS when unusable.
+
+    NOTE: library **open** uses ``refresh_paper_for_open`` (design/121) instead —
+    that path always pulls when GCS is ready and never falls back on pull fail.
     """
     cid = (cache_id or "").strip()
     if not _CACHE_ID_RE.match(cid):
@@ -402,6 +405,49 @@ def paper_open_require_sentences() -> bool:
 
     raw = (os.environ.get("ASR_PAPER_OPEN_REQUIRE_SENTENCES") or "1").strip().lower()
     return raw not in ("0", "false", "off", "no")
+
+
+def paper_open_gcs_first() -> bool:
+    """Kill: ASR_PAPER_OPEN_GCS_FIRST=0 restores design/114 skip-when-local-ok."""
+    import os
+
+    raw = (os.environ.get("ASR_PAPER_OPEN_GCS_FIRST") or "1").strip().lower()
+    return raw not in ("0", "false", "off", "no")
+
+
+def gcs_papers_ready() -> bool:
+    """True when papers may be pulled from the signed-in user's GCS prefix."""
+    ready, _ = gcs_client_ready()
+    return bool(gcs_config().enabled and ready)
+
+
+def refresh_paper_for_open(cache_id: str) -> tuple[bool, str]:
+    """Prepare local cache for library open (design/121).
+
+    Returns ``(ok, code)``:
+    - ``("ok")`` — GCS ready and download succeeded (local overwritten)
+    - ``("gcs_skipped")`` — GCS off/not ready; caller may open local (dev)
+    - ``("gcs_pull_failed")`` — GCS ready but pull failed → **do not** open local
+    - ``("bad_cache_id")`` — invalid id
+
+    WHY: shared instance disk can hold another user's leftover session.json.
+    Always overwriting from ``personal_object_name`` prevents opening that
+    leftover when the signed-in user's GCS object is missing/unreadable.
+    """
+    cid = (cache_id or "").strip()
+    if not _CACHE_ID_RE.match(cid):
+        return False, "bad_cache_id"
+    if not paper_open_gcs_first():
+        # Kill off → 114: only pull when local unusable.
+        return (True, "ok") if ensure_paper_local(cid) else (False, "gcs_pull_failed")
+    if not gcs_papers_ready():
+        # EDGE: local-only / GCS not ready — not a pull failure (product 4).
+        return True, "gcs_skipped"
+    # Product 1A: always pull even when local already has sentences.
+    if not download_paper_cache(cid):
+        # Product 2A: refuse local fallback (fail-closed).
+        return False, "gcs_pull_failed"
+    return True, "ok"
 
 
 def pull_paper_matching_text(text: str, *, source: str = "pdf") -> dict[str, Any] | None:

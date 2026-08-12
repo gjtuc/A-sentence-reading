@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.34",
+    version="0.3.35",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -465,6 +465,10 @@ def status(request: Request) -> dict:
         ingest_job_reclaim_enabled,
         ingest_resume_skip_enabled,
     )
+    from sentence_reading.llm.papers_gcs import (
+        paper_open_gcs_first,
+        paper_open_require_sentences,
+    )
 
     user = _request_user(request)
     return {
@@ -483,7 +487,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.34",
+        "version": "0.3.35",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -505,7 +509,9 @@ def status(request: Request) -> dict:
         # design/113 — chunk build returns pending slices (no gateway 504).
         "shadowing_chunk_budget": True,
         # design/114 — open rejects empty sentence sessions.
-        "paper_open_require_sentences": True,
+        "paper_open_require_sentences": paper_open_require_sentences(),
+        # design/121 — open always pulls owner GCS when ready (no local fallback).
+        "paper_open_gcs_first": paper_open_gcs_first(),
         "ingest_chunked_upload": True,
         # design/73 — mirrors ASR_INGEST_RATE_LIMIT kill switch (False when off).
         "ingest_rate_limit": rate_limit_enabled(),
@@ -1862,21 +1868,36 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
         return denied
     try:
         from sentence_reading.llm.papers_gcs import (
-            ensure_paper_local,
             paper_open_require_sentences,
+            refresh_paper_for_open,
         )
 
+        # design/121 — GCS ready → always pull owner object; pull fail → no local open.
+        try:
+            refreshed, refresh_code = refresh_paper_for_open(cache_id)
+        except Exception:
+            # EDGE: unexpected pull error → fail-closed (do not serve local).
+            refreshed, refresh_code = False, "gcs_pull_failed"
+        if not refreshed:
+            if refresh_code == "bad_cache_id":
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "ok": False,
+                        "error": "bad_cache_id",
+                        "message": "잘못된 보관 id입니다.",
+                    },
+                )
+            # WHY: product 2A — local leftover must not look like a successful open.
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "ok": False,
+                    "error": "gcs_pull_failed",
+                    "message": "클라우드에서 논문을 받지 못했습니다. 잠시 후 다시 시도해 주세요.",
+                },
+            )
         loaded = load_cached_session(cache_id)
-        # design/114 — empty local session is not a hit; force GCS refresh.
-        need_pull = loaded is None or (
-            paper_open_require_sentences() and not loaded[0].sentences
-        )
-        if need_pull:
-            try:
-                ensure_paper_local(cache_id)
-            except Exception:
-                pass
-            loaded = load_cached_session(cache_id)
         if loaded is None:
             return JSONResponse(
                 status_code=404,
