@@ -23,6 +23,21 @@ _FIGURE_CLIP_ZOOM = 8.0
 _FIGURE_CLIP_MAX_SIDE_PX = 6400
 _CAPTION_BELOW_PT = 110.0
 _CAPTION_ABOVE_PT = 90.0
+# design/125 — slightly wider pairing window (side-by-side / tall panels).
+_CAPTION_PAIR_BELOW_PT = 150.0
+_CAPTION_PAIR_ABOVE_PT = 120.0
+# Orphan caption (no embed): clip this much above the caption line (vector/drawing).
+_ORPHAN_CLIP_ABOVE_PT = 280.0
+# WHY: require punct after number so body "Figure 4 illustrates…" is not a caption.
+_FIG_CAPTION_LINE = re.compile(
+    r"^\s*((?:Fig(?:ure)?|Scheme)\.?\s*S?\d+[a-z]?)\s*[.:;·\u2013\u2014\-]",
+    re.IGNORECASE,
+)
+_TABLE_CAPTION_LINE = re.compile(
+    r"^\s*(Table\.?\s*S?\d+[a-z]?)\s*[.:;·\u2013\u2014\-]",
+    re.IGNORECASE,
+)
+# Legacy start-only (image-under pairing still accepts Scheme without punct).
 _FIG_CAPTION_START = re.compile(
     r"^\s*((?:Fig(?:ure)?|Scheme)\.?\s*S?\d+[a-z]?)\b",
     re.IGNORECASE,
@@ -139,7 +154,7 @@ def _horiz_ok(bx0: float, bx1: float, rx0: float, rx1: float, mid: float) -> boo
 
 
 def _caption_under_image(page, img_rect) -> str:
-    """그림 바로 아래 Fig./Scheme 캡션."""
+    """그림 바로 아래 Fig./Scheme 캡션 (legacy helper · design/125 still used in GA path)."""
     hits: list[tuple[float, str]] = []
     for x0, y0, x1, y1, text in _text_blocks(page):
         if y0 < img_rect.y1 - 2:
@@ -151,6 +166,11 @@ def _caption_under_image(page, img_rect) -> str:
             continue
         raw = text.strip()
         if not raw or not _FIG_CAPTION_START.match(raw):
+            continue
+        # Prefer punct form when available (body-sentence rejection).
+        if not _FIG_CAPTION_LINE.match(raw) and not raw.lower().lstrip().startswith(
+            "scheme"
+        ):
             continue
         hits.append((y0, _normalize_caption(raw)))
     if not hits:
@@ -177,6 +197,8 @@ def _caption_above_table(page, table_rect) -> tuple[str, object | None]:
             continue
         raw = text.strip()
         if not raw or not _TABLE_CAPTION_START.match(raw):
+            continue
+        if not _TABLE_CAPTION_LINE.match(raw):
             continue
         hits.append((y0, _normalize_caption(raw), fitz.Rect(x0, y0, x1, y1)))
     if not hits:
@@ -221,30 +243,94 @@ def _render_page_clip(page, rect, *, zoom: float = _FIGURE_CLIP_ZOOM) -> bytes |
     return png
 
 
-def _extract_embedded_images(
-    page, page_index: int, start_i: int
-) -> list[tuple[float, float, Figure]]:
-    """embedded 이미지 + 하단 Fig 캡션. (sort_y, sort_x, Figure) 목록. design/92."""
+def _labeled_caption_hits(
+    page, *, fig_scheme: bool, table: bool
+) -> list[tuple[str, str, object]]:
+    """
+    design/125 — scan text blocks for Fig/Scheme/Table captions (punct after number).
+    Returns list of (caption_key, caption_text, caption_rect).
+    EDGE: one PDF text block may contain two side-by-side captions — split by line.
+    """
+    import fitz
+    from sentence_reading.fig_refs import caption_key
+
+    def _is_cap_line(s: str) -> bool:
+        if fig_scheme and _FIG_CAPTION_LINE.match(s):
+            return True
+        if table and _TABLE_CAPTION_LINE.match(s):
+            return True
+        return False
+
+    def _line_rect(line: str, block_rect: object) -> object:
+        # Prefer PDF search so side-by-side captions get distinct x ranges.
+        needle = (line or "").strip()[:48]
+        if needle:
+            try:
+                found = page.search_for(needle) or []
+                if found:
+                    return found[0]
+                found = page.search_for(needle[:24]) or []
+                if found:
+                    return found[0]
+            except Exception:
+                pass
+        return block_rect
+
+    hits: list[tuple[str, str, object]] = []
+    for x0, y0, x1, y1, text in _text_blocks(page):
+        raw = (text or "").strip()
+        if not raw:
+            continue
+        block_rect = fitz.Rect(x0, y0, x1, y1)
+        lines = raw.split("\n")
+        li = 0
+        while li < len(lines):
+            s = lines[li].strip()
+            if not s or not _is_cap_line(s):
+                li += 1
+                continue
+            # Caption body = this line + following non-caption lines (not the next Fig.).
+            parts = [lines[li]]
+            j = li + 1
+            while j < len(lines):
+                nxt = lines[j].strip()
+                if nxt and _is_cap_line(nxt):
+                    break
+                parts.append(lines[j])
+                j += 1
+            cap = _normalize_caption("\n".join(parts))
+            key = caption_key(cap)
+            if key:
+                if fig_scheme and key.startswith("table:"):
+                    li = j
+                    continue
+                if table and not key.startswith("table:"):
+                    li = j
+                    continue
+                hits.append((key, cap, _line_rect(s, block_rect)))
+            li = j
+    return hits
+
+
+def _list_embedded_rects(
+    page,
+) -> list[tuple[object, bytes]]:
+    """(img_rect, base_png) for embeds that pass size filters."""
     import fitz
 
-    items: list[tuple[float, float, Figure]] = []
+    out: list[tuple[object, bytes]] = []
     seen_xref: set[int] = set()
-    used_rects: list[object] = []
-    fig_i = start_i
-
     for img in page.get_images(full=True):
         xref = int(img[0])
         if xref in seen_xref:
             continue
         seen_xref.add(xref)
-
         try:
             rects = list(page.get_image_rects(xref) or [])
         except Exception:
             rects = []
         if not rects:
             continue
-
         try:
             pix = fitz.Pixmap(page.parent, xref)
             if pix.n - pix.alpha >= 4:
@@ -256,42 +342,150 @@ def _extract_embedded_images(
             base_png = pix.tobytes("png")
         except Exception:
             continue
-
         if len(base_png) < _MIN_BYTES:
             continue
-
         for img_rect in rects:
-            if any(_rects_heavily_overlap(img_rect, prev) for prev in used_rects):
+            out.append((img_rect, base_png))
+    return out
+
+
+def _pick_embed_for_caption(
+    cap_rect, embeds: list[tuple[object, bytes]], used: list[object]
+) -> tuple[object, bytes, str] | None:
+    """
+    Match caption to nearest embed.
+    Prefer image *above* caption (usual Fig layout); else image *below* (caption above).
+    """
+    candidates: list[tuple[tuple, object, bytes, str]] = []
+    for img_rect, base_png in embeds:
+        if any(_rects_heavily_overlap(img_rect, prev) for prev in used):
+            continue
+        mid = (cap_rect.x0 + cap_rect.x1) / 2
+        if not _horiz_ok(cap_rect.x0, cap_rect.x1, img_rect.x0, img_rect.x1, mid):
+            # also allow image mid vs caption mid
+            imid = (img_rect.x0 + img_rect.x1) / 2
+            if not _horiz_ok(img_rect.x0, img_rect.x1, cap_rect.x0, cap_rect.x1, imid):
                 continue
+        # Caption under image (A)
+        if img_rect.y1 <= cap_rect.y0 + 10:
+            gap = cap_rect.y0 - img_rect.y1
+            if 0 <= gap <= _CAPTION_PAIR_BELOW_PT:
+                candidates.append(((0, gap, -img_rect.get_area()), img_rect, base_png, "below"))
+        # Caption above image (B)
+        if img_rect.y0 >= cap_rect.y1 - 10:
+            gap = img_rect.y0 - cap_rect.y1
+            if 0 <= gap <= _CAPTION_PAIR_ABOVE_PT:
+                candidates.append(((1, gap, -img_rect.get_area()), img_rect, base_png, "above"))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda t: t[0])
+    _score, img_rect, base_png, mode = candidates[0]
+    return img_rect, base_png, mode
 
-            caption = _caption_under_image(page, img_rect)
-            if not caption:
-                # WHY: 일반 로고는 제외. 초록 옆 GA만 예외 (design/92).
-                if not _is_graphical_abstract_candidate(page, page_index, img_rect):
-                    continue
-                caption = f"Graphical abstract (p.{page_index + 1})"
 
+def _orphan_fig_clip(page, cap_rect):
+    """design/125 B — no embed: clip band above caption (vector/drawing figures)."""
+    import fitz
+
+    page_rect = page.rect
+    # Widen narrow caption boxes toward column width.
+    half_w = max(cap_rect.width, min(page_rect.width * 0.42, 280.0)) / 2
+    cx = (cap_rect.x0 + cap_rect.x1) / 2
+    x0 = max(page_rect.x0, cx - half_w)
+    x1 = min(page_rect.x1, cx + half_w)
+    y0 = max(page_rect.y0, cap_rect.y0 - _ORPHAN_CLIP_ABOVE_PT)
+    y1 = min(page_rect.y1, cap_rect.y1 + 4)
+    return fitz.Rect(x0, y0, x1, y1)
+
+
+def _extract_embedded_images(
+    page, page_index: int, start_i: int
+) -> list[tuple[float, float, Figure]]:
+    """
+    design/125 — caption-first Fig/Scheme extract (+ GA leftover).
+    Compound 1a/1b is never split (design/44).
+    """
+    import fitz
+
+    items: list[tuple[float, float, Figure]] = []
+    fig_i = start_i
+    embeds = _list_embedded_rects(page)
+    used_rects: list[object] = []
+    seen_keys: set[str] = set()
+
+    for key, caption, cap_rect in _labeled_caption_hits(
+        page, fig_scheme=True, table=False
+    ):
+        if key in seen_keys:
+            continue
+        picked = _pick_embed_for_caption(cap_rect, embeds, used_rects)
+        if picked is not None:
+            img_rect, base_png, mode = picked
             clip = fitz.Rect(img_rect)
-            clip.y1 = min(page.rect.y1, img_rect.y1 + _CAPTION_BELOW_PT)
+            if mode == "below":
+                clip |= cap_rect
+                clip.y1 = min(page.rect.y1, max(clip.y1, img_rect.y1 + _CAPTION_BELOW_PT))
+            else:
+                clip |= cap_rect
             rendered = _render_page_clip(page, clip)
             png = rendered if rendered else base_png
-
             used_rects.append(img_rect)
-            fig_i += 1
-            items.append(
-                (
-                    float(img_rect.y0),
-                    float(img_rect.x0),
-                    Figure(
-                        id=f"fig-{fig_i:04d}",
-                        image_src=_png_data_url(png),
-                        caption=caption,
-                        page_index=page_index,
-                    ),
-                )
+            sort_y = float(img_rect.y0)
+            sort_x = float(img_rect.x0)
+        else:
+            # B: orphan caption → page clip above caption (vector / missed embed).
+            clip = _orphan_fig_clip(page, cap_rect)
+            clip |= cap_rect
+            png = _render_page_clip(page, clip)
+            if not png:
+                continue
+            sort_y = float(cap_rect.y0)
+            sort_x = float(cap_rect.x0)
+
+        seen_keys.add(key)
+        fig_i += 1
+        items.append(
+            (
+                sort_y,
+                sort_x,
+                Figure(
+                    id=f"fig-{fig_i:04d}",
+                    image_src=_png_data_url(png),
+                    caption=caption,
+                    page_index=page_index,
+                ),
             )
-            if len(items) + start_i >= 200:
-                return items
+        )
+        if len(items) + start_i >= 200:
+            return items
+
+    # Graphical abstract: uncaptioned large early embeds not already used.
+    for img_rect, base_png in embeds:
+        if any(_rects_heavily_overlap(img_rect, prev) for prev in used_rects):
+            continue
+        if not _is_graphical_abstract_candidate(page, page_index, img_rect):
+            continue
+        caption = f"Graphical abstract (p.{page_index + 1})"
+        clip = fitz.Rect(img_rect)
+        clip.y1 = min(page.rect.y1, img_rect.y1 + _CAPTION_BELOW_PT)
+        rendered = _render_page_clip(page, clip)
+        png = rendered if rendered else base_png
+        used_rects.append(img_rect)
+        fig_i += 1
+        items.append(
+            (
+                float(img_rect.y0),
+                float(img_rect.x0),
+                Figure(
+                    id=f"fig-{fig_i:04d}",
+                    image_src=_png_data_url(png),
+                    caption=caption,
+                    page_index=page_index,
+                ),
+            )
+        )
+        if len(items) + start_i >= 200:
+            break
 
     return items
 
@@ -299,7 +493,7 @@ def _extract_embedded_images(
 def _extract_tables(
     page, page_index: int, start_i: int
 ) -> list[tuple[float, float, Figure]]:
-    """find_tables + 위쪽 Table 캡션을 한 장으로 렌더. (y0, x0, Figure)."""
+    """design/125 — Table caption-first; find_tables as attach target."""
     import fitz
 
     items: list[tuple[float, float, Figure]] = []
@@ -310,8 +504,7 @@ def _extract_tables(
     except Exception:
         tables = []
 
-    used: list[object] = []
-
+    table_rects: list[object] = []
     for tab in tables:
         try:
             bbox = fitz.Rect(tab.bbox)
@@ -319,26 +512,107 @@ def _extract_tables(
             continue
         if bbox.width < 40 or bbox.height < 30:
             continue
-        skip = False
-        for prev in used:
-            inter = bbox & prev
-            if inter.get_area() > 0.5 * min(bbox.get_area(), prev.get_area()):
-                skip = True
-                break
-        if skip:
-            continue
+        table_rects.append(bbox)
 
+    used: list[object] = []
+    seen_keys: set[str] = set()
+
+    def _pick_table(cap_rect):
+        cands: list[tuple[tuple, object]] = []
+        for bbox in table_rects:
+            if any(
+                (bbox & prev).get_area() > 0.5 * min(bbox.get_area(), prev.get_area())
+                for prev in used
+            ):
+                continue
+            mid = (cap_rect.x0 + cap_rect.x1) / 2
+            if not _horiz_ok(cap_rect.x0, cap_rect.x1, bbox.x0, bbox.x1, mid):
+                continue
+            # Caption above table (usual)
+            if bbox.y0 >= cap_rect.y1 - 10:
+                gap = bbox.y0 - cap_rect.y1
+                if 0 <= gap <= _CAPTION_PAIR_ABOVE_PT:
+                    cands.append(((0, gap, -bbox.get_area()), bbox))
+            # Rare: caption below table
+            if bbox.y1 <= cap_rect.y0 + 10:
+                gap = cap_rect.y0 - bbox.y1
+                if 0 <= gap <= _CAPTION_PAIR_BELOW_PT:
+                    cands.append(((1, gap, -bbox.get_area()), bbox))
+        if not cands:
+            return None
+        cands.sort(key=lambda t: t[0])
+        return cands[0][1]
+
+    for key, caption, cap_rect in _labeled_caption_hits(
+        page, fig_scheme=False, table=True
+    ):
+        if key in seen_keys:
+            continue
+        bbox = _pick_table(cap_rect)
+        if bbox is not None:
+            clip = fitz.Rect(bbox) | cap_rect
+            used.append(bbox)
+            sort_y = float(min(bbox.y0, cap_rect.y0))
+            sort_x = float(min(bbox.x0, cap_rect.x0))
+        else:
+            # Orphan table caption: clip below caption (B-ish).
+            page_rect = page.rect
+            half_w = max(cap_rect.width, min(page_rect.width * 0.55, 320.0)) / 2
+            cx = (cap_rect.x0 + cap_rect.x1) / 2
+            clip = fitz.Rect(
+                max(page_rect.x0, cx - half_w),
+                max(page_rect.y0, cap_rect.y0 - 4),
+                min(page_rect.x1, cx + half_w),
+                min(page_rect.y1, cap_rect.y1 + 220),
+            )
+            sort_y = float(cap_rect.y0)
+            sort_x = float(cap_rect.x0)
+
+        png = _render_page_clip(page, clip)
+        if not png:
+            continue
+        seen_keys.add(key)
+        fig_i += 1
+        items.append(
+            (
+                sort_y,
+                sort_x,
+                Figure(
+                    id=f"tbl-{fig_i:04d}",
+                    image_src=_png_data_url(png),
+                    caption=caption,
+                    page_index=page_index,
+                ),
+            )
+        )
+        if len(items) + start_i >= 200:
+            break
+
+    # Legacy: tables detected with no caption still get a placeholder (design/02).
+    for bbox in table_rects:
+        if any(
+            (bbox & prev).get_area() > 0.5 * min(bbox.get_area(), prev.get_area())
+            for prev in used
+        ):
+            continue
         caption, cap_rect = _caption_above_table(page, bbox)
+        if caption:
+            # Already handled by caption-first if punct matched; skip duplicates.
+            from sentence_reading.fig_refs import caption_key
+
+            k = caption_key(caption)
+            if k and k in seen_keys:
+                continue
+            if k:
+                seen_keys.add(k)
         clip = fitz.Rect(bbox)
         if cap_rect is not None:
             clip |= cap_rect
         else:
             clip.y0 = max(page.rect.y0, clip.y0 - 28)
-
         png = _render_page_clip(page, clip)
         if not png:
             continue
-
         used.append(bbox)
         fig_i += 1
         if not caption:
@@ -363,8 +637,8 @@ def _extract_tables(
 
 def extract_figures(pdf_path: Path) -> list[Figure]:
     """
-    그림(embedded) + 표(find_tables)를 캡션 번호 순으로 합친다 (design/92).
-    표는 캡션(위)과 표 본문을 한 PNG로 잘라 캐러셀에 넣는다.
+    그림(Fig/Scheme) + 표(Table)를 캡션 번호 순으로 합친다 (design/92 · 125).
+    캡션이 있는 라벨은 이미지 유무와 관계없이 슬롯을 만든다(벡터는 페이지 클립).
     """
     import fitz
 
@@ -392,16 +666,26 @@ def extract_figures(pdf_path: Path) -> list[Figure]:
                 break
 
         ordered.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
+        # Deduplicate by caption_key across pages (keep first in sort order).
+        from sentence_reading.fig_refs import caption_key
+
         out: list[Figure] = []
-        for i, (*_, fig) in enumerate(ordered[:200], start=1):
+        seen: set[str] = set()
+        for _ck, _pi, _y, _x, fig in ordered:
+            key = caption_key(fig.caption) or f"raw:{fig.caption[:40]}"
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(fig)
+            if len(out) >= 200:
+                break
+        for i, fig in enumerate(out, start=1):
             prefix = "tbl" if fig.id.startswith("tbl-") else "fig"
-            out.append(
-                Figure(
-                    id=f"{prefix}-{i:04d}",
-                    image_src=fig.image_src,
-                    caption=fig.caption,
-                    page_index=fig.page_index,
-                )
+            out[i - 1] = Figure(
+                id=f"{prefix}-{i:04d}",
+                image_src=fig.image_src,
+                caption=fig.caption,
+                page_index=fig.page_index,
             )
         return out
     finally:
