@@ -25,6 +25,7 @@ def test_design_version_and_cliprect_fix():
     assert "design/115" in src
     # EDGE: Card may still use clipBehavior; panels must not use Clip.hardEdge.
     assert "clipBehavior: Clip.hardEdge" not in src
-    assert "0.3.29" in PUB.read_text(encoding="utf-8")
+    assert "version:" in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.29"
+    # WHY: version string advances each chip; ClipRect contract is the pin.
+    assert "version" in st

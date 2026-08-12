@@ -106,6 +106,7 @@
 | 113 | [113-shadowing-chunk-budget.md](113-shadowing-chunk-budget.md) | shadowing chunk build 시간 예산·이어하기 |
 | 114 | [114-library-open-empty-session.md](114-library-open-empty-session.md) | 보관 열기 빈 세션 거절 · GCS 재pull |
 | 115 | [115-reader-clip-without-decoration.md](115-reader-clip-without-decoration.md) | 읽기 패널 clipBehavior null crash · ClipRect |
+| 116 | [116-figure-pinch-vs-swipe.md](116-figure-pinch-vs-swipe.md) | 그림 핀치 vs 스와이프 제스처 충돌 완화 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -210,3 +211,4 @@
 113은 shadowing chunk build 시간 예산·이어하기로 HTTP 504 회피 (0.3.27).
 114는 보관 열기 시 빈 세션 거절 · 로컬 빈 session이면 GCS 재pull (0.3.28).
 115는 읽기 AnimatedContainer clipBehavior+decoration 없음 crash → ClipRect (0.3.29).
+116는 그림 핀치가 부모 스와이프 드래그에 안 지게 제스처 분리 (0.3.30).

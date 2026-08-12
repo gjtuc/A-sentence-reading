@@ -67,7 +67,7 @@ def _login_user(client: TestClient, email: str = "user@example.com") -> str:
 def test_status_access_gate_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.29"
+    assert st["version"] == "0.3.30"
     assert st.get("mobile_invite_copy_minimal") is True
     assert st.get("mobile_admin_emails_configured") is True
     assert st.get("mobile_invite_redeem_e2e") is True
@@ -157,7 +157,7 @@ def test_gate_off_allows() -> None:
 def test_mobile_sources() -> None:
     mobile = Path(__file__).resolve().parents[1] / "mobile"
     pub = (mobile / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.29" in pub
+    assert "0.3.30" in pub
     client = (mobile / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "redeemInviteCode" in client and "mintInviteCode" in client
     settings = (mobile / "lib" / "screens" / "settings_screen.dart").read_text(
@@ -229,7 +229,7 @@ def test_ttl_env_edges(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_status_exposes_ttl_flags() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.29"
+    assert st["version"] == "0.3.30"
     assert st["access_invite_ttl_seconds"] == 48 * 3600
     assert st["access_redeem_max"] >= 1
     assert "live_enable" not in st
