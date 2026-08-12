@@ -786,7 +786,11 @@ class _SwipePagerState extends State<_SwipePager> {
   }
 }
 
-/// design/94+95+97+100 — full-frame zoom; swipe at 1×; tap chrome; double-tap expand.
+/// design/94+95+97+100+116 — full-frame zoom; swipe at 1×; tap chrome; double-tap expand.
+///
+/// design/116 — do NOT put [onHorizontalDrag*] on a parent [GestureDetector]
+/// around [InteractiveViewer]: that arena fight breaks pinch (esp. figure-only).
+/// Keep full-surface tap/double-tap; detect 1× figure swipe from pan-at-identity.
 class _ZoomableFigureFrame extends StatefulWidget {
   const _ZoomableFigureFrame({
     super.key,
@@ -812,13 +816,8 @@ class _ZoomableFigureFrame extends StatefulWidget {
 class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
   final TransformationController _transform = TransformationController();
   static const double _minDistance = 56;
-  static const double _minVelocity = 180;
-  double _dx = 0;
-
-  bool get _zoomed {
-    final s = _transform.value.getMaxScaleOnAxis();
-    return s > 1.02;
-  }
+  static const double _zoomEps = 1.02;
+  Offset _panAtStart = Offset.zero;
 
   @override
   void dispose() {
@@ -826,12 +825,37 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     super.dispose();
   }
 
-  void _onSwipeEnd(DragEndDetails details) {
-    if (!widget.swipeEnabled || _zoomed) return;
-    final v = details.primaryVelocity ?? 0;
-    final goPrev = _dx < -_minDistance || v < -_minVelocity;
-    final goNext = _dx > _minDistance || v > _minVelocity;
-    _dx = 0;
+  void _onInteractionStart(ScaleStartDetails details) {
+    // WHY: capture translation at gesture start for 1× horizontal swipe.
+    final t = _transform.value.getTranslation();
+    _panAtStart = Offset(t.x, t.y);
+  }
+
+  void _onInteractionEnd(ScaleEndDetails details) {
+    if (!mounted) return;
+    final scale = _transform.value.getMaxScaleOnAxis();
+    final t = _transform.value.getTranslation();
+    final dx = t.x - _panAtStart.dx;
+
+    // EDGE: pinch ended above 1× — keep pan/zoom; no figure change.
+    if (scale > _zoomEps) {
+      return;
+    }
+
+    // WHY: 1× pan was only for swipe affordance — snap matrix back so the
+    // figure does not sit offset after a failed/short drag.
+    final needsSnap = (t.x.abs() > 0.5 ||
+        t.y.abs() > 0.5 ||
+        (scale - 1.0).abs() > 0.001);
+    if (needsSnap) {
+      _transform.value = Matrix4.identity();
+    }
+
+    if (!widget.swipeEnabled) return;
+    // Primary velocity is in logical px/s when available from scale end.
+    final v = details.velocity.pixelsPerSecond.dx;
+    final goPrev = dx < -_minDistance || v < -180;
+    final goNext = dx > _minDistance || v > 180;
     if (goPrev && widget.onPrevious != null) {
       widget.onPrevious!();
     } else if (goNext && widget.onNext != null) {
@@ -848,28 +872,22 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
         if (!w.isFinite || !h.isFinite || w <= 0 || h <= 0) {
           return widget.child;
         }
-        final allowSwipe = widget.swipeEnabled && !_zoomed;
+        // WHY: tap/double-tap only — no parent drag vs InteractiveViewer scale.
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: widget.onTap,
           onDoubleTap: widget.onDoubleTapExpand,
-          onHorizontalDragStart: allowSwipe ? (_) => _dx = 0 : null,
-          onHorizontalDragUpdate:
-              allowSwipe ? (d) => _dx += d.delta.dx : null,
-          onHorizontalDragEnd: allowSwipe ? _onSwipeEnd : null,
           child: InteractiveViewer(
             transformationController: _transform,
             minScale: 1.0,
             maxScale: 8.0,
-            // WHY: at 1×, disable pan so horizontal swipe can change figures.
-            panEnabled: _zoomed,
+            // WHY: pan at 1× enables swipe detection without HorizontalDrag.
+            // Zoomed pan still moves the figure; 1× pan snaps back on end.
+            panEnabled: true,
+            scaleEnabled: true,
             boundaryMargin: const EdgeInsets.all(48),
-            onInteractionUpdate: (_) {
-              if (mounted) setState(() {});
-            },
-            onInteractionEnd: (_) {
-              if (mounted) setState(() {});
-            },
+            onInteractionStart: _onInteractionStart,
+            onInteractionEnd: _onInteractionEnd,
             child: SizedBox(
               width: w,
               height: h,
