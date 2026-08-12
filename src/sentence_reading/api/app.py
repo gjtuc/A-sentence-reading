@@ -149,7 +149,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.32",
+    version="0.3.33",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -483,7 +483,7 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        "version": "0.3.32",
+        "version": "0.3.33",
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -3549,6 +3549,23 @@ async def shadowing_chunks_build(
                 "ok": False,
                 "error": str(exc)[:80],
                 "message": "연습 구간 요청이 올바르지 않습니다.",
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        # design/119 — never leak stack/secrets as raw HTTP 500; fail closed.
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "shadowing_chunks_build failed: %s", type(exc).__name__
+        )
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "continue": False,
+                "plan": None,
+                "error": "build_failed",
+                "message": "연습 구간을 만들지 못했습니다. 다시 시도해 주세요.",
             },
         )
     finally:

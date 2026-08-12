@@ -15,7 +15,7 @@ DESIGN = os.path.join(ROOT, "docs", "design", "106-ingest-quality-timeout.md")
 def test_status_version_pin() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.32"
+    assert st["version"] == "0.3.33"
 
 
 def test_design_106_exists() -> None:
