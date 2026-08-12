@@ -152,6 +152,7 @@
 - ~~진행 복원: 문장+그림 정밀 · fail-closed~~ (0.3.37 · [123-progress-restore-precise.md](123-progress-restore-precise.md))
 - ~~빠진 그림: 정직한 빈 슬롯 · 앱 Fig. 점프~~ (0.3.38 · [124-missing-figures.md](124-missing-figures.md))
 - ~~캡션 우선 그림 추출 (Fig/Table/Scheme)~~ (0.3.39 · [125-caption-anchored-figures.md](125-caption-anchored-figures.md))
+- ~~소프트 캡션 라벨 (구두점 없이 Fig/Table/Scheme)~~ (0.3.40 · [126-soft-caption-labels.md](126-soft-caption-labels.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)
