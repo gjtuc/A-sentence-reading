@@ -117,7 +117,7 @@ def test_design_and_status_version() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.39"
+    assert st["version"] == "0.3.40"
     assert st.get("github_cd") is True
 
 

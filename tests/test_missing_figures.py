@@ -1,4 +1,4 @@
-"""design/124 — missing figures: honest empty slots + fig ref wiring (0.3.39)."""
+"""design/124 — missing figures: honest empty slots + fig ref wiring (0.3.40)."""
 
 from __future__ import annotations
 
@@ -22,14 +22,14 @@ DESIGN = ROOT / "docs" / "design" / "124-missing-figures.md"
 
 def test_status_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.39"
+    assert st["version"] == "0.3.40"
     assert st["fig_ref_hints"] is True
 
 
 def test_design_and_wiring() -> None:
     assert DESIGN.is_file()
     assert "0.3.38" in DESIGN.read_text(encoding="utf-8")
-    assert "0.3.39" in PUB.read_text(encoding="utf-8")
+    assert "0.3.40" in PUB.read_text(encoding="utf-8")
     cache = CACHE.read_text(encoding="utf-8")
     assert "design/124" in cache
     assert "image_src" in cache

@@ -55,11 +55,11 @@ Tesseract 로컬 OCR은 쓰지 않음.
 | `_FIGURE_CLIP_ZOOM` | **8.0** (0.2.41 · 이전 2.0) | 같은 clip을 더 촘촘히 찍음 (~576 dpi). **잘리는 범위는 불변** |
 | `_FIGURE_CLIP_MAX_SIDE_PX` | 6400 | 전면 그림 8× 시 긴 변 상한 (OOM). 영역은 유지·해상도만 캡 |
 
-`pipeline_version` → **`rich-v9` (0.3.39 · caption-anchored · [125](125-caption-anchored-figures.md); 이전 rich-v8)** (0.3.6 · caption-number figure order · [92](92-figure-caption-order.md); 이전 rich-v7 compound off).
+`pipeline_version` → **`rich-v10` (0.3.40 · soft captions · [126](126-soft-caption-labels.md); 이전 rich-v9 · [125](125-caption-anchored-figures.md))** (0.3.6 · caption-number figure order · [92](92-figure-caption-order.md); 이전 rich-v7 compound off).
 
 ### 전략: caption-first (design/125) + embedded attach
 
-캡션(Fig/Scheme/Table + 번호 뒤 구두점)을 먼저 모은 뒤 근처 임베드에 붙인다. 임베드가 없으면 캡션 위 페이지 클립(벡터/드로잉).
+캡션(Fig/Scheme/Table + 번호; 구두점 또는 제목형 이어짐 · [126](126-soft-caption-labels.md))을 먼저 모은 뒤 근처 임베드에 붙인다. 임베드가 없으면 캡션 위 페이지 클립(벡터/드로잉).
 
 ### (이전) embedded images
 

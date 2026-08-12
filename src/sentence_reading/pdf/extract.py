@@ -28,13 +28,25 @@ _CAPTION_PAIR_BELOW_PT = 150.0
 _CAPTION_PAIR_ABOVE_PT = 120.0
 # Orphan caption (no embed): clip this much above the caption line (vector/drawing).
 _ORPHAN_CLIP_ABOVE_PT = 280.0
-# WHY: require punct after number so body "Figure 4 illustrates…" is not a caption.
+# design/125 — punct after number (Fig. 1. / Figure 2:).
 _FIG_CAPTION_LINE = re.compile(
     r"^\s*((?:Fig(?:ure)?|Scheme)\.?\s*S?\d+[a-z]?)\s*[.:;·\u2013\u2014\-]",
     re.IGNORECASE,
 )
 _TABLE_CAPTION_LINE = re.compile(
     r"^\s*(Table\.?\s*S?\d+[a-z]?)\s*[.:;·\u2013\u2014\-]",
+    re.IGNORECASE,
+)
+# design/126 — label + optional punct OR title-like remainder (not body verb).
+_CAPTION_LABEL = re.compile(
+    r"^\s*((?:Fig(?:ure)?|Scheme|Table)\.?\s*S?\d+[a-z]?)(?=$|[\s.:;·\u2013\u2014\-])",
+    re.IGNORECASE,
+)
+# EDGE: body "Figure 4 illustrates…" — lowercase continuation after the number.
+_BODY_AFTER_LABEL = re.compile(
+    r"^(illustrates?|shows?|presents?|demonstrates?|depicts?|indicates?|"
+    r"describes?|summarizes?|compares?|reports?|displays?|represents?|"
+    r"is\b|are\b|was\b|were\b|has\b|have\b|can\b|will\b|may\b|must\b)",
     re.IGNORECASE,
 )
 # Legacy start-only (image-under pairing still accepts Scheme without punct).
@@ -62,6 +74,45 @@ _RECT_OVERLAP_FRAC = 0.55
 def _normalize_caption(text: str) -> str:
     t = re.sub(r"\s+", " ", (text or "").strip())
     return t[:900]
+
+
+def _is_caption_line(s: str, *, fig_scheme: bool, table: bool) -> bool:
+    """
+    design/126 — accept punct captions and title-like soft captions.
+    Reject body sentences: ``Figure 4 illustrates…``.
+    """
+    raw = (s or "").strip()
+    if not raw:
+        return False
+    m = _CAPTION_LABEL.match(raw)
+    if not m:
+        return False
+    label = m.group(1)
+    kind = label.lower()
+    if fig_scheme and kind.startswith("table"):
+        return False
+    if table and not kind.startswith("table"):
+        return False
+    # Strict punct form always OK.
+    if fig_scheme and _FIG_CAPTION_LINE.match(raw):
+        return True
+    if table and _TABLE_CAPTION_LINE.match(raw):
+        return True
+    rest = raw[m.end() :].lstrip(" \t.:;·\u2013\u2014-")
+    if not rest:
+        return True
+    # Soft: next token looks like a caption title, not a body verb.
+    if _BODY_AFTER_LABEL.match(rest):
+        return False
+    # Title-like: capital / digit / panel marker / non-Latin (common in KO/chem).
+    ch0 = rest[0]
+    if ch0.isupper() or ch0.isdigit() or ch0 in "([":
+        return True
+    # Lowercase Latin start without body-verb still risky — only allow Scheme/Table
+    # short tails that are clearly panel letters handled above.
+    if not ("a" <= ch0.lower() <= "z"):
+        return True
+    return False
 
 
 def _caption_sort_key(caption: str) -> tuple:
@@ -167,10 +218,8 @@ def _caption_under_image(page, img_rect) -> str:
         raw = text.strip()
         if not raw or not _FIG_CAPTION_START.match(raw):
             continue
-        # Prefer punct form when available (body-sentence rejection).
-        if not _FIG_CAPTION_LINE.match(raw) and not raw.lower().lstrip().startswith(
-            "scheme"
-        ):
+        # design/126 — soft caption OR punct; body verbs rejected inside helper.
+        if not _is_caption_line(raw, fig_scheme=True, table=False):
             continue
         hits.append((y0, _normalize_caption(raw)))
     if not hits:
@@ -198,7 +247,7 @@ def _caption_above_table(page, table_rect) -> tuple[str, object | None]:
         raw = text.strip()
         if not raw or not _TABLE_CAPTION_START.match(raw):
             continue
-        if not _TABLE_CAPTION_LINE.match(raw):
+        if not _is_caption_line(raw, fig_scheme=False, table=True):
             continue
         hits.append((y0, _normalize_caption(raw), fitz.Rect(x0, y0, x1, y1)))
     if not hits:
@@ -247,7 +296,8 @@ def _labeled_caption_hits(
     page, *, fig_scheme: bool, table: bool
 ) -> list[tuple[str, str, object]]:
     """
-    design/125 — scan text blocks for Fig/Scheme/Table captions (punct after number).
+    design/125–126 — scan text blocks for Fig/Scheme/Table captions
+    (punct after number OR soft title-like remainder; body verbs rejected).
     Returns list of (caption_key, caption_text, caption_rect).
     EDGE: one PDF text block may contain two side-by-side captions — split by line.
     """
@@ -255,11 +305,7 @@ def _labeled_caption_hits(
     from sentence_reading.fig_refs import caption_key
 
     def _is_cap_line(s: str) -> bool:
-        if fig_scheme and _FIG_CAPTION_LINE.match(s):
-            return True
-        if table and _TABLE_CAPTION_LINE.match(s):
-            return True
-        return False
+        return _is_caption_line(s, fig_scheme=fig_scheme, table=table)
 
     def _line_rect(line: str, block_rect: object) -> object:
         # Prefer PDF search so side-by-side captions get distinct x ranges.
