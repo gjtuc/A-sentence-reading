@@ -1,4 +1,4 @@
-"""design/126 — soft caption labels without required punct (0.3.40 · rich-v10)."""
+"""design/126 — soft caption labels without required punct (0.3.41 · rich-v11)."""
 
 from __future__ import annotations
 
@@ -63,9 +63,9 @@ def _build_soft_caption_pdf(path: Path) -> None:
 
 def test_status_and_pipeline_pin() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.40"
-    assert PIPELINE_VERSION == "rich-v10"
-    assert "rich-v10" in TYPO.read_text(encoding="utf-8")
+    assert st["version"] == "0.3.41"
+    assert PIPELINE_VERSION == "rich-v11"
+    assert "rich-v11" in TYPO.read_text(encoding="utf-8")
     assert DESIGN.is_file()
     src = EXTRACT.read_text(encoding="utf-8")
     assert "design/126" in src
