@@ -1,7 +1,8 @@
-/// design/82 — separate shadowing practice mode (mobile).
+/// design/82+120 — separate shadowing practice mode (mobile).
 ///
 /// Gates: login (shell) · kill · opt-in · chunks built before loop.
 /// Loop: listen → record(+2s) → next/skip.
+/// design/120 — 「다시」(speak only) · 「다시 듣기」(my take).
 library;
 
 import 'dart:async';
@@ -15,6 +16,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../api/client.dart';
 import '../api/reading_models.dart';
+import '../api/shadowing_retry_gate.dart';
 import '../api/tts_models.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
@@ -53,6 +55,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
   int _chunkIndex = 0;
   String _sentenceId = '0';
   int _sentenceIndex = 0;
+  /// design/120 — last local take path for 「다시 듣기」 (per device, this session).
+  String? _lastTakePath;
 
   ReadingSession? get _session => widget.library.session;
 
@@ -200,7 +204,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
     if (_chunks.isEmpty) return;
     setState(() => _status = '듣는 중…');
     await _playTts(_chunks[_chunkIndex]);
-    setState(() => _status = '같이 말하는 중… (+2초)');
+    await _runSpeakOnly(fromRetry: false);
+  }
+
+  /// design/120 — speak phase only (no leading listen TTS).
+  Future<void> _runSpeakOnly({required bool fromRetry}) async {
+    if (_chunks.isEmpty) return;
+    setState(() => _status = fromRetry ? '다시 말하는 중… (+2초)' : '같이 말하는 중… (+2초)');
     var okMic = await _mic.invokeMethod<bool>('hasPermission') ?? false;
     if (!okMic) {
       okMic = await _mic.invokeMethod<bool>('requestPermission') ?? false;
@@ -233,6 +243,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
         setState(() => _status = '녹음이 비었습니다. 건너뛰기를 사용할 수 있습니다.');
         return;
       }
+      // WHY: keep local path for unlimited 「다시 듣기」 (design/120).
+      _lastTakePath = filePath;
       final cacheId = _cacheId;
       final blobKey =
           'shadowing|$cacheId|$_sentenceId|$_chunkIndex|${DateTime.now().millisecondsSinceEpoch}';
@@ -251,7 +263,62 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
         blobKey: blobKey,
         mime: 'audio/mp4',
       );
-      setState(() => _status = '저장됨. 「다음」또는「건너뛰기」');
+      setState(() => _status = '저장됨. 「다시」·「다시 듣기」·「다음」·「건너뛰기」');
+    }
+  }
+
+  Future<void> _retrySpeak() async {
+    if (_busy) return;
+    if (_chunks.isEmpty) {
+      setState(() => _status = '연습 구간이 없습니다.');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await _runSpeakOnly(fromRetry: true);
+    } on AsrApiException catch (e) {
+      setState(() => _status = e.message);
+    } catch (e) {
+      setState(() => _status = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _replayTake() async {
+    if (_busy) return;
+    // Fail-closed: no recording → clear error, never silent success.
+    if (!canReplayShadowingTake(_lastTakePath)) {
+      setState(() => _status = '재생할 녹음이 없습니다. 먼저 말해 주세요.');
+      return;
+    }
+    final path = _lastTakePath!.trim();
+    final file = File(path);
+    if (!await file.exists()) {
+      setState(() {
+        _lastTakePath = null;
+        _status = '재생할 녹음이 없습니다. 먼저 말해 주세요.';
+      });
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _status = '내 녹음 듣는 중…';
+    });
+    try {
+      await _player.stop();
+      final done = _player.onPlayerComplete.first;
+      await _player.play(DeviceFileSource(path));
+      await done;
+      if (mounted) {
+        setState(() => _status = '저장됨. 「다시」·「다시 듣기」·「다음」·「건너뛰기」');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _status = '녹음 재생에 실패했습니다.');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -272,6 +339,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
           status: 'skipped',
         );
       }
+      // WHY: leaving this chunk — clear take so replay cannot play the wrong slot.
+      _lastTakePath = null;
       if (_chunkIndex + 1 < _chunks.length) {
         _chunkIndex += 1;
       } else if (_sentenceIndex + 1 < session.sentenceCount) {
@@ -334,6 +403,16 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
                 OutlinedButton(
                   onPressed: _busy ? null : () => _next(skip: true),
                   child: const Text('건너뛰기'),
+                ),
+                OutlinedButton(
+                  // design/120 — speak-only retry; unlimited.
+                  onPressed: _busy ? null : _retrySpeak,
+                  child: const Text('다시'),
+                ),
+                OutlinedButton(
+                  // design/120 — replay my last take; fail-closed if missing.
+                  onPressed: _busy ? null : _replayTake,
+                  child: const Text('다시 듣기'),
                 ),
               ],
             ),

@@ -157,6 +157,8 @@
     shadowingPracticeStatus: document.getElementById("shadowingPracticeStatus"),
     shadowingPracticeNext: document.getElementById("shadowingPracticeNext"),
     shadowingPracticeSkip: document.getElementById("shadowingPracticeSkip"),
+    shadowingPracticeRetry: document.getElementById("shadowingPracticeRetry"),
+    shadowingPracticeReplay: document.getElementById("shadowingPracticeReplay"),
     shadowingPracticeContinue: document.getElementById("shadowingPracticeContinue"),
     sentenceHint: document.getElementById("sentenceHint"),
     figureHint: document.getElementById("figureHint"),
@@ -5969,6 +5971,8 @@
         status: el.shadowingPracticeStatus,
         nextBtn: el.shadowingPracticeNext,
         skipBtn: el.shadowingPracticeSkip,
+        retryBtn: el.shadowingPracticeRetry,
+        replayBtn: el.shadowingPracticeReplay,
         continueBtn: el.shadowingPracticeContinue,
       },
       serverAvailable: function () {

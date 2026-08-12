@@ -2,6 +2,7 @@
  * design/82 — shadowing practice mode (separate dialog).
  * Gates: login · kill · opt-in · chunk plan ok before enter.
  * Loop: listen → speak(+2s) → replay → next / 건너뛰기.
+ * design/120 — 「다시」(speak only) · 「다시 듣기」(my take), unlimited.
  * Live Enable / IPS: ASR out.
  */
 (function (global) {
@@ -410,8 +411,40 @@
         };
         audio.play().catch(reject);
       });
-      setStatus("「다음」또는「건너뛰기」를 눌러 주세요.");
+      setStatus("「다시」·「다시 듣기」·「다음」·「건너뛰기」를 눌러 주세요.");
       state.phase = "await_next";
+    }
+
+    async function retrySpeak() {
+      // design/120 — speak only; no leading listen TTS; unlimited.
+      if (state.busy) return;
+      if (!state.chunks || !state.chunks.length) {
+        setStatus("연습 구간이 없습니다.", "error");
+        return;
+      }
+      state.busy = true;
+      try {
+        await runSpeak();
+        await runReplay();
+      } catch (e) {
+        setStatus((e && e.message) || "다시 말하기 중 오류", "error");
+        state.phase = "await_next";
+      } finally {
+        state.busy = false;
+      }
+    }
+
+    async function replayTake() {
+      // design/120 — explicit replay of my last take (fail-closed if missing).
+      if (state.busy) return;
+      state.busy = true;
+      try {
+        await runReplay();
+      } catch (e) {
+        setStatus((e && e.message) || "다시 듣기 중 오류", "error");
+      } finally {
+        state.busy = false;
+      }
     }
 
     async function advance(skip) {
@@ -422,6 +455,8 @@
           await postTake("skipped", null, null);
           state._lastBlobKey = null;
         }
+        // Leaving chunk — do not replay the previous slot by accident.
+        state._lastBlobKey = null;
         if (state.chunkIndex + 1 < state.chunks.length) {
           state.chunkIndex += 1;
         } else {
@@ -605,6 +640,8 @@
       skip: function () {
         return advance(true);
       },
+      retrySpeak: retrySpeak,
+      replayTake: replayTake,
       continueListen: continueListen,
       syncEntryBtn: syncEntryBtn,
     };
@@ -630,6 +667,16 @@
     if (els.skipBtn) {
       els.skipBtn.addEventListener("click", function () {
         controller.skip();
+      });
+    }
+    if (els.retryBtn) {
+      els.retryBtn.addEventListener("click", function () {
+        controller.retrySpeak();
+      });
+    }
+    if (els.replayBtn) {
+      els.replayBtn.addEventListener("click", function () {
+        controller.replayTake();
       });
     }
     if (els.continueBtn) {
