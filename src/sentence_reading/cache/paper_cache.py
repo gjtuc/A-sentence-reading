@@ -162,6 +162,16 @@ def figure_data_url(cache_id: str, figure_id: str) -> str | None:
         except ValueError:
             return None
         if not img_path.is_file():
+            # design/129 — open may skip bulk PNG pull; fetch this one from GCS.
+            try:
+                from sentence_reading.llm.papers_gcs import ensure_figure_local
+
+                ensured = ensure_figure_local(cid, rel)
+                if ensured is not None:
+                    img_path = ensured.resolve()
+            except Exception:
+                return None
+        if not img_path.is_file():
             return None
         try:
             return _figure_to_data_url(img_path)
