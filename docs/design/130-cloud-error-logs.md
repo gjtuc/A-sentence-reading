@@ -40,3 +40,13 @@ Modules: `llm/error_logs.py` · `api/app.py` · Flutter `error_reporter` / `hang
 ## Version
 
 **0.3.46**
+
+## Device pin (E2E)
+
+- Live `/api/status`: `version=0.3.46` · `cloud_error_logs=true`
+- APK `versionName=0.3.46` · SM-G986N
+- Settings (admin): 「서버」없음 · 「오류 로그」타일 → 화면 「아직 수집된 오류가 없습니다.」(배포 전 404는 실패 표시, 빈 성공 아님)
+- Live unauth: `POST /api/errors/report` · `GET /api/errors/admin` · badge → **401**
+- Kill: `ASR_CLOUD_ERROR_LOGS=0` · revert PR · prior APK
+
+Do not paste session cookies, tokens, or full stacks with secrets into docs.
