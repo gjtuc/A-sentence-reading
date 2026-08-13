@@ -93,26 +93,33 @@ class PaperSession:
             return None
         return self.sentences[self.sentence_index]
 
-    def to_public_dict(self) -> dict:
-        """API/프론트용 스냅샷."""
+    def to_public_dict(self, *, include_images: bool = True) -> dict:
+        """API/프론트용 스냅샷.
+
+        design/129 — ``include_images=False`` omits PNG data-URLs so /open stays
+        small; clients fetch a ±1 window via ``/figures/window``.
+        """
         fig = self.current_figure()
         sent = self.current_sentence()
+
+        def _fig_public(f: Figure) -> dict:
+            return {
+                "id": f.id,
+                # WHY: empty string = stub; never invent a fake placeholder image.
+                "image_src": f.image_src if include_images else "",
+                "caption": f.caption,
+                "caption_ko": f.caption_ko or "",
+                "caption_ko_stage": f.caption_ko_stage or "",
+                "page_index": f.page_index,
+            }
+
         return {
             "title": self.title,
             "figure_index": self.figure_index,
             "figure_count": len(self.figures),
             "sentence_index": self.sentence_index,
             "sentence_count": len(self.sentences),
-            "figure": None
-            if fig is None
-            else {
-                "id": fig.id,
-                "image_src": fig.image_src,
-                "caption": fig.caption,
-                "caption_ko": fig.caption_ko or "",
-                "caption_ko_stage": fig.caption_ko_stage or "",
-                "page_index": fig.page_index,
-            },
+            "figure": None if fig is None else _fig_public(fig),
             "sentence": None
             if sent is None
             else {
@@ -122,16 +129,7 @@ class PaperSession:
                 "text_ko": sent.text_ko or "",
                 "text_ko_stage": sent.text_ko_stage or "",
             },
-            "figures": [
-                {
-                    "id": f.id,
-                    "image_src": f.image_src,
-                    "caption": f.caption,
-                    "caption_ko": f.caption_ko or "",
-                    "caption_ko_stage": f.caption_ko_stage or "",
-                }
-                for f in self.figures
-            ],
+            "figures": [_fig_public(f) for f in self.figures],
             "sentences": [
                 {
                     "id": s.id,

@@ -124,6 +124,52 @@ def _figure_to_data_url(path: Path) -> str:
     return f"data:{mime};base64," + base64.b64encode(raw).decode("ascii")
 
 
+_FIG_ID_SAFE = re.compile(r"^[A-Za-z0-9._\-]{1,64}$")
+
+
+def figure_data_url(cache_id: str, figure_id: str) -> str | None:
+    """design/129 — load one figure PNG from disk as data-URL (no path traversal).
+
+    Returns None when id/cache is bad or the file is missing (honest miss).
+    """
+    cid = (cache_id or "").strip()
+    fid = (figure_id or "").strip()
+    # SECURITY: reject path segments / absolute paths / odd ids.
+    if not re.fullmatch(r"[a-zA-Z0-9]{8,32}", cid):
+        return None
+    if not _FIG_ID_SAFE.fullmatch(fid):
+        return None
+    root = cache_root() / cid
+    meta_path = root / _SESSION_NAME
+    if not meta_path.is_file():
+        return None
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    for f in meta.get("figures") or []:
+        if not isinstance(f, dict):
+            continue
+        if str(f.get("id") or "") != fid:
+            continue
+        rel = str(f.get("file") or "").replace("\\", "/")
+        # SECURITY: only figures/… under this paper root.
+        if not rel.startswith("figures/") or ".." in rel.split("/"):
+            return None
+        img_path = (root / rel).resolve()
+        try:
+            img_path.relative_to(root.resolve())
+        except ValueError:
+            return None
+        if not img_path.is_file():
+            return None
+        try:
+            return _figure_to_data_url(img_path)
+        except OSError:
+            return None
+    return None
+
+
 def find_cached_by_text(text: str, *, source: str = "pdf") -> dict | None:
     """
     원문 앞부분에 캐시된 논문 제목이 들어 있으면 그 entry 반환.
@@ -307,7 +353,14 @@ def _load_references(raw: object) -> list:
     return bibliography_public(raw if isinstance(raw, list) else None)
 
 
-def load_cached_session(cache_id: str) -> tuple[PaperSession, dict] | None:
+def load_cached_session(
+    cache_id: str, *, load_images: bool = True
+) -> tuple[PaperSession, dict] | None:
+    """Load session JSON (+ optional PNG inlining).
+
+    design/129 — ``load_images=False`` skips reading figure files so /open is fast;
+    clients pull bytes via ``figure_data_url``.
+    """
     root = cache_root() / cache_id
     meta_path = root / _SESSION_NAME
     if not meta_path.is_file():
@@ -341,7 +394,7 @@ def load_cached_session(cache_id: str) -> tuple[PaperSession, dict] | None:
         page_index = f.get("page_index")
         src = ""
         # design/124 — keep caption slot when PNG missing (honest empty, not silent drop).
-        if rel:
+        if load_images and rel:
             img_path = root / str(rel)
             if img_path.is_file():
                 try:
@@ -350,7 +403,7 @@ def load_cached_session(cache_id: str) -> tuple[PaperSession, dict] | None:
                     # EDGE: unreadable file → empty image_src, still list the row.
                     src = ""
             # else: file path recorded but bytes gone (GCS partial / disk loss)
-        elif f.get("image_src"):
+        elif load_images and f.get("image_src"):
             # Legacy session rows that still embed data URLs.
             src = str(f.get("image_src") or "")
         figures.append(

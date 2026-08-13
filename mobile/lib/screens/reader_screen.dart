@@ -301,6 +301,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       session: s,
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
+                                      figRefHints: _figRefHints,
                                       onToggleChrome: _toggleChrome,
                                       onDoubleTapExpand: _toggleSentenceExpand,
                                     ),
@@ -428,6 +429,7 @@ class _SentencePanel extends StatelessWidget {
     required this.session,
     required this.showKo,
     required this.showChrome,
+    this.figRefHints = true,
     this.onToggleChrome,
     this.onDoubleTapExpand,
   });
@@ -437,6 +439,8 @@ class _SentencePanel extends StatelessWidget {
   final ReadingSession session;
   final bool showKo;
   final bool showChrome;
+  /// design/124 — from /api/status; parent owns fetch.
+  final bool figRefHints;
   final VoidCallback? onToggleChrome;
   final VoidCallback? onDoubleTapExpand;
 
@@ -576,7 +580,7 @@ class _SentencePanel extends StatelessWidget {
 
   List<Widget> _figRefChipRow(BuildContext context) {
     // Kill: /api/status fig_ref_hints=false → no chips (design/124).
-    if (!_figRefHints) return const [];
+    if (!figRefHints) return const [];
     final cur = session.currentSentence;
     if (cur == null || !cur.hasText) return const [];
     final captions = session.figures.map((f) => f.caption).toList();
