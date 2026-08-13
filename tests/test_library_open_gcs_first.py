@@ -59,9 +59,9 @@ def test_design_wiring_and_status(cache_dir: Path) -> None:
     assert "data.ok === false" in js
     dart = CLIENT.read_text(encoding="utf-8")
     assert "design/121" in dart
-    assert "0.3.43" in PUB.read_text(encoding="utf-8")
+    assert "0.3.44" in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.43"
+    assert st["version"] == "0.3.44"
     assert st.get("paper_open_gcs_first") is True
 
 
@@ -109,7 +109,11 @@ def test_open_overwrites_local_from_gcs(
         sentences=[{"id": "s1", "text": "OLD local text that must be replaced."}],
     )
 
-    def fake_download(cid: str, *, entry=None) -> bool:
+    called = {"n": 0}
+
+    def fake_download(*_a, **_k) -> bool:
+        called["n"] += 1
+        cid = _a[0] if _a else str(_k.get("cache_id") or "overwrite001")
         _write_session(
             cache_dir,
             cid,
@@ -121,6 +125,7 @@ def test_open_overwrites_local_from_gcs(
     monkeypatch.setattr(pg, "gcs_papers_ready", lambda: True)
     monkeypatch.setattr(pg, "download_paper_cache", fake_download)
     r = TestClient(app).post("/api/cache/papers/overwrite001/open?translate=0")
+    assert called["n"] >= 1, "download_paper_cache should run on open"
     assert r.status_code == 200, r.text
     body = r.json()
     assert body.get("ok") is True

@@ -12,7 +12,7 @@ from sentence_reading.api import app as app_mod
 def test_status_version_pin() -> None:
     with TestClient(app_mod.app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.43"
+    assert st["version"] == "0.3.44"
 
 
 def test_mobile_library_reorder_wiring() -> None:
@@ -42,7 +42,7 @@ def test_mobile_library_reorder_wiring() -> None:
     pub = open(
         os.path.join(root, "mobile", "pubspec.yaml"), encoding="utf-8"
     ).read()
-    assert "0.3.43" in pub
+    assert "0.3.44" in pub
 
 
 def test_apply_library_order_pure() -> None:

@@ -252,8 +252,18 @@ def upload_paper_cache(cache_id: str) -> bool:
     return upload_remote_index({"version": 1, "entries": merged})
 
 
-def download_paper_cache(cache_id: str, *, entry: dict[str, Any] | None = None) -> bool:
-    """GCS → 로컬 보관본. 성공 시 로컬 index upsert."""
+def download_paper_cache(
+    cache_id: str,
+    *,
+    entry: dict[str, Any] | None = None,
+    include_figures: bool = True,
+    include_source: bool = True,
+) -> bool:
+    """GCS → 로컬 보관본. 성공 시 로컬 index upsert.
+
+    design/129 — ``include_figures=False`` skips PNG pull so /open stays fast;
+    single figures are fetched later via ``ensure_figure_local``.
+    """
     ready, msg = gcs_client_ready()
     if not gcs_config().enabled or not ready:
         log.debug("papers download skip: %s", msg)
@@ -282,46 +292,48 @@ def download_paper_cache(cache_id: str, *, entry: dict[str, Any] | None = None) 
     except OSError:
         return False
 
-    for fig in meta.get("figures") or []:
-        if not isinstance(fig, dict):
-            continue
-        rel = str(fig.get("file") or "")
-        fig_obj = paper_figure_object(cid, rel)
-        if not fig_obj:
-            continue
-        raw = download_bytes(fig_obj)
-        if not raw or len(raw) > PAPER_FIGURE_MAX_BYTES:
-            continue
-        out = paper_dir / rel.replace("\\", "/")
-        try:
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(raw)
-        except OSError:
-            continue
+    if include_figures:
+        for fig in meta.get("figures") or []:
+            if not isinstance(fig, dict):
+                continue
+            rel = str(fig.get("file") or "")
+            fig_obj = paper_figure_object(cid, rel)
+            if not fig_obj:
+                continue
+            raw = download_bytes(fig_obj)
+            if not raw or len(raw) > PAPER_FIGURE_MAX_BYTES:
+                continue
+            out = paper_dir / rel.replace("\\", "/")
+            try:
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(raw)
+            except OSError:
+                continue
 
     # 원본 백업 pull
-    src_rel = str(meta.get("source_file") or "").strip()
-    if not src_rel and meta.get("has_source"):
-        src_rel = source_filename_for(str(meta.get("source") or "pdf"))
-    if src_rel and ".." not in src_rel.split("/"):
-        src_obj = paper_source_object(cid, src_rel.split("/")[-1])
-        if src_obj:
-            raw = download_bytes(src_obj)
-            if raw and len(raw) <= PAPER_SOURCE_MAX_BYTES:
-                out = paper_dir / src_rel.split("/")[-1]
-                try:
-                    out.write_bytes(raw)
-                    meta["has_source"] = True
-                    meta["source_file"] = out.name
+    if include_source:
+        src_rel = str(meta.get("source_file") or "").strip()
+        if not src_rel and meta.get("has_source"):
+            src_rel = source_filename_for(str(meta.get("source") or "pdf"))
+        if src_rel and ".." not in src_rel.split("/"):
+            src_obj = paper_source_object(cid, src_rel.split("/")[-1])
+            if src_obj:
+                raw = download_bytes(src_obj)
+                if raw and len(raw) <= PAPER_SOURCE_MAX_BYTES:
+                    out = paper_dir / src_rel.split("/")[-1]
                     try:
-                        (paper_dir / _SESSION_NAME).write_text(
-                            json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
-                            encoding="utf-8",
-                        )
+                        out.write_bytes(raw)
+                        meta["has_source"] = True
+                        meta["source_file"] = out.name
+                        try:
+                            (paper_dir / _SESSION_NAME).write_text(
+                                json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
+                                encoding="utf-8",
+                            )
+                        except OSError:
+                            pass
                     except OSError:
                         pass
-                except OSError:
-                    pass
 
     # local index upsert
     index = _read_index()
@@ -443,11 +455,43 @@ def refresh_paper_for_open(cache_id: str) -> tuple[bool, str]:
     if not gcs_papers_ready():
         # EDGE: local-only / GCS not ready — not a pull failure (product 4).
         return True, "gcs_skipped"
-    # Product 1A: always pull even when local already has sentences.
-    if not download_paper_cache(cid):
+    # Product 1A: always pull session (design/121). design/129: skip bulk PNGs/source.
+    if not download_paper_cache(cid, include_figures=False, include_source=False):
         # Product 2A: refuse local fallback (fail-closed).
         return False, "gcs_pull_failed"
     return True, "ok"
+
+
+def ensure_figure_local(cache_id: str, figure_rel: str) -> Path | None:
+    """design/129 — download one figure object to disk if missing.
+
+    SECURITY: only ``figures/…`` under this cache_id via paper_figure_object.
+    """
+    cid = (cache_id or "").strip()
+    rel = (figure_rel or "").replace("\\", "/").strip()
+    if not _CACHE_ID_RE.match(cid):
+        return None
+    if not _FIG_FILE_RE.match(rel):
+        return None
+    paper_dir = cache_root() / cid
+    out = paper_dir / rel
+    if out.is_file() and out.stat().st_size > 0:
+        return out
+    ready, _ = gcs_client_ready()
+    if not gcs_config().enabled or not ready:
+        return out if out.is_file() else None
+    fig_obj = paper_figure_object(cid, rel)
+    if not fig_obj:
+        return None
+    raw = download_bytes(fig_obj)
+    if not raw or len(raw) > PAPER_FIGURE_MAX_BYTES:
+        return None
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(raw)
+    except OSError:
+        return None
+    return out if out.is_file() else None
 
 
 def pull_paper_matching_text(text: str, *, source: str = "pdf") -> dict[str, Any] | None:
