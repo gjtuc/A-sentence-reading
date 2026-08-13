@@ -58,10 +58,9 @@ class _ErrorLogsScreenState extends State<ErrorLogsScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snap.hasError) {
-            final msg = snap.error is AsrApiException
-                ? (snap.error as AsrApiException).message
-                : '불러오지 못했습니다.';
-            // FAIL-CLOSED: never pretend empty success on auth/network failure.
+            // WHY: do not show internal route paths (errors/admin) to admins as raw.
+            // FAIL-CLOSED: still an explicit failure — never an empty "성공" list.
+            const msg = '오류 로그를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.';
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
