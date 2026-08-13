@@ -84,7 +84,7 @@ def test_ui_sends_pipeline_mode() -> None:
     assert "design/35·36" in js or "design/36" in js
     assert "pipeline" in js
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.49" in html
+    assert "app.js?v=0.3.50" in html
 
 
 def test_pipeline_full_three_stages(monkeypatch: pytest.MonkeyPatch) -> None:

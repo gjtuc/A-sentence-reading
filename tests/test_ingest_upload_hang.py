@@ -86,7 +86,7 @@ def test_design_and_clients_pin() -> None:
 
 
 def test_logout_test_expects_current_app_version() -> None:
-    # 133 design stays historically 0.3.49; runtime version moves with each chip.
+    # 133 design stays historically 0.3.50; runtime version moves with each chip.
     from sentence_reading.api.app import app as live_app
 
     st = TestClient(live_app).get("/api/status").json()

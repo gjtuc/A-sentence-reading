@@ -65,8 +65,8 @@ def test_ui_assets() -> None:
     assert "/api/cite/resolve" in js
     assert "design/41" in js or "citeRefOpenBtn" in js
     served = TestClient(app).get("/").text
-    assert "cite_refs.js?v=0.3.49" in served
-    assert "app.js?v=0.3.49" in served
+    assert "cite_refs.js?v=0.3.50" in served
+    assert "app.js?v=0.3.50" in served
 
 
 def test_parse_and_extract() -> None:

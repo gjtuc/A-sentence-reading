@@ -42,7 +42,7 @@ def test_mobile_library_reorder_wiring() -> None:
     pub = open(
         os.path.join(root, "mobile", "pubspec.yaml"), encoding="utf-8"
     ).read()
-    assert "0.3.49" in pub
+    assert "0.3.50" in pub
 
 
 def test_apply_library_order_pure() -> None:

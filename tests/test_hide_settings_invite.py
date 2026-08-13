@@ -62,7 +62,7 @@ def test_settings_gates_invite_field() -> None:
 
 def test_pubspec_pin() -> None:
     pub = open(os.path.join(MOBILE, "pubspec.yaml"), encoding="utf-8").read()
-    assert "0.3.49" in pub
+    assert "0.3.50" in pub
 
 
 def test_no_secrets() -> None:

@@ -157,7 +157,7 @@ def test_gate_off_allows() -> None:
 def test_mobile_sources() -> None:
     mobile = Path(__file__).resolve().parents[1] / "mobile"
     pub = (mobile / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.49" in pub
+    assert "0.3.50" in pub
     client = (mobile / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "redeemInviteCode" in client and "mintInviteCode" in client
     settings = (mobile / "lib" / "screens" / "settings_screen.dart").read_text(

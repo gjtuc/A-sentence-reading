@@ -88,7 +88,7 @@ def test_design_110_exists():
 
 
 def test_pubspec_pin():
-    assert "0.3.49" in PUB.read_text(encoding="utf-8")
+    assert "0.3.50" in PUB.read_text(encoding="utf-8")
 
 
 def test_checkpoint_valid_and_discard_reasons():

@@ -111,4 +111,4 @@ def test_design_48_and_readme() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.49" in html
+    assert "app.js?v=0.3.50" in html

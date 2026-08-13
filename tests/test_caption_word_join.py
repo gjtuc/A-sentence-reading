@@ -1,4 +1,4 @@
-"""design/127 — Elsevier word-per-line caption join (0.3.49 · rich-v12)."""
+"""design/127 — Elsevier word-per-line caption join (0.3.50 · rich-v12)."""
 
 from __future__ import annotations
 

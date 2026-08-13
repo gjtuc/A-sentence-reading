@@ -61,5 +61,5 @@ def test_design_and_assets() -> None:
     assert "0.2.65" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.49" in served
-    assert "styles.css?v=0.3.49" in served
+    assert "app.js?v=0.3.50" in served
+    assert "styles.css?v=0.3.50" in served

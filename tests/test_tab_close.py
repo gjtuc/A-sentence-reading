@@ -42,4 +42,4 @@ def test_app_js_has_close_helpers() -> None:
 
 def test_index_assets_version() -> None:
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.49" in html
+    assert "app.js?v=0.3.50" in html

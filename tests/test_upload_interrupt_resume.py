@@ -38,7 +38,7 @@ def test_design_75_and_client_wiring() -> None:
     assert "45" in text
 
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.49" in pub
+    assert "0.3.50" in pub
 
     lib = (MOBILE / "lib" / "state" / "library_controller.dart").read_text(
         encoding="utf-8"
@@ -62,4 +62,4 @@ def test_design_75_and_client_wiring() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.49" in html
+    assert "app.js?v=0.3.50" in html

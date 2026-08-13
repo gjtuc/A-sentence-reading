@@ -92,7 +92,7 @@ def test_poll_timeout_20_minutes() -> None:
 
 def test_pubspec_pin() -> None:
     pub = open(os.path.join(MOBILE, "pubspec.yaml"), encoding="utf-8").read()
-    assert "0.3.49" in pub
+    assert "0.3.50" in pub
 
 
 def test_no_secrets() -> None:

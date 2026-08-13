@@ -52,4 +52,4 @@ def test_library_screen_has_dismiss_button() -> None:
 
 
 def test_pubspec_version() -> None:
-    assert "0.3.49" in PUB.read_text(encoding="utf-8")
+    assert "0.3.50" in PUB.read_text(encoding="utf-8")

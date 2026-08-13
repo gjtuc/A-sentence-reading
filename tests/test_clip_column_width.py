@@ -1,4 +1,4 @@
-"""design/128 — column-wide orphan table/fig clips (0.3.49 · rich-v12)."""
+"""design/128 — column-wide orphan table/fig clips (0.3.50 · rich-v12)."""
 
 from __future__ import annotations
 

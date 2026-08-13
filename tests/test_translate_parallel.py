@@ -120,4 +120,4 @@ def test_parallel_workers_one_matches_serial_shape(
 
 def test_asset_version() -> None:
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.49" in served
+    assert "app.js?v=0.3.50" in served

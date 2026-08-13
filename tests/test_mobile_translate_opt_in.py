@@ -81,4 +81,4 @@ def test_mobile_settings_has_translate_switch() -> None:
     pub = open(
         os.path.join(root, "mobile", "pubspec.yaml"), encoding="utf-8"
     ).read()
-    assert "0.3.49" in pub
+    assert "0.3.50" in pub

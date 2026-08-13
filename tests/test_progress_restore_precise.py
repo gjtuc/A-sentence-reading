@@ -1,4 +1,4 @@
-"""design/123 — progress restore precise + fail-closed (0.3.49)."""
+"""design/123 — progress restore precise + fail-closed (0.3.50)."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def test_app_js_refuses_invalid_progress_before_papers() -> None:
 
 
 def test_mobile_progress_wiring() -> None:
-    assert "0.3.49" in PUB.read_text(encoding="utf-8")
+    assert "0.3.50" in PUB.read_text(encoding="utf-8")
     gate = GATE.read_text(encoding="utf-8")
     assert "validateProgressIndices" in gate
     store = STORE.read_text(encoding="utf-8")

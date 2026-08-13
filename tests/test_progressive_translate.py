@@ -162,4 +162,4 @@ def test_ui_progressive_contracts() -> None:
     assert "translate_pending" in js
     assert "design/45" in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.49" in served
+    assert "app.js?v=0.3.50" in served

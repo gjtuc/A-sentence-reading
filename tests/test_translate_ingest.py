@@ -57,8 +57,8 @@ def test_ui_prefers_cached_ko() -> None:
     )
     assert "section-review-digest" in css
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.49" in served
-    assert "styles.css?v=0.3.49" in served
+    assert "app.js?v=0.3.50" in served
+    assert "styles.css?v=0.3.50" in served
 
 
 def test_public_dict_includes_ko_and_digests() -> None:

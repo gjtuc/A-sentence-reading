@@ -52,5 +52,5 @@ def test_dom_and_css_side_by_side() -> None:
     assert "setBilingualSplit" in js
     assert "design/39" in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.49" in served
-    assert "styles.css?v=0.3.49" in served
+    assert "app.js?v=0.3.50" in served
+    assert "styles.css?v=0.3.50" in served

@@ -41,6 +41,6 @@ def test_css_and_design_51() -> None:
     assert "0.2.59" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.49" in html
-    assert "styles.css?v=0.3.49" in html
+    assert "app.js?v=0.3.50" in html
+    assert "styles.css?v=0.3.50" in html
     assert "이어서 봅니다" in (STATIC / "index.html").read_text(encoding="utf-8")

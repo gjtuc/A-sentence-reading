@@ -39,7 +39,7 @@ def test_ui_no_live_translate_fetch() -> None:
     assert "design/42" in js
     assert 'fetch("/api/translate"' not in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.49" in served
+    assert "app.js?v=0.3.50" in served
 
 
 def test_needs_backfill_edges() -> None:

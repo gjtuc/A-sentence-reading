@@ -52,7 +52,7 @@ def test_design_76_and_android_wiring() -> None:
     assert "Live Enable" in text or "IPS" in text
 
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.49" in pub
+    assert "0.3.50" in pub
 
     gradle = (MOBILE / "android" / "app" / "build.gradle.kts").read_text(
         encoding="utf-8"
@@ -116,4 +116,4 @@ def test_design_76_and_android_wiring() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.49" in html
+    assert "app.js?v=0.3.50" in html

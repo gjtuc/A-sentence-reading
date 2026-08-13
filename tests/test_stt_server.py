@@ -46,8 +46,8 @@ def test_ui_server_wiring() -> None:
     assert "design/37–38" in app_js or "design/38" in app_js
     assert "stt_server" in app_js
     html = TestClient(app).get("/").text
-    assert "stt_practice.js?v=0.3.49" in html
-    assert "app.js?v=0.3.49" in html
+    assert "stt_practice.js?v=0.3.50" in html
+    assert "app.js?v=0.3.50" in html
 
 
 def test_mime_and_size_edges(monkeypatch: pytest.MonkeyPatch) -> None:

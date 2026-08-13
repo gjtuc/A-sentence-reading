@@ -71,7 +71,7 @@ def test_tts_edge_bad_rate_still_ok_when_mocked() -> None:
 
 def test_mobile_dart_tts_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.49" in pub
+    assert "0.3.50" in pub
     assert "audioplayers" in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "synthesizeTts" in client
@@ -121,4 +121,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.49" in html
+    assert "app.js?v=0.3.50" in html

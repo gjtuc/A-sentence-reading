@@ -71,6 +71,6 @@ def test_edge_legacy_pref_and_missing_nodes() -> None:
     assert "0.3.3" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.49" in served
-    assert "styles.css?v=0.3.49" in served
+    assert "app.js?v=0.3.50" in served
+    assert "styles.css?v=0.3.50" in served
     assert "sentenceHint" in served

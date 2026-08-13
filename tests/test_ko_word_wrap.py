@@ -53,5 +53,5 @@ def test_design_50_and_assets() -> None:
     assert "Trading Gate" in design or "ASR 밖" in design
     assert "design/50" in CSS.read_text(encoding="utf-8")
     html = TestClient(app).get("/").text
-    assert "styles.css?v=0.3.49" in html
-    assert "app.js?v=0.3.49" in html
+    assert "styles.css?v=0.3.50" in html
+    assert "app.js?v=0.3.50" in html

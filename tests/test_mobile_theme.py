@@ -26,7 +26,7 @@ def test_status_mobile_theme_flag() -> None:
 
 def test_mobile_dart_theme_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.49" in pub
+    assert "0.3.50" in pub
     models = (MOBILE / "lib" / "api" / "theme_models.dart").read_text(
         encoding="utf-8"
     )
@@ -81,4 +81,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.49" in html
+    assert "app.js?v=0.3.50" in html

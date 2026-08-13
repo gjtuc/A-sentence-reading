@@ -1,4 +1,4 @@
-"""design/126 — soft caption labels without required punct (0.3.49 · rich-v12)."""
+"""design/126 — soft caption labels without required punct (0.3.50 · rich-v12)."""
 
 from __future__ import annotations
 

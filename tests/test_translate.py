@@ -88,7 +88,7 @@ def test_ui_wiring_contract() -> None:
     assert "미리 번역 없음" in js or "text_ko" in js
     assert "design/35" in js or "design/42" in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.49" in served
+    assert "app.js?v=0.3.50" in served
 
 
 def test_empty_and_whitespace(monkeypatch: pytest.MonkeyPatch) -> None:

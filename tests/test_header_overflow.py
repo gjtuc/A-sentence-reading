@@ -81,6 +81,6 @@ def test_edge_escape_and_outside_close() -> None:
     assert "Trading Gate" in design or "ASR 밖" in design
     assert "Live Enable" in design or "IPS" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.49" in served
-    assert "styles.css?v=0.3.49" in served
+    assert "app.js?v=0.3.50" in served
+    assert "styles.css?v=0.3.50" in served
     assert "headerMoreBtn" in served
