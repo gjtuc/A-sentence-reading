@@ -43,10 +43,10 @@ Modules: `llm/error_logs.py` · `api/app.py` · Flutter `error_reporter` / `hang
 
 ## Device pin (E2E)
 
-- Live /api/status: ersion=0.3.46 · cloud_error_logs=true
-- APK ersionName=0.3.46 · SM-G986N
-- Settings (admin): no Server tile; Error logs tile opens empty list message after CD (pre-CD 404 showed failure, not fake empty success)
-- Live unauth: POST /api/errors/report · GET /api/errors/admin · badge → **401**
-- Kill: ASR_CLOUD_ERROR_LOGS=0 · revert PR · prior APK
+- Live `/api/status`: `version=0.3.46` · `cloud_error_logs=true`
+- APK `versionName=0.3.46` · SM-G986N
+- Settings (admin): no Server tile; Error logs opens empty-list message after CD (pre-CD 404 was failure UI, not fake empty success)
+- Live unauth: `POST /api/errors/report` · `GET /api/errors/admin` · badge -> **401**
+- Kill: `ASR_CLOUD_ERROR_LOGS=0` · revert PR · prior APK
 
 Do not paste session cookies, tokens, or full stacks with secrets into docs.
