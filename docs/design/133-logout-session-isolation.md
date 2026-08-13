@@ -36,9 +36,9 @@ Revert PR · 이전 APK. status 플래그는 관측용(클라 동작은 항상 w
 
 ## Device / E2E pin
 
-- Live `/api/status`: `version=0.3.49` · `logout_session_isolation=true`
-- APK `0.3.49` · SM-G986N: 로그인 A → (가능하면) 목록 확인 → 로그아웃아웃 → 목록/세션 비움 · 재로그인 전 draft 이어올리기 없음
-- Web Live: 논문 연 뒤 로그아웃아웃 → 탭/본문 비움 · 이전 제목 잔존 없음
-- Cross-user: 로컬 wipe 후 B 로그인 시 A 목록이 화면에 남지 않음
+- Live `/api/status`: `version=0.3.49` · `logout_session_isolation=true` (post-CD)
+- Local web `http://127.0.0.1:8788/`: logged-in reader with prior paper → ⋯ **로그아웃** → login gate only (`asr-login-gate`); prior sentence/title gone; account B login → no prior upload error residue (`browser_cancel_e2e` absent). Mock boot text after unlock is shared fixture, not A’s library.
+- APK `versionName=0.3.49` · SM-G986N: library showed **보관 2건** + paper titles → Settings **로그아웃** → login-only shell (Google/Kakao/email link); paper titles / `보관 2건` absent; force-stop + reopen still login-only (no library residue).
+- PR [#177](https://github.com/gjtuc/A-sentence-reading/pull/177) merged · kill: revert / prior APK
 
-Do not paste session cookies or secrets into docs.
+Do not paste session cookies, emails, or secrets into docs.
