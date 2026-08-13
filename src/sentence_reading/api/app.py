@@ -1950,16 +1950,12 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                     break
         except Exception:
             pass
-        # design/99 — mobile may pass translate=0 to skip KO backfill until opted in.
+        # design/99 — mobile may pass translate=0.
+        # design/129 — never await Gemini KO backfill on /open (multi‑minute hang → device
+        # TimeoutException). Empty KO is honest; progressive/read paths can fill later.
         bf_warn: list[str] = []
         if _want_translate(request):
-            session, bf_warn = await _backfill_cached_translations(
-                None,
-                session,
-                kind=src,
-                source_path=get_source_path(cache_id),
-                content_hash=info.get("content_hash"),
-            )
+            bf_warn.append("translate_deferred_on_open")
         session_id = _remember_session(session, cache_id=cache_id)
         # design/129 — sentences/meta only; PNGs via /figures/window (fail-closed empty src).
         data = session.to_public_dict(include_images=False)

@@ -32,9 +32,13 @@ Revert PR · 클라가 `lazy_figure_open=false`면 옛 풀-임베드 open을 기
 
 ## Version
 
-**0.3.44** · pipeline **rich-v12** (추출 불변)
+**0.3.45** · pipeline **rich-v12** (추출 불변)
 
 ## Follow-up in same chip
 
 Open GCS refresh pulls **session.json only** (not all PNGs); ±1 window may pull
 each missing figure from GCS on demand.
+
+## Also
+
+/open does not await KO backfill (deferred warning).

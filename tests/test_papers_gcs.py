@@ -149,7 +149,7 @@ def test_status_and_list_api(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.44"
+    assert st["version"] == "0.3.45"
     assert st.get("pipeline_version")
     papers = client.get("/api/cache/papers").json()["papers"]
     assert papers[0]["id"] == "y"
