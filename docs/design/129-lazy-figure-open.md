@@ -42,3 +42,14 @@ each missing figure from GCS on demand.
 ## Also
 
 /open does not await KO backfill (deferred warning).
+
+## Device pin (E2E)
+
+- Live `/api/status`: `version=0.3.45` · `lazy_figure_open=true` · `pipeline_version=rich-v12`
+- APK `versionName=0.3.45` · `adb install -r` (SM-G986N)
+- Library tap Ewbank (*Effect of metal–support… Ni/Al₂O₃…*) → reader **sentence 1 / 283** within ~6s (no 120s `TimeoutException`)
+- Figure nav → **figure 9 / 10** caption `Table 1 Results…` · **figure 10 / 10** caption `Table 2 Hydrogen…` (PNG visible)
+- Live unauth: `GET …/figures/window` · `GET /api/cache/papers` → **401** `auth_required`
+- Kill: revert PR · prior APK · clients treat missing `lazy_figure_open` as no window prefetch
+
+Do not paste session cookies, magic URLs, or invite codes into long-lived docs.
