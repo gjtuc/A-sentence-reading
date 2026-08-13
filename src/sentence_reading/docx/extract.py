@@ -26,8 +26,10 @@ _TABLE_CAPTION_START = re.compile(
 
 
 def _normalize_caption(text: str) -> str:
-    t = re.sub(r"\s+", " ", (text or "").strip())
-    return t[:900]
+    """design/131 — same ceiling as pdf.extract (full caption; no ellipsis)."""
+    from sentence_reading.pdf.extract import _normalize_caption as _pdf_norm
+
+    return _pdf_norm(text)
 
 
 def _png_data_url(png: bytes) -> str:

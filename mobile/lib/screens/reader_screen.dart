@@ -61,6 +61,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   String? _layoutSessionKey;
   /// design/124 — server kill `fig_ref_hints=false` hides chips; missing/error → show.
   bool _figRefHints = true;
+  /// design/131 — server kill `caption_full_text=false` restores 2-line …; missing → full.
+  bool _captionFullText = true;
 
   @override
   void initState() {
@@ -68,9 +70,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
     widget.client.fetchStatus().then((st) {
       if (!mounted) return;
       // WHY: explicit false is the kill switch; do not invent a hide on status miss.
-      setState(() => _figRefHints = st.figRefHints);
+      setState(() {
+        _figRefHints = st.figRefHints;
+        _captionFullText = st.captionFullText;
+      });
     }).catchError((_) {
-      // EDGE: status unreachable → keep local chips (matching only; no new auth surface).
+      // EDGE: status unreachable → keep full captions + chips (fail-open for readability).
     });
   }
 
@@ -329,6 +334,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       session: s,
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
+                                      captionFullText: _captionFullText,
                                       onToggleChrome: _toggleChrome,
                                       onDoubleTapExpand: _toggleFigureExpand,
                                     ),
@@ -619,6 +625,7 @@ class _FigurePanel extends StatelessWidget {
     required this.session,
     required this.showKo,
     required this.showChrome,
+    this.captionFullText = true,
     this.onToggleChrome,
     this.onDoubleTapExpand,
   });
@@ -627,6 +634,8 @@ class _FigurePanel extends StatelessWidget {
   final ReadingSession session;
   final bool showKo;
   final bool showChrome;
+  /// design/131 — false restores 2-line ellipsis (server kill / old clients).
+  final bool captionFullText;
   final VoidCallback? onToggleChrome;
   final VoidCallback? onDoubleTapExpand;
 
@@ -692,15 +701,30 @@ class _FigurePanel extends StatelessWidget {
                         ),
                         if (cur.caption.trim().isNotEmpty ||
                             (showKo && cur.captionKo.trim().isNotEmpty))
+                          // design/131 — full caption: wrap + scroll (no 2-line …).
+                          // WHY ConstrainedBox: unbounded Column must not crush the image.
+                          // Kill: when server sends caption_full_text=false, keep 2-line ellipsis.
                           Padding(
                             padding: const EdgeInsets.all(8),
-                            child: Text(
-                              (showKo && cur.captionKo.trim().isNotEmpty)
-                                  ? cur.captionKo
-                                  : cur.caption,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxHeight:
+                                    MediaQuery.sizeOf(context).height * 0.22,
+                              ),
+                              child: SingleChildScrollView(
+                                child: Text(
+                                  (showKo && cur.captionKo.trim().isNotEmpty)
+                                      ? cur.captionKo
+                                      : cur.caption,
+                                  maxLines: captionFullText ? null : 2,
+                                  overflow: captionFullText
+                                      ? TextOverflow.visible
+                                      : TextOverflow.ellipsis,
+                                  softWrap: true,
+                                  style:
+                                      Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ),
                             ),
                           ),
                       ],

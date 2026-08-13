@@ -17,7 +17,7 @@ DESIGN = os.path.join(ROOT, "docs", "design", "105-upload-fail-notify.md")
 def test_status_version_pin() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.46"
+    assert st["version"] == "0.3.47"
     assert st.get("mobile_upload_background") is True
 
 
@@ -92,7 +92,7 @@ def test_poll_timeout_20_minutes() -> None:
 
 def test_pubspec_pin() -> None:
     pub = open(os.path.join(MOBILE, "pubspec.yaml"), encoding="utf-8").read()
-    assert "0.3.46" in pub
+    assert "0.3.47" in pub
 
 
 def test_no_secrets() -> None:

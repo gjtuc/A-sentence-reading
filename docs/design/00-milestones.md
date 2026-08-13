@@ -157,6 +157,7 @@
 - ~~표/그림 단 폭 클립 (잘림 완화)~~ (0.3.42 · [128-clip-column-width.md](128-clip-column-width.md))
 - ~~문장 먼저 열기 · 그림 ±1 창~~ (0.3.45 · [129-lazy-figure-open.md](129-lazy-figure-open.md))
 - ~~클라우드 오류 로그 · 관리자 배지~~ (0.3.46 · [130-cloud-error-logs.md](130-cloud-error-logs.md))
+- ~~캡션 전문 표시 · normalize 상한~~ (0.3.47 · [131-caption-full-text.md](131-caption-full-text.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)
