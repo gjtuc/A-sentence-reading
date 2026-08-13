@@ -152,7 +152,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.48",
+    version="0.3.49",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -598,7 +598,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.48",
+        "version": "0.3.49",
         # design/129 — /open stubs images; clients use figures/window (±1).
         "lazy_figure_open": True,
         # design/130 — client report + admin list; false when ASR_CLOUD_ERROR_LOGS=0.
@@ -610,6 +610,9 @@ def status(request: Request) -> dict:
         # design/132 — cancel early ingest/upload; false when ASR_INGEST_CANCEL=0.
         "ingest_cancel": _ingest_cancel_enabled(),
         "mobile_ingest_cancel": _ingest_cancel_enabled(),
+        # design/133 — logout/account-switch wipes local library/session/draft (Path B).
+        "logout_session_isolation": True,
+        "mobile_logout_session_isolation": True,
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),

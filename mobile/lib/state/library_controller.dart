@@ -622,6 +622,11 @@ class LibraryController extends ChangeNotifier {
   }
 
   Future<void> clearAll() async {
+    // design/133 — latch cancel so a late upload Future cannot repopulate
+    // papers after logout wipe. Leave the latch true until the next intentional
+    // uploadPdf() clears it; do not re-arm mid-flight work here.
+    // Server ingest cancel is out of scope this chip (local discard only).
+    _uploadCancelRequested = true;
     shadowingChunksError = null;
     shadowingChunksCacheId = null;
     shadowingChunksBusy = false;
@@ -636,6 +641,8 @@ class LibraryController extends ChangeNotifier {
     uploadBackgroundHint = null;
     uploadBatteryHint = null;
     _activeContentHash = null;
+    _activeUploadId = null;
+    _activeJobId = null;
     await _cancelWorkmanager();
     await _drafts.clear();
     await _notify.stop();
