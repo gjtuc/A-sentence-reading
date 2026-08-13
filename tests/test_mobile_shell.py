@@ -22,7 +22,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 def test_status_mobile_shell_nav(client: TestClient) -> None:
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.45"
+    assert st["version"] == "0.3.46"
     assert st["mobile_shell_nav"] is True
 
 
@@ -41,7 +41,10 @@ def test_shell_source_structure() -> None:
     )
     assert "계정" in settings
     assert "로그아웃" in settings
-    assert "StatusScreen" in settings
+    # design/130 — admin opens error logs (replaces StatusScreen entry).
+    assert "ErrorLogsScreen" in settings
+    assert "오류 로그" in settings
+    assert "StatusScreen" not in settings
     assert "isAdmin" in settings
     login = (MOBILE / "lib" / "screens" / "login_screen.dart").read_text(encoding="utf-8")
     assert "Live Enable" not in login

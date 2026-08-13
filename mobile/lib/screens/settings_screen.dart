@@ -11,7 +11,7 @@ import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
-import 'status_screen.dart';
+import 'error_logs_screen.dart';
 
 /// Settings: account, theme, TTS, translate, shadowing, access (design/66-68, 79, 96, 99, 103, 104).
 class SettingsScreen extends StatefulWidget {
@@ -47,6 +47,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _mutating = false;
   String? _error;
   String? _minted;
+  /// design/130 — admin unread cloud error count (settings badge).
+  int _errorBadge = 0;
 
   @override
   void initState() {
@@ -81,6 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _events = const [];
         _minted = null;
         _error = null;
+        _errorBadge = 0;
         _code.clear();
       });
       return;
@@ -93,16 +96,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final st = await widget.auth.client.fetchAccessStatus();
       List<Map<String, dynamic>> pending = const [];
       List<Map<String, dynamic>> events = const [];
+      var badge = 0;
       // Admin endpoints 403 for non-admins — ignore.
       try {
         pending = await widget.auth.client.fetchAccessPending();
         events = await widget.auth.client.fetchAccessNotifications();
       } catch (_) {}
+      if (st.isAdmin) {
+        try {
+          badge = await widget.auth.client.fetchAdminErrorBadge();
+        } catch (_) {
+          badge = 0;
+        }
+      }
       if (!mounted) return;
       setState(() {
         _access = st;
         _pending = pending;
         _events = events.reversed.take(20).toList();
+        _errorBadge = badge;
       });
     } on AsrApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -228,25 +240,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     : const Text('로그아웃'),
               ),
             ],
-            // WHY: admin-only nested page — keeps Settings short (design/68).
-            // EDGE: non-admin must not see server flag dump.
+            // WHY: admin-only — cloud error triage replaces status dump (design/130).
+            // EDGE: non-admin must not see others' logs (server still 403).
             if (access?.isAdmin == true) ...[
               const SizedBox(height: 8),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.cloud_outlined),
-                title: const Text('서버'),
-                subtitle: const Text('연결 상태 확인'),
+                leading: Badge(
+                  isLabelVisible: _errorBadge > 0,
+                  label: Text(_errorBadge > 99 ? '99+' : '$_errorBadge'),
+                  child: const Icon(Icons.bug_report_outlined),
+                ),
+                title: const Text('오류 로그'),
+                subtitle: const Text('클라우드에 모인 오류 보기'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  Navigator.of(context).push(
+                onTap: () async {
+                  await Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) => Scaffold(
-                        appBar: AppBar(title: const Text('서버')),
-                        body: const StatusScreen(),
+                      builder: (_) => ErrorLogsScreen(
+                        client: widget.auth.client,
                       ),
                     ),
                   );
+                  if (mounted) _reload();
                 },
               ),
             ],

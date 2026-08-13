@@ -20,6 +20,8 @@ import '../api/upload_notify.dart';
 import '../api/shadowing_models.dart';
 import '../api/translate_models.dart';
 import '../api/library_order_models.dart';
+import '../services/error_reporter.dart';
+import '../services/hang_watchdog.dart';
 
 /// Stall after this long without progress while an upload is marked active.
 const Duration kUploadStallAfter = Duration(seconds: 45);
@@ -390,12 +392,32 @@ class LibraryController extends ChangeNotifier {
     opening = true;
     error = null;
     notifyListeners();
+    final opId = 'open:${entry.id}';
+    // design/130 — hang if open never returns (infinite spinner class).
+    asrErrorReporter?.hang.begin(
+      opId,
+      stage: 'library_open',
+      stallAfter: HangWatchdog.shortStall,
+      paperTitle: entry.title,
+      cacheId: entry.id,
+    );
     try {
       final wantTr = await _wantTranslate();
       final o = await _client.openPaper(entry.id, translate: wantTr);
+      asrErrorReporter?.hang.progress(opId, stage: 'library_open_ok');
       // Fail-closed: never keep a previous session when this open failed upstream.
       if (o.sentenceCount < 1) {
         error = '보관본에 문장이 없습니다. 재분석하거나 PDF를 다시 올려 주세요.';
+        unawaited(
+          asrErrorReporter?.report(
+                kind: 'open_empty',
+                message: 'open returned zero sentences',
+                stage: 'library_open',
+                paperTitle: entry.title,
+                cacheId: entry.id,
+              ) ??
+              Future.value(),
+        );
         return null;
       }
       if (o.title.isEmpty) o.title = entry.title;
@@ -447,11 +469,31 @@ class LibraryController extends ChangeNotifier {
     } on AsrApiException catch (e) {
       // WHY: leave prior session untouched only if we never assigned; clear on fail.
       error = e.message;
+      unawaited(
+        asrErrorReporter?.reportApiFailure(
+              e,
+              stage: 'library_open',
+              paperTitle: entry.title,
+              cacheId: entry.id,
+            ) ??
+            Future.value(),
+      );
       return null;
     } catch (e) {
       error = e.toString();
+      unawaited(
+        asrErrorReporter?.report(
+              kind: 'open_exception',
+              message: e.toString(),
+              stage: 'library_open',
+              paperTitle: entry.title,
+              cacheId: entry.id,
+            ) ??
+            Future.value(),
+      );
       return null;
     } finally {
+      asrErrorReporter?.hang.end(opId);
       opening = false;
       notifyListeners();
     }

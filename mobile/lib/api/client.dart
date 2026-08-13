@@ -54,6 +54,9 @@ class AsrStatus {
     this.progressFailClosed = true,
     // design/28 · 124 — missing key → on (show Fig chips when server advertises).
     this.figRefHints = true,
+    // design/130 — missing key → on (report); explicit false kills.
+    this.cloudErrorLogs = true,
+    this.mobileCloudErrorLogs = true,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -118,6 +121,15 @@ class AsrStatus {
       figRefHints: json.containsKey('fig_ref_hints')
           ? json['fig_ref_hints'] == true
           : true,
+      // design/130 — missing → on; explicit false kills reporting.
+      cloudErrorLogs: json.containsKey('cloud_error_logs')
+          ? json['cloud_error_logs'] == true
+          : true,
+      mobileCloudErrorLogs: json.containsKey('mobile_cloud_error_logs')
+          ? json['mobile_cloud_error_logs'] == true
+          : (json.containsKey('cloud_error_logs')
+              ? json['cloud_error_logs'] == true
+              : true),
     );
   }
 
@@ -145,6 +157,9 @@ class AsrStatus {
   final bool mobileAccessWaitingUx;
   final bool progressFailClosed;
   final bool figRefHints;
+  // design/130 — missing key → on; explicit false kills client reporting.
+  final bool cloudErrorLogs;
+  final bool mobileCloudErrorLogs;
 }
 
 class AsrClient {
@@ -1300,6 +1315,76 @@ class AsrClient {
         )
         .timeout(const Duration(seconds: 150));
     return _decodeObject(res, 'shadowing/chunks/build');
+  }
+
+  /// POST /api/errors/report — design/130 (fail quietly at call sites).
+  Future<void> reportError({
+    required String kind,
+    required String message,
+    String stack = '',
+    String stage = '',
+    String? paperTitle,
+    String? cacheId,
+    String platform = '',
+    String appVersion = '',
+  }) async {
+    final res = await _http
+        .post(
+          _uri('/api/errors/report'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({
+            'kind': kind,
+            'message': message,
+            'stack': stack,
+            'stage': stage,
+            if (paperTitle != null && paperTitle.isNotEmpty)
+              'paper_title': paperTitle,
+            if (cacheId != null && cacheId.isNotEmpty) 'cache_id': cacheId,
+            if (platform.isNotEmpty) 'platform': platform,
+            if (appVersion.isNotEmpty) 'app_version': appVersion,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    _decodeObject(res, 'errors/report');
+  }
+
+  /// GET /api/errors/admin
+  Future<List<Map<String, dynamic>>> fetchAdminErrorLogs({int limit = 50}) async {
+    final res = await _http
+        .get(
+          _uri('/api/errors/admin').replace(queryParameters: {
+            'limit': '$limit',
+          }),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 30));
+    final map = _decodeObject(res, 'errors/admin');
+    final raw = map['events'];
+    if (raw is! List) return const [];
+    return [
+      for (final item in raw)
+        if (item is Map) Map<String, dynamic>.from(item),
+    ];
+  }
+
+  /// GET /api/errors/admin/badge
+  Future<int> fetchAdminErrorBadge() async {
+    final res = await _http
+        .get(_uri('/api/errors/admin/badge'), headers: await _headers())
+        .timeout(const Duration(seconds: 20));
+    final map = _decodeObject(res, 'errors/admin/badge');
+    final n = map['count'];
+    if (n is int) return n;
+    if (n is num) return n.toInt();
+    return 0;
+  }
+
+  /// POST /api/errors/admin/seen
+  Future<void> markAdminErrorsSeen() async {
+    final res = await _http
+        .post(_uri('/api/errors/admin/seen'), headers: await _headers())
+        .timeout(const Duration(seconds: 20));
+    _decodeObject(res, 'errors/admin/seen');
   }
 
 }

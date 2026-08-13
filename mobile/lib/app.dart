@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'screens/home_shell.dart';
+import 'services/error_reporter.dart';
 import 'state/auth_controller.dart';
 import 'state/library_controller.dart';
 import 'state/shadowing_controller.dart';
@@ -49,6 +50,8 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
   @override
   void initState() {
     super.initState();
+    // Reuse reporter from main() when injected; otherwise create for tests.
+    asrErrorReporter ??= ErrorReporter(client: _auth.client)..install();
     _auth.bootstrap();
     _theme.bootstrap();
     _tts.bootstrap();
@@ -70,6 +73,9 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     try {
       final st = await _auth.client.fetchStatus();
       _shadowing.setServerAvailable(st.mobileShadowingPractice);
+      asrErrorReporter?.setEnabled(
+        st.cloudErrorLogs && st.mobileCloudErrorLogs,
+      );
     } catch (_) {
       // EDGE: status fail → keep kill closed (no false enable).
       _shadowing.setServerAvailable(false);
