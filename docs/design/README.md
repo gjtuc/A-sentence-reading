@@ -123,6 +123,7 @@
 | 130 | [130-cloud-error-logs.md](130-cloud-error-logs.md) | 오류 탐지 · 클라우드 로그 · 관리자 배지 |
 | 131 | [131-caption-full-text.md](131-caption-full-text.md) | 캡션 전문(줄바꿈·스크롤) · normalize 상한 |
 | 132 | [132-ingest-cancel.md](132-ingest-cancel.md) | 업로드·정제 중 취소 (조기 discard · ready+ 거절) |
+| 133 | [133-logout-session-isolation.md](133-logout-session-isolation.md) | 로그아웃·계정전환 로컬 세션/보관함 격리 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  

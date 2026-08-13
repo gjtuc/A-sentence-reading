@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'screens/home_shell.dart';
@@ -45,6 +47,9 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
   late final TranslateController _translate =
       widget.translate ?? TranslateController();
 
+  /// design/133 — last uid that owned in-memory library; null after logout wipe.
+  String? _boundLibraryUid;
+
   static const _seed = Color(0xFF1B4F72);
 
   @override
@@ -66,10 +71,21 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       _shadowing.clearSession();
       _shadowing.setServerAvailable(false);
       _translate.clearSession();
+      // design/133 — AccessWaiting-only shell never mounts LibraryScreen, so
+      // screen-local clearAll never runs. Wipe at app root so the next account
+      // cannot see papers / resume another user's upload draft.
+      _boundLibraryUid = null;
+      await _library.clearAll();
       return;
     }
-    await _shadowing.bindUid(_auth.user!.uid);
-    await _translate.bindUid(_auth.user!.uid);
+    final uid = _auth.user!.uid;
+    // WHY: account switch without an empty-user frame must still discard prior UI.
+    if (_boundLibraryUid != null && _boundLibraryUid != uid) {
+      await _library.clearAll();
+    }
+    _boundLibraryUid = uid;
+    await _shadowing.bindUid(uid);
+    await _translate.bindUid(uid);
     try {
       final st = await _auth.client.fetchStatus();
       _shadowing.setServerAvailable(st.mobileShadowingPractice);

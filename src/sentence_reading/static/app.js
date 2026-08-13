@@ -2654,6 +2654,31 @@
     }
     authState.user = null;
     applyAccountScope(null);
+    // design/133 — shared browser: discard prior user's papers/tabs/reader.
+    // WHY: applyAccountScope clears notes/progress keys but left papers[] in memory.
+    try {
+      if (typeof stopTts === "function") stopTts();
+    } catch (_) {
+      /* ignore */
+    }
+    ingestCancelRequested = false;
+    ingestActiveJobId = null;
+    papers = [];
+    activePaperIndex = 0;
+    state.figures = [];
+    state.sentences = [];
+    state.figureIndex = 0;
+    state.sentenceIndex = 0;
+    state.title = "";
+    state.sessionId = null;
+    state.translateDigests = {};
+    state.references = [];
+    state.translatePending = false;
+    uiPhase = "boot";
+    if (el.stageBadge) el.stageBadge.textContent = "";
+    setSentenceDisplay("", true);
+    renderPaperTabs();
+    updateCacheDeleteBtn();
     renderAuthChrome();
     loadTranslatePrefs();
     loadSectionReviewPrefs();
