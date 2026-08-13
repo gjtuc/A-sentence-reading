@@ -29,6 +29,6 @@ def test_design_and_wiring() -> None:
     assert "design/118" in src
     assert "amplifyFigurePinchScale" in src
     assert "figure_pinch_sensitivity.dart" in src
-    assert "0.3.49" in PUB.read_text(encoding="utf-8")
+    assert "0.3.50" in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"

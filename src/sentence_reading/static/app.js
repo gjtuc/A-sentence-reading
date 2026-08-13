@@ -1059,6 +1059,126 @@
   // design/132 — cooperative cancel for web ingest poll loop.
   let ingestCancelRequested = false;
   let ingestActiveJobId = null;
+  // design/134 — no-progress hang (local fail + errors/report; no auto cancel API).
+  let ingestHangTimer = null;
+  let ingestHangEnabled = true;
+  let ingestHangStallMs = 180000;
+  let ingestHangLastPct = -1;
+  let ingestHangLastKey = "";
+  let ingestHangTripped = false;
+
+  function clearIngestHangTimer() {
+    if (ingestHangTimer) {
+      window.clearTimeout(ingestHangTimer);
+      ingestHangTimer = null;
+    }
+  }
+
+  function ingestHangStageKey(msg) {
+    const s = String(msg || "").toLowerCase();
+    if (s.indexOf("번역") >= 0 || s.indexOf("translate") >= 0) return "translate";
+    if (s.indexOf("처리") >= 0 || s.indexOf("process") >= 0) return "processing";
+    if (s.indexOf("읽") >= 0 || s.indexOf("upload") >= 0) return "uploading";
+    return s ? s.slice(0, 24) : "ingest";
+  }
+
+  function armIngestHangTimer(name) {
+    clearIngestHangTimer();
+    if (!ingestHangEnabled) return;
+    ingestHangTimer = window.setTimeout(function () {
+      void onIngestHang(name);
+    }, ingestHangStallMs);
+  }
+
+  async function beginIngestHang(name) {
+    clearIngestHangTimer();
+    ingestHangTripped = false;
+    ingestHangLastPct = -1;
+    ingestHangLastKey = "";
+    ingestHangEnabled = true;
+    ingestHangStallMs = 180000;
+    try {
+      const st = await fetch("/api/status", { credentials: "same-origin" }).then(
+        function (r) {
+          return r.json();
+        }
+      );
+      if (st && st.ingest_upload_hang === false) ingestHangEnabled = false;
+      const sec = Number(st && st.ingest_hang_stall_seconds);
+      if (Number.isFinite(sec) && sec >= 5) {
+        ingestHangStallMs = Math.min(3600, Math.floor(sec)) * 1000;
+      }
+    } catch (_) {
+      /* keep defaults — fail-closed hang on */
+    }
+    armIngestHangTimer(name);
+  }
+
+  function noteIngestHangProgress(pct, msg, name) {
+    if (!ingestHangEnabled || ingestHangTripped) return;
+    const n = typeof pct === "number" ? pct : 0;
+    const key = ingestHangStageKey(msg);
+    const pctUp = n > ingestHangLastPct;
+    const stageUp = key && key !== ingestHangLastKey;
+    if (!pctUp && !stageUp) {
+      // Same place poll — do not reset hang clock.
+      return;
+    }
+    if (pctUp) ingestHangLastPct = n;
+    if (stageUp) ingestHangLastKey = key;
+    armIngestHangTimer(name);
+  }
+
+  async function onIngestHang(name) {
+    if (ingestHangTripped) return;
+    ingestHangTripped = true;
+    clearIngestHangTimer();
+    // Local abort only (product: no automatic server cancel this chip).
+    ingestCancelRequested = true;
+    setLoading(false);
+    setUploadStatus(
+      "응답이 없어 업로드를 중단했습니다. 다시 시도해 주세요.",
+      "error"
+    );
+    try {
+      await fetch("/api/errors/report", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "hang",
+          message:
+            "no progress for " +
+            Math.round(ingestHangStallMs / 1000) +
+            "s at ingest_upload",
+          stage: "ingest_upload",
+          paper_title: String(name || "").slice(0, 200),
+          platform: "web",
+          app_version: "0.3.50",
+        }),
+      });
+    } catch (_) {
+      /* report best-effort; never fake success */
+    }
+  }
+
+  // Localhost-only E2E hooks (never on Cloud Run host).
+  if (
+    typeof location !== "undefined" &&
+    (location.hostname === "127.0.0.1" || location.hostname === "localhost")
+  ) {
+    window.__asrHangE2E = {
+      beginIngestHang: beginIngestHang,
+      noteIngestHangProgress: noteIngestHangProgress,
+      clearIngestHangTimer: clearIngestHangTimer,
+      getTripped: function () {
+        return !!ingestHangTripped;
+      },
+      getStallMs: function () {
+        return ingestHangStallMs;
+      },
+    };
+  }
 
   async function requestIngestCancel() {
     ingestCancelRequested = true;
@@ -4746,6 +4866,7 @@
     setLoading(true);
     ingestCancelRequested = false;
     ingestActiveJobId = null;
+    await beginIngestHang(name);
     setUploadStatus(`읽는 중… 0% · ${name}`, "busy");
     el.stageBadge.textContent = `다듬는 중 · ${name}`;
     // WHY: 이미 열린 논문이 있으면 화면은 유지 — 상태만 헤더에 표시
@@ -4775,6 +4896,7 @@
         throw new Error("작업 ID를 받지 못했어요.");
       }
       ingestActiveJobId = jobId;
+      noteIngestHangProgress(1, "uploading", name);
 
       let data = null;
       let openedEarly = false;
@@ -4799,6 +4921,7 @@
         if (st.message) {
           el.stageBadge.textContent = `${st.message} · ${name}`;
         }
+        noteIngestHangProgress(pct, st.message || "", name);
         // WHY: design/45 — 번역 전이라도 session_id 있으면 먼저 열기
         if (
           !openedEarly &&
@@ -4868,12 +4991,20 @@
     } catch (err) {
       console.error(err);
       if (String(err && err.message) === "__ASR_INGEST_CANCELLED__") {
-        // design/132 — discard; no fake success session from cancel.
-        setUploadStatus("업로드를 취소했습니다.", "");
-        if (!papers.length) {
-          uiPhase = "empty";
-          el.stageBadge.textContent = "";
-          setSentenceDisplay("", true);
+        if (ingestHangTripped) {
+          // design/134 — hang already set failure copy; do not overwrite as user cancel.
+          if (!papers.length) {
+            uiPhase = "error";
+            el.stageBadge.textContent = "";
+          }
+        } else {
+          // design/132 — discard; no fake success session from cancel.
+          setUploadStatus("업로드를 취소했습니다.", "");
+          if (!papers.length) {
+            uiPhase = "empty";
+            el.stageBadge.textContent = "";
+            setSentenceDisplay("", true);
+          }
         }
       } else {
         if (!papers.length) {
@@ -4884,8 +5015,10 @@
         setUploadStatus(String(err.message || err), "error");
       }
     } finally {
+      clearIngestHangTimer();
       ingestCancelRequested = false;
       ingestActiveJobId = null;
+      ingestHangTripped = false;
       setLoading(false);
       el.pdfInput.value = "";
     }

@@ -1,7 +1,8 @@
-/// design/130 — hang / infinite-repeat detection.
+/// design/130 · design/134 — hang / infinite-repeat detection.
 ///
 /// WHY: silent spinners and retry loops are product failures even without
-/// thrown exceptions. Thresholds locked in design/130.
+/// thrown exceptions. Thresholds locked in design/130; upload path wiring
+/// and local fail-closed abort are design/134.
 library;
 
 import 'dart:async';
@@ -14,15 +15,21 @@ typedef HangReportFn = Future<void> Function({
   String? cacheId,
 });
 
+/// Sync local abort (cancel latch / fail UI) before cloud report.
+typedef HangLocalFn = void Function(String opId, String kind);
+
 class HangWatchdog {
-  HangWatchdog({HangReportFn? onHang}) : _onHang = onHang;
+  HangWatchdog({HangReportFn? onHang, HangLocalFn? onLocal})
+      : _onHang = onHang,
+        _onLocal = onLocal;
 
   HangReportFn? _onHang;
+  HangLocalFn? _onLocal;
 
   /// Short API / open path — no completion within this → hang.
   static const shortStall = Duration(seconds: 45);
 
-  /// Ingest / long job — no *progress* within this → hang.
+  /// Ingest / long job — no *progress* within this → hang (design/130·134).
   static const ingestStall = Duration(minutes: 3);
 
   /// Same stage advanced with no progress this many times → loop.
@@ -31,6 +38,8 @@ class HangWatchdog {
   final Map<String, _Track> _tracks = {};
 
   void setReporter(HangReportFn? fn) => _onHang = fn;
+
+  void setLocalHandler(HangLocalFn? fn) => _onLocal = fn;
 
   /// Start or refresh a tracked op. [opId] should be stable per logical job.
   void begin(
@@ -103,6 +112,8 @@ class HangWatchdog {
   Future<void> _fireHang(String opId, _Track t, {required String kind}) async {
     _tracks.remove(opId);
     t.timer?.cancel();
+    // WHY local first: stop in-flight upload before awaiting network report.
+    _onLocal?.call(opId, kind);
     final fn = _onHang;
     if (fn == null) return;
     await fn(
