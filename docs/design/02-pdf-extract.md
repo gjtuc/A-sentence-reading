@@ -55,7 +55,7 @@ Tesseract 로컬 OCR은 쓰지 않음.
 | `_FIGURE_CLIP_ZOOM` | **8.0** (0.2.41 · 이전 2.0) | 같은 clip을 더 촘촘히 찍음 (~576 dpi). **잘리는 범위는 불변** |
 | `_FIGURE_CLIP_MAX_SIDE_PX` | 6400 | 전면 그림 8× 시 긴 변 상한 (OOM). 영역은 유지·해상도만 캡 |
 
-`pipeline_version` → **`rich-v11` (0.3.41 · caption word-join · [127](127-caption-word-join.md); 이전 rich-v10 · [126](126-soft-caption-labels.md))** (0.3.6 · caption-number figure order · [92](92-figure-caption-order.md); 이전 rich-v7 compound off).
+`pipeline_version` → **`rich-v12` (0.3.42 · column clips · [128](128-clip-column-width.md); 이전 rich-v11 · [127](127-caption-word-join.md))** (0.3.6 · caption-number figure order · [92](92-figure-caption-order.md); 이전 rich-v7 compound off).
 
 ### 전략: caption-first (design/125) + embedded attach
 
