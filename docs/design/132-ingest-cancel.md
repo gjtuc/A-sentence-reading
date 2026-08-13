@@ -47,10 +47,11 @@ Modules: `api/app.py` · `llm/ingest_jobs_gcs.py` · `llm/ingest_chunked.py` · 
 
 ## Device / E2E pin
 
-- Live `/api/status`: `version=0.3.48` · `ingest_cancel=true`
-- APK `versionName=0.3.48` · SM-G986N (또는 웹 Live)
-- Early cancel: 진행 UI → 취소 → 목록에 새 행 없음 · draft 클리어
-- Late refuse: ready+ 에서 cancel → `cancel_too_late` · 작업은 계속/완료 가능
-- Unauth cancel → 401 · cross-user → 404
+- Live `/api/status`: `version=0.3.48` · `ingest_cancel=true` (post-CD)
+- Live unauth: `POST /api/ingest/jobs/{id}/cancel` → **401** `auth_required`
+- Local uvicorn `:8788`: A/B cross cancel **404**; early owner cancel **200** discard; chunked upload cancel discard
+- Browser `http://127.0.0.1:8788/`: `#uploadCancelBtn` present (hidden when idle); status flags OK
+- APK `versionName=0.3.48` · SM-G986N — library idle: **취소** not shown; DocumentsUI file pick for mid-upload cancel tap not completed this chip (picker search miss)
+- Kill: `ASR_INGEST_CANCEL=0` · revert PR · prior APK
 
 Do not paste session cookies or secrets into docs.
