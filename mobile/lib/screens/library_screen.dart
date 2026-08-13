@@ -364,6 +364,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 ),
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton(
+                            // design/132 — early cancel; late stage may refuse on server.
+                            onPressed: () => lib.cancelUpload(),
+                            child: const Text('취소'),
+                          ),
+                        ),
                         if (lib.uploadBatteryHint != null) ...[
                           const SizedBox(height: 8),
                           Text(

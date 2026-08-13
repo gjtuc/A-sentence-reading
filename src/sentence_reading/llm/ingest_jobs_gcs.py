@@ -492,6 +492,8 @@ def serialize_job_record(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
         # design/110 — reclaim must keep opt-in flags (defaults lied after GCS round-trip).
         "want_translate": bool(job.get("want_translate", True)),
         "want_shadowing_chunks": bool(job.get("want_shadowing_chunks", False)),
+        # design/132 — other instances must not reclaim a user-cancelled job.
+        "cancel_requested": bool(job.get("cancel_requested")),
     }
     # design/107 — lease so other instances know a worker is still alive.
     if job.get("lease_until"):

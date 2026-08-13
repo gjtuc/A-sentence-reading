@@ -152,7 +152,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.47",
+    version="0.3.48",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -312,6 +312,9 @@ def _persist_job(job_id: str, job: dict, *, force: bool = False) -> None:
     """design/71 — mirror job to users/{uid}/ingest_jobs when GCS is on."""
     from sentence_reading.llm import ingest_jobs_gcs as ij
 
+    # design/132 — after wipe, never recreate GCS job from a discarded memory stub.
+    if job.get("_discarded"):
+        return
     if not ij.should_push_job(job, force=force):
         return
     try:
@@ -320,6 +323,85 @@ def _persist_job(job_id: str, job: dict, *, force: bool = False) -> None:
         # WHY: fail-soft — local poll still works on the worker instance.
         log = __import__("logging").getLogger("sentence_reading.api")
         log.warning("ingest job gcs push failed %s: %s", job_id, exc)
+
+
+class IngestCancelled(Exception):
+    """design/132 — cooperative abort before library publish (not a user error row)."""
+
+
+def _ingest_cancel_enabled() -> bool:
+    """Kill switch: ASR_INGEST_CANCEL=0 disables cancel endpoints + status flag."""
+    v = (os.environ.get("ASR_INGEST_CANCEL") or "1").strip().lower()
+    return v not in ("0", "false", "off", "no")
+
+
+# Stages at/after first library publish — cancel refuses; job finishes.
+_INGEST_CANCEL_TOO_LATE_STAGES = frozenset(
+    {
+        "ready",
+        "translate",
+        "save",
+        "shadowing_chunks",
+        "done",
+    }
+)
+
+
+def _ingest_job_too_late_to_cancel(job: dict) -> bool:
+    """True when paper is (about to be) in the library — product: let it finish."""
+    # Terminal failure is not "too late to finish" — caller should 404 (nothing left).
+    if job.get("done") and job.get("error"):
+        return False
+    if job.get("done"):
+        return True
+    stage = str(job.get("stage") or "").strip()
+    if stage in _INGEST_CANCEL_TOO_LATE_STAGES:
+        return True
+    result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    if str(result.get("cache_id") or "").strip():
+        return True
+    return False
+
+
+def _wipe_ingest_artifacts(job_id: str, *, owner_uid: str, filename: str = "") -> None:
+    """
+    design/132 — discard job + source + resume payload. No cancelled library row.
+    WHY: cancel must not leave reclaimable blobs that restart processing.
+    """
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    uid = (owner_uid or "").strip()
+    jid = (job_id or "").strip()
+    if not uid or not jid:
+        return
+    fn = (filename or "").lower()
+    suffixes = [".docx", ".pdf"] if fn.endswith(".docx") else [".pdf", ".docx"]
+    for suf in suffixes:
+        try:
+            ij.delete_ingest_upload(jid, owner_uid=uid, suffix=suf)
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        ij.delete_ingest_payload(jid, owner_uid=uid)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        ij.delete_ingest_job(jid, owner_uid=uid)
+    except Exception:  # noqa: BLE001
+        pass
+    mem = _JOBS.pop(jid, None)
+    if mem is not None:
+        mem["_discarded"] = True
+        mem["cancel_requested"] = True
+
+
+def _ensure_ingest_not_cancelled(job_id: str) -> None:
+    """Raise when the owner cancelled before ready — stops further Gemini/cache work."""
+    job = _JOBS.get(job_id)
+    if job is not None and job.get("cancel_requested") and not job.get("_discarded"):
+        # EDGE: if somehow past ready, ignore flag (cancel API already refused).
+        if not _ingest_job_too_late_to_cancel(job):
+            raise IngestCancelled()
 
 
 def _job_set(
@@ -331,8 +413,11 @@ def _job_set(
     cursor: dict | None = None,
 ) -> None:
     job = _JOBS.get(job_id)
-    if not job or job.get("done"):
+    if not job or job.get("done") or job.get("_discarded"):
         return
+    # WHY: cooperative cancel — progress ticks become abort points between stages.
+    if job.get("cancel_requested") and not _ingest_job_too_late_to_cancel(job):
+        raise IngestCancelled()
     job["percent"] = max(0, min(100, int(percent)))
     job["stage"] = stage
     if message:
@@ -354,8 +439,10 @@ def _job_publish_partial(job_id: str, data: dict, *, message: str = "") -> None:
     job["result"] 만 갱신 (done=False 유지).
     """
     job = _JOBS.get(job_id)
-    if not job or job.get("done"):
+    if not job or job.get("done") or job.get("_discarded"):
         return
+    if job.get("cancel_requested") and not _ingest_job_too_late_to_cancel(job):
+        raise IngestCancelled()
     payload = dict(data)
     payload["ok"] = True
     payload["translate_pending"] = True
@@ -383,7 +470,10 @@ def _remember_session(session: PaperSession, *, cache_id: str | None = None) -> 
 
 def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
     job = _JOBS.get(job_id)
-    if job is None:
+    if job is None or job.get("_discarded"):
+        return
+    # WHY: early cancel must not publish a terminal success after discard race.
+    if job.get("cancel_requested") and not _ingest_job_too_late_to_cancel(job):
         return
     job["percent"] = 100
     job["stage"] = "done"
@@ -508,7 +598,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.47",
+        "version": "0.3.48",
         # design/129 — /open stubs images; clients use figures/window (±1).
         "lazy_figure_open": True,
         # design/130 — client report + admin list; false when ASR_CLOUD_ERROR_LOGS=0.
@@ -517,6 +607,9 @@ def status(request: Request) -> dict:
         # design/131 — full figure captions (UI + normalize ceiling); false restores 2-line ….
         "caption_full_text": True,
         "mobile_caption_full_text": True,
+        # design/132 — cancel early ingest/upload; false when ASR_INGEST_CANCEL=0.
+        "ingest_cancel": _ingest_cancel_enabled(),
+        "mobile_ingest_cancel": _ingest_cancel_enabled(),
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -2464,7 +2557,9 @@ async def _ingest_lease_heartbeat(job_id: str) -> None:
     while True:
         await asyncio.sleep(interval)
         job = _JOBS.get(job_id)
-        if not job or job.get("done") or job.get("error"):
+        if not job or job.get("done") or job.get("error") or job.get("_discarded"):
+            return
+        if job.get("cancel_requested"):
             return
         if not job.get("_local_running"):
             return
@@ -2485,6 +2580,20 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
     existing = _JOBS.get(job_id)
     # WHY: this instance already has an active worker — do not double-start.
     if existing is not None and existing.get("_local_running"):
+        return False
+    # design/132 — cancelled jobs must not restart on another instance.
+    if existing is not None and (
+        existing.get("cancel_requested") or existing.get("_discarded")
+    ):
+        return False
+    meta_pre = ij.load_ingest_job(job_id, owner_uid=owner_uid) or {}
+    if meta_pre.get("cancel_requested"):
+        # WHY: wipe leftovers so poll stays 404 and cost does not resume.
+        _wipe_ingest_artifacts(
+            job_id,
+            owner_uid=owner_uid,
+            filename=str(meta_pre.get("filename") or ""),
+        )
         return False
     token = ij.try_claim_lease(job_id, owner_uid=owner_uid)
     if not token:
@@ -2687,9 +2796,11 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
                 },
             )
         # design/107 — owner poll may restart an abandoned worker (lease expired).
+        # design/132 — never reclaim a user-cancelled job.
         if (
             not job.get("done")
             and not job.get("error")
+            and not job.get("cancel_requested")
             and not job.get("_local_running")
             and ij.ingest_job_reclaim_enabled()
             and ij.lease_expired(job)
@@ -2698,6 +2809,185 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
             job = _JOBS.get(jid) or job
 
     return JSONResponse(ij.public_job_view(jid, job))
+
+
+@app.post("/api/ingest/jobs/{job_id}/cancel")
+async def ingest_job_cancel(request: Request, job_id: str) -> JSONResponse:
+    """
+    design/132 — owner cancels early ingest; discards blobs; no library row.
+    Late stages (ready+) refuse so the job can finish.
+    """
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    if not _ingest_cancel_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "cancel_disabled",
+                "message": "지금은 취소를 사용할 수 없습니다.",
+            },
+        )
+
+    jid = (job_id or "").strip()
+    if not jid.startswith("job_") or "/" in jid or "\\" in jid or ".." in jid:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "job_not_found",
+                "message": "작업을 찾을 수 없습니다.",
+            },
+        )
+
+    user = _request_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "auth_required",
+                "message": "로그인이 필요합니다.",
+            },
+        )
+
+    job = _JOBS.get(jid)
+    loaded = ij.load_ingest_job(jid, owner_uid=user.uid)
+    if loaded is not None:
+        if job is None:
+            job = dict(loaded)
+            _JOBS[jid] = job
+        else:
+            # Prefer fresher cancel/stage from GCS when another instance owns it.
+            for key in ("stage", "percent", "done", "error", "result", "cancel_requested", "filename"):
+                if key in loaded:
+                    job[key] = loaded[key]
+
+    if job is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "job_not_found",
+                "message": "작업을 찾을 수 없습니다.",
+            },
+        )
+
+    owner = str(job.get("owner_uid") or "").strip()
+    # WHY: never reveal whether another user's job_id exists.
+    if not owner or owner != user.uid:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "job_not_found",
+                "message": "작업을 찾을 수 없습니다.",
+            },
+        )
+
+    if job.get("done") and job.get("error"):
+        # WHY: already terminal failure — nothing to cancel; same 404 as missing.
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "job_not_found",
+                "message": "작업을 찾을 수 없습니다.",
+            },
+        )
+
+    if _ingest_job_too_late_to_cancel(job):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "ok": False,
+                "error": "cancel_too_late",
+                "message": "거의 끝나 취소할 수 없습니다. 그대로 완료됩니다.",
+            },
+        )
+
+    job["cancel_requested"] = True
+    # WHY: peers must see the flag before we wipe (reclaim race).
+    _persist_job(jid, job, force=True)
+
+    if job.get("_local_running"):
+        # Worker will raise IngestCancelled on next progress tick and wipe.
+        return JSONResponse(
+            {
+                "ok": True,
+                "cancelled": True,
+                "pending_worker": True,
+                "job_id": jid,
+            }
+        )
+
+    _wipe_ingest_artifacts(
+        jid,
+        owner_uid=owner,
+        filename=str(job.get("filename") or ""),
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "cancelled": True,
+            "pending_worker": False,
+            "job_id": jid,
+        }
+    )
+
+
+@app.post("/api/ingest/uploads/{upload_id}/cancel")
+async def ingest_upload_cancel(request: Request, upload_id: str) -> JSONResponse:
+    """design/132 — discard chunked upload session before complete (owner only)."""
+    from sentence_reading.llm import ingest_chunked as ic
+
+    if not _ingest_cancel_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "cancel_disabled",
+                "message": "지금은 취소를 사용할 수 없습니다.",
+            },
+        )
+
+    uid_upl = (upload_id or "").strip()
+    # EDGE: path tricks → same 404 as missing (no existence leak).
+    if not ic.valid_upload_id(uid_upl) or "/" in uid_upl or "\\" in uid_upl or ".." in uid_upl:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "upload_not_found",
+                "message": "업로드를 찾을 수 없습니다.",
+            },
+        )
+
+    user = _request_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "auth_required",
+                "message": "로그인이 필요합니다.",
+            },
+        )
+
+    # WHY: get_upload is owner-scoped — wrong/missing uid → None → 404.
+    view = ic.get_upload(uid_upl, owner_uid=user.uid)
+    if view is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "upload_not_found",
+                "message": "업로드를 찾을 수 없습니다.",
+            },
+        )
+
+    ic.delete_upload_session(uid_upl, owner_uid=user.uid)
+    return JSONResponse({"ok": True, "cancelled": True, "upload_id": uid_upl})
 
 
 def _source_kind(filename: str) -> str | None:
@@ -2988,6 +3278,8 @@ async def _run_ingest_job_body(
             _job_set(job_id, percent=10, stage="cache", message="제목으로 보관본 찾는 중")
             cached = await asyncio.to_thread(_try_cache_hit, text, kind)
             if cached is not None:
+                # design/132 — cancel before binding an existing library id to this job.
+                _ensure_ingest_not_cancelled(job_id)
                 session, info, hit = cached
                 await asyncio.to_thread(
                     attach_source_file, str(hit["id"]), tmp_path, source=kind
@@ -3337,6 +3629,8 @@ async def _run_ingest_job_body(
                 d["content_hash"] = content_hash
             return d
 
+        # design/132 — last cancel gate before marking ready / library publish.
+        _ensure_ingest_not_cancelled(job_id)
         _job_set(job_id, percent=88, stage="ready", message="읽기 시작 · 번역 준비")
         early = _pack(pending=True)
         cache_entry = await asyncio.to_thread(
@@ -3600,9 +3894,18 @@ async def _run_ingest_job_body(
             data,
             message="완료 · 제목으로 보관됨" if cache_entry else "완료",
         )
+    except IngestCancelled:
+        # design/132 — discard silently; no error row, no library entry.
+        job = _JOBS.get(job_id)
+        owner = str((job or {}).get("owner_uid") or "").strip()
+        fn = str((job or {}).get("filename") or "")
+        if owner:
+            _wipe_ingest_artifacts(job_id, owner_uid=owner, filename=fn)
+        else:
+            _JOBS.pop(job_id, None)
     except Exception as exc:  # noqa: BLE001
         job = _JOBS.get(job_id)
-        if job is not None:
+        if job is not None and not job.get("_discarded"):
             job["done"] = True
             # WHY: user-facing only — no stack / paths / tokens.
             job["error"] = str(exc)
