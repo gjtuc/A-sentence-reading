@@ -44,6 +44,6 @@ Modules: Flutter `hang_watchdog` · `library_controller` · `error_reporter` · 
 
 - Live `/api/status`: `version=0.3.50` · `ingest_upload_hang=true` · `ingest_hang_stall_seconds=180`
 - Local E2E: stall 초를 짧게 두고 진전 없는 job에서 실패 UI + (로그인 시) errors/report
-- APK `0.3.50` · SM-G986N: 업로드 경로 hang 배선·실패 문구 (또는 짧은 stall 빌드/로컬 서버)
+- APK `0.3.50` · SM-G986N + `adb reverse` 로컬 API: Settings **업로드 hang 시뮬 (로컬)** → stall 후 실패 문구 (Cloud Run 호스트에는 버튼 없음)
 
 Do not paste session cookies, emails, or secrets into docs.

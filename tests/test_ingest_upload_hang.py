@@ -65,6 +65,8 @@ def test_design_and_clients_pin() -> None:
     lib = LIB.read_text(encoding="utf-8")
     assert "_beginIngestHang" in lib
     assert "_noteIngestHangProgress" in lib
+    assert "simulateIngestHangForLocalE2E" in lib
+    assert "isLocalDevHost" in lib
     assert "응답이 없어 업로드를 중단" in lib
     # Must not reset hang on every identical poll (product 2).
     assert "Same place" in lib or "진전" in lib or "do not" in lib.lower()

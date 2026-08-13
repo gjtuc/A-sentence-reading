@@ -201,6 +201,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         widget.auth,
         widget.shadowing,
         widget.translate,
+        widget.library,
       ]),
       builder: (context, _) {
         if (!widget.theme.ready) {
@@ -583,6 +584,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (_error != null) ...[
               const SizedBox(height: 8),
               Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ],
+            // design/134 — localhost-only hang E2E (never on Cloud Run host).
+            if (widget.auth.client.isLocalDevHost) ...[
+              const Divider(height: 32),
+              Semantics(
+                button: true,
+                label: '업로드 hang 시뮬 (로컬)',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('업로드 hang 시뮬 (로컬)'),
+                  subtitle: Text(
+                    widget.library.error ??
+                        '진전 없이 stall 초가 지나면 실패 문구가 뜹니다.',
+                  ),
+                  onTap: () async {
+                    final ok =
+                        await widget.library.simulateIngestHangForLocalE2E();
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          ok
+                              ? 'hang 감시 시작 — stall 후 실패 UI를 확인하세요.'
+                              : '로컬 API에서만 사용할 수 있습니다.',
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              if (widget.library.error != null)
+                Text(
+                  widget.library.error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
             ],
           ],
         );
