@@ -85,8 +85,11 @@ def panel_caption(base: str, letter: str, parent_caption: str) -> str:
     rest = _PANEL_MARK.sub("", rest)
     rest = re.sub(r"\s+", " ", rest).strip(" .,—–-")[:120]
     if rest:
-        return f"{head} — {rest}"[:900]
-    return head[:900]
+        # design/131 — keep panel label + parent rest; safety ceiling only.
+        from sentence_reading.pdf.extract import _CAPTION_MAX_CHARS, _normalize_caption
+
+        return _normalize_caption(f"{head} — {rest}")[:_CAPTION_MAX_CHARS]
+    return head[:120]
 
 
 def choose_grid(n: int, width: int, height: int) -> tuple[int, int]:

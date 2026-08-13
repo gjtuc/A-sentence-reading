@@ -18,7 +18,7 @@ from sentence_reading.models import Figure
 
 def test_status_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.46"
+    assert st["version"] == "0.3.47"
     assert st.get("fig_ref_hints") is True
 
 

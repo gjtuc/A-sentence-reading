@@ -57,6 +57,8 @@ class AsrStatus {
     // design/130 — missing key → on (report); explicit false kills.
     this.cloudErrorLogs = true,
     this.mobileCloudErrorLogs = true,
+    // design/131 — missing → full captions; explicit false restores 2-line ….
+    this.captionFullText = true,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -130,6 +132,10 @@ class AsrStatus {
           : (json.containsKey('cloud_error_logs')
               ? json['cloud_error_logs'] == true
               : true),
+      // design/131 — missing → full; explicit false restores ellipsis.
+      captionFullText: json.containsKey('caption_full_text')
+          ? json['caption_full_text'] == true
+          : true,
     );
   }
 
@@ -160,6 +166,8 @@ class AsrStatus {
   // design/130 — missing key → on; explicit false kills client reporting.
   final bool cloudErrorLogs;
   final bool mobileCloudErrorLogs;
+  // design/131 — missing → full; explicit false restores 2-line ellipsis.
+  final bool captionFullText;
 }
 
 class AsrClient {

@@ -1,4 +1,4 @@
-"""design/123 — progress restore precise + fail-closed (0.3.46)."""
+"""design/123 — progress restore precise + fail-closed (0.3.47)."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ SHELL = ROOT / "mobile" / "lib" / "screens" / "home_shell.dart"
 def test_status_progress_fail_closed_default() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.46"
+    assert st["version"] == "0.3.47"
     assert st["progress_restore"] is True
     assert st["progress_fail_closed"] is True
 
@@ -53,7 +53,7 @@ def test_app_js_refuses_invalid_progress_before_papers() -> None:
 
 
 def test_mobile_progress_wiring() -> None:
-    assert "0.3.46" in PUB.read_text(encoding="utf-8")
+    assert "0.3.47" in PUB.read_text(encoding="utf-8")
     gate = GATE.read_text(encoding="utf-8")
     assert "validateProgressIndices" in gate
     store = STORE.read_text(encoding="utf-8")

@@ -22,7 +22,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 def test_status_mobile_shell_nav(client: TestClient) -> None:
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.46"
+    assert st["version"] == "0.3.47"
     assert st["mobile_shell_nav"] is True
 
 

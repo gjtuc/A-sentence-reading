@@ -71,9 +71,21 @@ _GA_MIN_SIDE_PT = 80.0
 _RECT_OVERLAP_FRAC = 0.55
 
 
+# design/131 — silent hard-cut for absurd OCR blobs only (never insert "…").
+# Typical journal captions are << this; old 900 truncated long compound titles.
+_CAPTION_MAX_CHARS = 8_000
+
+
 def _normalize_caption(text: str) -> str:
-    t = re.sub(r"\s+", " ", (text or "").strip())
-    return t[:900]
+    """Collapse whitespace; keep full caption up to safety ceiling.
+
+    WHY raise past 900 (design/131): product wants full caption text stored and
+    shown. EDGE: null/empty → ""; never append ellipsis (UI must not invent cuts).
+    """
+    t = re.sub(r"\s+", " ", (text or "").replace("\x00", "").strip())
+    if len(t) > _CAPTION_MAX_CHARS:
+        return t[:_CAPTION_MAX_CHARS]
+    return t
 
 
 def _is_caption_line(s: str, *, fig_scheme: bool, table: bool) -> bool:
