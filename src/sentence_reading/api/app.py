@@ -119,6 +119,9 @@ _STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 _SESSIONS: dict[str, PaperSession] = {}
+# design/129 — bind open session → cache_id so figure window can read PNGs from disk
+# without trusting client-supplied paths. Same LRU eviction as _SESSIONS.
+_SESSION_CACHE_IDS: dict[str, str] = {}
 _JOBS: dict[str, dict] = {}
 
 load_asr_env()
@@ -149,7 +152,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.42",
+    version="0.3.43",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -362,15 +365,19 @@ def _job_publish_partial(job_id: str, data: dict, *, message: str = "") -> None:
     _persist_job(job_id, job, force=True)
 
 
-def _remember_session(session: PaperSession) -> str:
+def _remember_session(session: PaperSession, *, cache_id: str | None = None) -> str:
     session_id = f"ses_{uuid.uuid4().hex[:12]}"
     session.clamp_indices()
     _SESSIONS[session_id] = session
+    cid = (cache_id or "").strip()
+    if cid:
+        _SESSION_CACHE_IDS[session_id] = cid
     while len(_SESSIONS) > 8:
         oldest = next(iter(_SESSIONS))
         if oldest == session_id:
             break
         del _SESSIONS[oldest]
+        _SESSION_CACHE_IDS.pop(oldest, None)
     return session_id
 
 
@@ -499,7 +506,9 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.42",
+        "version": "0.3.43",
+        # design/129 — /open stubs images; clients use figures/window (±1).
+        "lazy_figure_open": True,
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -1909,7 +1918,7 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                     "message": "클라우드에서 논문을 받지 못했습니다. 잠시 후 다시 시도해 주세요.",
                 },
             )
-        loaded = load_cached_session(cache_id)
+        loaded = load_cached_session(cache_id, load_images=False)
         if loaded is None:
             return JSONResponse(
                 status_code=404,
@@ -1951,8 +1960,9 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                 source_path=get_source_path(cache_id),
                 content_hash=info.get("content_hash"),
             )
-        session_id = _remember_session(session)
-        data = session.to_public_dict()
+        session_id = _remember_session(session, cache_id=cache_id)
+        # design/129 — sentences/meta only; PNGs via /figures/window (fail-closed empty src).
+        data = session.to_public_dict(include_images=False)
         data["ok"] = True
         data["session_id"] = session_id
         data["debone"] = bool(info.get("debone"))
@@ -1962,6 +1972,7 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
         data["current_pipeline"] = PIPELINE_VERSION
         data["stale"] = bool(info.get("stale"))
         data["has_source"] = bool(info.get("has_source")) or get_source_path(cache_id) is not None
+        data["lazy_figures"] = True
         if info.get("content_hash"):
             data["content_hash"] = info["content_hash"]
         # WHY: stale 도 열어 노트(cache:id) 유지 — 원본 있으면 재분석, 없으면 파일 재업로드
@@ -2156,10 +2167,96 @@ def session_get(session_id: str) -> JSONResponse:
                 "message": "세션을 찾을 수 없습니다.",
             },
         )
-    data = session.to_public_dict()
+    data = session.to_public_dict(include_images=False)
     data["ok"] = True
     data["session_id"] = session_id
     return JSONResponse(data)
+
+
+@app.get("/api/session/{session_id}/figures/window")
+def session_figures_window(
+    session_id: str,
+    center: int = 0,
+    span: int = 1,
+) -> JSONResponse:
+    """design/129 — return PNG data-URLs for center±span only (default ±1).
+
+    AuthZ: session must exist in memory (same capability model as session_get).
+    Never trusts client cache_id/path — uses _SESSION_CACHE_IDS bound at open.
+    """
+    from sentence_reading.cache.paper_cache import figure_data_url
+
+    # EDGE: refuse absurd windows (cost / abuse).
+    try:
+        center_i = int(center)
+        span_i = int(span)
+    except (TypeError, ValueError):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "bad_window",
+                "message": "center/span 이 올바르지 않습니다.",
+            },
+        )
+    if span_i < 0 or span_i > 2:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "bad_span",
+                "message": "span 은 0–2 만 허용합니다.",
+            },
+        )
+    if session_id == "ses_mock":
+        session = build_mock_session()
+        cache_id = ""
+    else:
+        session = _SESSIONS.get(session_id)
+        if session is None:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "ok": False,
+                    "error": "session_not_found",
+                    "message": "세션을 찾을 수 없습니다.",
+                },
+            )
+        cache_id = _SESSION_CACHE_IDS.get(session_id) or ""
+
+    n = len(session.figures)
+    if n < 1:
+        return JSONResponse({"ok": True, "session_id": session_id, "figures": []})
+    # Clamp center into range (fail-closed empty if totally empty already handled).
+    center_i = max(0, min(center_i, n - 1))
+    out: list[dict] = []
+    for i in range(center_i - span_i, center_i + span_i + 1):
+        if i < 0 or i >= n:
+            continue
+        fig = session.figures[i]
+        src = (fig.image_src or "").strip()
+        if not src and cache_id:
+            src = figure_data_url(cache_id, fig.id) or ""
+        # WHY: never invent bytes — empty src means missing file (design/124).
+        out.append(
+            {
+                "index": i,
+                "id": fig.id,
+                "image_src": src,
+                "caption": fig.caption,
+                "caption_ko": fig.caption_ko or "",
+                "caption_ko_stage": fig.caption_ko_stage or "",
+            }
+        )
+    return JSONResponse(
+        {
+            "ok": True,
+            "session_id": session_id,
+            "center": center_i,
+            "span": span_i,
+            "figures": out,
+        }
+    )
 
 
 @app.patch("/api/session/{session_id}/cursor")
@@ -2214,7 +2311,8 @@ async def session_patch_cursor(session_id: str, payload: dict = Body(...)) -> JS
                 },
             )
     session.clamp_indices()
-    data = session.to_public_dict()
+    # design/129 — cursor ack without re-embedding PNGs (mobile ignores body).
+    data = session.to_public_dict(include_images=False)
     data["ok"] = True
     data["session_id"] = session_id
     return JSONResponse(data)

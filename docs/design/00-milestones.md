@@ -155,6 +155,7 @@
 - ~~소프트 캡션 라벨 (구두점 없이 Fig/Table/Scheme)~~ (0.3.40 · [126-soft-caption-labels.md](126-soft-caption-labels.md))
 - ~~캡션 단어 이어붙이기 (Elsevier 줄바꿈)~~ (0.3.41 · [127-caption-word-join.md](127-caption-word-join.md))
 - ~~표/그림 단 폭 클립 (잘림 완화)~~ (0.3.42 · [128-clip-column-width.md](128-clip-column-width.md))
+- ~~문장 먼저 열기 · 그림 ±1 창~~ (0.3.43 · [129-lazy-figure-open.md](129-lazy-figure-open.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

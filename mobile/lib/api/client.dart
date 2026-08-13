@@ -901,6 +901,37 @@ class AsrClient {
     return opened;
   }
 
+  /// design/129 — GET /api/session/{id}/figures/window?center=&span=
+  Future<List<Map<String, dynamic>>> fetchFigureWindow({
+    required String sessionId,
+    required int center,
+    int span = 1,
+  }) async {
+    final sid = sessionId.trim();
+    if (sid.isEmpty) {
+      throw AsrApiException('session id is empty', 400);
+    }
+    final res = await _http
+        .get(
+          _uri(
+            '/api/session/${Uri.encodeComponent(sid)}/figures/window'
+            '?center=$center&span=$span',
+          ),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 90));
+    final map = _decodeObject(res, 'figures/window');
+    final raw = map['figures'];
+    if (raw is! List) return const [];
+    final out = <Map<String, dynamic>>[];
+    for (final item in raw) {
+      if (item is Map) {
+        out.add(Map<String, dynamic>.from(item));
+      }
+    }
+    return out;
+  }
+
   /// design/99 — ingest/open query flags (mobile always sends translate explicitly).
   static String _ingestOptQuery({
     bool shadowingPractice = false,

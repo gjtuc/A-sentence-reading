@@ -439,6 +439,8 @@ class LibraryController extends ChangeNotifier {
       }
 
       session = o;
+      // design/129 — fill current±1 images after sentences are on screen.
+      unawaited(_prefetchFigureWindow());
       // design/80 — per-user chunk backfill (opt-in); errors surface on reader.
       unawaited(ensureShadowingChunks(entry.id));
       return session;
@@ -502,6 +504,7 @@ class LibraryController extends ChangeNotifier {
     s.advanceFigure(delta);
     assert(s.sentenceIndex == beforeSent, 'sentence index must stay put');
     notifyListeners();
+    unawaited(_prefetchFigureWindow());
     await _syncCursor(figure: true);
     // design/123 — durable prefs on every figure move (product 5C).
     await persistOpenedProgress();
@@ -520,8 +523,28 @@ class LibraryController extends ChangeNotifier {
     s.figureIndex = index;
     assert(s.sentenceIndex == beforeSent, 'figure jump must not move sentence');
     notifyListeners();
+    unawaited(_prefetchFigureWindow());
     await _syncCursor(figure: true);
     await persistOpenedProgress();
+  }
+
+  /// design/129 — fetch current±1 PNGs; never invent success on failure.
+  Future<void> _prefetchFigureWindow() async {
+    final s = session;
+    if (s == null || !s.isValid || s.figureCount < 1) return;
+    try {
+      final rows = await _client.fetchFigureWindow(
+        sessionId: s.sessionId,
+        center: s.figureIndex,
+        span: 1,
+      );
+      // EDGE: session may have changed while in flight.
+      if (!identical(session, s)) return;
+      s.mergeFigureWindow(rows);
+      notifyListeners();
+    } catch (_) {
+      // Fail-closed: leave stubs empty; UI shows “이미지 없음” / prior bytes.
+    }
   }
 
   Future<void> _syncCursor({bool sentence = false, bool figure = false}) async {

@@ -34,7 +34,7 @@ class SentenceView {
   bool get hasText => text.trim().isNotEmpty;
 }
 
-/// One figure row — [imageSrc] may be data-URL, http(s), or relative path.
+/// One figure row — [imageSrc] may be data-URL, http(s), relative, or empty stub.
 class FigureView {
   FigureView({
     required this.id,
@@ -54,7 +54,8 @@ class FigureView {
   }
 
   final String id;
-  final String imageSrc;
+  /// design/129 — mutable so ±1 window can fill stubs without rebuilding the list.
+  String imageSrc;
   final String caption;
   final String captionKo;
 }
@@ -133,7 +134,10 @@ class ReadingSession {
       for (final item in rawF) {
         if (item is Map) {
           final f = FigureView.fromJson(Map<String, dynamic>.from(item));
-          if (f.id.isNotEmpty || f.imageSrc.isNotEmpty) figures.add(f);
+          // design/129 — keep caption stubs with empty image_src (lazy fill).
+          if (f.id.isNotEmpty || f.imageSrc.isNotEmpty || f.caption.trim().isNotEmpty) {
+            figures.add(f);
+          }
         }
       }
     }
@@ -208,5 +212,29 @@ class ReadingSession {
     final n = figures.length;
     figureIndex = (figureIndex + delta) % n;
     if (figureIndex < 0) figureIndex += n;
+  }
+
+  /// design/129 — merge `/figures/window` rows into stubs by index (or id).
+  void mergeFigureWindow(List<Map<String, dynamic>> rows) {
+    for (final row in rows) {
+      final src = '${row['image_src'] ?? ''}'.trim();
+      if (src.isEmpty) continue;
+      final idxRaw = row['index'];
+      final idx = idxRaw is int
+          ? idxRaw
+          : (idxRaw is num ? idxRaw.toInt() : int.tryParse('$idxRaw'));
+      if (idx != null && idx >= 0 && idx < figures.length) {
+        figures[idx].imageSrc = src;
+        continue;
+      }
+      final id = '${row['id'] ?? ''}'.trim();
+      if (id.isEmpty) continue;
+      for (final f in figures) {
+        if (f.id == id) {
+          f.imageSrc = src;
+          break;
+        }
+      }
+    }
   }
 }

@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "56-section-review-keys.md"
 
 def test_status_section_review_keys() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.42"
+    assert st["version"] == "0.3.43"
     assert st["section_review_keys"] is True
     assert st["section_review_flow_edit"] is True
     assert "live_enable" not in st
@@ -65,5 +65,5 @@ def test_design_and_assets() -> None:
     assert "0.2.64" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.42" in served
-    assert "styles.css?v=0.3.42" in served
+    assert "app.js?v=0.3.43" in served
+    assert "styles.css?v=0.3.43" in served

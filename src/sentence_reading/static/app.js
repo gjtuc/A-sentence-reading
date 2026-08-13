@@ -781,6 +781,7 @@
     render();
     snapshotActivePaper();
     persistReadingProgress();
+    void prefetchFigureWindow();
   }
 
   /** Fig. N 칩 — 문장 인덱스는 그대로 (design/28). */
@@ -793,6 +794,57 @@
     render();
     snapshotActivePaper();
     persistReadingProgress();
+    void prefetchFigureWindow();
+  }
+
+  /**
+   * design/129 — fill current±1 image_src from /figures/window (no downscale).
+   * Fail-closed: leave stubs empty on error (render shows 이미지 없음).
+   */
+  async function prefetchFigureWindow() {
+    const sid = state.sessionId;
+    if (!sid || !state.figures.length) return;
+    const center = state.figureIndex | 0;
+    try {
+      const res = await fetch(
+        "/api/session/" +
+          encodeURIComponent(sid) +
+          "/figures/window?center=" +
+          encodeURIComponent(String(center)) +
+          "&span=1"
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) return;
+      if (state.sessionId !== sid) return;
+      const rows = Array.isArray(data.figures) ? data.figures : [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object") continue;
+        const src = String(row.image_src || "").trim();
+        if (!src) continue;
+        let idx = row.index;
+        if (typeof idx !== "number") idx = parseInt(idx, 10);
+        if (
+          Number.isFinite(idx) &&
+          idx >= 0 &&
+          idx < state.figures.length
+        ) {
+          state.figures[idx].image_src = src;
+          continue;
+        }
+        const id = String(row.id || "").trim();
+        if (!id) continue;
+        for (const f of state.figures) {
+          if (f && f.id === id) {
+            f.image_src = src;
+            break;
+          }
+        }
+      }
+      render();
+      snapshotActivePaper();
+    } catch (_) {
+      /* leave stubs */
+    }
   }
 
   /** @type {{ n: number, text: string, doi: string } | null} */
@@ -6335,6 +6387,7 @@
         );
       }
       applySession(data, "ready", { asNewTab: true });
+      void prefetchFigureWindow();
       void ensureShadowingChunks(String(cacheId));
       const nS = state.sentences.length;
       const nF = state.figures.length;
