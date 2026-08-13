@@ -42,8 +42,9 @@ Modules: Flutter `hang_watchdog` · `library_controller` · `error_reporter` · 
 
 ## Device / E2E pin
 
-- Live `/api/status`: `version=0.3.50` · `ingest_upload_hang=true` · `ingest_hang_stall_seconds=180`
-- Local E2E: stall 초를 짧게 두고 진전 없는 job에서 실패 UI + (로그인 시) errors/report
-- APK `0.3.50` · SM-G986N + `adb reverse` 로컬 API: Settings **업로드 hang 시뮬 (로컬)** → stall 후 실패 문구 (Cloud Run 호스트에는 버튼 없음)
+- Live `/api/status` (post-CD): `version=0.3.50` · `ingest_upload_hang=true` · `mobile_ingest_upload_hang=true` · `ingest_hang_stall_seconds=180`
+- Web local `http://127.0.0.1:8789` (`ASR_INGEST_HANG_STALL_SEC=8`): `__asrHangE2E` — no progress → fail copy; same-% polls still trip; real %↑ does not trip mid-window
+- Unauth `POST /api/errors/report` → **401** `auth_required` (uid from session only)
+- APK `versionName=0.3.50` · SM-G986N · `adb reverse tcp:8789` · Settings **업로드 hang 시뮬 (로컬)** → after stall: **응답이 없어 업로드를 중단했습니다. 다시 시도해 주세요.** (Cloud Run API base에는 시뮬 버튼 없음)
 
 Do not paste session cookies, emails, or secrets into docs.
