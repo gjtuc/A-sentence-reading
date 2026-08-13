@@ -524,17 +524,45 @@ def _pick_embed_for_caption(
 
 
 def _orphan_fig_clip(page, cap_rect):
-    """design/125 B — no embed: clip band above caption (vector/drawing figures)."""
+    """design/125 B · 128 — orphan band above caption; x = column width (+bleed)."""
     import fitz
 
     page_rect = page.rect
-    # Widen narrow caption boxes toward column width.
-    half_w = max(cap_rect.width, min(page_rect.width * 0.42, 280.0)) / 2
-    cx = (cap_rect.x0 + cap_rect.x1) / 2
-    x0 = max(page_rect.x0, cx - half_w)
-    x1 = min(page_rect.x1, cx + half_w)
+    x0, x1 = _column_x_range(page_rect, cap_rect, bleed_frac=0.08)
     y0 = max(page_rect.y0, cap_rect.y0 - _ORPHAN_CLIP_ABOVE_PT)
     y1 = min(page_rect.y1, cap_rect.y1 + 4)
+    return fitz.Rect(x0, y0, x1, y1)
+
+
+def _column_x_range(page_rect, cap_rect, *, bleed_frac: float = 0.08) -> tuple[float, float]:
+    """
+    design/128 — map a (possibly narrow) caption to its page column.
+    Slight bleed into the other column is intentional (product OK).
+    """
+    mid = (float(page_rect.x0) + float(page_rect.x1)) / 2.0
+    cx = (float(cap_rect.x0) + float(cap_rect.x1)) / 2.0
+    bleed = float(page_rect.width) * bleed_frac
+    pad = 6.0
+    if cx <= mid:
+        x0 = float(page_rect.x0) + pad
+        x1 = min(float(page_rect.x1) - pad, mid + bleed)
+    else:
+        x0 = max(float(page_rect.x0) + pad, mid - bleed)
+        x1 = float(page_rect.x1) - pad
+    # Never thinner than the caption itself.
+    x0 = min(x0, float(cap_rect.x0))
+    x1 = max(x1, float(cap_rect.x1))
+    return x0, x1
+
+
+def _orphan_table_clip(page, cap_rect):
+    """design/128 — clip below table caption using column band (footnotes OK)."""
+    import fitz
+
+    page_rect = page.rect
+    x0, x1 = _column_x_range(page_rect, cap_rect, bleed_frac=0.10)
+    y0 = max(page_rect.y0, float(cap_rect.y0) - 4)
+    y1 = min(page_rect.y1, float(cap_rect.y1) + 260)
     return fitz.Rect(x0, y0, x1, y1)
 
 
@@ -691,20 +719,16 @@ def _extract_tables(
         bbox = _pick_table(cap_rect)
         if bbox is not None:
             clip = fitz.Rect(bbox) | cap_rect
+            # design/128 — never thinner than the page column band.
+            cx0, cx1 = _column_x_range(page.rect, cap_rect, bleed_frac=0.10)
+            clip.x0 = min(float(clip.x0), cx0)
+            clip.x1 = max(float(clip.x1), cx1)
             used.append(bbox)
             sort_y = float(min(bbox.y0, cap_rect.y0))
             sort_x = float(min(bbox.x0, cap_rect.x0))
         else:
-            # Orphan table caption: clip below caption (B-ish).
-            page_rect = page.rect
-            half_w = max(cap_rect.width, min(page_rect.width * 0.55, 320.0)) / 2
-            cx = (cap_rect.x0 + cap_rect.x1) / 2
-            clip = fitz.Rect(
-                max(page_rect.x0, cx - half_w),
-                max(page_rect.y0, cap_rect.y0 - 4),
-                min(page_rect.x1, cx + half_w),
-                min(page_rect.y1, cap_rect.y1 + 220),
-            )
+            # Orphan table caption: column-wide clip below caption (design/128).
+            clip = _orphan_table_clip(page, cap_rect)
             sort_y = float(cap_rect.y0)
             sort_x = float(cap_rect.x0)
 
