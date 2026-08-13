@@ -34,3 +34,12 @@ Revert PR · 클라가 `caption_full_text=false`면 2줄 ellipsis 유지 가능(
 ## Version
 
 **0.3.47** · pipeline **rich-v12** (캡션 탐지 로직 불변 · normalize 길이만)
+
+## Device pin (E2E)
+
+- Live `/api/status`: `version=0.3.47` · `caption_full_text=true`
+- APK `versionName=0.3.47` · SM-G986N
+- Ewbank reader: Table 1/2 captions show full text (no mid-string `…`); scroll area if tall
+- Kill: revert PR · `caption_full_text=false` restores 2-line ellipsis
+
+Do not paste session cookies or secrets into docs.
