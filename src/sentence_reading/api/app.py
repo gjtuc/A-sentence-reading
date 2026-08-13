@@ -1,7 +1,7 @@
 """
-무엇을: 로컬 HTTP — 정적 UI + status/mock/ingest(+debone·vision OCR 라우터·제목 캐시).
-왜: 브라우저에서 Immersive식 문장 패널을 바로 검증한다.
-다음에: 세션 LRU·caption 보강.
+무엇?? 로컬 HTTP ???�적 UI + status/mock/ingest(+debone·vision OCR ?�우?�·제�?캐시).
+?? 브라?��??�서 Immersive??문장 ?�널??바로 검증한??
+?�음?? ?�션 LRU·caption 보강.
 """
 
 from __future__ import annotations
@@ -114,12 +114,12 @@ from sentence_reading.models import Figure, PaperSession, Sentence, build_mock_s
 from sentence_reading.pdf import extract as pdf_extract
 from sentence_reading.pdf.sentences import split_into_sentences
 
-# WHY: static은 패키지 옆 — setuptools package-data와 개발 모드 모두에서 찾기 쉽게.
+# WHY: static?� ?�키지 ????setuptools package-data?� 개발 모드 모두?�서 찾기 ?�게.
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 _SESSIONS: dict[str, PaperSession] = {}
-# design/129 — bind open session → cache_id so figure window can read PNGs from disk
+# design/129 ??bind open session ??cache_id so figure window can read PNGs from disk
 # without trusting client-supplied paths. Same LRU eviction as _SESSIONS.
 _SESSION_CACHE_IDS: dict[str, str] = {}
 _JOBS: dict[str, dict] = {}
@@ -129,7 +129,7 @@ load_asr_env()
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    # WHY: pip 설치 훅이 빠진 PEP660 editable도, 서버 한 번 뜨면 스케줄러가 붙는다.
+    # WHY: pip ?�치 ?�이 빠진 PEP660 editable?? ?�버 ??�??�면 ?��?줄러가 붙는??
     try:
         from sentence_reading.autostart import ensure_registered
 
@@ -152,18 +152,18 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.44",
+    version="0.3.45",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
 
 
 class _GcsUidMiddleware(BaseHTTPMiddleware):
-    """쿠키 세션 → GCS UID + design/83 login-required gate.
+    """쿠키 ?�션 ??GCS UID + design/83 login-required gate.
 
     WHY gate lives here (not a second middleware): Starlette runs the *last*
     added middleware outermost; auth_user must already be set before we decide
-    401. EDGE: auth not configured → do not lock the whole app (local mock).
+    401. EDGE: auth not configured ??do not lock the whole app (local mock).
     """
 
     async def dispatch(self, request: Request, call_next):
@@ -171,7 +171,7 @@ class _GcsUidMiddleware(BaseHTTPMiddleware):
         request.state.auth_user = user
         set_gcs_uid(user.uid if user else None)
         try:
-            # design/83 — identity lock before invite/cost gate (67).
+            # design/83 ??identity lock before invite/cost gate (67).
             if (
                 login_required_enabled()
                 and auth_enabled()
@@ -186,10 +186,10 @@ class _GcsUidMiddleware(BaseHTTPMiddleware):
                         content={
                             "ok": False,
                             "error": "auth_required",
-                            "message": "로그인 후 이용해 주세요.",
+                            "message": "로그?????�용??주세??",
                         },
                     )
-                # Non-API pages (veil, docs, …) → send browser to login shell.
+                # Non-API pages (veil, docs, ?? ??send browser to login shell.
                 return RedirectResponse(url="/", status_code=302)
             return await call_next(request)
         finally:
@@ -225,7 +225,7 @@ def _paid_access_denied(request: Request) -> JSONResponse | None:
                 content={
                     "ok": False,
                     "error": "auth_required",
-                    "message": "로그인 후 이용해 주세요.",
+                    "message": "로그?????�용??주세??",
                 },
             )
         return None
@@ -242,14 +242,14 @@ def _paid_access_denied(request: Request) -> JSONResponse | None:
             "ok": False,
             "error": "access_denied",
             "access": view,
-            "message": "초대 코드 승인 후 이용할 수 있습니다. (관리자 Allow 필요)",
+            "message": "초�? 코드 ?�인 ???�용?????�습?�다. (관리자 Allow ?�요)",
         },
     )
 
 
 
 def _want_shadowing_chunks(request: Request) -> bool:
-    """Client opt-in (design/80). Body/query only as boolean flag — never trust user_id."""
+    """Client opt-in (design/80). Body/query only as boolean flag ??never trust user_id."""
     q = (request.query_params.get("shadowing_practice") or "").strip().lower()
     if q in ("1", "true", "yes", "on"):
         return True
@@ -259,8 +259,8 @@ def _want_shadowing_chunks(request: Request) -> bool:
 def _want_translate(request: Request) -> bool:
     """Client opt-in for Gemini KO work (design/99).
 
-    Query absent → True (web always-translate compat).
-    Explicit 0/false/off → False. Explicit 1/true/on → True.
+    Query absent ??True (web always-translate compat).
+    Explicit 0/false/off ??False. Explicit 1/true/on ??True.
     """
     if "translate" not in request.query_params:
         return True
@@ -274,14 +274,14 @@ def _want_translate(request: Request) -> bool:
 
 def _ingest_rate_limited(request: Request, action: str) -> JSONResponse | None:
     """
-    design/73 — per-uid call-count limit for upload/ingest actions.
+    design/73 ??per-uid call-count limit for upload/ingest actions.
     Returns 429 JSON or None. Never trusts body user_id.
     """
     from sentence_reading.llm import ingest_rate_limit as irl
 
     user = _request_user(request)
-    # EDGE: unauthenticated → shared anon bucket (blunt spam without opening uid forge).
-    # WHY length≥6: sanitize_uid charset/length invariant.
+    # EDGE: unauthenticated ??shared anon bucket (blunt spam without opening uid forge).
+    # WHY length??: sanitize_uid charset/length invariant.
     uid = user.uid if user is not None else "anon_unauth"
     try:
         irl.check_and_record(uid, action)
@@ -293,7 +293,7 @@ def _ingest_rate_limited(request: Request, action: str) -> JSONResponse | None:
                 content={
                     "ok": False,
                     "error": "auth_required",
-                    "message": "로그인이 필요합니다.",
+                    "message": "로그?�이 ?�요?�니??",
                 },
             )
         # Product copy: explicit, not advisory / investment language.
@@ -302,14 +302,14 @@ def _ingest_rate_limited(request: Request, action: str) -> JSONResponse | None:
             content={
                 "ok": False,
                 "error": "rate_limited",
-                "message": "요청이 너무 많습니다.",
+                "message": "?�청???�무 많습?�다.",
             },
         )
     return None
 
 
 def _persist_job(job_id: str, job: dict, *, force: bool = False) -> None:
-    """design/71 — mirror job to users/{uid}/ingest_jobs when GCS is on."""
+    """design/71 ??mirror job to users/{uid}/ingest_jobs when GCS is on."""
     from sentence_reading.llm import ingest_jobs_gcs as ij
 
     if not ij.should_push_job(job, force=force):
@@ -317,7 +317,7 @@ def _persist_job(job_id: str, job: dict, *, force: bool = False) -> None:
     try:
         ij.save_ingest_job(job_id, job)
     except Exception as exc:  # noqa: BLE001
-        # WHY: fail-soft — local poll still works on the worker instance.
+        # WHY: fail-soft ??local poll still works on the worker instance.
         log = __import__("logging").getLogger("sentence_reading.api")
         log.warning("ingest job gcs push failed %s: %s", job_id, exc)
 
@@ -337,7 +337,7 @@ def _job_set(
     job["stage"] = stage
     if message:
         job["message"] = message
-    # design/110 — stamp resume envelope (no paper text); skip wired later.
+    # design/110 ??stamp resume envelope (no paper text); skip wired later.
     from sentence_reading.llm import ingest_jobs_gcs as ij
 
     ij.stamp_checkpoint_on_job(
@@ -350,8 +350,8 @@ def _job_set(
 
 def _job_publish_partial(job_id: str, data: dict, *, message: str = "") -> None:
     """
-    design/45 — done 전에 세션을 열어 읽기 시작.
-    job["result"] 만 갱신 (done=False 유지).
+    design/45 ??done ?�에 ?�션???�어 ?�기 ?�작.
+    job["result"] �?갱신 (done=False ?��?).
     """
     job = _JOBS.get(job_id)
     if not job or job.get("done"):
@@ -381,7 +381,7 @@ def _remember_session(session: PaperSession, *, cache_id: str | None = None) -> 
     return session_id
 
 
-def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
+def _finish_job(job_id: str, data: dict, *, message: str = "?�료") -> None:
     job = _JOBS.get(job_id)
     if job is None:
         return
@@ -404,7 +404,7 @@ def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
             ij.delete_ingest_upload(job_id, owner_uid=owner, suffix=suf)
         except Exception:  # noqa: BLE001
             pass
-        # design/112 — drop mid-stage payload on terminal success.
+        # design/112 ??drop mid-stage payload on terminal success.
         try:
             ij.delete_ingest_payload(job_id, owner_uid=owner)
         except Exception:  # noqa: BLE001
@@ -412,9 +412,9 @@ def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
 
 
 def _progress_fail_closed_enabled() -> bool:
-    """design/123 — refuse open when stored progress indices are invalid.
+    """design/123 ??refuse open when stored progress indices are invalid.
 
-    Default on (fail-closed). ASR_PROGRESS_FAIL_CLOSED=0 → clients may clamp
+    Default on (fail-closed). ASR_PROGRESS_FAIL_CLOSED=0 ??clients may clamp
     (emergency only; not for shared default).
     """
     v = (os.environ.get("ASR_PROGRESS_FAIL_CLOSED") or "1").strip().lower()
@@ -422,7 +422,7 @@ def _progress_fail_closed_enabled() -> bool:
 
 
 def _mobile_upload_background_enabled() -> bool:
-    """design/74 — server kill switch for mobile FG upload notification.
+    """design/74 ??server kill switch for mobile FG upload notification.
 
     WHY: share/cloud path must be able to disable client FG/notify without a
     forced APK rollback. Default on; ASR_MOBILE_UPLOAD_BACKGROUND=0 turns off.
@@ -432,7 +432,7 @@ def _mobile_upload_background_enabled() -> bool:
 
 
 def _mobile_upload_interrupt_resume_enabled() -> bool:
-    """design/75 — kill switch for stall detect + resume-on-foreground.
+    """design/75 ??kill switch for stall detect + resume-on-foreground.
 
     Default on; ASR_MOBILE_UPLOAD_INTERRUPT_RESUME=0 turns off (71 cold resume remains).
     """
@@ -443,23 +443,23 @@ def _mobile_upload_interrupt_resume_enabled() -> bool:
 
 
 def _mobile_upload_workmanager_enabled() -> bool:
-    """design/76 — kill switch for Android WorkManager process-death resume.
+    """design/76 ??kill switch for Android WorkManager process-death resume.
 
-    Default on; ASR_MOBILE_UPLOAD_WORKMANAGER=0 → clients skip enqueue (71/75 remain).
+    Default on; ASR_MOBILE_UPLOAD_WORKMANAGER=0 ??clients skip enqueue (71/75 remain).
     """
     v = (os.environ.get("ASR_MOBILE_UPLOAD_WORKMANAGER") or "1").strip().lower()
     return v not in ("0", "false", "off", "no")
 
 
 def _mobile_email_magic_link_enabled() -> bool:
-    """design/77 — kill switch for email magic-link login."""
+    """design/77 ??kill switch for email magic-link login."""
     from sentence_reading.llm.auth_magic_link import magic_link_enabled
 
     return magic_link_enabled() and email_auth_enabled()
 
 
 def _email_smtp_configured() -> bool:
-    """design/86 — public readiness bit only (no host/user/pass in status)."""
+    """design/86 ??public readiness bit only (no host/user/pass in status)."""
     from sentence_reading.llm.email_smtp import smtp_configured
 
     return smtp_configured()
@@ -475,7 +475,7 @@ def _public_api_base(request: Request) -> str:
 
 @app.get("/api/status")
 def status(request: Request) -> dict:
-    """기동 확인."""
+    """기동 ?�인."""
     from sentence_reading.llm.ingest_rate_limit import rate_limit_enabled
     from sentence_reading.llm.ingest_jobs_gcs import (
         ingest_checkpoint_enabled,
@@ -504,55 +504,55 @@ def status(request: Request) -> dict:
         "docx_extract": True,
         "pipeline_version": PIPELINE_VERSION,
         "progress_restore": True,
-        # design/123 — true → clients refuse bad stored indices; false = clamp kill.
+        # design/123 ??true ??clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.44",
-        # design/129 — /open stubs images; clients use figures/window (±1).
+        "version": "0.3.45",
+        # design/129 ??/open stubs images; clients use figures/window (±1).
         "lazy_figure_open": True,
-        # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
+        # design/83 ??identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
-        # design/84 — waiting-only shell when logged in but invite not paid.
+        # design/84 ??waiting-only shell when logged in but invite not paid.
         "access_waiting_ux": True,
         "mobile_access_waiting_ux": True,
-        # design/85 — web email UI is magic-link only (password UI removed).
+        # design/85 ??web email UI is magic-link only (password UI removed).
         "web_email_magic_link_only": True,
         "access_gate_gcs": True,
         "mobile_upload": True,
         "ingest_job_gcs": True,
         "mobile_upload_resume": True,
-        # design/107 — cross-instance reclaim when worker lease expires.
+        # design/107 ??cross-instance reclaim when worker lease expires.
         "ingest_job_reclaim": ingest_job_reclaim_enabled(),
-        # design/110 — checkpoint envelope (skip logic later).
+        # design/110 ??checkpoint envelope (skip logic later).
         "ingest_checkpoint": ingest_checkpoint_enabled(),
-        # design/112 — mid-stage payload skip.
+        # design/112 ??mid-stage payload skip.
         "ingest_resume_skip": ingest_resume_skip_enabled(),
-        # design/113 — chunk build returns pending slices (no gateway 504).
+        # design/113 ??chunk build returns pending slices (no gateway 504).
         "shadowing_chunk_budget": True,
-        # design/114 — open rejects empty sentence sessions.
+        # design/114 ??open rejects empty sentence sessions.
         "paper_open_require_sentences": paper_open_require_sentences(),
-        # design/121 — open always pulls owner GCS when ready (no local fallback).
+        # design/121 ??open always pulls owner GCS when ready (no local fallback).
         "paper_open_gcs_first": paper_open_gcs_first(),
         "ingest_chunked_upload": True,
-        # design/73 — mirrors ASR_INGEST_RATE_LIMIT kill switch (False when off).
+        # design/73 ??mirrors ASR_INGEST_RATE_LIMIT kill switch (False when off).
         "ingest_rate_limit": rate_limit_enabled(),
-        # design/74 — clients skip FG/notify when False; upload path unchanged.
+        # design/74 ??clients skip FG/notify when False; upload path unchanged.
         "mobile_upload_background": _mobile_upload_background_enabled(),
-        # design/75 — stall honesty + resume-on-app-foreground.
+        # design/75 ??stall honesty + resume-on-app-foreground.
         "mobile_upload_interrupt_resume": _mobile_upload_interrupt_resume_enabled(),
-        # design/76 — WorkManager enqueue; false → clients skip (71/75 remain).
+        # design/76 ??WorkManager enqueue; false ??clients skip (71/75 remain).
         "mobile_upload_workmanager": _mobile_upload_workmanager_enabled(),
-        # design/77 — email magic-link; false → clients hide request UI.
+        # design/77 ??email magic-link; false ??clients hide request UI.
         "mobile_email_magic_link": _mobile_email_magic_link_enabled(),
-        # design/86 — bool only (host+from present). Never expose SMTP user/pass/host.
+        # design/86 ??bool only (host+from present). Never expose SMTP user/pass/host.
         "email_smtp_configured": _email_smtp_configured(),
-        # design/79 — shadowing opt-in UI; default off (ASR_SHADOWING_PRACTICE).
+        # design/79 ??shadowing opt-in UI; default off (ASR_SHADOWING_PRACTICE).
         "shadowing_practice": shadowing_practice_enabled(),
         "mobile_shadowing_practice": shadowing_practice_enabled(),
-        # design/80 — chunk plans behind same kill; clients show backfill UI when true.
+        # design/80 ??chunk plans behind same kill; clients show backfill UI when true.
         "shadowing_chunks": shadowing_practice_enabled(),
         "mobile_shadowing_chunks": shadowing_practice_enabled(),
-        # design/82 — practice loop UI behind same kill.
+        # design/82 ??practice loop UI behind same kill.
         "shadowing_practice_loop": shadowing_practice_enabled(),
         "mobile_shadowing_practice_loop": shadowing_practice_enabled(),
         "usage_meter": True,
@@ -576,7 +576,7 @@ def status(request: Request) -> dict:
         "mobile_flutter_scaffold": True,
         "mobile_android_platform": True,
         "mobile_email_auth": True,
-        # design/78 — false by default (ASR_EMAIL_PASSWORD unset/0).
+        # design/78 ??false by default (ASR_EMAIL_PASSWORD unset/0).
         "mobile_email_password": email_password_auth_enabled(),
         "mobile_library": True,
         "mobile_reader": True,
@@ -636,7 +636,7 @@ def _session_response(user: AuthUser, *, message: str = "logged_in") -> JSONResp
 
 
 def _kakao_redirect_uri(request: Request) -> str:
-    # WHY: 콘솔에 등록한 Redirect URI 와 바이트 단위로 같아야 함
+    # WHY: 콘솔???�록??Redirect URI ?� 바이???�위�?같아????
     return str(request.base_url).rstrip("/") + "/api/auth/kakao/callback"
 
 
@@ -654,14 +654,14 @@ def auth_status(request: Request) -> dict:
 
 @app.post("/api/auth/google")
 async def auth_google_login(request: Request, payload: dict = Body(...)) -> JSONResponse:
-    """Google Identity Services credential → 세션 (또는 계정 연결)."""
+    """Google Identity Services credential ???�션 (?�는 계정 ?�결)."""
     if not auth_client_id():
         return JSONResponse(
             status_code=503,
             content={
                 "ok": False,
                 "error": "auth_disabled",
-                "message": "ASR_GOOGLE_CLIENT_ID 를 설정하면 Google 로그인을 쓸 수 있습니다.",
+                "message": "ASR_GOOGLE_CLIENT_ID �??�정?�면 Google 로그?�을 ?????�습?�다.",
             },
         )
     credential = ""
@@ -677,7 +677,7 @@ async def auth_google_login(request: Request, payload: dict = Body(...)) -> JSON
             content={
                 "ok": False,
                 "error": "invalid_token",
-                "message": f"Google 로그인 검증 실패: {exc}"[:240],
+                "message": f"Google 로그??검�??�패: {exc}"[:240],
             },
         )
     try:
@@ -689,7 +689,7 @@ async def auth_google_login(request: Request, payload: dict = Body(...)) -> JSON
                     content={
                         "ok": False,
                         "error": "auth_required",
-                        "message": "연결하려면 먼저 로그인하세요.",
+                        "message": "?�결?�려�?먼�? 로그?�하?�요.",
                     },
                 )
             user = link_provider(
@@ -717,7 +717,7 @@ async def auth_google_login(request: Request, payload: dict = Body(...)) -> JSON
                 "ok": False,
                 "error": code,
                 "message": {
-                    "conflict": "이 Google 계정은 이미 다른 사용자에 연결되어 있습니다.",
+                    "conflict": "??Google 계정?� ?��? ?�른 ?�용?�에 ?�결?�어 ?�습?�다.",
                 }.get(code, str(exc)),
             },
         )
@@ -734,7 +734,7 @@ def auth_kakao_start(
             content={
                 "ok": False,
                 "error": "kakao_disabled",
-                "message": "ASR_KAKAO_REST_API_KEY 를 설정하세요.",
+                "message": "ASR_KAKAO_REST_API_KEY �??�정?�세??",
             },
         )
     m = (mode or "login").strip().lower()
@@ -749,7 +749,7 @@ def auth_kakao_start(
                 content={
                     "ok": False,
                     "error": "auth_required",
-                    "message": "연결하려면 먼저 로그인하세요.",
+                    "message": "?�결?�려�?먼�? 로그?�하?�요.",
                 },
             )
         link_uid = cur.uid
@@ -767,7 +767,7 @@ def auth_kakao_start(
 def auth_kakao_callback(
     request: Request, code: str = "", state: str = "", error: str = ""
 ) -> Response:
-    """Kakao redirect. Web → `/?auth=…`; Flutter mobile state → custom-scheme deep link."""
+    """Kakao redirect. Web ??`/?auth=??; Flutter mobile state ??custom-scheme deep link."""
     from fastapi.responses import RedirectResponse
 
     parsed = parse_oauth_state(state) if state else None
@@ -848,16 +848,16 @@ async def auth_email_register(payload: dict = Body(...)) -> JSONResponse:
     if not email_auth_enabled():
         return JSONResponse(
             status_code=503,
-            content={"ok": False, "error": "email_disabled", "message": "이메일 가입이 꺼져 있습니다."},
+            content={"ok": False, "error": "email_disabled", "message": "?�메??가?�이 꺼져 ?�습?�다."},
         )
     if not email_password_auth_enabled():
-        # design/78 — fail-closed: do not collect new password hashes by default.
+        # design/78 ??fail-closed: do not collect new password hashes by default.
         return JSONResponse(
             status_code=503,
             content={
                 "ok": False,
                 "error": "email_password_disabled",
-                "message": "이메일 비밀번호 가입이 꺼져 있습니다. 로그인 링크로 들어가세요.",
+                "message": "?�메??비�?번호 가?�이 꺼져 ?�습?�다. 로그??링크�??�어가?�요.",
             },
         )
     email = str(payload.get("email") or "") if isinstance(payload, dict) else ""
@@ -875,9 +875,9 @@ async def auth_email_register(payload: dict = Body(...)) -> JSONResponse:
     except ValueError as exc:
         code = str(exc)
         messages = {
-            "bad_email": "이메일 형식이 올바르지 않습니다.",
-            "email_taken": "이미 가입된 이메일입니다. 로그인하세요.",
-            "password_too_short": "비밀번호는 8자 이상이어야 합니다.",
+            "bad_email": "?�메???�식???�바르�? ?�습?�다.",
+            "email_taken": "?��? 가?�된 ?�메?�입?�다. 로그?�하?�요.",
+            "password_too_short": "비�?번호??8???�상?�어???�니??",
         }
         return JSONResponse(
             status_code=400,
@@ -891,7 +891,7 @@ async def auth_email_login(payload: dict = Body(...)) -> JSONResponse:
     if not email_auth_enabled():
         return JSONResponse(
             status_code=503,
-            content={"ok": False, "error": "email_disabled", "message": "이메일 로그인이 꺼져 있습니다."},
+            content={"ok": False, "error": "email_disabled", "message": "?�메??로그?�이 꺼져 ?�습?�다."},
         )
     if not email_password_auth_enabled():
         return JSONResponse(
@@ -899,7 +899,7 @@ async def auth_email_login(payload: dict = Body(...)) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "email_password_disabled",
-                "message": "이메일 비밀번호 로그인이 꺼져 있습니다. 로그인 링크로 들어가세요.",
+                "message": "?�메??비�?번호 로그?�이 꺼져 ?�습?�다. 로그??링크�??�어가?�요.",
             },
         )
     email = str(payload.get("email") or "") if isinstance(payload, dict) else ""
@@ -911,7 +911,7 @@ async def auth_email_login(payload: dict = Body(...)) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "bad_email",
-                "message": "이메일 형식이 올바르지 않습니다.",
+                "message": "?�메???�식???�바르�? ?�습?�다.",
             },
         )
     uid = lookup_uid("email", em)
@@ -921,7 +921,7 @@ async def auth_email_login(payload: dict = Body(...)) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "bad_credentials",
-                "message": "이메일 또는 비밀번호가 올바르지 않습니다.",
+                "message": "?�메???�는 비�?번호가 ?�바르�? ?�습?�다.",
             },
         )
     row = get_user_record(uid) or {}
@@ -932,7 +932,7 @@ async def auth_email_login(payload: dict = Body(...)) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "bad_credentials",
-                "message": "이메일 또는 비밀번호가 올바르지 않습니다.",
+                "message": "?�메???�는 비�?번호가 ?�바르�? ?�습?�다.",
             },
         )
     user = AuthUser(
@@ -963,7 +963,7 @@ async def auth_email_magic_request(
             content={
                 "ok": False,
                 "error": "magic_disabled",
-                "message": "이메일 로그인 링크가 꺼져 있습니다.",
+                "message": "?�메??로그??링크가 꺼져 ?�습?�다.",
             },
         )
     if not smtp_configured():
@@ -972,11 +972,11 @@ async def auth_email_magic_request(
             content={
                 "ok": False,
                 "error": "smtp_not_configured",
-                "message": "이메일 발송 설정이 없어 링크를 보낼 수 없습니다.",
+                "message": "?�메??발송 ?�정???�어 링크�?보낼 ???�습?�다.",
             },
         )
     email = str(payload.get("email") or "") if isinstance(payload, dict) else ""
-    # design/85 — android/app mail must deep-link; web omits mobile=1 (browser cookie).
+    # design/85 ??android/app mail must deep-link; web omits mobile=1 (browser cookie).
     client_hint = ""
     if isinstance(payload, dict):
         client_hint = str(payload.get("client") or "").strip().lower()
@@ -988,7 +988,7 @@ async def auth_email_magic_request(
             content={
                 "ok": False,
                 "error": "bad_email",
-                "message": "이메일 형식이 올바르지 않습니다.",
+                "message": "?�메???�식???�바르�? ?�습?�다.",
             },
         )
     try:
@@ -1001,12 +1001,12 @@ async def auth_email_magic_request(
                 content={
                     "ok": False,
                     "error": "rate_limited",
-                    "message": "요청이 너무 많습니다. 잠시 후 다시 시도하세요.",
+                    "message": "?�청???�무 많습?�다. ?�시 ???�시 ?�도?�세??",
                 },
             )
         return JSONResponse(
             status_code=400,
-            content={"ok": False, "error": code, "message": "요청을 처리할 수 없습니다."},
+            content={"ok": False, "error": code, "message": "?�청??처리?????�습?�다."},
         )
     open_url = (
         _public_api_base(request)
@@ -1023,7 +1023,7 @@ async def auth_email_magic_request(
             content={
                 "ok": False,
                 "error": str(exc),
-                "message": "이메일 발송 설정이 없어 링크를 보낼 수 없습니다.",
+                "message": "?�메??발송 ?�정???�어 링크�?보낼 ???�습?�다.",
             },
         )
     except RuntimeError:
@@ -1032,14 +1032,14 @@ async def auth_email_magic_request(
             content={
                 "ok": False,
                 "error": "smtp_send_failed",
-                "message": "이메일을 보내지 못했습니다. 잠시 후 다시 시도하세요.",
+                "message": "?�메?�을 보내지 못했?�니?? ?�시 ???�시 ?�도?�세??",
             },
         )
     # WHY: same success copy whether or not the address already has an account.
     return JSONResponse(
         {
             "ok": True,
-            "message": "로그인 링크를 이메일로 보냈습니다. 메일함에서 열어 주세요.",
+            "message": "로그??링크�??�메?�로 보냈?�니?? 메일?�에???�어 주세??",
         }
     )
 
@@ -1048,9 +1048,9 @@ async def auth_email_magic_request(
 def auth_email_magic_open(
     request: Request, t: str = "", mobile: str = ""
 ) -> Response:
-    """Redeem once → set session cookie; web lands on `/`, Android may deep-link.
+    """Redeem once ??set session cookie; web lands on `/`, Android may deep-link.
 
-    design/85 — browser click must establish web session (product).
+    design/85 ??browser click must establish web session (product).
     EDGE: ``mobile=1`` keeps Android deep-link for app mail clients (77).
     """
     raw = (t or "").strip()
@@ -1068,7 +1068,7 @@ def auth_email_magic_open(
                 status_code=302,
             )
         else:
-            # design/85 — web session for browser mail opens.
+            # design/85 ??web session for browser mail opens.
             resp = RedirectResponse(url="/?auth=logged_in", status_code=302)
         resp.set_cookie(
             key=COOKIE_NAME,
@@ -1107,7 +1107,7 @@ async def auth_email_magic_admin_mint(
             content={
                 "ok": False,
                 "error": "admin_required",
-                "message": "관리자만 로그인 링크를 발급할 수 있습니다.",
+                "message": "관리자�?로그??링크�?발급?????�습?�다.",
             },
         )
     if not _mobile_email_magic_link_enabled():
@@ -1116,7 +1116,7 @@ async def auth_email_magic_admin_mint(
             content={
                 "ok": False,
                 "error": "magic_disabled",
-                "message": "이메일 로그인 링크가 꺼져 있습니다.",
+                "message": "?�메??로그??링크가 꺼져 ?�습?�다.",
             },
         )
     email = ""
@@ -1125,7 +1125,7 @@ async def auth_email_magic_admin_mint(
         email = str(payload.get("email") or "")
         if payload.get("client") is not None:
             client_hint = str(payload.get("client") or "").strip().lower()
-    # EDGE: client=web → browser cookie path (design/85); else keep mobile deep-link.
+    # EDGE: client=web ??browser cookie path (design/85); else keep mobile deep-link.
     for_mobile = client_hint not in ("web", "browser")
     em = normalize_email(email)
     if not em:
@@ -1134,7 +1134,7 @@ async def auth_email_magic_admin_mint(
             content={
                 "ok": False,
                 "error": "bad_email",
-                "message": "이메일 형식이 올바르지 않습니다.",
+                "message": "?�메???�식???�바르�? ?�습?�다.",
             },
         )
     try:
@@ -1147,7 +1147,7 @@ async def auth_email_magic_admin_mint(
             content={
                 "ok": False,
                 "error": code,
-                "message": "요청을 처리할 수 없습니다.",
+                "message": "?�청??처리?????�습?�다.",
             },
         )
     open_url = (
@@ -1163,7 +1163,7 @@ async def auth_email_magic_admin_mint(
             "open_url": open_url,
             "expires_at": minted["expires_at"],
             "ttl_seconds": minted["ttl_seconds"],
-            "message": "이 URL은 지금만 표시됩니다. 메일/채팅에 장시간 보관하지 마세요.",
+            "message": "??URL?� 지금만 ?�시?�니?? 메일/채팅???�시�?보�??��? 마세??",
         }
     )
 
@@ -1174,12 +1174,12 @@ async def auth_email_link(request: Request, payload: dict = Body(...)) -> JSONRe
     if cur is None:
         return JSONResponse(
             status_code=401,
-            content={"ok": False, "error": "auth_required", "message": "먼저 로그인하세요."},
+            content={"ok": False, "error": "auth_required", "message": "먼�? 로그?�하?�요."},
         )
     if not email_auth_enabled():
         return JSONResponse(
             status_code=503,
-            content={"ok": False, "error": "email_disabled", "message": "이메일 연결이 꺼져 있습니다."},
+            content={"ok": False, "error": "email_disabled", "message": "?�메???�결??꺼져 ?�습?�다."},
         )
     if not email_password_auth_enabled():
         return JSONResponse(
@@ -1187,7 +1187,7 @@ async def auth_email_link(request: Request, payload: dict = Body(...)) -> JSONRe
             content={
                 "ok": False,
                 "error": "email_password_disabled",
-                "message": "이메일 비밀번호 연결이 꺼져 있습니다.",
+                "message": "?�메??비�?번호 ?�결??꺼져 ?�습?�다.",
             },
         )
     email = str(payload.get("email") or "") if isinstance(payload, dict) else ""
@@ -1200,9 +1200,9 @@ async def auth_email_link(request: Request, payload: dict = Body(...)) -> JSONRe
     except ValueError as exc:
         code = str(exc)
         messages = {
-            "conflict": "이 이메일은 이미 다른 계정에 연결되어 있습니다.",
-            "bad_email": "이메일 형식이 올바르지 않습니다.",
-            "password_too_short": "비밀번호는 8자 이상이어야 합니다.",
+            "conflict": "???�메?��? ?��? ?�른 계정???�결?�어 ?�습?�다.",
+            "bad_email": "?�메???�식???�바르�? ?�습?�다.",
+            "password_too_short": "비�?번호??8???�상?�어???�니??",
         }
         return JSONResponse(
             status_code=409 if code == "conflict" else 400,
@@ -1217,7 +1217,7 @@ async def auth_unlink(request: Request, payload: dict = Body(...)) -> JSONRespon
     if cur is None:
         return JSONResponse(
             status_code=401,
-            content={"ok": False, "error": "auth_required", "message": "먼저 로그인하세요."},
+            content={"ok": False, "error": "auth_required", "message": "먼�? 로그?�하?�요."},
         )
     provider = str(payload.get("provider") or "") if isinstance(payload, dict) else ""
     try:
@@ -1225,8 +1225,8 @@ async def auth_unlink(request: Request, payload: dict = Body(...)) -> JSONRespon
     except ValueError as exc:
         code = str(exc)
         messages = {
-            "last_provider": "마지막 로그인 수단은 해제할 수 없습니다.",
-            "not_linked": "연결되어 있지 않습니다.",
+            "last_provider": "마�?�?로그???�단?� ?�제?????�습?�다.",
+            "not_linked": "?�결?�어 ?��? ?�습?�다.",
         }
         return JSONResponse(
             status_code=400,
@@ -1237,14 +1237,14 @@ async def auth_unlink(request: Request, payload: dict = Body(...)) -> JSONRespon
 
 @app.post("/api/stt/compare")
 async def stt_compare(payload: dict = Body(...)) -> dict:
-    """원문 vs 인식 단어 diff — 점수 없음 (design/37)."""
+    """?�문 vs ?�식 ?�어 diff ???�수 ?�음 (design/37)."""
     from sentence_reading.stt.compare import diff_tokens
 
     if not isinstance(payload, dict):
         return {"ok": False, "error": "invalid_body"}
     expected = payload.get("expected")
     heard = payload.get("heard")
-    # WHY: score 필드를 응답에 넣지 않음 — 채점 UI 유혹 차단
+    # WHY: score ?�드�??�답???��? ?�음 ??채점 UI ?�혹 차단
     result = diff_tokens(expected, heard)
     if result.get("ok"):
         assert "score" not in result
@@ -1257,7 +1257,7 @@ async def stt_compare(payload: dict = Body(...)) -> dict:
 async def stt_recognize(request: Request, file: UploadFile = File(...),
     expected: str = Form(""),
 ) -> dict:
-    """연습 오디오 → 영어 전사 (+선택 compare). 점수 없음 (design/38)."""
+    """?�습 ?�디?????�어 ?�사 (+?�택 compare). ?�수 ?�음 (design/38)."""
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
@@ -1302,7 +1302,7 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
 
 @app.post("/api/cite/resolve")
 async def cite_resolve(payload: dict = Body(...)) -> dict:
-    """문헌 문자열 → 원문 URL (design/41 · DOI · Crossref · Scholar)."""
+    """문헌 문자?????�문 URL (design/41 · DOI · Crossref · Scholar)."""
     from sentence_reading.llm.crossref_resolve import resolve_citation
 
     text = payload.get("text") if isinstance(payload, dict) else None
@@ -1325,7 +1325,7 @@ async def cite_resolve(payload: dict = Body(...)) -> dict:
 
 @app.post("/api/translate")
 async def translate_sentence(request: Request, payload: dict = Body(...)) -> dict:
-    """영→한 번역 (design/35 simple · design/36 pipeline 기본)."""
+    """?�→??번역 (design/35 simple · design/36 pipeline 기본)."""
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
@@ -1364,7 +1364,7 @@ async def translate_sentence(request: Request, payload: dict = Body(...)) -> dic
 
 @app.get("/api/usage")
 def usage_me(request: Request) -> dict:
-    """관리자만: 본인 사용량 · 추정 비용 (일반 유저 UI/API 비공개)."""
+    """관리자�? 본인 ?�용??· 추정 비용 (?�반 ?��? UI/API 비공�?."""
     from sentence_reading.llm.usage_meter import is_admin_email, public_usage
 
     user = _request_user(request)
@@ -1377,7 +1377,7 @@ def usage_me(request: Request) -> dict:
 
 @app.get("/api/usage/admin")
 def usage_admin(request: Request) -> dict:
-    """관리자: 전체 유저 사용량."""
+    """관리자: ?�체 ?��? ?�용??"""
     from sentence_reading.llm.usage_meter import admin_usage_report, is_admin_email
 
     user = _request_user(request)
@@ -1393,7 +1393,7 @@ def usage_admin(request: Request) -> dict:
 @app.get("/api/access/status")
 def access_status(request: Request) -> dict:
     user = _request_user(request)
-    # WHY: Settings「새로고침」must see Allow minted on another instance (design/69)
+    # WHY: Settings?�새로고침」must see Allow minted on another instance (design/69)
     if user is not None:
         try:
             refresh_access_gate_from_gcs()
@@ -1418,7 +1418,7 @@ async def access_invite(request: Request, payload: dict = Body(...)) -> JSONResp
             content={
                 "ok": False,
                 "error": "auth_required",
-                "message": "로그인 후 초대 코드를 입력하세요.",
+                "message": "로그????초�? 코드�??�력?�세??",
             },
         )
     code = str(payload.get("code") or "") if isinstance(payload, dict) else ""
@@ -1429,14 +1429,14 @@ async def access_invite(request: Request, payload: dict = Body(...)) -> JSONResp
     except ValueError as exc:
         code_e = str(exc)
         messages = {
-            "gate_disabled": "액세스 게이트가 꺼져 있습니다.",
-            "empty_code": "초대 코드를 입력하세요.",
-            "bad_code": "초대 코드가 올바르지 않습니다.",
-            "code_used": "이미 사용된 초대 코드입니다.",
-            "code_revoked": "폐기된 초대 코드입니다.",
-            "code_expired": "만료된 초대 코드입니다. 관리자에게 새 코드를 요청하세요.",
-            "rate_limited": "시도가 너무 많습니다. 잠시 후 다시 시도하세요.",
-            "auth_required": "로그인이 필요합니다.",
+            "gate_disabled": "?�세??게이?��? 꺼져 ?�습?�다.",
+            "empty_code": "초�? 코드�??�력?�세??",
+            "bad_code": "초�? 코드가 ?�바르�? ?�습?�다.",
+            "code_used": "?��? ?�용??초�? 코드?�니??",
+            "code_revoked": "?�기??초�? 코드?�니??",
+            "code_expired": "만료??초�? 코드?�니?? 관리자?�게 ??코드�??�청?�세??",
+            "rate_limited": "?�도가 ?�무 많습?�다. ?�시 ???�시 ?�도?�세??",
+            "auth_required": "로그?�이 ?�요?�니??",
         }
         status = 400
         if code_e == "bad_code":
@@ -1473,7 +1473,7 @@ def access_admin_pending(request: Request) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "admin_required",
-                "message": "관리자만 볼 수 있습니다.",
+                "message": "관리자�?�????�습?�다.",
             },
         )
     return JSONResponse({"ok": True, "pending": list_pending()})
@@ -1488,7 +1488,7 @@ def access_admin_notifications(request: Request, limit: int = 50) -> JSONRespons
             content={
                 "ok": False,
                 "error": "admin_required",
-                "message": "관리자만 볼 수 있습니다.",
+                "message": "관리자�?�????�습?�다.",
             },
         )
     try:
@@ -1509,7 +1509,7 @@ async def access_admin_mint(request: Request, payload: dict = Body(None)) -> JSO
             content={
                 "ok": False,
                 "error": "admin_required",
-                "message": "관리자만 초대 코드를 발급할 수 있습니다.",
+                "message": "관리자�?초�? 코드�?발급?????�습?�다.",
             },
         )
     note = ""
@@ -1532,7 +1532,7 @@ async def access_admin_mint(request: Request, payload: dict = Body(None)) -> JSO
             "expires_at": minted.get("expires_at"),
             "ttl_seconds": minted.get("ttl_seconds"),
             "single_use": True,
-            "message": "이 코드는 지금만 표시됩니다. 만료 전·1회만 사용하세요.",
+            "message": "??코드??지금만 ?�시?�니?? 만료 ?��??�만 ?�용?�세??",
         }
     )
 
@@ -1546,7 +1546,7 @@ def access_admin_invites(request: Request, limit: int = 20) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "admin_required",
-                "message": "관리자만 볼 수 있습니다.",
+                "message": "관리자�?�????�습?�다.",
             },
         )
     try:
@@ -1567,7 +1567,7 @@ async def access_admin_decide(
             content={
                 "ok": False,
                 "error": "admin_required",
-                "message": "관리자만 처리할 수 있습니다.",
+                "message": "관리자�?처리?????�습?�다.",
             },
         )
     if not isinstance(payload, dict):
@@ -1603,7 +1603,7 @@ def auth_logout() -> JSONResponse:
 @app.get("/api/voice/blobs")
 async def voice_blob_get(request: Request, key: str = "") -> Response:
     """
-    blobKey → 오디오 bytes (GCS). IDB miss 시 클라이언트가 호출.
+    blobKey ???�디??bytes (GCS). IDB miss ???�라?�언?��? ?�출.
     """
     if auth_enabled() and _request_user(request) is None:
         return JSONResponse(
@@ -1613,7 +1613,7 @@ async def voice_blob_get(request: Request, key: str = "") -> Response:
                 "available": False,
                 "needs_auth": True,
                 "error": "auth_required",
-                "message": "로그인 후 목소리를 동기화합니다.",
+                "message": "로그????목소리�? ?�기?�합?�다.",
             },
         )
     st = gcs_status()
@@ -1645,7 +1645,7 @@ async def voice_blob_get(request: Request, key: str = "") -> Response:
 @app.put("/api/voice/blobs")
 async def voice_blob_put(request: Request, key: str = "") -> JSONResponse:
     """
-    녹음 blob → GCS. query `key` = 노트 store 의 blobKey.
+    ?�음 blob ??GCS. query `key` = ?�트 store ??blobKey.
     """
     if auth_enabled() and _request_user(request) is None:
         return JSONResponse(
@@ -1654,7 +1654,7 @@ async def voice_blob_put(request: Request, key: str = "") -> JSONResponse:
                 "available": False,
                 "needs_auth": True,
                 "uploaded": False,
-                "message": "로그인 후 목소리를 동기화합니다.",
+                "message": "로그????목소리�? ?�기?�합?�다.",
             }
         )
     st = gcs_status()
@@ -1704,14 +1704,14 @@ async def voice_blob_put(request: Request, key: str = "") -> JSONResponse:
 
 @app.get("/api/notes/sync")
 def notes_sync_get(request: Request) -> dict:
-    """GCS 노트 store pull. 버킷 미설정·미준비면 available=false."""
+    """GCS ?�트 store pull. 버킷 미설?�·�?준비면 available=false."""
     if auth_enabled() and _request_user(request) is None:
         return {
             "ok": True,
             "available": False,
             "needs_auth": True,
             "store": None,
-            "message": "Google 로그인 후 클라우드 노트를 동기화합니다.",
+            "message": "Google 로그?????�라?�드 ?�트�??�기?�합?�다.",
         }
     st = gcs_status()
     if not st.get("enabled") or not st.get("ready"):
@@ -1727,7 +1727,7 @@ def notes_sync_get(request: Request) -> dict:
             "available": False,
             "needs_auth": True,
             "store": None,
-            "message": "로그인된 사용자 칸이 없습니다.",
+            "message": "로그?�된 ?�용??칸이 ?�습?�다.",
         }
     store = download_notes_store()
     return {
@@ -1741,7 +1741,7 @@ def notes_sync_get(request: Request) -> dict:
 @app.put("/api/notes/sync")
 async def notes_sync_put(request: Request, payload: dict = Body(...)) -> JSONResponse:
     """
-    로컬 store push — remote∪local 병합 후 GCS 업로드, 병합본 반환.
+    로컬 store push ??remote?�local 병합 ??GCS ?�로?? 병합�?반환.
     """
     if auth_enabled() and _request_user(request) is None:
         return JSONResponse(
@@ -1750,7 +1750,7 @@ async def notes_sync_put(request: Request, payload: dict = Body(...)) -> JSONRes
                 "available": False,
                 "needs_auth": True,
                 "store": payload.get("store") if isinstance(payload, dict) else None,
-                "message": "Google 로그인 후 클라우드 노트를 동기화합니다.",
+                "message": "Google 로그?????�라?�드 ?�트�??�기?�합?�다.",
             }
         )
     st = gcs_status()
@@ -1770,7 +1770,7 @@ async def notes_sync_put(request: Request, payload: dict = Body(...)) -> JSONRes
                 "available": False,
                 "needs_auth": True,
                 "store": payload.get("store") if isinstance(payload, dict) else None,
-                "message": "로그인된 사용자 칸이 없습니다.",
+                "message": "로그?�된 ?�용??칸이 ?�습?�다.",
             }
         )
     local = payload.get("store") if isinstance(payload, dict) else None
@@ -1795,7 +1795,7 @@ async def notes_sync_put(request: Request, payload: dict = Body(...)) -> JSONRes
 
 @app.get("/api/tts/voices")
 def tts_voices() -> dict:
-    """UI용 추천 보이스 목록."""
+    """UI??추천 보이??목록."""
     return {
         "ok": True,
         "available": tts_available(),
@@ -1809,7 +1809,7 @@ def tts_voices() -> dict:
 
 @app.post("/api/tts")
 async def tts_synthesize(request: Request, payload: dict = Body(...)) -> Response:
-    """현재 문장 plain text → MP3."""
+    """?�재 문장 plain text ??MP3."""
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
@@ -1819,7 +1819,7 @@ async def tts_synthesize(request: Request, payload: dict = Body(...)) -> Respons
             content={
                 "ok": False,
                 "error": "tts_unavailable",
-                "message": "Cloud TTS 자격 증명이 없습니다.",
+                "message": "Cloud TTS ?�격 증명???�습?�다.",
             },
         )
     text = spoken_text_for_tts(str(payload.get("text") or ""))
@@ -1836,7 +1836,7 @@ async def tts_synthesize(request: Request, payload: dict = Body(...)) -> Respons
             content={
                 "ok": False,
                 "error": "empty_text",
-                "message": "읽을 문장이 없습니다.",
+                "message": "?�을 문장???�습?�다.",
             },
         )
     try:
@@ -1872,7 +1872,7 @@ def session_mock() -> dict:
 
 @app.get("/api/cache/papers")
 def cache_papers() -> dict:
-    """보관된 논문 목록 (로컬 ∪ GCS index 메타)."""
+    """보�????�문 목록 (로컬 ??GCS index 메�?)."""
     try:
         from sentence_reading.llm.papers_gcs import list_merged_paper_entries
 
@@ -1883,7 +1883,7 @@ def cache_papers() -> dict:
 
 @app.post("/api/cache/papers/{cache_id}/open")
 async def cache_open(request: Request, cache_id: str) -> JSONResponse:
-    """보관본을 즉시 세션으로 연다. 로컬 miss 시 GCS pull · KO 없으면 번역 백필."""
+    """보�?본을 즉시 ?�션?�로 ?�다. 로컬 miss ??GCS pull · KO ?�으�?번역 백필."""
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
@@ -1893,11 +1893,11 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
             refresh_paper_for_open,
         )
 
-        # design/121 — GCS ready → always pull owner object; pull fail → no local open.
+        # design/121 ??GCS ready ??always pull owner object; pull fail ??no local open.
         try:
             refreshed, refresh_code = refresh_paper_for_open(cache_id)
         except Exception:
-            # EDGE: unexpected pull error → fail-closed (do not serve local).
+            # EDGE: unexpected pull error ??fail-closed (do not serve local).
             refreshed, refresh_code = False, "gcs_pull_failed"
         if not refreshed:
             if refresh_code == "bad_cache_id":
@@ -1906,16 +1906,16 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                     content={
                         "ok": False,
                         "error": "bad_cache_id",
-                        "message": "잘못된 보관 id입니다.",
+                        "message": "?�못??보�? id?�니??",
                     },
                 )
-            # WHY: product 2A — local leftover must not look like a successful open.
+            # WHY: product 2A ??local leftover must not look like a successful open.
             return JSONResponse(
                 status_code=502,
                 content={
                     "ok": False,
                     "error": "gcs_pull_failed",
-                    "message": "클라우드에서 논문을 받지 못했습니다. 잠시 후 다시 시도해 주세요.",
+                    "message": "?�라?�드?�서 ?�문??받�? 못했?�니?? ?�시 ???�시 ?�도??주세??",
                 },
             )
         loaded = load_cached_session(cache_id, load_images=False)
@@ -1925,39 +1925,28 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                 content={
                     "ok": False,
                     "error": "cache_not_found",
-                    "message": "보관된 논문을 찾을 수 없습니다.",
+                    "message": "보�????�문??찾을 ???�습?�다.",
                 },
             )
         session, info = loaded
-        # design/114 — never return ok with title-only / zero sentences.
+        # design/114 ??never return ok with title-only / zero sentences.
         if paper_open_require_sentences() and not session.sentences:
             return JSONResponse(
                 status_code=422,
                 content={
                     "ok": False,
                     "error": "empty_session",
-                    "message": "보관본에 문장이 없습니다. 원본이 있으면 재분석하거나 PDF를 다시 올려 주세요.",
+                    "message": "보�?본에 문장???�습?�다. ?�본???�으�??�분?�하거나 PDF�??�시 ?�려 주세??",
                 },
             )
-        src = "pdf"
-        # index source 힌트
-        try:
-            from sentence_reading.cache.paper_cache import list_cached_papers
-
-            for e in list_cached_papers():
-                if e.get("id") == cache_id:
-                    src = str(e.get("source") or "pdf")
-                    break
-        except Exception:
-            pass
-        # design/99 — mobile may pass translate=0.
-        # design/129 — never await Gemini KO backfill on /open (multi‑minute hang → device
+        # design/99 ??mobile may pass translate=0.
+        # design/129 ??never await Gemini KO backfill on /open (multi?�minute hang ??device
         # TimeoutException). Empty KO is honest; progressive/read paths can fill later.
         bf_warn: list[str] = []
         if _want_translate(request):
             bf_warn.append("translate_deferred_on_open")
         session_id = _remember_session(session, cache_id=cache_id)
-        # design/129 — sentences/meta only; PNGs via /figures/window (fail-closed empty src).
+        # design/129 ??sentences/meta only; PNGs via /figures/window (fail-closed empty src).
         data = session.to_public_dict(include_images=False)
         data["ok"] = True
         data["session_id"] = session_id
@@ -1971,13 +1960,13 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
         data["lazy_figures"] = True
         if info.get("content_hash"):
             data["content_hash"] = info["content_hash"]
-        # WHY: stale 도 열어 노트(cache:id) 유지 — 원본 있으면 재분석, 없으면 파일 재업로드
+        # WHY: stale ???�어 ?�트(cache:id) ?��? ???�본 ?�으�??�분?? ?�으�??�일 ?�업로드
         warnings = ["stale_pipeline"] if info.get("stale") else []
         warnings.extend(bf_warn)
         data["warnings"] = warnings
         return JSONResponse(data)
     except Exception as exc:  # noqa: BLE001
-        # design/111 — never leave clients with bare HTML 500 / empty body.
+        # design/111 ??never leave clients with bare HTML 500 / empty body.
         # EDGE: do not echo paths, stacks, or paper titles.
         log = __import__("logging").getLogger("sentence_reading.api")
         log.warning("cache_open failed: %s", type(exc).__name__)
@@ -1986,14 +1975,14 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "cache_open_failed",
-                "message": "논문을 열지 못했습니다. 잠시 후 다시 시도해 주세요.",
+                "message": "?�문???��? 못했?�니?? ?�시 ???�시 ?�도??주세??",
             },
         )
 
 
 @app.post("/api/cache/papers/{cache_id}/reanalyze")
 async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
-    """보관된 원본(source.pdf|docx)으로 파이프라인 재실행. 같은 cache_id 유지."""
+    """보�????�본(source.pdf|docx)?�로 ?�이?�라???�실?? 같�? cache_id ?��?."""
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
@@ -2011,7 +2000,7 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "source_missing",
-                "message": "원본 파일이 없어 재분석할 수 없습니다. PDF/Word를 다시 열어 주세요.",
+                "message": "?�본 ?�일???�어 ?�분?�할 ???�습?�다. PDF/Word�??�시 ?�어 주세??",
             },
         )
     kind = "docx" if src.name.lower().endswith(".docx") else "pdf"
@@ -2024,7 +2013,7 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "source_read_failed",
-                "message": f"원본을 읽지 못했습니다: {exc}",
+                "message": f"?�본???��? 못했?�니?? {exc}",
             },
         )
     if not raw:
@@ -2033,7 +2022,7 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "source_missing",
-                "message": "원본 파일이 비어 있습니다.",
+                "message": "?�본 ?�일??비어 ?�습?�다.",
             },
         )
 
@@ -2051,7 +2040,7 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
     _JOBS[job_id] = {
         "percent": 1,
         "stage": "queued",
-        "message": "재분석 시작",
+        "message": "?�분???�작",
         "done": False,
         "error": None,
         "result": None,
@@ -2077,14 +2066,14 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
             "job_id": job_id,
             "cache_id": cid,
             "percent": 1,
-            "message": "재분석 시작",
+            "message": "?�분???�작",
         }
     )
 
 
 @app.delete("/api/cache/papers/{cache_id}")
 def cache_delete(request: Request, cache_id: str) -> JSONResponse:
-    """보관(증류)본 삭제 — 로컬·GCS 논문 + 같은 uid 사용자 기록 (design/102)."""
+    """보�?(증류)�???�� ??로컬·GCS ?�문 + 같�? uid ?�용??기록 (design/102)."""
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
@@ -2095,7 +2084,7 @@ def cache_delete(request: Request, cache_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "cache_not_found",
-                "message": "삭제할 보관본을 찾지 못했습니다.",
+                "message": "??��??보�?본을 찾�? 못했?�니??",
             },
         )
     return JSONResponse(
@@ -2110,7 +2099,7 @@ def cache_delete(request: Request, cache_id: str) -> JSONResponse:
 
 @app.post("/api/cache/delete")
 async def cache_delete_by_meta(request: Request, payload: dict = Body(...)) -> JSONResponse:
-    """cache_id 없거나 모를 때 title+source 로 삭제."""
+    """cache_id ?�거??모�? ??title+source �???��."""
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
@@ -2123,7 +2112,7 @@ async def cache_delete_by_meta(request: Request, payload: dict = Body(...)) -> J
             content={
                 "ok": False,
                 "error": "missing_key",
-                "message": "cache_id 또는 title 이 필요합니다.",
+                "message": "cache_id ?�는 title ???�요?�니??",
             },
         )
     deleted = delete_cached_paper(cache_id=cache_id, title=title, source=source)
@@ -2133,7 +2122,7 @@ async def cache_delete_by_meta(request: Request, payload: dict = Body(...)) -> J
             content={
                 "ok": False,
                 "error": "cache_not_found",
-                "message": "삭제할 보관본을 찾지 못했습니다.",
+                "message": "??��??보�?본을 찾�? 못했?�니??",
             },
         )
     return JSONResponse(
@@ -2160,7 +2149,7 @@ def session_get(session_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "session_not_found",
-                "message": "세션을 찾을 수 없습니다.",
+                "message": "?�션??찾을 ???�습?�다.",
             },
         )
     data = session.to_public_dict(include_images=False)
@@ -2175,10 +2164,10 @@ def session_figures_window(
     center: int = 0,
     span: int = 1,
 ) -> JSONResponse:
-    """design/129 — return PNG data-URLs for center±span only (default ±1).
+    """design/129 ??return PNG data-URLs for center±span only (default ±1).
 
     AuthZ: session must exist in memory (same capability model as session_get).
-    Never trusts client cache_id/path — uses _SESSION_CACHE_IDS bound at open.
+    Never trusts client cache_id/path ??uses _SESSION_CACHE_IDS bound at open.
     """
     from sentence_reading.cache.paper_cache import figure_data_url
 
@@ -2192,7 +2181,7 @@ def session_figures_window(
             content={
                 "ok": False,
                 "error": "bad_window",
-                "message": "center/span 이 올바르지 않습니다.",
+                "message": "center/span ???�바르�? ?�습?�다.",
             },
         )
     if span_i < 0 or span_i > 2:
@@ -2201,7 +2190,7 @@ def session_figures_window(
             content={
                 "ok": False,
                 "error": "bad_span",
-                "message": "span 은 0–2 만 허용합니다.",
+                "message": "span ?� 0?? �??�용?�니??",
             },
         )
     if session_id == "ses_mock":
@@ -2215,7 +2204,7 @@ def session_figures_window(
                 content={
                     "ok": False,
                     "error": "session_not_found",
-                    "message": "세션을 찾을 수 없습니다.",
+                    "message": "?�션??찾을 ???�습?�다.",
                 },
             )
         cache_id = _SESSION_CACHE_IDS.get(session_id) or ""
@@ -2233,7 +2222,7 @@ def session_figures_window(
         src = (fig.image_src or "").strip()
         if not src and cache_id:
             src = figure_data_url(cache_id, fig.id) or ""
-        # WHY: never invent bytes — empty src means missing file (design/124).
+        # WHY: never invent bytes ??empty src means missing file (design/124).
         out.append(
             {
                 "index": i,
@@ -2259,7 +2248,7 @@ def session_figures_window(
 async def session_patch_cursor(session_id: str, payload: dict = Body(...)) -> JSONResponse:
     """Update sentence/figure cursors independently (design/04 · design/63).
 
-    INVARIANT: only the keys present in the body are applied — never force both.
+    INVARIANT: only the keys present in the body are applied ??never force both.
     """
     if session_id == "ses_mock":
         return JSONResponse(
@@ -2267,7 +2256,7 @@ async def session_patch_cursor(session_id: str, payload: dict = Body(...)) -> JS
             content={
                 "ok": False,
                 "error": "mock_readonly",
-                "message": "mock 세션 커서는 저장하지 않습니다.",
+                "message": "mock ?�션 커서???�?�하지 ?�습?�다.",
             },
         )
     session = _SESSIONS.get(session_id)
@@ -2277,7 +2266,7 @@ async def session_patch_cursor(session_id: str, payload: dict = Body(...)) -> JS
             content={
                 "ok": False,
                 "error": "session_not_found",
-                "message": "세션을 찾을 수 없습니다.",
+                "message": "?�션??찾을 ???�습?�다.",
             },
         )
     body = payload if isinstance(payload, dict) else {}
@@ -2291,7 +2280,7 @@ async def session_patch_cursor(session_id: str, payload: dict = Body(...)) -> JS
                 content={
                     "ok": False,
                     "error": "bad_sentence_index",
-                    "message": "sentence_index 가 올바르지 않습니다.",
+                    "message": "sentence_index 가 ?�바르�? ?�습?�다.",
                 },
             )
     if "figure_index" in body:
@@ -2303,11 +2292,11 @@ async def session_patch_cursor(session_id: str, payload: dict = Body(...)) -> JS
                 content={
                     "ok": False,
                     "error": "bad_figure_index",
-                    "message": "figure_index 가 올바르지 않습니다.",
+                    "message": "figure_index 가 ?�바르�? ?�습?�다.",
                 },
             )
     session.clamp_indices()
-    # design/129 — cursor ack without re-embedding PNGs (mobile ignores body).
+    # design/129 ??cursor ack without re-embedding PNGs (mobile ignores body).
     data = session.to_public_dict(include_images=False)
     data["ok"] = True
     data["session_id"] = session_id
@@ -2315,7 +2304,7 @@ async def session_patch_cursor(session_id: str, payload: dict = Body(...)) -> JS
 
 
 async def _ingest_lease_heartbeat(job_id: str) -> None:
-    """design/107 — keep lease fresh while this instance runs the worker."""
+    """design/107 ??keep lease fresh while this instance runs the worker."""
     from sentence_reading.llm import ingest_jobs_gcs as ij
 
     interval = ij.heartbeat_interval_seconds()
@@ -2333,15 +2322,15 @@ async def _ingest_lease_heartbeat(job_id: str) -> None:
 async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
     """
     Restart processing from GCS upload blob when the prior worker lease expired.
-    WHY: root fix for orphaned 12% jobs — not a fake percent bump.
-    EDGE: no blob → False (fail-closed, no empty success).
+    WHY: root fix for orphaned 12% jobs ??not a fake percent bump.
+    EDGE: no blob ??False (fail-closed, no empty success).
     """
     from sentence_reading.llm import ingest_jobs_gcs as ij
 
     if not ij.ingest_job_reclaim_enabled():
         return False
     existing = _JOBS.get(job_id)
-    # WHY: this instance already has an active worker — do not double-start.
+    # WHY: this instance already has an active worker ??do not double-start.
     if existing is not None and existing.get("_local_running"):
         return False
     token = ij.try_claim_lease(job_id, owner_uid=owner_uid)
@@ -2355,12 +2344,12 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
         kind = "docx"
         suffix = ".docx"
     if not raw:
-        # EDGE: lease claimed but bytes gone — leave job as-is; next poll can retry.
+        # EDGE: lease claimed but bytes gone ??leave job as-is; next poll can retry.
         return False
     meta = ij.load_ingest_job(job_id, owner_uid=owner_uid) or {}
     filename = ij.safe_filename(str(meta.get("filename") or f"reclaim{suffix}"))
     content_hash = str(meta.get("content_hash") or "").strip() or None
-    # design/110·112 — accept/discard checkpoint; load payload for skip when enabled.
+    # design/110·112 ??accept/discard checkpoint; load payload for skip when enabled.
     cp_raw = meta.get("checkpoint")
     cp_ok, cp_reason = ij.checkpoint_is_valid(
         cp_raw,
@@ -2381,9 +2370,9 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
             reclaim_msg = ij.checkpoint_resume_message(kept_cp)
             cp_reason = "ok"
         else:
-            # WHY: envelope without usable payload → honest full restart.
+            # WHY: envelope without usable payload ??honest full restart.
             kept_cp = None
-            reclaim_msg = "처리 다시 시작"
+            reclaim_msg = "처리 ?�시 ?�작"
             cp_reason = pl_reason
             try:
                 ij.delete_ingest_payload(job_id, owner_uid=owner_uid)
@@ -2392,7 +2381,7 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
     elif kept_cp is not None:
         reclaim_msg = ij.checkpoint_resume_message(kept_cp)
     else:
-        reclaim_msg = "처리 다시 시작"
+        reclaim_msg = "처리 ?�시 ?�작"
         kept_cp = None
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(raw)
@@ -2407,7 +2396,7 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
         ij.stage_percent_floor(seed_stage),
         int(meta.get("percent") or 1),
     )
-    # design/112 — keep partial result only when translating from ready payload.
+    # design/112 ??keep partial result only when translating from ready payload.
     keep_result = None
     if isinstance(meta.get("result"), dict) and str(
         (resume_payload or {}).get("completed") or ""
@@ -2449,7 +2438,7 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
 
 @app.get("/api/ingest/jobs/{job_id}")
 async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
-    """업로드·정제 진행률 폴링 (design/71 — memory then owner-scoped GCS)."""
+    """?�로?�·정??진행�??�링 (design/71 ??memory then owner-scoped GCS)."""
     from sentence_reading.llm import ingest_jobs_gcs as ij
 
     jid = (job_id or "").strip()
@@ -2460,14 +2449,14 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "job_not_found",
-                "message": "작업을 찾을 수 없습니다.",
+                "message": "?�업??찾을 ???�습?�다.",
             },
         )
 
     user = _request_user(request)
     job = _JOBS.get(jid)
     if user is not None:
-        # WHY: other Cloud Run instance — shared truth is users/{uid}/ingest_jobs.
+        # WHY: other Cloud Run instance ??shared truth is users/{uid}/ingest_jobs.
         # design/106: also re-load when local cache is non-terminal so a stale
         # 12% quality snapshot cannot pin the poll forever after GCS advances.
         loaded = ij.load_ingest_job(jid, owner_uid=user.uid)
@@ -2493,7 +2482,7 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
                         != str(job.get("message") or "")
                     )
                     or (
-                        # design/107 — pick up fresher lease from GCS
+                        # design/107 ??pick up fresher lease from GCS
                         str(loaded.get("lease_until") or "")
                         != str(job.get("lease_until") or "")
                     )
@@ -2519,12 +2508,12 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "job_not_found",
-                "message": "작업을 찾을 수 없습니다.",
+                "message": "?�업??찾을 ???�습?�다.",
             },
         )
 
     owner = str(job.get("owner_uid") or "").strip()
-    # WHY: multi-user — never leak another account’s job by id guessing.
+    # WHY: multi-user ??never leak another account?�s job by id guessing.
     if owner:
         if user is None:
             return JSONResponse(
@@ -2532,7 +2521,7 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
                 content={
                     "ok": False,
                     "error": "auth_required",
-                    "message": "로그인이 필요합니다.",
+                    "message": "로그?�이 ?�요?�니??",
                 },
             )
         if user.uid != owner:
@@ -2541,10 +2530,10 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
                 content={
                     "ok": False,
                     "error": "job_not_found",
-                    "message": "작업을 찾을 수 없습니다.",
+                    "message": "?�업??찾을 ???�습?�다.",
                 },
             )
-        # design/107 — owner poll may restart an abandoned worker (lease expired).
+        # design/107 ??owner poll may restart an abandoned worker (lease expired).
         if (
             not job.get("done")
             and not job.get("error")
@@ -2568,7 +2557,7 @@ def _source_kind(filename: str) -> str | None:
 
 
 def _file_sha256(path: Path) -> str | None:
-    """원본 바이트 SHA-256 — 진행 복원 키 (design/05·21)."""
+    """?�본 바이??SHA-256 ??진행 복원 ??(design/05·21)."""
     h = hashlib.sha256()
     try:
         with path.open("rb") as f:
@@ -2585,7 +2574,7 @@ def _file_sha256(path: Path) -> str | None:
 def _try_cache_hit(
     text: str, kind: str
 ) -> tuple[PaperSession, dict, dict] | None:
-    """보관본 히트 시 (session, info, hit_entry)."""
+    """보�?�??�트 ??(session, info, hit_entry)."""
     hit = find_cached_by_text(text, source=kind)
     if not hit or not hit.get("id"):
         return None
@@ -2609,8 +2598,8 @@ async def _backfill_cached_translations(
     content_hash: str | None,
 ) -> tuple[PaperSession, list[str]]:
     """
-    design/42 — 보관본에 KO가 없으면 번역만 채우고 같은 제목 키로 재저장.
-    Gemini 없거나 실패해도 원 세션 반환 (fail-soft).
+    design/42 ??보�?본에 KO가 ?�으�?번역�?채우�?같�? ?�목 ?�로 ?��???
+    Gemini ?�거???�패?�도 ???�션 반환 (fail-soft).
     """
     from sentence_reading.llm.translate_section import (
         enrich_session_translations,
@@ -2626,7 +2615,7 @@ async def _backfill_cached_translations(
         warnings.append("translate_missing")
         warnings.append("translate_skipped_no_gemini")
         return session, warnings
-    # WHY: design/43 — 백필도 문장/요지/캡션 단위로 badge 갱신
+    # WHY: design/43 ??백필??문장/?��?/캡션 ?�위�?badge 갱신
     def _bf_progress(message: str, fraction: float = 0.0) -> None:
         if not job_id:
             return
@@ -2639,7 +2628,7 @@ async def _backfill_cached_translations(
             job_id,
             percent=88,
             stage="translate",
-            message="보관본 번역 채우는 중",
+            message="보�?�?번역 채우??�?,
         )
     try:
         sentences, figures, digests, tr_warn = await asyncio.to_thread(
@@ -2731,7 +2720,7 @@ async def _run_ingest_job_body(
         resume_pl = job0.get("_resume_payload")
         if not isinstance(resume_pl, dict):
             resume_pl = None
-        # design/112 — if reclaim handed a payload, skip prior Gemini stages.
+        # design/112 ??if reclaim handed a payload, skip prior Gemini stages.
         resume_completed = str((resume_pl or {}).get("completed") or "")
         skip_vision = resume_completed in {
             "vision",
@@ -2741,7 +2730,7 @@ async def _run_ingest_job_body(
         }
         skip_debone = resume_completed in {"debone", "ready", "translate"}
         jump_ready = resume_completed in {"ready", "translate"}
-        # WHY: completed=translate means KO already in payload — skip Gemini enrich.
+        # WHY: completed=translate means KO already in payload ??skip Gemini enrich.
         skip_translate = resume_completed == "translate"
         vision_resume = None
         if resume_completed == "vision_partial" and isinstance(resume_pl, dict):
@@ -2786,7 +2775,7 @@ async def _run_ingest_job_body(
                 _persist_job(job_id, j, force=True)
 
         def _discard_resume(reason: str) -> None:
-            # Product: resume failure → discard + continue as full restart.
+            # Product: resume failure ??discard + continue as full restart.
             j = _JOBS.get(job_id)
             if j is not None:
                 j.pop("_resume_payload", None)
@@ -2816,14 +2805,14 @@ async def _run_ingest_job_body(
                 message=str(
                     (_JOBS.get(job_id) or {}).get("message")
                     or (
-                        "비전 이어받는 중"
+                        "비전 ?�어받는 �?
                         if vision_resume is not None
-                        else "이어받는 중"
+                        else "?�어받는 �?
                     )
                 ),
             )
         else:
-            _job_set(job_id, percent=5, stage="extract", message=f"{label} 읽는 중")
+            _job_set(job_id, percent=5, stage="extract", message=f"{label} ?�는 �?)
             pdf_pages = None
             try:
                 if kind == "pdf":
@@ -2835,15 +2824,15 @@ async def _run_ingest_job_body(
                     text = await asyncio.to_thread(docx_extract.extract_text, tmp_path)
             except ValueError as exc:
                 if str(exc) == "encrypted_pdf":
-                    raise RuntimeError("암호로 보호된 PDF는 열 수 없습니다.") from exc
+                    raise RuntimeError("?�호�?보호??PDF???????�습?�다.") from exc
                 raise
             except Exception as exc:
-                raise RuntimeError(f"{label} 텍스트 추출 실패: {exc}") from exc
+                raise RuntimeError(f"{label} ?�스??추출 ?�패: {exc}") from exc
 
-        # WHY: 파일명 말고 논문 제목 — 원문 앞부분에 캐시 제목이 있으면 즉시 로드
-        # 재분석(skip_cache) 또는 원본 백필은 히트 경로에서도 진행
+        # WHY: ?�일�?말고 ?�문 ?�목 ???�문 ?��?분에 캐시 ?�목???�으�?즉시 로드
+        # ?�분??skip_cache) ?�는 ?�본 백필?� ?�트 경로?�서??진행
         if not skip_cache and not jump_ready:
-            _job_set(job_id, percent=10, stage="cache", message="제목으로 보관본 찾는 중")
+            _job_set(job_id, percent=10, stage="cache", message="?�목?�로 보�?�?찾는 �?)
             cached = await asyncio.to_thread(_try_cache_hit, text, kind)
             if cached is not None:
                 session, info, hit = cached
@@ -2876,10 +2865,10 @@ async def _run_ingest_job_body(
                 if content_hash:
                     data["content_hash"] = content_hash
                 data["warnings"] = list(bf_warn)
-                _finish_job(job_id, data, message="보관본에서 불러옴")
+                _finish_job(job_id, data, message="보�?본에??불러??)
                 return
 
-        # WHY: PDF만 적응형 vision — 스캔·손상 페이지 복구 후 캐시 재조회
+        # WHY: PDF�??�응??vision ???�캔·?�상 ?�이지 복구 ??캐시 ?�조??
         if kind == "pdf" and pdf_pages is not None and not skip_vision:
 
             def on_recover(
@@ -2909,7 +2898,7 @@ async def _run_ingest_job_body(
                 )
 
             def on_vision_checkpoint(snap: dict) -> None:
-                # Persist vision_partial under owner only — never on public poll.
+                # Persist vision_partial under owner only ??never on public poll.
                 dec = snap.get("decision")
                 _save_payload(
                     {
@@ -2935,10 +2924,10 @@ async def _run_ingest_job_body(
                     job_id,
                     percent=max(20, int((_JOBS.get(job_id) or {}).get("percent") or 20)),
                     stage="vision",
-                    message="비전 이어받는 중",
+                    message="비전 ?�어받는 �?,
                 )
             else:
-                _job_set(job_id, percent=12, stage="quality", message="추출 품질 보는 중")
+                _job_set(job_id, percent=12, stage="quality", message="추출 ?�질 보는 �?)
             recovered = await asyncio.to_thread(
                 recover_pdf_text,
                 tmp_path,
@@ -2950,7 +2939,7 @@ async def _run_ingest_job_body(
             text = recovered.text
             pdf_pages = recovered.pages
             warnings.extend(recovered.warnings)
-            # design/112 — durable vision boundary for later reclaim skip.
+            # design/112 ??durable vision boundary for later reclaim skip.
             _save_payload(
                 {
                     **irp.base_payload(
@@ -2969,8 +2958,8 @@ async def _run_ingest_job_body(
                 }
             )
             if recovered.vision_pages and not skip_cache:
-                # 복구 후 제목이 보이면 보관본 재사용
-                _job_set(job_id, percent=40, stage="cache", message="복구 후 보관본 확인")
+                # 복구 ???�목??보이�?보�?�??�사??
+                _job_set(job_id, percent=40, stage="cache", message="복구 ??보�?�??�인")
                 cached = await asyncio.to_thread(_try_cache_hit, text, kind)
                 if cached is not None:
                     session, info, hit = cached
@@ -3003,10 +2992,10 @@ async def _run_ingest_job_body(
                     if content_hash:
                         data["content_hash"] = content_hash
                     data["warnings"] = list(warnings) + list(bf_warn)
-                    _finish_job(job_id, data, message="보관본에서 불러옴")
+                    _finish_job(job_id, data, message="보�?본에??불러??)
                     return
 
-        _job_set(job_id, percent=42, stage="figures", message="그림 찾는 중")
+        _job_set(job_id, percent=42, stage="figures", message="그림 찾는 �?)
         try:
             if kind == "pdf":
                 figures = await asyncio.to_thread(pdf_extract.extract_figures, tmp_path)
@@ -3017,7 +3006,7 @@ async def _run_ingest_job_body(
             if kind == "docx":
                 warnings.append("docx_figures_partial")
 
-        # WHY: 캡션의 ◦C 등 lookalike — 문장 경로와 동일 정규화
+        # WHY: 캡션???�C ??lookalike ??문장 경로?� ?�일 ?�규??
         if figures:
             figures = [
                 Figure(
@@ -3061,7 +3050,7 @@ async def _run_ingest_job_body(
                     ),
                     stage="debone",
                     message=str(
-                        (_JOBS.get(job_id) or {}).get("message") or "다듬기 이어받음"
+                        (_JOBS.get(job_id) or {}).get("message") or "?�듬�??�어받음"
                     ),
                 )
             except Exception:  # noqa: BLE001
@@ -3080,13 +3069,13 @@ async def _run_ingest_job_body(
                         return
                     pct = 48 + int(44 * (done / total))
                     if done <= 0:
-                        msg = "논문 훑는 중"
+                        msg = "?�문 ?�는 �?
                     elif done == 1 and total > 1:
-                        msg = "다듬기 시작"
+                        msg = "?�듬�??�작"
                     else:
                         chunk_done = max(0, done - 1)
                         chunk_total = max(1, total - 1)
-                        msg = f"다듬는 중 {chunk_done}/{chunk_total}"
+                        msg = f"?�듬??�?{chunk_done}/{chunk_total}"
                     _job_set(
                         job_id,
                         percent=pct,
@@ -3095,7 +3084,7 @@ async def _run_ingest_job_body(
                         cursor={"done": done, "total": total},
                     )
 
-                _job_set(job_id, percent=48, stage="debone", message="논문 훑는 중")
+                _job_set(job_id, percent=48, stage="debone", message="?�문 ?�는 �?)
                 result: DeboneResult = await asyncio.to_thread(
                     debone_sentences, text, on_progress
                 )
@@ -3106,15 +3095,15 @@ async def _run_ingest_job_body(
                         warnings.append(result.warning)
                 else:
                     warnings.append(result.warning or "gemini_debone_failed")
-                    _job_set(job_id, percent=90, stage="split", message="기본 문장 나누기")
+                    _job_set(job_id, percent=90, stage="split", message="기본 문장 ?�누�?)
                     sentences = await asyncio.to_thread(split_into_sentences, text)
             else:
                 if not gemini_available() and "gemini_key_missing" not in warnings:
                     warnings.append("gemini_key_missing")
-                _job_set(job_id, percent=70, stage="split", message="문장 나누는 중")
+                _job_set(job_id, percent=70, stage="split", message="문장 ?�누??�?)
                 sentences = await asyncio.to_thread(split_into_sentences, text)
 
-            # WHY: debone 경로도 apply_glossary가 이미 정규화함 — 폴백·누락 lookalike 한 번 더
+            # WHY: debone 경로??apply_glossary가 ?��? ?�규?�함 ???�백·?�락 lookalike ??�???
             sentences = [
                 Sentence(
                     id=s.id,
@@ -3158,7 +3147,7 @@ async def _run_ingest_job_body(
                 }
             )
         else:
-            # resumed — still normalize glyphs on EN text
+            # resumed ??still normalize glyphs on EN text
             sentences = [
                 Sentence(
                     id=s.id,
@@ -3172,7 +3161,7 @@ async def _run_ingest_job_body(
                 for s in sentences
             ]
 
-        # WHY: design/45 — 번역 전에 영어 세션을 먼저 열어 읽기 시작
+        # WHY: design/45 ??번역 ?�에 ?�어 ?�션??먼�? ?�어 ?�기 ?�작
         session = PaperSession(
             title=title,
             figures=figures,
@@ -3195,7 +3184,7 @@ async def _run_ingest_job_body(
                 d["content_hash"] = content_hash
             return d
 
-        _job_set(job_id, percent=88, stage="ready", message="읽기 시작 · 번역 준비")
+        _job_set(job_id, percent=88, stage="ready", message="?�기 ?�작 · 번역 준�?)
         early = _pack(pending=True)
         cache_entry = await asyncio.to_thread(
             save_paper_session,
@@ -3230,14 +3219,14 @@ async def _run_ingest_job_body(
                     "cache_id": str(cache_entry.get("id") or ""),
                 }
             )
-        _job_publish_partial(job_id, early, message="읽기 가능 · 번역 중")
+        _job_publish_partial(job_id, early, message="?�기 가??· 번역 �?)
 
-        # design/99 — skip Gemini KO when client opted out (mobile Settings).
+        # design/99 ??skip Gemini KO when client opted out (mobile Settings).
         job_meta = _JOBS.get(job_id) or {}
         want_translate = bool(job_meta.get("want_translate", True))
 
         if skip_translate and want_translate:
-            # design/112 — payload already carried KO; do not re-bill Gemini.
+            # design/112 ??payload already carried KO; do not re-bill Gemini.
             floor = ij.stage_percent_floor("translate")
             _job_set(
                 job_id,
@@ -3245,20 +3234,20 @@ async def _run_ingest_job_body(
                     floor, int((_JOBS.get(job_id) or {}).get("percent") or floor)
                 ),
                 stage="translate",
-                message="번역 이어받음",
+                message="번역 ?�어받음",
             )
             packed = _pack(pending=False)
             if cache_entry:
                 packed["cache_id"] = cache_entry.get("id")
                 packed["cached"] = True
                 packed["has_source"] = bool(cache_entry.get("has_source"))
-            _job_publish_partial(job_id, packed, message="번역 이어받음")
+            _job_publish_partial(job_id, packed, message="번역 ?�어받음")
         elif want_translate and gemini_available():
             _job_set(
                 job_id,
                 percent=90,
                 stage="translate",
-                message="섹션 번역·요지 정리 중",
+                message="?�션 번역·?��? ?�리 �?,
             )
             from dataclasses import replace as dc_replace
 
@@ -3272,7 +3261,7 @@ async def _run_ingest_job_body(
                 _job_set(job_id, percent=pct, stage="translate", message=message)
 
             def _on_item(kind: str, index: int, ko: str, stage: str) -> None:
-                # WHY: 보고 있지 않은 문장 데이터만 갱신 — UI 스냅샷 고정은 클라
+                # WHY: 보고 ?��? ?��? 문장 ?�이?�만 갱신 ??UI ?�냅??고정?� ?�라
                 if kind == "sentence" and 0 <= index < len(session.sentences):
                     s = session.sentences[index]
                     session.sentences[index] = dc_replace(
@@ -3337,7 +3326,7 @@ async def _run_ingest_job_body(
             warnings.append("translate_skipped_opt_out")
 
         if want_translate:
-            _job_set(job_id, percent=98, stage="save", message="번역 저장 중")
+            _job_set(job_id, percent=98, stage="save", message="번역 ?�??�?)
             cache_entry = await asyncio.to_thread(
                 save_paper_session,
                 session,
@@ -3359,18 +3348,18 @@ async def _run_ingest_job_body(
             data["cached"] = True
             data["has_source"] = bool(cache_entry.get("has_source"))
         else:
-            # design/108 — fail-closed: never terminal-success without durable cache_id.
-            # WHY: client mapped bare message「완료」→「보관 저장 실패: 완료」(모순·고착).
+            # design/108 ??fail-closed: never terminal-success without durable cache_id.
+            # WHY: client mapped bare message?�완료」→?�보관 ?�???�패: ?�료??모순·고착).
             # EDGE: keep ingest upload blob (do not call _finish_job) so reclaim/retry can run.
             if "cache_skip_short_title" in warnings or not session.sentences:
                 reason = (
-                    "논문 제목이 너무 짧거나 문장이 없어 보관함에 넣지 못했습니다. "
-                    "제목이 분명한 PDF인지 확인해 주세요."
+                    "?�문 ?�목???�무 짧거??문장???�어 보�??�에 ?��? 못했?�니?? "
+                    "?�목??분명??PDF?��? ?�인??주세??"
                 )
             else:
                 reason = (
-                    "처리는 끝났지만 보관함 저장에 실패했습니다. "
-                    "잠시 후 다시 시도해 주세요."
+                    "처리???�났지�?보�????�?�에 ?�패?�습?�다. "
+                    "?�시 ???�시 ?�도??주세??"
                 )
             job_err = _JOBS.get(job_id)
             if job_err is not None:
@@ -3383,7 +3372,7 @@ async def _run_ingest_job_body(
                 _persist_job(job_id, job_err, force=True)
             return
 
-        # design/80 — shadowing chunk plans (per-uid) when client opted in.
+        # design/80 ??shadowing chunk plans (per-uid) when client opted in.
         want_chunks = bool(job_meta.get("want_shadowing_chunks"))
         cache_id = (cache_entry or {}).get("id") if cache_entry else None
         owner = str(job_meta.get("owner_uid") or "")
@@ -3398,7 +3387,7 @@ async def _run_ingest_job_body(
                     job_id,
                     percent=99,
                     stage="shadowing_chunks",
-                    message="쉐도잉 연습 구간 준비 중",
+                    message="?�도???�습 구간 준�?�?,
                 )
                 try:
                     set_gcs_uid(owner)
@@ -3419,7 +3408,7 @@ async def _run_ingest_job_body(
                         "sentence_count": len(plan.get("sentences") or {}),
                         "progress": plan.get("progress"),
                     }
-                    # design/113 — pending is not failure; mobile open continues slices.
+                    # design/113 ??pending is not failure; mobile open continues slices.
                     if plan.get("status") == "pending":
                         warnings.append("shadowing_chunks_pending")
                     elif plan.get("status") != "ok":
@@ -3456,13 +3445,13 @@ async def _run_ingest_job_body(
         _finish_job(
             job_id,
             data,
-            message="완료 · 제목으로 보관됨" if cache_entry else "완료",
+            message="?�료 · ?�목?�로 보�??? if cache_entry else "?�료",
         )
     except Exception as exc:  # noqa: BLE001
         job = _JOBS.get(job_id)
         if job is not None:
             job["done"] = True
-            # WHY: user-facing only — no stack / paths / tokens.
+            # WHY: user-facing only ??no stack / paths / tokens.
             job["error"] = str(exc)
             job["percent"] = job.get("percent", 0)
             job["stage"] = "error"
@@ -3474,7 +3463,7 @@ async def _run_ingest_job_body(
             tmp_path.unlink(missing_ok=True)
         except OSError:
             pass
-        # 오래된 job 정리 (GCS copy remains for reattach until TTL/overwrite)
+        # ?�래??job ?�리 (GCS copy remains for reattach until TTL/overwrite)
         while len(_JOBS) > 12:
             oldest = next(iter(_JOBS))
             if oldest == job_id:
@@ -3505,16 +3494,16 @@ def _begin_ingest_from_bytes(
     _JOBS[job_id] = {
         "percent": 1,
         "stage": "queued",
-        "message": "시작해요",
+        "message": "?�작?�요",
         "done": False,
         "error": None,
         "result": None,
         "owner_uid": owner_uid,
         "content_hash": content_hash,
         "filename": safe_name,
-        # design/80 — client opt-in only; server kill checked again at build time.
+        # design/80 ??client opt-in only; server kill checked again at build time.
         "want_shadowing_chunks": bool(want_shadowing_chunks),
-        # design/99 — default True (web); mobile sends translate=0 to skip.
+        # design/99 ??default True (web); mobile sends translate=0 to skip.
         "want_translate": bool(want_translate),
     }
     # WHY (design/71): durable job + source blob so poll/reattach survives instance hop.
@@ -3535,7 +3524,7 @@ def _begin_ingest_from_bytes(
         "ok": True,
         "job_id": job_id,
         "percent": 1,
-        "message": "업로드 완료, 읽기 시작",
+        "message": "?�로???�료, ?�기 ?�작",
         "content_hash": content_hash,
     }
 
@@ -3543,7 +3532,7 @@ def _begin_ingest_from_bytes(
 
 @app.get("/api/shadowing/chunks/{cache_id}")
 def shadowing_chunks_get(request: Request, cache_id: str) -> JSONResponse:
-    """design/80 — load per-uid chunk plan (no cross-user)."""
+    """design/80 ??load per-uid chunk plan (no cross-user)."""
     from sentence_reading.llm import shadowing_chunks as sc
     from sentence_reading.llm.shadowing_practice import shadowing_practice_enabled
 
@@ -3556,20 +3545,20 @@ def shadowing_chunks_get(request: Request, cache_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "shadowing_disabled",
-                "message": "쉐도잉 연습이 서버에서 꺼져 있습니다.",
+                "message": "?�도???�습???�버?�서 꺼져 ?�습?�다.",
             },
         )
     user = _request_user(request)
     if user is None:
         return JSONResponse(
             status_code=401,
-            content={"ok": False, "error": "auth_required", "message": "로그인이 필요합니다."},
+            content={"ok": False, "error": "auth_required", "message": "로그?�이 ?�요?�니??"},
         )
     cid = sc.safe_cache_id(cache_id)
     if not cid:
         return JSONResponse(
             status_code=400,
-            content={"ok": False, "error": "invalid_cache_id", "message": "논문 id가 올바르지 않습니다."},
+            content={"ok": False, "error": "invalid_cache_id", "message": "?�문 id가 ?�바르�? ?�습?�다."},
         )
     try:
         set_gcs_uid(user.uid)
@@ -3583,7 +3572,7 @@ def shadowing_chunks_get(request: Request, cache_id: str) -> JSONResponse:
 async def shadowing_chunks_build(
     request: Request, cache_id: str, payload: dict = Body(default_factory=dict)
 ) -> JSONResponse:
-    """design/80 — backfill / retry. Requires client practice_enabled true."""
+    """design/80 ??backfill / retry. Requires client practice_enabled true."""
     from sentence_reading.llm import shadowing_chunks as sc
     from sentence_reading.llm.shadowing_practice import shadowing_practice_enabled
 
@@ -3596,30 +3585,30 @@ async def shadowing_chunks_build(
             content={
                 "ok": False,
                 "error": "shadowing_disabled",
-                "message": "쉐도잉 연습이 서버에서 꺼져 있습니다.",
+                "message": "?�도???�습???�버?�서 꺼져 ?�습?�다.",
             },
         )
     user = _request_user(request)
     if user is None:
         return JSONResponse(
             status_code=401,
-            content={"ok": False, "error": "auth_required", "message": "로그인이 필요합니다."},
+            content={"ok": False, "error": "auth_required", "message": "로그?�이 ?�요?�니??"},
         )
-    # WHY: mirror translate-on gate — client setting must be on; no silent build.
+    # WHY: mirror translate-on gate ??client setting must be on; no silent build.
     if not isinstance(payload, dict) or not payload.get("practice_enabled"):
         return JSONResponse(
             status_code=400,
             content={
                 "ok": False,
                 "error": "practice_off",
-                "message": "설정에서 쉐도잉 연습을 켠 뒤 다시 시도해 주세요.",
+                "message": "?�정?�서 ?�도???�습??�????�시 ?�도??주세??",
             },
         )
     cid = sc.safe_cache_id(cache_id)
     if not cid:
         return JSONResponse(
             status_code=400,
-            content={"ok": False, "error": "invalid_cache_id", "message": "논문 id가 올바르지 않습니다."},
+            content={"ok": False, "error": "invalid_cache_id", "message": "?�문 id가 ?�바르�? ?�습?�다."},
         )
     if not gemini_available():
         return JSONResponse(
@@ -3627,7 +3616,7 @@ async def shadowing_chunks_build(
             content={
                 "ok": False,
                 "error": "gemini_unavailable",
-                "message": "연습 구간을 만들 수 없습니다. 잠시 후 다시 시도해 주세요.",
+                "message": "?�습 구간??만들 ???�습?�다. ?�시 ???�시 ?�도??주세??",
             },
         )
     rows = payload.get("sentences") if isinstance(payload.get("sentences"), list) else None
@@ -3646,7 +3635,7 @@ async def shadowing_chunks_build(
                 content={
                     "ok": False,
                     "error": "paper_not_found",
-                    "message": "보관된 논문을 찾을 수 없습니다.",
+                    "message": "보�????�문??찾을 ???�습?�다.",
                 },
             )
         session, _info = loaded
@@ -3666,7 +3655,7 @@ async def shadowing_chunks_build(
             content={
                 "ok": False,
                 "error": "shadowing_disabled",
-                "message": "쉐도잉 연습이 서버에서 꺼져 있습니다.",
+                "message": "?�도???�습???�버?�서 꺼져 ?�습?�다.",
             },
         )
     except ValueError as exc:
@@ -3675,11 +3664,11 @@ async def shadowing_chunks_build(
             content={
                 "ok": False,
                 "error": str(exc)[:80],
-                "message": "연습 구간 요청이 올바르지 않습니다.",
+                "message": "?�습 구간 ?�청???�바르�? ?�습?�다.",
             },
         )
     except Exception as exc:  # noqa: BLE001
-        # design/119 — never leak stack/secrets as raw HTTP 500; fail closed.
+        # design/119 ??never leak stack/secrets as raw HTTP 500; fail closed.
         import logging
 
         logging.getLogger(__name__).warning(
@@ -3692,13 +3681,13 @@ async def shadowing_chunks_build(
                 "continue": False,
                 "plan": None,
                 "error": "build_failed",
-                "message": "연습 구간을 만들지 못했습니다. 다시 시도해 주세요.",
+                "message": "?�습 구간??만들지 못했?�니?? ?�시 ?�도??주세??",
             },
         )
     finally:
         reset_gcs_uid()
     status = str(plan.get("status") or "")
-    # design/113 — pending is an honest in-progress slice (HTTP 200), not gateway 504.
+    # design/113 ??pending is an honest in-progress slice (HTTP 200), not gateway 504.
     if status == "pending":
         return JSONResponse(
             {
@@ -3706,7 +3695,7 @@ async def shadowing_chunks_build(
                 "continue": True,
                 "plan": plan,
                 "error": None,
-                "message": "연습 구간을 이어서 준비하는 중…",
+                "message": "?�습 구간???�어??준비하??중�?,
             }
         )
     ok = status == "ok"
@@ -3718,7 +3707,7 @@ async def shadowing_chunks_build(
             "error": None if ok else (plan.get("error") or "build_failed"),
             "message": None
             if ok
-            else "연습 구간을 만들지 못했습니다. 다시 시도해 주세요.",
+            else "?�습 구간??만들지 못했?�니?? ?�시 ?�도??주세??",
         },
         status_code=200 if ok else 502,
     )
@@ -3728,7 +3717,7 @@ async def shadowing_chunks_build(
 
 @app.get("/api/shadowing/takes/{cache_id}")
 def shadowing_takes_get(request: Request, cache_id: str) -> JSONResponse:
-    """design/82 — load per-uid practice takes (no cross-user)."""
+    """design/82 ??load per-uid practice takes (no cross-user)."""
     from sentence_reading.llm import shadowing_takes as st
     from sentence_reading.llm.shadowing_practice import shadowing_practice_enabled
 
@@ -3741,14 +3730,14 @@ def shadowing_takes_get(request: Request, cache_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "shadowing_disabled",
-                "message": "쉐도잉 연습이 서버에서 꺼져 있습니다.",
+                "message": "?�도???�습???�버?�서 꺼져 ?�습?�다.",
             },
         )
     user = _request_user(request)
     if user is None:
         return JSONResponse(
             status_code=401,
-            content={"ok": False, "error": "auth_required", "message": "로그인이 필요합니다."},
+            content={"ok": False, "error": "auth_required", "message": "로그?�이 ?�요?�니??"},
         )
     from sentence_reading.llm.shadowing_chunks import safe_cache_id as _safe_cid
 
@@ -3756,7 +3745,7 @@ def shadowing_takes_get(request: Request, cache_id: str) -> JSONResponse:
     if not cid:
         return JSONResponse(
             status_code=400,
-            content={"ok": False, "error": "invalid_cache_id", "message": "논문 id가 올바르지 않습니다."},
+            content={"ok": False, "error": "invalid_cache_id", "message": "?�문 id가 ?�바르�? ?�습?�다."},
         )
     try:
         set_gcs_uid(user.uid)
@@ -3770,7 +3759,7 @@ def shadowing_takes_get(request: Request, cache_id: str) -> JSONResponse:
 async def shadowing_takes_post(
     request: Request, cache_id: str, payload: dict = Body(default_factory=dict)
 ) -> JSONResponse:
-    """design/82 — save one chunk take (recorded|skipped) or cursor. Session uid only."""
+    """design/82 ??save one chunk take (recorded|skipped) or cursor. Session uid only."""
     from sentence_reading.llm import shadowing_takes as st
     from sentence_reading.llm.shadowing_chunks import safe_cache_id as _safe_cid
     from sentence_reading.llm.shadowing_practice import shadowing_practice_enabled
@@ -3784,23 +3773,23 @@ async def shadowing_takes_post(
             content={
                 "ok": False,
                 "error": "shadowing_disabled",
-                "message": "쉐도잉 연습이 서버에서 꺼져 있습니다.",
+                "message": "?�도???�습???�버?�서 꺼져 ?�습?�다.",
             },
         )
     user = _request_user(request)
     if user is None:
         return JSONResponse(
             status_code=401,
-            content={"ok": False, "error": "auth_required", "message": "로그인이 필요합니다."},
+            content={"ok": False, "error": "auth_required", "message": "로그?�이 ?�요?�니??"},
         )
-    # WHY: mirror translate-on — client must affirm practice_enabled (no silent write).
+    # WHY: mirror translate-on ??client must affirm practice_enabled (no silent write).
     if not isinstance(payload, dict) or not payload.get("practice_enabled"):
         return JSONResponse(
             status_code=400,
             content={
                 "ok": False,
                 "error": "practice_off",
-                "message": "설정에서 쉐도잉 연습을 켠 뒤 다시 시도해 주세요.",
+                "message": "?�정?�서 ?�도???�습??�????�시 ?�도??주세??",
             },
         )
     # EDGE: ignore client user_id if present (authz).
@@ -3808,7 +3797,7 @@ async def shadowing_takes_post(
     if not cid:
         return JSONResponse(
             status_code=400,
-            content={"ok": False, "error": "invalid_cache_id", "message": "논문 id가 올바르지 않습니다."},
+            content={"ok": False, "error": "invalid_cache_id", "message": "?�문 id가 ?�바르�? ?�습?�다."},
         )
     action = str(payload.get("action") or "take").strip().lower()
     try:
@@ -3837,7 +3826,7 @@ async def shadowing_takes_post(
             content={
                 "ok": False,
                 "error": "shadowing_disabled",
-                "message": "쉐도잉 연습이 서버에서 꺼져 있습니다.",
+                "message": "?�도???�습???�버?�서 꺼져 ?�습?�다.",
             },
         )
     except ValueError as exc:
@@ -3846,7 +3835,7 @@ async def shadowing_takes_post(
             content={
                 "ok": False,
                 "error": str(exc)[:80],
-                "message": "연습 기록 요청이 올바르지 않습니다.",
+                "message": "?�습 기록 ?�청???�바르�? ?�습?�다.",
             },
         )
     finally:
@@ -3858,7 +3847,7 @@ async def shadowing_takes_post(
 async def shadowing_takes_continue(
     request: Request, cache_id: str, payload: dict = Body(default_factory=dict)
 ) -> JSONResponse:
-    """design/82 — list full-pass sentence takes only (section continue-listen)."""
+    """design/82 ??list full-pass sentence takes only (section continue-listen)."""
     from sentence_reading.llm import shadowing_takes as st
     from sentence_reading.llm.shadowing_chunks import safe_cache_id as _safe_cid
     from sentence_reading.llm.shadowing_practice import shadowing_practice_enabled
@@ -3872,14 +3861,14 @@ async def shadowing_takes_continue(
             content={
                 "ok": False,
                 "error": "shadowing_disabled",
-                "message": "쉐도잉 연습이 서버에서 꺼져 있습니다.",
+                "message": "?�도???�습???�버?�서 꺼져 ?�습?�다.",
             },
         )
     user = _request_user(request)
     if user is None:
         return JSONResponse(
             status_code=401,
-            content={"ok": False, "error": "auth_required", "message": "로그인이 필요합니다."},
+            content={"ok": False, "error": "auth_required", "message": "로그?�이 ?�요?�니??"},
         )
     if not isinstance(payload, dict) or not payload.get("practice_enabled"):
         return JSONResponse(
@@ -3887,14 +3876,14 @@ async def shadowing_takes_continue(
             content={
                 "ok": False,
                 "error": "practice_off",
-                "message": "설정에서 쉐도잉 연습을 켠 뒤 다시 시도해 주세요.",
+                "message": "?�정?�서 ?�도???�습??�????�시 ?�도??주세??",
             },
         )
     cid = _safe_cid(cache_id)
     if not cid:
         return JSONResponse(
             status_code=400,
-            content={"ok": False, "error": "invalid_cache_id", "message": "논문 id가 올바르지 않습니다."},
+            content={"ok": False, "error": "invalid_cache_id", "message": "?�문 id가 ?�바르�? ?�습?�다."},
         )
     ids = payload.get("sentence_ids") if isinstance(payload.get("sentence_ids"), list) else []
     ids = [str(x) for x in ids][:400]
@@ -3911,7 +3900,7 @@ async def shadowing_takes_continue(
 async def ingest_upload_create(
     request: Request, payload: dict = Body(default_factory=dict)
 ) -> JSONResponse:
-    """design/72 — start chunked upload session (all PDFs)."""
+    """design/72 ??start chunked upload session (all PDFs)."""
     from sentence_reading.llm import ingest_chunked as ic
 
     denied = _paid_access_denied(request)
@@ -3923,7 +3912,7 @@ async def ingest_upload_create(
             content={
                 "ok": False,
                 "error": "chunked_upload_disabled",
-                "message": "조각 업로드가 일시적으로 꺼져 있습니다.",
+                "message": "조각 ?�로?��? ?�시?�으�?꺼져 ?�습?�다.",
             },
         )
     user = _request_user(request)
@@ -3933,7 +3922,7 @@ async def ingest_upload_create(
             content={
                 "ok": False,
                 "error": "auth_required",
-                "message": "로그인이 필요합니다.",
+                "message": "로그?�이 ?�요?�니??",
             },
         )
     # WHY after auth: count only real session uids (not anon probes).
@@ -3949,7 +3938,7 @@ async def ingest_upload_create(
             content={
                 "ok": False,
                 "error": "unsupported_type",
-                "message": "조각 업로드는 PDF만 지원합니다.",
+                "message": "조각 ?�로?�는 PDF�?지?�합?�다.",
             },
         )
     try:
@@ -3969,7 +3958,7 @@ async def ingest_upload_create(
             content={
                 "ok": False,
                 "error": "bad_upload_session",
-                "message": "업로드 세션을 만들 수 없습니다. 파일 크기·해시를 확인해 주세요.",
+                "message": "?�로???�션??만들 ???�습?�다. ?�일 ?�기·?�시�??�인??주세??",
             },
         )
     return JSONResponse(view)
@@ -3977,7 +3966,7 @@ async def ingest_upload_create(
 
 @app.get("/api/ingest/uploads/{upload_id}")
 def ingest_upload_status(request: Request, upload_id: str) -> JSONResponse:
-    """Resume probe — returns offset + prefix_sha256 for integrity check."""
+    """Resume probe ??returns offset + prefix_sha256 for integrity check."""
     from sentence_reading.llm import ingest_chunked as ic
 
     user = _request_user(request)
@@ -3987,7 +3976,7 @@ def ingest_upload_status(request: Request, upload_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "auth_required",
-                "message": "로그인이 필요합니다.",
+                "message": "로그?�이 ?�요?�니??",
             },
         )
     view = ic.get_upload(upload_id, owner_uid=user.uid)
@@ -3997,7 +3986,7 @@ def ingest_upload_status(request: Request, upload_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "upload_not_found",
-                "message": "업로드 세션을 찾을 수 없습니다.",
+                "message": "?�로???�션??찾을 ???�습?�다.",
             },
         )
     return JSONResponse(view)
@@ -4018,7 +4007,7 @@ async def ingest_upload_put(request: Request, upload_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "auth_required",
-                "message": "로그인이 필요합니다.",
+                "message": "로그?�이 ?�요?�니??",
             },
         )
     limited = _ingest_rate_limited(request, "upload_put")
@@ -4030,7 +4019,7 @@ async def ingest_upload_put(request: Request, upload_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "upload_not_found",
-                "message": "업로드 세션을 찾을 수 없습니다.",
+                "message": "?�로???�션??찾을 ???�습?�다.",
             },
         )
     try:
@@ -4043,7 +4032,7 @@ async def ingest_upload_put(request: Request, upload_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "bad_offset",
-                "message": "offset 이 필요합니다.",
+                "message": "offset ???�요?�니??",
             },
         )
     data = await request.body()
@@ -4062,7 +4051,7 @@ async def ingest_upload_put(request: Request, upload_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "upload_not_found",
-                "message": "업로드 세션을 찾을 수 없습니다.",
+                "message": "?�로???�션??찾을 ???�습?�다.",
             },
         )
     except ValueError as exc:
@@ -4072,7 +4061,7 @@ async def ingest_upload_put(request: Request, upload_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": code,
-                "message": "조각 업로드를 이어갈 수 없습니다. 무결성 검사 후 다시 시도해 주세요.",
+                "message": "조각 ?�로?��? ?�어�????�습?�다. 무결??검?????�시 ?�도??주세??",
             },
         )
     except Exception:  # noqa: BLE001
@@ -4081,7 +4070,7 @@ async def ingest_upload_put(request: Request, upload_id: str) -> JSONResponse:
             content={
                 "ok": False,
                 "error": "chunk_store_failed",
-                "message": "조각 저장에 실패했습니다.",
+                "message": "조각 ?�?�에 ?�패?�습?�다.",
             },
         )
     return JSONResponse(view)
@@ -4091,7 +4080,7 @@ async def ingest_upload_put(request: Request, upload_id: str) -> JSONResponse:
 async def ingest_upload_complete(
     request: Request, upload_id: str
 ) -> JSONResponse:
-    """Assemble chunks → verify content_hash → start ingest job."""
+    """Assemble chunks ??verify content_hash ??start ingest job."""
     from sentence_reading.llm import ingest_chunked as ic
 
     denied = _paid_access_denied(request)
@@ -4104,7 +4093,7 @@ async def ingest_upload_complete(
             content={
                 "ok": False,
                 "error": "auth_required",
-                "message": "로그인이 필요합니다.",
+                "message": "로그?�이 ?�요?�니??",
             },
         )
     try:
@@ -4115,7 +4104,7 @@ async def ingest_upload_complete(
             content={
                 "ok": False,
                 "error": "upload_not_found",
-                "message": "업로드 세션을 찾을 수 없습니다.",
+                "message": "?�로???�션??찾을 ???�습?�다.",
             },
         )
     except ValueError as exc:
@@ -4124,7 +4113,7 @@ async def ingest_upload_complete(
             content={
                 "ok": False,
                 "error": str(exc),
-                "message": "업로드 조각을 검증하지 못했습니다. 처음부터 다시 올려 주세요.",
+                "message": "?�로??조각??검증하지 못했?�니?? 처음부???�시 ?�려 주세??",
             },
         )
     except Exception:  # noqa: BLE001
@@ -4133,7 +4122,7 @@ async def ingest_upload_complete(
             content={
                 "ok": False,
                 "error": "assemble_failed",
-                "message": "업로드 조립에 실패했습니다.",
+                "message": "?�로??조립???�패?�습?�다.",
             },
         )
     filename = str(meta.get("filename") or "document.pdf")
@@ -4157,7 +4146,7 @@ async def ingest_upload_complete(
 
 @app.post("/api/ingest")
 async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse:
-    """PDF/DOCX 업로드 → 백그라운드 정제. job_id 로 진행률 폴링 (웹·호환)."""
+    """PDF/DOCX ?�로????백그?�운???�제. job_id �?진행�??�링 (?�·호??."""
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
@@ -4169,7 +4158,7 @@ async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse
             content={
                 "ok": False,
                 "error": "unsupported_type",
-                "message": "PDF 또는 Word(.docx)만 업로드할 수 있습니다. (옛 .doc 은 docx로 저장해 주세요)",
+                "message": "PDF ?�는 Word(.docx)�??�로?�할 ???�습?�다. (??.doc ?� docx�??�?�해 주세??",
             },
         )
 
@@ -4180,7 +4169,7 @@ async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse
             content={
                 "ok": False,
                 "error": "file_too_large",
-                "message": "파일이 너무 큽니다 (최대 50MB).",
+                "message": "?�일???�무 ?�니??(최�? 50MB).",
             },
         )
 
@@ -4191,7 +4180,7 @@ async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse
                 content={
                     "ok": False,
                     "error": "invalid_pdf",
-                    "message": "유효한 PDF가 아닙니다.",
+                    "message": "?�효??PDF가 ?�닙?�다.",
                 },
             )
     else:
@@ -4202,7 +4191,7 @@ async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse
                 content={
                     "ok": False,
                     "error": "invalid_docx",
-                    "message": "유효한 Word(.docx)가 아닙니다.",
+                    "message": "?�효??Word(.docx)가 ?�닙?�다.",
                 },
             )
 
@@ -4228,7 +4217,7 @@ _DEBUG_LOG = Path(__file__).resolve().parents[3] / "logs" / "veil_debug.log"
 
 @app.post("/api/debug/veil-log")
 async def veil_debug_log(payload: dict = Body(default_factory=dict)) -> dict:
-    """에이전트가 듀얼모니터 가림 실패를 추적할 때 클라이언트가 남기는 단계 로그."""
+    """?�이?�트가 ?�?�모?�터 가�??�패�?추적?????�라?�언?��? ?�기???�계 로그."""
     try:
         _DEBUG_LOG.parent.mkdir(parents=True, exist_ok=True)
         line = payload if isinstance(payload, dict) else {"raw": str(payload)}
@@ -4254,7 +4243,7 @@ def veil_debug_log_get() -> dict:
 
 @app.get("/")
 def index() -> HTMLResponse:
-    # WHY: 정적 JS/CSS 캐시 무효화 — 배포 버전이 바뀌면 브라우저가 새 파일을 받음
+    # WHY: ?�적 JS/CSS 캐시 무효????배포 버전??바뀌면 브라?��?가 ???�일??받음
     html = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
     html = html.replace("__ASR_ASSET_V__", app.version)
     return HTMLResponse(html)
