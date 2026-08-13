@@ -138,6 +138,7 @@
     sentNext: document.getElementById("sentNext"),
     pdfInput: document.getElementById("pdfInput"),
     uploadBtn: document.getElementById("uploadBtn"),
+    uploadCancelBtn: document.getElementById("uploadCancelBtn"),
     guideOutsideSlot: document.getElementById("guideOutsideSlot"),
     guideBtn: document.getElementById("guideBtn"),
     guideDialog: document.getElementById("guideDialog"),
@@ -1048,6 +1049,38 @@
     el.uploadBtn.disabled = !!on;
     el.pdfInput.disabled = !!on;
     if (el.cacheDeleteBtn) el.cacheDeleteBtn.disabled = !!on;
+    // design/132 — cancel only while an ingest is in flight.
+    if (el.uploadCancelBtn) {
+      el.uploadCancelBtn.hidden = !on;
+      el.uploadCancelBtn.disabled = !on;
+    }
+  }
+
+  // design/132 — cooperative cancel for web ingest poll loop.
+  let ingestCancelRequested = false;
+  let ingestActiveJobId = null;
+
+  async function requestIngestCancel() {
+    ingestCancelRequested = true;
+    const jobId = ingestActiveJobId;
+    if (!jobId) return;
+    try {
+      const res = await fetch(
+        `/api/ingest/jobs/${encodeURIComponent(jobId)}/cancel`,
+        { method: "POST", credentials: "same-origin" }
+      );
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 409 || body.error === "cancel_too_late") {
+        // Product: let it finish — clear cancel so poll continues.
+        ingestCancelRequested = false;
+        setUploadStatus(
+          body.message || "거의 끝나 취소할 수 없습니다. 그대로 완료됩니다.",
+          "busy"
+        );
+      }
+    } catch (_) {
+      // Local flag still stops the poll; server wipe is best-effort.
+    }
   }
 
   function updateCacheDeleteBtn() {
@@ -4686,6 +4719,8 @@
     }
 
     setLoading(true);
+    ingestCancelRequested = false;
+    ingestActiveJobId = null;
     setUploadStatus(`읽는 중… 0% · ${name}`, "busy");
     el.stageBadge.textContent = `다듬는 중 · ${name}`;
     // WHY: 이미 열린 논문이 있으면 화면은 유지 — 상태만 헤더에 표시
@@ -4714,14 +4749,24 @@
       if (!jobId) {
         throw new Error("작업 ID를 받지 못했어요.");
       }
+      ingestActiveJobId = jobId;
 
       let data = null;
       let openedEarly = false;
       for (;;) {
+        if (ingestCancelRequested) {
+          throw new Error("__ASR_INGEST_CANCELLED__");
+        }
         await new Promise((r) => setTimeout(r, 400));
+        if (ingestCancelRequested) {
+          throw new Error("__ASR_INGEST_CANCELLED__");
+        }
         const stRes = await fetch(`/api/ingest/jobs/${encodeURIComponent(jobId)}`);
         const st = await stRes.json().catch(() => ({}));
         if (!stRes.ok && stRes.status === 404) {
+          if (ingestCancelRequested) {
+            throw new Error("__ASR_INGEST_CANCELLED__");
+          }
           throw new Error(st.message || "작업을 찾을 수 없어요.");
         }
         const pct = typeof st.percent === "number" ? st.percent : 0;
@@ -4797,13 +4842,25 @@
       }
     } catch (err) {
       console.error(err);
-      if (!papers.length) {
-        uiPhase = "error";
-        el.stageBadge.textContent = "ingest failed";
-        setSentenceDisplay(String(err.message || err), true);
+      if (String(err && err.message) === "__ASR_INGEST_CANCELLED__") {
+        // design/132 — discard; no fake success session from cancel.
+        setUploadStatus("업로드를 취소했습니다.", "");
+        if (!papers.length) {
+          uiPhase = "empty";
+          el.stageBadge.textContent = "";
+          setSentenceDisplay("", true);
+        }
+      } else {
+        if (!papers.length) {
+          uiPhase = "error";
+          el.stageBadge.textContent = "ingest failed";
+          setSentenceDisplay(String(err.message || err), true);
+        }
+        setUploadStatus(String(err.message || err), "error");
       }
-      setUploadStatus(String(err.message || err), "error");
     } finally {
+      ingestCancelRequested = false;
+      ingestActiveJobId = null;
       setLoading(false);
       el.pdfInput.value = "";
     }
@@ -6182,6 +6239,11 @@
   }
 
   el.uploadBtn.addEventListener("click", () => el.pdfInput.click());
+  if (el.uploadCancelBtn) {
+    el.uploadCancelBtn.addEventListener("click", () => {
+      void requestIngestCancel();
+    });
+  }
 
   // WHY: design/58 — 헤더에는 「파일 열기」만 두고 도구는 ⋯ overflow.
   // 버튼 id·기존 리스너는 유지(DOM 이동만). Live Enable/IPS는 ASR 밖.

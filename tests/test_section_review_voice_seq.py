@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "52-section-review-voice-seq.md"
 
 def test_status_section_review_voice_seq() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.47"
+    assert st["version"] == "0.3.48"
     assert st["section_review_flow"] is True
     assert st["section_review_voice_seq"] is True
     # Live Enable / IPS = Trading Gate only (ASR 밖)
@@ -74,5 +74,5 @@ def test_css_html_design_52() -> None:
     assert "0.2.60" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.47" in served
-    assert "styles.css?v=0.3.47" in served
+    assert "app.js?v=0.3.48" in served
+    assert "styles.css?v=0.3.48" in served

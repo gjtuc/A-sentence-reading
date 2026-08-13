@@ -65,6 +65,11 @@ class LibraryController extends ChangeNotifier {
   /// design/75 — true when progress heartbeat went silent (honest interrupt UI).
   bool uploadStalled = false;
 
+  /// design/132 — user asked to cancel the in-flight upload/ingest.
+  bool _uploadCancelRequested = false;
+  String? _activeUploadId;
+  String? _activeJobId;
+
   DateTime? _lastProgressAt;
   Timer? _stallWatch;
   bool _resumeInFlight = false;
@@ -785,6 +790,65 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  /// design/132 — cancel early upload/ingest; late stages may refuse (too late).
+  Future<void> cancelUpload() async {
+    if (!uploading || _uploadCancelRequested) return;
+    // WHY: pre-CD live has no cancel route — a bare 404 must not look like success wipe.
+    try {
+      final st = await _client.fetchStatus();
+      if (!st.mobileIngestCancel) {
+        error = '지금은 취소를 사용할 수 없습니다.';
+        notifyListeners();
+        return;
+      }
+    } catch (_) {
+      // EDGE: status probe failed — refuse cancel rather than fake discard.
+      error = '지금은 취소를 사용할 수 없습니다.';
+      notifyListeners();
+      return;
+    }
+    _uploadCancelRequested = true;
+    notifyListeners();
+    final upl = (_activeUploadId ?? '').trim();
+    final job = (_activeJobId ?? '').trim();
+    try {
+      if (upl.isNotEmpty) {
+        try {
+          await _client.cancelChunkedUpload(upl);
+        } on AsrApiException catch (e) {
+          // 404 already gone — continue; 503 surface below.
+          if (e.statusCode == 503) {
+            error = e.message;
+            _uploadCancelRequested = false;
+            notifyListeners();
+            return;
+          }
+        }
+      }
+      if (job.isNotEmpty) {
+        final r = await _client.cancelIngestJob(job);
+        if (r.tooLate) {
+          // Product: let it finish — clear cancel flag so poll continues.
+          _uploadCancelRequested = false;
+          error = '거의 끝나 취소할 수 없습니다. 그대로 완료됩니다.';
+          notifyListeners();
+          return;
+        }
+      }
+    } on AsrApiException catch (e) {
+      if (e.statusCode == 503) {
+        error = e.message;
+        _uploadCancelRequested = false;
+        notifyListeners();
+        return;
+      }
+      // Other errors: still stop local work; server may already be wiped.
+    }
+    await _drafts.clear();
+    await _cancelWorkmanager();
+    await _notify.showFailed(message: '업로드를 취소했습니다.');
+  }
+
   Future<IngestJobResult?> uploadPdf({
     required String filename,
     required Uint8List bytes,
@@ -831,6 +895,9 @@ class LibraryController extends ChangeNotifier {
     uploadBackgroundHint = null;
     _wmEnabledCache = null;
     _activeContentHash = hash;
+    _uploadCancelRequested = false;
+    _activeUploadId = resumeUploadId;
+    _activeJobId = null;
     await _maybeOfferBatteryHint(hash);
     _startStallWatch();
     notifyListeners();
@@ -868,6 +935,7 @@ class LibraryController extends ChangeNotifier {
           existingUploadId: resumeUploadId,
           shadowingPractice: wantShadow,
           translate: wantTr,
+          isCancelled: () => _uploadCancelRequested,
           onProgress: (pct, msg) {
             _touchProgress();
             uploadPercent = pct;
@@ -881,11 +949,13 @@ class LibraryController extends ChangeNotifier {
             );
           },
           onUploadId: (upl) async {
+            _activeUploadId = upl;
             draft = draft.copyWith(uploadId: upl, phase: 'uploading');
             await _drafts.write(draft);
           },
         );
         jobId = started.jobId;
+        _activeJobId = started.jobId;
         draft = draft.copyWith(
           uploadId: started.uploadId,
           jobId: started.jobId,
@@ -900,6 +970,7 @@ class LibraryController extends ChangeNotifier {
           translate: await _wantTranslate(),
         );
         jobId = started.jobId;
+        _activeJobId = started.jobId;
         draft = draft.copyWith(
           uploadId: '',
           jobId: started.jobId,
@@ -916,6 +987,7 @@ class LibraryController extends ChangeNotifier {
 
       final result = await _client.pollIngestJob(
         jobId: jobId,
+        isCancelled: () => _uploadCancelRequested,
         onProgress: (pct, msg) {
           _touchProgress();
           uploadPercent = 50 + (pct.clamp(0, 100) ~/ 2);
@@ -941,6 +1013,13 @@ class LibraryController extends ChangeNotifier {
       }
       await _notify.showCompleted(cacheId: result.cacheId);
       return result;
+    } on UploadCancelledException {
+      // design/132 — honest cancel; not a processing failure / fake success.
+      await _drafts.clear();
+      await _cancelWorkmanager();
+      error = null;
+      await refresh();
+      return null;
     } on AsrApiException catch (e) {
       // design/109: terminal job (422) or lost/conflict — do not reattach forever.
       if (e.statusCode == 409 ||
@@ -968,6 +1047,9 @@ class LibraryController extends ChangeNotifier {
       uploadStage = '';
       uploadBatteryHint = null;
       _activeContentHash = null;
+      _activeUploadId = null;
+      _activeJobId = null;
+      _uploadCancelRequested = false;
       _stopStallWatch();
       notifyListeners();
     }
@@ -981,6 +1063,9 @@ class LibraryController extends ChangeNotifier {
     uploadBackgroundHint = null;
     _wmEnabledCache = null;
     _activeContentHash = draft.contentHash;
+    _uploadCancelRequested = false;
+    _activeUploadId = draft.uploadId.isEmpty ? null : draft.uploadId;
+    _activeJobId = draft.jobId.isEmpty ? null : draft.jobId;
     await _maybeOfferBatteryHint(draft.contentHash);
     _startStallWatch();
     notifyListeners();
@@ -994,6 +1079,7 @@ class LibraryController extends ChangeNotifier {
     try {
       final result = await _client.pollIngestJob(
         jobId: draft.jobId,
+        isCancelled: () => _uploadCancelRequested,
         onProgress: (pct, msg) {
           _touchProgress();
           uploadPercent = pct;
@@ -1019,6 +1105,12 @@ class LibraryController extends ChangeNotifier {
       }
       await _notify.showCompleted(cacheId: result.cacheId);
       return result;
+    } on UploadCancelledException {
+      await _drafts.clear();
+      await _cancelWorkmanager();
+      error = null;
+      await refresh();
+      return null;
     } on AsrApiException catch (e) {
       // design/109: same terminal cleanup as uploadPdf.
       if (e.statusCode == 409 ||
@@ -1045,6 +1137,9 @@ class LibraryController extends ChangeNotifier {
       uploadStage = '';
       uploadBatteryHint = null;
       _activeContentHash = null;
+      _activeUploadId = null;
+      _activeJobId = null;
+      _uploadCancelRequested = false;
       _stopStallWatch();
       notifyListeners();
     }

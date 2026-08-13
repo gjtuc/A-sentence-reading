@@ -33,6 +33,6 @@ def test_design_version_and_no_parent_horizontal_drag():
     assert "InteractiveViewer(" in body
     assert "panEnabled: true" in body
     pub = PUB.read_text(encoding="utf-8")
-    assert "0.3.47" in pub
+    assert "0.3.48" in pub
     st = TestClient(app).get("/api/status").json()
     assert "version" in st

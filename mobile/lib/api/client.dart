@@ -59,6 +59,8 @@ class AsrStatus {
     this.mobileCloudErrorLogs = true,
     // design/131 — missing → full captions; explicit false restores 2-line ….
     this.captionFullText = true,
+    // design/132 — missing → on; explicit false kills cancel UI.
+    this.mobileIngestCancel = true,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -136,6 +138,12 @@ class AsrStatus {
       captionFullText: json.containsKey('caption_full_text')
           ? json['caption_full_text'] == true
           : true,
+      // design/132 — missing → on; explicit false kills cancel.
+      mobileIngestCancel: json.containsKey('mobile_ingest_cancel')
+          ? json['mobile_ingest_cancel'] == true
+          : (json.containsKey('ingest_cancel')
+              ? json['ingest_cancel'] == true
+              : true),
     );
   }
 
@@ -168,6 +176,8 @@ class AsrStatus {
   final bool mobileCloudErrorLogs;
   // design/131 — missing → full; explicit false restores 2-line ellipsis.
   final bool captionFullText;
+  // design/132 — missing → on; explicit false hides cancel.
+  final bool mobileIngestCancel;
 }
 
 class AsrClient {
@@ -627,6 +637,7 @@ class AsrClient {
     Future<void> Function(String uploadId)? onUploadId,
     bool shadowingPractice = false,
     bool translate = true,
+    bool Function()? isCancelled,
   }) async {
     _validatePdfBytes(filename, bytes);
     final token = await _sessions.readToken();
@@ -668,6 +679,10 @@ class AsrClient {
     }
 
     while (offset < bytes.length) {
+      // design/132 — abort mid-chunk loop when user cancels.
+      if (isCancelled?.call() == true) {
+        throw UploadCancelledException();
+      }
       final end = (offset + chunkSize > bytes.length)
           ? bytes.length
           : offset + chunkSize;
@@ -683,6 +698,9 @@ class AsrClient {
       onProgress?.call(pct, '조각 올리는 중');
     }
 
+    if (isCancelled?.call() == true) {
+      throw UploadCancelledException();
+    }
     onProgress?.call(45, '조각 조립 · 처리 시작');
     final done = await completeChunkedUpload(
       uploadId,
@@ -747,6 +765,7 @@ class AsrClient {
     void Function(int percent, String message)? onProgress,
     Duration pollInterval = const Duration(milliseconds: 500),
     Duration timeout = const Duration(minutes: 20),
+    bool Function()? isCancelled,
   }) async {
     final jid = jobId.trim();
     if (jid.isEmpty || !RegExp(r'^job_[a-f0-9]{12}$').hasMatch(jid)) {
@@ -754,7 +773,14 @@ class AsrClient {
     }
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
+      // design/132 — stop polling after user cancel (server wipe → 404 is OK).
+      if (isCancelled?.call() == true) {
+        throw UploadCancelledException();
+      }
       await Future<void>.delayed(pollInterval);
+      if (isCancelled?.call() == true) {
+        throw UploadCancelledException();
+      }
       final stRes = await _http
           .get(
             _uri('/api/ingest/jobs/${Uri.encodeComponent(jid)}'),
@@ -765,6 +791,10 @@ class AsrClient {
         throw AsrApiException('로그인이 필요합니다.', 401);
       }
       if (stRes.statusCode == 404) {
+        // EDGE: after cancel wipe, 404 is expected — treat as cancelled if flagged.
+        if (isCancelled?.call() == true) {
+          throw UploadCancelledException();
+        }
         // EDGE: job lost even after GCS — fail-closed, no fake success.
         throw AsrApiException('작업을 찾을 수 없습니다. 다시 시도해 주세요.', 404);
       }
@@ -1395,6 +1425,62 @@ class AsrClient {
     _decodeObject(res, 'errors/admin/seen');
   }
 
+  /// design/132 — cancel early ingest job (owner session). 409 = too late.
+  Future<({bool cancelled, bool tooLate})> cancelIngestJob(String jobId) async {
+    final jid = jobId.trim();
+    if (jid.isEmpty || !RegExp(r'^job_[a-f0-9]{12}$').hasMatch(jid)) {
+      throw AsrApiException('잘못된 작업 ID입니다.', 400);
+    }
+    final res = await _http
+        .post(
+          _uri('/api/ingest/jobs/${Uri.encodeComponent(jid)}/cancel'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 401) {
+      throw AsrApiException('로그인이 필요합니다.', 401);
+    }
+    if (res.statusCode == 409) {
+      return (cancelled: false, tooLate: true);
+    }
+    if (res.statusCode == 404) {
+      // Already wiped / unknown — treat as cancelled for local cleanup.
+      return (cancelled: true, tooLate: false);
+    }
+    if (res.statusCode == 503) {
+      throw AsrApiException('지금은 취소를 사용할 수 없습니다.', 503);
+    }
+    final map = _decodeObject(res, 'ingest/jobs/cancel');
+    return (
+      cancelled: map['cancelled'] == true || map['ok'] == true,
+      tooLate: false,
+    );
+  }
+
+  /// design/132 — discard chunked upload session before complete.
+  Future<void> cancelChunkedUpload(String uploadId) async {
+    final id = uploadId.trim();
+    if (id.isEmpty || !RegExp(r'^upl_[a-f0-9]{12}$').hasMatch(id)) {
+      throw AsrApiException('잘못된 업로드 ID입니다.', 400);
+    }
+    final res = await _http
+        .post(
+          _uri('/api/ingest/uploads/${Uri.encodeComponent(id)}/cancel'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 401) {
+      throw AsrApiException('로그인이 필요합니다.', 401);
+    }
+    if (res.statusCode == 404) {
+      return;
+    }
+    if (res.statusCode == 503) {
+      throw AsrApiException('지금은 취소를 사용할 수 없습니다.', 503);
+    }
+    _decodeObject(res, 'ingest/uploads/cancel');
+  }
+
 }
 
 class AsrApiException implements Exception {
@@ -1405,4 +1491,10 @@ class AsrApiException implements Exception {
 
   @override
   String toString() => 'AsrApiException($message, status=$statusCode)';
+}
+
+/// design/132 — user aborted upload/ingest; not a processing failure.
+class UploadCancelledException implements Exception {
+  @override
+  String toString() => 'UploadCancelledException';
 }
