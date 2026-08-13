@@ -25,7 +25,7 @@ def password_off(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_password_flag_off(password_off: None) -> None:
     with TestClient(app_mod.app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.45"
+    assert st["version"] == "0.3.46"
     assert st["mobile_email_password"] is False
     assert st["mobile_password_ui"] is False
     assert st["mobile_email_magic_link"] is True

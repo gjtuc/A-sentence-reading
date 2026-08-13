@@ -152,7 +152,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.45",
+    version="0.3.46",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -477,6 +477,8 @@ def _public_api_base(request: Request) -> str:
 def status(request: Request) -> dict:
     """기동 확인."""
     from sentence_reading.llm.ingest_rate_limit import rate_limit_enabled
+    from sentence_reading.llm.error_logs import cloud_error_logs_enabled
+    _cloud_err = cloud_error_logs_enabled()
     from sentence_reading.llm.ingest_jobs_gcs import (
         ingest_checkpoint_enabled,
         ingest_job_reclaim_enabled,
@@ -506,9 +508,12 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.45",
+        "version": "0.3.46",
         # design/129 — /open stubs images; clients use figures/window (±1).
         "lazy_figure_open": True,
+        # design/130 — client report + admin list; false when ASR_CLOUD_ERROR_LOGS=0.
+        "cloud_error_logs": _cloud_err,
+        "mobile_cloud_error_logs": _cloud_err,
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),
@@ -1497,6 +1502,140 @@ def access_admin_notifications(request: Request, limit: int = 50) -> JSONRespons
         lim = 50
     return JSONResponse({"ok": True, "events": list_events(limit=lim)})
 
+
+
+
+
+@app.post("/api/errors/report")
+async def errors_report(request: Request, payload: dict = Body(None)) -> JSONResponse:
+    """Client → cloud error log (design/130). Auth required; uid from session only."""
+    from sentence_reading.llm import error_logs as errlog
+
+    # WHY: kill switch — do not accept when ops disabled the pipeline.
+    if not errlog.cloud_error_logs_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "cloud_error_logs_off",
+                "message": "오류 로그 수집이 꺼져 있습니다.",
+            },
+        )
+    user = _request_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "auth_required",
+                "message": "로그인 후 이용해 주세요.",
+            },
+        )
+    if not isinstance(payload, dict):
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "bad_json", "message": "잘못된 요청입니다."},
+        )
+    if not errlog.check_report_rate(user.uid):
+        return JSONResponse(
+            status_code=429,
+            content={
+                "ok": False,
+                "error": "rate_limited",
+                "message": "오류 보고가 너무 잦습니다. 잠시 후 다시 시도해 주세요.",
+            },
+        )
+    event = errlog.normalize_event(payload, uid=user.uid, email=user.email)
+    if event is None:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "bad_event",
+                "message": "오류 내용이 비어 있거나 올바르지 않습니다.",
+            },
+        )
+    stored = errlog.append_event(event)
+    return JSONResponse({"ok": True, "id": stored.get("id")})
+
+
+@app.get("/api/errors/admin")
+def errors_admin_list(request: Request, limit: int = 50) -> JSONResponse:
+    """Admin-only: newest error events (includes other users)."""
+    from sentence_reading.llm import error_logs as errlog
+
+    if not errlog.cloud_error_logs_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "cloud_error_logs_off",
+                "message": "오류 로그 수집이 꺼져 있습니다.",
+            },
+        )
+    user = _request_user(request)
+    if user is None or not _is_admin_user(user):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "error": "admin_required",
+                "message": "관리자만 볼 수 있습니다.",
+            },
+        )
+    try:
+        lim = int(limit)
+    except (TypeError, ValueError):
+        lim = 50
+    return JSONResponse({"ok": True, "events": errlog.list_events(limit=lim)})
+
+
+@app.get("/api/errors/admin/badge")
+def errors_admin_badge(request: Request) -> JSONResponse:
+    """Admin-only unread count since last seen (settings badge)."""
+    from sentence_reading.llm import error_logs as errlog
+
+    if not errlog.cloud_error_logs_enabled():
+        return JSONResponse({"ok": True, "count": 0, "enabled": False})
+    user = _request_user(request)
+    if user is None or not _is_admin_user(user):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "error": "admin_required",
+                "message": "관리자만 볼 수 있습니다.",
+            },
+        )
+    return JSONResponse({"ok": True, "count": errlog.badge_count(), "enabled": True})
+
+
+@app.post("/api/errors/admin/seen")
+def errors_admin_seen(request: Request) -> JSONResponse:
+    """Admin marks badge cleared."""
+    from sentence_reading.llm import error_logs as errlog
+
+    if not errlog.cloud_error_logs_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "cloud_error_logs_off",
+                "message": "오류 로그 수집이 꺼져 있습니다.",
+            },
+        )
+    user = _request_user(request)
+    if user is None or not _is_admin_user(user):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "error": "admin_required",
+                "message": "관리자만 처리할 수 있습니다.",
+            },
+        )
+    ts = errlog.mark_seen_now()
+    return JSONResponse({"ok": True, "seen_unix": ts})
 
 
 @app.post("/api/access/admin/mint")

@@ -65,7 +65,7 @@ def _login_user(client: TestClient, email: str = "user@example.com") -> str:
 def test_status_waiting_flags() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.45"
+    assert st["version"] == "0.3.46"
     assert st["access_waiting_ux"] is True
     assert st["mobile_access_waiting_ux"] is True
     assert st["access_gate_enabled"] is True

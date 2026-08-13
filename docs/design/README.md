@@ -116,6 +116,11 @@
 | 123 | [123-progress-restore-precise.md](123-progress-restore-precise.md) | 진행 복원 문장+그림 정밀 · fail-closed |
 | 124 | [124-missing-figures.md](124-missing-figures.md) | 빠진 그림 정직한 빈 슬롯 · 앱 Fig. 점프 |
 | 125 | [125-caption-anchored-figures.md](125-caption-anchored-figures.md) | 캡션 우선 Fig/Table/Scheme 추출 |
+| 126 | [126-soft-caption-labels.md](126-soft-caption-labels.md) | 소프트 캡션 라벨 |
+| 127 | [127-caption-word-join.md](127-caption-word-join.md) | Elsevier 단어 줄바꿈 캡션 이어붙이기 |
+| 128 | [128-clip-column-width.md](128-clip-column-width.md) | 표/그림 단 폭 클립 |
+| 129 | [129-lazy-figure-open.md](129-lazy-figure-open.md) | 문장 먼저 열기 · 그림 ±1 창 |
+| 130 | [130-cloud-error-logs.md](130-cloud-error-logs.md) | 오류 탐지 · 클라우드 로그 · 관리자 배지 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -230,3 +235,5 @@
 123은 진행 복원 문장+그림 정밀 · 이상값 fail-closed · 앱 prefs (0.3.37).
 124는 빠진 그림 정직한 빈 슬롯 · 앱 Fig.N 점프 칩 (0.3.38).
 125 — 캡션 우선 그림 추출 (0.3.39).
+126–129 — soft caption · Elsevier join · column clip · lazy figure open (→0.3.45).
+130 — 클라우드 오류 로그 · 관리자 배지 · hang/repeat 탐지 (0.3.46).
