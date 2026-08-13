@@ -31,6 +31,6 @@ def test_design_and_wiring() -> None:
     assert "libraryReorderProxyDecorator" in src
     # Product 4A — reorderPapers still used; no rewrite of save path in this chip.
     assert "reorderPapers" in src
-    assert "0.3.44" in PUB.read_text(encoding="utf-8")
+    assert "0.3.45" in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.44"
+    assert st["version"] == "0.3.45"

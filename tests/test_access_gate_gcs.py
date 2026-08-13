@@ -38,7 +38,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_access_gate_gcs_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.44"
+    assert st["version"] == "0.3.45"
     assert st.get("access_gate_gcs") is True
     assert st.get("access_gate") is True
     assert "live_enable" not in st
