@@ -61,7 +61,7 @@ def _install_stage_gemini(
 
 def test_status_pipeline_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["translate_pipeline"] is True
     assert "translate_en_ko" in st
 

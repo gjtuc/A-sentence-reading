@@ -16,7 +16,7 @@ DESIGN = ROOT / "docs" / "design" / "70-mobile-upload.md"
 def test_status_mobile_upload_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["mobile_upload"] is True
     assert st["mobile_upload_resume"] is True
     assert st["ingest_job_gcs"] is True

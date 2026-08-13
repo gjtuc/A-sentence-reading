@@ -70,6 +70,13 @@ class LibraryController extends ChangeNotifier {
   String? _activeUploadId;
   String? _activeJobId;
 
+  /// design/134 — hang watchdog op for current upload attempt (stable per try).
+  String? _hangOpId;
+  bool _ingestHangTripped = false;
+  bool _hangLocalBound = false;
+  int _hangLastPercent = -1;
+  String _hangLastStageKey = '';
+
   DateTime? _lastProgressAt;
   Timer? _stallWatch;
   bool _resumeInFlight = false;
@@ -152,6 +159,106 @@ class LibraryController extends ChangeNotifier {
     }
     // WHY: resets the ~60s REPLACE delay — WM only fires if frozen/dead.
     unawaited(_scheduleWorkmanager(immediate: false));
+  }
+
+  /// design/134 — map UI stage text to coarse forward keys (label flicker ≠ progress).
+  String _hangStageKey(String stage) {
+    final s = stage.trim().toLowerCase();
+    if (s.contains('처리') || s.contains('process') || s.contains('정제')) {
+      return 'processing';
+    }
+    if (s.contains('조각') || s.contains('upload') || s.contains('올리')) {
+      return 'uploading';
+    }
+    if (s.contains('이어')) return 'reattach';
+    if (s.contains('준비')) return 'prepare';
+    if (s.isEmpty) return 'ingest';
+    return s.length > 24 ? s.substring(0, 24) : s;
+  }
+
+  bool _hangStageForward(String next, String prev) {
+    const order = ['prepare', 'uploading', 'reattach', 'processing', 'done'];
+    final a = order.indexOf(prev);
+    final b = order.indexOf(next);
+    if (a >= 0 && b >= 0) return b > a;
+    return next.isNotEmpty && next != prev;
+  }
+
+  void _ensureHangLocalBound() {
+    if (_hangLocalBound) return;
+    _hangLocalBound = true;
+    asrErrorReporter?.hang.setLocalHandler(_onIngestHangLocal);
+  }
+
+  /// design/134 — local fail-closed abort; cloud report runs after via HangWatchdog.
+  void _onIngestHangLocal(String opId, String kind) {
+    if (_hangOpId == null || opId != _hangOpId) return;
+    // WHY: stop poll/chunk loops; do not call server cancel API this chip.
+    _uploadCancelRequested = true;
+    _ingestHangTripped = true;
+    error = '응답이 없어 업로드를 중단했습니다. 다시 시도해 주세요.';
+    uploadStage = '중단됨';
+    uploadStalled = false;
+    notifyListeners();
+    unawaited(_notify.showFailed(message: error!));
+  }
+
+  Future<void> _beginIngestHang({required String filename}) async {
+    _ensureHangLocalBound();
+    _endIngestHang();
+    _ingestHangTripped = false;
+    _hangLastPercent = -1;
+    _hangLastStageKey = '';
+    var enabled = true;
+    var stall = HangWatchdog.ingestStall;
+    try {
+      final st = await _client.fetchStatus();
+      enabled = st.mobileIngestUploadHang;
+      if (st.ingestHangStallSeconds > 0) {
+        stall = Duration(seconds: st.ingestHangStallSeconds);
+      }
+    } catch (_) {
+      // EDGE: status fail → keep hang on with default 3m (fail-closed for zombies).
+      enabled = true;
+      stall = HangWatchdog.ingestStall;
+    }
+    if (!enabled) return;
+    final opId =
+        'ingest_${DateTime.now().millisecondsSinceEpoch}_${filename.hashCode}';
+    _hangOpId = opId;
+    asrErrorReporter?.hang.begin(
+      opId,
+      stage: 'ingest_upload',
+      stallAfter: stall,
+      paperTitle: filename.trim().isEmpty ? null : filename.trim(),
+    );
+  }
+
+  /// Only real forward progress resets the hang clock (design/134 product 2).
+  void _noteIngestHangProgress({required int percent, required String stage}) {
+    final op = _hangOpId;
+    if (op == null) return;
+    final key = _hangStageKey(stage);
+    final pct = percent.clamp(0, 100);
+    final pctUp = pct > _hangLastPercent;
+    final stageUp = _hangStageForward(key, _hangLastStageKey);
+    if (!pctUp && !stageUp) {
+      // Same place — leave stall timer running (do not noteRepeat every poll).
+      return;
+    }
+    _hangLastPercent = pct;
+    if (stageUp || _hangLastStageKey.isEmpty) {
+      _hangLastStageKey = key;
+    }
+    asrErrorReporter?.hang.progress(op, stage: key);
+  }
+
+  void _endIngestHang() {
+    final op = _hangOpId;
+    if (op != null) {
+      asrErrorReporter?.hang.end(op);
+    }
+    _hangOpId = null;
   }
 
   Future<void> _maybeOfferBatteryHint(String contentHash) async {
@@ -627,6 +734,7 @@ class LibraryController extends ChangeNotifier {
     // uploadPdf() clears it; do not re-arm mid-flight work here.
     // Server ingest cancel is out of scope this chip (local discard only).
     _uploadCancelRequested = true;
+    _endIngestHang();
     shadowingChunksError = null;
     shadowingChunksCacheId = null;
     shadowingChunksBusy = false;
@@ -907,6 +1015,7 @@ class LibraryController extends ChangeNotifier {
     _activeJobId = null;
     await _maybeOfferBatteryHint(hash);
     _startStallWatch();
+    await _beginIngestHang(filename: filename);
     notifyListeners();
 
     // design/74 — product 1A: notify when enabled; upload continues either way.
@@ -947,6 +1056,7 @@ class LibraryController extends ChangeNotifier {
             _touchProgress();
             uploadPercent = pct;
             uploadStage = msg.isEmpty ? '조각 올리는 중' : msg;
+            _noteIngestHangProgress(percent: uploadPercent, stage: uploadStage);
             notifyListeners();
             unawaited(
               _notify.updateProgress(
@@ -959,6 +1069,8 @@ class LibraryController extends ChangeNotifier {
             _activeUploadId = upl;
             draft = draft.copyWith(uploadId: upl, phase: 'uploading');
             await _drafts.write(draft);
+            // Upload id assigned is real forward progress.
+            _noteIngestHangProgress(percent: uploadPercent, stage: 'uploading');
           },
         );
         jobId = started.jobId;
@@ -989,6 +1101,7 @@ class LibraryController extends ChangeNotifier {
       _touchProgress();
       uploadPercent = 50;
       uploadStage = '처리 중';
+      _noteIngestHangProgress(percent: 50, stage: 'processing');
       notifyListeners();
       await _notify.updateProgress(percent: 50, stage: '처리 중');
 
@@ -999,6 +1112,7 @@ class LibraryController extends ChangeNotifier {
           _touchProgress();
           uploadPercent = 50 + (pct.clamp(0, 100) ~/ 2);
           uploadStage = msg.isEmpty ? '처리 중' : msg;
+          _noteIngestHangProgress(percent: uploadPercent, stage: uploadStage);
           notifyListeners();
           unawaited(
             _notify.updateProgress(
@@ -1021,10 +1135,12 @@ class LibraryController extends ChangeNotifier {
       await _notify.showCompleted(cacheId: result.cacheId);
       return result;
     } on UploadCancelledException {
-      // design/132 — honest cancel; not a processing failure / fake success.
+      // design/132 — honest cancel; design/134 hang keeps failure message.
       await _drafts.clear();
       await _cancelWorkmanager();
-      error = null;
+      if (!_ingestHangTripped) {
+        error = null;
+      }
       await refresh();
       return null;
     } on AsrApiException catch (e) {
@@ -1049,6 +1165,7 @@ class LibraryController extends ChangeNotifier {
       await _notify.showFailed(message: error!);
       return null;
     } finally {
+      _endIngestHang();
       uploading = false;
       uploadPercent = 0;
       uploadStage = '';
@@ -1057,6 +1174,7 @@ class LibraryController extends ChangeNotifier {
       _activeUploadId = null;
       _activeJobId = null;
       _uploadCancelRequested = false;
+      _ingestHangTripped = false;
       _stopStallWatch();
       notifyListeners();
     }
@@ -1075,6 +1193,7 @@ class LibraryController extends ChangeNotifier {
     _activeJobId = draft.jobId.isEmpty ? null : draft.jobId;
     await _maybeOfferBatteryHint(draft.contentHash);
     _startStallWatch();
+    await _beginIngestHang(filename: draft.filename);
     notifyListeners();
     final startedNotify = await _maybeStartNotify('이어올리는 중');
     if (startedNotify.permissionDeniedHint) {
@@ -1091,6 +1210,7 @@ class LibraryController extends ChangeNotifier {
           _touchProgress();
           uploadPercent = pct;
           uploadStage = msg.isEmpty ? '이어올리는 중' : msg;
+          _noteIngestHangProgress(percent: uploadPercent, stage: uploadStage);
           notifyListeners();
           unawaited(
             _notify.updateProgress(
@@ -1115,7 +1235,9 @@ class LibraryController extends ChangeNotifier {
     } on UploadCancelledException {
       await _drafts.clear();
       await _cancelWorkmanager();
-      error = null;
+      if (!_ingestHangTripped) {
+        error = null;
+      }
       await refresh();
       return null;
     } on AsrApiException catch (e) {
@@ -1139,6 +1261,7 @@ class LibraryController extends ChangeNotifier {
       await _notify.showFailed(message: error!);
       return null;
     } finally {
+      _endIngestHang();
       uploading = false;
       uploadPercent = 0;
       uploadStage = '';
@@ -1147,6 +1270,7 @@ class LibraryController extends ChangeNotifier {
       _activeUploadId = null;
       _activeJobId = null;
       _uploadCancelRequested = false;
+      _ingestHangTripped = false;
       _stopStallWatch();
       notifyListeners();
     }

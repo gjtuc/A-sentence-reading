@@ -16,7 +16,7 @@ MOBILE = ROOT / "mobile"
 def test_status_exposes_mobile_scaffold_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["mobile_flutter_scaffold"] is True
     # Live Enable / IPS belong to Trading Gate — never on ASR status
     assert "live_enable" not in st

@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_side_by_side() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["translate_side_by_side"] is True
 
 

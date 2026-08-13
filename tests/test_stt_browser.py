@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_stt_browser() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["stt_browser"] is True
     assert st["translate_pipeline"] is True
 

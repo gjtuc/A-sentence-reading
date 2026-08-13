@@ -19,7 +19,7 @@ DESIGN = ROOT / "docs" / "design" / "55-section-review-flow-edit.md"
 
 def test_status_flow_edit() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["section_review_flow_edit"] is True
     assert st["section_review_flow"] is True
     assert "live_enable" not in st

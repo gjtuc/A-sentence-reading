@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "54-section-review-voice-clip.md"
 
 def test_status_voice_clip_actions() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["section_review_voice_clip_actions"] is True
     assert st["section_review_voice_seq"] is True
     assert "live_enable" not in st

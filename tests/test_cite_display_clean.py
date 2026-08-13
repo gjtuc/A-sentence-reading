@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_cite_display_clean() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["cite_display_clean"] is True
     assert st["cite_ref_open"] is True
     assert "live_enable" not in st

@@ -16,7 +16,7 @@ MOBILE = ROOT / "mobile"
 def test_status_mobile_upload_background_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["mobile_upload_background"] is True
     assert st["mobile_upload"] is True
     assert st["ingest_chunked_upload"] is True

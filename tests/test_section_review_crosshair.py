@@ -20,7 +20,7 @@ WHITE_CROSS_SVG = "stroke='%23ffffff'"
 
 def test_status_section_review_crosshair() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["section_review_crosshair"] is True
     assert st["section_review_keys"] is True
     assert "live_enable" not in st

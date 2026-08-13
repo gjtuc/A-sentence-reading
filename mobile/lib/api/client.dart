@@ -61,6 +61,9 @@ class AsrStatus {
     this.captionFullText = true,
     // design/132 — missing → on; explicit false kills cancel UI.
     this.mobileIngestCancel = true,
+    // design/134 — missing → on; explicit false skips upload hang watchdog.
+    this.mobileIngestUploadHang = true,
+    this.ingestHangStallSeconds = 180,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -144,6 +147,19 @@ class AsrStatus {
           : (json.containsKey('ingest_cancel')
               ? json['ingest_cancel'] == true
               : true),
+      // design/134 — missing → on; explicit false kills upload hang.
+      mobileIngestUploadHang: json.containsKey('mobile_ingest_upload_hang')
+          ? json['mobile_ingest_upload_hang'] == true
+          : (json.containsKey('ingest_upload_hang')
+              ? json['ingest_upload_hang'] == true
+              : true),
+      ingestHangStallSeconds: () {
+        final raw = json['ingest_hang_stall_seconds'];
+        if (raw is int) return raw.clamp(5, 3600);
+        if (raw is num) return raw.toInt().clamp(5, 3600);
+        final p = int.tryParse('$raw');
+        return (p ?? 180).clamp(5, 3600);
+      }(),
     );
   }
 
@@ -178,6 +194,9 @@ class AsrStatus {
   final bool captionFullText;
   // design/132 — missing → on; explicit false hides cancel.
   final bool mobileIngestCancel;
+  // design/134 — upload/ingest no-progress hang.
+  final bool mobileIngestUploadHang;
+  final int ingestHangStallSeconds;
 }
 
 class AsrClient {

@@ -36,7 +36,7 @@ References
 
 def test_status_cite_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["cite_ref_open"] is True
 
 

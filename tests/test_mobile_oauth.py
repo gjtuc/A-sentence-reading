@@ -38,7 +38,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_mobile_oauth_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["mobile_oauth"] is True
     assert st.get("mobile_google_sha_runbook") is True
     assert st.get("mobile_google_android_oauth") is True

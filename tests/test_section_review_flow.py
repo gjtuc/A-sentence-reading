@@ -14,7 +14,7 @@ STATIC = ROOT / "src" / "sentence_reading" / "static"
 
 def test_status_section_review_flow() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["section_review_flow"] is True
     assert "live_enable" not in st
     assert "ips" not in st

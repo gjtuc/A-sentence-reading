@@ -52,7 +52,7 @@ def test_design_wiring_and_version() -> None:
     assert "continue" in dart
     assert "0.3.49" in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
 
 
 def test_api_unexpected_exception_is_502_not_500(

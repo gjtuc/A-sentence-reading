@@ -4,11 +4,15 @@
 library;
 
 /// Production Cloud Run base (no trailing slash). Override in tests via [AsrConfig.overrideBaseUrl].
-const String kDefaultApiBaseUrl =
-    'https://asr-sentence-reading-984608876300.asia-northeast3.run.app';
+/// E2E sideload: `--dart-define=ASR_API_BASE=http://HOST:8789` (cleartext LAN only).
+const String kDefaultApiBaseUrl = String.fromEnvironment(
+  'ASR_API_BASE',
+  defaultValue:
+      'https://asr-sentence-reading-984608876300.asia-northeast3.run.app',
+);
 
 /// design/130 — reported with error events (must match pubspec versionName).
-const String kAppVersionLabel = '0.3.49';
+const String kAppVersionLabel = '0.3.50';
 
 /// Runtime-overridable API settings (email session cookie in SessionStore).
 class AsrConfig {

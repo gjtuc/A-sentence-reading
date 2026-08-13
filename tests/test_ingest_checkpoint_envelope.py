@@ -72,7 +72,7 @@ def _register(client: TestClient, email: str) -> None:
 
 def test_status_checkpoint_flag(fake_gcs, auth_root):
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["ingest_checkpoint"] is True
     assert st["pipeline_version"] == PIPELINE_VERSION
 

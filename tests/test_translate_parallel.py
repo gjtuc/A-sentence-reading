@@ -24,7 +24,7 @@ def _clear_cache() -> None:
 
 def test_status_parallel_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["translate_parallel"] is True
     assert 1 <= int(st["translate_workers"]) <= 8
 

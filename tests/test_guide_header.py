@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "59-guide-header.md"
 
 def test_status_guide_header() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["guide_header"] is True
     assert st["header_overflow"] is True
     assert "live_enable" not in st

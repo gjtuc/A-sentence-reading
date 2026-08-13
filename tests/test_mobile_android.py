@@ -17,7 +17,7 @@ ANDROID = MOBILE / "android"
 def test_status_android_platform_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["mobile_flutter_scaffold"] is True
     assert st["mobile_android_platform"] is True
     assert "live_enable" not in st

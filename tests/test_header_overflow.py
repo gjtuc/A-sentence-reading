@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "58-header-overflow.md"
 
 def test_status_header_overflow() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["header_overflow"] is True
     assert "live_enable" not in st
     assert "ips" not in st

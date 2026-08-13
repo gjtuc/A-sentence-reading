@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "64-mobile-tts.md"
 def test_status_mobile_tts_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["mobile_tts"] is True
     assert st["mobile_reader"] is True
     assert "live_enable" not in st

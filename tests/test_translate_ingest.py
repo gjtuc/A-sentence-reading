@@ -25,7 +25,7 @@ def _clear_cache() -> None:
 
 def test_status_ingest_translate_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["translate_ingest_sections"] is True
     assert st["translate_side_by_side"] is True
 

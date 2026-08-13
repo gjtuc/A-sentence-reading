@@ -81,7 +81,7 @@ def _uid(client: TestClient) -> str:
 
 def test_status_resume_skip_flag(fake_gcs, auth_root):
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["ingest_resume_skip"] is True
     assert st["ingest_checkpoint"] is True
 

@@ -33,4 +33,4 @@ def test_design_and_wiring() -> None:
     assert "reorderPapers" in src
     assert "0.3.49" in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"

@@ -36,7 +36,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_mobile_email_auth_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["mobile_email_auth"] is True
     assert st["mobile_flutter_scaffold"] is True
     assert st["mobile_android_platform"] is True

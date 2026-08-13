@@ -61,7 +61,7 @@ def test_design_wiring_and_status(cache_dir: Path) -> None:
     assert "design/121" in dart
     assert "0.3.49" in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st.get("paper_open_gcs_first") is True
 
 

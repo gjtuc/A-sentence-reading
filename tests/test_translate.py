@@ -56,7 +56,7 @@ def _install_fake_gemini(monkeypatch: pytest.MonkeyPatch, calls: list[str], text
 
 def test_status_flags_translate() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert "translate_en_ko" in st
     assert st["tab_close"] is True
 

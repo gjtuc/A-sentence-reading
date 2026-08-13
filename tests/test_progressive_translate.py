@@ -25,7 +25,7 @@ def _clear_cache() -> None:
 
 def test_status_progressive_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["translate_progressive"] is True
     assert st["translate_live_fallback"] is False
     assert st["compound_figures"] is False

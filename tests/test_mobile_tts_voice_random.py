@@ -17,7 +17,7 @@ DESIGN = os.path.join(ROOT, "docs", "design", "103-mobile-tts-voice-random.md")
 def test_status_version_pin() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["mobile_tts"] is True
 
 

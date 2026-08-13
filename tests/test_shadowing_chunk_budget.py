@@ -62,7 +62,7 @@ def test_design_113_and_version_pin(shadowing_env: Path):
     assert "ASR_SHADOWING_CHUNK_BUDGET_S" in text
     assert "504" in text
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st.get("shadowing_chunk_budget") is True
     assert "0.3.49" in PUB.read_text(encoding="utf-8")
 

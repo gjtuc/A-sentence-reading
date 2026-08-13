@@ -22,7 +22,7 @@ SHELL = ROOT / "mobile" / "lib" / "screens" / "home_shell.dart"
 def test_status_progress_fail_closed_default() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["progress_restore"] is True
     assert st["progress_fail_closed"] is True
 

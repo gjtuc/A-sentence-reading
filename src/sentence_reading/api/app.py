@@ -152,7 +152,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.49",
+    version="0.3.50",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -333,6 +333,27 @@ def _ingest_cancel_enabled() -> bool:
     """Kill switch: ASR_INGEST_CANCEL=0 disables cancel endpoints + status flag."""
     v = (os.environ.get("ASR_INGEST_CANCEL") or "1").strip().lower()
     return v not in ("0", "false", "off", "no")
+
+
+def _ingest_upload_hang_enabled() -> bool:
+    """design/134 — kill: ASR_INGEST_UPLOAD_HANG=0 disables client hang begin."""
+    v = (os.environ.get("ASR_INGEST_UPLOAD_HANG") or "1").strip().lower()
+    return v not in ("0", "false", "off", "no")
+
+
+def _ingest_hang_stall_seconds() -> int:
+    """design/134 — no-progress stall; default 180. Clamp for safety (E2E may use 8)."""
+    raw = (os.environ.get("ASR_INGEST_HANG_STALL_SEC") or "180").strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        return 180
+    # EDGE: refuse absurd values that would disable hang or DoS UX.
+    if n < 5:
+        return 5
+    if n > 3600:
+        return 3600
+    return n
 
 
 # Stages at/after first library publish — cancel refuses; job finishes.
@@ -598,7 +619,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.49",
+        "version": "0.3.50",
         # design/129 — /open stubs images; clients use figures/window (±1).
         "lazy_figure_open": True,
         # design/130 — client report + admin list; false when ASR_CLOUD_ERROR_LOGS=0.
@@ -613,6 +634,10 @@ def status(request: Request) -> dict:
         # design/133 — logout/account-switch wipes local library/session/draft (Path B).
         "logout_session_isolation": True,
         "mobile_logout_session_isolation": True,
+        # design/134 — upload/ingest hang when no progress; kill ASR_INGEST_UPLOAD_HANG=0.
+        "ingest_upload_hang": _ingest_upload_hang_enabled(),
+        "mobile_ingest_upload_hang": _ingest_upload_hang_enabled(),
+        "ingest_hang_stall_seconds": _ingest_hang_stall_seconds(),
         # design/83 — identity gate; false only when ASR_LOGIN_REQUIRED=0.
         "login_required": login_required_enabled(),
         "mobile_login_required": login_required_enabled(),

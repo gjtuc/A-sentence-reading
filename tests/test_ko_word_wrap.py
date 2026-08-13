@@ -22,7 +22,7 @@ def _sentence_ko_block() -> str:
 
 def test_status_ko_word_wrap() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.49"
+    assert st["version"] == "0.3.50"
     assert st["ko_word_wrap"] is True
     assert st["cite_display_clean"] is True
     assert "live_enable" not in st
