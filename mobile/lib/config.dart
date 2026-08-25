@@ -12,7 +12,7 @@ const String kDefaultApiBaseUrl = String.fromEnvironment(
 );
 
 /// design/130 — reported with error events (must match pubspec versionName).
-const String kAppVersionLabel = '0.3.51';
+const String kAppVersionLabel = '0.3.52';
 
 /// Runtime-overridable API settings (email session cookie in SessionStore).
 class AsrConfig {

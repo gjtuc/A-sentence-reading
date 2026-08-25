@@ -38,10 +38,11 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_mobile_oauth_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.51"
+    assert st["version"] == "0.3.52"
     assert st["mobile_oauth"] is True
     assert st.get("mobile_google_sha_runbook") is True
     assert st.get("mobile_google_android_oauth") is True
+    assert st.get("mobile_google_account_chooser") is True
     assert st.get("mobile_google_custom_tab") is True
     assert st["mobile_tts"] is True
     assert "live_enable" not in st
@@ -151,6 +152,8 @@ def test_google_mobile_start_html() -> None:
     assert "cid.apps.googleusercontent.com" in text
     assert "com.gjtuc.sentence_reading://oauth/google" in text
     assert "mobile" in text and "asr_session" in text
+    assert "disableAutoSelect" in text
+    assert "auto_select: false" in text
     # FAIL-CLOSED: never embed secrets
     assert "ASR_AUTH_SECRET" not in text
     assert "BEGIN PRIVATE" not in text
@@ -168,7 +171,7 @@ def test_google_mobile_start_public_under_login_gate(
 
 def test_mobile_dart_oauth_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.51" in pub
+    assert "0.3.52" in pub
     assert "google_sign_in" in pub
     assert "flutter_web_auth_2" in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
@@ -182,8 +185,11 @@ def test_mobile_dart_oauth_sources() -> None:
     login = (MOBILE / "lib" / "screens" / "login_screen.dart").read_text(encoding="utf-8")
     assert "Google로 계속" in login and "카카오로 계속" in login
     authc = (MOBILE / "lib" / "state" / "auth_controller.dart").read_text(encoding="utf-8")
-    assert "googleMobileStartUrl" in authc
+    assert "obtainIdToken" in authc
+    assert "googleMobileStartUrl" in authc  # SHA-1 fallback
     assert "parseGoogleDeepLink" in authc
+    bridges = (MOBILE / "lib" / "api" / "oauth_bridges.dart").read_text(encoding="utf-8")
+    assert "signOut" in bridges and "signIn" in bridges
     manifest = (
         MOBILE / "android" / "app" / "src" / "main" / "AndroidManifest.xml"
     ).read_text(encoding="utf-8")
@@ -191,8 +197,8 @@ def test_mobile_dart_oauth_sources() -> None:
     assert 'pathPrefix="/google"' in manifest
     assert DESIGN.is_file()
     design = DESIGN.read_text(encoding="utf-8")
-    assert "Custom Tab" in design or "mobile/start" in design
-    assert "mobile_google_custom_tab" in design
+    assert "account chooser" in design.lower() or "signOut" in design
+    assert "mobile_google_account_chooser" in design
     assert "Trading Gate" in design or "ASR" in design
 
 
@@ -213,4 +219,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.51" in html
+    assert "app.js?v=0.3.52" in html
