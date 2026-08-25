@@ -360,6 +360,14 @@ class AsrClient {
     return '${map['message'] ?? '로그인 링크를 이메일로 보냈습니다.'}';
   }
 
+  /// Absolute URL for Google Custom-Tab GIS start (mobile; design/65).
+  String googleMobileStartUrl({String mode = 'login'}) {
+    final m = mode.trim().isEmpty ? 'login' : mode.trim();
+    return _uri('/api/auth/google/mobile/start').replace(
+      queryParameters: {'mode': m},
+    ).toString();
+  }
+
   /// Absolute URL for Kakao Custom-Tab start (mobile=1).
   String kakaoStartUrl({String mode = 'login'}) {
     final m = mode.trim().isEmpty ? 'login' : mode.trim();

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 import tempfile
 import uuid
@@ -152,7 +153,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.50",
+    version="0.3.51",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -619,7 +620,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.50",
+        "version": "0.3.51",
         # design/129 — /open stubs images; clients use figures/window (±1).
         "lazy_figure_open": True,
         # design/130 — client report + admin list; false when ASR_CLOUD_ERROR_LOGS=0.
@@ -718,6 +719,8 @@ def status(request: Request) -> dict:
         "mobile_admin_ui_gate": True,
         "mobile_google_sha_runbook": True,
         "mobile_google_android_oauth": True,
+        # design/65 — Custom Tab GIS (sideload-safe; no native SHA-1 dependency).
+        "mobile_google_custom_tab": True,
         "mobile_invite_copy_minimal": True,
         "mobile_admin_emails_configured": True,
         "mobile_invite_redeem_e2e": True,
@@ -742,16 +745,24 @@ def status(request: Request) -> dict:
     }
 
 
-def _session_response(user: AuthUser, *, message: str = "logged_in") -> JSONResponse:
+def _session_response(
+    user: AuthUser,
+    *,
+    message: str = "logged_in",
+    include_session_token: bool = False,
+) -> JSONResponse:
     token = issue_session_token(user)
-    resp = JSONResponse(
-        {
-            "ok": True,
-            "user": public_user_with_providers(user),
-            "gcs_user_scoped": True,
-            "message": message,
-        }
-    )
+    body: dict = {
+        "ok": True,
+        "user": public_user_with_providers(user),
+        "gcs_user_scoped": True,
+        "message": message,
+    }
+    # WHY mobile Custom Tab (Google GIS HTML): cookie alone is invisible to Flutter;
+    # return asr_session once so the page can deep-link. Never log this value.
+    if include_session_token:
+        body["asr_session"] = token
+    resp = JSONResponse(body)
     resp.set_cookie(
         key=COOKIE_NAME,
         value=token,
@@ -795,9 +806,18 @@ async def auth_google_login(request: Request, payload: dict = Body(...)) -> JSON
         )
     credential = ""
     mode = "login"
+    want_mobile = False
     if isinstance(payload, dict):
         credential = str(payload.get("credential") or payload.get("id_token") or "")
         mode = str(payload.get("mode") or "login").strip().lower()
+        # WHY: Custom Tab GIS page needs asr_session in JSON (cookie invisible to Flutter).
+        want_mobile = str(payload.get("mobile") or "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "android",
+            "app",
+        )
     try:
         ident = verify_google_id_token(credential)
     except Exception as exc:  # noqa: BLE001
@@ -829,7 +849,9 @@ async def auth_google_login(request: Request, payload: dict = Body(...)) -> JSON
                 name=ident.name,
                 picture=ident.picture,
             )
-            return _session_response(user, message="linked")
+            return _session_response(
+                user, message="linked", include_session_token=want_mobile
+            )
         user = resolve_or_create(
             "google",
             ident.uid,
@@ -850,7 +872,111 @@ async def auth_google_login(request: Request, payload: dict = Body(...)) -> JSON
                 }.get(code, str(exc)),
             },
         )
-    return _session_response(user)
+    return _session_response(user, include_session_token=want_mobile)
+
+
+@app.get("/api/auth/google/mobile/start")
+def auth_google_mobile_start(mode: str = "login") -> Response:
+    """Custom Tab page: GIS on Cloud Run origin → deep-link session (design/65).
+
+    WHY not native google_sign_in: Android OAuth SHA-1 breaks across sideload PCs
+    (DEVELOPER_ERROR / no account picker). Web client_id already authorized for
+    this Run origin (same as desktop GIS).
+    """
+    cid = (auth_client_id() or "").strip()
+    if not cid:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "auth_disabled",
+                "message": "ASR_GOOGLE_CLIENT_ID 를 설정하면 Google 로그인을 쓸 수 있습니다.",
+            },
+        )
+    mode_s = (mode or "login").strip().lower() or "login"
+    if mode_s not in ("login", "link"):
+        mode_s = "login"
+    # EDGE: escape for JS string literals (client_id is public but may contain quotes).
+    cid_js = json.dumps(cid)
+    mode_js = json.dumps(mode_s)
+    html = f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>문장 읽기 · Google 로그인</title>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    body {{ font-family: system-ui, sans-serif; margin: 2rem; background: #111; color: #eee; }}
+    #err {{ color: #f88; margin-top: 1rem; white-space: pre-wrap; }}
+    #mount {{ margin-top: 1.5rem; }}
+  </style>
+</head>
+<body>
+  <h1>Google로 계속</h1>
+  <p>계정을 선택한 뒤 앱으로 돌아갑니다.</p>
+  <div id="mount"></div>
+  <p id="err" hidden></p>
+  <script>
+(function () {{
+  var CLIENT_ID = {cid_js};
+  var MODE = {mode_js};
+  var errEl = document.getElementById('err');
+  function showErr(msg) {{
+    errEl.hidden = false;
+    errEl.textContent = String(msg || '로그인에 실패했습니다.');
+  }}
+  function goDeep(session) {{
+    // WHY: session only — never put Google id_token in the custom-scheme URL.
+    var q = 'auth=google&asr_session=' + encodeURIComponent(session);
+    window.location.href = 'com.gjtuc.sentence_reading://oauth/google?' + q;
+  }}
+  async function onCred(resp) {{
+    try {{
+      var cred = resp && resp.credential;
+      if (!cred) {{ showErr('Google 자격 증명이 비었습니다.'); return; }}
+      var r = await fetch('/api/auth/google', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        credentials: 'same-origin',
+        body: JSON.stringify({{ credential: cred, mode: MODE, mobile: '1' }})
+      }});
+      var data = {{}};
+      try {{ data = await r.json(); }} catch (e) {{ data = {{}}; }}
+      if (!r.ok || !data || !data.ok || !data.asr_session) {{
+        showErr((data && data.message) || ('로그인 실패 (' + r.status + ')'));
+        return;
+      }}
+      goDeep(String(data.asr_session));
+    }} catch (e) {{
+      showErr('네트워크 오류로 Google 로그인을 완료하지 못했습니다.');
+    }}
+  }}
+  function boot() {{
+    if (!window.google || !google.accounts || !google.accounts.id) {{
+      setTimeout(boot, 50);
+      return;
+    }}
+    google.accounts.id.initialize({{
+      client_id: CLIENT_ID,
+      callback: onCred,
+      auto_select: false,
+      cancel_on_tap_outside: true
+    }});
+    google.accounts.id.renderButton(document.getElementById('mount'), {{
+      theme: 'outline',
+      size: 'large',
+      width: 280,
+      text: 'continue_with'
+    }});
+  }}
+  boot();
+}})();
+  </script>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
 
 
 @app.get("/api/auth/kakao/start")

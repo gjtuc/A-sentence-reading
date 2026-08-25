@@ -42,6 +42,11 @@ KakaoDeepLinkResult parseMagicDeepLink(String? raw) {
   return parseOAuthDeepLink(raw, expectedPath: 'magic');
 }
 
+/// Parse com.gjtuc.sentence_reading://oauth/google?... (Custom Tab GIS).
+KakaoDeepLinkResult parseGoogleDeepLink(String? raw) {
+  return parseOAuthDeepLink(raw, expectedPath: 'google');
+}
+
 /// Shared custom-scheme OAuth/magic parse (design/65 · design/77).
 KakaoDeepLinkResult parseOAuthDeepLink(
   String? raw, {
@@ -61,7 +66,7 @@ KakaoDeepLinkResult parseOAuthDeepLink(
   final pathPart = qAt < 0 ? rest : rest.substring(0, qAt);
   final queryPart = qAt < 0 ? '' : rest.substring(qAt + 1);
 
-  // Expect host/path: oauth/{kakao|magic}
+  // Expect host/path: oauth/{kakao|magic|google}
   final norm = pathPart.startsWith('/') ? pathPart.substring(1) : pathPart;
   final segments = norm.split('/').where((e) => e.isNotEmpty).toList();
   if (segments.length < 2 || segments[0] != 'oauth') {

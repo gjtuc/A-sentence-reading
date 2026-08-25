@@ -140,37 +140,37 @@ class AuthController extends ChangeNotifier {
     }
   }
 
-  /// Real Google Sign-In → server verifies id_token (not a mock).
+  /// Google Custom Tab GIS → HTTPS page → deep link with asr_session (design/65).
+  ///
+  /// WHY not native google_sign_in: Android SHA-1 / DEVELOPER_ERROR on sideload
+  /// across machines. Cloud Run origin already hosts web GIS.
   Future<void> loginGoogle() async {
     busy = true;
     error = null;
     notifyListeners();
     try {
-      // Refresh provider flags / client_id
       try {
         lastStatus = await _client.fetchAuthStatus();
       } catch (_) {}
       if (lastStatus?.googleEnabled != true) {
         throw AsrApiException('Google login is disabled on the server', 503);
       }
-      final cid = (lastStatus?.clientId ?? '').trim();
-      if (cid.isEmpty) {
-        throw AsrApiException('Google client_id missing from /api/auth/status', 503);
+      final start = _client.googleMobileStartUrl(mode: 'login');
+      final redirected = await _kakaoBrowser.authenticate(
+        startUrl: start,
+        callbackUrlScheme: kMobileOAuthScheme,
+      );
+      final parsed = parseGoogleDeepLink(redirected);
+      if (!parsed.isSuccess) {
+        throw AsrApiException(parsed.error ?? 'google_failed', 401);
       }
-      final token = await _googleTokens.obtainIdToken(serverClientId: cid);
-      if (token == null || !isUsableGoogleCredential(token)) {
-        throw AsrApiException('Google sign-in cancelled or no id_token', 401);
-      }
-      final cred = token.trim();
-      await _runAuth(() => _client.loginGoogle(credential: cred));
+      await _runAuth(() => _client.applySessionToken(parsed.sessionToken!));
     } on AsrApiException catch (e) {
       error = e.message;
       busy = false;
       notifyListeners();
       rethrow;
     } catch (e) {
-      // WHY map: raw PlatformException(10) looks like a crash dump and can be
-      // mistaken for a half-success. Fail-closed Korean copy instead.
       error = describeGoogleSignInFailure(e);
       busy = false;
       notifyListeners();

@@ -65,6 +65,17 @@ void main() {
     });
   });
 
+  group('parseGoogleDeepLink', () {
+    test('parses Custom Tab bounce', () {
+      final r = parseGoogleDeepLink(
+        'com.gjtuc.sentence_reading://oauth/google?asr_session=tok.g&auth=google',
+      );
+      expect(r.isSuccess, isTrue);
+      expect(r.sessionToken, 'tok.g');
+      expect(r.auth, 'google');
+    });
+  });
+
   group('isUsableGoogleCredential', () {
     test('edges', () {
       expect(isUsableGoogleCredential(null), isFalse);
