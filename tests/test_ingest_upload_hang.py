@@ -55,7 +55,8 @@ def test_stall_sec_clamps(monkeypatch) -> None:
 
 def test_design_and_clients_pin() -> None:
     text = DESIGN.read_text(encoding="utf-8")
-    assert "0.3.51" in text
+    # WHY: design/134 ships at 0.3.50; app may be newer — pin the chip version here.
+    assert "0.3.50" in text
     assert "ASR_INGEST_UPLOAD_HANG" in text
     assert "자동" in text or "cancel" in text.lower()
     hang = HANG_DART.read_text(encoding="utf-8")
