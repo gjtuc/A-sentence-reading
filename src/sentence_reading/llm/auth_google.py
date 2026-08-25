@@ -236,6 +236,8 @@ def verify_google_id_token(credential: str) -> AuthUser:
 MOBILE_OAUTH_SCHEME = "com.gjtuc.sentence_reading"
 MOBILE_KAKAO_DEEP_LINK = "com.gjtuc.sentence_reading://oauth/kakao"
 MOBILE_MAGIC_DEEP_LINK = "com.gjtuc.sentence_reading://oauth/magic"
+# design/65 — Custom Tab GIS bounce (avoids Android SHA-1 / google_sign_in DEVELOPER_ERROR).
+MOBILE_GOOGLE_DEEP_LINK = "com.gjtuc.sentence_reading://oauth/google"
 
 
 def mobile_kakao_deep_link(*, session: str = "", auth: str = "", error: str = "") -> str:
@@ -262,6 +264,19 @@ def mobile_magic_deep_link(*, session: str = "", auth: str = "magic", error: str
         if session:
             q["asr_session"] = session
     return MOBILE_MAGIC_DEEP_LINK + ("?" + urllib.parse.urlencode(q) if q else "")
+
+
+def mobile_google_deep_link(*, session: str = "", auth: str = "google", error: str = "") -> str:
+    """design/65 — Custom Tab GIS → app deep link with session (no id_token in URL)."""
+    q: dict[str, str] = {}
+    if error:
+        q["auth_error"] = error[:120]
+    else:
+        if auth:
+            q["auth"] = auth[:64]
+        if session:
+            q["asr_session"] = session
+    return MOBILE_GOOGLE_DEEP_LINK + ("?" + urllib.parse.urlencode(q) if q else "")
 
 
 def issue_oauth_state(

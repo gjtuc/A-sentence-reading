@@ -38,10 +38,11 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_mobile_oauth_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.50"
+    assert st["version"] == "0.3.51"
     assert st["mobile_oauth"] is True
     assert st.get("mobile_google_sha_runbook") is True
     assert st.get("mobile_google_android_oauth") is True
+    assert st.get("mobile_google_custom_tab") is True
     assert st["mobile_tts"] is True
     assert "live_enable" not in st
     assert "ips" not in st
@@ -120,33 +121,78 @@ def test_google_login_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
     r = client.post("/api/auth/google", json={"credential": "a.b.c.d.e.f.g.h.i.j.k"})
     assert r.status_code == 200
     assert r.json()["user"]["uid"]
+    # EDGE: web path must not leak asr_session in JSON (cookie only).
+    assert "asr_session" not in r.json()
+
+
+def test_google_mobile_returns_session_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_verify(cred: str) -> AuthUser:
+        return AuthUser(uid="118234567890123456789", email="g@x.com", name="G")
+
+    monkeypatch.setattr("sentence_reading.api.app.verify_google_id_token", fake_verify)
+    client = TestClient(app)
+    r = client.post(
+        "/api/auth/google",
+        json={"credential": "a.b.c.d.e.f.g.h.i.j.k", "mobile": "1"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert isinstance(body.get("asr_session"), str) and len(body["asr_session"]) > 20
+
+
+def test_google_mobile_start_html() -> None:
+    client = TestClient(app)
+    r = client.get("/api/auth/google/mobile/start")
+    assert r.status_code == 200
+    assert "text/html" in r.headers.get("content-type", "")
+    text = r.text
+    assert "accounts.google.com/gsi/client" in text
+    assert "cid.apps.googleusercontent.com" in text
+    assert "com.gjtuc.sentence_reading://oauth/google" in text
+    assert "mobile" in text and "asr_session" in text
+    # FAIL-CLOSED: never embed secrets
+    assert "ASR_AUTH_SECRET" not in text
+    assert "BEGIN PRIVATE" not in text
+
+
+def test_google_mobile_start_public_under_login_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ASR_LOGIN_REQUIRED", "1")
+    monkeypatch.setenv("ASR_GOOGLE_CLIENT_ID", "cid.apps.googleusercontent.com")
+    client = TestClient(app)
+    r = client.get("/api/auth/google/mobile/start")
+    assert r.status_code == 200
 
 
 def test_mobile_dart_oauth_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.50" in pub
+    assert "0.3.51" in pub
     assert "google_sign_in" in pub
     assert "flutter_web_auth_2" in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "loginGoogle" in client and "applySessionToken" in client
     assert "kakaoStartUrl" in client
+    assert "googleMobileStartUrl" in client
     models = (MOBILE / "lib" / "api" / "oauth_models.dart").read_text(encoding="utf-8")
     assert "parseKakaoDeepLink" in models
+    assert "parseGoogleDeepLink" in models
     assert "isUsableGoogleCredential" in models
     login = (MOBILE / "lib" / "screens" / "login_screen.dart").read_text(encoding="utf-8")
     assert "Google로 계속" in login and "카카오로 계속" in login
+    authc = (MOBILE / "lib" / "state" / "auth_controller.dart").read_text(encoding="utf-8")
+    assert "googleMobileStartUrl" in authc
+    assert "parseGoogleDeepLink" in authc
     manifest = (
         MOBILE / "android" / "app" / "src" / "main" / "AndroidManifest.xml"
     ).read_text(encoding="utf-8")
     assert "com.gjtuc.sentence_reading" in manifest
-    assert "oauth" in manifest
+    assert 'pathPrefix="/google"' in manifest
     assert DESIGN.is_file()
     design = DESIGN.read_text(encoding="utf-8")
-    assert "0.3.3" in design
-    assert "ASR Android sideload" in design
-    assert "mobile_google_android_oauth" in design
-    assert "Android OAuth SHA-1" in design
-    assert "DEVELOPER_ERROR" in design or "fail-closed" in design
+    assert "Custom Tab" in design or "mobile/start" in design
+    assert "mobile_google_custom_tab" in design
     assert "Trading Gate" in design or "ASR" in design
 
 
@@ -167,4 +213,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.50" in html
+    assert "app.js?v=0.3.51" in html

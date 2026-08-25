@@ -161,6 +161,7 @@
 - ~~업로드·정제 중 취소 (조기 discard · ready+ 거절)~~ (0.3.48 · [132-ingest-cancel.md](132-ingest-cancel.md))
 - ~~로그아웃·계정전환 시 로컬 세션/보관함/draft 격리~~ (0.3.49 · [133-logout-session-isolation.md](133-logout-session-isolation.md))
 - ~~업로드·정제 진전 없음 hang (로컬 실패 + 오류 로그)~~ (0.3.50 · [134-ingest-upload-hang.md](134-ingest-upload-hang.md))
+- ~~모바일 Google Custom Tab GIS (SHA-1 sideload 우회)~~ (0.3.51 · [65-mobile-oauth.md](65-mobile-oauth.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

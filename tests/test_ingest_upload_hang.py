@@ -23,7 +23,7 @@ PUB = ROOT / "mobile" / "pubspec.yaml"
 
 def test_status_hang_flags_and_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.50"
+    assert st["version"] == "0.3.51"
     assert st["ingest_upload_hang"] is True
     assert st["mobile_ingest_upload_hang"] is True
     assert st["ingest_hang_stall_seconds"] == 180
@@ -55,6 +55,7 @@ def test_stall_sec_clamps(monkeypatch) -> None:
 
 def test_design_and_clients_pin() -> None:
     text = DESIGN.read_text(encoding="utf-8")
+    # WHY: design/134 ships at 0.3.50; app may be newer — pin the chip version here.
     assert "0.3.50" in text
     assert "ASR_INGEST_UPLOAD_HANG" in text
     assert "자동" in text or "cancel" in text.lower()
@@ -76,7 +77,7 @@ def test_design_and_clients_pin() -> None:
     assert "onIngestHang" in js
     assert "__asrHangE2E" in js
     assert "127.0.0.1" in js
-    assert "0.3.50" in PUB.read_text(encoding="utf-8")
+    assert "0.3.51" in PUB.read_text(encoding="utf-8")
     assert "network_security_config" in (
         ROOT / "mobile/android/app/src/main/AndroidManifest.xml"
     ).read_text(encoding="utf-8")
@@ -88,9 +89,9 @@ def test_design_and_clients_pin() -> None:
 
 
 def test_logout_test_expects_current_app_version() -> None:
-    # 133 design stays historically 0.3.50; runtime version moves with each chip.
+    # 133 design stays historically 0.3.51; runtime version moves with each chip.
     from sentence_reading.api.app import app as live_app
 
     st = TestClient(live_app).get("/api/status").json()
     assert st["logout_session_isolation"] is True
-    assert st["version"] == "0.3.50"
+    assert st["version"] == "0.3.51"

@@ -58,6 +58,13 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="com.gjtuc.sentence_reading" android:host="oauth" android:pathPrefix="/magic"/>
             </intent-filter>
+            <!-- design/65: Google Custom Tab GIS → app deep link (no native SHA-1). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="com.gjtuc.sentence_reading" android:host="oauth" android:pathPrefix="/google"/>
+            </intent-filter>
         </activity>
         <!-- Required by Flutter tool — do not remove. -->
         <meta-data

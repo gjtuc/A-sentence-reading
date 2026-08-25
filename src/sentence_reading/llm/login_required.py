@@ -16,6 +16,7 @@ _PUBLIC_API_EXACT = frozenset(
         "/api/status",
         "/api/auth/status",
         "/api/auth/google",
+        "/api/auth/google/mobile/start",
         "/api/auth/kakao/start",
         "/api/auth/kakao/callback",
         "/api/auth/email/login",
