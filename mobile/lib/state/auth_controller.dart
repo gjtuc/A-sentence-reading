@@ -140,10 +140,12 @@ class AuthController extends ChangeNotifier {
     }
   }
 
-  /// Google Custom Tab GIS → HTTPS page → deep link with asr_session (design/65).
+  /// Google native Sign-In with account chooser every time (design/65).
   ///
-  /// WHY not native google_sign_in: Android SHA-1 / DEVELOPER_ERROR on sideload
-  /// across machines. Cloud Run origin already hosts web GIS.
+  /// WHY signOut-before-signIn: after the first success Google skipped the
+  /// picker and reused the last account — blocked admin vs other switches.
+  /// Custom Tab GIS remains fallback when Android SHA-1 is missing
+  /// (DEVELOPER_ERROR / ApiException 10).
   Future<void> loginGoogle() async {
     busy = true;
     error = null;
@@ -155,16 +157,35 @@ class AuthController extends ChangeNotifier {
       if (lastStatus?.googleEnabled != true) {
         throw AsrApiException('Google login is disabled on the server', 503);
       }
-      final start = _client.googleMobileStartUrl(mode: 'login');
-      final redirected = await _kakaoBrowser.authenticate(
-        startUrl: start,
-        callbackUrlScheme: kMobileOAuthScheme,
-      );
-      final parsed = parseGoogleDeepLink(redirected);
-      if (!parsed.isSuccess) {
-        throw AsrApiException(parsed.error ?? 'google_failed', 401);
+      final cid = (lastStatus?.clientId ?? '').trim();
+      if (cid.isEmpty) {
+        throw AsrApiException('Google client_id missing from /api/auth/status', 503);
       }
-      await _runAuth(() => _client.applySessionToken(parsed.sessionToken!));
+      try {
+        final token = await _googleTokens.obtainIdToken(serverClientId: cid);
+        if (token != null && isUsableGoogleCredential(token)) {
+          await _runAuth(
+            () => _client.loginGoogle(credential: token.trim()),
+          );
+          return;
+        }
+        // EDGE: user cancelled native picker — stay logged out, no Custom Tab.
+        throw AsrApiException('Google sign-in cancelled or no id_token', 401);
+      } catch (e) {
+        if (e is AsrApiException) rethrow;
+        if (!_isGoogleDeveloperError(e)) rethrow;
+        // Fallback: Cloud Run GIS (authorized JS origin; no Android SHA-1).
+        final start = _client.googleMobileStartUrl(mode: 'login');
+        final redirected = await _kakaoBrowser.authenticate(
+          startUrl: start,
+          callbackUrlScheme: kMobileOAuthScheme,
+        );
+        final parsed = parseGoogleDeepLink(redirected);
+        if (!parsed.isSuccess) {
+          throw AsrApiException(parsed.error ?? 'google_failed', 401);
+        }
+        await _runAuth(() => _client.applySessionToken(parsed.sessionToken!));
+      }
     } on AsrApiException catch (e) {
       error = e.message;
       busy = false;
@@ -176,6 +197,15 @@ class AuthController extends ChangeNotifier {
       notifyListeners();
       rethrow;
     }
+  }
+
+  static bool _isGoogleDeveloperError(Object error) {
+    final lower = error.toString().toLowerCase();
+    return lower.contains('developer_error') ||
+        (lower.contains('sign_in_failed') &&
+            (lower.contains(', 10,') ||
+                lower.contains(': 10') ||
+                lower.contains('apiexception: 10')));
   }
 
   /// Kakao Custom Tab → HTTPS callback → deep link with asr_session (real OAuth).

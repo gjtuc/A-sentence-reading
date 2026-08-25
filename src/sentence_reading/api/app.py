@@ -153,7 +153,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.51",
+    version="0.3.52",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -620,7 +620,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.51",
+        "version": "0.3.52",
         # design/129 — /open stubs images; clients use figures/window (±1).
         "lazy_figure_open": True,
         # design/130 — client report + admin list; false when ASR_CLOUD_ERROR_LOGS=0.
@@ -719,7 +719,8 @@ def status(request: Request) -> dict:
         "mobile_admin_ui_gate": True,
         "mobile_google_sha_runbook": True,
         "mobile_google_android_oauth": True,
-        # design/65 — Custom Tab GIS (sideload-safe; no native SHA-1 dependency).
+        # design/65 — native signOut→signIn account chooser; Custom Tab = SHA-1 fallback.
+        "mobile_google_account_chooser": True,
         "mobile_google_custom_tab": True,
         "mobile_invite_copy_minimal": True,
         "mobile_admin_emails_configured": True,
@@ -957,6 +958,9 @@ def auth_google_mobile_start(mode: str = "login") -> Response:
       setTimeout(boot, 50);
       return;
     }}
+    // WHY: disableAutoSelect so GIS does not silently reuse the last account
+    // (admin must be able to pick another Google identity each open).
+    try {{ google.accounts.id.disableAutoSelect(); }} catch (e) {{}}
     google.accounts.id.initialize({{
       client_id: CLIENT_ID,
       callback: onCred,
@@ -967,7 +971,8 @@ def auth_google_mobile_start(mode: str = "login") -> Response:
       theme: 'outline',
       size: 'large',
       width: 280,
-      text: 'continue_with'
+      text: 'continue_with',
+      logo_alignment: 'left'
     }});
   }}
   boot();

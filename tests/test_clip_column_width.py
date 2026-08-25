@@ -25,7 +25,7 @@ EWBANK = ROOT / "_tmp_ewbank" / "source.pdf"
 
 def test_status_and_pipeline_pin() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.51"
+    assert st["version"] == "0.3.52"
     assert PIPELINE_VERSION == "rich-v12"
     assert "rich-v12" in TYPO.read_text(encoding="utf-8")
     assert DESIGN.is_file()

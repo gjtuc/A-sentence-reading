@@ -26,6 +26,13 @@ class GoogleSignInIdTokenSource implements GoogleIdTokenSource {
           serverClientId: cid,
         );
     _signIn = gi;
+    // WHY: without signOut, Google reuses the last account and skips the
+    // chooser — admins cannot switch to another Google identity (design/65).
+    try {
+      await gi.signOut();
+    } catch (_) {
+      // EDGE: no prior session / Play Services flake — still attempt signIn.
+    }
     final account = await gi.signIn();
     if (account == null) return null; // EDGE: user cancelled
     final auth = await account.authentication;

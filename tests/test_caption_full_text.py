@@ -19,7 +19,7 @@ EXTRACT = ROOT / "src" / "sentence_reading" / "pdf" / "extract.py"
 def test_design_and_status_pin() -> None:
     assert DESIGN.is_file()
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.51"
+    assert st["version"] == "0.3.52"
     assert st.get("caption_full_text") is True
     assert st.get("mobile_caption_full_text") is True
 
