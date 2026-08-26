@@ -176,6 +176,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  Future<void> _reanalyze(PaperEntry entry) async {
+    if (!entry.hasSource) return;
+    final ok = await widget.library.reanalyzePaper(entry);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? '재분석이 완료되었습니다.'
+              : (widget.library.error ?? '재분석에 실패했습니다.'),
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadAndResume() async {
     await widget.library.refresh();
     if (!mounted || !widget.auth.isLoggedIn) return;
@@ -215,7 +230,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Future<void> _pickAndUpload() async {
     final lib = widget.library;
-    if (lib.uploading || lib.opening) return;
+    if (lib.uploading || lib.reanalyzing || lib.opening) return;
 
     // WHY: single-file chip — multi-select deferred (design/70).
     // design/71: same content_hash re-pick auto-reattaches inside uploadPdf.
@@ -290,11 +305,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
           );
         }
         final lib = widget.library;
-        if (lib.loading && lib.papers.isEmpty && !lib.uploading) {
+        if (lib.loading && lib.papers.isEmpty && !lib.uploading && !lib.reanalyzing) {
           return const Center(child: CircularProgressIndicator());
         }
         return RefreshIndicator(
-          onRefresh: lib.uploading ? () async {} : lib.refresh,
+          onRefresh: (lib.uploading || lib.reanalyzing) ? () async {} : lib.refresh,
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
@@ -313,6 +328,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         onPressed: lib.loading ||
                                 lib.opening ||
                                 lib.uploading ||
+                                lib.reanalyzing ||
                                 _deleting ||
                                 lib.papers.isEmpty
                             ? null
@@ -326,6 +342,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         onPressed: lib.loading ||
                                 lib.opening ||
                                 lib.uploading ||
+                                lib.reanalyzing ||
                                 _deleting
                             ? null
                             : _pickAndUpload,
@@ -336,6 +353,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         onPressed: lib.loading ||
                                 lib.opening ||
                                 lib.uploading ||
+                                lib.reanalyzing ||
                                 _deleting
                             ? null
                             : lib.refresh,
@@ -379,7 +397,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   ),
                 )
-              else if (!lib.uploading)
+              else if (!lib.uploading && !lib.reanalyzing)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -389,7 +407,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   ),
                 ),
-              if (lib.uploading)
+              if (lib.reanalyzing)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        LinearProgressIndicator(
+                          value: lib.uploadPercent > 0
+                              ? (lib.uploadPercent.clamp(0, 100) / 100.0)
+                              : null,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '재분석 중 ${lib.uploadPercent}%'
+                          '${lib.uploadStage.isEmpty ? '' : ' · ${lib.uploadStage}'}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else if (lib.uploading)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -479,7 +519,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   ),
                 ),
-              if (lib.papers.isEmpty && !lib.uploading)
+              if (lib.papers.isEmpty && !lib.uploading && !lib.reanalyzing)
                 SliverFillRemaining(
                   hasScrollBody: false,
                   child: Center(
@@ -519,7 +559,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     );
                   },
                   onReorder: (oldIndex, newIndex) {
-                    if (_selecting || lib.opening || lib.uploading || _deleting) {
+                    if (_selecting ||
+                        lib.opening ||
+                        lib.uploading ||
+                        lib.reanalyzing ||
+                        _deleting) {
                       return;
                     }
                     // WHY: save path unchanged this chip (product 4A).
@@ -551,6 +595,26 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           : Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                if (e.hasSource)
+                                  IconButton(
+                                    icon: Icon(
+                                      Icons.autorenew,
+                                      size: 22,
+                                      color: lib.reanalyzing &&
+                                              lib.reanalyzingCacheId == e.id
+                                          ? Theme.of(context)
+                                              .colorScheme
+                                              .primary
+                                          : null,
+                                    ),
+                                    tooltip: '재분석',
+                                    onPressed: lib.opening ||
+                                            lib.uploading ||
+                                            lib.reanalyzing ||
+                                            _deleting
+                                        ? null
+                                        : () => _reanalyze(e),
+                                  ),
                                 if (e.retentionWarn)
                                   IconButton(
                                     icon: Icon(
@@ -563,11 +627,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                     tooltip: '보관 기한 임박',
                                     onPressed: lib.opening ||
                                             lib.uploading ||
+                                            lib.reanalyzing ||
                                             _deleting
                                         ? null
                                         : () => _showRetentionSheet(e),
                                   ),
-                                if (lib.opening)
+                                if (lib.opening ||
+                                    (lib.reanalyzing &&
+                                        lib.reanalyzingCacheId == e.id))
                                   const SizedBox(
                                     width: 24,
                                     height: 24,
@@ -579,7 +646,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   const Icon(Icons.drag_handle),
                               ],
                             ),
-                      onTap: lib.opening || lib.uploading || _deleting
+                      onTap: lib.opening ||
+                              lib.uploading ||
+                              lib.reanalyzing ||
+                              _deleting
                           ? null
                           : () {
                               if (_selecting) {
@@ -598,7 +668,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     return ReorderableDelayedDragStartListener(
                       key: ValueKey<String>(e.id),
                       index: i,
-                      enabled: !lib.opening && !lib.uploading && !_deleting,
+                      enabled: !lib.opening &&
+                          !lib.uploading &&
+                          !lib.reanalyzing &&
+                          !_deleting,
                       child: tile,
                     );
                   },

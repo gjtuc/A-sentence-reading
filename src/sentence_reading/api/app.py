@@ -156,7 +156,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.60",
+    version="0.3.61",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -751,7 +751,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.60",
+        "version": "0.3.61",
         # design/138 — product path is Live+device only (no local uvicorn autostart / hang simul).
         "live_only": True,
         "mobile_live_only": True,
@@ -2596,6 +2596,7 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
     from sentence_reading.llm import ingest_jobs_gcs as ij
 
     content_hash = await asyncio.to_thread(_file_sha256, tmp_path)
+    want_tr = _want_translate(request)
     _JOBS[job_id] = {
         "percent": 1,
         "stage": "queued",
@@ -2606,6 +2607,8 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
         "owner_uid": owner_uid,
         "content_hash": content_hash or "",
         "filename": ij.safe_filename(filename),
+        # WHY: mobile Settings translate opt-in must apply to reanalyze ingest (design/99).
+        "want_translate": want_tr,
     }
     if owner_uid:
         _persist_job(job_id, _JOBS[job_id], force=True)

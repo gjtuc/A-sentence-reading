@@ -499,6 +499,44 @@ class AsrClient {
     }
   }
 
+  /// POST /api/cache/papers/{id}/reanalyze — design/145 · design/20.
+  Future<({String jobId, String cacheId})> startReanalyze(
+    String cacheId, {
+    bool translate = true,
+  }) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) {
+      throw AsrApiException('cache id is empty', 400);
+    }
+    final q = translate ? '?translate=1' : '?translate=0';
+    final res = await _http
+        .post(
+          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/reanalyze$q'),
+          headers: await _headers(jsonBody: true),
+          body: '{}',
+        )
+        .timeout(const Duration(seconds: 120));
+    if (res.statusCode == 404) {
+      throw AsrApiException(
+        '원본 파일이 없어 재분석할 수 없습니다.',
+        404,
+      );
+    }
+    final map = _decodeObject(res, 'cache/reanalyze');
+    if (map['ok'] == false) {
+      throw AsrApiException(
+        '${map['message'] ?? '재분석을 시작하지 못했습니다.'}',
+        res.statusCode,
+      );
+    }
+    final jobId = '${map['job_id'] ?? ''}'.trim();
+    final cid = '${map['cache_id'] ?? id}'.trim();
+    if (jobId.isEmpty) {
+      throw AsrApiException('작업 ID를 받지 못했습니다.', 500);
+    }
+    return (jobId: jobId, cacheId: cid);
+  }
+
   static final _pdfNameRe = RegExp(r'\.pdf$', caseSensitive: false);
   static const _maxUploadBytes = 50 * 1024 * 1024;
 

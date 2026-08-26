@@ -17,7 +17,7 @@ from sentence_reading.models import PaperSession, Sentence
 def test_status_version() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.60"
+    assert st["version"] == "0.3.61"
 
 
 def test_save_copies_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -163,13 +163,17 @@ def test_reanalyze_starts_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     )
     started: list = []
     pending: list = []
+    job_meta: list = []
 
     async def fake_job(
         job_id, tmp_path, filename, kind, *, skip_cache=False, content_hash=None
     ):
+        from sentence_reading.api import app as ap
+
         started.append(
             (job_id, kind, skip_cache, Path(tmp_path).read_bytes(), content_hash)
         )
+        job_meta.append(dict(ap._JOBS.get(job_id) or {}))
 
     def capture_task(coro):
         pending.append(coro)
@@ -182,7 +186,7 @@ def test_reanalyze_starts_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     monkeypatch.setattr("sentence_reading.api.app._run_ingest_job", fake_job)
     monkeypatch.setattr("sentence_reading.api.app.asyncio.create_task", capture_task)
     client = TestClient(app)
-    res = client.post(f"/api/cache/papers/{cid}/reanalyze")
+    res = client.post(f"/api/cache/papers/{cid}/reanalyze?translate=0")
     assert res.status_code == 200
     body = res.json()
     assert body["ok"] is True
@@ -193,6 +197,8 @@ def test_reanalyze_starts_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     assert started[0][1] == "pdf"
     assert started[0][2] is True
     assert started[0][3] == b"%PDF-1.4 xx"
+    assert job_meta
+    assert job_meta[0].get("want_translate") is False
 
 
 def test_gcs_upload_includes_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
