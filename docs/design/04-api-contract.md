@@ -1,7 +1,9 @@
 # 04 — API contract
 
-Base: `http://127.0.0.1:8770`  
+Base: `https://asr-sentence-reading-984608876300.asia-northeast3.run.app` (Live · design/138)  
 JSON only (multipart는 ingest만).
+
+> 로컬 `127.0.0.1` uvicorn은 제품 경로가 아님. CI는 프로세스 없는 `TestClient`만.
 
 ## 공통 에러 바디
 

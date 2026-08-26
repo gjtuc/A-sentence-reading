@@ -93,8 +93,7 @@ src/sentence_reading/
 
 | 경로 | 역할 |
 |------|------|
-| 로컬 `127.0.0.1:8770` | 개발 문지기 |
-| Cloud Run | PC 꺼도 동일 API · GCS 창고 ([design/25](design/25-cloud-run.md)) |
+| Cloud Run (Live) | **유일한** 제품 API · GCS 창고 ([design/25](design/25-cloud-run.md) · [design/138](design/138-no-local-server-traces.md)) |
 | `.github/workflows/ci.yml` | PR·`main` 마다 pytest (**항상**) |
 | `.github/workflows/deploy-cloud-run.yml` | Cloud Run 재배포 (**기본 off**) |
 

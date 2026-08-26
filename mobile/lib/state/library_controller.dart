@@ -234,17 +234,6 @@ class LibraryController extends ChangeNotifier {
     );
   }
 
-  /// Localhost-only E2E: arm the same upload hang path without picking a file.
-  /// Returns false on shared/cloud hosts (fail-closed — no simulate surface).
-  Future<bool> simulateIngestHangForLocalE2E() async {
-    if (!_client.isLocalDevHost) {
-      // WHY: shared Cloud Run must not ship a one-tap hang trigger.
-      return false;
-    }
-    await _beginIngestHang(filename: 'e2e_hang_local.pdf');
-    return _hangOpId != null;
-  }
-
   /// Only real forward progress resets the hang clock (design/134 product 2).
   void _noteIngestHangProgress({required int percent, required String stage}) {
     final op = _hangOpId;

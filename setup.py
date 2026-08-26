@@ -1,4 +1,4 @@
-"""Minimal setuptools entry so install/develop can register Windows autostart."""
+"""setuptools entry — design/138: unregister leftover Windows local-server task."""
 
 from __future__ import annotations
 
@@ -9,38 +9,33 @@ from setuptools.command.develop import develop
 from setuptools.command.install import install
 
 
-def _try_register() -> None:
+def _try_unregister() -> None:
+    """WHY: old installs registered Ensure Server; never re-register after 138."""
     if sys.platform != "win32":
         return
     try:
-        from sentence_reading.autostart import register_task
+        from sentence_reading.autostart import unregister_task
 
-        code = register_task(quiet=False)
-        if code != 0:
-            print(
-                "note: Windows autostart was not registered; "
-                "run: python -m sentence_reading.autostart register",
-                file=sys.stderr,
-            )
-    except Exception as exc:  # noqa: BLE001 — 설치는 성공시키고 안내만
-        print(f"note: autostart skipped ({exc})", file=sys.stderr)
+        unregister_task(quiet=True)
+    except Exception as exc:  # noqa: BLE0001 — install must succeed
+        print(f"note: autostart unregister skipped ({exc})", file=sys.stderr)
 
 
-class InstallWithAutostart(install):
+class InstallNoAutostart(install):
     def run(self) -> None:
         install.run(self)
-        self.execute(_try_register, (), msg="Registering Windows autostart")
+        self.execute(_try_unregister, (), msg="Unregistering legacy Windows autostart")
 
 
-class DevelopWithAutostart(develop):
+class DevelopNoAutostart(develop):
     def run(self) -> None:
         develop.run(self)
-        self.execute(_try_register, (), msg="Registering Windows autostart")
+        self.execute(_try_unregister, (), msg="Unregistering legacy Windows autostart")
 
 
 setup(
     cmdclass={
-        "install": InstallWithAutostart,
-        "develop": DevelopWithAutostart,
+        "install": InstallNoAutostart,
+        "develop": DevelopNoAutostart,
     }
 )

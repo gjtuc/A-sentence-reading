@@ -130,11 +130,12 @@ load_asr_env()
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    # WHY: pip 설치 훅이 빠진 PEP660 editable도, 서버 한 번 뜨면 스케줄러가 붙는다.
+    # design/138 — do not register Windows local uvicorn autostart on boot.
+    # Best-effort: clear leftover Ensure Server task from older installs.
     try:
-        from sentence_reading.autostart import ensure_registered
+        from sentence_reading.autostart import unregister_task
 
-        ensure_registered(quiet=True)
+        unregister_task(quiet=True)
     except Exception:
         pass
     try:
@@ -153,7 +154,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.55",
+    version="0.3.56",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -641,7 +642,10 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.55",
+        "version": "0.3.56",
+        # design/138 — product path is Live+device only (no local uvicorn autostart / hang simul).
+        "live_only": True,
+        "mobile_live_only": True,
         # design/135 — title-page cover as figure 1; false when ASR_COVER_AS_FIGURE=0.
         "cover_as_figure": _cover_as_figure_enabled(),
         "mobile_cover_as_figure": _cover_as_figure_enabled(),

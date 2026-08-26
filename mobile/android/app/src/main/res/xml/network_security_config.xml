@@ -1,9 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- design/134 — cleartext only to loopback (adb reverse E2E). Not open LAN/WAN HTTP. -->
+<!-- design/138 — HTTPS Live only; no loopback/LAN cleartext exceptions. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">127.0.0.1</domain>
-    </domain-config>
 </network-security-config>

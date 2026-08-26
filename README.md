@@ -1,8 +1,9 @@
 # A-sentence-reading
 
-논문 PDF를 **위: 문장 하나**, **아래: 그림 하나**로 쪼개어, 각각 화살표로 넘기며 읽는 로컬 리더.
+논문 PDF를 **위: 문장 하나**, **아래: 그림 하나**로 쪼개어, 각각 화살표로 넘기며 읽는 리더.
 
-> 현재 단계: **mock UI + PDF 업로드/추출**. 헤더에서 PDF를 열면 문장·embedded 그림을 세션으로 로드합니다.
+> **제품 경로:** Android 앱(사이드로드 APK) → **Cloud Run (Live)** 만.  
+> PC에서 `127.0.0.1` uvicorn을 켜서 쓰는 경로는 **제거됨** ([design/138](docs/design/138-no-local-server-traces.md)).
 
 ## 왜 있나
 
@@ -30,40 +31,27 @@
 ## 비목표 (지금은 / 의도적으로 안 함)
 
 - AI 요약·챗봇 논문 해석
-- “Fig. 1” 언급 → 그림 자동 점프 (수동 동기화가 제품 핵심)
+- “Fig. 1” 언급 → 그림 자동 점프를 제품 핵심으로 강제 (수동 동기화가 기본)
 - Azure Immersive Reader SDK 임베드 (룩만 CSS로 재현)
+- **로컬 PC 서버를 켜서 앱/웹을 붙이는 사용** (design/138)
 
-## 로컬 실행
+## Live (유일한 운영 경로)
 
-```bash
-cd /c/Users/user/Desktop/.cursor/A-sentence-reading
-python -m venv venv
-./venv/Scripts/python.exe -m pip install -e .
-./venv/Scripts/python.exe -m uvicorn sentence_reading.api.app:app --reload --host 127.0.0.1 --port 8770
-```
+웹·API:
 
-`pip install -e .` 때 **Windows 자동 시작**도 같이 등록됩니다 (관리자 권한 불필요).  
-로그인·잠금 해제·절전 해제 후 서버가 꺼져 있으면 다시 켭니다.  
-스케줄러는 **`pythonw`** 로 ensure만 돌리므로 **콘솔 창이 깜빡이지 않습니다** (브라우저도 안 염).
+`https://asr-sentence-reading-984608876300.asia-northeast3.run.app`
 
-브라우저: [http://127.0.0.1:8770/](http://127.0.0.1:8770/)  
-상태: [http://127.0.0.1:8770/api/status](http://127.0.0.1:8770/api/status)
+상태: `/api/status`  
+모바일: [`mobile/`](mobile/) — Flutter · [design/33](docs/design/33-mobile-flutter.md)  
+CD: [design/32](docs/design/32-github-cd.md) · `ASR_CD_ENABLED=1`
 
-- **PDF 열기** — 파일 선택 또는 창에 PDF 드롭
-- **mock** — 데모 세션으로 되돌리기
-
-### 자동 시작 명령
+옛 Windows 「Ensure Server」 스케줄러가 남아 있으면:
 
 ```bash
-./venv/Scripts/python.exe -m sentence_reading.autostart register   # 재등록
-./venv/Scripts/python.exe -m sentence_reading.autostart ensure     # 지금 서버 보장
-./venv/Scripts/python.exe -m sentence_reading.autostart status
 ./venv/Scripts/python.exe -m sentence_reading.autostart unregister
 ```
 
-- 로그: `logs/autostart.log`
-- 작업 스케줄러 이름: `A-sentence-reading Ensure Server`
-- 콘솔 엔트리: `sentence-reading-autostart`
+`register` / `ensure` 는 **거부**됩니다 (로컬 uvicorn을 다시 켜지 않음).
 
 ## 문서
 
@@ -74,20 +62,14 @@ python -m venv venv
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 모듈·데이터 흐름 |
 | [docs/RESEARCH.md](docs/RESEARCH.md) | Immersive Reader·유사 제품 |
 | [docs/COMMENTING.md](docs/COMMENTING.md) | `# WHY:` 주석 규칙 |
-| [docs/design/](docs/design/README.md) | **구현용 쪼개진 설계** (마일스톤·데이터·PDF·API·UI 상태·테스트…) |
-| [docs/design/25-cloud-run.md](docs/design/25-cloud-run.md) | Cloud Run 문지기 (수동 배포) |
-| [docs/design/32-github-cd.md](docs/design/32-github-cd.md) | GitHub pytest CI · Cloud Run CD 게이트 |
-
-라이브: `https://asr-sentence-reading-984608876300.asia-northeast3.run.app` (**0.2.65**, GitHub CD)  
-CD **켜짐** (`ASR_CD_ENABLED=1`) — Secrets는 `sync_github_cd_secrets.sh` 로 동기화.  
-점검: `python scripts/check_github_cd_ready.py`  
-배포 확인: `python scripts/verify_live_status.py --expect 0.2.65`
-
-모바일(스캐폴드): [`mobile/`](mobile/) — Flutter · [design/33](docs/design/33-mobile-flutter.md) · [design/47](docs/design/47-flutter-scaffold.md)
+| [docs/design/](docs/design/README.md) | **구현용 쪼개진 설계** |
+| [docs/design/25-cloud-run.md](docs/design/25-cloud-run.md) | Cloud Run 문지기 |
+| [docs/design/32-github-cd.md](docs/design/32-github-cd.md) | GitHub pytest CI · Cloud Run CD |
+| [docs/design/138-no-local-server-traces.md](docs/design/138-no-local-server-traces.md) | 로컬 서버 흔적 제거 |
 
 ## 스택
 
-Python 3.11+ · FastAPI · Vanilla HTML/CSS/JS · (다음) PyMuPDF · (다음) pysbd
+Python 3.11+ · FastAPI · Vanilla HTML/CSS/JS · Flutter (Android) · PyMuPDF · Gemini · GCS
 
 ## 라이선스
 
