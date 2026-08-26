@@ -38,6 +38,13 @@ Modules: `pdf/caption_lumps.py` · `pdf/extract.py` (`_labeled_caption_hits`) ·
 
 ## Device / E2E pin
 
-_(filled after phone + Live verification)_
+- Live `/api/status`: `version=0.3.55` · `pipeline_version=rich-v15` · `split_caption_lumps=true` · `mobile_split_caption_lumps=true`
+- SM-G986N APK **0.3.55** → Live: upload `synthetic_lumped_alpha_beta_nickel_catalysts_drm.pdf` (built from `testdata/caption_lumps/synthetic_lumped_two_figs.pdf`)
+  - **WHY long filename/title:** library save needs `normalize_title_key` ≥ 24 (design/108); short adb stems like `zzz_asr_lump137` fail with「제목이 너무 짧…」
+  - 보관 **7→8** · entry **Synthetic Paper Alpha: Nickel Catalysts for DRM — Lumped Fig Captions**
+  - Reader: **figure 1 / 2** · Fig. 1 Alpha catalyst overview → next → **figure 2 / 2** · Fig. 2 Beta support morphology
+- Fail-closed (pytest): `Fig. 1. Valid … Fig. 2` bare label → ingest `CaptionLumpError` (no library entry)
+- Kill: `ASR_SPLIT_CAPTION_LUMPS=0` · revert PR · `rich-v14`
+- E2E helper: `scripts/lump137_e2e.py` (phone + Live; adb disconnect → retry reader check manually)
 
 Do not paste emails, cookies, tokens, or secrets into chat/PR.

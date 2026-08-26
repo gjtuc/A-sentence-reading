@@ -40,11 +40,36 @@ def _build_lumped_two_figs(path: Path) -> None:
     doc = fitz.open()
     png = _mini_png()
     page = doc.new_page(width=440, height=700)
-    page.insert_image(fitz.Rect(40, 50, 200, 170), stream=png)
-    page.insert_image(fitz.Rect(240, 50, 400, 170), stream=png)
+    # WHY: library save needs normalize_title_key >= 24 (design/108); short adb filenames fail E2E.
     page.insert_text(
-        (40, 200),
+        (40, 30),
+        "Synthetic Paper Alpha: Nickel Catalysts for DRM — Lumped Fig Captions",
+        fontsize=12,
+    )
+    page.insert_text((40, 52), "Ada Alpha, Ben Beta", fontsize=10)
+    page.insert_text((40, 72), "Abstract", fontsize=11)
+    page.insert_text(
+        (40, 92),
+        "Nickel catalysts on alumina supports show activity in dry reforming. "
+        "We compare alpha and beta morphologies under identical conditions.",
+        fontsize=10,
+    )
+    page.insert_text(
+        (40, 130),
+        "1. Introduction. Body text continues so ingest can finish and save to the library.",
+        fontsize=10,
+    )
+    page.insert_image(fitz.Rect(40, 160, 200, 280), stream=png)
+    page.insert_image(fitz.Rect(240, 160, 400, 280), stream=png)
+    page.insert_text(
+        (40, 300),
         "Fig. 1. Alpha catalyst overview. Fig. 2. Beta support morphology.",
+        fontsize=10,
+    )
+    page.insert_text(
+        (40, 330),
+        "2. Results. Both samples were characterized by XRD and TEM. "
+        "The alpha sample showed higher surface area than the beta sample.",
         fontsize=10,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
