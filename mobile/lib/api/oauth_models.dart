@@ -105,6 +105,51 @@ KakaoDeepLinkResult parseOAuthDeepLink(
   );
 }
 
+/// Map server `auth_error` deep-link codes to Korean UI text (design/146a).
+///
+/// WHY: raw codes like `conflict` are correct server signals but confuse users.
+String describeOAuthDeepLinkError(
+  String? code, {
+  required String provider,
+}) {
+  final c = (code ?? '').trim().toLowerCase();
+  if (c.isEmpty) {
+    return '로그인에 실패했습니다.';
+  }
+  if (c == 'conflict') {
+    switch (provider.trim().toLowerCase()) {
+      case 'kakao':
+        return '이 카카오 계정은 이미 다른 사용자에 연결되어 있습니다.';
+      case 'google':
+        return '이 Google 계정은 이미 다른 사용자에 연결되어 있습니다.';
+      case 'email':
+        return '이 이메일은 이미 다른 계정에 연결되어 있습니다.';
+      default:
+        return '이 로그인 수단은 이미 다른 계정에 연결되어 있습니다.';
+    }
+  }
+  switch (c) {
+    case 'bad_state':
+      return '로그인 요청이 만료되었습니다. 다시 시도하세요.';
+    case 'link_uid':
+      return '연결할 계정을 확인하지 못했습니다. 다시 로그인한 뒤 시도하세요.';
+    case 'missing_session':
+      return '로그인 세션을 받지 못했습니다. 다시 시도하세요.';
+    case 'user_missing':
+      return '계정을 찾을 수 없습니다. 다시 로그인하세요.';
+    case 'kakao_access_denied':
+      return '카카오 로그인이 취소되었습니다.';
+  }
+  if (c.startsWith('kakao_')) {
+    return '카카오 로그인에 실패했습니다.';
+  }
+  // EDGE: refuse to echo long / token-like server blobs
+  if (c.length > 48 || c.contains(' ')) {
+    return '로그인에 실패했습니다.';
+  }
+  return '로그인에 실패했습니다.';
+}
+
 /// True when a Google id_token / credential string is usable.
 bool isUsableGoogleCredential(String? raw) {
   if (raw == null) return false;

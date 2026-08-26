@@ -98,6 +98,34 @@ void main() {
     });
   });
 
+  group('describeOAuthDeepLinkError', () {
+    test('conflict per provider', () {
+      expect(
+        describeOAuthDeepLinkError('conflict', provider: 'kakao'),
+        '이 카카오 계정은 이미 다른 사용자에 연결되어 있습니다.',
+      );
+      expect(
+        describeOAuthDeepLinkError('conflict', provider: 'google'),
+        '이 Google 계정은 이미 다른 사용자에 연결되어 있습니다.',
+      );
+      expect(
+        describeOAuthDeepLinkError('conflict', provider: 'email'),
+        '이 이메일은 이미 다른 계정에 연결되어 있습니다.',
+      );
+    });
+
+    test('common codes', () {
+      expect(
+        describeOAuthDeepLinkError('bad_state', provider: 'kakao'),
+        contains('만료'),
+      );
+      expect(
+        describeOAuthDeepLinkError('kakao_access_denied', provider: 'kakao'),
+        contains('취소'),
+      );
+    });
+  });
+
   group('describeGoogleSignInFailure', () {
     test('developer_error / code 10 fail-closed', () {
       final msg = describeGoogleSignInFailure(
