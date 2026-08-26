@@ -40,12 +40,12 @@ Modules: `autostart.py` · `setup.py` · `README` · Flutter `config`/`settings`
 
 ## Device / E2E pin
 
+- Live `/api/status` (post-CD): `version=0.3.56` · `pipeline_version=rich-v15` · `live_only=true` · `mobile_live_only=true`
 - SM-G986N APK **0.3.56** installed (`versionName=0.3.56`)
   - Settings: **업로드 hang 시뮬 (로컬)** absent · no `8789` / `127.0.0.1` on UI
   - Library tab against Live: **보관 7건** (cloud list loads)
 - `python -m sentence_reading.autostart register` → exit 1 (refuse)
 - `python -m sentence_reading.autostart unregister` → clears leftover Ensure Server task
-- Live `/api/status` after CD: expect `version=0.3.56` · `live_only=true` · `mobile_live_only=true`
 - Kill: revert PR · prior APK 0.3.55
 
 Do not paste emails, cookies, tokens, or secrets into chat/PR.
