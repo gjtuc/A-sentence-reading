@@ -167,7 +167,8 @@
 - ~~캡션 덩어리 쪼개기 (다중 라벨 분리 · fail-closed)~~ (0.3.55 · [137-split-caption-lumps.md](137-split-caption-lumps.md))
 - ~~로컬 서버 흔적 제거 (Live+폰만)~~ (0.3.56 · [138-no-local-server-traces.md](138-no-local-server-traces.md))
 - ~~Fig. 점프 칩 정식화 (앱+웹 · 문장 아래)~~ (0.3.57 · [139-fig-ref-chip-formal.md](139-fig-ref-chip-formal.md))
-- **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
+- ~~Flutter MVP 백로그 쪼개기 · 다음=모바일 노트~~ (docs · [140-mobile-mvp-backlog-split.md](140-mobile-mvp-backlog-split.md) · next [141](141-mobile-sentence-notes.md))
+- **다음 구현:** 모바일 문장 노트 ([141-mobile-sentence-notes.md](141-mobile-sentence-notes.md); 설계만 잠금)
 
 ### 구현됨 (참고)
 
