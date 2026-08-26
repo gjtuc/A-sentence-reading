@@ -44,6 +44,12 @@ Modules: `pdf/adjacent_articles.py` · ingest (`api/app.py`) · `llm/typography.
 
 ## Device / E2E pin
 
-_(filled after phone + Live verification)_
+- Live `/api/status`: `version=0.3.54` · `pipeline_version=rich-v14` · `strip_adjacent=true` · `mobile_strip_adjacent=true`
+- Live unauth `POST /api/ingest` → **401**
+- SM-G986N APK (existing install) → Live: upload `zzz_asr_adj136.pdf` (synthetic Alpha+Beta)
+  - 보관 **6→7** · entry **Synthetic Paper Alpha…** · 문장 8 · 그림 1
+  - Reader: Alpha present · **Beta absent** (trimmed)
+- Kill: `ASR_STRIP_ADJACENT=0` · revert PR · prior revision
+- OA merge fixture (`keep_end=42`) covered by local pytest when PDF present (gitignored)
 
-Do not paste emails, cookies, tokens, or paper titles into chat/PR.
+Do not paste emails, cookies, tokens, or secrets into chat/PR.
