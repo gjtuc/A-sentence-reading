@@ -122,7 +122,7 @@ def test_practice_off_and_kill(takes_env: Path, monkeypatch: pytest.MonkeyPatch)
     r2 = client.get("/api/shadowing/takes/abcd1234ef")
     assert r2.status_code == 503
     st_status = client.get("/api/status").json()
-    assert st_status["version"] == "0.3.52"
+    assert st_status["version"] == "0.3.53"
     assert st_status["shadowing_practice_loop"] is False
 
 

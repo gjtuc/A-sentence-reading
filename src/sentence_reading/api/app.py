@@ -153,7 +153,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.52",
+    version="0.3.53",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -340,6 +340,13 @@ def _ingest_upload_hang_enabled() -> bool:
     """design/134 — kill: ASR_INGEST_UPLOAD_HANG=0 disables client hang begin."""
     v = (os.environ.get("ASR_INGEST_UPLOAD_HANG") or "1").strip().lower()
     return v not in ("0", "false", "off", "no")
+
+
+def _cover_as_figure_enabled() -> bool:
+    """design/135 — kill: ASR_COVER_AS_FIGURE=0 skips title-page cover slot."""
+    from sentence_reading.pdf.extract import cover_as_figure_enabled
+
+    return cover_as_figure_enabled()
 
 
 def _ingest_hang_stall_seconds() -> int:
@@ -620,7 +627,10 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.52",
+        "version": "0.3.53",
+        # design/135 — title-page cover as figure 1; false when ASR_COVER_AS_FIGURE=0.
+        "cover_as_figure": _cover_as_figure_enabled(),
+        "mobile_cover_as_figure": _cover_as_figure_enabled(),
         # design/129 — /open stubs images; clients use figures/window (±1).
         "lazy_figure_open": True,
         # design/130 — client report + admin list; false when ASR_CLOUD_ERROR_LOGS=0.

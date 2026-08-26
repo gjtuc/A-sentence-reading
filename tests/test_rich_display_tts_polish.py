@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_status_version_0_3_12() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.52"
+    assert st["version"] == "0.3.53"
 
 
 def test_design_88_exists() -> None:
@@ -39,7 +39,8 @@ def test_design_92_figure_caption_order() -> None:
     assert p.is_file()
     text = p.read_text(encoding="utf-8")
     assert "0.3.6" in text
-    assert "rich-v12" in text
+    # Chip 92 shipped rich-v8; later chips bump PIPELINE_VERSION elsewhere.
+    assert "rich-v8" in text
     assert "Graphical abstract" in text or "caption" in text.lower()
 
 
