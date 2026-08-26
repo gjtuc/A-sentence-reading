@@ -472,7 +472,7 @@ class AsrClient {
     }
   }
 
-  /// POST /api/cache/papers/{id}/extend-retention — design/144 (+14d in warn window).
+  /// POST /api/cache/papers/{id}/extend-retention — design/144 (+90d in warn window).
   Future<void> extendPaperRetention(String cacheId) async {
     final id = cacheId.trim();
     if (id.isEmpty) {

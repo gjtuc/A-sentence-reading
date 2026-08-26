@@ -156,7 +156,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.61",
+    version="0.3.62",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -751,7 +751,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.61",
+        "version": "0.3.62",
         # design/138 — product path is Live+device only (no local uvicorn autostart / hang simul).
         "live_only": True,
         "mobile_live_only": True,
@@ -2635,7 +2635,7 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
 
 @app.post("/api/cache/papers/{cache_id}/extend-retention")
 def cache_extend_retention(request: Request, cache_id: str) -> JSONResponse:
-    """design/144 — +14d when within warn window (30d before expiry)."""
+    """design/144 — +90d when within warn window (30d before expiry)."""
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied

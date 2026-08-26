@@ -63,7 +63,7 @@ def _build_soft_caption_pdf(path: Path) -> None:
 
 def test_status_and_pipeline_pin() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.61"
+    assert st["version"] == "0.3.62"
     assert PIPELINE_VERSION == "rich-v15"
     assert "rich-v15" in TYPO.read_text(encoding="utf-8")
     assert DESIGN.is_file()
