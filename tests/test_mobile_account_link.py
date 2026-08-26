@@ -16,6 +16,7 @@ from sentence_reading.llm.auth_google import AuthUser
 ROOT = Path(__file__).resolve().parents[1]
 MOBILE = ROOT / "mobile"
 DESIGN = ROOT / "docs" / "design" / "146a-mobile-account-link.md"
+DESIGN_146C = ROOT / "docs" / "design" / "146c-mobile-kakao-oauth-scheme.md"
 
 
 @pytest.fixture(autouse=True)
@@ -38,7 +39,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
 def test_status_mobile_account_link() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.63"
+    assert st["version"] == "0.3.64"
     assert st["mobile_account_link"] is True
     assert "live_enable" not in st
     assert "ips" not in st
@@ -47,8 +48,10 @@ def test_status_mobile_account_link() -> None:
 def test_mobile_dart_link_wiring() -> None:
     assert DESIGN.is_file()
     design = DESIGN.read_text(encoding="utf-8")
-    assert "0.3.63" in design
+    assert "0.3.63" in design  # 146a ship pin
     assert "146b" in design  # warehouse merge deferred
+    assert DESIGN_146C.is_file()
+    assert "0.3.64" in DESIGN_146C.read_text(encoding="utf-8")
     screen = (MOBILE / "lib/screens/settings_screen.dart").read_text(encoding="utf-8")
     assert "계정 연결" in screen
     assert "linkGoogle" in screen and "linkKakao" in screen
@@ -62,7 +65,7 @@ def test_mobile_dart_link_wiring() -> None:
     authc = (MOBILE / "lib/state/auth_controller.dart").read_text(encoding="utf-8")
     assert "linkGoogle" in authc and "linkKakao" in authc
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.63" in pub
+    assert "0.3.64" in pub
 
 
 def test_kakao_link_start_requires_session() -> None:

@@ -30,14 +30,14 @@ Modules: docs only (`33` · `00-milestones` · `README` · this file)
 |------|-----|--------|
 | ~~취소~~ | ~~[141](141-mobile-sentence-notes.md)~~ | ~~모바일 문장 노트~~ → **[142](142-no-keyboard-sentence-notes.md)** 로 웹도 끔 |
 | (보류) | (미번호) | 모바일 **리비전·구간 되새김질** — 웹 [17](17-rumination-revisions.md); 키보드 노트 없음 → **후속 재검토** |
-| **다음 →** | [146a](146a-mobile-account-link.md) | ~~앱 **계정 연결/해제**~~ (0.3.63) |
+| **다음 →** | [146c](146c-mobile-kakao-oauth-scheme.md) | ~~카카오 OAuth scheme (flutter_web_auth_2)~~ |
 | 2 | [146b](146b-account-warehouse-merge.md) | 계정 창고(논문) 병합 — **미구현** |
 | 3 | (미번호) | **사용량** 앱(관리자) — [27](27-usage-metering.md) |
 | 4 | (미번호) | **쓰다가 주시는 수정** — 실사용 발견 시 그때 칩 |
 | **맨 뒤** | (미번호) | **APK 자체 업데이트** |
 
 **이미 끝난 것 (33 가방에서 빼기):**  
-로그인·게이트·보관·읽기·TTS·테마·업로드·취소·hang·격리·Fig 칩(139) · 키보드 노트 끔(142) · 재분석(145) · 계정 연결 UI(146a) 등 — milestones 0.2.55–0.3.63.
+로그인·게이트·보관·읽기·TTS·테마·업로드·취소·hang·격리·Fig 칩(139) · 키보드 노트 끔(142) · 재분석(145) · 계정 연결 UI(146a) · 카카오 scheme(146c) 등 — milestones 0.2.55–0.3.64.
 
 ## Kill / rollback
 

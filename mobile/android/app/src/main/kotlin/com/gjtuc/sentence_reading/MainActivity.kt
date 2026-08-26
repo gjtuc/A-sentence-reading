@@ -200,11 +200,12 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * com.gjtuc.sentence_reading://oauth/magic?asr_session=… or auth_error=…
+     * com.gjtuc.sentence-reading://oauth/magic?asr_session=… or auth_error=…
      * INVARIANT: never log the token.
      */
     private fun handleMagicView(data: Uri): Boolean {
-        if (data.scheme != "com.gjtuc.sentence_reading") return false
+        // WHY (146c): hyphen scheme — underscore rejected by flutter_web_auth_2.
+        if (data.scheme != "com.gjtuc.sentence-reading") return false
         if (data.host != "oauth") return false
         val path = data.path ?: ""
         if (!path.startsWith("/magic")) return false

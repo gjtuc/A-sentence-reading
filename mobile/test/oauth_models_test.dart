@@ -2,10 +2,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/api/oauth_models.dart';
 
 void main() {
+  group('kMobileOAuthScheme', () {
+    test('passes flutter_web_auth_2 v4 regex', () {
+      final r = RegExp(r'^[a-z][a-z\d+.-]*$');
+      expect(r.hasMatch(kMobileOAuthScheme), isTrue);
+      expect(kMobileOAuthScheme.contains('_'), isFalse);
+    });
+  });
+
   group('parseKakaoDeepLink', () {
     test('success', () {
       final r = parseKakaoDeepLink(
-        'com.gjtuc.sentence_reading://oauth/kakao?asr_session=tok.abc&auth=logged_in',
+        'com.gjtuc.sentence-reading://oauth/kakao?asr_session=tok.abc&auth=logged_in',
       );
       expect(r.isSuccess, isTrue);
       expect(r.sessionToken, 'tok.abc');
@@ -17,28 +25,28 @@ void main() {
       expect(parseKakaoDeepLink('').error, 'empty_redirect');
       expect(parseKakaoDeepLink('https://example.com/x').error, 'bad_scheme');
       expect(
-        parseKakaoDeepLink('com.gjtuc.sentence_reading://other/kakao?asr_session=x')
+        parseKakaoDeepLink('com.gjtuc.sentence-reading://other/kakao?asr_session=x')
             .error,
         'bad_host',
       );
       expect(
-        parseKakaoDeepLink('com.gjtuc.sentence_reading://oauth/nope?asr_session=x')
+        parseKakaoDeepLink('com.gjtuc.sentence-reading://oauth/nope?asr_session=x')
             .error,
         'bad_path',
       );
       expect(
         parseKakaoDeepLink(
-          'com.gjtuc.sentence_reading://oauth/kakao?auth_error=bad_state',
+          'com.gjtuc.sentence-reading://oauth/kakao?auth_error=bad_state',
         ).error,
         'bad_state',
       );
       expect(
-        parseKakaoDeepLink('com.gjtuc.sentence_reading://oauth/kakao?asr_session=').error,
+        parseKakaoDeepLink('com.gjtuc.sentence-reading://oauth/kakao?asr_session=').error,
         'missing_session',
       );
       expect(
         parseKakaoDeepLink(
-          'com.gjtuc.sentence_reading://oauth/kakao?asr_session=deleted',
+          'com.gjtuc.sentence-reading://oauth/kakao?asr_session=deleted',
         ).error,
         'missing_session',
       );
@@ -48,7 +56,7 @@ void main() {
   group('parseMagicDeepLink', () {
     test('success', () {
       final r = parseMagicDeepLink(
-        'com.gjtuc.sentence_reading://oauth/magic?asr_session=tok.xyz&auth=magic',
+        'com.gjtuc.sentence-reading://oauth/magic?asr_session=tok.xyz&auth=magic',
       );
       expect(r.isSuccess, isTrue);
       expect(r.sessionToken, 'tok.xyz');
@@ -58,7 +66,7 @@ void main() {
     test('wrong path is kakao-only failure', () {
       expect(
         parseMagicDeepLink(
-          'com.gjtuc.sentence_reading://oauth/kakao?asr_session=x',
+          'com.gjtuc.sentence-reading://oauth/kakao?asr_session=x',
         ).error,
         'bad_path',
       );
@@ -68,7 +76,7 @@ void main() {
   group('parseGoogleDeepLink', () {
     test('parses Custom Tab bounce', () {
       final r = parseGoogleDeepLink(
-        'com.gjtuc.sentence_reading://oauth/google?asr_session=tok.g&auth=google',
+        'com.gjtuc.sentence-reading://oauth/google?asr_session=tok.g&auth=google',
       );
       expect(r.isSuccess, isTrue);
       expect(r.sessionToken, 'tok.g');

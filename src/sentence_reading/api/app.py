@@ -57,6 +57,7 @@ from sentence_reading.llm.auth_google import (
     issue_oauth_state,
     mobile_kakao_deep_link,
     mobile_magic_deep_link,
+    MOBILE_GOOGLE_DEEP_LINK,
     issue_session_token,
     parse_oauth_state,
     parse_session_token,
@@ -156,7 +157,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.63",
+    version="0.3.64",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -751,7 +752,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.63",
+        "version": "0.3.64",
         # design/138 — product path is Live+device only (no local uvicorn autostart / hang simul).
         "live_only": True,
         "mobile_live_only": True,
@@ -1083,7 +1084,7 @@ def auth_google_mobile_start(mode: str = "login") -> Response:
   function goDeep(session) {{
     // WHY: session only — never put Google id_token in the custom-scheme URL.
     var q = 'auth=google&asr_session=' + encodeURIComponent(session);
-    window.location.href = 'com.gjtuc.sentence_reading://oauth/google?' + q;
+    window.location.href = '{MOBILE_GOOGLE_DEEP_LINK}?' + q;
   }}
   async function onCred(resp) {{
     try {{
