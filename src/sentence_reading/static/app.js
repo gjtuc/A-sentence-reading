@@ -3535,6 +3535,8 @@
   }
 
   function openNoteOverlay() {
+    // design/142 — keyboard notes removed by default; never fake-open.
+    if (!sentenceNotesKeyboardEnabled) return;
     if (!el.noteOverlay || !el.noteTextarea) return;
     if (el.ttsDialog && el.ttsDialog.open) return;
     if (isSectionReviewOpen()) closeSectionReview({ resume: false });
@@ -5523,7 +5525,7 @@
       focusFigure();
     }
   });
-  // WHY: Enter 는 성찰 노트 (docs/design/16). TTS 는 문장 클릭만.
+  // WHY: Enter→노트는 design/142 기본 끔 (ASR_SENTENCE_NOTES_KEYBOARD=1 만). TTS는 문장 클릭.
 
   if (el.ttsSettingsBtn) {
     el.ttsSettingsBtn.addEventListener("click", () => openTtsSettings());
@@ -6053,7 +6055,7 @@
       return;
     }
 
-    // Enter → 성찰 노트 (TTS dialog / 노트 이미 열림이면 무시)
+    // Enter → 성찰 노트 (design/142: only when sentence_notes_keyboard)
     if (
       ev.key === "Enter" &&
       !ev.isComposing &&
@@ -6062,6 +6064,7 @@
       !ev.metaKey &&
       !ev.altKey
     ) {
+      if (!sentenceNotesKeyboardEnabled) return;
       if (el.ttsDialog && el.ttsDialog.open) return;
       if (el.libraryDialog && el.libraryDialog.open) return;
       if (isNoteOpen()) return;
@@ -6953,6 +6956,8 @@
   let progressFailClosedFlag = true;
   /** design/139 — Fig. chips; missing key → show (on by default); explicit false = kill */
   let figRefHintsEnabled = true;
+  /** design/142 — keyboard 듣고 적기; missing/false → off (recording practice stays) */
+  let sentenceNotesKeyboardEnabled = false;
   let loginGateUnlocked = false;
   let accessWaitingUx = true;
   let accessPollTimer = 0;
@@ -7111,12 +7116,16 @@
       progressFailClosedFlag = st.progress_fail_closed !== false;
       // design/139 — chips on by default; explicit false hides (kill).
       figRefHintsEnabled = st.fig_ref_hints !== false;
+      // design/142 — keyboard notes off unless server explicitly enables.
+      sentenceNotesKeyboardEnabled = st.sentence_notes_keyboard === true;
     } catch (_) {
       loginRequiredFlag = true;
       accessWaitingUx = true;
       progressFailClosedFlag = true;
       // EDGE: status unreachable → keep chips (feature default on); hang/login stay fail-closed.
       figRefHintsEnabled = true;
+      // EDGE: status unreachable → do not open keyboard notes (fail-closed for removed UX).
+      sentenceNotesKeyboardEnabled = false;
     }
     await initAuth();
     const mustGate =

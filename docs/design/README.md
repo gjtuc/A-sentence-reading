@@ -131,7 +131,8 @@
 | 138 | [138-no-local-server-traces.md](138-no-local-server-traces.md) | 로컬 서버 흔적 제거 (Live+폰만) |
 | 139 | [139-fig-ref-chip-formal.md](139-fig-ref-chip-formal.md) | Fig. 점프 칩 정식화 (앱+웹 · 문장 아래) |
 | 140 | [140-mobile-mvp-backlog-split.md](140-mobile-mvp-backlog-split.md) | Flutter MVP 백로그 쪼개기 (33) |
-| 141 | [141-mobile-sentence-notes.md](141-mobile-sentence-notes.md) | 모바일 문장 노트 (듣고 적기 · 설계 잠금) |
+| 141 | [141-mobile-sentence-notes.md](141-mobile-sentence-notes.md) | ~~모바일 문장 노트~~ (**취소**) |
+| 142 | [142-no-keyboard-sentence-notes.md](142-no-keyboard-sentence-notes.md) | 키보드 문장 노트 제거 (녹음 연습 유지) |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -252,5 +253,6 @@
 135–137 — cover · strip adjacent · caption lumps (→0.3.55).
 138 — 로컬 서버 흔적 제거 · Live+폰만 (0.3.56).
 139 — Fig. 점프 칩 정식화 · 앱+웹 문장 아래 (0.3.57).
+142 — 키보드 문장 노트 제거 · 녹음 연습 유지 (0.3.58).
 140 — Flutter MVP 백로그 쪼개기 · next=141 노트 (docs).
 141 — 모바일 문장 노트 설계 잠금 (구현 전).

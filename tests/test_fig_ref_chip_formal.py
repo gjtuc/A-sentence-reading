@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "139-fig-ref-chip-formal.md"
 
 def test_status_version_and_flags() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.57"
+    assert st["version"] == "0.3.58"
     assert st["fig_ref_hints"] is True
     assert st["fig_ref_chip_formal"] is True
     assert st["mobile_fig_ref_chip_formal"] is True
@@ -35,8 +35,9 @@ def test_kill_switch(monkeypatch) -> None:
 
 def test_wiring_app_web_design() -> None:
     assert DESIGN.is_file()
+    # Chip shipped at 0.3.57; pubspec follows current app pin.
     assert "0.3.57" in DESIGN.read_text(encoding="utf-8")
-    assert "0.3.57" in PUB.read_text(encoding="utf-8")
+    assert "0.3.58" in PUB.read_text(encoding="utf-8")
     reader = READER.read_text(encoding="utf-8")
     assert "design/139" in reader
     assert "OutlinedButton" in reader
