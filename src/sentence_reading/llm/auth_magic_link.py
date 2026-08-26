@@ -236,10 +236,13 @@ def _rate_limit_ok(email: str) -> bool:
         return True
 
 
-def mint_magic_token(email: str) -> dict[str, Any]:
+def mint_magic_token(email: str, *, link_uid: str | None = None) -> dict[str, Any]:
     """
     Create one-time token for normalized email.
     Returns plaintext token once (caller emails / admin shows once).
+
+    link_uid (design/146a): when set, redeem links email onto that uid
+    instead of logging into a separate email warehouse.
     """
     if not magic_link_enabled():
         raise ValueError("magic_disabled")
@@ -248,11 +251,15 @@ def mint_magic_token(email: str) -> dict[str, Any]:
         raise ValueError("bad_email")
     if not _rate_limit_ok(em):
         raise ValueError("rate_limited")
+    # EDGE: reject oversized / path-like uid strings (session uid is short).
+    uid_s = (link_uid or "").strip()
+    if uid_s and (len(uid_s) > 128 or "\x00" in uid_s or ".." in uid_s):
+        raise ValueError("bad_link_uid")
     raw = secrets.token_urlsafe(32)
     h = _hash_token(raw)
     now = int(time.time())
     exp = now + magic_ttl_sec()
-    row = {
+    row: dict[str, Any] = {
         "hash": h,
         "email_hash": _email_key(em),
         # WHY store normalized email encrypted-at-rest would be nicer;
@@ -262,6 +269,8 @@ def mint_magic_token(email: str) -> dict[str, Any]:
         "exp": exp,
         "used": False,
     }
+    if uid_s:
+        row["link_uid"] = uid_s
     with _LOCK:
         store = _read_links()
         store["tokens"].append(row)
@@ -269,9 +278,9 @@ def mint_magic_token(email: str) -> dict[str, Any]:
     return {"token": raw, "email": em, "expires_at": exp, "ttl_seconds": magic_ttl_sec()}
 
 
-def redeem_magic_token(raw_token: str) -> str:
+def redeem_magic_detail(raw_token: str) -> dict[str, Any]:
     """
-    Consume token → return normalized email.
+    Consume token → {email, link_uid?}.
     Raises ValueError with stable codes: bad_token | expired | used | magic_disabled
     """
     if not magic_link_enabled():
@@ -305,7 +314,16 @@ def redeem_magic_token(raw_token: str) -> str:
         em = normalize_email(str(found.get("email") or ""))
         if not em:
             raise ValueError("bad_token")
+        link_uid = str(found.get("link_uid") or "").strip() or None
         found["used"] = True
         found["redeemed_at"] = now
         _write_links(store)
-        return em
+        out: dict[str, Any] = {"email": em}
+        if link_uid:
+            out["link_uid"] = link_uid
+        return out
+
+
+def redeem_magic_token(raw_token: str) -> str:
+    """Consume token → normalized email (login path; ignores link_uid)."""
+    return str(redeem_magic_detail(raw_token)["email"])

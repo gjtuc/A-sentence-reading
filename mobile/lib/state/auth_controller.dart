@@ -259,6 +259,120 @@ class AuthController extends ChangeNotifier {
     }
   }
 
+  /// design/146a — link Google onto current session (native id_token only).
+  ///
+  /// WHY no Custom Tab fallback: GIS page has no Flutter asr_session cookie.
+  Future<void> linkGoogle() async {
+    if (!isLoggedIn) {
+      throw AsrApiException('연결하려면 먼저 로그인하세요.', 401);
+    }
+    busy = true;
+    error = null;
+    notifyListeners();
+    try {
+      try {
+        lastStatus = await _client.fetchAuthStatus();
+      } catch (_) {}
+      if (lastStatus?.googleEnabled != true) {
+        throw AsrApiException('Google 연결이 꺼져 있습니다.', 503);
+      }
+      final cid = (lastStatus?.clientId ?? '').trim();
+      if (cid.isEmpty) {
+        throw AsrApiException('Google client_id missing from /api/auth/status', 503);
+      }
+      final token = await _googleTokens.obtainIdToken(serverClientId: cid);
+      if (token == null || !isUsableGoogleCredential(token)) {
+        throw AsrApiException('Google 연결이 취소되었거나 토큰이 없습니다.', 401);
+      }
+      await _runAuth(
+        () => _client.loginGoogle(credential: token.trim(), mode: 'link'),
+      );
+    } on AsrApiException catch (e) {
+      error = e.message;
+      busy = false;
+      notifyListeners();
+      rethrow;
+    } catch (e) {
+      error = describeGoogleSignInFailure(e);
+      busy = false;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  /// design/146a — Kakao link via authenticated start URL → Custom Tab.
+  Future<void> linkKakao() async {
+    if (!isLoggedIn) {
+      throw AsrApiException('연결하려면 먼저 로그인하세요.', 401);
+    }
+    busy = true;
+    error = null;
+    notifyListeners();
+    try {
+      try {
+        lastStatus = await _client.fetchAuthStatus();
+      } catch (_) {}
+      if (lastStatus?.kakaoEnabled != true) {
+        throw AsrApiException('카카오 연결이 꺼져 있습니다.', 503);
+      }
+      final start = await _client.resolveKakaoLinkAuthorizeUrl();
+      final redirected = await _kakaoBrowser.authenticate(
+        startUrl: start,
+        callbackUrlScheme: kMobileOAuthScheme,
+      );
+      final parsed = parseKakaoDeepLink(redirected);
+      if (!parsed.isSuccess) {
+        throw AsrApiException(parsed.error ?? 'kakao_failed', 401);
+      }
+      await _runAuth(() => _client.applySessionToken(parsed.sessionToken!));
+    } on AsrApiException catch (e) {
+      error = e.message;
+      busy = false;
+      notifyListeners();
+      rethrow;
+    } catch (e) {
+      error = e.toString();
+      busy = false;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  /// design/146a — email magic link with intent=link (no password).
+  Future<void> requestEmailLink(String email) async {
+    if (!isLoggedIn) {
+      throw AsrApiException('연결하려면 먼저 로그인하세요.', 401);
+    }
+    busy = true;
+    error = null;
+    magicLinkHint = null;
+    notifyListeners();
+    try {
+      final st = await _client.fetchStatus();
+      if (!st.mobileEmailMagicLink) {
+        throw AsrApiException('이메일 연결 링크가 꺼져 있습니다.', 503);
+      }
+      magicLinkHint = await _client.requestEmailLinkMagic(email: email);
+    } on AsrApiException catch (e) {
+      error = e.message;
+      rethrow;
+    } catch (e) {
+      error = e.toString();
+      rethrow;
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
+  }
+
+  /// design/146a — unlink one provider (server rejects last_provider).
+  Future<void> unlinkProvider(String provider) async {
+    if (!isLoggedIn) {
+      throw AsrApiException('먼저 로그인하세요.', 401);
+    }
+    await _runAuth(() => _client.unlinkProvider(provider));
+  }
+
   Future<void> _runAuth(Future<AsrUser> Function() op) async {
     busy = true;
     error = null;

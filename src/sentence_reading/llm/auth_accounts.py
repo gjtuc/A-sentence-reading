@@ -300,8 +300,10 @@ def link_provider(
             row["name"] = name[:200]
         if picture:
             row["picture"] = picture[:500]
-        if p == "email":
-            if not password or len(password) < 8:
+        # WHY (146a): magic-link email link passes password=None — no hash.
+        # Password path (POST /email/link) still requires length >= 8.
+        if p == "email" and password is not None:
+            if len(password) < 8:
                 raise ValueError("password_too_short")
             row["password_hash"] = hash_password(password)
         store["users"][uid_s] = row
