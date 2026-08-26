@@ -1,0 +1,80 @@
+{
+  "oa_merge": {
+    "kind": "oa_merged_arxiv",
+    "sources": [
+      {
+        "file": "paper_a_arxiv2401.14543.pdf",
+        "arxiv": "2401.14543",
+        "pages": 42,
+        "url": "https://arxiv.org/abs/2401.14543",
+        "page_range_0based": [
+          0,
+          41
+        ],
+        "page_range_1based": [
+          1,
+          42
+        ]
+      },
+      {
+        "file": "paper_b_arxiv2401.14123.pdf",
+        "arxiv": "2401.14123",
+        "pages": 7,
+        "url": "https://arxiv.org/abs/2401.14123",
+        "page_range_0based": [
+          42,
+          48
+        ],
+        "page_range_1based": [
+          43,
+          49
+        ]
+      }
+    ],
+    "merged_file": "oa_merged_two_articles.pdf",
+    "merged_pages": 49,
+    "article2_start_page_index": 42,
+    "article2_start_page_1based": 43,
+    "jump_hits": [
+      {
+        "page_index": 42,
+        "page_1based": 43,
+        "score": 8,
+        "head": "nanomaterials Communication Ultrathin Washcoat and Very Low Loading Monolithic Catalyst with Outstanding Activity and Stability in Dry Reforming of Methane Fazia Agueniou, Hilario "
+      }
+    ],
+    "caveat": "Paper A references cite the Ultrathin title mid-document; do not treat citation mentions as article boundaries."
+  },
+  "synthetic": {
+    "kind": "synthetic_fixture",
+    "file": "synthetic_two_articles.pdf",
+    "pages": 5,
+    "articles": [
+      {
+        "id": "alpha",
+        "title": "Synthetic Paper Alpha: Nickel Catalysts for DRM",
+        "page_range_0based": [
+          0,
+          2
+        ],
+        "page_range_1based": [
+          1,
+          3
+        ]
+      },
+      {
+        "id": "beta",
+        "title": "Synthetic Paper Beta: Cobalt Catalysts for SRM",
+        "page_range_0based": [
+          3,
+          4
+        ],
+        "page_range_1based": [
+          4,
+          5
+        ]
+      }
+    ],
+    "target_for_chip": "keep alpha only -> pages 0..2; strip beta from index 3"
+  }
+}
