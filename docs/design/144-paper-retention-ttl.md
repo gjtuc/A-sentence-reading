@@ -40,6 +40,9 @@ Modules: `paper_retention.py` · `paper_cache.py` · `papers_gcs.py` · `/api/ca
 
 ## Device / E2E pin
 
-_(filled after verification)_
+- Live `/api/status`: `version=0.3.60` · `paper_retention=true` · days 90/30/14/3 (post-CD 2026-08-26)
+- pytest `tests/test_paper_retention.py` — 7 passed (extend API mocked index · kill switch · mobile wiring)
+- Phone SM-G986N: APK `0.3.60` sideloaded · library tab loads · **⚠️/연장 UI** — 보관 0건이라 warn 행 미검증 (데이터 있을 때 재확인)
+- Kill: `ASR_PAPER_RETENTION=0` · revert PR
 
 Do not paste emails, cookies, tokens, or secrets into chat/PR.
