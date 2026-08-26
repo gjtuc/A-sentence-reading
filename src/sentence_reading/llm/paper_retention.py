@@ -8,7 +8,7 @@ from typing import Any
 
 RETENTION_DAYS = int(os.environ.get("ASR_PAPER_RETENTION_DAYS", "90") or "90")
 WARN_DAYS = int(os.environ.get("ASR_PAPER_RETENTION_WARN_DAYS", "30") or "30")
-EXTEND_DAYS = int(os.environ.get("ASR_PAPER_RETENTION_EXTEND_DAYS", "14") or "14")
+EXTEND_DAYS = int(os.environ.get("ASR_PAPER_RETENTION_EXTEND_DAYS", "90") or "90")
 READING_GRACE_DAYS = int(
     os.environ.get("ASR_PAPER_RETENTION_READING_GRACE_DAYS", "3") or "3"
 )

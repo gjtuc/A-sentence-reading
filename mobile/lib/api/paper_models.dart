@@ -18,7 +18,7 @@ class PaperEntry {
     this.retentionWarn = false,
     this.retentionCanExtend = false,
     this.retentionDaysUntilExpiry,
-    this.retentionExtendDays = 14,
+    this.retentionExtendDays = 90,
   });
 
   /// Tolerant parse — never throws on partial/garbage maps.
@@ -49,7 +49,7 @@ class PaperEntry {
       retentionWarn: _retentionBool(json['retention'], 'warn'),
       retentionCanExtend: _retentionBool(json['retention'], 'can_extend'),
       retentionDaysUntilExpiry: _retentionInt(json['retention'], 'days_until_expiry'),
-      retentionExtendDays: _retentionInt(json['retention'], 'extend_days') ?? 14,
+      retentionExtendDays: _retentionInt(json['retention'], 'extend_days') ?? 90,
     );
   }
 

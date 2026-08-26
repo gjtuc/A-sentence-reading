@@ -426,7 +426,7 @@ class LibraryController extends ChangeNotifier {
     return okCount;
   }
 
-  /// design/144 — extend retention +14d when server allows.
+  /// design/144 — extend retention +90d when server allows.
   Future<bool> extendRetention(PaperEntry entry) async {
     if (!entry.retentionCanExtend) return false;
     try {
