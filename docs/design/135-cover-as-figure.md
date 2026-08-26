@@ -35,4 +35,12 @@ Modules: `pdf/extract.py` · `llm/typography.py` (`PIPELINE_VERSION`) · status 
 
 **0.3.53** · pipeline **rich-v13**
 
+## Device / E2E pin
+
+- Live `/api/status`: `version=0.3.53` · `pipeline_version=rich-v13` · `cover_as_figure=true`
+- pytest `tests/test_cover_as_figure.py`: heuristic accept/reject · prepend · kill `ASR_COVER_AS_FIGURE=0`
+- Local extract: journal DRM PDF + synthetic title PDF → first caption `Title page (p.1)`
+- APK SM-G986N → Live: upload `zzz_asr_cover135.pdf` → library **5→6** · open reader → **figure 1 / 2** · caption **`Title page (p.1)`**
+- Kill: `ASR_COVER_AS_FIGURE=0` · revert PR · prior pipeline
+
 Do not paste emails, cookies, tokens, or paper titles into chat/PR.
