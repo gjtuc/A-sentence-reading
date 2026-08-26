@@ -38,11 +38,10 @@ Modules: web `app.js` · `index.html` · `/api/status` · docs `140`/`141`/`16`/
 
 ## Device / E2E pin
 
-- Local `:8768` `/api/status`: `version=0.3.58` · `sentence_notes_keyboard=false`
-- Local web: Enter → noteOverlay stays `hidden` · Guide에 Enter/듣고 적기 문구 없음 · `shadowingPracticeCheck` 존재
-- Live (pre-CD): still `0.3.57` (no `sentence_notes_keyboard` key) — post-merge CD re-check
-- Phone SM-G986N: existing APK path opens (키보드 노트 앱 UI 없음 · 녹음 연습은 웹/기존 경로)
-- pytest `tests/test_no_keyboard_sentence_notes.py` · full suite green
+- Live `/api/status`: `version=0.3.58` · `sentence_notes_keyboard=false` · `live_only=true`
+- Live web: Enter → noteOverlay stays `hidden` · `app.js?v=0.3.58` · Guide에 Enter/듣고 적기 없음 · `shadowingPracticeCheck` 존재
+- Phone SM-G986N APK `versionName=0.3.57` (이 칩 Flutter UI 없음 · 핀만 0.3.58) — 앱 기동 OK · 키보드 노트 경로 없음
+- pytest `tests/test_no_keyboard_sentence_notes.py` · CI · Deploy Cloud Run green
 - Kill: `ASR_SENTENCE_NOTES_KEYBOARD=1` or revert
 
 Do not paste emails, cookies, tokens, or secrets into chat/PR.
