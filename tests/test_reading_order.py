@@ -18,10 +18,10 @@ from sentence_reading.pdf.reading_order import (
 
 def test_status() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.54"
+    assert st["version"] == "0.3.55"
     assert st.get("reading_order") is True
-    assert PIPELINE_VERSION == "rich-v14"
-    assert st["pipeline_version"] == "rich-v14"
+    assert PIPELINE_VERSION == "rich-v15"
+    assert st["pipeline_version"] == "rich-v15"
 
 
 def test_reorder_two_column_left_then_right() -> None:

@@ -1,4 +1,4 @@
-"""design/135 — title-page cover as carousel figure 1 (0.3.54 · rich-v14)."""
+"""design/135 — title-page cover as carousel figure 1 (0.3.55 · rich-v15)."""
 
 from __future__ import annotations
 
@@ -72,13 +72,13 @@ def _body_only_pdf(path: Path) -> None:
 
 def test_status_and_docs_pin_cover_chip():
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.54"
-    assert st["pipeline_version"] == "rich-v14"
+    assert st["version"] == "0.3.55"
+    assert st["pipeline_version"] == "rich-v15"
     assert st["cover_as_figure"] is True
     assert st["mobile_cover_as_figure"] is True
-    assert PIPELINE_VERSION == "rich-v14"
-    assert "rich-v14" in TYPO.read_text(encoding="utf-8")
-    assert "0.3.54" in PUB.read_text(encoding="utf-8")
+    assert PIPELINE_VERSION == "rich-v15"
+    assert "rich-v15" in TYPO.read_text(encoding="utf-8")
+    assert "0.3.55" in PUB.read_text(encoding="utf-8")
     assert DESIGN.is_file()
     assert "ASR_COVER_AS_FIGURE" in DESIGN.read_text(encoding="utf-8")
 

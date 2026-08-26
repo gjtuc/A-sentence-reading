@@ -153,7 +153,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.54",
+    version="0.3.55",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -354,6 +354,13 @@ def _strip_adjacent_enabled() -> bool:
     from sentence_reading.pdf.adjacent_articles import strip_adjacent_enabled
 
     return strip_adjacent_enabled()
+
+
+def _split_caption_lumps_enabled() -> bool:
+    """design/137 — kill: ASR_SPLIT_CAPTION_LUMPS=0 keeps pre-137 lump behavior."""
+    from sentence_reading.pdf.caption_lumps import split_caption_lumps_enabled
+
+    return split_caption_lumps_enabled()
 
 
 def _ingest_hang_stall_seconds() -> int:
@@ -634,13 +641,16 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.54",
+        "version": "0.3.55",
         # design/135 — title-page cover as figure 1; false when ASR_COVER_AS_FIGURE=0.
         "cover_as_figure": _cover_as_figure_enabled(),
         "mobile_cover_as_figure": _cover_as_figure_enabled(),
         # design/136 — strip adjacent articles (first only); false when ASR_STRIP_ADJACENT=0.
         "strip_adjacent": _strip_adjacent_enabled(),
         "mobile_strip_adjacent": _strip_adjacent_enabled(),
+        # design/137 — split multi-label caption lines; false when ASR_SPLIT_CAPTION_LUMPS=0.
+        "split_caption_lumps": _split_caption_lumps_enabled(),
+        "mobile_split_caption_lumps": _split_caption_lumps_enabled(),
         # design/129 — /open stubs images; clients use figures/window (±1).
         "lazy_figure_open": True,
         # design/130 — client report + admin list; false when ASR_CLOUD_ERROR_LOGS=0.
@@ -3662,7 +3672,11 @@ async def _run_ingest_job_body(
                 figures = await asyncio.to_thread(pdf_extract.extract_figures, tmp_path)
             else:
                 figures = await asyncio.to_thread(docx_extract.extract_figures, tmp_path)
-        except Exception:
+        except Exception as exc:
+            from sentence_reading.pdf.caption_lumps import CaptionLumpError
+
+            if isinstance(exc, CaptionLumpError):
+                raise RuntimeError(str(exc)) from exc
             figures = []
             if kind == "docx":
                 warnings.append("docx_figures_partial")

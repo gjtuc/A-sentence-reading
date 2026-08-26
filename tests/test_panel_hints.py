@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "60-panel-hints.md"
 
 def test_status_panel_hints_optional() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.54"
+    assert st["version"] == "0.3.55"
     assert st["panel_hints_optional"] is True
     assert st["guide_header"] is True
     assert "live_enable" not in st
@@ -71,6 +71,6 @@ def test_edge_legacy_pref_and_missing_nodes() -> None:
     assert "0.3.3" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.54" in served
-    assert "styles.css?v=0.3.54" in served
+    assert "app.js?v=0.3.55" in served
+    assert "styles.css?v=0.3.55" in served
     assert "sentenceHint" in served
