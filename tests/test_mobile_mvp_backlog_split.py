@@ -31,6 +31,7 @@ def test_split_docs_exist_and_lock_next() -> None:
     assert "하지 않음" in t141
 
     assert D142.is_file()
+    # Historical chip pin stays 0.3.58.
     assert "0.3.58" in D142.read_text(encoding="utf-8")
 
 

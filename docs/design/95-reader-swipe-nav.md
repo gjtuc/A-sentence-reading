@@ -10,13 +10,13 @@ Modules: `mobile/lib/screens/reader_screen.dart`
 
 | 포함 | 미포함 |
 |------|--------|
-| 왼쪽→이전 · 오른쪽→다음 (문장·그림) | 웹 스와이프 · 애니메이션 페이지 전환 |
+| 왼쪽→다음 · 오른쪽→이전 (문장·그림 · [143](143-swipe-direction-flip.md)) | 웹 스와이프 · 애니메이션 페이지 전환 |
 | 그림: scale≈1 일 때만 · `panEnabled` when zoomed | 세로 스크롤 대체 |
 | pytest contract | Live Enable / IPS |
 
 ## Product (locked this chip)
 
-1. Sentence card: swipe left = previous, swipe right = next (stops TTS).  
+1. Sentence card: swipe left = **next**, swipe right = **previous** (stops TTS). *(0.3.9는 left=prev였음 → [143](143-swipe-direction-flip.md)에서 관례로 정정)*  
 2. Figure frame: same, **only when not zoomed**.
 
 ## Kill / rollback

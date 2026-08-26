@@ -169,6 +169,7 @@
 - ~~Fig. 점프 칩 정식화 (앱+웹 · 문장 아래)~~ (0.3.57 · [139-fig-ref-chip-formal.md](139-fig-ref-chip-formal.md))
 - ~~Flutter MVP 백로그 쪼개기~~ (docs · [140-mobile-mvp-backlog-split.md](140-mobile-mvp-backlog-split.md); ~~[141-mobile-sentence-notes.md](141-mobile-sentence-notes.md)~~ 취소)
 - ~~키보드 문장 노트 제거 (웹 끔 · 녹음 연습 유지)~~ (0.3.58 · [142-no-keyboard-sentence-notes.md](142-no-keyboard-sentence-notes.md))
+- ~~스와이프 방향 관례 정정 (왼쪽=다음 · 오른쪽=이전)~~ (0.3.59 · [143-swipe-direction-flip.md](143-swipe-direction-flip.md))
 - **다음 구현:** 보관 재분석 앱 UI (140 목록 · 미번호 · 설계 잠금 후)
 
 ### 구현됨 (참고)

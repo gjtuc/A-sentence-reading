@@ -536,7 +536,7 @@ class _SentencePanel extends StatelessWidget {
             child: Card(
               child: _SwipePager(
                 enabled: session.sentenceCount > 0,
-                // design/95 — swipe left → prev, swipe right → next
+                // design/95+143 — swipe left → next, swipe right → prev
                 onPrevious: () async {
                   await tts.stop();
                   await library.advanceSentence(-1);
@@ -828,7 +828,7 @@ class _FigureImage extends StatelessWidget {
   }
 }
 
-/// design/95 — horizontal swipe: left→prev, right→next (figures only when not zoomed).
+/// design/95+143 — horizontal swipe: left→next, right→prev (figures only when not zoomed).
 /// design/100 — single tap toggles chrome (deferred so double-tap expand wins).
 class _SwipePager extends StatefulWidget {
   const _SwipePager({
@@ -859,8 +859,9 @@ class _SwipePagerState extends State<_SwipePager> {
   void _handleDragEnd(DragEndDetails details) {
     if (!widget.enabled) return;
     final v = details.primaryVelocity ?? 0;
-    final goPrev = _dx < -_minDistance || v < -_minVelocity;
-    final goNext = _dx > _minDistance || v > _minVelocity;
+    // design/143 — gallery convention: finger left → next, right → previous.
+    final goNext = _dx < -_minDistance || v < -_minVelocity;
+    final goPrev = _dx > _minDistance || v > _minVelocity;
     _dx = 0;
     if (goPrev && widget.onPrevious != null) {
       widget.onPrevious!();
@@ -998,9 +999,10 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
       return;
     }
     // Primary velocity is in logical px/s when available from scale end.
+    // design/143 — gallery: finger left → next, right → previous.
     final v = details.velocity.pixelsPerSecond.dx;
-    final goPrev = dx < -_minDistance || v < -180;
-    final goNext = dx > _minDistance || v > 180;
+    final goNext = dx < -_minDistance || v < -180;
+    final goPrev = dx > _minDistance || v > 180;
     if (goPrev && widget.onPrevious != null) {
       widget.onPrevious!();
     } else if (goNext && widget.onNext != null) {
