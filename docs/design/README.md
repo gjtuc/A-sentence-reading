@@ -128,6 +128,7 @@
 | 135 | [135-cover-as-figure.md](135-cover-as-figure.md) | 표지(제목 페이지) → 그림 캐러셀 1번 |
 | 136 | [136-strip-adjacent-articles.md](136-strip-adjacent-articles.md) | 옆 논문 페이지 제거 (첫 논문만) |
 | 137 | [137-split-caption-lumps.md](137-split-caption-lumps.md) | 캡션 덩어리 쪼개기 (다중 라벨 분리) |
+| 138 | [138-no-local-server-traces.md](138-no-local-server-traces.md) | 로컬 서버 흔적 제거 (Live+폰만) |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -245,3 +246,5 @@
 126–129 — soft caption · Elsevier join · column clip · lazy figure open (→0.3.45).
 130 — 클라우드 오류 로그 · 관리자 배지 · hang/repeat 탐지 (0.3.47).
 131 — 캡션 전문 표시 · server normalize ceiling (0.3.47).
+135–137 — cover · strip adjacent · caption lumps (→0.3.55).
+138 — 로컬 서버 흔적 제거 · Live+폰만 (0.3.56).

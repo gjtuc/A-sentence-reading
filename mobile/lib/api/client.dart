@@ -215,13 +215,6 @@ class AsrClient {
   /// Test / UI access to the same store the client mutates.
   SessionStore get sessionStore => _sessions;
 
-  /// Localhost / loopback API only — mirrors web `__asrHangE2E` (design/134).
-  /// WHY: never expose hang-simulate controls against Cloud Run / shared hosts.
-  bool get isLocalDevHost {
-    final host = Uri.tryParse(_config.effectiveBaseUrl)?.host ?? '';
-    return host == '127.0.0.1' || host == 'localhost';
-  }
-
   Uri _uri(String path) {
     final p = path.startsWith('/') ? path : '/$path';
     return Uri.parse('${_config.effectiveBaseUrl}$p');

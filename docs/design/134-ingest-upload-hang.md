@@ -46,5 +46,6 @@ Modules: Flutter `hang_watchdog` · `library_controller` · `error_reporter` · 
 - Web local `http://127.0.0.1:8789` (`ASR_INGEST_HANG_STALL_SEC=8`): `__asrHangE2E` — no progress → fail copy; same-% polls still trip; real %↑ does not trip mid-window
 - Unauth `POST /api/errors/report` → **401** `auth_required` (uid from session only)
 - APK `versionName=0.3.50` · SM-G986N · `adb reverse tcp:8789` · Settings **업로드 hang 시뮬 (로컬)** → after stall: **응답이 없어 업로드를 중단했습니다. 다시 시도해 주세요.** (Cloud Run API base에는 시뮬 버튼 없음)
+- **design/138:** localhost hang-simulate (`__asrHangE2E` · 설정 시뮬 · loopback cleartext) **removed**. Hang **detection** on Live remains.
 
 Do not paste session cookies, emails, or secrets into docs.

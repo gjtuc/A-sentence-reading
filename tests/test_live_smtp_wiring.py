@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -10,13 +11,22 @@ from fastapi.testclient import TestClient
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _bash_exe() -> str:
+    # WHY: Windows Python's PATH ``bash`` may be the WSL stub (UTF-16 noise, exit 1).
+    if sys.platform == "win32":
+        git_bash = Path(r"C:\Program Files\Git\bin\bash.exe")
+        if git_bash.is_file():
+            return str(git_bash)
+    return "bash"
+
+
 def test_status_exposes_smtp_bool_without_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ASR_SMTP_HOST", raising=False)
     monkeypatch.delenv("ASR_SMTP_FROM", raising=False)
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.55"
+    assert st["version"] == "0.3.56"
     assert st.get("email_smtp_configured") is False
     # SECURITY: never leak connection details on status.
     blob = str(st)
@@ -78,14 +88,16 @@ def test_deploy_dry_run_rejects_partial_smtp(monkeypatch: pytest.MonkeyPatch) ->
     env["ASR_SMTP_HOST"] = "smtp.example.test"
     env.pop("ASR_SMTP_FROM", None)
     r = subprocess.run(
-        ["bash", str(ROOT / "scripts" / "deploy_cloud_run.sh")],
+        [_bash_exe(), str(ROOT / "scripts" / "deploy_cloud_run.sh")],
         cwd=ROOT,
         env=env,
         capture_output=True,
-        text=True,
     )
+    # WHY: keep bytes decode fail-closed on mixed Windows encodings.
+    out = (r.stdout or b"").decode("utf-8", errors="replace")
+    err = (r.stderr or b"").decode("utf-8", errors="replace")
     assert r.returncode == 2
-    assert "ASR_SMTP_FROM" in (r.stderr + r.stdout)
+    assert "ASR_SMTP_FROM" in (err + out)
 
 
 def test_mail_copy_mentions_browser_or_app() -> None:

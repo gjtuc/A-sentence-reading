@@ -3,16 +3,13 @@
 /// Secrets (Gemini, GCS, cookies) must never live here — only the public API origin.
 library;
 
-/// Production Cloud Run base (no trailing slash). Override in tests via [AsrConfig.overrideBaseUrl].
-/// E2E sideload: `--dart-define=ASR_API_BASE=http://HOST:8789` (cleartext LAN only).
-const String kDefaultApiBaseUrl = String.fromEnvironment(
-  'ASR_API_BASE',
-  defaultValue:
-      'https://asr-sentence-reading-984608876300.asia-northeast3.run.app',
-);
+/// Production Cloud Run base (no trailing slash).
+/// design/138 — no dart-define API-base override (Live only; tests use [AsrConfig.overrideBaseUrl]).
+const String kDefaultApiBaseUrl =
+    'https://asr-sentence-reading-984608876300.asia-northeast3.run.app';
 
 /// design/130 — reported with error events (must match pubspec versionName).
-const String kAppVersionLabel = '0.3.52';
+const String kAppVersionLabel = '0.3.56';
 
 /// Runtime-overridable API settings (email session cookie in SessionStore).
 class AsrConfig {

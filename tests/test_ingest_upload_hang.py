@@ -23,7 +23,7 @@ PUB = ROOT / "mobile" / "pubspec.yaml"
 
 def test_status_hang_flags_and_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.55"
+    assert st["version"] == "0.3.56"
     assert st["ingest_upload_hang"] is True
     assert st["mobile_ingest_upload_hang"] is True
     assert st["ingest_hang_stall_seconds"] == 180
@@ -66,8 +66,8 @@ def test_design_and_clients_pin() -> None:
     lib = LIB.read_text(encoding="utf-8")
     assert "_beginIngestHang" in lib
     assert "_noteIngestHangProgress" in lib
-    assert "simulateIngestHangForLocalE2E" in lib
-    assert "isLocalDevHost" in lib
+    # design/138 — localhost hang simulate surface removed.
+    assert "simulateIngestHangForLocalE2E" not in lib
     assert "응답이 없어 업로드를 중단" in lib
     # Must not reset hang on every identical poll (product 2).
     assert "Same place" in lib or "진전" in lib or "do not" in lib.lower()
@@ -75,16 +75,16 @@ def test_design_and_clients_pin() -> None:
     assert "beginIngestHang" in js
     assert "noteIngestHangProgress" in js
     assert "onIngestHang" in js
-    assert "__asrHangE2E" in js
-    assert "127.0.0.1" in js
-    assert "0.3.55" in PUB.read_text(encoding="utf-8")
+    assert "__asrHangE2E" not in js
+    assert "0.3.56" in PUB.read_text(encoding="utf-8")
     assert "network_security_config" in (
         ROOT / "mobile/android/app/src/main/AndroidManifest.xml"
     ).read_text(encoding="utf-8")
     nsc = (
         ROOT / "mobile/android/app/src/main/res/xml/network_security_config.xml"
     ).read_text(encoding="utf-8")
-    assert "127.0.0.1" in nsc
+    # design/138 — no loopback cleartext exception.
+    assert "127.0.0.1" not in nsc
     assert 'cleartextTrafficPermitted="false"' in nsc
 
 
@@ -94,4 +94,4 @@ def test_logout_test_expects_current_app_version() -> None:
 
     st = TestClient(live_app).get("/api/status").json()
     assert st["logout_session_isolation"] is True
-    assert st["version"] == "0.3.55"
+    assert st["version"] == "0.3.56"

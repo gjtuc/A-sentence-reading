@@ -1162,23 +1162,8 @@
     }
   }
 
-  // Localhost-only E2E hooks (never on Cloud Run host).
-  if (
-    typeof location !== "undefined" &&
-    (location.hostname === "127.0.0.1" || location.hostname === "localhost")
-  ) {
-    window.__asrHangE2E = {
-      beginIngestHang: beginIngestHang,
-      noteIngestHangProgress: noteIngestHangProgress,
-      clearIngestHangTimer: clearIngestHangTimer,
-      getTripped: function () {
-        return !!ingestHangTripped;
-      },
-      getStallMs: function () {
-        return ingestHangStallMs;
-      },
-    };
-  }
+  // design/138 — no localhost hang E2E window hooks (removed).
+  // Hang detection (beginIngestHang / noteIngestHangProgress) remains for Live.
 
   async function requestIngestCancel() {
     ingestCancelRequested = true;
