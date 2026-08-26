@@ -39,7 +39,8 @@ def test_design_92_figure_caption_order() -> None:
     assert p.is_file()
     text = p.read_text(encoding="utf-8")
     assert "0.3.6" in text
-    assert "rich-v13" in text
+    # Chip 92 shipped rich-v8; later chips bump PIPELINE_VERSION elsewhere.
+    assert "rich-v8" in text
     assert "Graphical abstract" in text or "caption" in text.lower()
 
 
