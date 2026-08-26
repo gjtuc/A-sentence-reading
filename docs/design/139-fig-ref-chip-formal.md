@@ -39,6 +39,11 @@ Modules: `fig_refs` (py/js/dart) · web `app.js`/`styles.css` · mobile `reader_
 
 ## Device / E2E pin
 
-_(filled after phone + Live verification)_
+- Live `/api/status`: `version=0.3.57` · `fig_ref_hints=true` · `fig_ref_chip_formal=true` · `pipeline_version=rich-v15`
+- APK SM-G986N `versionName=0.3.57`
+  - Library → open Effect of metal… → scan to sentence with **`Fig. 2 →`** chip (below sentence card)
+  - Nudge figure to **1 / 10** → tap **`Fig. 2 →`** → **figure 2 / 10** · sentence unchanged (**140 / 283**)
+- Web Live: status flags + `#figRefHints` / `.fig-ref-chip` present (`AsrFigRefs` loaded)
+- Kill: `ASR_FIG_REF_HINTS=0` · revert PR · prior APK 0.3.56
 
 Do not paste emails, cookies, tokens, or paper titles into chat/PR.
