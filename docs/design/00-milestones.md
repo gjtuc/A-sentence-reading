@@ -171,7 +171,8 @@
 - ~~키보드 문장 노트 제거 (웹 끔 · 녹음 연습 유지)~~ (0.3.58 · [142-no-keyboard-sentence-notes.md](142-no-keyboard-sentence-notes.md))
 - ~~스와이프 방향 관례 정정 (왼쪽=다음 · 오른쪽=이전)~~ (0.3.59 · [143-swipe-direction-flip.md](143-swipe-direction-flip.md))
 - ~~보관 TTL 90일 · ⚠️ 경고 · +14일 연장 · 읽는 중 grace~~ (0.3.60 · [144-paper-retention-ttl.md](144-paper-retention-ttl.md))
-- **다음 구현:** 보관 재분석 앱 UI (140 목록 · 미번호 · 설계 잠금 후)
+- ~~보관 재분석 앱 UI (원본 → job 폴링 · 설정 번역 연동)~~ (0.3.61 · [145-mobile-library-reanalyze.md](145-mobile-library-reanalyze.md))
+- **다음 구현:** 계정 연결 앱 UI (140 목록 · [23](23-multi-auth-link.md))
 
 ### 구현됨 (참고)
 

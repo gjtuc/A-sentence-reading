@@ -1,4 +1,4 @@
-"""design/136 — strip adjacent articles; keep first only (0.3.60 · rich-v15)."""
+"""design/136 — strip adjacent articles; keep first only (0.3.61 · rich-v15)."""
 
 from __future__ import annotations
 
@@ -91,13 +91,13 @@ def _single_paper(path: Path) -> None:
 
 def test_status_and_docs_pin_strip_adjacent():
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.60"
+    assert st["version"] == "0.3.61"
     assert st["pipeline_version"] == "rich-v15"
     assert st["strip_adjacent"] is True
     assert st["mobile_strip_adjacent"] is True
     assert PIPELINE_VERSION == "rich-v15"
     assert "rich-v15" in TYPO.read_text(encoding="utf-8")
-    assert "0.3.60" in PUB.read_text(encoding="utf-8")
+    assert "0.3.61" in PUB.read_text(encoding="utf-8")
     assert DESIGN.is_file()
     assert "ASR_STRIP_ADJACENT" in DESIGN.read_text(encoding="utf-8")
 

@@ -30,7 +30,7 @@ Modules: docs only (`33` · `00-milestones` · `README` · this file)
 |------|-----|--------|
 | ~~취소~~ | ~~[141](141-mobile-sentence-notes.md)~~ | ~~모바일 문장 노트~~ → **[142](142-no-keyboard-sentence-notes.md)** 로 웹도 끔 |
 | (보류) | (미번호) | 모바일 **리비전·구간 되새김질** — 웹 [17](17-rumination-revisions.md); 키보드 노트 없음 → **후속 재검토** |
-| **다음 →** | (미번호 · **143 후보**) | 보관 **재분석** 앱 UI — 웹 [20](20-source-backup.md) |
+| **다음 →** | [145](145-mobile-library-reanalyze.md) | ~~보관 **재분석** 앱 UI~~ (0.3.61) |
 | 2 | (미번호) | **계정 연결** 앱 UI — [23](23-multi-auth-link.md) |
 | 3 | (미번호) | **사용량** 앱(관리자) — [27](27-usage-metering.md) |
 | 4 | (미번호) | **쓰다가 주시는 수정** — 실사용 발견 시 그때 칩 |

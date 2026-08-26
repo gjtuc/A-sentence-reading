@@ -45,6 +45,9 @@ class LibraryController extends ChangeNotifier {
   bool loading = false;
   bool opening = false;
   bool uploading = false;
+  /// design/145 — reanalyze job in flight (separate from upload cancel/draft path).
+  bool reanalyzing = false;
+  String? reanalyzingCacheId;
   int uploadPercent = 0;
   String uploadStage = '';
   String? error;
@@ -440,6 +443,67 @@ class LibraryController extends ChangeNotifier {
       error = e.toString();
       notifyListeners();
       return false;
+    }
+  }
+
+  /// design/145 — reanalyze from stored source (web parity); no confirm dialog.
+  Future<bool> reanalyzePaper(PaperEntry entry) async {
+    if (!entry.hasSource) return false;
+    // WHY: one heavy job at a time — fail-closed, no overlapping ingest.
+    if (uploading || reanalyzing || opening) {
+      error = '다른 작업 중입니다. 잠시 후 다시 시도해 주세요.';
+      notifyListeners();
+      return false;
+    }
+    reanalyzing = true;
+    reanalyzingCacheId = entry.id;
+    uploadPercent = 0;
+    uploadStage = '재분석 시작';
+    error = null;
+    notifyListeners();
+    try {
+      final wantTr = await _wantTranslate();
+      final started = await _client.startReanalyze(
+        entry.id,
+        translate: wantTr,
+      );
+      final result = await _client.pollIngestJob(
+        jobId: started.jobId,
+        onProgress: (pct, msg) {
+          uploadPercent = pct.clamp(0, 100);
+          uploadStage = msg.isEmpty ? '재분석 중' : msg;
+          notifyListeners();
+        },
+      );
+      await refresh();
+      if (result.cacheId.isEmpty) {
+        error = '재분석은 끝났지만 보관함에 반영되지 않았습니다.';
+        notifyListeners();
+        return false;
+      }
+      final seen = papers.any((p) => p.id == result.cacheId);
+      if (!seen) {
+        error = '재분석은 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
+        notifyListeners();
+        return false;
+      }
+      error = null;
+      notifyListeners();
+      return true;
+    } on AsrApiException catch (e) {
+      error = e.message;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      error = e.toString();
+      notifyListeners();
+      return false;
+    } finally {
+      reanalyzing = false;
+      reanalyzingCacheId = null;
+      uploadPercent = 0;
+      uploadStage = '';
+      notifyListeners();
     }
   }
 
