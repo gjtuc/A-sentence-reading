@@ -39,7 +39,7 @@ def _cookie(email: str, uid: str = "u1") -> dict[str, str]:
 def test_design_and_status_pin(err_tmp):
     assert DESIGN.is_file()
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.52"
+    assert st["version"] == "0.3.53"
     assert st.get("cloud_error_logs") is True
     assert st.get("mobile_cloud_error_logs") is True
 

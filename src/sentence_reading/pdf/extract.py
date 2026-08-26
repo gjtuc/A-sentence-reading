@@ -70,6 +70,136 @@ _GA_MIN_AREA_PT2 = 12_000.0
 _GA_MIN_SIDE_PT = 80.0
 _RECT_OVERLAP_FRAC = 0.55
 
+# design/135 — title-page cover as carousel slot 0 (fail-closed when unsure).
+_COVER_CLIP_ZOOM = 2.5  # full-page; lower than fig zoom to bound PNG size/cost
+_COVER_DOI = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
+_COVER_AFFIL = re.compile(
+    r"\b(University|Universit[aà]|Department|Institute|Laboratory|College|"
+    r"School of|Centre|Center for|Academy of)\b",
+    re.IGNORECASE,
+)
+_COVER_CORRESP = re.compile(
+    r"\b(Corresponding\s+author|E-?mails?|Authors?\s+for\s+correspondence)\b",
+    re.IGNORECASE,
+)
+_COVER_DATE_LINE = re.compile(
+    r"\b(Received|Accepted|Published|Available\s+online)\b",
+    re.IGNORECASE,
+)
+_COVER_COPYRIGHT = re.compile(r"(©|\([Cc]\)|Copyright)\s*\d{4}", re.IGNORECASE)
+_COVER_BODY_HEAD = re.compile(
+    r"^\s*(\d+\.?\s*)?(Introduction|Experimental|Results and discussion|"
+    r"Results|Methods|Materials and methods|References)\b",
+    re.IGNORECASE | re.MULTILINE,
+)
+# "Jane A. Doe," / "Jane Doe1," — weak author-line hint (not unique alone).
+_COVER_AUTHOR_LINE = re.compile(
+    r"^[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ''\-]{1,40}"
+    r"(?:\s+[A-Z]\.){0,3}"
+    r"(?:\s+[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ''\-]{1,40}){1,4}"
+    r"(?:\s*[,，]|\s*\d|\s*$)",
+)
+_COVER_CAPTION = "Title page (p.1)"
+
+
+def cover_as_figure_enabled() -> bool:
+    """Kill switch: ASR_COVER_AS_FIGURE=0 skips title-page cover slot."""
+    import os
+
+    v = (os.environ.get("ASR_COVER_AS_FIGURE") or "1").strip().lower()
+    return v not in ("0", "false", "off", "no")
+
+
+def page_text_looks_like_title_cover(text: str) -> bool:
+    """Heuristic (design/135 B): title/author-like first page → True.
+
+    Fail-closed: ambiguous or body-like text returns False (no fake cover).
+    """
+    raw = (text or "").replace("\x00", "").strip()
+    if len(raw) < 40:
+        return False
+
+    # EDGE: page opens like a mid-paper section → never invent a cover.
+    head = raw[:400]
+    if _COVER_BODY_HEAD.search(head):
+        # Allow only when strong front-matter signals still dominate.
+        strong = 0
+        if _COVER_DOI.search(raw):
+            strong += 1
+        if _COVER_CORRESP.search(raw):
+            strong += 1
+        if _COVER_AFFIL.search(raw):
+            strong += 1
+        if strong < 2:
+            return False
+
+    score = 0
+    if _COVER_DOI.search(raw):
+        score += 2
+    if _COVER_CORRESP.search(raw) or ("@" in raw and _COVER_AFFIL.search(raw)):
+        score += 2
+    if _COVER_AFFIL.search(raw):
+        score += 1
+    if _COVER_DATE_LINE.search(raw):
+        score += 1
+    if _COVER_COPYRIGHT.search(raw):
+        score += 1
+
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    authorish = sum(1 for ln in lines[:40] if _COVER_AUTHOR_LINE.match(ln) and len(ln) < 120)
+    if authorish >= 2:
+        score += 2
+    elif authorish == 1:
+        score += 1
+
+    # Title-ish: early long line that is not Abstract / Fig caption / body verb.
+    for ln in lines[:12]:
+        if len(ln) < 25 or len(ln) > 220:
+            continue
+        low = ln.lower()
+        if low.startswith("abstract") or low.startswith("keywords"):
+            continue
+        if _CAPTION_LABEL.match(ln) or _COVER_BODY_HEAD.match(ln):
+            continue
+        if _COVER_AUTHOR_LINE.match(ln) and len(ln) < 80:
+            continue
+        # Prefer lines with mixed case / many capitals (titles), not plain body.
+        letters = [c for c in ln if c.isalpha()]
+        if len(letters) < 20:
+            continue
+        upper_frac = sum(1 for c in letters if c.isupper()) / len(letters)
+        if upper_frac >= 0.12:
+            score += 1
+            break
+
+    # WHY: need at least two weak signals or one strong (+2) pair — avoid logos-only.
+    return score >= 2
+
+
+def _maybe_title_cover_figure(doc) -> Figure | None:
+    """Render page 0 as cover figure when heuristic passes; else None."""
+    if not cover_as_figure_enabled():
+        return None
+    if doc is None or len(doc) < 1:
+        return None
+    page = doc[0]
+    try:
+        text = page.get_text("text") or ""
+    except Exception:
+        return None
+    if not page_text_looks_like_title_cover(text):
+        return None
+    # Full-page clip; zoom bounded so Cloud Run memory stays sane.
+    png = _render_page_clip(page, page.rect, zoom=_COVER_CLIP_ZOOM)
+    if not png:
+        return None
+    return Figure(
+        id="cov-0001",
+        image_src=_png_data_url(png),
+        caption=_COVER_CAPTION,
+        page_index=0,
+    )
+
 
 # design/131 — silent hard-cut for absurd OCR blobs only (never insert "…").
 # Typical journal captions are << this; old 900 truncated long compound titles.
@@ -136,6 +266,9 @@ def _caption_sort_key(caption: str) -> tuple:
     raw = (caption or "").strip()
     m = _CAPTION_SORT_RE.match(raw)
     if not m:
+        # design/135 — title cover before GA / numbered figs
+        if raw.lower().startswith("title page"):
+            return (-2, 0, 0, "")
         # Graphical abstract 등 — 본 Fig보다 앞(TOC)에 두되 번호군 밖
         if raw.lower().startswith("graphical abstract"):
             return (-1, 0, 0, "")
@@ -815,6 +948,7 @@ def extract_figures(pdf_path: Path) -> list[Figure]:
     """
     그림(Fig/Scheme) + 표(Table)를 캡션 번호 순으로 합친다 (design/92 · 125).
     캡션이 있는 라벨은 이미지 유무와 관계없이 슬롯을 만든다(벡터는 페이지 클립).
+    design/135 — optional title-page cover prepended as carousel index 0.
     """
     import fitz
 
@@ -855,8 +989,24 @@ def extract_figures(pdf_path: Path) -> list[Figure]:
             out.append(fig)
             if len(out) >= 200:
                 break
+
+        # design/135 — title cover first when heuristic says so (fail-closed skip).
+        cover = _maybe_title_cover_figure(doc)
+        if cover is not None:
+            # EDGE: avoid double-slot if extract already labeled the same caption.
+            cover_key = caption_key(cover.caption) or "title-page"
+            if cover_key not in seen:
+                out.insert(0, cover)
+                if len(out) > 200:
+                    out = out[:200]
+
         for i, fig in enumerate(out, start=1):
-            prefix = "tbl" if fig.id.startswith("tbl-") else "fig"
+            if fig.caption.strip().lower().startswith("title page"):
+                prefix = "cov"
+            elif fig.id.startswith("tbl-"):
+                prefix = "tbl"
+            else:
+                prefix = "fig"
             out[i - 1] = Figure(
                 id=f"{prefix}-{i:04d}",
                 image_src=fig.image_src,

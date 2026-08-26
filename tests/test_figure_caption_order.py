@@ -34,3 +34,4 @@ def test_caption_sort_letter_suffix() -> None:
 def test_uncaptioned_placeholder_sorts_last_among_kinds() -> None:
     assert _caption_sort_key("Table (p.3)")[0] == 3
     assert _caption_sort_key("Graphical abstract (p.1)")[0] == -1
+    assert _caption_sort_key("Title page (p.1)")[0] == -2
