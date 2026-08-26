@@ -423,6 +423,26 @@ class LibraryController extends ChangeNotifier {
     return okCount;
   }
 
+  /// design/144 — extend retention +14d when server allows.
+  Future<bool> extendRetention(PaperEntry entry) async {
+    if (!entry.retentionCanExtend) return false;
+    try {
+      await _client.extendPaperRetention(entry.id);
+      await refresh();
+      error = null;
+      notifyListeners();
+      return true;
+    } on AsrApiException catch (e) {
+      error = e.message;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      error = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
   Future<List<PaperEntry>> _applySavedOrder(List<PaperEntry> fetched) async {
     try {
       final auth = await _client.fetchAuthStatus();

@@ -472,6 +472,33 @@ class AsrClient {
     }
   }
 
+  /// POST /api/cache/papers/{id}/extend-retention — design/144 (+14d in warn window).
+  Future<void> extendPaperRetention(String cacheId) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) {
+      throw AsrApiException('cache id is empty', 400);
+    }
+    final res = await _http
+        .post(
+          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/extend-retention'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 409) {
+      throw AsrApiException('지금은 연장할 수 없습니다.', 409);
+    }
+    if (res.statusCode == 404) {
+      throw AsrApiException('보관본을 찾지 못했습니다.', 404);
+    }
+    final map = _decodeObject(res, 'cache/extend-retention');
+    if (map['ok'] == false) {
+      throw AsrApiException(
+        '${map['message'] ?? '연장에 실패했습니다.'}',
+        res.statusCode,
+      );
+    }
+  }
+
   static final _pdfNameRe = RegExp(r'\.pdf$', caseSensitive: false);
   static const _maxUploadBytes = 50 * 1024 * 1024;
 

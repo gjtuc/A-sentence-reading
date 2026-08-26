@@ -25,9 +25,11 @@ from sentence_reading.cache.paper_cache import (
     attach_source_file,
     delete_cached_paper,
     find_cached_by_text,
+    get_index_entry,
     get_source_path,
     list_cached_papers,
     load_cached_session,
+    patch_index_entry,
     save_paper_session,
 )
 from sentence_reading.docx import extract as docx_extract
@@ -154,7 +156,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.59",
+    version="0.3.60",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -374,6 +376,101 @@ def _sentence_notes_keyboard_enabled() -> bool:
     """design/142 — keyboard 듣고 적기 notes; default OFF. ASR_SENTENCE_NOTES_KEYBOARD=1 restores."""
     v = (os.environ.get("ASR_SENTENCE_NOTES_KEYBOARD") or "0").strip().lower()
     return v in ("1", "true", "on", "yes")
+
+
+def _paper_retention_status_fields() -> dict:
+    from sentence_reading.llm.paper_retention import (
+        EXTEND_DAYS,
+        READING_GRACE_DAYS,
+        RETENTION_DAYS,
+        WARN_DAYS,
+        retention_enabled,
+    )
+
+    on = retention_enabled()
+    return {
+        "paper_retention": on,
+        "mobile_paper_retention": on,
+        "paper_retention_days": RETENTION_DAYS if on else 0,
+        "paper_retention_warn_days": WARN_DAYS if on else 0,
+        "paper_retention_extend_days": EXTEND_DAYS if on else 0,
+        "paper_retention_reading_grace_days": READING_GRACE_DAYS if on else 0,
+    }
+
+
+def _paper_retention_maybe_grace(cache_id: str) -> JSONResponse | None:
+    """design/144 — migrate · reading grace · fail-closed expired open."""
+    from sentence_reading.llm.paper_retention import (
+        apply_reading_grace,
+        ensure_entry_retention,
+        is_expired,
+        retention_enabled,
+    )
+
+    if not retention_enabled():
+        return None
+    cid = (cache_id or "").strip()
+    entry = get_index_entry(cid)
+    if not entry:
+        return None
+    row = ensure_entry_retention(entry)
+    if row.get("expires_at") and row.get("expires_at") != entry.get("expires_at"):
+        patch_index_entry(cid, {"expires_at": row.get("expires_at")})
+        entry = row
+    if not is_expired(entry):
+        return None
+    graced, changed = apply_reading_grace(entry)
+    if changed:
+        patch_index_entry(
+            cid,
+            {
+                "expires_at": graced.get("expires_at"),
+                "reading_grace_from": graced.get("reading_grace_from"),
+            },
+        )
+        entry = graced
+    if is_expired(entry):
+        delete_cached_paper(cache_id=cid)
+        return JSONResponse(
+            status_code=410,
+            content={
+                "ok": False,
+                "error": "retention_expired",
+                "message": "보관 기한이 지나 삭제되었습니다.",
+            },
+        )
+    return None
+
+
+def _paper_retention_grace_for_session(session_id: str) -> None:
+    """Reading heartbeat — extend +3d when expiry hits mid-session (design/144)."""
+    from sentence_reading.llm.paper_retention import (
+        apply_reading_grace,
+        ensure_entry_retention,
+        is_expired,
+        retention_enabled,
+    )
+
+    if not retention_enabled():
+        return
+    cid = (_SESSION_CACHE_IDS.get(session_id) or "").strip()
+    if not cid:
+        return
+    entry = get_index_entry(cid)
+    if not entry:
+        return
+    row = ensure_entry_retention(entry)
+    if not is_expired(row):
+        return
+    graced, changed = apply_reading_grace(row)
+    if changed:
+        patch_index_entry(
+            cid,
+            {
+                "expires_at": graced.get("expires_at"),
+                "reading_grace_from": graced.get("reading_grace_from"),
+            },
+        )
 
 
 def _ingest_hang_stall_seconds() -> int:
@@ -654,10 +751,11 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.59",
+        "version": "0.3.60",
         # design/138 — product path is Live+device only (no local uvicorn autostart / hang simul).
         "live_only": True,
         "mobile_live_only": True,
+        **_paper_retention_status_fields(),
         # design/142 — keyboard sentence notes default off; shadowing/recording practice stays.
         "sentence_notes_keyboard": _sentence_notes_keyboard_enabled(),
         "mobile_sentence_notes_keyboard": False,
@@ -2334,6 +2432,9 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
+    expired = _paper_retention_maybe_grace(cache_id)
+    if expired is not None:
+        return expired
     try:
         from sentence_reading.llm.papers_gcs import (
             paper_open_require_sentences,
@@ -2525,6 +2626,79 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
             "cache_id": cid,
             "percent": 1,
             "message": "재분석 시작",
+        }
+    )
+
+
+@app.post("/api/cache/papers/{cache_id}/extend-retention")
+def cache_extend_retention(request: Request, cache_id: str) -> JSONResponse:
+    """design/144 — +14d when within warn window (30d before expiry)."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    from sentence_reading.llm.paper_retention import (
+        extend_retention,
+        retention_enabled,
+        retention_public,
+    )
+
+    if not retention_enabled():
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "retention_disabled",
+                "message": "보관 기한 기능이 꺼져 있습니다.",
+            },
+        )
+    cid = (cache_id or "").strip()
+    entry = get_index_entry(cid)
+    if not entry:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "cache_not_found",
+                "message": "보관된 논문을 찾지 못했습니다.",
+            },
+        )
+    try:
+        updated = extend_retention(entry)
+    except ValueError:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "ok": False,
+                "error": "extend_not_allowed",
+                "message": "지금은 연장할 수 없습니다 (만료 30일 전부터 가능).",
+            },
+        )
+    patched = patch_index_entry(
+        cid,
+        {
+            "expires_at": updated.get("expires_at"),
+            "retention_extended_count": updated.get("retention_extended_count"),
+            "last_extended_at": updated.get("last_extended_at"),
+            "reading_grace_from": None,
+        },
+    )
+    if patched is None:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ok": False,
+                "error": "index_patch_failed",
+                "message": "연장 저장에 실패했습니다.",
+            },
+        )
+    # WHY: patch may omit null keys — re-read for response.
+    row = get_index_entry(cid) or patched
+    return JSONResponse(
+        {
+            "ok": True,
+            "cache_id": cid,
+            "expires_at": row.get("expires_at"),
+            "retention": retention_public(row),
         }
     )
 
@@ -2754,6 +2928,7 @@ async def session_patch_cursor(session_id: str, payload: dict = Body(...)) -> JS
                 },
             )
     session.clamp_indices()
+    _paper_retention_grace_for_session(session_id)
     # design/129 — cursor ack without re-embedding PNGs (mobile ignores body).
     data = session.to_public_dict(include_images=False)
     data["ok"] = True

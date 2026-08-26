@@ -538,6 +538,15 @@ def list_merged_paper_entries() -> list[dict[str, Any]]:
     - auth on + no UID → empty (do not leak instance-local disk to strangers)
     - personal GCS index present → only merge local rows already in that remote index
     """
+    from sentence_reading.cache.paper_cache import (
+        _retention_list_fields,
+        purge_expired_papers,
+    )
+    from sentence_reading.llm.paper_retention import retention_enabled
+
+    if retention_enabled():
+        purge_expired_papers()
+
     from sentence_reading.llm.auth_google import auth_enabled, current_gcs_uid
 
     # WHY: Cloud Run disk cache is shared per instance; listing must not show
@@ -585,6 +594,7 @@ def list_merged_paper_entries() -> list[dict[str, Any]]:
                 "stale": str(entry.get("pipeline_version") or "") != PIPELINE_VERSION,
                 "has_source": bool(entry.get("has_source"))
                 or get_source_path(str(cid)) is not None,
+                **_retention_list_fields(entry),
             }
         )
     out.sort(key=lambda e: e.get("updated_at") or "", reverse=True)
