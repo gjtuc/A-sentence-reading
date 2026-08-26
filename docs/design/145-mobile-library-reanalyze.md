@@ -37,6 +37,10 @@ Modules: `mobile/lib/screens/library_screen.dart` · `library_controller.dart` �
 
 ## Device / E2E pin
 
-_(filled after verification)_
+- Live `/api/status`: `version=0.3.61` (post-CD 2026-08-26)
+- pytest `tests/test_mobile_library_reanalyze.py` + full suite 683 passed
+- Phone SM-G986N: APK `0.3.61` sideload · library tab OK · `asr_e2e145.pdf` pushed to `/sdcard/Download/`
+- **재분석 탭→완료 snackbar: 미실시** — 보관 0건; file picker 후 Android 「연결 프로그램」에서 앱 복귀 실패 (upload 미완료). PC `PC\차헌의 S20+\SD 카드\은규 논문` 경로 이 PC에서 미발견.
+- Kill: revert PR
 
 Do not paste emails, cookies, tokens, or secrets into chat/PR.
