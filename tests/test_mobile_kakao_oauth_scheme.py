@@ -42,6 +42,13 @@ def test_android_manifest_callback_activity_and_scheme() -> None:
     text = MANIFEST.read_text(encoding="utf-8")
     assert "com.linusu.flutter_web_auth_2.CallbackActivity" in text
     assert 'android:scheme="com.gjtuc.sentence-reading"' in text
+    assert 'pathPrefix="/kakao"' in text
+    assert 'pathPrefix="/google"' in text
+    # WHY: MainActivity must not compete with CallbackActivity (ResolverActivity).
+    main_block = text.split("MainActivity", 1)[1].split("</activity>", 1)[0]
+    assert 'pathPrefix="/kakao"' not in main_block
+    assert 'pathPrefix="/google"' not in main_block
+    assert 'pathPrefix="/magic"' in main_block
     gradle = (MOBILE / "android" / "app" / "build.gradle.kts").read_text(encoding="utf-8")
     assert 'applicationId = "com.gjtuc.sentence_reading"' in gradle
 
