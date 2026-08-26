@@ -39,7 +39,8 @@ def test_autostart_register_ensure_refuse() -> None:
 def test_docs_and_clients_no_local_surface() -> None:
     assert DESIGN.is_file()
     design = DESIGN.read_text(encoding="utf-8")
-    assert "0.3.57" in design
+    # Historical chip pin stays 0.3.56; runtime version is asserted via status/pubspec.
+    assert "0.3.56" in design
     assert "ASR_API_BASE" in design or "Live" in design
     readme = README.read_text(encoding="utf-8")
     assert "로컬 실행" not in readme
