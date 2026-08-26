@@ -18,7 +18,7 @@ D141 = ROOT / "docs" / "design" / "141-mobile-sentence-notes.md"
 
 def test_status_default_off() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.58"
+    assert st["version"] == "0.3.59"
     assert st["sentence_notes_keyboard"] is False
     assert st["mobile_sentence_notes_keyboard"] is False
 
@@ -32,8 +32,9 @@ def test_kill_restore(monkeypatch) -> None:
 
 def test_wiring_and_guide_copy() -> None:
     assert DESIGN.is_file()
+    # Chip shipped at 0.3.58; pubspec follows current app pin.
     assert "0.3.58" in DESIGN.read_text(encoding="utf-8")
-    assert "0.3.58" in PUB.read_text(encoding="utf-8")
+    assert "0.3.59" in PUB.read_text(encoding="utf-8")
     assert "CANCELLED" in D141.read_text(encoding="utf-8")
 
     js = APP_JS.read_text(encoding="utf-8")
@@ -50,4 +51,4 @@ def test_wiring_and_guide_copy() -> None:
 
 def test_asset_pin() -> None:
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.58" in html
+    assert "app.js?v=0.3.59" in html
