@@ -182,7 +182,10 @@ class AuthController extends ChangeNotifier {
         );
         final parsed = parseGoogleDeepLink(redirected);
         if (!parsed.isSuccess) {
-          throw AsrApiException(parsed.error ?? 'google_failed', 401);
+          throw AsrApiException(
+            describeOAuthDeepLinkError(parsed.error, provider: 'google'),
+            401,
+          );
         }
         await _runAuth(() => _client.applySessionToken(parsed.sessionToken!));
       }
@@ -227,7 +230,10 @@ class AuthController extends ChangeNotifier {
       );
       final parsed = parseKakaoDeepLink(redirected);
       if (!parsed.isSuccess) {
-        throw AsrApiException(parsed.error ?? 'kakao_failed', 401);
+        throw AsrApiException(
+          describeOAuthDeepLinkError(parsed.error, provider: 'kakao'),
+          401,
+        );
       }
       await _runAuth(() => _client.applySessionToken(parsed.sessionToken!));
     } on AsrApiException catch (e) {
@@ -322,7 +328,10 @@ class AuthController extends ChangeNotifier {
       );
       final parsed = parseKakaoDeepLink(redirected);
       if (!parsed.isSuccess) {
-        throw AsrApiException(parsed.error ?? 'kakao_failed', 401);
+        throw AsrApiException(
+          describeOAuthDeepLinkError(parsed.error, provider: 'kakao'),
+          401,
+        );
       }
       await _runAuth(() => _client.applySessionToken(parsed.sessionToken!));
     } on AsrApiException catch (e) {

@@ -25,7 +25,7 @@ def _clear_cache() -> None:
 
 def test_status_progressive_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.66"
+    assert st["version"] == "0.3.67"
     assert st["translate_progressive"] is True
     assert st["translate_live_fallback"] is False
     assert st["compound_figures"] is False
@@ -162,4 +162,4 @@ def test_ui_progressive_contracts() -> None:
     assert "translate_pending" in js
     assert "design/45" in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.66" in served
+    assert "app.js?v=0.3.67" in served

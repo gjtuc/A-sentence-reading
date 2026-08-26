@@ -50,7 +50,37 @@ def _read_disk() -> dict[str, Any]:
         users = {}
     if not isinstance(by_p, dict):
         by_p = {}
-    return {"version": 1, "users": users, "by_provider": by_p}
+    return _reconcile_by_provider({"version": 1, "users": users, "by_provider": by_p})
+
+
+def _reconcile_by_provider(store: dict[str, Any]) -> dict[str, Any]:
+    """by_provider ↔ users.providers 정합. 해제·GCS 병합 후 stale 키 제거."""
+    users = store.get("users")
+    by_p = store.get("by_provider")
+    if not isinstance(users, dict) or not isinstance(by_p, dict):
+        return store
+    for pk, uid in list(by_p.items()):
+        if not isinstance(pk, str) or ":" not in pk:
+            del by_p[pk]
+            continue
+        prov, sub = pk.split(":", 1)
+        if prov not in PROVIDERS:
+            del by_p[pk]
+            continue
+        if not isinstance(uid, str) or uid not in users:
+            del by_p[pk]
+            continue
+        row = users.get(uid)
+        if not isinstance(row, dict):
+            del by_p[pk]
+            continue
+        linked = row.get("providers")
+        if not isinstance(linked, dict):
+            del by_p[pk]
+            continue
+        if linked.get(prov) != sub:
+            del by_p[pk]
+    return store
 
 
 def _write_disk(store: dict[str, Any]) -> None:
@@ -107,7 +137,7 @@ def _merge_stores(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
     for pk, uid in list(out["by_provider"].items()):
         if uid not in out["users"]:
             del out["by_provider"][pk]
-    return out
+    return _reconcile_by_provider(out)
 
 
 def _provider_key(provider: str, subject: str) -> str | None:

@@ -32,7 +32,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_version() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.66"
+    assert st["version"] == "0.3.67"
     assert st["auth"]["providers"]["email"] is True
 
 
@@ -68,6 +68,30 @@ def test_email_register_login_link_google(monkeypatch: pytest.MonkeyPatch) -> No
     providers = r3.json()["user"]["providers"]
     assert "email" in providers and "google" in providers
     assert r3.json()["user"]["uid"] == uid
+
+
+def test_unlink_clears_by_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    u = aa.resolve_or_create(
+        "email", "a@example.com", email="a@example.com", password="password1"
+    )
+    aa.link_provider(u.uid, "kakao", "5058686031")
+    aa.unlink_provider(u.uid, "kakao")
+    store = aa._read_disk()
+    assert "kakao:5058686031" not in store["by_provider"]
+    assert "kakao" not in store["users"][u.uid]["providers"]
+
+
+def test_reconcile_drops_stale_by_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GCS merge / partial unlink can leave by_provider while users.providers cleared."""
+    u = aa.resolve_or_create(
+        "email", "stale@example.com", email="stale@example.com", password="password1"
+    )
+    aa.link_provider(u.uid, "kakao", "999")
+    store = aa._read_disk()
+    store["users"][u.uid]["providers"].pop("kakao")
+    aa._write_disk(store)  # simulate drift without by_provider cleanup
+    fixed = aa._read_disk()
+    assert "kakao:999" not in fixed["by_provider"]
 
 
 def test_link_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
