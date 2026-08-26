@@ -39,6 +39,6 @@ Modules: `oauth_models.dart` · `auth_google.py` · `AndroidManifest.xml` · `Ca
 
 - APK **0.3.64** sideload SM-G986N: 로그아웃 → **카카오로 계속** → `CustomTabActivity` (Chrome) 오픈 ✅ (0.3.63는 무반응)
 - pytest `tests/test_mobile_kakao_oauth_scheme.py` + full suite pass
-- **Full login callback** requires Live CD (server redirect `com.gjtuc.sentence-reading://…`) — verify post-merge
+- **Full login callback** requires Live CD — Live `version=0.3.64` · redirect `com.gjtuc.sentence-reading://oauth/kakao?…` (post-merge verify)
 
 Do not paste tokens, cookies, or emails into chat/PR.

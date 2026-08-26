@@ -52,6 +52,27 @@ def test_dart_oauth_scheme_matches_server() -> None:
     assert "kMobileOAuthScheme = 'com.gjtuc.sentence-reading'" in dart
 
 
+def test_kakao_start_redirect_uri_https_when_cloud_url_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """KOE006 when http:// redirect_uri vs https:// in Kakao console (146c follow-up)."""
+    from fastapi.testclient import TestClient
+
+    from sentence_reading.api.app import app
+
+    monkeypatch.setenv(
+        "ASR_CLOUD_RUN_URL",
+        "https://asr-sentence-reading-984608876300.asia-northeast3.run.app",
+    )
+    monkeypatch.setenv("ASR_KAKAO_REST_API_KEY", "kakao-rest-test")
+    client = TestClient(app, follow_redirects=False)
+    r = client.get("/api/auth/kakao/start", params={"mode": "login", "mobile": "1"})
+    assert r.status_code == 302
+    loc = r.headers.get("location") or ""
+    assert "redirect_uri=https%3A%2F%2Fasr-sentence-reading" in loc
+    assert "redirect_uri=http%3A%2F%2Fasr-sentence-reading" not in loc
+
+
 def test_kakao_callback_mobile_deep_link_hyphen_scheme(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -157,7 +157,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.64",
+    version="0.3.65",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -752,7 +752,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.64",
+        "version": "0.3.65",
         # design/138 — product path is Live+device only (no local uvicorn autostart / hang simul).
         "live_only": True,
         "mobile_live_only": True,
@@ -931,8 +931,10 @@ def _session_response(
 
 
 def _kakao_redirect_uri(request: Request) -> str:
-    # WHY: 콘솔에 등록한 Redirect URI 와 바이트 단위로 같아야 함
-    return str(request.base_url).rstrip("/") + "/api/auth/kakao/callback"
+    # WHY: 콘솔에 등록한 Redirect URI 와 바이트 단위로 같아야 함.
+    # WHY (146c follow-up): request.base_url on Cloud Run can be http:// behind
+    # the proxy → KOE006 when console only has https:// (design/23).
+    return _public_api_base(request) + "/api/auth/kakao/callback"
 
 
 @app.get("/api/auth/status")
