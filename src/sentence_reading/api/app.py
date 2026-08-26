@@ -153,7 +153,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.53",
+    version="0.3.54",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -347,6 +347,13 @@ def _cover_as_figure_enabled() -> bool:
     from sentence_reading.pdf.extract import cover_as_figure_enabled
 
     return cover_as_figure_enabled()
+
+
+def _strip_adjacent_enabled() -> bool:
+    """design/136 — kill: ASR_STRIP_ADJACENT=0 keeps whole PDF (no trim/fail)."""
+    from sentence_reading.pdf.adjacent_articles import strip_adjacent_enabled
+
+    return strip_adjacent_enabled()
 
 
 def _ingest_hang_stall_seconds() -> int:
@@ -627,10 +634,13 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.53",
+        "version": "0.3.54",
         # design/135 — title-page cover as figure 1; false when ASR_COVER_AS_FIGURE=0.
         "cover_as_figure": _cover_as_figure_enabled(),
         "mobile_cover_as_figure": _cover_as_figure_enabled(),
+        # design/136 — strip adjacent articles (first only); false when ASR_STRIP_ADJACENT=0.
+        "strip_adjacent": _strip_adjacent_enabled(),
+        "mobile_strip_adjacent": _strip_adjacent_enabled(),
         # design/129 — /open stubs images; clients use figures/window (±1).
         "lazy_figure_open": True,
         # design/130 — client report + admin list; false when ASR_CLOUD_ERROR_LOGS=0.
@@ -3327,6 +3337,43 @@ async def _run_ingest_job_body(
         label = "PDF" if kind == "pdf" else "Word"
         if not content_hash:
             content_hash = await asyncio.to_thread(_file_sha256, tmp_path)
+
+        # design/136 — keep first article only; ambiguous multi-PDF → fail closed.
+        if kind == "pdf":
+            from sentence_reading.pdf.adjacent_articles import (
+                AdjacentArticlesError,
+                prepare_pdf_first_article,
+            )
+
+            try:
+                trimmed_path, adj_plan = await asyncio.to_thread(
+                    prepare_pdf_first_article, tmp_path
+                )
+            except AdjacentArticlesError as exc:
+                raise RuntimeError(str(exc)) from exc
+            except ValueError as exc:
+                if str(exc) == "encrypted_pdf":
+                    raise RuntimeError("암호로 보호된 PDF는 열 수 없습니다.") from exc
+                raise
+            if trimmed_path != tmp_path:
+                # WHY: ingest must hash/process the cut PDF, not the foreign pages.
+                try:
+                    Path(tmp_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
+                tmp_path = Path(trimmed_path)
+                content_hash = await asyncio.to_thread(_file_sha256, tmp_path)
+                warnings.append("adjacent_articles_trimmed")
+                _job_set(
+                    job_id,
+                    percent=4,
+                    stage="extract",
+                    message="첫 논문만 남기는 중",
+                )
+            elif adj_plan.reason == "single_article":
+                pass
+            _ = adj_plan
+
 
         job0 = _JOBS.get(job_id) or {}
         resume_pl = job0.get("_resume_payload")
