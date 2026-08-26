@@ -330,6 +330,93 @@ class AsrClient {
     return u;
   }
 
+  /// POST /api/auth/unlink — design/146a · session uid only (no body user_id).
+  Future<AsrUser> unlinkProvider(String provider) async {
+    final p = provider.trim().toLowerCase();
+    if (p.isEmpty) {
+      throw AsrApiException('invalid', 400);
+    }
+    final res = await _http
+        .post(
+          _uri('/api/auth/unlink'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({'provider': p}),
+        )
+        .timeout(const Duration(seconds: 30));
+    await _captureSession(res);
+    final map = _decodeObject(res, 'auth/unlink');
+    final userRaw = map['user'];
+    final user = AsrUser.fromJson(
+      userRaw is Map ? Map<String, dynamic>.from(userRaw) : null,
+    );
+    if (user.isEmpty) {
+      throw AsrApiException('unlink returned empty user', res.statusCode);
+    }
+    return user;
+  }
+
+  /// Authenticated Kakao link start — Cookie required (Custom Tab has none).
+  ///
+  /// WHY: GET …/kakao/start?mode=link embeds link_uid in OAuth state from session.
+  /// Returns the authorize URL (Location) without following the redirect.
+  Future<String> resolveKakaoLinkAuthorizeUrl() async {
+    final req = http.Request(
+      'GET',
+      _uri('/api/auth/kakao/start').replace(
+        queryParameters: const {'mode': 'link', 'mobile': '1'},
+      ),
+    );
+    // WHY: default followRedirects=true would consume 302 and hide Location.
+    req.followRedirects = false;
+    req.headers.addAll(await _headers());
+    // WHY: Client.send honors Request.followRedirects — we need Location only.
+    final streamed = await _http.send(req).timeout(const Duration(seconds: 30));
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode == 401) {
+      throw AsrApiException('연결하려면 먼저 로그인하세요.', 401);
+    }
+    if (res.statusCode == 503) {
+      throw AsrApiException('카카오 연결이 꺼져 있습니다.', 503);
+    }
+    if (res.statusCode != 302 && res.statusCode != 301) {
+      throw AsrApiException(
+        '카카오 연결을 시작할 수 없습니다.',
+        res.statusCode,
+      );
+    }
+    final loc = (res.headers['location'] ?? '').trim();
+    if (loc.isEmpty) {
+      throw AsrApiException('카카오 연결 주소가 없습니다.', 502);
+    }
+    if (loc.startsWith('http://') || loc.startsWith('https://')) {
+      return loc;
+    }
+    return _uri(loc).toString();
+  }
+
+  /// POST /api/auth/email/magic/request with intent=link (design/146a).
+  Future<String> requestEmailLinkMagic({required String email}) async {
+    final res = await _http
+        .post(
+          _uri('/api/auth/email/magic/request'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({
+            'email': email.trim(),
+            'client': 'android',
+            'intent': 'link',
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
+    final map = _decodeObject(res, 'email/magic/request');
+    if (map['ok'] != true) {
+      throw AsrApiException(
+        '${map['message'] ?? map['error'] ?? 'magic_request_failed'}',
+        res.statusCode,
+      );
+    }
+    return '${map['message'] ?? '연결 링크를 이메일로 보냈습니다.'}';
+  }
+
   /// POST /api/auth/email/magic/request — SMTP send; no session yet (design/77).
   /// [client] ``android`` appends ``mobile=1`` so open deep-links the app (design/85).
   Future<String> requestMagicLink({required String email}) async {

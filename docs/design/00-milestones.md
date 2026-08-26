@@ -173,7 +173,8 @@
 - ~~보관 TTL 90일 · ⚠️ 경고 · +90일 연장 · 읽는 중 grace~~ (0.3.60 · [144-paper-retention-ttl.md](144-paper-retention-ttl.md))
 - ~~보관 재분석 앱 UI (원본 → job 폴링 · 설정 번역 연동)~~ (0.3.61 · [145-mobile-library-reanalyze.md](145-mobile-library-reanalyze.md))
 - ~~보관 연장 +90일 (14→90)~~ (0.3.62 · [144-paper-retention-ttl.md](144-paper-retention-ttl.md))
-- **다음 구현:** 계정 연결 앱 UI (140 목록 · [23](23-multi-auth-link.md))
+- ~~앱 계정 연결/해제 (Settings · Google·카카오·이메일)~~ (0.3.63 · [146a-mobile-account-link.md](146a-mobile-account-link.md))
+- **다음 구현:** 계정 창고 병합 (146b) 또는 사용량 앱 (140 · [27](27-usage-metering.md))
 
 ### 구현됨 (참고)
 

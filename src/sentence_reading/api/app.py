@@ -156,7 +156,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.62",
+    version="0.3.63",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -751,7 +751,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.62",
+        "version": "0.3.63",
         # design/138 — product path is Live+device only (no local uvicorn autostart / hang simul).
         "live_only": True,
         "mobile_live_only": True,
@@ -863,6 +863,8 @@ def status(request: Request) -> dict:
         "mobile_reader": True,
         "mobile_tts": True,
         "mobile_oauth": True,
+        # design/146a — Settings link/unlink; false would hide (always on with auth).
+        "mobile_account_link": True,
         "mobile_theme": True,
         "access_gate": True,
         "mobile_access_gate": True,
@@ -1364,7 +1366,7 @@ def _user_from_magic_email(em: str) -> AuthUser:
 async def auth_email_magic_request(
     request: Request, payload: dict = Body(...)
 ) -> JSONResponse:
-    """Mint + SMTP send magic login link. Fail-closed if SMTP/kill missing."""
+    """Mint + SMTP send magic login/link. Fail-closed if SMTP/kill missing."""
     from sentence_reading.llm.auth_magic_link import mint_magic_token
     from sentence_reading.llm.email_smtp import send_magic_link_email, smtp_configured
 
@@ -1389,8 +1391,10 @@ async def auth_email_magic_request(
     email = str(payload.get("email") or "") if isinstance(payload, dict) else ""
     # design/85 — android/app mail must deep-link; web omits mobile=1 (browser cookie).
     client_hint = ""
+    intent = "login"
     if isinstance(payload, dict):
         client_hint = str(payload.get("client") or "").strip().lower()
+        intent = str(payload.get("intent") or "login").strip().lower() or "login"
     for_mobile = client_hint in ("android", "mobile", "app")
     em = normalize_email(email)
     if not em:
@@ -1402,8 +1406,22 @@ async def auth_email_magic_request(
                 "message": "이메일 형식이 올바르지 않습니다.",
             },
         )
+    # design/146a — intent=link requires session; mint tags link_uid (no body user_id).
+    link_uid: str | None = None
+    if intent == "link":
+        cur = _request_user(request)
+        if cur is None:
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "ok": False,
+                    "error": "auth_required",
+                    "message": "연결하려면 먼저 로그인하세요.",
+                },
+            )
+        link_uid = cur.uid
     try:
-        minted = mint_magic_token(em)
+        minted = mint_magic_token(em, link_uid=link_uid)
     except ValueError as exc:
         code = str(exc)
         if code == "rate_limited":
@@ -1447,12 +1465,13 @@ async def auth_email_magic_request(
             },
         )
     # WHY: same success copy whether or not the address already has an account.
-    return JSONResponse(
-        {
-            "ok": True,
-            "message": "로그인 링크를 이메일로 보냈습니다. 메일함에서 열어 주세요.",
-        }
+    # EDGE: link intent uses different copy so UI is not "login succeeded" pretence.
+    msg = (
+        "연결 링크를 이메일로 보냈습니다. 메일함에서 열어 주세요."
+        if link_uid
+        else "로그인 링크를 이메일로 보냈습니다. 메일함에서 열어 주세요."
     )
+    return JSONResponse({"ok": True, "message": msg})
 
 
 @app.get("/api/auth/email/magic/open")
@@ -1463,24 +1482,35 @@ def auth_email_magic_open(
 
     design/85 — browser click must establish web session (product).
     EDGE: ``mobile=1`` keeps Android deep-link for app mail clients (77).
+    design/146a — token with link_uid → link email onto that uid (fail-closed on conflict).
     """
     raw = (t or "").strip()
     want_mobile = (mobile or "").strip().lower() in ("1", "true", "yes", "android", "app")
     try:
-        from sentence_reading.llm.auth_magic_link import redeem_magic_token
+        from sentence_reading.llm.auth_magic_link import redeem_magic_detail
 
-        em = redeem_magic_token(raw)
-        user = _user_from_magic_email(em)
+        detail = redeem_magic_detail(raw)
+        em = str(detail.get("email") or "")
+        link_uid = str(detail.get("link_uid") or "").strip()
+        if link_uid:
+            # WHY: session at open time may be gone (mail client); trust signed mint tag.
+            user = link_provider(link_uid, "email", em, email=em, password=None)
+            auth_msg = "linked"
+        else:
+            user = _user_from_magic_email(em)
+            auth_msg = "logged_in"
         token = issue_session_token(user)
         if want_mobile:
             # WHY: Flutter cold-start reads asr_session from custom-scheme query.
+            # EDGE: auth=linked so app can refresh providers after email link.
             resp = RedirectResponse(
-                url=mobile_magic_deep_link(session=token, auth="magic"),
+                url=mobile_magic_deep_link(session=token, auth=auth_msg if auth_msg == "linked" else "magic"),
                 status_code=302,
             )
         else:
             # design/85 — web session for browser mail opens.
-            resp = RedirectResponse(url="/?auth=logged_in", status_code=302)
+            land = "/?auth=linked" if link_uid else "/?auth=logged_in"
+            resp = RedirectResponse(url=land, status_code=302)
         resp.set_cookie(
             key=COOKIE_NAME,
             value=token,

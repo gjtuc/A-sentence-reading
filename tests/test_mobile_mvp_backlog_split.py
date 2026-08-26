@@ -24,6 +24,8 @@ def test_split_docs_exist_and_lock_next() -> None:
     assert "맨 마지막" in t140 or "맨 뒤" in t140
     assert "142" in t140
     assert "재분석" in t140
+    assert "146a" in t140
+    assert "계정 연결" in t140 or "계정 연결/해제" in t140
 
     assert D141.is_file()
     t141 = D141.read_text(encoding="utf-8")

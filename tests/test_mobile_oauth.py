@@ -38,7 +38,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_mobile_oauth_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.62"
+    assert st["version"] == "0.3.63"
     assert st["mobile_oauth"] is True
     assert st.get("mobile_google_sha_runbook") is True
     assert st.get("mobile_google_android_oauth") is True
@@ -171,7 +171,7 @@ def test_google_mobile_start_public_under_login_gate(
 
 def test_mobile_dart_oauth_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.62" in pub
+    assert "0.3.63" in pub
     assert "google_sign_in" in pub
     assert "flutter_web_auth_2" in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
@@ -219,4 +219,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.62" in html
+    assert "app.js?v=0.3.63" in html

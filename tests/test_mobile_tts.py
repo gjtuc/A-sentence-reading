@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "64-mobile-tts.md"
 def test_status_mobile_tts_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.62"
+    assert st["version"] == "0.3.63"
     assert st["mobile_tts"] is True
     assert st["mobile_reader"] is True
     assert "live_enable" not in st
@@ -71,7 +71,7 @@ def test_tts_edge_bad_rate_still_ok_when_mocked() -> None:
 
 def test_mobile_dart_tts_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.62" in pub
+    assert "0.3.63" in pub
     assert "audioplayers" in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "synthesizeTts" in client
@@ -121,4 +121,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.62" in html
+    assert "app.js?v=0.3.63" in html

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../api/access_models.dart';
+import '../api/auth_models.dart';
 import '../api/client.dart';
 import '../api/theme_models.dart';
 import '../api/tts_models.dart';
@@ -38,6 +39,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final _code = TextEditingController();
+  final _linkEmail = TextEditingController();
   AccessStatus? _access;
   List<Map<String, dynamic>> _pending = const [];
   List<Map<String, dynamic>> _events = const [];
@@ -70,6 +72,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     widget.auth.removeListener(_onAuthChanged);
     _code.dispose();
+    _linkEmail.dispose();
     super.dispose();
   }
 
@@ -85,6 +88,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _error = null;
         _errorBadge = 0;
         _code.clear();
+        _linkEmail.clear();
       });
       return;
     }
@@ -193,6 +197,152 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  bool _linked(AsrUser user, String provider) {
+    final p = provider.toLowerCase();
+    return user.providers.any((x) => x.toLowerCase() == p);
+  }
+
+  Future<void> _snackAuth(Future<void> Function() op, {String ok = '완료'}) async {
+    try {
+      await op();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok)));
+    } on AsrApiException catch (e) {
+      if (!mounted) return;
+      // FAIL-CLOSED: never show success snackbar on error.
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(widget.auth.error ?? e.toString())),
+      );
+    }
+  }
+
+  List<Widget> _accountLinkTiles(AsrUser user) {
+    final st = widget.auth.lastStatus;
+    final canUnlink = user.providers.length > 1;
+    final busy = widget.auth.busy;
+    final tiles = <Widget>[];
+
+    void addRow({
+      required String label,
+      required String provider,
+      required bool serverOn,
+      required Future<void> Function()? onLink,
+    }) {
+      if (!serverOn && !_linked(user, provider)) return;
+      final on = _linked(user, provider);
+      tiles.add(
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(label),
+          subtitle: Text(on ? '연결됨' : '연결 안 됨'),
+          trailing: on
+              ? TextButton(
+                  onPressed: (!canUnlink || busy)
+                      ? null
+                      : () => _snackAuth(
+                            () => widget.auth.unlinkProvider(provider),
+                            ok: '$label 연결을 해제했습니다.',
+                          ),
+                  child: const Text('해제'),
+                )
+              : TextButton(
+                  onPressed: (busy || onLink == null)
+                      ? null
+                      : () => _snackAuth(
+                            onLink,
+                            ok: '$label을(를) 연결했습니다.',
+                          ),
+                  child: const Text('연결'),
+                ),
+        ),
+      );
+    }
+
+    addRow(
+      label: 'Google',
+      provider: 'google',
+      serverOn: st?.googleEnabled == true,
+      onLink: () => widget.auth.linkGoogle(),
+    );
+    addRow(
+      label: '카카오',
+      provider: 'kakao',
+      serverOn: st?.kakaoEnabled == true,
+      onLink: () => widget.auth.linkKakao(),
+    );
+
+    final emailOn = st?.emailEnabled == true;
+    if (emailOn || _linked(user, 'email')) {
+      final on = _linked(user, 'email');
+      tiles.add(
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('이메일'),
+          subtitle: Text(on ? '연결됨' : '연결 안 됨'),
+          trailing: on
+              ? TextButton(
+                  onPressed: (!canUnlink || busy)
+                      ? null
+                      : () => _snackAuth(
+                            () => widget.auth.unlinkProvider('email'),
+                            ok: '이메일 연결을 해제했습니다.',
+                          ),
+                  child: const Text('해제'),
+                )
+              : null,
+        ),
+      );
+      if (!on) {
+        tiles.add(
+          TextField(
+            controller: _linkEmail,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: '연결할 이메일',
+              hintText: 'name@example.com',
+            ),
+            enabled: !busy,
+          ),
+        );
+        tiles.add(
+          Align(
+            alignment: Alignment.centerLeft,
+              child: TextButton(
+              onPressed: busy
+                  ? null
+                  : () => _snackAuth(
+                        () => widget.auth.requestEmailLink(_linkEmail.text.trim()),
+                        ok: '연결 링크를 이메일로 보냈습니다. 메일함에서 열어 주세요.',
+                      ),
+              child: const Text('연결 링크 받기'),
+            ),
+          ),
+        );
+        if ((widget.auth.magicLinkHint ?? '').isNotEmpty) {
+          tiles.add(
+            Text(
+              widget.auth.magicLinkHint!,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          );
+        }
+      }
+    }
+
+    if (tiles.isEmpty) {
+      tiles.add(
+        Text(
+          '연결할 수 있는 로그인 수단이 없습니다.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      );
+    }
+    return tiles;
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -240,6 +390,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       )
                     : const Text('로그아웃'),
               ),
+              const SizedBox(height: 20),
+              Text('계정 연결', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 4),
+              Text(
+                '다른 로그인 수단을 같은 보관함에 묶습니다. '
+                '논문 목록 자동 합치기는 아직 없습니다.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              if ((widget.auth.error ?? '').isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  widget.auth.error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+              const SizedBox(height: 8),
+              ..._accountLinkTiles(user),
             ],
             // WHY: admin-only — cloud error triage replaces status dump (design/130).
             // EDGE: non-admin must not see others' logs (server still 403).
