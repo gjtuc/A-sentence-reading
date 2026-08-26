@@ -33,12 +33,13 @@ Modules: `oauth_models.dart` · `auth_google.py` · `AndroidManifest.xml` · `Ca
 
 ## Version
 
-**0.3.64**
+**0.3.65** (0.3.64 + KOE006 redirect_uri https fix)
 
 ## Device / E2E pin
 
 - APK **0.3.64** sideload SM-G986N: 로그아웃 → **카카오로 계속** → `CustomTabActivity` (Chrome) 오픈 ✅ (0.3.63는 무반응)
+- **0.3.65 follow-up:** KOE006 — Kakao 콘솔은 `https://` redirect만 등록; Cloud Run `request.base_url`은 `http://` → `_public_api_base()` 사용
 - pytest `tests/test_mobile_kakao_oauth_scheme.py` + full suite pass
-- **Full login callback** requires Live CD (server redirect `com.gjtuc.sentence-reading://…`) — verify post-merge
+- **Full login callback** — Live `version=0.3.65` · redirect `com.gjtuc.sentence-reading://oauth/kakao?…` (post-merge verify)
 
 Do not paste tokens, cookies, or emails into chat/PR.
