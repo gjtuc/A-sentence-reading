@@ -570,8 +570,6 @@ class _SentencePanel extends StatelessWidget {
                                           const TextStyle(fontSize: 14),
                                 ),
                               ],
-                              // design/28 · 124 — Fig./Scheme/Table chips (matched only).
-                              ..._figRefChipRow(context),
                             ],
                           ),
                   ),
@@ -579,41 +577,58 @@ class _SentencePanel extends StatelessWidget {
               ),
             ),
           ),
+          // design/139 — web-parity: dedicated chip row BELOW sentence frame (not inside body scroll).
+          ..._figRefChipRow(context),
         ],
       ),
     );
   }
 
   List<Widget> _figRefChipRow(BuildContext context) {
-    // Kill: /api/status fig_ref_hints=false → no chips (design/124).
+    // Kill: /api/status fig_ref_hints=false → no chips (design/124 · 139).
     if (!figRefHints) return const [];
     final cur = session.currentSentence;
     if (cur == null || !cur.hasText) return const [];
     final captions = session.figures.map((f) => f.caption).toList();
     final hints = hintsForSentence(text: cur.text, captions: captions);
     if (hints.isEmpty) return const [];
+    final scheme = Theme.of(context).colorScheme;
     return [
-      const SizedBox(height: 10),
-      Wrap(
-        spacing: 6,
-        runSpacing: 4,
-        children: [
-          for (final h in hints)
-            TextButton(
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                backgroundColor: h.figureIndex == session.figureIndex
-                    ? Theme.of(context).colorScheme.secondaryContainer
-                    : null,
+      Padding(
+        padding: const EdgeInsets.fromLTRB(8, 6, 8, 2),
+        child: Wrap(
+          spacing: 6,
+          runSpacing: 4,
+          children: [
+            for (final h in hints)
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  // WHY: ghost chip like web .fig-ref-chip (transparent + border).
+                  foregroundColor: h.figureIndex == session.figureIndex
+                      ? scheme.onSurface
+                      : scheme.onSurfaceVariant,
+                  side: BorderSide(
+                    color: h.figureIndex == session.figureIndex
+                        ? scheme.outline
+                        : scheme.outlineVariant,
+                  ),
+                  backgroundColor: Colors.transparent,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: () {
+                  // WHY: figure only — sentence index must stay (design/28 · 139).
+                  library.goToFigureIndex(h.figureIndex);
+                },
+                child: Text(
+                  '${h.ref} →',
+                  style: const TextStyle(fontSize: 12, letterSpacing: 0.2),
+                ),
               ),
-              onPressed: () {
-                // WHY: figure only — sentence index must stay (design/28 invariant).
-                library.goToFigureIndex(h.figureIndex);
-              },
-              child: Text('${h.ref} →'),
-            ),
-        ],
+          ],
+        ),
       ),
     ];
   }

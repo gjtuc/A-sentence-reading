@@ -963,6 +963,11 @@
   function renderFigRefHints(sent) {
     if (!el.figRefHints) return;
     el.figRefHints.innerHTML = "";
+    // design/139 — honor ASR_FIG_REF_HINTS kill from /api/status.
+    if (!figRefHintsEnabled) {
+      el.figRefHints.hidden = true;
+      return;
+    }
     if (
       !sent ||
       !state.figures.length ||
@@ -985,11 +990,13 @@
       if (row.figure_index === state.figureIndex) {
         btn.classList.add("is-current");
       }
+      // WHY: textContent only — never HTML from caption/ref (XSS).
       btn.textContent = row.ref + " →";
       btn.title = "그림 " + (row.figure_index + 1) + "으로 이동";
       btn.addEventListener("click", function (ev) {
         ev.preventDefault();
         ev.stopPropagation();
+        // INVARIANT: sentence_index unchanged (design/28 · 139).
         goToFigureIndex(row.figure_index);
       });
       el.figRefHints.appendChild(btn);
@@ -6944,6 +6951,8 @@
   let loginRequiredFlag = true;
   /** design/123 — true → refuse open on bad progress; false = clamp kill switch */
   let progressFailClosedFlag = true;
+  /** design/139 — Fig. chips; missing key → show (on by default); explicit false = kill */
+  let figRefHintsEnabled = true;
   let loginGateUnlocked = false;
   let accessWaitingUx = true;
   let accessPollTimer = 0;
@@ -7100,10 +7109,14 @@
       accessWaitingUx = st.access_waiting_ux !== false;
       // design/123 — missing key → fail-closed (refuse bad progress); explicit false clamps.
       progressFailClosedFlag = st.progress_fail_closed !== false;
+      // design/139 — chips on by default; explicit false hides (kill).
+      figRefHintsEnabled = st.fig_ref_hints !== false;
     } catch (_) {
       loginRequiredFlag = true;
       accessWaitingUx = true;
       progressFailClosedFlag = true;
+      // EDGE: status unreachable → keep chips (feature default on); hang/login stay fail-closed.
+      figRefHintsEnabled = true;
     }
     await initAuth();
     const mustGate =

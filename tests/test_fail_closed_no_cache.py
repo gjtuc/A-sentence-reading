@@ -17,7 +17,7 @@ CLIENT = ROOT / "mobile" / "lib" / "api" / "client.dart"
 
 def test_status_version_pin() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.56"
+    assert st["version"] == "0.3.57"
 
 
 def test_design_108_exists() -> None:
