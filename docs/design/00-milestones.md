@@ -164,6 +164,7 @@
 - ~~모바일 Google Custom Tab GIS (SHA-1 sideload 우회)~~ (0.3.51 · [65-mobile-oauth.md](65-mobile-oauth.md))
 - ~~표지(제목 페이지) → 그림 캐러셀 1번~~ (0.3.53 · [135-cover-as-figure.md](135-cover-as-figure.md))
 - ~~옆 논문 페이지 제거 (첫 논문만 · 경계 실패 시 거절)~~ (0.3.54 · [136-strip-adjacent-articles.md](136-strip-adjacent-articles.md))
+- ~~캡션 덩어리 쪼개기 (다중 라벨 분리 · fail-closed)~~ (0.3.55 · [137-split-caption-lumps.md](137-split-caption-lumps.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

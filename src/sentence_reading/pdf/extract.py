@@ -546,9 +546,14 @@ def _labeled_caption_hits(
     """
     design/125–127 — scan rebuilt text lines for Fig/Scheme/Table captions
     (word-join · punct/soft · body verbs rejected).
+    design/137 — multiple labels on one line → separate hits.
     Returns list of (caption_key, caption_text, caption_rect).
     """
     from sentence_reading.fig_refs import caption_key
+    from sentence_reading.pdf.caption_lumps import (
+        maybe_fail_ambiguous_line,
+        split_line_caption_segments,
+    )
 
     def _is_cap_line(s: str) -> bool:
         return _is_caption_line(s, fig_scheme=fig_scheme, table=table)
@@ -561,39 +566,48 @@ def _labeled_caption_hits(
         if not s:
             li += 1
             continue
-        # Line may start mid-sentence; take suffix from first caption label.
-        m_inline = _CAPTION_INLINE_START.search(s)
-        head = m_inline.group(1).strip() if m_inline else s
-        if not head or not _is_cap_line(head):
+
+        segments = split_line_caption_segments(s)
+        valid_heads: list[tuple[int, str]] = []
+        for idx, seg in enumerate(segments):
+            if seg and _is_cap_line(seg):
+                valid_heads.append((idx, seg))
+
+        if not valid_heads:
             li += 1
             continue
-        # Caption body = this line + following non-caption lines (not the next Fig.).
-        parts = [head]
-        union = line_rect
-        j = li + 1
-        while j < len(lines):
-            nxt, nrect = lines[j]
-            nxt_m = _CAPTION_INLINE_START.search(nxt) if nxt else None
-            nxt_head = nxt_m.group(1).strip() if nxt_m else nxt
-            if nxt_head and _is_cap_line(nxt_head):
-                break
-            # Only absorb tightly following lines (same column band / close below).
-            if float(nrect.y0) > float(line_rect.y1) + 28:
-                break
-            parts.append(nxt)
-            union = union | nrect
-            j += 1
-        cap = _normalize_caption(" ".join(parts))
-        key = caption_key(cap)
-        if key:
-            if fig_scheme and key.startswith("table:"):
-                li = j
-                continue
-            if table and not key.startswith("table:"):
-                li = j
-                continue
-            hits.append((key, cap, union))
-        li = j
+
+        maybe_fail_ambiguous_line(s, valid_heads, is_caption_line=_is_cap_line)
+
+        next_li = li + 1
+        for vhi, (_seg_idx, head) in enumerate(valid_heads):
+            parts = [head]
+            union = line_rect
+            j = li + 1
+            is_last_on_line = vhi == len(valid_heads) - 1
+            if is_last_on_line:
+                while j < len(lines):
+                    nxt, nrect = lines[j]
+                    nxt_segs = split_line_caption_segments(nxt or "")
+                    if any(ns and _is_cap_line(ns) for ns in nxt_segs):
+                        break
+                    if float(nrect.y0) > float(line_rect.y1) + 28:
+                        break
+                    parts.append(nxt)
+                    union = union | nrect
+                    j += 1
+                next_li = j
+
+            cap = _normalize_caption(" ".join(parts))
+            key = caption_key(cap)
+            if key:
+                if fig_scheme and key.startswith("table:"):
+                    continue
+                if table and not key.startswith("table:"):
+                    continue
+                hits.append((key, cap, union))
+
+        li = next_li
     return hits
 
 
@@ -1013,6 +1027,15 @@ def extract_figures(pdf_path: Path) -> list[Figure]:
                 caption=fig.caption,
                 page_index=fig.page_index,
             )
+
+        # design/137 — fail-closed if lumps remain or page scan missed keys.
+        from sentence_reading.pdf.caption_lumps import (
+            validate_extracted_figures,
+            validate_pages_against_figures,
+        )
+
+        validate_extracted_figures(out)
+        validate_pages_against_figures(doc, out)
         return out
     finally:
         doc.close()
