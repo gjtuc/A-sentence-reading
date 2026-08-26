@@ -37,10 +37,13 @@ Modules: `mobile/lib/screens/library_screen.dart` · `library_controller.dart` �
 
 ## Device / E2E pin
 
-- Live `/api/status`: `version=0.3.61` (post-CD 2026-08-26)
-- pytest `tests/test_mobile_library_reanalyze.py` + full suite 683 passed
-- Phone SM-G986N: APK `0.3.61` sideload · library tab OK · `asr_e2e145.pdf` pushed to `/sdcard/Download/`
-- **재분석 탭→완료 snackbar: 미실시** — 보관 0건; file picker 후 Android 「연결 프로그램」에서 앱 복귀 실패 (upload 미완료). PC `PC\차헌의 S20+\SD 카드\은규 논문` 경로 이 PC에서 미발견.
+- Live `/api/status`: `version=0.3.61` (post-CD 2026-08-26; E2E closure re-check 2026-08-26)
+- pytest `tests/test_mobile_library_reanalyze.py` — 11 passed (145+144 subset; full suite 683 at merge)
+- Phone **SM-G986N** (R3CN20QX4BH): APK `0.3.61` · Google 로그인(계정 탭 로그아웃 표시) · 보관 탭
+- PDF: SD `/storage/9016-4EF8/은규 논문/srep41797.pdf` → `/sdcard/Download/e2e_turn1.pdf` (file picker; 「연결 프로그램」 미발생)
+- **Upload → ingest 완료 → reader 자동 open** (~2.3 min) · 보관 **1건** · `has_source` → ↻ **재분석** 탭
+- **재분석 진행률** 「재분석 중 N%」→ snackbar **「재분석이 완료되었습니다.」** (~2.4 min total reanalyze) · adb E2E automation exit 0 · `E2E_OK`
+- Fail-closed checks: `science.1212858.pdf`(차완) → 「너무 짧거나 문장이 없어」 snackbar (보관 0건 유지)
 - Kill: revert PR
 
 Do not paste emails, cookies, tokens, or secrets into chat/PR.

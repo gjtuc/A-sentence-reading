@@ -40,9 +40,11 @@ Modules: `paper_retention.py` · `paper_cache.py` · `papers_gcs.py` · `/api/ca
 
 ## Device / E2E pin
 
-- Live `/api/status`: `version=0.3.60` · `paper_retention=true` · days 90/30/14/3 (post-CD 2026-08-26)
-- pytest `tests/test_paper_retention.py` — 7 passed (extend API mocked index · kill switch · mobile wiring)
-- Phone SM-G986N: APK `0.3.60` sideloaded · library tab loads · **⚠️/연장 UI** — 보관 0건이라 warn 행 미검증 (데이터 있을 때 재확인)
+- Live `/api/status`: `version=0.3.61` · `paper_retention=true` · days 90/30/14/3 (E2E closure re-check 2026-08-26)
+- pytest `tests/test_paper_retention.py` — 7 passed (extend API mocked · kill switch · mobile wiring)
+- Phone SM-G986N: APK `0.3.61` · 보관 탭 로드 OK
+- **⚠️/연장 UI: 해당 없음 (이번 E2E)** — 신규 ingest 직후 `days_until_expiry` ≫ 30 → ⚠️ 버튼 0건 (`content-desc="보관 기한 임박"` 미표시). warn/extend sheet는 만료 30일 이내 데이터로 별도 칩(147 spillover)에서 재확인.
+- **재분석 → TTL 리셋:** 145 E2E closure와 동일 세션에서 재분석 snackbar 성공(간접 확인; expires_at 필드는 UI 미노출)
 - Kill: `ASR_PAPER_RETENTION=0` · revert PR
 
 Do not paste emails, cookies, tokens, or secrets into chat/PR.
