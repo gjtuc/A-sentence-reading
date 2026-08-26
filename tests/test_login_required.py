@@ -53,7 +53,7 @@ def test_public_path_allowlist() -> None:
 def test_status_flag_on(login_gate_on: None) -> None:
     with TestClient(app_mod.app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.59"
+    assert st["version"] == "0.3.60"
     assert st["login_required"] is True
     assert st["mobile_login_required"] is True
 

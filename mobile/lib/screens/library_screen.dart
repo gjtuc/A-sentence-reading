@@ -122,6 +122,60 @@ class _LibraryScreenState extends State<LibraryScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  Future<void> _showRetentionSheet(PaperEntry entry) async {
+    if (!entry.retentionWarn) return;
+    final days = entry.retentionDaysUntilExpiry;
+    final extendDays = entry.retentionExtendDays;
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                '보관 기한',
+                style: Theme.of(ctx).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                days != null
+                    ? '약 $days일 후 이 논문과 노트·연습 기록이 삭제됩니다.'
+                    : '곧 보관 기한이 끝납니다.',
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: entry.retentionCanExtend
+                    ? () => Navigator.pop(ctx, true)
+                    : null,
+                child: Text('$extendDays일 연장'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('닫기'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (ok != true || !mounted) return;
+    final extended = await widget.library.extendRetention(entry);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          extended
+              ? '보관 기한을 $extendDays일 연장했습니다.'
+              : (widget.library.error ?? '연장에 실패했습니다.'),
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadAndResume() async {
     await widget.library.refresh();
     if (!mounted || !widget.auth.isLoggedIn) return;
@@ -494,15 +548,37 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       selected: _selecting && selected,
                       trailing: _selecting
                           ? null
-                          : (lib.opening
-                              ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (e.retentionWarn)
+                                  IconButton(
+                                    icon: Icon(
+                                      Icons.warning_amber_rounded,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .tertiary,
+                                      size: 22,
+                                    ),
+                                    tooltip: '보관 기한 임박',
+                                    onPressed: lib.opening ||
+                                            lib.uploading ||
+                                            _deleting
+                                        ? null
+                                        : () => _showRetentionSheet(e),
                                   ),
-                                )
-                              : const Icon(Icons.drag_handle)),
+                                if (lib.opening)
+                                  const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                else
+                                  const Icon(Icons.drag_handle),
+                              ],
+                            ),
                       onTap: lib.opening || lib.uploading || _deleting
                           ? null
                           : () {

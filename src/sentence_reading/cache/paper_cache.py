@@ -227,6 +227,77 @@ def _delete_paper_dir(cache_id: str) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
+def get_index_entry(cache_id: str) -> dict | None:
+    """Return raw index row for cache_id (local index)."""
+    cid = (cache_id or "").strip()
+    if not cid:
+        return None
+    for entry in _read_index().get("entries") or []:
+        if isinstance(entry, dict) and entry.get("id") == cid:
+            return dict(entry)
+    return None
+
+
+def patch_index_entry(cache_id: str, updates: dict) -> dict | None:
+    """Merge updates into one index row · sync GCS best-effort."""
+    cid = (cache_id or "").strip()
+    if not cid or not isinstance(updates, dict):
+        return None
+    index = _read_index()
+    entries: list = list(index.get("entries") or [])
+    target: dict | None = None
+    for i, entry in enumerate(entries):
+        if isinstance(entry, dict) and entry.get("id") == cid:
+            merged = dict(entry)
+            for key, val in updates.items():
+                if val is None:
+                    merged.pop(key, None)
+                else:
+                    merged[key] = val
+            entries[i] = merged
+            target = merged
+            break
+    if target is None:
+        return None
+    index["entries"] = entries
+    _write_index(index)
+    try:
+        from sentence_reading.llm.papers_gcs import upload_paper_cache
+
+        upload_paper_cache(cid)
+    except Exception:
+        pass
+    return target
+
+
+def purge_expired_papers() -> list[str]:
+    """Lazy TTL purge — returns deleted cache_ids (design/144)."""
+    from sentence_reading.llm.paper_retention import (
+        ensure_entry_retention,
+        is_expired,
+        retention_enabled,
+    )
+
+    if not retention_enabled():
+        return []
+    deleted: list[str] = []
+    to_purge: list[str] = []
+    for entry in _read_index().get("entries") or []:
+        if not isinstance(entry, dict):
+            continue
+        cid = str(entry.get("id") or "").strip()
+        if not cid:
+            continue
+        row = ensure_entry_retention(entry)
+        if row.get("expires_at") != entry.get("expires_at"):
+            patch_index_entry(cid, {"expires_at": row.get("expires_at")})
+        if is_expired(row):
+            to_purge.append(cid)
+    for cid in to_purge:
+        if delete_cached_paper(cache_id=cid) is not None:
+            deleted.append(cid)
+    return deleted
+
 def delete_cached_paper(
     *,
     cache_id: str | None = None,
@@ -330,8 +401,25 @@ def _evict_oldest(entries: list, *, keep: int = _MAX_CACHED_PAPERS) -> list:
     return [e for e in valid if str(e.get("id")) not in drop_ids]
 
 
+def _retention_list_fields(entry: dict) -> dict:
+    from sentence_reading.llm.paper_retention import (
+        ensure_entry_retention,
+        retention_enabled,
+        retention_public,
+    )
+
+    if not retention_enabled():
+        return {"retention": retention_public(entry)}
+    row = ensure_entry_retention(entry)
+    cid = str(entry.get("id") or "").strip()
+    if cid and row.get("expires_at") != entry.get("expires_at"):
+        patch_index_entry(cid, {"expires_at": row.get("expires_at")})
+    out = {"expires_at": row.get("expires_at"), "retention": retention_public(row)}
+    return out
+
+
 def list_cached_papers() -> list[dict]:
-    entries = []
+    entries: list[dict] = []
     for entry in _read_index().get("entries", []):
         if not isinstance(entry, dict):
             continue
@@ -351,6 +439,7 @@ def list_cached_papers() -> list[dict]:
                 "pipeline_version": str(entry.get("pipeline_version") or ""),
                 "stale": str(entry.get("pipeline_version") or "") != PIPELINE_VERSION,
                 "has_source": bool(entry.get("has_source")),
+                **_retention_list_fields(entry),
             }
         )
     entries.sort(key=lambda e: e.get("updated_at") or "", reverse=True)
@@ -711,6 +800,18 @@ def save_paper_session(
         "has_source": has_source,
         "content_hash": ch or None,
     }
+    try:
+        from sentence_reading.llm.paper_retention import (
+            reset_retention_on_save,
+            retention_enabled,
+        )
+
+        if retention_enabled():
+            new_entry.update(reset_retention_on_save())
+            new_entry.pop("reading_grace_from", None)
+            new_entry.pop("last_extended_at", None)
+    except Exception:
+        pass
     entries = [e for e in entries if not (isinstance(e, dict) and e.get("id") == cache_id)]
     entries = [
         e

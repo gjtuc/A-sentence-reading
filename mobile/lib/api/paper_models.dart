@@ -14,6 +14,11 @@ class PaperEntry {
     this.pipelineVersion = '',
     this.stale = false,
     this.hasSource = false,
+    this.expiresAt = '',
+    this.retentionWarn = false,
+    this.retentionCanExtend = false,
+    this.retentionDaysUntilExpiry,
+    this.retentionExtendDays = 14,
   });
 
   /// Tolerant parse — never throws on partial/garbage maps.
@@ -40,7 +45,25 @@ class PaperEntry {
       pipelineVersion: '${json['pipeline_version'] ?? ''}'.trim(),
       stale: json['stale'] == true,
       hasSource: json['has_source'] == true,
+      expiresAt: '${json['expires_at'] ?? ''}'.trim(),
+      retentionWarn: _retentionBool(json['retention'], 'warn'),
+      retentionCanExtend: _retentionBool(json['retention'], 'can_extend'),
+      retentionDaysUntilExpiry: _retentionInt(json['retention'], 'days_until_expiry'),
+      retentionExtendDays: _retentionInt(json['retention'], 'extend_days') ?? 14,
     );
+  }
+
+  static bool _retentionBool(Object? block, String key) {
+    if (block is! Map) return false;
+    return block[key] == true;
+  }
+
+  static int? _retentionInt(Object? block, String key) {
+    if (block is! Map) return null;
+    final v = block[key];
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return int.tryParse('$v');
   }
 
   final String id;
@@ -53,6 +76,11 @@ class PaperEntry {
   final String pipelineVersion;
   final bool stale;
   final bool hasSource;
+  final String expiresAt;
+  final bool retentionWarn;
+  final bool retentionCanExtend;
+  final int? retentionDaysUntilExpiry;
+  final int retentionExtendDays;
 
   bool get isValid => id.isNotEmpty && title.isNotEmpty;
 
@@ -62,6 +90,8 @@ class PaperEntry {
       if (sentenceCount > 0) '문장 $sentenceCount',
       if (figureCount > 0) '그림 $figureCount',
       if (stale) '구버전',
+      if (retentionWarn && retentionDaysUntilExpiry != null)
+        '삭제 ${retentionDaysUntilExpiry!}일 전',
     ];
     return bits.join(' · ');
   }
