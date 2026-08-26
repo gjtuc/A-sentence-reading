@@ -44,13 +44,6 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- Kakao mobile OAuth bounce (design/65 · 146c hyphen scheme). -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="com.gjtuc.sentence-reading" android:host="oauth" android:pathPrefix="/kakao"/>
-            </intent-filter>
             <!-- design/77: email magic-link → app (HTTPS open redirects here). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
@@ -58,13 +51,8 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="com.gjtuc.sentence-reading" android:host="oauth" android:pathPrefix="/magic"/>
             </intent-filter>
-            <!-- design/65: Google Custom Tab GIS → app deep link (no native SHA-1). -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="com.gjtuc.sentence-reading" android:host="oauth" android:pathPrefix="/google"/>
-            </intent-filter>
+            <!-- WHY: Kakao/Google OAuth use flutter_web_auth_2 CallbackActivity only.
+                 Duplicate filters here caused ResolverActivity → PlatformException. -->
         </activity>
         <!-- WHY (146c): flutter_web_auth_2 completes authenticate() via CallbackActivity. -->
         <activity
@@ -76,7 +64,14 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="com.gjtuc.sentence-reading" />
+                <data
+                    android:scheme="com.gjtuc.sentence-reading"
+                    android:host="oauth"
+                    android:pathPrefix="/kakao" />
+                <data
+                    android:scheme="com.gjtuc.sentence-reading"
+                    android:host="oauth"
+                    android:pathPrefix="/google" />
             </intent-filter>
         </activity>
         <!-- Required by Flutter tool — do not remove. -->
