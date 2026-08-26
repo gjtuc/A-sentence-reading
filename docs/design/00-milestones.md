@@ -166,6 +166,7 @@
 - ~~옆 논문 페이지 제거 (첫 논문만 · 경계 실패 시 거절)~~ (0.3.54 · [136-strip-adjacent-articles.md](136-strip-adjacent-articles.md))
 - ~~캡션 덩어리 쪼개기 (다중 라벨 분리 · fail-closed)~~ (0.3.55 · [137-split-caption-lumps.md](137-split-caption-lumps.md))
 - ~~로컬 서버 흔적 제거 (Live+폰만)~~ (0.3.56 · [138-no-local-server-traces.md](138-no-local-server-traces.md))
+- ~~Fig. 점프 칩 정식화 (앱+웹 · 문장 아래)~~ (0.3.57 · [139-fig-ref-chip-formal.md](139-fig-ref-chip-formal.md))
 - **Android Flutter MVP** — 남은 실기 완성도 ([33-mobile-flutter.md](33-mobile-flutter.md); 업로드·게이트 이후)
 
 ### 구현됨 (참고)

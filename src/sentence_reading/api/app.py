@@ -154,7 +154,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.56",
+    version="0.3.57",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -362,6 +362,12 @@ def _split_caption_lumps_enabled() -> bool:
     from sentence_reading.pdf.caption_lumps import split_caption_lumps_enabled
 
     return split_caption_lumps_enabled()
+
+
+def _fig_ref_hints_enabled() -> bool:
+    """design/139 — kill: ASR_FIG_REF_HINTS=0 hides Fig./Scheme/Table chips (app+web)."""
+    v = (os.environ.get("ASR_FIG_REF_HINTS") or "1").strip().lower()
+    return v not in ("0", "false", "off", "no")
 
 
 def _ingest_hang_stall_seconds() -> int:
@@ -642,10 +648,13 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.56",
+        "version": "0.3.57",
         # design/138 — product path is Live+device only (no local uvicorn autostart / hang simul).
         "live_only": True,
         "mobile_live_only": True,
+        # design/139 — formal chip row under sentence; false when ASR_FIG_REF_HINTS=0.
+        "fig_ref_chip_formal": _fig_ref_hints_enabled(),
+        "mobile_fig_ref_chip_formal": _fig_ref_hints_enabled(),
         # design/135 — title-page cover as figure 1; false when ASR_COVER_AS_FIGURE=0.
         "cover_as_figure": _cover_as_figure_enabled(),
         "mobile_cover_as_figure": _cover_as_figure_enabled(),
@@ -720,7 +729,8 @@ def status(request: Request) -> dict:
         "shadowing_practice_loop": shadowing_practice_enabled(),
         "mobile_shadowing_practice_loop": shadowing_practice_enabled(),
         "usage_meter": True,
-        "fig_ref_hints": True,
+        # design/28 · 139 — Fig. chips; kill ASR_FIG_REF_HINTS=0.
+        "fig_ref_hints": _fig_ref_hints_enabled(),
         "cite_ref_open": True,
         "cite_display_clean": True,
         "ko_word_wrap": True,

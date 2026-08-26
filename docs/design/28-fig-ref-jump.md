@@ -23,8 +23,8 @@
 ## UI
 
 문장 프레임 아래 `#figRefHints` — ghost 칩 (웹).  
-앱: 문장 패널 `ActionChip` (design/124).  
-이미 그 그림이면 `is-current` / secondaryContainer.
+앱: 문장 카드 **아래** 전용 줄 · outline 칩 (design/139; 예전 124 본문 안 TextButton 폐기).  
+이미 그 그림이면 `is-current` / outline 강조.
 
 ## 불변
 
@@ -33,4 +33,4 @@
 
 ## 버전
 
-0.2.25 · 앱 칩 0.3.38 (design/124)
+0.2.25 · 앱 칩 배선 0.3.38 (design/124) · **정식화 0.3.57** ([139-fig-ref-chip-formal.md](139-fig-ref-chip-formal.md))

@@ -26,13 +26,13 @@ Modules: `paper_cache.py` · `fig_refs` (py/js/dart) · `reader_screen.dart` · 
 ## 재현 메모 (실기)
 
 - Effect of metal: carousel `figure N / 3`, 캡션·이미지 표시됨  
-- 앱: **Fig. 칩 없음** (`HAS_FIG_CHIP False`) — 웹은 design/28 칩 있음  
-- 캐시 load가 PNG 없으면 figure **행 자체 삭제** → 목록에서 “실종” (정직하지 않음)
+- 앱 Fig. 칩: design/124에서 배선 · **UI 정식화는 design/139** (문장 카드 아래 outline)  
+- 캐시 load가 PNG 없으면 figure **행 자체 삭제** → 목록에서 “실종” (정직하지 않음) — 124에서 유지 슬롯으로 고침
 
 ## Kill / rollback
 
 - Revert PR / 이전 APK  
-- 칩 UI: status `fig_ref_hints` false면 앱도 칩 숨김 (서버 기존 플래그)
+- 칩 UI: status `fig_ref_hints` false면 앱도 칩 숨김 (서버 기존 플래그 · design/139 `ASR_FIG_REF_HINTS=0`)
 
 ## Live Enable / IPS
 
