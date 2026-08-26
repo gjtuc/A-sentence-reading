@@ -154,7 +154,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.57",
+    version="0.3.58",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -368,6 +368,12 @@ def _fig_ref_hints_enabled() -> bool:
     """design/139 — kill: ASR_FIG_REF_HINTS=0 hides Fig./Scheme/Table chips (app+web)."""
     v = (os.environ.get("ASR_FIG_REF_HINTS") or "1").strip().lower()
     return v not in ("0", "false", "off", "no")
+
+
+def _sentence_notes_keyboard_enabled() -> bool:
+    """design/142 — keyboard 듣고 적기 notes; default OFF. ASR_SENTENCE_NOTES_KEYBOARD=1 restores."""
+    v = (os.environ.get("ASR_SENTENCE_NOTES_KEYBOARD") or "0").strip().lower()
+    return v in ("1", "true", "on", "yes")
 
 
 def _ingest_hang_stall_seconds() -> int:
@@ -648,10 +654,13 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.57",
+        "version": "0.3.58",
         # design/138 — product path is Live+device only (no local uvicorn autostart / hang simul).
         "live_only": True,
         "mobile_live_only": True,
+        # design/142 — keyboard sentence notes default off; shadowing/recording practice stays.
+        "sentence_notes_keyboard": _sentence_notes_keyboard_enabled(),
+        "mobile_sentence_notes_keyboard": False,
         # design/139 — formal chip row under sentence; false when ASR_FIG_REF_HINTS=0.
         "fig_ref_chip_formal": _fig_ref_hints_enabled(),
         "mobile_fig_ref_chip_formal": _fig_ref_hints_enabled(),

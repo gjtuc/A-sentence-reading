@@ -44,7 +44,7 @@ PC **웹**은 유지하고, 휴대폰용 **네이티브 앱**을 새로 둔다.
 4. **TTS** — `POST /api/tts` (서버 합성 · 앱은 재생·배속 UI만)
 
 후속(설계만, MVP 밖 → **[140](140-mobile-mvp-backlog-split.md)** 으로 쪼갬):  
-노트([141](141-mobile-sentence-notes.md)) · 리비전 · 계정 연결 UI · 재분석 · 사용량.  
+~~노트([141](141-mobile-sentence-notes.md))~~ · ~~웹 키보드 노트~~ ([142](142-no-keyboard-sentence-notes.md)) · 리비전(보류) · 재분석 · 계정 연결 UI · 사용량.  
 ~~Fig 점프 칩~~ (0.3.57 · [139](139-fig-ref-chip-formal.md)).  
 ~~복합 그림 세부~~ · DOCX 옆논문 — **하지 않음** (사용자 삭제).
 
