@@ -43,7 +43,11 @@ PC **웹**은 유지하고, 휴대폰용 **네이티브 앱**을 새로 둔다.
 3. **읽기** — 한 문장 · 그림 패널 · ←/→ 문장 · 그림 독립 이동
 4. **TTS** — `POST /api/tts` (서버 합성 · 앱은 재생·배속 UI만)
 
-후속(설계만, MVP 밖): 노트·리비전·계정 연결 UI·재분석·Fig 점프 칩·복합 그림 세부·사용량.
+후속(설계만, MVP 밖 → **[140](140-mobile-mvp-backlog-split.md)** 으로 쪼갬):  
+노트([141](141-mobile-sentence-notes.md)) · 리비전 · 계정 연결 UI · 재분석 · 사용량.  
+~~Fig 점프 칩~~ (0.3.57 · [139](139-fig-ref-chip-formal.md)).  
+~~복합 그림 세부~~ · DOCX 옆논문 — **하지 않음** (사용자 삭제).
+
 
 ## API 재사용
 
@@ -110,7 +114,8 @@ PC **웹**은 유지하고, 휴대폰용 **네이티브 앱**을 새로 둔다.
 - [x] 이메일 로그인·세션 쿠키 (0.2.82 · [61](61-mobile-email-auth.md)) — 수단 1/3
 - [x] Google·카카오 앱 로그인 배선 (0.2.82 · [65](65-mobile-oauth.md)) — 수단 3/3
 - [x] 액세스 게이트 OTP·Allow/Deny (0.2.82 · [67](67-access-gate.md))
-- [ ] APK를 실기에 설치해 Cloud Run에 로그인 확인 — Android SDK 있는 환경
+- [x] APK를 실기에 설치해 Cloud Run에 로그인 확인 — 다수 칩 Device pin (0.2.86+ · Live+폰; design/140)
+
 - [x] 보관 목록에서 논문 열고 문장·그림 독립 이동 (0.2.70–0.2.71 · [62](62-mobile-library.md)·[63](63-mobile-reader.md))
 - [x] 현재 문장 TTS 재생 (0.2.82 · [64](64-mobile-tts.md))
 - [x] 테마 3종 전환 유지(재실행 후) (0.2.82 · [66](66-mobile-theme.md))
