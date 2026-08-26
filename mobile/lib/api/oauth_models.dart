@@ -4,8 +4,11 @@
 /// without Google Play / Custom Tabs.
 library;
 
-/// Android custom scheme (must match AndroidManifest + server deep link).
-const String kMobileOAuthScheme = 'com.gjtuc.sentence_reading';
+/// Android OAuth URI scheme (must match AndroidManifest + server deep link).
+///
+/// WHY (146c): flutter_web_auth_2 v4 allows `[a-z\d+.-]` only — no underscore.
+/// applicationId remains `com.gjtuc.sentence_reading`.
+const String kMobileOAuthScheme = 'com.gjtuc.sentence-reading';
 
 /// Full deep-link prefix used by the server (host oauth, path /kakao).
 const String kMobileKakaoDeepLink = '$kMobileOAuthScheme://oauth/kakao';

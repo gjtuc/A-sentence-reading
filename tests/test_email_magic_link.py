@@ -75,7 +75,7 @@ def test_open_redirect_sets_session_and_gate_not_auto_allow(
 
     client = TestClient(app_mod.app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.63"
+    assert st["version"] == "0.3.64"
     assert st["mobile_email_magic_link"] is True
     assert st.get("web_email_magic_link_only") is True
 
@@ -130,7 +130,7 @@ def test_open_mobile_deep_link(
     )
     assert r.status_code == 302
     loc = r.headers.get("location") or ""
-    assert loc.startswith("com.gjtuc.sentence_reading://oauth/magic?")
+    assert loc.startswith("com.gjtuc.sentence-reading://oauth/magic?")
     assert "asr_session=" in loc
     from urllib.parse import parse_qs
 

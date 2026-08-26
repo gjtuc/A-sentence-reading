@@ -25,6 +25,7 @@ def test_split_docs_exist_and_lock_next() -> None:
     assert "142" in t140
     assert "재분석" in t140
     assert "146a" in t140
+    assert "146c" in t140 or "카카오" in t140
     assert "계정 연결" in t140 or "계정 연결/해제" in t140
 
     assert D141.is_file()

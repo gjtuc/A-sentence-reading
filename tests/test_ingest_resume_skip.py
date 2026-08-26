@@ -81,7 +81,7 @@ def _uid(client: TestClient) -> str:
 
 def test_status_resume_skip_flag(fake_gcs, auth_root):
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.63"
+    assert st["version"] == "0.3.64"
     assert st["ingest_resume_skip"] is True
     assert st["ingest_checkpoint"] is True
 
@@ -102,7 +102,7 @@ def test_design_112_exists():
 
 
 def test_pubspec_pin():
-    assert "0.3.63" in PUB.read_text(encoding="utf-8")
+    assert "0.3.64" in PUB.read_text(encoding="utf-8")
 
 
 def test_payload_owner_isolation(fake_gcs, auth_root):

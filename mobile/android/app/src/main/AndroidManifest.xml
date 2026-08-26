@@ -44,26 +44,39 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- Kakao mobile OAuth bounce (design/65). HTTPS callback stays on Cloud Run. -->
+            <!-- Kakao mobile OAuth bounce (design/65 · 146c hyphen scheme). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="com.gjtuc.sentence_reading" android:host="oauth" android:pathPrefix="/kakao"/>
+                <data android:scheme="com.gjtuc.sentence-reading" android:host="oauth" android:pathPrefix="/kakao"/>
             </intent-filter>
             <!-- design/77: email magic-link → app (HTTPS open redirects here). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="com.gjtuc.sentence_reading" android:host="oauth" android:pathPrefix="/magic"/>
+                <data android:scheme="com.gjtuc.sentence-reading" android:host="oauth" android:pathPrefix="/magic"/>
             </intent-filter>
             <!-- design/65: Google Custom Tab GIS → app deep link (no native SHA-1). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="com.gjtuc.sentence_reading" android:host="oauth" android:pathPrefix="/google"/>
+                <data android:scheme="com.gjtuc.sentence-reading" android:host="oauth" android:pathPrefix="/google"/>
+            </intent-filter>
+        </activity>
+        <!-- WHY (146c): flutter_web_auth_2 completes authenticate() via CallbackActivity. -->
+        <activity
+            android:name="com.linusu.flutter_web_auth_2.CallbackActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="">
+            <intent-filter android:label="flutter_web_auth_2">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.gjtuc.sentence-reading" />
             </intent-filter>
         </activity>
         <!-- Required by Flutter tool — do not remove. -->
@@ -77,6 +90,10 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <!-- WHY (146c): package visibility for Custom Tabs (flutter_web_auth_2). -->
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

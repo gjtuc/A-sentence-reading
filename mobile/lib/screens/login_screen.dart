@@ -55,11 +55,16 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _kakao() async {
     try {
       await widget.auth.loginKakao();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('카카오 로그인되었습니다.')),
-        );
+      if (!mounted) return;
+      // WHY: never show success unless session user is present (fail-closed).
+      if (widget.auth.user == null) {
+        final msg = widget.auth.error ?? '카카오 로그인에 실패했습니다.';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        return;
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('카카오 로그인되었습니다.')),
+      );
     } on AsrApiException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));

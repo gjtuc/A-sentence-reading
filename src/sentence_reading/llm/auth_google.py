@@ -233,11 +233,13 @@ def verify_google_id_token(credential: str) -> AuthUser:
 
 # Flutter Android custom scheme (design/33 · design/65). Not a Kakao console URI —
 # Kakao still redirects to HTTPS /api/auth/kakao/callback; we then bounce into the app.
-MOBILE_OAUTH_SCHEME = "com.gjtuc.sentence_reading"
-MOBILE_KAKAO_DEEP_LINK = "com.gjtuc.sentence_reading://oauth/kakao"
-MOBILE_MAGIC_DEEP_LINK = "com.gjtuc.sentence_reading://oauth/magic"
+# WHY (146c): flutter_web_auth_2 v4 rejects underscore in scheme; hyphen only.
+# applicationId stays com.gjtuc.sentence_reading — this is the URI scheme only.
+MOBILE_OAUTH_SCHEME = "com.gjtuc.sentence-reading"
+MOBILE_KAKAO_DEEP_LINK = f"{MOBILE_OAUTH_SCHEME}://oauth/kakao"
+MOBILE_MAGIC_DEEP_LINK = f"{MOBILE_OAUTH_SCHEME}://oauth/magic"
 # design/65 — Custom Tab GIS bounce (avoids Android SHA-1 / google_sign_in DEVELOPER_ERROR).
-MOBILE_GOOGLE_DEEP_LINK = "com.gjtuc.sentence_reading://oauth/google"
+MOBILE_GOOGLE_DEEP_LINK = f"{MOBILE_OAUTH_SCHEME}://oauth/google"
 
 
 def mobile_kakao_deep_link(*, session: str = "", auth: str = "", error: str = "") -> str:

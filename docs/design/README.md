@@ -137,6 +137,7 @@
 | 144 | [144-paper-retention-ttl.md](144-paper-retention-ttl.md) | 보관 TTL · ⚠️ · 연장 · purge |
 | 145 | [145-mobile-library-reanalyze.md](145-mobile-library-reanalyze.md) | 보관 재분석 앱 UI |
 | 146a | [146a-mobile-account-link.md](146a-mobile-account-link.md) | 앱 계정 연결/해제 (Settings) |
+| 146c | [146c-mobile-kakao-oauth-scheme.md](146c-mobile-kakao-oauth-scheme.md) | 카카오 OAuth scheme (flutter_web_auth_2) |
 | 146b | [146b-account-warehouse-merge.md](146b-account-warehouse-merge.md) | 계정 창고 병합 (**후보**) |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
@@ -264,6 +265,7 @@
 145 — 보관 재분석 앱 UI · translate 설정 연동 (0.3.61).
 146 — 보관 연장 +90일 (0.3.62 · design/144 tweak).
 146a — 앱 계정 연결/해제 · Settings (0.3.63).
+146c — 카카오 OAuth scheme hyphen fix (0.3.64).
 146b — 계정 창고 병합 (후보 · 미구현).
 140 — Flutter MVP 백로그 쪼개기 · next=141 노트 (docs).
 141 — 모바일 문장 노트 설계 잠금 (구현 전).
