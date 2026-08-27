@@ -7,6 +7,8 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'cite_refs.dart';
+
 /// One sentence row from the session payload.
 class SentenceView {
   SentenceView({
@@ -104,6 +106,7 @@ class ReadingSession {
     this.sentenceIndex = 0,
     this.figureIndex = 0,
     this.warnings = const [],
+    this.references = const [],
   }) {
     clampIndices();
   }
@@ -158,6 +161,7 @@ class ReadingSession {
       sentenceIndex: asInt(json['sentence_index']),
       figureIndex: asInt(json['figure_index']),
       warnings: warnings,
+      references: parseReferenceList(json['references']),
     );
   }
 
@@ -169,6 +173,8 @@ class ReadingSession {
   int sentenceIndex;
   int figureIndex;
   final List<String> warnings;
+  /// design/148 — bibliography rows from ingest (cite panel).
+  final List<CiteRefEntry> references;
 
   bool get isValid => sessionId.isNotEmpty;
 

@@ -64,6 +64,12 @@ class AsrStatus {
     // design/134 — missing → on; explicit false skips upload hang watchdog.
     this.mobileIngestUploadHang = true,
     this.ingestHangStallSeconds = 180,
+    // design/148 — missing key → on; explicit false kills mobile cite panel.
+    this.mobileCiteRefPanel = true,
+    this.citeRefOpen = true,
+    // design/149 — missing key → on; caption in composite PNG, hide under-image Text.
+    this.figureCaptionInImage = true,
+    this.mobileFigureCaptionInImage = true,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -160,6 +166,21 @@ class AsrStatus {
         final p = int.tryParse('$raw');
         return (p ?? 180).clamp(5, 3600);
       }(),
+      // design/148 — missing → on; explicit false kills panel.
+      mobileCiteRefPanel: json.containsKey('mobile_cite_ref_panel')
+          ? json['mobile_cite_ref_panel'] == true
+          : true,
+      citeRefOpen: json.containsKey('cite_ref_open')
+          ? json['cite_ref_open'] == true
+          : true,
+      figureCaptionInImage: json.containsKey('figure_caption_in_image')
+          ? json['figure_caption_in_image'] == true
+          : true,
+      mobileFigureCaptionInImage: json.containsKey('mobile_figure_caption_in_image')
+          ? json['mobile_figure_caption_in_image'] == true
+          : (json.containsKey('figure_caption_in_image')
+              ? json['figure_caption_in_image'] == true
+              : true),
     );
   }
 
@@ -197,6 +218,45 @@ class AsrStatus {
   // design/134 — upload/ingest no-progress hang.
   final bool mobileIngestUploadHang;
   final int ingestHangStallSeconds;
+  // design/148 — mobile References panel kill switch.
+  final bool mobileCiteRefPanel;
+  final bool citeRefOpen;
+  // design/149 — composite PNG; hide under-image caption when true.
+  final bool figureCaptionInImage;
+  final bool mobileFigureCaptionInImage;
+}
+
+/// `/api/cite/resolve` result (design/41 · 148).
+class CiteResolveResult {
+  CiteResolveResult({
+    required this.ok,
+    this.url = '',
+    this.source = '',
+    this.doi = '',
+    this.title = '',
+    this.error = '',
+    this.message = '',
+  });
+
+  factory CiteResolveResult.fromJson(Map<String, dynamic> json) {
+    return CiteResolveResult(
+      ok: json['ok'] == true,
+      url: '${json['url'] ?? ''}'.trim(),
+      source: '${json['source'] ?? ''}'.trim(),
+      doi: '${json['doi'] ?? ''}'.trim(),
+      title: '${json['title'] ?? ''}'.trim(),
+      error: '${json['error'] ?? ''}'.trim(),
+      message: '${json['message'] ?? ''}'.trim(),
+    );
+  }
+
+  final bool ok;
+  final String url;
+  final String source;
+  final String doi;
+  final String title;
+  final String error;
+  final String message;
 }
 
 class AsrClient {
@@ -1393,6 +1453,19 @@ class AsrClient {
     } finally {
       await _sessions.clear();
     }
+  }
+
+  /// design/41 · 148 — bibliography row → publisher / Crossref / Scholar URL.
+  Future<CiteResolveResult> resolveCite(String text) async {
+    final res = await _http
+        .post(
+          _uri('/api/cite/resolve'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({'text': text}),
+        )
+        .timeout(const Duration(seconds: 25));
+    final map = _decodeObject(res, 'cite/resolve');
+    return CiteResolveResult.fromJson(map);
   }
 
   void close() => _http.close();

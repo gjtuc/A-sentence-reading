@@ -1,0 +1,15 @@
+# gcloud run deploy --source (Windows: skip locked/heavy paths)
+.git/
+.github/
+.pytest_cache/
+__pycache__/
+*.pyc
+venv/
+.venv/
+mobile/
+canvases/
+logs/
+.tmp_*
+*.png
+agent-transcripts/
+.cursor/

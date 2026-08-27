@@ -25,7 +25,7 @@ def _clear_cache() -> None:
 
 def test_status_ingest_translate_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.67"
+    assert st["version"] == "0.3.70"
     assert st["translate_ingest_sections"] is True
     assert st["translate_side_by_side"] is True
 
@@ -57,8 +57,8 @@ def test_ui_prefers_cached_ko() -> None:
     )
     assert "section-review-digest" in css
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.67" in served
-    assert "styles.css?v=0.3.67" in served
+    assert "app.js?v=0.3.70" in served
+    assert "styles.css?v=0.3.70" in served
 
 
 def test_public_dict_includes_ko_and_digests() -> None:

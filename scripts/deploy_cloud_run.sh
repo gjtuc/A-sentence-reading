@@ -92,6 +92,16 @@ trap cleanup EXIT
     echo "Kakao: set BOTH ASR_KAKAO_REST_API_KEY and ASR_KAKAO_CLIENT_SECRET (client secret is ON in console)." >&2
     exit 2
   fi
+  AZURE_DI_ENDPOINT="${AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT:-}"
+  AZURE_DI_KEY="${AZURE_DOCUMENT_INTELLIGENCE_KEY:-}"
+  if [[ -n "$AZURE_DI_ENDPOINT" && -n "$AZURE_DI_KEY" ]]; then
+    echo "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT: \"${AZURE_DI_ENDPOINT}\""
+    echo "AZURE_DOCUMENT_INTELLIGENCE_KEY: \"${AZURE_DI_KEY}\""
+    echo "ASR_AZURE_LAYOUT: \"${ASR_AZURE_LAYOUT:-1}\""
+  elif [[ -n "$AZURE_DI_ENDPOINT" || -n "$AZURE_DI_KEY" ]]; then
+    echo "Azure DI: set BOTH AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT and AZURE_DOCUMENT_INTELLIGENCE_KEY (or neither)." >&2
+    exit 2
+  fi
   # design/86 — optional SMTP for magic-link mail. host+from required together.
   SMTP_HOST="${ASR_SMTP_HOST:-}"
   SMTP_FROM="${ASR_SMTP_FROM:-}"

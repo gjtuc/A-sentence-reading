@@ -1,7 +1,7 @@
 name: sentence_reading
 description: Android Flutter client for A-sentence-reading Cloud Run API
 publish_to: "none"
-version: 0.3.67+1
+version: 0.3.70+1
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -20,6 +20,7 @@ dependencies:
   # WHY (design/71): content_hash match for same-file resume + local draft PDF path.
   crypto: ^3.0.6
   path_provider: ^2.1.5
+  url_launcher: ^6.3.1
 
 dev_dependencies:
   flutter_test:

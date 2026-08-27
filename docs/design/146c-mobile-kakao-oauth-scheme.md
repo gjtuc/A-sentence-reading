@@ -33,6 +33,8 @@ Modules: `oauth_models.dart` · `auth_google.py` · `AndroidManifest.xml` · `Ca
 
 ## Version
 
+**0.3.68** (design/147 Azure Document Intelligence layout extract · pipeline rich-v16)
+
 **0.3.66** (0.3.65 + OAuth CallbackActivity resolver fix)
 
 ## Device / E2E pin

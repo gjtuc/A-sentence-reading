@@ -91,7 +91,7 @@ from sentence_reading.llm.auth_kakao import (
     kakao_enabled,
 )
 from sentence_reading.llm.debone import DeboneResult, debone_sentences
-from sentence_reading.llm.env import gemini_available, load_asr_env
+from sentence_reading.llm.env import azure_document_intelligence_available, gemini_available, load_asr_env
 from sentence_reading.llm.translate_section import translate_worker_count
 from sentence_reading.llm.richtext import plain_text
 from sentence_reading.llm.gcs_sync import gcs_status
@@ -157,7 +157,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.67",
+    version="0.3.70",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -370,6 +370,18 @@ def _split_caption_lumps_enabled() -> bool:
 def _fig_ref_hints_enabled() -> bool:
     """design/139 — kill: ASR_FIG_REF_HINTS=0 hides Fig./Scheme/Table chips (app+web)."""
     v = (os.environ.get("ASR_FIG_REF_HINTS") or "1").strip().lower()
+    return v not in ("0", "false", "off", "no")
+
+
+def _mobile_cite_ref_panel_enabled() -> bool:
+    """design/148 — kill: ASR_MOBILE_CITE_REF_PANEL=0 hides mobile References panel."""
+    v = (os.environ.get("ASR_MOBILE_CITE_REF_PANEL") or "1").strip().lower()
+    return v not in ("0", "false", "off", "no")
+
+
+def _figure_caption_in_image_enabled() -> bool:
+    """design/149 — kill: ASR_FIGURE_CAPTION_IN_IMAGE=0 shows under-image caption Text."""
+    v = (os.environ.get("ASR_FIGURE_CAPTION_IN_IMAGE") or "1").strip().lower()
     return v not in ("0", "false", "off", "no")
 
 
@@ -752,7 +764,11 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.67",
+        "version": "0.3.70",
+        # design/147 — Azure prebuilt-layout figures/tables when env configured.
+        "azure_layout": azure_document_intelligence_available(),
+        "azure_layout_enabled": (os.environ.get("ASR_AZURE_LAYOUT") or "1").strip().lower()
+        not in ("0", "false", "off", "no"),
         # design/138 — product path is Live+device only (no local uvicorn autostart / hang simul).
         "live_only": True,
         "mobile_live_only": True,
@@ -841,6 +857,11 @@ def status(request: Request) -> dict:
         "fig_ref_hints": _fig_ref_hints_enabled(),
         "cite_ref_open": True,
         "cite_display_clean": True,
+        # design/148 — mobile References panel below Fig chips.
+        "mobile_cite_ref_panel": _mobile_cite_ref_panel_enabled(),
+        # design/149 — caption baked into figure PNG; hide under-image caption Text.
+        "figure_caption_in_image": _figure_caption_in_image_enabled(),
+        "mobile_figure_caption_in_image": _figure_caption_in_image_enabled(),
         "ko_word_wrap": True,
         "section_review_flow": True,
         "section_review_voice_seq": True,

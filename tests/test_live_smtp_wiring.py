@@ -26,7 +26,7 @@ def test_status_exposes_smtp_bool_without_secrets(monkeypatch: pytest.MonkeyPatc
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.67"
+    assert st["version"] == "0.3.70"
     assert st.get("email_smtp_configured") is False
     # SECURITY: never leak connection details on status.
     blob = str(st)

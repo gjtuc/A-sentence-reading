@@ -65,6 +65,24 @@ def gemini_available() -> bool:
     return gemini_api_key() is not None
 
 
+def azure_document_intelligence_endpoint() -> str | None:
+    load_asr_env()
+    raw = (os.environ.get("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT") or "").strip().rstrip("/")
+    return raw or None
+
+
+def azure_document_intelligence_key() -> str | None:
+    load_asr_env()
+    key = (os.environ.get("AZURE_DOCUMENT_INTELLIGENCE_KEY") or "").strip()
+    return key or None
+
+
+def azure_document_intelligence_available() -> bool:
+    return bool(
+        azure_document_intelligence_endpoint() and azure_document_intelligence_key()
+    )
+
+
 def tts_credentials_available() -> bool:
     """Cloud Text-to-Speech 자격 — JSON 경로 또는 Cloud Run ADC."""
     load_asr_env()

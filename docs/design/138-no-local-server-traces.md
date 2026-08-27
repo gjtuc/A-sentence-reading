@@ -36,11 +36,11 @@ Modules: `autostart.py` · `setup.py` · `README` · Flutter `config`/`settings`
 
 ## Version
 
-**0.3.56** · pipeline **rich-v15** (추출 변경 없음)
+**0.3.56** · pipeline **rich-v16** (추출 변경 없음)
 
 ## Device / E2E pin
 
-- Live `/api/status` (post-CD): `version=0.3.56` · `pipeline_version=rich-v15` · `live_only=true` · `mobile_live_only=true`
+- Live `/api/status` (post-CD): `version=0.3.56` · `pipeline_version=rich-v16` · `live_only=true` · `mobile_live_only=true`
 - SM-G986N APK **0.3.56** installed (`versionName=0.3.56`)
   - Settings: **업로드 hang 시뮬 (로컬)** absent · no `8789` / `127.0.0.1` on UI
   - Library tab against Live: **보관 7건** (cloud list loads)

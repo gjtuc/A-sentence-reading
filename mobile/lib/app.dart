@@ -6,6 +6,7 @@ import 'screens/home_shell.dart';
 import 'services/error_reporter.dart';
 import 'state/auth_controller.dart';
 import 'state/library_controller.dart';
+import 'state/cite_panel_controller.dart';
 import 'state/shadowing_controller.dart';
 import 'state/theme_controller.dart';
 import 'state/translate_controller.dart';
@@ -21,6 +22,7 @@ class SentenceReadingApp extends StatefulWidget {
     this.theme,
     this.shadowing,
     this.translate,
+    this.citePanel,
   });
 
   /// Optional inject for tests (memory session / fake client).
@@ -30,6 +32,7 @@ class SentenceReadingApp extends StatefulWidget {
   final ThemeController? theme;
   final ShadowingController? shadowing;
   final TranslateController? translate;
+  final CitePanelController? citePanel;
 
   @override
   State<SentenceReadingApp> createState() => _SentenceReadingAppState();
@@ -46,6 +49,8 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       widget.shadowing ?? ShadowingController();
   late final TranslateController _translate =
       widget.translate ?? TranslateController();
+  late final CitePanelController _citePanel =
+      widget.citePanel ?? CitePanelController();
 
   /// design/133 — last uid that owned in-memory library; null after logout wipe.
   String? _boundLibraryUid;
@@ -71,6 +76,8 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       _shadowing.clearSession();
       _shadowing.setServerAvailable(false);
       _translate.clearSession();
+      _citePanel.clearSession();
+      _citePanel.setServerAvailable(false);
       // design/133 — AccessWaiting-only shell never mounts LibraryScreen, so
       // screen-local clearAll never runs. Wipe at app root so the next account
       // cannot see papers / resume another user's upload draft.
@@ -86,9 +93,11 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     _boundLibraryUid = uid;
     await _shadowing.bindUid(uid);
     await _translate.bindUid(uid);
+    await _citePanel.bindUid(uid);
     try {
       final st = await _auth.client.fetchStatus();
       _shadowing.setServerAvailable(st.mobileShadowingPractice);
+      _citePanel.setServerAvailable(st.mobileCiteRefPanel);
       asrErrorReporter?.setEnabled(
         st.cloudErrorLogs && st.mobileCloudErrorLogs,
       );
@@ -142,6 +151,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
             theme: _theme,
             shadowing: _shadowing,
             translate: _translate,
+            citePanel: _citePanel,
           ),
         );
       },

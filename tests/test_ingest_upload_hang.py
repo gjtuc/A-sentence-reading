@@ -23,7 +23,7 @@ PUB = ROOT / "mobile" / "pubspec.yaml"
 
 def test_status_hang_flags_and_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.67"
+    assert st["version"] == "0.3.70"
     assert st["ingest_upload_hang"] is True
     assert st["mobile_ingest_upload_hang"] is True
     assert st["ingest_hang_stall_seconds"] == 180
@@ -76,7 +76,7 @@ def test_design_and_clients_pin() -> None:
     assert "noteIngestHangProgress" in js
     assert "onIngestHang" in js
     assert "__asrHangE2E" not in js
-    assert "0.3.67" in PUB.read_text(encoding="utf-8")
+    assert "0.3.70" in PUB.read_text(encoding="utf-8")
     assert "network_security_config" in (
         ROOT / "mobile/android/app/src/main/AndroidManifest.xml"
     ).read_text(encoding="utf-8")
@@ -94,4 +94,4 @@ def test_logout_test_expects_current_app_version() -> None:
 
     st = TestClient(live_app).get("/api/status").json()
     assert st["logout_session_isolation"] is True
-    assert st["version"] == "0.3.67"
+    assert st["version"] == "0.3.70"

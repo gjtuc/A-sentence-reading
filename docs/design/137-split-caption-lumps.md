@@ -12,7 +12,7 @@ Modules: `pdf/caption_lumps.py` · `pdf/extract.py` (`_labeled_caption_hits`) ·
 |------|--------|
 | 같은 줄 다중 `Fig./Table/Scheme` 분리 | compound 1a/1b 패널 분해 ([44](44-compound-off.md)) |
 | 추출 후 덩어리 잔존 검사 → ingest 실패 | DOCX · 로컬 서버 흔적 제거 |
-| 킬 `ASR_SPLIT_CAPTION_LUMPS=0` · pipeline `rich-v15` | APK 자체 업데이트 (이번 칩: 빌드·설치만) |
+| 킬 `ASR_SPLIT_CAPTION_LUMPS=0` · pipeline `rich-v16` | APK 자체 업데이트 (이번 칩: 빌드·설치만) |
 | APK **0.3.55** 빌드·실기 설치 | Live Enable / IPS |
 
 ## Product (locked)
@@ -34,11 +34,11 @@ Modules: `pdf/caption_lumps.py` · `pdf/extract.py` (`_labeled_caption_hits`) ·
 
 ## Version
 
-**0.3.55** · pipeline **rich-v15**
+**0.3.55** · pipeline **rich-v16**
 
 ## Device / E2E pin
 
-- Live `/api/status`: `version=0.3.55` · `pipeline_version=rich-v15` · `split_caption_lumps=true` · `mobile_split_caption_lumps=true`
+- Live `/api/status`: `version=0.3.55` · `pipeline_version=rich-v16` · `split_caption_lumps=true` · `mobile_split_caption_lumps=true`
 - SM-G986N APK **0.3.55** → Live: upload `synthetic_lumped_alpha_beta_nickel_catalysts_drm.pdf` (built from `testdata/caption_lumps/synthetic_lumped_two_figs.pdf`)
   - **WHY long filename/title:** library save needs `normalize_title_key` ≥ 24 (design/108); short adb stems like `zzz_asr_lump137` fail with「제목이 너무 짧…」
   - 보관 **7→8** · entry **Synthetic Paper Alpha: Nickel Catalysts for DRM — Lumped Fig Captions**
