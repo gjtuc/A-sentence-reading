@@ -112,7 +112,7 @@ def test_status_reports_azure_layout(monkeypatch: pytest.MonkeyPatch) -> None:
     st = TestClient(app).get("/api/status").json()
     assert st["azure_layout"] is False
     assert st["azure_layout_enabled"] is True
-    assert st["pipeline_version"] == PIPELINE_VERSION == "rich-v17"
+    assert st["pipeline_version"] == PIPELINE_VERSION == "rich-v18"
 
     monkeypatch.setenv(
         "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT",
@@ -208,7 +208,7 @@ def test_status_figure_caption_in_image(monkeypatch: pytest.MonkeyPatch) -> None
     from sentence_reading.api import app as app_mod
 
     st = TestClient(app_mod.app).get("/api/status").json()
-    assert st["version"] == "0.3.70"
+    assert st["version"] == "0.3.71"
     assert st["figure_caption_in_image"] is True
     assert st["mobile_figure_caption_in_image"] is True
 

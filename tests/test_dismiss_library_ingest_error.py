@@ -18,7 +18,7 @@ PUB = ROOT / "mobile" / "pubspec.yaml"
 
 def test_status_version_pin() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.70"
+    assert st["version"] == "0.3.71"
 
 
 def test_design_109_exists() -> None:
@@ -52,4 +52,4 @@ def test_library_screen_has_dismiss_button() -> None:
 
 
 def test_pubspec_version() -> None:
-    assert "0.3.70" in PUB.read_text(encoding="utf-8")
+    assert "0.3.71" in PUB.read_text(encoding="utf-8")

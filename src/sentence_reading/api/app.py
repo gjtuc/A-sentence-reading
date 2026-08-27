@@ -157,7 +157,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.70",
+    version="0.3.71",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -764,7 +764,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.70",
+        "version": "0.3.71",
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
         "azure_layout": azure_document_intelligence_available(),
         "azure_layout_enabled": (os.environ.get("ASR_AZURE_LAYOUT") or "1").strip().lower()

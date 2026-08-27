@@ -55,7 +55,7 @@ def _register(client: TestClient, email: str, name: str = "U") -> None:
 
 def test_status_flag_and_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.70"
+    assert st["version"] == "0.3.71"
     assert st["ingest_cancel"] is True
     assert st["mobile_ingest_cancel"] is True
 
@@ -187,7 +187,7 @@ def test_design_and_clients_pin() -> None:
     assert "design/132" in CTRL.read_text(encoding="utf-8")
     assert "cancelUpload" in CTRL.read_text(encoding="utf-8")
     assert "취소" in SCREEN.read_text(encoding="utf-8")
-    assert "0.3.70" in PUB.read_text(encoding="utf-8")
+    assert "0.3.71" in PUB.read_text(encoding="utf-8")
     js = APP_JS.read_text(encoding="utf-8")
     assert "requestIngestCancel" in js
     assert "uploadCancelBtn" in INDEX.read_text(encoding="utf-8")

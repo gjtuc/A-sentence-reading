@@ -45,7 +45,7 @@ def _register(client: TestClient, email: str) -> None:
 
 def test_status_version_pin(auth_root):
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.70"
+    assert st["version"] == "0.3.71"
 
 
 def test_design_111_exists():
@@ -56,7 +56,7 @@ def test_design_111_exists():
 
 
 def test_pubspec_pin():
-    assert "0.3.70" in PUB.read_text(encoding="utf-8")
+    assert "0.3.71" in PUB.read_text(encoding="utf-8")
 
 
 def test_want_chunks_assignment_not_inside_comment():
