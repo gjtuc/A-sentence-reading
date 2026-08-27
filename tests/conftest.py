@@ -24,3 +24,6 @@ def _isolate_asr_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ASR_GOOGLE_CLIENT_ID", raising=False)
     monkeypatch.delenv("ASR_KAKAO_REST_API_KEY", raising=False)
     monkeypatch.delenv("ASR_GCS_BUCKET", raising=False)
+    monkeypatch.setenv("ASR_AZURE_LAYOUT", "0")
+    monkeypatch.delenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", raising=False)
+    monkeypatch.delenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", raising=False)

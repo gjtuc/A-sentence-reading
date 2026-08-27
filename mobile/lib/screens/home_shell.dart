@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../state/auth_controller.dart';
 import '../state/library_controller.dart';
+import '../state/cite_panel_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
@@ -28,6 +29,7 @@ class HomeShell extends StatefulWidget {
     required this.theme,
     required this.shadowing,
     required this.translate,
+    required this.citePanel,
   });
 
   final AuthController auth;
@@ -36,6 +38,7 @@ class HomeShell extends StatefulWidget {
   final ThemeController theme;
   final ShadowingController shadowing;
   final TranslateController translate;
+  final CitePanelController citePanel;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -203,6 +206,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             client: widget.auth.client,
             shadowing: widget.shadowing,
             translate: widget.translate,
+            citePanel: widget.citePanel,
           ),
           SettingsScreen(
             theme: widget.theme,
@@ -210,6 +214,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             shadowing: widget.shadowing,
             tts: widget.tts,
             translate: widget.translate,
+            citePanel: widget.citePanel,
             library: widget.library,
           ),
         ];

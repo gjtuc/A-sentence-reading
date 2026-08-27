@@ -8,6 +8,7 @@ import '../api/theme_models.dart';
 import '../api/tts_models.dart';
 import '../state/auth_controller.dart';
 import '../state/library_controller.dart';
+import '../state/cite_panel_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
@@ -23,6 +24,7 @@ class SettingsScreen extends StatefulWidget {
     required this.shadowing,
     required this.tts,
     required this.translate,
+    required this.citePanel,
     required this.library,
   });
 
@@ -31,6 +33,7 @@ class SettingsScreen extends StatefulWidget {
   final ShadowingController shadowing;
   final TtsController tts;
   final TranslateController translate;
+  final CitePanelController citePanel;
   final LibraryController library;
 
   @override
@@ -614,6 +617,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (widget.translate.error != null)
               Text(
                 widget.translate.error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            const Divider(height: 32),
+            Text('읽기', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              widget.citePanel.serverAvailable
+                  ? '문장에 [1] 같은 각주가 있으면 아래 References 패널에 목록을 보여줍니다. 끄면 패널만 숨기고, 문장의 각주 표시는 계속 제거합니다.'
+                  : '서버에서 참고문헌 패널이 꺼져 있습니다.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('참고문헌 패널 표시'),
+              value: widget.citePanel.serverAvailable && widget.citePanel.enabled,
+              onChanged: (!logged || !widget.citePanel.serverAvailable)
+                  ? null
+                  : (v) => widget.citePanel.setEnabled(v),
+            ),
+            if (widget.citePanel.error != null)
+              Text(
+                widget.citePanel.error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             const Divider(height: 32),

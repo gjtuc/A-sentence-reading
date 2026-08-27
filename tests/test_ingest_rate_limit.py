@@ -70,7 +70,7 @@ def _create(client: TestClient, raw: bytes):
 
 def test_status_flag():
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.67"
+    assert st["version"] == "0.3.71"
     assert st["ingest_rate_limit"] is True
 
 

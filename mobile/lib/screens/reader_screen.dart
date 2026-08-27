@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../api/cite_refs.dart' as cite;
 import '../api/client.dart';
-import '../api/fig_refs.dart';
+import '../api/fig_refs.dart' as fig;
 import '../api/figure_pinch_sensitivity.dart';
 import '../api/figure_swipe_gate.dart';
 import '../api/reading_models.dart';
 import '../api/rich_sentence.dart';
+import '../state/cite_panel_controller.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/translate_controller.dart';
@@ -29,6 +32,7 @@ class ReaderScreen extends StatefulWidget {
     required this.client,
     required this.shadowing,
     required this.translate,
+    required this.citePanel,
   });
 
   final LibraryController library;
@@ -36,6 +40,7 @@ class ReaderScreen extends StatefulWidget {
   final AsrClient client;
   final ShadowingController shadowing;
   final TranslateController translate;
+  final CitePanelController citePanel;
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
@@ -63,6 +68,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _figRefHints = true;
   /// design/131 — server kill `caption_full_text=false` restores 2-line …; missing → full.
   bool _captionFullText = true;
+  /// design/149 — caption baked into PNG; hide under-image Text when true.
+  bool _figureCaptionInImage = true;
 
   @override
   void initState() {
@@ -73,6 +80,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
       setState(() {
         _figRefHints = st.figRefHints;
         _captionFullText = st.captionFullText;
+        _figureCaptionInImage =
+            st.mobileFigureCaptionInImage && st.figureCaptionInImage;
       });
     }).catchError((_) {
       // EDGE: status unreachable → keep full captions + chips (fail-open for readability).
@@ -179,7 +188,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final shadowing = widget.shadowing;
     final translate = widget.translate;
     return AnimatedBuilder(
-      animation: Listenable.merge([library, tts, translate]),
+      animation: Listenable.merge([library, tts, translate, widget.citePanel]),
       builder: (context, _) {
         final s = library.session;
         if (s == null || !s.isValid) {
@@ -303,7 +312,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                   : _SentencePanel(
                                       library: library,
                                       tts: tts,
+                                      client: client,
                                       session: s,
+                                      citePanel: widget.citePanel,
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
                                       figRefHints: _figRefHints,
@@ -335,6 +346,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
                                       captionFullText: _captionFullText,
+                                      figureCaptionInImage: _figureCaptionInImage,
                                       onToggleChrome: _toggleChrome,
                                       onDoubleTapExpand: _toggleFigureExpand,
                                     ),
@@ -432,7 +444,9 @@ class _SentencePanel extends StatelessWidget {
   const _SentencePanel({
     required this.library,
     required this.tts,
+    required this.client,
     required this.session,
+    required this.citePanel,
     required this.showKo,
     required this.showChrome,
     this.figRefHints = true,
@@ -442,7 +456,9 @@ class _SentencePanel extends StatelessWidget {
 
   final LibraryController library;
   final TtsController tts;
+  final AsrClient client;
   final ReadingSession session;
+  final CitePanelController citePanel;
   final bool showKo;
   final bool showChrome;
   /// design/124 — from /api/status; parent owns fetch.
@@ -556,8 +572,9 @@ class _SentencePanel extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               // design/88 — allowlisted <sub>/<sup>/<i> (not raw tags).
+                              // design/148 — strip [n] markers for display (panel off still strips).
                               richSentenceText(
-                                cur.text,
+                                cite.stripCiteMarkersForDisplay(cur.text),
                                 style: Theme.of(context).textTheme.titleMedium ??
                                     const TextStyle(fontSize: 18),
                               ),
@@ -579,6 +596,11 @@ class _SentencePanel extends StatelessWidget {
           ),
           // design/139 — web-parity: dedicated chip row BELOW sentence frame (not inside body scroll).
           ..._figRefChipRow(context),
+          if (citePanel.enabled && citePanel.serverAvailable)
+            _CiteRefPanel(
+              client: client,
+              session: session,
+            ),
         ],
       ),
     );
@@ -590,7 +612,7 @@ class _SentencePanel extends StatelessWidget {
     final cur = session.currentSentence;
     if (cur == null || !cur.hasText) return const [];
     final captions = session.figures.map((f) => f.caption).toList();
-    final hints = hintsForSentence(text: cur.text, captions: captions);
+    final hints = fig.hintsForSentence(text: cur.text, captions: captions);
     if (hints.isEmpty) return const [];
     final scheme = Theme.of(context).colorScheme;
     return [
@@ -634,6 +656,163 @@ class _SentencePanel extends StatelessWidget {
   }
 }
 
+/// design/148 — scrollable bibliography rows for current sentence cite numbers.
+class _CiteRefPanel extends StatefulWidget {
+  const _CiteRefPanel({
+    required this.client,
+    required this.session,
+  });
+
+  final AsrClient client;
+  final ReadingSession session;
+
+  @override
+  State<_CiteRefPanel> createState() => _CiteRefPanelState();
+}
+
+class _CiteRefPanelState extends State<_CiteRefPanel> {
+  int? _selectedN;
+  int _sentenceIndex = -1;
+  bool _busy = false;
+  String? _inlineError;
+
+  @override
+  void initState() {
+    super.initState();
+    _sentenceIndex = widget.session.sentenceIndex;
+  }
+
+  @override
+  void didUpdateWidget(covariant _CiteRefPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.session.sentenceIndex != _sentenceIndex) {
+      _sentenceIndex = widget.session.sentenceIndex;
+      _selectedN = null;
+      _inlineError = null;
+    }
+  }
+
+  Future<void> _openRow(cite.CiteRefEntry entry) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _selectedN = entry.n;
+      _inlineError = null;
+    });
+    try {
+      final result = await widget.client.resolveCite(entry.text);
+      if (!result.ok || result.url.isEmpty) {
+        final msg = result.message.isNotEmpty
+            ? result.message
+            : (result.error.isNotEmpty ? result.error : 'resolve_failed');
+        setState(() => _inlineError = msg);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('참고문헌 링크를 열 수 없습니다: $msg')),
+          );
+        }
+        return;
+      }
+      final uri = Uri.tryParse(result.url);
+      if (uri == null) {
+        setState(() => _inlineError = 'bad_url');
+        return;
+      }
+      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('브라우저를 열 수 없습니다.')),
+        );
+      }
+    } catch (e) {
+      setState(() => _inlineError = e.toString());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('참고문헌 링크 오류: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cur = widget.session.currentSentence;
+    if (cur == null || !cur.hasText) return const SizedBox.shrink();
+    final hints = cite.hintsForSentence(
+      text: cur.text,
+      bibliography: widget.session.references,
+    );
+    if (hints.isEmpty) return const SizedBox.shrink();
+
+    final maxH = MediaQuery.sizeOf(context).height * 0.22;
+    final scheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 2),
+      child: Material(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+              child: Text(
+                'References',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+            ),
+            if (_inlineError != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                child: Text(
+                  _inlineError!,
+                  style: TextStyle(color: scheme.error, fontSize: 11),
+                ),
+              ),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxH),
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+                itemCount: hints.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, i) {
+                  final h = hints[i];
+                  final selected = _selectedN == h.n;
+                  return ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    enabled: !_busy,
+                    selected: selected,
+                    leading: Text(
+                      '[${h.n}]',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: selected ? scheme.primary : scheme.onSurface,
+                      ),
+                    ),
+                    title: Text(
+                      h.text,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    onTap: () => _openRow(h),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _FigurePanel extends StatelessWidget {
   const _FigurePanel({
     required this.library,
@@ -641,6 +820,7 @@ class _FigurePanel extends StatelessWidget {
     required this.showKo,
     required this.showChrome,
     this.captionFullText = true,
+    this.figureCaptionInImage = true,
     this.onToggleChrome,
     this.onDoubleTapExpand,
   });
@@ -651,6 +831,8 @@ class _FigurePanel extends StatelessWidget {
   final bool showChrome;
   /// design/131 — false restores 2-line ellipsis (server kill / old clients).
   final bool captionFullText;
+  /// design/149 — when true, caption is in PNG; hide Text under image.
+  final bool figureCaptionInImage;
   final VoidCallback? onToggleChrome;
   final VoidCallback? onDoubleTapExpand;
 
@@ -714,8 +896,9 @@ class _FigurePanel extends StatelessWidget {
                             onDoubleTapExpand: onDoubleTapExpand,
                           ),
                         ),
-                        if (cur.caption.trim().isNotEmpty ||
-                            (showKo && cur.captionKo.trim().isNotEmpty))
+                        if (!figureCaptionInImage &&
+                            (cur.caption.trim().isNotEmpty ||
+                                (showKo && cur.captionKo.trim().isNotEmpty)))
                           // design/131 — full caption: wrap + scroll (no 2-line …).
                           // WHY ConstrainedBox: unbounded Column must not crush the image.
                           // Kill: when server sends caption_full_text=false, keep 2-line ellipsis.

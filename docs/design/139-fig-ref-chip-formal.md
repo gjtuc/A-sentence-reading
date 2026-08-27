@@ -35,11 +35,11 @@ Modules: `fig_refs` (py/js/dart) · web `app.js`/`styles.css` · mobile `reader_
 
 ## Version
 
-**0.3.57** · pipeline 변경 없음 (`rich-v15`)
+**0.3.57** · pipeline 변경 없음 (`rich-v16`)
 
 ## Device / E2E pin
 
-- Live `/api/status`: `version=0.3.57` · `fig_ref_hints=true` · `fig_ref_chip_formal=true` · `pipeline_version=rich-v15`
+- Live `/api/status`: `version=0.3.57` · `fig_ref_hints=true` · `fig_ref_chip_formal=true` · `pipeline_version=rich-v16`
 - APK SM-G986N `versionName=0.3.57`
   - Library → open Effect of metal… → scan to sentence with **`Fig. 2 →`** chip (below sentence card)
   - Nudge figure to **1 / 10** → tap **`Fig. 2 →`** → **figure 2 / 10** · sentence unchanged (**140 / 283**)

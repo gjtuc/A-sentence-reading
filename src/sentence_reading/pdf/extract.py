@@ -958,85 +958,153 @@ def _extract_tables(
     return items
 
 
-def extract_figures(pdf_path: Path) -> list[Figure]:
-    """
-    그림(Fig/Scheme) + 표(Table)를 캡션 번호 순으로 합친다 (design/92 · 125).
-    캡션이 있는 라벨은 이미지 유무와 관계없이 슬롯을 만든다(벡터는 페이지 클립).
-    design/135 — optional title-page cover prepended as carousel index 0.
-    """
+def _collect_pymupdf_figures(doc) -> list[Figure]:
+    """PyMuPDF caption-first extract without cover / validation / id renumber."""
+    ordered: list[tuple[tuple, int, float, float, Figure]] = []
+    seq = 0
+
+    for page_index, page in enumerate(doc):
+        imgs = _extract_embedded_images(page, page_index, seq)
+        seq += len(imgs)
+        for y0, x0, fig in imgs:
+            ordered.append((_caption_sort_key(fig.caption), page_index, y0, x0, fig))
+
+        tables = _extract_tables(page, page_index, seq)
+        seq += len(tables)
+        for y0, x0, fig in tables:
+            ordered.append((_caption_sort_key(fig.caption), page_index, y0, x0, fig))
+
+        if len(ordered) >= 200:
+            break
+
+    ordered.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
+    from sentence_reading.fig_refs import caption_key
+
+    out: list[Figure] = []
+    seen: set[str] = set()
+    for _ck, _pi, _y, _x, fig in ordered:
+        key = caption_key(fig.caption) or f"raw:{fig.caption[:40]}"
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(fig)
+        if len(out) >= 200:
+            break
+    return out
+
+
+def _finalize_figure_list(doc, raw: list[Figure]) -> list[Figure]:
+    """Sort/dedupe cover prepend, id renumber, caption-lump validation."""
+    from sentence_reading.fig_refs import caption_key
+    from sentence_reading.pdf.caption_lumps import (
+        validate_extracted_figures,
+        validate_pages_against_figures,
+    )
+
+    out = list(raw or [])
+    out.sort(key=lambda f: (_caption_sort_key(f.caption), f.page_index or 0))
+
+    deduped: list[Figure] = []
+    seen: set[str] = set()
+    for fig in out:
+        key = caption_key(fig.caption) or f"raw:{fig.caption[:40]}"
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(fig)
+        if len(deduped) >= 200:
+            break
+    out = deduped
+
+    cover = _maybe_title_cover_figure(doc)
+    if cover is not None:
+        cover_key = caption_key(cover.caption) or "title-page"
+        if cover_key not in seen:
+            out.insert(0, cover)
+            if len(out) > 200:
+                out = out[:200]
+
+    for i, fig in enumerate(out, start=1):
+        ck = caption_key(fig.caption)
+        if fig.caption.strip().lower().startswith("title page"):
+            prefix = "cov"
+        elif fig.id.startswith("tbl-") or (ck and ck.startswith("table:")):
+            prefix = "tbl"
+        else:
+            prefix = "fig"
+        out[i - 1] = Figure(
+            id=f"{prefix}-{i:04d}",
+            image_src=fig.image_src,
+            caption=fig.caption,
+            page_index=fig.page_index,
+        )
+
+    validate_extracted_figures(out)
+    validate_pages_against_figures(doc, out)
+    return out
+
+
+def _extract_figures_pymupdf(pdf_path: Path) -> list[Figure]:
     import fitz
 
     doc = fitz.open(pdf_path)
     try:
         if doc.is_encrypted:
             raise ValueError("encrypted_pdf")
+        return _finalize_figure_list(doc, _collect_pymupdf_figures(doc))
+    finally:
+        doc.close()
 
-        # (caption_key, page, y0, x0, Figure)
-        ordered: list[tuple[tuple, int, float, float, Figure]] = []
-        seq = 0
 
-        for page_index, page in enumerate(doc):
-            imgs = _extract_embedded_images(page, page_index, seq)
-            seq += len(imgs)
-            for y0, x0, fig in imgs:
-                ordered.append((_caption_sort_key(fig.caption), page_index, y0, x0, fig))
+def extract_figures(pdf_path: Path) -> list[Figure]:
+    """
+    그림(Fig/Scheme) + 표(Table)를 캡션 번호 순으로 합친다 (design/92 · 125).
+    design/147 — Azure Layout when configured; PyMuPDF fills missing caption keys.
+    design/135 — optional title-page cover prepended as carousel index 0.
+    """
+    import fitz
+    import logging
 
-            tables = _extract_tables(page, page_index, seq)
-            seq += len(tables)
-            for y0, x0, fig in tables:
-                ordered.append((_caption_sort_key(fig.caption), page_index, y0, x0, fig))
+    log = logging.getLogger(__name__)
 
-            if len(ordered) >= 200:
-                break
+    doc = fitz.open(pdf_path)
+    try:
+        if doc.is_encrypted:
+            raise ValueError("encrypted_pdf")
 
-        ordered.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
-        # Deduplicate by caption_key across pages (keep first in sort order).
-        from sentence_reading.fig_refs import caption_key
-
-        out: list[Figure] = []
-        seen: set[str] = set()
-        for _ck, _pi, _y, _x, fig in ordered:
-            key = caption_key(fig.caption) or f"raw:{fig.caption[:40]}"
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(fig)
-            if len(out) >= 200:
-                break
-
-        # design/135 — title cover first when heuristic says so (fail-closed skip).
-        cover = _maybe_title_cover_figure(doc)
-        if cover is not None:
-            # EDGE: avoid double-slot if extract already labeled the same caption.
-            cover_key = caption_key(cover.caption) or "title-page"
-            if cover_key not in seen:
-                out.insert(0, cover)
-                if len(out) > 200:
-                    out = out[:200]
-
-        for i, fig in enumerate(out, start=1):
-            if fig.caption.strip().lower().startswith("title page"):
-                prefix = "cov"
-            elif fig.id.startswith("tbl-"):
-                prefix = "tbl"
-            else:
-                prefix = "fig"
-            out[i - 1] = Figure(
-                id=f"{prefix}-{i:04d}",
-                image_src=fig.image_src,
-                caption=fig.caption,
-                page_index=fig.page_index,
+        merged: list[Figure] = []
+        used_azure = False
+        try:
+            from sentence_reading.llm.env import azure_document_intelligence_available
+            from sentence_reading.pdf.azure_layout import (
+                azure_layout_enabled,
+                extract_figures_azure,
             )
 
-        # design/137 — fail-closed if lumps remain or page scan missed keys.
-        from sentence_reading.pdf.caption_lumps import (
-            validate_extracted_figures,
-            validate_pages_against_figures,
-        )
+            if azure_layout_enabled() and azure_document_intelligence_available():
+                merged = extract_figures_azure(pdf_path)
+                used_azure = bool(merged)
+                if used_azure:
+                    log.info("azure_layout extracted %d figures/tables", len(merged))
+        except Exception as exc:
+            log.warning("azure_layout failed (%s); using PyMuPDF", exc)
 
-        validate_extracted_figures(out)
-        validate_pages_against_figures(doc, out)
-        return out
+        if used_azure:
+            from sentence_reading.fig_refs import caption_key
+
+            seen = {
+                caption_key(f.caption) or f"raw:{f.caption[:40]}"
+                for f in merged
+            }
+            for fig in _collect_pymupdf_figures(doc):
+                key = caption_key(fig.caption) or f"raw:{fig.caption[:40]}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(fig)
+            return _finalize_figure_list(doc, merged)
+
+        return _finalize_figure_list(doc, _collect_pymupdf_figures(doc))
     finally:
         doc.close()
 

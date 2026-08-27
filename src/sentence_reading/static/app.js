@@ -2216,6 +2216,8 @@
           ? String(fig.caption_ko).trim()
           : "";
       const capShow = capKo || capEn;
+      const hideCaptionUnderImage =
+        figureCaptionInImageEnabled && !!imgSrc;
       // design/124 — empty/broken image: keep caption slot, honest message (no fake success).
       if (!imgSrc) {
         clearCropZoom();
@@ -2229,7 +2231,7 @@
         el.figureImage.src = imgSrc;
         el.figureImage.alt = fig.caption || fig.id;
         el.figureCaption.textContent = capShow;
-        el.figureCaption.hidden = !capShow;
+        el.figureCaption.hidden = hideCaptionUnderImage || !capShow;
         if (!el.figureImage._asrErrBound) {
           el.figureImage._asrErrBound = true;
           el.figureImage.addEventListener("error", () => {
@@ -6956,6 +6958,8 @@
   let progressFailClosedFlag = true;
   /** design/139 — Fig. chips; missing key → show (on by default); explicit false = kill */
   let figRefHintsEnabled = true;
+  /** design/149 — caption in composite PNG; hide under-image figcaption when true */
+  let figureCaptionInImageEnabled = true;
   /** design/142 — keyboard 듣고 적기; missing/false → off (recording practice stays) */
   let sentenceNotesKeyboardEnabled = false;
   let loginGateUnlocked = false;
@@ -7116,6 +7120,7 @@
       progressFailClosedFlag = st.progress_fail_closed !== false;
       // design/139 — chips on by default; explicit false hides (kill).
       figRefHintsEnabled = st.fig_ref_hints !== false;
+      figureCaptionInImageEnabled = st.figure_caption_in_image !== false;
       // design/142 — keyboard notes off unless server explicitly enables.
       sentenceNotesKeyboardEnabled = st.sentence_notes_keyboard === true;
     } catch (_) {
@@ -7124,6 +7129,7 @@
       progressFailClosedFlag = true;
       // EDGE: status unreachable → keep chips (feature default on); hang/login stay fail-closed.
       figRefHintsEnabled = true;
+      figureCaptionInImageEnabled = true;
       // EDGE: status unreachable → do not open keyboard notes (fail-closed for removed UX).
       sentenceNotesKeyboardEnabled = false;
     }

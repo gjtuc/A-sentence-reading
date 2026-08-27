@@ -113,6 +113,16 @@ elif [[ -n "${ASR_SMTP_HOST:-}" || -n "${ASR_SMTP_FROM:-}" || -n "${ASR_SMTP_USE
 else
   echo "skip SMTP secrets (ASR_SMTP_HOST/FROM not in env file)"
 fi
+if [[ -n "${AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT:-}" && -n "${AZURE_DOCUMENT_INTELLIGENCE_KEY:-}" ]]; then
+  printf '%s' "$AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT" | gh secret set AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT
+  printf '%s' "$AZURE_DOCUMENT_INTELLIGENCE_KEY" | gh secret set AZURE_DOCUMENT_INTELLIGENCE_KEY
+  echo "ok AZURE_DOCUMENT_INTELLIGENCE_* set"
+elif [[ -n "${AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT:-}" || -n "${AZURE_DOCUMENT_INTELLIGENCE_KEY:-}" ]]; then
+  echo "Azure DI partial in env file: set BOTH endpoint and key (or neither)." >&2
+  exit 2
+else
+  echo "skip Azure DI secrets (not in env file)"
+fi
 gh secret set GCP_SA_KEY <"$SA_JSON"
 echo "ok GCP_SA_KEY set from file"
 
