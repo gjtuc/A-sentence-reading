@@ -51,7 +51,7 @@ def test_mobile_dart_link_wiring() -> None:
     assert "0.3.63" in design  # 146a ship pin
     assert "146b" in design  # warehouse merge deferred
     assert DESIGN_146C.is_file()
-    assert "0.3.71" in DESIGN_146C.read_text(encoding="utf-8")
+    assert "0.3.68" in DESIGN_146C.read_text(encoding="utf-8")
     screen = (MOBILE / "lib/screens/settings_screen.dart").read_text(encoding="utf-8")
     assert "계정 연결" in screen
     assert "linkGoogle" in screen and "linkKakao" in screen
