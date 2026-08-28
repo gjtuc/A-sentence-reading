@@ -180,10 +180,12 @@ def figure_data_url(cache_id: str, figure_id: str) -> str | None:
     return None
 
 
-def find_cached_by_text(text: str, *, source: str = "pdf") -> dict | None:
+def find_cached_by_text(
+    text: str, *, source: str = "pdf", doc_role: str = "main"
+) -> dict | None:
     """
     원문 앞부분에 캐시된 논문 제목이 들어 있으면 그 entry 반환.
-    source(pdf/docx)가 같은 항목만 — 본편·보충자료 제목 충돌 방지.
+    source(pdf/docx) + doc_role(main/supplementary) 가 같은 항목만.
     가장 긴 title_key 일치를 고른다.
     """
     if not (text or "").strip():
@@ -192,15 +194,20 @@ def find_cached_by_text(text: str, *, source: str = "pdf") -> dict | None:
     if len(head) < _MIN_TITLE_KEY_LEN:
         return None
     want = (source or "pdf").lower()
+    want_role = (doc_role or "main").strip().lower()
+    if want_role not in ("main", "supplementary", "merged"):
+        want_role = "main"
 
     best: dict | None = None
     best_len = 0
     for entry in _read_index().get("entries", []):
         if not isinstance(entry, dict):
             continue
-        # 구버전 캐시(source 없음)는 pdf 로 간주
         entry_src = str(entry.get("source") or "pdf").lower()
         if entry_src != want:
+            continue
+        entry_role = str(entry.get("doc_role") or "main").strip().lower()
+        if entry_role != want_role:
             continue
         key = str(entry.get("title_key") or "")
         if len(key) < _MIN_TITLE_KEY_LEN:
@@ -214,7 +221,7 @@ def find_cached_by_text(text: str, *, source: str = "pdf") -> dict | None:
     try:
         from sentence_reading.llm.papers_gcs import pull_paper_matching_text
 
-        return pull_paper_matching_text(text, source=source)
+        return pull_paper_matching_text(text, source=source, doc_role=doc_role)
     except Exception:
         return None
 
@@ -238,10 +245,16 @@ def get_index_entry(cache_id: str) -> dict | None:
     return None
 
 
-def patch_index_entry(cache_id: str, updates: dict) -> dict | None:
+def patch_index_entry(
+    cache_id: str,
+    updates: dict | None = None,
+    **fields: object,
+) -> dict | None:
     """Merge updates into one index row · sync GCS best-effort."""
     cid = (cache_id or "").strip()
-    if not cid or not isinstance(updates, dict):
+    merged: dict = dict(updates or {})
+    merged.update(fields)
+    if not cid or not merged:
         return None
     index = _read_index()
     entries: list = list(index.get("entries") or [])
@@ -249,7 +262,7 @@ def patch_index_entry(cache_id: str, updates: dict) -> dict | None:
     for i, entry in enumerate(entries):
         if isinstance(entry, dict) and entry.get("id") == cid:
             merged = dict(entry)
-            for key, val in updates.items():
+            for key, val in merged.items():
                 if val is None:
                     merged.pop(key, None)
                 else:
@@ -419,31 +432,21 @@ def _retention_list_fields(entry: dict) -> dict:
 
 
 def list_cached_papers() -> list[dict]:
-    entries: list[dict] = []
-    for entry in _read_index().get("entries", []):
-        if not isinstance(entry, dict):
+    from sentence_reading.cache.supplementary_library import list_entries_for_api
+
+    entries = [e for e in _read_index().get("entries", []) if isinstance(e, dict)]
+    rows = list_entries_for_api(entries)
+    for row in rows:
+        cid = row.get("id")
+        if not cid:
             continue
-        cid = entry.get("id")
-        title = entry.get("title")
-        if not cid or not title:
-            continue
-        entries.append(
-            {
-                "id": cid,
-                "title": title,
-                "source": str(entry.get("source") or "pdf"),
-                "updated_at": entry.get("updated_at") or "",
-                "sentence_count": int(entry.get("sentence_count") or 0),
-                "figure_count": int(entry.get("figure_count") or 0),
-                "debone": bool(entry.get("debone")),
-                "pipeline_version": str(entry.get("pipeline_version") or ""),
-                "stale": str(entry.get("pipeline_version") or "") != PIPELINE_VERSION,
-                "has_source": bool(entry.get("has_source")),
-                **_retention_list_fields(entry),
-            }
-        )
-    entries.sort(key=lambda e: e.get("updated_at") or "", reverse=True)
-    return entries
+        for entry in entries:
+            if entry.get("id") == cid:
+                row.update(_retention_list_fields(entry))
+                row["stale"] = str(entry.get("pipeline_version") or "") != PIPELINE_VERSION
+                break
+    rows.sort(key=lambda e: e.get("updated_at") or "", reverse=True)
+    return rows
 
 
 def _load_references(raw: object) -> list:
@@ -513,6 +516,7 @@ def load_cached_session(
                 page_index=page_index,
                 caption_ko=caption_ko,
                 caption_ko_stage=caption_ko_stage,
+                slot_key=str(f.get("slot_key") or ""),
             )
         )
 
@@ -545,6 +549,9 @@ def load_cached_session(
         "has_source": bool(meta.get("has_source"))
         or get_source_path(cache_id) is not None,
         "content_hash": str(meta.get("content_hash") or "") or None,
+        "doc_role": str(meta.get("doc_role") or "main"),
+        "supplementary_merged": bool(meta.get("supplementary_merged")),
+        "supplementary_cache_id": str(meta.get("supplementary_cache_id") or "") or None,
     }
     return session, info
 
@@ -645,21 +652,48 @@ def attach_source_file(
     return True
 
 
+def save_layout_artifacts(
+    paper_dir: Path,
+    *,
+    layout_map: dict | None = None,
+    slot_plan: dict | None = None,
+    prior_slot_plan=None,
+) -> None:
+    """Persist design/151 layout_map.json + slot_plan.json beside session."""
+    from sentence_reading.pdf.layout_map import LayoutMap, save_layout_map
+    from sentence_reading.pdf.slot_plan import SlotPlan, merge_user_confirmed_slots, save_slot_plan
+
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    if layout_map:
+        save_layout_map(paper_dir, LayoutMap.from_dict(layout_map))
+    if slot_plan:
+        plan = SlotPlan.from_dict(slot_plan)
+        plan = merge_user_confirmed_slots(plan, prior_slot_plan)
+        save_slot_plan(paper_dir, plan)
+
+
 def save_paper_session(
     session: PaperSession,
     *,
     debone: bool = False,
     source: str = "pdf",
+    doc_role: str = "main",
     source_path: Path | None = None,
     content_hash: str | None = None,
+    layout_artifacts: dict | None = None,
+    supplementary_merged: bool = False,
+    supplementary_cache_id: str | None = None,
+    merge_revision: int | None = None,
 ) -> dict | None:
     """
-    제목 키 + source(pdf/docx) 로 저장.
-    같은 제목이어도 본편 PDF 와 보충 Word 는 서로 덮어쓰지 않음.
+    제목 키 + source(pdf/docx) + doc_role 로 저장.
+    같은 제목이어도 본편 PDF 와 보충 PDF 는 서로 덮어쓰지 않음.
     source_path 가 있으면 source.pdf|docx 로 원본 백업 (한도 초과 시 생략).
     content_hash 는 원본 바이트 SHA-256 (진행 복원 교차 키).
     """
     import shutil
+
+    from sentence_reading.pdf.supplementary_detect import normalize_doc_role
 
     title = (session.title or "").strip()
     key = normalize_title_key(title)
@@ -670,6 +704,9 @@ def save_paper_session(
     src = (source or "pdf").lower()
     if src not in ("pdf", "docx"):
         src = "pdf"
+    role = normalize_doc_role(doc_role)
+    if supplementary_merged:
+        role = "merged"
     ch = (content_hash or "").strip().lower()
     if ch and not re.fullmatch(r"[a-f0-9]{64}", ch):
         ch = ""
@@ -684,7 +721,8 @@ def save_paper_session(
         if not isinstance(entry, dict):
             continue
         entry_src = str(entry.get("source") or "pdf").lower()
-        if entry.get("title_key") == key and entry_src == src:
+        entry_role = str(entry.get("doc_role") or "main").strip().lower()
+        if entry.get("title_key") == key and entry_src == src and entry_role == role:
             existing_id = entry.get("id")
             break
 
@@ -699,6 +737,11 @@ def save_paper_session(
     cache_id = str(existing_id or uuid.uuid4().hex[:12])
     paper_dir = root / cache_id
     fig_dir = paper_dir / "figures"
+    prior_slot_plan = None
+    if existing_id:
+        from sentence_reading.pdf.slot_plan import load_slot_plan
+
+        prior_slot_plan = load_slot_plan(root / str(existing_id))
     if paper_dir.exists():
         # 옛 그림·원본 정리 후 재기록
         shutil.rmtree(paper_dir, ignore_errors=True)
@@ -722,6 +765,7 @@ def save_paper_session(
                 "caption_ko_stage": fig.caption_ko_stage or "",
                 "page_index": fig.page_index,
                 "file": f"figures/{fname}",
+                "slot_key": fig.slot_key or "",
             }
         )
 
@@ -750,6 +794,7 @@ def save_paper_session(
         "title": title,
         "title_key": key,
         "source": src,
+        "doc_role": role,
         "debone": bool(debone),
         "created_at": created_at,
         "saved_at": now,
@@ -758,6 +803,9 @@ def save_paper_session(
         "has_source": has_source,
         "source_file": source_rel,
         "content_hash": ch or None,
+        "supplementary_merged": bool(supplementary_merged),
+        "supplementary_cache_id": (supplementary_cache_id or None),
+        "merge_revision": merge_revision,
         "sentences": [
             {
                 "id": s.id,
@@ -791,6 +839,7 @@ def save_paper_session(
         "title": title,
         "title_key": key,
         "source": src,
+        "doc_role": role,
         "created_at": created_at,
         "updated_at": now,
         "sentence_count": len(session.sentences),
@@ -799,6 +848,10 @@ def save_paper_session(
         "pipeline_version": PIPELINE_VERSION,
         "has_source": has_source,
         "content_hash": ch or None,
+        "ingest_status": "ok",
+        "supplementary_merged": bool(supplementary_merged),
+        "merged_supplementary_id": (supplementary_cache_id or None),
+        "hidden_in_library": False,
     }
     try:
         from sentence_reading.llm.paper_retention import (
@@ -820,11 +873,19 @@ def save_paper_session(
             isinstance(e, dict)
             and e.get("title_key") == key
             and str(e.get("source") or "pdf").lower() == src
+            and str(e.get("doc_role") or "main").strip().lower() == role
         )
     ]
     entries.insert(0, new_entry)
     index["entries"] = _evict_oldest(entries, keep=_MAX_CACHED_PAPERS)
     _write_index(index)
+    if layout_artifacts:
+        save_layout_artifacts(
+            paper_dir,
+            layout_map=layout_artifacts.get("layout_map"),
+            slot_plan=layout_artifacts.get("slot_plan"),
+            prior_slot_plan=prior_slot_plan,
+        )
     # WHY: 보관 직후 GCS push — 실패해도 로컬 보관은 유지
     try:
         from sentence_reading.llm.papers_gcs import upload_paper_cache

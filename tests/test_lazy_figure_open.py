@@ -20,9 +20,9 @@ DESIGN = ROOT / "docs" / "design" / "129-lazy-figure-open.md"
 def test_design_and_status_pin() -> None:
     assert DESIGN.is_file()
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.71"
+    assert st["version"] == "0.3.78"
     assert st.get("lazy_figure_open") is True
-    assert "rich-v18" in str(st.get("pipeline_version") or "")
+    assert "rich-v24" in str(st.get("pipeline_version") or "")
 
 
 def test_open_omits_image_bytes(tmp_path, monkeypatch) -> None:
@@ -44,7 +44,7 @@ def test_open_omits_image_bytes(tmp_path, monkeypatch) -> None:
     assert png.stat().st_size > 500
     session = {
         "title": "Lazy open fixture",
-        "pipeline_version": "rich-v18",
+        "pipeline_version": "rich-v24",
         "sentences": [{"id": "s1", "text": "Hello world sentence."}],
         "figures": [
             {"id": "fig-0001", "caption": "Table 1. Metrics", "file": "figures/fig-0001.png"}

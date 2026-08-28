@@ -18,7 +18,7 @@ from sentence_reading.models import Figure
 
 def test_status_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.71"
+    assert st["version"] == "0.3.78"
     assert st.get("fig_ref_hints") is True
 
 
@@ -40,17 +40,24 @@ def test_caption_key() -> None:
 def test_match_and_hints() -> None:
     figs = [
         Figure(id="a", image_src="x", caption="Fig. 1 — A"),
-        Figure(id="b", image_src="x", caption="Fig. 2 — B"),
+        Figure(id="b", image_src="x", caption="Fig. 2 — B", slot_key="fig:2"),
         Figure(id="c", image_src="x", caption="Scheme 1. C"),
+        Figure(id="d", image_src="x", caption="Fig. S2 — SI", slot_key="fig:s2"),
     ]
     assert match_figure_index(figs, "Fig. 2") == 1
     assert match_figure_index(figs, "Scheme 1") == 2
     assert match_figure_index(figs, "Fig. 9") is None
+    assert match_figure_index(figs, "Fig. S2") == 3
+    assert match_figure_index(figs, "S2", supplementary_merged=True) == 3
     hints = hints_for_sentence("As shown in Fig. 2 and Scheme 1.", figs)
     assert hints == [
         {"ref": "Fig. 2", "figure_index": 1},
         {"ref": "Scheme 1", "figure_index": 2},
     ]
+    merged_hints = hints_for_sentence(
+        "See S2 for details.", figs, supplementary_merged=True
+    )
+    assert merged_hints == [{"ref": "S2", "figure_index": 3}]
 
 
 def test_static_and_design() -> None:

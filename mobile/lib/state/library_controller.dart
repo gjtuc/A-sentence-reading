@@ -507,6 +507,37 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  /// design/152 — merge paired supplementary into main session.
+  Future<bool> mergeSupplementary(PaperEntry entry) async {
+    if (!entry.canMergeSupplementary) return false;
+    if (uploading || reanalyzing || opening) {
+      error = '다른 작업 중입니다. 잠시 후 다시 시도해 주세요.';
+      notifyListeners();
+      return false;
+    }
+    opening = true;
+    error = null;
+    notifyListeners();
+    try {
+      await _client.mergeSupplementary(entry.id);
+      await refresh();
+      error = null;
+      notifyListeners();
+      return true;
+    } on AsrApiException catch (e) {
+      error = e.message;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      error = e.toString();
+      notifyListeners();
+      return false;
+    } finally {
+      opening = false;
+      notifyListeners();
+    }
+  }
+
   Future<List<PaperEntry>> _applySavedOrder(List<PaperEntry> fetched) async {
     try {
       final auth = await _client.fetchAuthStatus();
@@ -745,6 +776,21 @@ class LibraryController extends ChangeNotifier {
     unawaited(_prefetchFigureWindow());
     await _syncCursor(figure: true);
     // design/123 — durable prefs on every figure move (product 5C).
+    await persistOpenedProgress();
+  }
+
+  /// Header picker jump — sentence index only (figure unchanged).
+  Future<void> goToSentenceIndex(int index) async {
+    final s = session;
+    if (s == null || !s.isValid) return;
+    if (s.sentenceCount < 1) return;
+    if (index < 0 || index >= s.sentenceCount) return;
+    if (index == s.sentenceIndex) return;
+    final beforeFig = s.figureIndex;
+    s.sentenceIndex = index;
+    assert(s.figureIndex == beforeFig, 'sentence jump must not move figure');
+    notifyListeners();
+    await _syncCursor(sentence: true);
     await persistOpenedProgress();
   }
 

@@ -684,6 +684,113 @@ class AsrClient {
     return (jobId: jobId, cacheId: cid);
   }
 
+  /// POST /api/cache/papers/{id}/merge-supplementary — design/152.
+  Future<Map<String, dynamic>> mergeSupplementary(String mainCacheId) async {
+    final id = mainCacheId.trim();
+    if (id.isEmpty) {
+      throw AsrApiException('cache id is empty', 400);
+    }
+    final res = await _http
+        .post(
+          _uri(
+            '/api/cache/papers/${Uri.encodeComponent(id)}/merge-supplementary',
+          ),
+          headers: await _headers(jsonBody: true),
+          body: '{}',
+        )
+        .timeout(const Duration(seconds: 120));
+    final map = _decodeObject(res, 'cache/merge-supplementary');
+    if (map['ok'] == false) {
+      throw AsrApiException(
+        '${map['message'] ?? '보충자료 합치기에 실패했습니다.'}',
+        res.statusCode,
+      );
+    }
+    return map;
+  }
+
+  /// GET /api/cache/papers/{id}/layout_map — design/151 overlay boxes.
+  Future<Map<String, dynamic>> fetchLayoutMap(String cacheId) async {
+    final id = cacheId.trim();
+    final res = await _http
+        .get(
+          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/layout_map'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 60));
+    final map = _decodeObject(res, 'cache/layout_map');
+    if (map['ok'] == false) {
+      throw AsrApiException('${map['message'] ?? 'layout_map failed'}', res.statusCode);
+    }
+    return Map<String, dynamic>.from(map['layout_map'] as Map? ?? {});
+  }
+
+  /// GET /api/cache/papers/{id}/slot_plan — design/151 slot carousel plan.
+  Future<Map<String, dynamic>> fetchSlotPlan(String cacheId) async {
+    final id = cacheId.trim();
+    final res = await _http
+        .get(
+          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/slot_plan'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 60));
+    final map = _decodeObject(res, 'cache/slot_plan');
+    if (map['ok'] == false) {
+      throw AsrApiException('${map['message'] ?? 'slot_plan failed'}', res.statusCode);
+    }
+    return Map<String, dynamic>.from(map['slot_plan'] as Map? ?? {});
+  }
+
+  /// POST assign body/caption box to slot — design/151 overlay editor.
+  Future<void> assignSlot(
+    String cacheId,
+    String slotKey, {
+    String? bodyBoxId,
+    String? captionBoxId,
+    String? captionText,
+  }) async {
+    final id = cacheId.trim();
+    final sk = Uri.encodeComponent(slotKey.trim());
+    final body = <String, dynamic>{};
+    if (bodyBoxId != null && bodyBoxId.trim().isNotEmpty) {
+      body['body_box_id'] = bodyBoxId.trim();
+    }
+    if (captionBoxId != null && captionBoxId.trim().isNotEmpty) {
+      body['caption_box_id'] = captionBoxId.trim();
+    }
+    if (captionText != null && captionText.trim().isNotEmpty) {
+      body['caption_text'] = captionText.trim();
+    }
+    final res = await _http
+        .post(
+          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/slots/$sk/assign'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 90));
+    final map = _decodeObject(res, 'cache/slot/assign');
+    if (map['ok'] == false) {
+      throw AsrApiException('${map['message'] ?? 'assign failed'}', res.statusCode);
+    }
+  }
+
+  /// POST re-render slot PNG after assign — design/151.
+  Future<void> renderSlot(String cacheId, String slotKey) async {
+    final id = cacheId.trim();
+    final sk = Uri.encodeComponent(slotKey.trim());
+    final res = await _http
+        .post(
+          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/slots/$sk/render'),
+          headers: await _headers(jsonBody: true),
+          body: '{}',
+        )
+        .timeout(const Duration(seconds: 120));
+    final map = _decodeObject(res, 'cache/slot/render');
+    if (map['ok'] == false) {
+      throw AsrApiException('${map['message'] ?? 'render failed'}', res.statusCode);
+    }
+  }
+
   static final _pdfNameRe = RegExp(r'\.pdf$', caseSensitive: false);
   static const _maxUploadBytes = 50 * 1024 * 1024;
 

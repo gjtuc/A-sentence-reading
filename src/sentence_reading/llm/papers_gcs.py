@@ -5,6 +5,8 @@ object:
   {prefix}/papers/index.json
   {prefix}/papers/{cache_id}/session.json
   {prefix}/papers/{cache_id}/figures/{file}
+  {prefix}/papers/{cache_id}/layout_map.json
+  {prefix}/papers/{cache_id}/slot_plan.json
   {prefix}/papers/{cache_id}/source.pdf|source.docx  (있을 때만)
 """
 
@@ -41,6 +43,7 @@ log = logging.getLogger(__name__)
 
 _CACHE_ID_RE = re.compile(r"^[a-zA-Z0-9]{8,32}$")
 _FIG_FILE_RE = re.compile(r"^figures/[A-Za-z0-9._\-]+$")
+_LAYOUT_JSON_RE = re.compile(r"^(layout_map|slot_plan)\.json$")
 _SOURCE_FILE_RE = re.compile(r"^source\.(pdf|docx)$")
 PAPER_SESSION_MAX_BYTES = 5_000_000
 PAPER_FIGURE_MAX_BYTES = 8_000_000
@@ -68,6 +71,16 @@ def paper_figure_object(cache_id: str, rel: str) -> str | None:
         return None
     # figures/name.png → segments
     return personal_object_name("papers", cid, "figures", path.split("/", 1)[1])
+
+
+def paper_layout_json_object(cache_id: str, name: str) -> str | None:
+    cid = (cache_id or "").strip()
+    if not _CACHE_ID_RE.match(cid):
+        return None
+    nm = (name or "").strip()
+    if not _LAYOUT_JSON_RE.match(nm):
+        return None
+    return personal_object_name("papers", cid, nm)
 
 
 def paper_source_object(cache_id: str, filename: str) -> str | None:
@@ -127,7 +140,7 @@ def upload_remote_index(index: dict[str, Any]) -> bool:
 
 
 def merge_index_entries(a: list[Any], b: list[Any]) -> list[dict[str, Any]]:
-    """id 기준 최신 updated_at 우선 · 동일 title_key+source 도 최신만."""
+    """id 기준 최신 updated_at 우선 · 동일 title_key+source+doc_role 도 최신만."""
     by_id: dict[str, dict[str, Any]] = {}
     for seq in (a, b):
         if not isinstance(seq, list):
@@ -145,21 +158,19 @@ def merge_index_entries(a: list[Any], b: list[Any]) -> list[dict[str, Any]]:
                 by_id[eid] = dict(e)
                 by_id[eid]["id"] = eid
 
-    # title_key + source 충돌 → 더 새 updated_at
-    by_ts: dict[tuple[str, str], dict[str, Any]] = {}
+    by_ts: dict[tuple[str, str, str], dict[str, Any]] = {}
     for e in by_id.values():
         key = str(e.get("title_key") or "")
         src = str(e.get("source") or "pdf").lower()
+        role = str(e.get("doc_role") or "main").strip().lower()
         if not key:
             continue
-        ts_key = (key, src)
+        ts_key = (key, src, role)
         prev = by_ts.get(ts_key)
         if not prev or str(e.get("updated_at") or "") >= str(prev.get("updated_at") or ""):
             by_ts[ts_key] = e
 
-    # id 로 다시 모으되 title 중복 제거된 집합
     kept_ids = {e["id"] for e in by_ts.values()}
-    # title_key 없는 항목은 id 맵에서 유지
     for eid, e in by_id.items():
         if not str(e.get("title_key") or ""):
             kept_ids.add(eid)
@@ -213,6 +224,20 @@ def upload_paper_cache(cache_id: str) -> bool:
         if not raw or len(raw) > PAPER_FIGURE_MAX_BYTES:
             continue
         upload_bytes(fig_obj, raw, content_type="application/octet-stream")
+
+    for layout_name in ("layout_map.json", "slot_plan.json"):
+        local = paper_dir / layout_name
+        if not local.is_file():
+            continue
+        try:
+            raw = local.read_bytes()
+        except OSError:
+            continue
+        if not raw or len(raw) > PAPER_SESSION_MAX_BYTES:
+            continue
+        obj = paper_layout_json_object(cid, layout_name)
+        if obj:
+            upload_bytes(obj, raw, content_type="application/json; charset=utf-8")
 
     # 원본 PDF/DOCX (있을 때만)
     src_name = str(meta.get("source_file") or "") or source_filename_for(
@@ -309,6 +334,18 @@ def download_paper_cache(
                 out.write_bytes(raw)
             except OSError:
                 continue
+
+    for layout_name in ("layout_map.json", "slot_plan.json"):
+        obj = paper_layout_json_object(cid, layout_name)
+        if not obj:
+            continue
+        raw = download_bytes(obj)
+        if not raw or len(raw) > PAPER_SESSION_MAX_BYTES:
+            continue
+        try:
+            (paper_dir / layout_name).write_bytes(raw)
+        except OSError:
+            continue
 
     # 원본 백업 pull
     if include_source:
@@ -494,7 +531,9 @@ def ensure_figure_local(cache_id: str, figure_rel: str) -> Path | None:
     return out if out.is_file() else None
 
 
-def pull_paper_matching_text(text: str, *, source: str = "pdf") -> dict[str, Any] | None:
+def pull_paper_matching_text(
+    text: str, *, source: str = "pdf", doc_role: str = "main"
+) -> dict[str, Any] | None:
     """
     원격 index 에서 제목 매칭 → 다운로드 → entry 반환.
     find_cached_by_text 로컬 miss 후 호출.
@@ -508,6 +547,7 @@ def pull_paper_matching_text(text: str, *, source: str = "pdf") -> dict[str, Any
     if len(head) < _MIN_TITLE_KEY_LEN:
         return None
     want = (source or "pdf").lower()
+    want_role = (doc_role or "main").strip().lower()
     remote = download_remote_index()
     best: dict[str, Any] | None = None
     best_len = 0
@@ -516,6 +556,9 @@ def pull_paper_matching_text(text: str, *, source: str = "pdf") -> dict[str, Any
             continue
         entry_src = str(entry.get("source") or "pdf").lower()
         if entry_src != want:
+            continue
+        entry_role = str(entry.get("doc_role") or "main").strip().lower()
+        if entry_role != want_role:
             continue
         key = str(entry.get("title_key") or "")
         if len(key) < _MIN_TITLE_KEY_LEN:
@@ -542,6 +585,7 @@ def list_merged_paper_entries() -> list[dict[str, Any]]:
         _retention_list_fields,
         purge_expired_papers,
     )
+    from sentence_reading.cache.supplementary_library import list_entries_for_api
     from sentence_reading.llm.paper_retention import retention_enabled
 
     if retention_enabled():
@@ -549,9 +593,6 @@ def list_merged_paper_entries() -> list[dict[str, Any]]:
 
     from sentence_reading.llm.auth_google import auth_enabled, current_gcs_uid
 
-    # WHY: Cloud Run disk cache is shared per instance; listing must not show
-    # another user's papers that happen to sit on the same volume.
-    # EDGE: unauthenticated probe with auth enabled → empty, not local dump.
     if auth_enabled() and not current_gcs_uid():
         return []
 
@@ -562,39 +603,28 @@ def list_merged_paper_entries() -> list[dict[str, Any]]:
         remote_ids = {
             e.get("id") for e in remote if isinstance(e, dict) and e.get("id")
         }
-        # WHY: local-only orphans (GCS push failed / other tenant) stay hidden.
         local_mine = [
             e for e in local if isinstance(e, dict) and e.get("id") in remote_ids
         ]
         merged = merge_index_entries(local_mine, remote)
     elif gcs_config().enabled and ready:
-        # EDGE: GCS configured but personal path unavailable → fail-closed empty
         merged = []
     else:
-        # Local-only / GCS off (dev single-user)
         merged = [e for e in local if isinstance(e, dict)]
+    rows = list_entries_for_api(merged)
+    by_id = {str(e.get("id") or ""): e for e in merged if isinstance(e, dict)}
     out = []
-    for entry in merged:
-        if not isinstance(entry, dict):
-            continue
-        cid = entry.get("id")
-        title = entry.get("title")
-        if not cid or not title:
-            continue
+    for row in rows:
+        cid = str(row.get("id") or "")
+        src_entry = by_id.get(cid) or {}
         out.append(
             {
-                "id": cid,
-                "title": title,
-                "source": str(entry.get("source") or "pdf"),
-                "updated_at": entry.get("updated_at") or "",
-                "sentence_count": int(entry.get("sentence_count") or 0),
-                "figure_count": int(entry.get("figure_count") or 0),
-                "debone": bool(entry.get("debone")),
-                "pipeline_version": str(entry.get("pipeline_version") or ""),
-                "stale": str(entry.get("pipeline_version") or "") != PIPELINE_VERSION,
-                "has_source": bool(entry.get("has_source"))
-                or get_source_path(str(cid)) is not None,
-                **_retention_list_fields(entry),
+                **row,
+                "pipeline_version": str(row.get("pipeline_version") or src_entry.get("pipeline_version") or ""),
+                "stale": str(src_entry.get("pipeline_version") or "") != PIPELINE_VERSION,
+                "has_source": bool(row.get("has_source"))
+                or get_source_path(cid) is not None,
+                **_retention_list_fields(src_entry),
             }
         )
     out.sort(key=lambda e: e.get("updated_at") or "", reverse=True)

@@ -65,6 +65,28 @@ def gemini_available() -> bool:
     return gemini_api_key() is not None
 
 
+def translate_backend() -> str:
+    """google (default) | gemini — design/153."""
+    load_asr_env()
+    raw = (os.environ.get("ASR_TRANSLATE_BACKEND") or "google").strip().lower()
+    return raw if raw in ("google", "gemini") else "google"
+
+
+def translate_gemini_post() -> bool:
+    """Google bulk 후 digest/harmonize 등 Gemini 후처리 (design/153)."""
+    load_asr_env()
+    raw = (os.environ.get("ASR_TRANSLATE_GEMINI_POST") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def translate_available() -> bool:
+    from sentence_reading.llm.translate_google import google_translate_available
+
+    if translate_backend() == "gemini":
+        return gemini_available()
+    return google_translate_available() or gemini_available()
+
+
 def azure_document_intelligence_endpoint() -> str | None:
     load_asr_env()
     raw = (os.environ.get("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT") or "").strip().rstrip("/")

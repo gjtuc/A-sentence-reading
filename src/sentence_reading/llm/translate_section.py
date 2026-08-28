@@ -25,7 +25,12 @@ from dataclasses import replace
 from typing import Any
 
 from sentence_reading.llm import translate as tr
-from sentence_reading.llm.env import gemini_api_key
+from sentence_reading.llm.env import (
+    gemini_api_key,
+    translate_backend,
+    translate_gemini_post,
+)
+from sentence_reading.llm import translate_google as tg
 from sentence_reading.models import Figure, Sentence
 
 log = logging.getLogger(__name__)
@@ -38,7 +43,7 @@ ProgressCb = Callable[[str, float], None]
 # on_item(kind, index, ko, stage) — progressive 세션 패치 (design/45)
 ItemCb = Callable[[str, int, str, str], None]
 
-_FINAL_STAGES = frozenset({"polish", "harmonize"})
+_FINAL_STAGES = frozenset({"polish", "harmonize", "google"})
 _DEFAULT_WORKERS = 4
 _MAX_WORKERS = 8
 
@@ -186,14 +191,24 @@ def _pipeline_staged(
     on_stage: Callable[[str, str], None] | None = None,
 ) -> str | None:
     """
-    draft → sense → polish. 각 단계마다 on_stage(ko, stage) (design/45).
-    캐시 hit 시 polish 한 번에 보고 종료.
+    google bulk 1건 또는 draft → sense → polish (design/45 · design/153).
+    캐시 hit 시 polish/google 한 번에 보고 종료.
     """
     plain = _plain(text)
     if not plain:
         return None
     if len(plain) > tr._MAX_CHARS:
         plain = plain[: tr._MAX_CHARS]
+
+    if translate_backend() == "google" and tg.google_translate_available():
+        ko = tg.translate_one_en_to_ko(plain)
+        if ko:
+            if on_stage:
+                try:
+                    on_stage(ko, "google")
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("pipeline on_stage google failed: %s", exc)
+            return ko
 
     key = tr._cache_key(f"pipeline:{tr._PIPELINE_VERSION}:", plain)
     hit = tr._cache_get(key)
@@ -339,7 +354,18 @@ def enrich_session_translations(
     # INVARIANT: score 없음. 실패 시 해당 항목만 스킵.
     """
     warnings: list[str] = []
-    if not gemini_api_key():
+    use_google = translate_backend() == "google"
+    gemini_post = (
+        translate_backend() == "gemini" or translate_gemini_post()
+    ) and bool(gemini_api_key())
+
+    if use_google:
+        if not tg.google_translate_available() and not gemini_api_key():
+            warnings.append("translate_skipped_no_backend")
+            return sentences, figures, {}, warnings
+        if translate_gemini_post() and not gemini_api_key():
+            warnings.append("translate_post_skipped_no_gemini")
+    elif not gemini_api_key():
         warnings.append("translate_skipped_no_gemini")
         return sentences, figures, {}, warnings
 
@@ -424,39 +450,55 @@ def enrich_session_translations(
             continue
 
         finished = 0
-        with ThreadPoolExecutor(max_workers=min(n_workers, n_plain)) as pool:
-            futs = {pool.submit(_run_sentence_pipeline, i): i for i in plain_idxs}
-            for fut in as_completed(futs):
-                try:
-                    fut.result()
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("parallel pipeline failed: %s", exc)
+        if use_google and tg.google_translate_available():
+            eng_for_batch = [_plain(sentences[i].text) for i in plain_idxs]
+            ko_batch = tg.translate_batch_en_to_ko(eng_for_batch)
+            for j, i in enumerate(plain_idxs):
+                ko = ko_batch[j] if j < len(ko_batch) else None
+                if ko:
+                    with lock:
+                        ko_map[i] = ko
+                        stage_map[i] = "google"
+                    _emit("sentence", i, ko, "google")
                 finished += 1
                 _tick(f"{label} 번역 {finished}/{n_plain}")
+        else:
+            with ThreadPoolExecutor(max_workers=min(n_workers, n_plain)) as pool:
+                futs = {pool.submit(_run_sentence_pipeline, i): i for i in plain_idxs}
+                for fut in as_completed(futs):
+                    try:
+                        fut.result()
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("parallel pipeline failed: %s", exc)
+                    finished += 1
+                    _tick(f"{label} 번역 {finished}/{n_plain}")
 
         eng_lines = [_plain(sentences[i].text) for i in plain_idxs]
-        _tick(f"{label} 요지 정리")
-        digest = _make_digest(sec, eng_lines)
-        digests[sec] = digest
+        if gemini_post:
+            _tick(f"{label} 요지 정리")
+            digest = _make_digest(sec, eng_lines)
+            digests[sec] = digest
 
-        if digest.get("en") or digest.get("ko"):
-            harm_idxs = [i for i in plain_idxs if i in ko_map]
-            n_harm = len(harm_idxs)
-            if n_harm:
-                finished_h = 0
-                with ThreadPoolExecutor(
-                    max_workers=min(n_workers, n_harm)
-                ) as pool:
-                    futs = {
-                        pool.submit(_run_harmonize, i, digest): i for i in harm_idxs
-                    }
-                    for fut in as_completed(futs):
-                        try:
-                            fut.result()
-                        except Exception as exc:  # noqa: BLE001
-                            log.warning("parallel harmonize failed: %s", exc)
-                        finished_h += 1
-                        _tick(f"{label} 재감수 {finished_h}/{n_harm}")
+            if digest.get("en") or digest.get("ko"):
+                harm_idxs = [i for i in plain_idxs if i in ko_map]
+                n_harm = len(harm_idxs)
+                if n_harm:
+                    finished_h = 0
+                    with ThreadPoolExecutor(
+                        max_workers=min(n_workers, n_harm)
+                    ) as pool:
+                        futs = {
+                            pool.submit(_run_harmonize, i, digest): i for i in harm_idxs
+                        }
+                        for fut in as_completed(futs):
+                            try:
+                                fut.result()
+                            except Exception as exc:  # noqa: BLE001
+                                log.warning("parallel harmonize failed: %s", exc)
+                            finished_h += 1
+                            _tick(f"{label} 재감수 {finished_h}/{n_harm}")
+        else:
+            digests[sec] = {"en": "", "ko": ""}
 
     new_sentences = [
         replace(
@@ -504,16 +546,33 @@ def enrich_session_translations(
 
     if cap_jobs:
         finished_c = 0
-        with ThreadPoolExecutor(max_workers=min(n_workers, n_cap)) as pool:
-            futs = {pool.submit(_run_caption, j): j[0] for j in cap_jobs}
-            for fut in as_completed(futs):
-                try:
-                    fi, cap_ko, cap_stage = fut.result()
-                    cap_results[fi] = (cap_ko, cap_stage)
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("parallel caption failed: %s", exc)
+        if use_google and tg.google_translate_available():
+            cap_texts = [cap for _, _, cap in cap_jobs]
+            ko_batch = tg.translate_batch_en_to_ko(cap_texts)
+            for j, (fi, _fig, cap) in enumerate(cap_jobs):
+                cap_ko = (ko_batch[j] if j < len(ko_batch) else None) or ""
+                cap_stage = "google" if cap_ko else ""
+                if cap_ko and gemini_post and (
+                    body_digest.get("en") or body_digest.get("ko")
+                ):
+                    cap_ko = _harmonize(cap, cap_ko, body_digest)
+                    cap_stage = "harmonize"
+                if cap_ko:
+                    _emit("figure", fi, cap_ko, cap_stage or "google")
+                cap_results[fi] = (cap_ko, cap_stage)
                 finished_c += 1
                 _tick(f"캡션 {finished_c}/{n_cap}")
+        else:
+            with ThreadPoolExecutor(max_workers=min(n_workers, n_cap)) as pool:
+                futs = {pool.submit(_run_caption, j): j[0] for j in cap_jobs}
+                for fut in as_completed(futs):
+                    try:
+                        fi, cap_ko, cap_stage = fut.result()
+                        cap_results[fi] = (cap_ko, cap_stage)
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("parallel caption failed: %s", exc)
+                    finished_c += 1
+                    _tick(f"캡션 {finished_c}/{n_cap}")
 
     new_figures: list[Figure] = []
     for fi, fig in enumerate(figures):

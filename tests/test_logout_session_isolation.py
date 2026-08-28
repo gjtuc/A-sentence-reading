@@ -18,7 +18,7 @@ PUB = ROOT / "mobile" / "pubspec.yaml"
 
 def test_status_flag_and_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.71"
+    assert st["version"] == "0.3.78"
     assert st["logout_session_isolation"] is True
     assert st["mobile_logout_session_isolation"] is True
 
@@ -67,4 +67,4 @@ def test_web_logout_wipes_papers() -> None:
 
 
 def test_pubspec_version() -> None:
-    assert "0.3.71" in PUB.read_text(encoding="utf-8")
+    assert "0.3.78" in PUB.read_text(encoding="utf-8")

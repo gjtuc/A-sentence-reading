@@ -17,7 +17,7 @@ from sentence_reading.models import Figure, PaperSession, Sentence
 def test_status_exposes_pipeline() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.71"
+    assert st["version"] == "0.3.78"
     assert st["pipeline_version"] == PIPELINE_VERSION
 
 
@@ -64,7 +64,7 @@ def test_try_cache_hit_skips_stale(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         api,
         "find_cached_by_text",
-        lambda text, source="pdf": {
+        lambda text, source="pdf", doc_role="main": {
             "id": "aaaaaaaaaaaa",
             "pipeline_version": "ancient",
         },

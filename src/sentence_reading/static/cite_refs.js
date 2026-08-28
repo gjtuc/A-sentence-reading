@@ -9,6 +9,9 @@
   var BRACKET =
     /\[(\d+(?:\s*[-–—,]\s*\d+)*(?:\s*,\s*\d+(?:\s*[-–—,]\s*\d+)*)*)\]/g;
   var SUP_NUM = /<sup>\s*(\d{1,3})\s*<\/sup>/gi;
+  var DOLLAR_CITE = /(?<=[A-Za-z)\]])\$(\d{1,3})(?!\d)/g;
+  var DOLLAR_TEX_CITE =
+    /\$\{\^(\d+(?:\s*[,–—-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—-]\s*\d+)*)\}\$/gi;
 
   function stripTags(html) {
     return String(html || "").replace(/<[^>]+>/g, " ");
@@ -68,6 +71,14 @@
     while ((m = reSup.exec(raw))) {
       add([parseInt(m[1], 10)]);
     }
+    var reTex = new RegExp(DOLLAR_TEX_CITE.source, "gi");
+    while ((m = reTex.exec(raw))) {
+      add(expandToken((m[1] || m[2] || "").replace(/\s/g, "")));
+    }
+    var reDol = new RegExp(DOLLAR_CITE.source, "g");
+    while ((m = reDol.exec(raw))) {
+      add([parseInt(m[1], 10)]);
+    }
     return out;
   }
 
@@ -111,6 +122,14 @@
     });
     s = s.replace(BRACKET, function (full, inner) {
       return expandToken(inner).length ? "" : full;
+    });
+    s = s.replace(DOLLAR_TEX_CITE, function (full, inner, single) {
+      var tok = inner || single || "";
+      return expandToken(tok.replace(/\s/g, "")).length ? "" : full;
+    });
+    s = s.replace(DOLLAR_CITE, function (full, dig) {
+      var v = parseInt(dig, 10);
+      return v >= 1 && v <= 999 ? "" : full;
     });
     // "word. " / "word ," 앞 공백 정리 · 연속 공백
     s = s.replace(/\s+([.,;:!?)])/g, "$1");

@@ -1,4 +1,4 @@
-"""design/125 — caption-anchored Fig/Scheme/Table extract (0.3.51 · rich-v18)."""
+"""design/125 — caption-anchored Fig/Scheme/Table extract (0.3.51 · rich-v24)."""
 
 from __future__ import annotations
 
@@ -70,9 +70,9 @@ def _build_side_by_side_pdf(path: Path) -> None:
 
 def test_status_and_pipeline_pin() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.71"
-    assert PIPELINE_VERSION == "rich-v18"
-    assert "rich-v18" in TYPO.read_text(encoding="utf-8")
+    assert st["version"] == "0.3.78"
+    assert PIPELINE_VERSION == "rich-v24"
+    assert "rich-v24" in TYPO.read_text(encoding="utf-8")
     assert DESIGN.is_file()
     src = EXTRACT.read_text(encoding="utf-8")
     assert "design/125" in src

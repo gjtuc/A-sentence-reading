@@ -161,3 +161,111 @@ def test_extract_figures_azure_uses_vstack_composite(
     assert len(figs) == 1
     raw = base64.b64decode(figs[0].image_src.split(",", 1)[1])
     assert raw == composite_png
+
+
+def test_composite_table_vstack_and_placeholder(tmp_path: Path) -> None:
+    import fitz
+
+    from sentence_reading.pdf.composite import composite_table_png, placeholder_png
+
+    pdf = tmp_path / "tbl.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=600, height=800)
+    page.insert_text((50, 80), "Table 1. Caption above", fontsize=11)
+    shape = page.new_shape()
+    shape.draw_rect(fitz.Rect(50, 120, 280, 300))
+    shape.finish(color=(0, 0, 0), fill=(0.85, 0.85, 0.85))
+    shape.commit()
+    doc.save(pdf)
+    doc.close()
+
+    doc = fitz.open(pdf)
+    page = doc[0]
+    cap_rect = fitz.Rect(50, 70, 280, 95)
+    body_rect = fitz.Rect(50, 120, 280, 300)
+    png = composite_table_png(page, body_rect, cap_rect)
+    doc.close()
+    assert png
+    ph = placeholder_png("Table 2 (missing)")
+    assert ph.startswith(b"\x89PNG")
+
+
+def test_composite_table_short_single_line_caption(tmp_path: Path) -> None:
+    """Table 1-like — one-line caption box <20pt still renders in vstack."""
+    import io
+
+    import fitz
+    from PIL import Image
+
+    from sentence_reading.pdf.composite import composite_table_png
+
+    pdf = tmp_path / "tbl_short_cap.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=600, height=800)
+    page.insert_text((120, 68), "Table 1. Short caption.", fontsize=11)
+    shape = page.new_shape()
+    shape.draw_rect(fitz.Rect(50, 82, 320, 260))
+    shape.finish(color=(0, 0, 0), fill=(0.85, 0.85, 0.85))
+    shape.commit()
+    doc.save(pdf)
+    doc.close()
+
+    doc = fitz.open(pdf)
+    page = doc[0]
+    cap_rect = fitz.Rect(110, 60, 250, 72)
+    body_rect = fitz.Rect(50, 75, 320, 260)
+    png = composite_table_png(page, body_rect, cap_rect)
+    doc.close()
+    assert png
+
+    arr = __import__("numpy").array(Image.open(io.BytesIO(png)).convert("RGB"))
+    top = arr[: max(1, arr.shape[0] // 5)]
+    assert float(top.mean()) < 250, "caption ink expected in top band of composite"
+
+
+def test_composite_table_caption_gap_tighter_than_symmetric_pad(tmp_path: Path) -> None:
+    """Table vstack — no inflated white band between caption and body."""
+    import io
+
+    import fitz
+    from PIL import Image
+
+    from sentence_reading.pdf.composite import composite_table_png
+
+    pdf = tmp_path / "tbl_gap.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=600, height=800)
+    page.insert_text((50, 82), "Table 1. Caption above", fontsize=11)
+    shape = page.new_shape()
+    shape.draw_rect(fitz.Rect(50, 100, 280, 280))
+    shape.finish(color=(0, 0, 0), fill=(0.85, 0.85, 0.85))
+    shape.commit()
+    doc.save(pdf)
+    doc.close()
+
+    doc = fitz.open(pdf)
+    page = doc[0]
+    cap_rect = fitz.Rect(48, 72, 282, 92)
+    body_rect = fitz.Rect(50, 98, 280, 280)
+    png = composite_table_png(page, body_rect, cap_rect)
+    doc.close()
+    assert png
+
+    im = Image.open(io.BytesIO(png)).convert("RGB")
+    arr = __import__("numpy").array(im)
+    dark = 255 - arr.mean(axis=(1, 2))
+    rows = [y for y in range(arr.shape[0]) if dark[y] > 12]
+    assert rows
+    splits = []
+    prev = rows[0]
+    run_end = rows[0]
+    for y in rows[1:]:
+        if y - prev > 6:
+            splits.append((run_end, y))
+        prev = y
+        run_end = y
+    assert splits, "expected caption band then table band"
+    cap_end, table_start = splits[0]
+    white_gap = table_start - cap_end - 1
+    assert white_gap <= 12, f"caption-table gap too wide: {white_gap}px"
+    im.close()

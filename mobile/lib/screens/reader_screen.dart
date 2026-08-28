@@ -14,6 +14,9 @@ import '../state/shadowing_controller.dart';
 import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
 import 'shadowing_practice_screen.dart';
+import '../api/reader_nav_labels.dart';
+import '../widgets/reader_nav_picker.dart';
+import 'figure_edit_screen.dart';
 
 /// Split reader: sentence panel + figure panel (design/63) + TTS (design/64).
 ///
@@ -342,6 +345,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                   ? const SizedBox.shrink()
                                   : _FigurePanel(
                                       library: library,
+                                      client: client,
                                       session: s,
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
@@ -349,6 +353,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       figureCaptionInImage: _figureCaptionInImage,
                                       onToggleChrome: _toggleChrome,
                                       onDoubleTapExpand: _toggleFigureExpand,
+                                      onLongPressEdit: () {
+                                        final cid = s.cacheId.trim();
+                                        if (cid.isEmpty) return;
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute<void>(
+                                            builder: (_) => FigureEditScreen(
+                                              client: client,
+                                              cacheId: cid,
+                                            ),
+                                          ),
+                                        );
+                                      },
                                     ),
                             ),
                           ),
@@ -469,9 +485,10 @@ class _SentencePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cur = session.currentSentence;
-    final label = session.sentenceCount == 0
-        ? 'no sentences'
-        : 'sentence ${session.sentenceIndex + 1} / ${session.sentenceCount}';
+    final header = session.sentenceCount == 0
+        ? const SectionHeaderParts(sectionName: 'no sentences', position: 0, total: 0)
+        : session.sectionNav.headerPartsFor(session.sentenceIndex);
+    final canPick = session.sentenceCount > 0 && session.sectionNav.sectionCount > 0;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Column(
@@ -494,7 +511,29 @@ class _SentencePanel extends StatelessWidget {
                               },
                         icon: const Icon(Icons.chevron_left),
                       ),
-                      Expanded(child: Text(label, textAlign: TextAlign.center)),
+                      Expanded(
+                        child: ReaderNavHeaderLabel(
+                          left: header.sectionName.isEmpty
+                              ? 'Sentence'
+                              : header.sectionName,
+                          right: session.sentenceCount == 0
+                              ? '— / —'
+                              : header.rightLabel,
+                          enabled: canPick,
+                          onTap: canPick
+                              ? () async {
+                                  final idx = await showSectionNavPicker(
+                                    context: context,
+                                    nav: session.sectionNav,
+                                    currentGlobalIndex: session.sentenceIndex,
+                                  );
+                                  if (idx == null) return;
+                                  await tts.stop();
+                                  await library.goToSentenceIndex(idx);
+                                }
+                              : null,
+                        ),
+                      ),
                       IconButton(
                         tooltip: 'next sentence',
                         onPressed: session.sentenceCount == 0
@@ -612,7 +651,13 @@ class _SentencePanel extends StatelessWidget {
     final cur = session.currentSentence;
     if (cur == null || !cur.hasText) return const [];
     final captions = session.figures.map((f) => f.caption).toList();
-    final hints = fig.hintsForSentence(text: cur.text, captions: captions);
+    final slotKeys = session.figures.map((f) => f.slotKey).toList();
+    final hints = fig.hintsForSentence(
+      text: cur.text,
+      captions: captions,
+      slotKeys: slotKeys,
+      supplementaryMerged: session.supplementaryMerged,
+    );
     if (hints.isEmpty) return const [];
     final scheme = Theme.of(context).colorScheme;
     return [
@@ -816,6 +861,7 @@ class _CiteRefPanelState extends State<_CiteRefPanel> {
 class _FigurePanel extends StatelessWidget {
   const _FigurePanel({
     required this.library,
+    required this.client,
     required this.session,
     required this.showKo,
     required this.showChrome,
@@ -823,9 +869,11 @@ class _FigurePanel extends StatelessWidget {
     this.figureCaptionInImage = true,
     this.onToggleChrome,
     this.onDoubleTapExpand,
+    this.onLongPressEdit,
   });
 
   final LibraryController library;
+  final AsrClient client;
   final ReadingSession session;
   final bool showKo;
   final bool showChrome;
@@ -835,13 +883,21 @@ class _FigurePanel extends StatelessWidget {
   final bool figureCaptionInImage;
   final VoidCallback? onToggleChrome;
   final VoidCallback? onDoubleTapExpand;
+  /// design/151 — long-press figure panel → overlay editor.
+  final VoidCallback? onLongPressEdit;
 
   @override
   Widget build(BuildContext context) {
     final cur = session.currentFigure;
-    final label = session.figureCount == 0
-        ? 'no figures'
-        : 'figure ${session.figureIndex + 1} / ${session.figureCount}';
+    final header = session.figureCount == 0
+        ? const FigureHeaderParts(
+            kindLabel: 'no figures', numberLabel: '', totalLabel: '')
+        : session.figureNav.headerPartsFor(
+            session.figureIndex,
+            totalFigures: session.figureCount,
+          );
+    final canPick =
+        session.figureCount > 0 && session.figureNav.hasPicker;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Column(
@@ -862,7 +918,26 @@ class _FigurePanel extends StatelessWidget {
                         icon: const Icon(Icons.chevron_left),
                       ),
                       Expanded(
-                        child: Text(label, textAlign: TextAlign.center),
+                        child: ReaderNavHeaderLabel(
+                          left: header.kindLabel.isEmpty
+                              ? 'Figure'
+                              : header.kindLabel,
+                          right: session.figureCount == 0
+                              ? '— / —'
+                              : header.rightLabel,
+                          enabled: canPick,
+                          onTap: canPick
+                              ? () async {
+                                  final idx = await showFigureNavPicker(
+                                    context: context,
+                                    nav: session.figureNav,
+                                    currentCarouselIndex: session.figureIndex,
+                                  );
+                                  if (idx == null) return;
+                                  await library.goToFigureIndex(idx);
+                                }
+                              : null,
+                        ),
                       ),
                       IconButton(
                         tooltip: 'next figure',
@@ -876,9 +951,12 @@ class _FigurePanel extends StatelessWidget {
                 : const SizedBox(width: double.infinity),
           ),
           Expanded(
-            child: Card(
-              clipBehavior: Clip.antiAlias,
-              child: cur == null
+            child: GestureDetector(
+              behavior: HitTestBehavior.deferToChild,
+              onLongPress: onLongPressEdit,
+              child: Card(
+                clipBehavior: Clip.antiAlias,
+                child: cur == null
                   ? GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: onToggleChrome,
@@ -927,6 +1005,7 @@ class _FigurePanel extends StatelessWidget {
                           ),
                       ],
                     ),
+              ),
             ),
           ),
         ],

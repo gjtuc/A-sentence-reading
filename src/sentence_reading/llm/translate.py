@@ -12,7 +12,12 @@ import re
 import threading
 from typing import Any
 
-from sentence_reading.llm.env import gemini_api_key, gemini_model
+from sentence_reading.llm.env import (
+    gemini_api_key,
+    gemini_model,
+    translate_backend,
+    translate_gemini_post,
+)
 
 log = logging.getLogger(__name__)
 
@@ -23,6 +28,7 @@ _CACHE: dict[str, str] = {}
 _CACHE_MAX = 256
 
 _PIPELINE_VERSION = "v1"
+_GOOGLE_CACHE_PREFIX = "google:v1:"
 
 _SYSTEM_DRAFT = """You translate academic English into natural Korean for a researcher reading one sentence at a time.
 Output Korean only — no quotes, no English echo, no preamble.
@@ -117,6 +123,59 @@ def _cache_put(key: str, ko: str) -> None:
         _CACHE[key] = ko
 
 
+def _draft_en_to_ko(plain: str) -> tuple[str | None, str]:
+    """
+    1차 번역 — Google bulk API 우선, 실패 시 Gemini draft (design/153).
+    Returns (ko, stage) where stage is 'google' or 'draft'.
+    """
+    if translate_backend() == "google":
+        from sentence_reading.llm import translate_google as tg
+
+        if tg.google_translate_available():
+            ko = tg.translate_one_en_to_ko(plain)
+            if ko:
+                return ko, "google"
+            log.warning("google translate empty — falling back to gemini draft")
+
+    if not gemini_api_key():
+        return None, ""
+    draft = _gemini_generate(_SYSTEM_DRAFT, f"Translate to Korean:\n\n{plain}")
+    return (draft, "draft") if draft else (None, "")
+
+
+def _gemini_refine(en: str, ko: str, *, sense: bool, polish: bool) -> tuple[str, list[str]]:
+    """sense/polish 후처리 — fail-soft."""
+    stages_done: list[str] = []
+    current = ko
+    if sense:
+        try:
+            refined = _gemini_generate(
+                _SYSTEM_SENSE,
+                f"English source:\n{en}\n\nKorean draft:\n{current}\n\nRevise for terminology.",
+            )
+            if refined:
+                current = refined
+                stages_done.append("sense")
+            else:
+                log.warning("translate sense empty — keeping draft")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("translate sense failed: %s", exc)
+    if polish:
+        try:
+            refined = _gemini_generate(
+                _SYSTEM_POLISH,
+                f"English source:\n{en}\n\nKorean draft:\n{current}\n\nPolish for readability.",
+            )
+            if refined:
+                current = refined
+                stages_done.append("polish")
+            else:
+                log.warning("translate polish empty — keeping prior stage")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("translate polish failed: %s", exc)
+    return current, stages_done
+
+
 def _validate_plain(text: str) -> tuple[str | None, dict[str, Any] | None]:
     plain = _plain(text)
     if not plain:
@@ -127,27 +186,49 @@ def _validate_plain(text: str) -> tuple[str | None, dict[str, Any] | None]:
     return plain, None
 
 
+def _translate_unavailable_error() -> dict[str, Any]:
+    from sentence_reading.llm.translate_google import google_translate_available
+
+    if translate_backend() == "google" and not google_translate_available():
+        if not gemini_api_key():
+            return {"ok": False, "error": "translate_unavailable"}
+    if not gemini_api_key() and not google_translate_available():
+        return {"ok": False, "error": "translate_unavailable"}
+    return {"ok": False, "error": "gemini_unavailable"}
+
+
 def translate_en_to_ko(text: str) -> dict[str, Any]:
     """
-    단순 1회 번역 (design/35).
-    # INVARIANT: empty / too_long / no-key 는 Gemini 를 호출하지 않는다.
+    단순 1회 번역 (design/35 · design/153 google 우선).
+    # INVARIANT: empty / too_long 은 API 를 호출하지 않는다.
     """
     plain, err = _validate_plain(text)
     if err:
         return err
     assert plain is not None
 
-    key = _cache_key("simple:", plain)
+    cache_prefix = (
+        _GOOGLE_CACHE_PREFIX if translate_backend() == "google" else "simple:"
+    )
+    key = _cache_key(cache_prefix, plain)
     hit = _cache_get(key)
     if hit is not None:
-        return {"ok": True, "ko": hit, "cached": True, "mode": "simple", "stages_done": ["draft"]}
+        stage = "google" if cache_prefix.startswith("google:") else "draft"
+        return {
+            "ok": True,
+            "ko": hit,
+            "cached": True,
+            "mode": "simple",
+            "stages_done": [stage],
+        }
 
-    if not gemini_api_key():
-        return {"ok": False, "error": "gemini_unavailable"}
-
-    ko = _gemini_generate(_SYSTEM_DRAFT, f"Translate to Korean:\n\n{plain}")
+    ko, stage = _draft_en_to_ko(plain)
     if not ko:
-        return {"ok": False, "error": "translate_failed"}
+        from sentence_reading.llm.translate_google import google_translate_available
+
+        if gemini_api_key() or google_translate_available():
+            return {"ok": False, "error": "translate_failed"}
+        return _translate_unavailable_error()
 
     _cache_put(key, ko)
     return {
@@ -155,13 +236,13 @@ def translate_en_to_ko(text: str) -> dict[str, Any]:
         "ko": ko,
         "cached": False,
         "mode": "simple",
-        "stages_done": ["draft"],
+        "stages_done": [stage or "draft"],
     }
 
 
 def translate_en_to_ko_pipeline(text: str) -> dict[str, Any]:
     """
-    draft → sense → polish (design/36).
+    google draft → (선택) sense → polish (design/36 · design/153).
     # INVARIANT: 후속 단계 실패 시 직전 ko 로 fail-soft 성공.
     """
     plain, err = _validate_plain(text)
@@ -169,55 +250,59 @@ def translate_en_to_ko_pipeline(text: str) -> dict[str, Any]:
         return err
     assert plain is not None
 
-    key = _cache_key(f"pipeline:{_PIPELINE_VERSION}:", plain)
+    use_google = translate_backend() == "google"
+    cache_prefix = (
+        f"pipeline:{_GOOGLE_CACHE_PREFIX}"
+        if use_google
+        else f"pipeline:{_PIPELINE_VERSION}:"
+    )
+    key = _cache_key(cache_prefix, plain)
     hit = _cache_get(key)
     if hit is not None:
+        stages = (
+            ["google", "sense", "polish"]
+            if use_google
+            else ["draft", "sense", "polish"]
+        )
         return {
             "ok": True,
             "ko": hit,
             "cached": True,
             "mode": "pipeline",
-            "stages_done": ["draft", "sense", "polish"],
+            "stages_done": stages,
         }
 
-    if not gemini_api_key():
-        return {"ok": False, "error": "gemini_unavailable"}
+    ko, first_stage = _draft_en_to_ko(plain)
+    if not ko:
+        from sentence_reading.llm.translate_google import google_translate_available
 
-    stages_done: list[str] = []
-    draft = _gemini_generate(_SYSTEM_DRAFT, f"Translate to Korean:\n\n{plain}")
-    if not draft:
-        return {"ok": False, "error": "translate_failed"}
-    stages_done.append("draft")
-    current = draft
+        if gemini_api_key() or google_translate_available():
+            return {"ok": False, "error": "translate_failed"}
+        return _translate_unavailable_error()
 
-    try:
-        sense = _gemini_generate(
-            _SYSTEM_SENSE,
-            f"English source:\n{plain}\n\nKorean draft:\n{current}\n\nRevise for terminology.",
+    stages_done: list[str] = [first_stage or "draft"]
+    current = ko
+
+    run_gemini_refine = translate_backend() == "gemini" or translate_gemini_post()
+    if run_gemini_refine and gemini_api_key():
+        current, refined = _gemini_refine(
+            plain,
+            current,
+            sense=True,
+            polish=True,
         )
-        if sense:
-            current = sense
-            stages_done.append("sense")
-        else:
-            log.warning("translate sense empty — keeping draft")
-    except Exception as exc:  # noqa: BLE001
-        log.warning("translate sense failed: %s", exc)
+        stages_done.extend(refined)
 
-    try:
-        polish = _gemini_generate(
-            _SYSTEM_POLISH,
-            f"English source:\n{plain}\n\nKorean draft:\n{current}\n\nPolish for readability.",
-        )
-        if polish:
-            current = polish
-            stages_done.append("polish")
-        else:
-            log.warning("translate polish empty — keeping prior stage")
-    except Exception as exc:  # noqa: BLE001
-        log.warning("translate polish failed: %s", exc)
-
-    # WHY: 전체 pipeline 완료본만 캐시 — 부분 성공은 다음 시도에서 재도전
-    if stages_done == ["draft", "sense", "polish"]:
+    final_stages = (
+        ["google", "sense", "polish"]
+        if first_stage == "google"
+        else ["draft", "sense", "polish"]
+    )
+    if stages_done == final_stages or (
+        first_stage == "google"
+        and stages_done == ["google"]
+        and not run_gemini_refine
+    ):
         _cache_put(key, current)
 
     return {

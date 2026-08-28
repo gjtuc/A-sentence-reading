@@ -30,6 +30,7 @@ _SECTION_ORDER = {
     "results": 4,
     "discussion": 5,
     "conclusion": 6,
+    "supplementary": 8,
     "body": 7,
 }
 
@@ -50,6 +51,7 @@ _SECTION_ALIASES = {
     "title": "title",
     "abstract": "abstract",
     "body": "body",
+    "supplementary": "supplementary",
 }
 
 _SURVEY_SYSTEM = """You survey one academic paper's extracted plain text.
@@ -72,7 +74,9 @@ _SURVEY_USER = """Survey this paper text and return JSON:
     {{"raw": "as in text", "rich": "<i>σ</i> or similar", "note": "optional"}}
   ]
 }}
-Use only tags <sub> <sup> <i> <em> in rich fields. Keep formulas/symbols lists short (max ~40 each).
+Use only tags <sub> <sup> <i> <em> in rich fields — never LaTeX ($…$).
+Do NOT put bracket citations ([1], [8, 9]) in formulas or symbols.
+Keep formulas/symbols lists short (max ~40 each).
 
 PAPER TEXT:
 ---

@@ -17,6 +17,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(autouse=True)
+def _legacy_gemini_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ASR_TRANSLATE_BACKEND", "gemini")
+    monkeypatch.setattr(
+        "sentence_reading.llm.translate_google.google_translate_available",
+        lambda: False,
+    )
+
+
+@pytest.fixture(autouse=True)
 def _clear_cache() -> None:
     tr.clear_translate_cache_for_tests()
     yield
@@ -56,7 +65,7 @@ def _install_fake_gemini(monkeypatch: pytest.MonkeyPatch, calls: list[str], text
 
 def test_status_flags_translate() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.71"
+    assert st["version"] == "0.3.78"
     assert "translate_en_ko" in st
     assert st["tab_close"] is True
 
@@ -88,7 +97,7 @@ def test_ui_wiring_contract() -> None:
     assert "미리 번역 없음" in js or "text_ko" in js
     assert "design/35" in js or "design/42" in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.71" in served
+    assert "app.js?v=0.3.78" in served
 
 
 def test_empty_and_whitespace(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -113,9 +122,12 @@ def test_plain_none_is_empty() -> None:
 
 
 def test_gemini_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ASR_TRANSLATE_BACKEND", "gemini")
     monkeypatch.setattr(tr, "gemini_api_key", lambda: "")
+    monkeypatch.setattr("sentence_reading.llm.translate_google.google_translate_available", lambda: False)
     out = tr.translate_en_to_ko("Hello world.")
-    assert out == {"ok": False, "error": "gemini_unavailable"}
+    assert out["ok"] is False
+    assert out["error"] in ("gemini_unavailable", "translate_unavailable")
 
 
 def test_strips_html_and_caches(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -145,7 +157,7 @@ def test_translate_failed_empty_model(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_api_invalid_and_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("sentence_reading.api.app.gemini_available", lambda: True)
+    monkeypatch.setattr("sentence_reading.api.app.translate_available", lambda: True)
     client = TestClient(app)
 
     bad = client.post("/api/translate", json={"text": 123})
@@ -180,14 +192,14 @@ def test_api_invalid_and_ok(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_api_gemini_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "sentence_reading.api.app.gemini_available", lambda: False
+        "sentence_reading.api.app.translate_available", lambda: False
     )
     r = TestClient(app).post("/api/translate", json={"text": "Hi"})
-    assert r.json() == {"ok": False, "error": "gemini_unavailable"}
+    assert r.json() == {"ok": False, "error": "translate_unavailable"}
 
 
 def test_api_exception_maps(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("sentence_reading.api.app.gemini_available", lambda: True)
+    monkeypatch.setattr("sentence_reading.api.app.translate_available", lambda: True)
 
     def boom(_t: str, _m: str = "pipeline") -> dict:
         raise RuntimeError("network down")

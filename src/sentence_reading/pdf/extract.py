@@ -257,6 +257,16 @@ def _is_caption_line(s: str, *, fig_scheme: bool, table: bool) -> bool:
     return False
 
 
+def _slot_sort_key(slot_key: str) -> tuple[int, int]:
+    """fig:3 → (0, 3); table:2 → (1, 2) — slot plan carousel order."""
+    raw = (slot_key or "").strip().lower()
+    m = re.match(r"^(fig|table):(\d+)$", raw)
+    if not m:
+        return (2, 10**9)
+    kind_ord = 1 if m.group(1) == "table" else 0
+    return (kind_ord, int(m.group(2)))
+
+
 def _caption_sort_key(caption: str) -> tuple:
     """
     캡션 번호 순 정렬 키 (design/92).
@@ -509,18 +519,33 @@ def _png_data_url(png: bytes) -> str:
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
 
 
-def _render_page_clip(page, rect, *, zoom: float = _FIGURE_CLIP_ZOOM) -> bytes | None:
+def _render_page_clip(
+    page,
+    rect,
+    *,
+    zoom: float = _FIGURE_CLIP_ZOOM,
+    pad: float = 6,
+    pad_top: float | None = None,
+    pad_right: float | None = None,
+    pad_bottom: float | None = None,
+    pad_left: float | None = None,
+    min_width: float = 20,
+    min_height: float = 20,
+) -> bytes | None:
     """캡션+표/그림 영역을 페이지에서 잘라 PNG로. zoom↑ = 같은 영역을 더 촘촘히 찍음."""
     import fitz
 
     page_rect = page.rect
     clip = fitz.Rect(rect)
-    pad = 6
-    clip.x0 = max(page_rect.x0, clip.x0 - pad)
-    clip.y0 = max(page_rect.y0, clip.y0 - pad)
-    clip.x1 = min(page_rect.x1, clip.x1 + pad)
-    clip.y1 = min(page_rect.y1, clip.y1 + pad)
-    if clip.width < 20 or clip.height < 20:
+    pt = pad if pad_top is None else pad_top
+    pr = pad if pad_right is None else pad_right
+    pb = pad if pad_bottom is None else pad_bottom
+    pl = pad if pad_left is None else pad_left
+    clip.x0 = max(page_rect.x0, clip.x0 - pl)
+    clip.y0 = max(page_rect.y0, clip.y0 - pt)
+    clip.x1 = min(page_rect.x1, clip.x1 + pr)
+    clip.y1 = min(page_rect.y1, clip.y1 + pb)
+    if clip.width < min_width or clip.height < min_height:
         return None
     try:
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, alpha=False)
@@ -1001,13 +1026,27 @@ def _finalize_figure_list(doc, raw: list[Figure]) -> list[Figure]:
         validate_pages_against_figures,
     )
 
-    out = list(raw or [])
-    out.sort(key=lambda f: (_caption_sort_key(f.caption), f.page_index or 0))
+    slot_backed: list[Figure] = []
+    legacy: list[Figure] = []
+    for fig in raw or []:
+        if (fig.slot_key or "").strip():
+            slot_backed.append(fig)
+        else:
+            legacy.append(fig)
+
+    if slot_backed:
+        slot_backed.sort(key=lambda f: _slot_sort_key(f.slot_key))
+        to_process = slot_backed
+    else:
+        legacy.sort(key=lambda f: (_caption_sort_key(f.caption), f.page_index or 0))
+        to_process = legacy
 
     deduped: list[Figure] = []
     seen: set[str] = set()
-    for fig in out:
-        key = caption_key(fig.caption) or f"raw:{fig.caption[:40]}"
+    for fig in to_process:
+        key = (fig.slot_key or "").strip().lower()
+        if not key:
+            key = caption_key(fig.caption) or f"raw:{fig.caption[:40]}"
         if key in seen:
             continue
         seen.add(key)
@@ -1028,7 +1067,7 @@ def _finalize_figure_list(doc, raw: list[Figure]) -> list[Figure]:
         ck = caption_key(fig.caption)
         if fig.caption.strip().lower().startswith("title page"):
             prefix = "cov"
-        elif fig.id.startswith("tbl-") or (ck and ck.startswith("table:")):
+        elif fig.id.startswith("tbl-") or (fig.slot_key or "").lower().startswith("table:") or (ck and ck.startswith("table:")):
             prefix = "tbl"
         else:
             prefix = "fig"
@@ -1037,6 +1076,9 @@ def _finalize_figure_list(doc, raw: list[Figure]) -> list[Figure]:
             image_src=fig.image_src,
             caption=fig.caption,
             page_index=fig.page_index,
+            slot_key=fig.slot_key or "",
+            caption_ko=fig.caption_ko,
+            caption_ko_stage=fig.caption_ko_stage,
         )
 
     validate_extracted_figures(out)
@@ -1056,11 +1098,12 @@ def _extract_figures_pymupdf(pdf_path: Path) -> list[Figure]:
         doc.close()
 
 
-def extract_figures(pdf_path: Path) -> list[Figure]:
+def extract_figures(pdf_path: Path, *, doc_role: str = "main") -> list[Figure]:
     """
     그림(Fig/Scheme) + 표(Table)를 캡션 번호 순으로 합친다 (design/92 · 125).
     design/147 — Azure Layout when configured; PyMuPDF fills missing caption keys.
     design/135 — optional title-page cover prepended as carousel index 0.
+    design/152 — supplementary doc_role enables fig:s* slots.
     """
     import fitz
     import logging
@@ -1076,13 +1119,11 @@ def extract_figures(pdf_path: Path) -> list[Figure]:
         used_azure = False
         try:
             from sentence_reading.llm.env import azure_document_intelligence_available
-            from sentence_reading.pdf.azure_layout import (
-                azure_layout_enabled,
-                extract_figures_azure,
-            )
+            from sentence_reading.pdf.azure_layout import azure_layout_enabled
+            from sentence_reading.pdf.extract_figures_v2 import extract_figures_v2
 
             if azure_layout_enabled() and azure_document_intelligence_available():
-                merged = extract_figures_azure(pdf_path)
+                merged = extract_figures_v2(pdf_path, doc_role=doc_role)
                 used_azure = bool(merged)
                 if used_azure:
                     log.info("azure_layout extracted %d figures/tables", len(merged))
@@ -1090,18 +1131,6 @@ def extract_figures(pdf_path: Path) -> list[Figure]:
             log.warning("azure_layout failed (%s); using PyMuPDF", exc)
 
         if used_azure:
-            from sentence_reading.fig_refs import caption_key
-
-            seen = {
-                caption_key(f.caption) or f"raw:{f.caption[:40]}"
-                for f in merged
-            }
-            for fig in _collect_pymupdf_figures(doc):
-                key = caption_key(fig.caption) or f"raw:{fig.caption[:40]}"
-                if key in seen:
-                    continue
-                seen.add(key)
-                merged.append(fig)
             return _finalize_figure_list(doc, merged)
 
         return _finalize_figure_list(doc, _collect_pymupdf_figures(doc))

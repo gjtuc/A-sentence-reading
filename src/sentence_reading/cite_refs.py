@@ -21,6 +21,17 @@ _BRACKET = re.compile(
 )
 # <sup>12</sup> — 숫자만 (cm<sup>−1</sup> 등은 제외)
 _SUP_NUM = re.compile(r"<sup>\s*(\d{1,3})\s*</sup>", re.IGNORECASE)
+# Bracket cite shape — survey glossary가 [8, 9]를 LaTeX $1로 바꾸는 사고 방어
+_CITE_BRACKET_RAW = re.compile(
+    r"^\[\s*\d+(?:\s*[-–—,]\s*\d+)*\s*\]$"
+)
+# Word-attached $n (dioxide$1) — glossary 오염·TeX 각주 잔재; $33.00(앞 공백)은 제외
+_DOLLAR_CITE = re.compile(r"(?<=[A-Za-z)\]])\$(\d{1,3})(?!\d)")
+# $^{8,9}$ / ${^8,9}$ — LaTeX 각주
+_DOLLAR_TEX_CITE = re.compile(
+    r"\$\{\^(\d+(?:\s*[,–—-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—-]\s*\d+)*)\}\$",
+    re.IGNORECASE,
+)
 # References 섹션 헤더
 _REF_HEAD = re.compile(
     r"(?im)^(?:\s*)(references|bibliography|literature cited)\s*$"
@@ -33,6 +44,67 @@ _ENTRY_START = re.compile(
 
 def strip_tags(html: str) -> str:
     return _TAG.sub(" ", html or "")
+
+
+def looks_like_citation_glossary_raw(raw: str) -> bool:
+    """Survey formulas에 각주 [n] / [n,m]가 들어가면 apply_glossary 스킵."""
+    return bool(_CITE_BRACKET_RAW.match((raw or "").strip()))
+
+
+def glossary_rich_is_allowed(rich: str) -> bool:
+    """Survey rich는 <sub>/<sup>/<i>/<em>만 — LaTeX $…$ 거부."""
+    r = (rich or "").strip()
+    if not r or "$" in r:
+        return False
+    plain = strip_tags(r)
+    if "<" in r:
+        # 허용 태그 외 HTML/속성 거부
+        for m in re.finditer(r"</?([a-zA-Z0-9]+)", r):
+            if m.group(1).lower() not in ("sub", "sup", "i", "em"):
+                return False
+    return bool(plain)
+
+
+def _expand_dollar_token(token: str) -> list[int]:
+    return _expand_num_token(token.replace(" ", ""))
+
+
+def _parse_dollar_cite_numbers(text: str) -> list[int]:
+    out: list[int] = []
+    seen: set[int] = set()
+
+    def _add(nums: list[int]) -> None:
+        for n in nums:
+            if n not in seen:
+                seen.add(n)
+                out.append(n)
+
+    for m in _DOLLAR_TEX_CITE.finditer(text or ""):
+        inner = m.group(1) or m.group(2) or ""
+        _add(_expand_dollar_token(inner))
+    for m in _DOLLAR_CITE.finditer(text or ""):
+        _add([int(m.group(1))])
+    return out
+
+
+def repair_dollar_cite_artifacts(text: str) -> str:
+    """
+    Ingest — glossary가 [8, 9]→$1로 바꾼 뒤 남는 word-attached $n 제거.
+    WHY: 재분석 전 캐시·표시층 모두에서 cite 흔적($1) 정리; 가격($33)은 유지.
+    """
+    s = text or ""
+
+    def _tex(m: re.Match[str]) -> str:
+        inner = m.group(1) or m.group(2) or ""
+        return "" if _expand_dollar_token(inner) else m.group(0)
+
+    s = _DOLLAR_TEX_CITE.sub(_tex, s)
+
+    def _dollar(m: re.Match[str]) -> str:
+        n = int(m.group(1))
+        return "" if 1 <= n <= 999 else m.group(0)
+
+    return _DOLLAR_CITE.sub(_dollar, s)
 
 
 def extract_doi(text: str) -> str | None:
@@ -89,6 +161,8 @@ def parse_cite_numbers(text: str) -> list[int]:
         _add(_expand_num_token(m.group(1)))
     for m in _SUP_NUM.finditer(raw):
         _add([int(m.group(1))])
+    for n in _parse_dollar_cite_numbers(raw):
+        _add([n])
     return out
 
 
@@ -109,6 +183,18 @@ def strip_cite_markers_for_display(html: str) -> str:
         return "" if _expand_num_token(m.group(1)) else m.group(0)
 
     s = _BRACKET.sub(_br, s)
+
+    def _tex(m: re.Match[str]) -> str:
+        inner = m.group(1) or m.group(2) or ""
+        return "" if _expand_dollar_token(inner) else m.group(0)
+
+    s = _DOLLAR_TEX_CITE.sub(_tex, s)
+
+    def _dollar(m: re.Match[str]) -> str:
+        n = int(m.group(1))
+        return "" if 1 <= n <= 999 else m.group(0)
+
+    s = _DOLLAR_CITE.sub(_dollar, s)
     s = re.sub(r"\s+([.,;:!?)])", r"\1", s)
     s = re.sub(r"\s{2,}", " ", s)
     return s.strip()

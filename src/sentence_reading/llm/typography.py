@@ -8,10 +8,15 @@ from __future__ import annotations
 
 import re
 
+from sentence_reading.cite_refs import (
+    glossary_rich_is_allowed,
+    looks_like_citation_glossary_raw,
+    repair_dollar_cite_artifacts,
+)
 from sentence_reading.llm.richtext import sanitize_sentence_html
 
 # 캐시 무효화 — 이 값이 다르면 ingest가 보관본을 건너뛰고 다시 다듬음
-PIPELINE_VERSION = "rich-v18"  # design/150 — column vstack composite (no union clip)
+PIPELINE_VERSION = "rich-v24"  # design/152 supplementary doc_role + SI slots
 
 # PDF가 도(°) 대신 자주 내보내는 원형 lookalike
 # U+25E6 ◦ white bullet, U+2218 ∘ ring operator, U+02DA ˚ ring above,
@@ -132,13 +137,20 @@ def apply_glossary(
     for row in formulas or []:
         raw = str(row.get("raw") or "").strip()
         rich = str(row.get("rich") or "").strip()
-        if raw and rich and raw != rich:
-            for v in _dash_variants(raw):
-                items.append((v, rich))
+        if not raw or not rich or raw == rich:
+            continue
+        # WHY: survey가 [8, 9]→$1 로 넣으면 carbon dioxide$1 잔재 (design/49)
+        if looks_like_citation_glossary_raw(raw):
+            continue
+        if not glossary_rich_is_allowed(rich):
+            continue
+        for v in _dash_variants(raw):
+            items.append((v, rich))
     items.sort(key=lambda t: len(t[0]), reverse=True)
 
     for raw, rich in items:
         if rich not in out:
             out = _replace_outside_tags(out, raw, rich)
 
+    out = repair_dollar_cite_artifacts(out)
     return sanitize_sentence_html(out)

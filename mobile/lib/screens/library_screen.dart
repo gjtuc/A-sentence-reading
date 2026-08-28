@@ -191,6 +191,41 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  Future<void> _mergeSupplementary(PaperEntry entry) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('보충자료 합치기'),
+        content: Text(
+          '「${entry.title}」의 보충자료를 본문 뒤에 합칩니다.\n'
+          '합친 뒤에는 보충 항목이 목록에서 숨겨집니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('합치기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final ok = await widget.library.mergeSupplementary(entry);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? '보충자료를 합쳤습니다.'
+              : (widget.library.error ?? '합치기에 실패했습니다.'),
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadAndResume() async {
     await widget.library.refresh();
     if (!mounted || !widget.auth.isLoggedIn) return;
@@ -581,7 +616,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   : (_) => _toggleSelected(e.id),
                             )
                           : null,
-                      title: Text(e.title),
+                      title: Row(
+                        children: [
+                          Expanded(child: Text(e.title)),
+                          if (e.libraryTag.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: Chip(
+                                label: Text(
+                                  e.libraryTag,
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                                padding: EdgeInsets.zero,
+                              ),
+                            ),
+                        ],
+                      ),
                       subtitle: Text(
                         [
                           e.subtitle,
@@ -595,6 +648,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           : Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                if (e.canMergeSupplementary)
+                                  IconButton(
+                                    icon: const Icon(Icons.merge_type, size: 22),
+                                    tooltip: '보충자료 합치기',
+                                    onPressed: lib.opening ||
+                                            lib.uploading ||
+                                            lib.reanalyzing ||
+                                            _deleting
+                                        ? null
+                                        : () => _mergeSupplementary(e),
+                                  ),
                                 if (e.hasSource)
                                   IconButton(
                                     icon: Icon(
