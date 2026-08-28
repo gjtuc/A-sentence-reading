@@ -106,6 +106,7 @@ def merge_supplementary(main_id: str) -> dict:
             **(si_session.translate_digests or {}),
         },
         references=main_session.references or si_session.references,
+        document_citation=dict(main_session.document_citation or {}),
     )
     merged_session.clamp_indices()
 

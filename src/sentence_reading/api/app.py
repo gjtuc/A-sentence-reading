@@ -171,7 +171,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.85",
+    version="0.3.86",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -394,6 +394,14 @@ def _fig_ref_hints_enabled() -> bool:
 def _mobile_cite_ref_panel_enabled() -> bool:
     """design/148 — kill: ASR_MOBILE_CITE_REF_PANEL=0 hides mobile References panel."""
     v = (os.environ.get("ASR_MOBILE_CITE_REF_PANEL") or "1").strip().lower()
+    return v not in ("0", "false", "off", "no")
+
+
+def _mobile_this_paper_panel_enabled() -> bool:
+    """design/157 — kill: ASR_MOBILE_THIS_PAPER_PANEL=0 hides Title '이 논문' panel."""
+    if not _mobile_cite_ref_panel_enabled():
+        return False
+    v = (os.environ.get("ASR_MOBILE_THIS_PAPER_PANEL") or "1").strip().lower()
     return v not in ("0", "false", "off", "no")
 
 
@@ -782,7 +790,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.85",
+        "version": "0.3.86",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -879,6 +887,8 @@ def status(request: Request) -> dict:
         "cite_display_clean": True,
         # design/148 — mobile References panel below Fig chips.
         "mobile_cite_ref_panel": _mobile_cite_ref_panel_enabled(),
+        # design/157 — Title section this-paper row (same resolve as cite).
+        "mobile_this_paper_panel": _mobile_this_paper_panel_enabled(),
         # design/149 — caption baked into figure PNG; hide under-image caption Text.
         "figure_caption_in_image": _figure_caption_in_image_enabled(),
         "mobile_figure_caption_in_image": _figure_caption_in_image_enabled(),
@@ -4098,6 +4108,7 @@ async def _run_ingest_job_body(
         debone_ok = False
         sentences: list = []
         references: list = []
+        document_citation: dict = {}
         title = Path(filename).stem or "Untitled"
         digests: dict = {}
         resumed_debone = False
@@ -4114,6 +4125,11 @@ async def _run_ingest_job_body(
                 debone_ok = bool(resume_pl.get("debone_ok"))
                 title = str(resume_pl.get("title") or title)
                 references = list(resume_pl.get("references") or [])
+                from sentence_reading.document_citation import public_document_citation
+
+                document_citation = public_document_citation(
+                    resume_pl.get("document_citation")
+                )
                 digests = dict(resume_pl.get("translate_digests") or {})
                 warnings.extend(
                     str(w) for w in (resume_pl.get("warnings") or []) if w
@@ -4207,6 +4223,19 @@ async def _run_ingest_job_body(
                 if s.section == "title" and plain_text(s.text):
                     title = plain_text(s.text)
                     break
+            from sentence_reading.document_citation import extract_document_citation
+
+            title_sents = [
+                plain_text(s.text)
+                for s in sentences
+                if s.section == "title" and plain_text(s.text)
+            ]
+            document_citation = extract_document_citation(
+                full_text=text,
+                pdf_pages=pdf_pages,
+                title=title,
+                title_section_sentences=title_sents,
+            )
             digests = {}
             _save_payload(
                 {
@@ -4223,6 +4252,7 @@ async def _run_ingest_job_body(
                     "debone_ok": debone_ok,
                     "title": title,
                     "references": references,
+                    "document_citation": document_citation,
                 }
             )
         else:
@@ -4241,6 +4271,21 @@ async def _run_ingest_job_body(
                 )
                 for s in sentences
             ]
+
+        if doc_role != "supplementary" and not document_citation:
+            from sentence_reading.document_citation import extract_document_citation
+
+            title_sents = [
+                plain_text(s.text)
+                for s in sentences
+                if s.section == "title" and plain_text(s.text)
+            ]
+            document_citation = extract_document_citation(
+                full_text=text,
+                pdf_pages=pdf_pages,
+                title=title,
+                title_section_sentences=title_sents,
+            )
 
         if doc_role == "supplementary":
             sentences = [
@@ -4263,6 +4308,7 @@ async def _run_ingest_job_body(
             sentences=sentences,
             translate_digests=digests,
             references=references,
+            document_citation=document_citation if doc_role != "supplementary" else {},
         )
         session_id = _remember_session(session)
 
@@ -4323,6 +4369,7 @@ async def _run_ingest_job_body(
                     "debone_ok": debone_ok,
                     "title": title,
                     "references": references,
+                    "document_citation": document_citation,
                     "translate_digests": dict(session.translate_digests or {}),
                     "cache_id": str(cache_entry.get("id") or ""),
                 }
@@ -4404,8 +4451,9 @@ async def _run_ingest_job_body(
                             ],
                             "debone_ok": debone_ok,
                             "title": title,
-                            "references": references,
-                            "translate_digests": dict(
+                    "references": references,
+                    "document_citation": document_citation,
+                    "translate_digests": dict(
                                 session.translate_digests or {}
                             ),
                             "cache_id": str(

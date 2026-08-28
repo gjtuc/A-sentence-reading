@@ -608,7 +608,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             Text(
               widget.citePanel.serverAvailable
-                  ? '문장에 [1] 같은 각주가 있으면 아래 References 패널에 목록을 보여줍니다. 끄면 패널만 숨기고, 문장의 각주 표시는 계속 제거합니다.'
+                  ? '문장에 [1] 같은 각주가 있으면 아래 References 패널에 목록을 보여줍니다. Title 첫 문장에는 이 논문 링크도 같이 나옵니다. 끄면 패널만 숨기고, 문장의 각주 표시는 계속 제거합니다.'
                   : '서버에서 참고문헌 패널이 꺼져 있습니다.',
               style: Theme.of(context).textTheme.bodySmall,
             ),

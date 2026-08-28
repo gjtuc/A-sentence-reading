@@ -457,6 +457,12 @@ def _load_references(raw: object) -> list:
     return bibliography_public(raw if isinstance(raw, list) else None)
 
 
+def _load_document_citation(raw: object) -> dict:
+    from sentence_reading.document_citation import public_document_citation
+
+    return public_document_citation(raw if isinstance(raw, dict) else {})
+
+
 def load_cached_session(
     cache_id: str, *, load_images: bool = True
 ) -> tuple[PaperSession, dict] | None:
@@ -540,6 +546,7 @@ def load_cached_session(
         sentence_index=int(meta.get("sentence_index") or 0),
         translate_digests=digests,
         references=_load_references(meta.get("references")),
+        document_citation=_load_document_citation(meta.get("document_citation")),
     )
     session.clamp_indices()
     info = {
@@ -828,6 +835,7 @@ def save_paper_session(
             if isinstance(v, dict)
         },
         "references": _load_references(session.references),
+        "document_citation": _load_document_citation(session.document_citation),
     }
     if has_tr:
         payload["translate_doc_version"] = "doc-v1"

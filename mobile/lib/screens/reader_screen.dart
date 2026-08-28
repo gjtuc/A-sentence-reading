@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../api/cite_refs.dart' as cite;
 import '../api/client.dart';
+import '../api/document_citation.dart';
 import '../api/fig_refs.dart' as fig;
 import '../api/figure_pinch_sensitivity.dart';
 import '../api/figure_swipe_gate.dart';
@@ -697,6 +698,16 @@ class _SentencePanel extends StatelessWidget {
               ),
             ),
           ),
+          if (shouldShowThisPaperPanel(
+            session: session,
+            citePanelEnabled: citePanel.enabled,
+            citePanelServerAvailable: citePanel.serverAvailable,
+            thisPaperServerAvailable: citePanel.thisPaperServerAvailable,
+          ))
+            _ThisPaperPanel(
+              client: client,
+              citation: effectiveCitation(session),
+            ),
           // design/139 — web-parity: dedicated chip row BELOW sentence frame (not inside body scroll).
           ..._figRefChipRow(context),
           if (citePanel.enabled && citePanel.serverAvailable)
@@ -762,6 +773,138 @@ class _SentencePanel extends StatelessWidget {
         ),
       ),
     ];
+  }
+}
+
+/// design/157 — single bibliographic row for the paper being read (Title 1/N).
+class _ThisPaperPanel extends StatefulWidget {
+  const _ThisPaperPanel({
+    required this.client,
+    required this.citation,
+  });
+
+  final AsrClient client;
+  final DocumentCitation citation;
+
+  @override
+  State<_ThisPaperPanel> createState() => _ThisPaperPanelState();
+}
+
+class _ThisPaperPanelState extends State<_ThisPaperPanel> {
+  bool _busy = false;
+  String? _inlineError;
+
+  Future<void> _open() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _inlineError = null;
+    });
+    try {
+      final doi = widget.citation.doi.trim();
+      if (doi.isNotEmpty) {
+        final uri = Uri.parse('https://doi.org/$doi');
+        final launched =
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (!launched && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('브라우저를 열 수 없습니다.')),
+          );
+        }
+        return;
+      }
+      final result = await widget.client.resolveCite(widget.citation.text);
+      if (!result.ok || result.url.isEmpty) {
+        final msg = result.message.isNotEmpty
+            ? result.message
+            : (result.error.isNotEmpty ? result.error : 'resolve_failed');
+        setState(() => _inlineError = msg);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('이 논문 링크를 열 수 없습니다: $msg')),
+          );
+        }
+        return;
+      }
+      final uri = Uri.tryParse(result.url);
+      if (uri == null) {
+        setState(() => _inlineError = 'bad_url');
+        return;
+      }
+      final launched =
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('브라우저를 열 수 없습니다.')),
+        );
+      }
+    } catch (e) {
+      setState(() => _inlineError = e.toString());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('이 논문 링크 오류: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.citation.isVisible) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 2),
+      child: Material(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+              child: Text(
+                '이 논문',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+            ),
+            if (_inlineError != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                child: Text(
+                  _inlineError!,
+                  style: TextStyle(color: scheme.error, fontSize: 11),
+                ),
+              ),
+            ListTile(
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              enabled: !_busy,
+              leading: Icon(
+                Icons.article_outlined,
+                size: 20,
+                color: scheme.onSurfaceVariant,
+              ),
+              title: Text(
+                widget.citation.text,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12),
+              ),
+              subtitle: widget.citation.doi.isNotEmpty
+                  ? Text(
+                      'DOI ${widget.citation.doi}',
+                      style: const TextStyle(fontSize: 10),
+                    )
+                  : null,
+              onTap: _open,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

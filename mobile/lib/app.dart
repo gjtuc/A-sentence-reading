@@ -85,6 +85,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       _translate.clearSession();
       _citePanel.clearSession();
       _citePanel.setServerAvailable(false);
+      _citePanel.setThisPaperServerAvailable(false);
       _bookmarks.clearSession();
       // design/133 — AccessWaiting-only shell never mounts LibraryScreen, so
       // screen-local clearAll never runs. Wipe at app root so the next account
@@ -107,6 +108,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       final st = await _auth.client.fetchStatus();
       _shadowing.setServerAvailable(st.mobileShadowingPractice);
       _citePanel.setServerAvailable(st.mobileCiteRefPanel);
+      _citePanel.setThisPaperServerAvailable(st.mobileThisPaperPanel);
       _bookmarks.setServerAvailable(st.bookmarksSync);
       asrErrorReporter?.setEnabled(
         st.cloudErrorLogs && st.mobileCloudErrorLogs,

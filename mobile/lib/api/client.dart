@@ -66,6 +66,7 @@ class AsrStatus {
     this.ingestHangStallSeconds = 180,
     // design/148 — missing key → on; explicit false kills mobile cite panel.
     this.mobileCiteRefPanel = true,
+    this.mobileThisPaperPanel = true,
     this.citeRefOpen = true,
     // design/149 — missing key → on; caption in composite PNG, hide under-image Text.
     this.figureCaptionInImage = true,
@@ -171,6 +172,9 @@ class AsrStatus {
       mobileCiteRefPanel: json.containsKey('mobile_cite_ref_panel')
           ? json['mobile_cite_ref_panel'] == true
           : true,
+      mobileThisPaperPanel: json.containsKey('mobile_this_paper_panel')
+          ? json['mobile_this_paper_panel'] == true
+          : true,
       citeRefOpen: json.containsKey('cite_ref_open')
           ? json['cite_ref_open'] == true
           : true,
@@ -228,6 +232,8 @@ class AsrStatus {
   final int ingestHangStallSeconds;
   // design/148 — mobile References panel kill switch.
   final bool mobileCiteRefPanel;
+  // design/157 — Title section this-paper row kill switch.
+  final bool mobileThisPaperPanel;
   final bool citeRefOpen;
   // design/149 — composite PNG; hide under-image caption when true.
   final bool figureCaptionInImage;
