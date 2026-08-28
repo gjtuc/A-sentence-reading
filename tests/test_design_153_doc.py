@@ -11,7 +11,7 @@ def test_design_153_doc() -> None:
     text = (ROOT / "docs" / "design" / "153-google-translate-bulk.md").read_text(
         encoding="utf-8"
     )
-    assert "0.3.82" in text
+    assert "0.3.83" in text
     assert "ASR_TRANSLATE_BACKEND" in text
     assert "ASR_TRANSLATE_GEMINI_POST" in text
     assert "translate_google.py" in text

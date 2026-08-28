@@ -53,6 +53,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _minted;
   /// design/130 — admin unread cloud error count (settings badge).
   int _errorBadge = 0;
+  /// design/156 — account link rows hidden until label tap (no chevron hint).
+  bool _accountLinksExpanded = false;
 
   @override
   void initState() {
@@ -369,12 +371,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (!logged || user == null)
               const Text('로그인이 필요합니다.')
             else ...[
-              Text(user.displayLabel),
-              if (user.providers.isNotEmpty)
-                Text(
-                  user.providers.join(', '),
-                  style: Theme.of(context).textTheme.bodySmall,
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => setState(
+                  () => _accountLinksExpanded = !_accountLinksExpanded,
                 ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(user.displayLabel),
+                    if (user.providers.isNotEmpty)
+                      Text(
+                        user.providers.join(', '),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 12),
               FilledButton(
                 onPressed: widget.auth.busy
@@ -388,49 +401,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       )
                     : const Text('로그아웃'),
               ),
-              const SizedBox(height: 20),
-              Text('계정 연결', style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 4),
-              Text(
-                '다른 로그인 수단을 같은 보관함에 묶습니다. '
-                '논문 목록 자동 합치기는 아직 없습니다.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              if ((widget.auth.error ?? '').isNotEmpty) ...[
-                const SizedBox(height: 8),
+              if (_accountLinksExpanded) ...[
+                const SizedBox(height: 20),
+                Text('계정 연결', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 4),
                 Text(
-                  widget.auth.error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  '다른 로그인 수단을 같은 보관함에 묶습니다. '
+                  '논문 목록 자동 합치기는 아직 없습니다.',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
+                if ((widget.auth.error ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.auth.error!,
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                ..._accountLinkTiles(user),
               ],
-              const SizedBox(height: 8),
-              ..._accountLinkTiles(user),
-            ],
-            // WHY: admin-only — cloud error triage replaces status dump (design/130).
-            // EDGE: non-admin must not see others' logs (server still 403).
-            if (access?.isAdmin == true) ...[
-              const SizedBox(height: 8),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Badge(
-                  isLabelVisible: _errorBadge > 0,
-                  label: Text(_errorBadge > 99 ? '99+' : '$_errorBadge'),
-                  child: const Icon(Icons.bug_report_outlined),
-                ),
-                title: const Text('오류 로그'),
-                subtitle: const Text('클라우드에 모인 오류 보기'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () async {
-                  await Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => ErrorLogsScreen(
-                        client: widget.auth.client,
-                      ),
-                    ),
-                  );
-                  if (mounted) _reload();
-                },
-              ),
             ],
             const Divider(height: 32),
             Text('테마', style: Theme.of(context).textTheme.titleMedium),
@@ -704,6 +693,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
               if (access?.isAdmin == true) ...[
                 const Divider(height: 32),
                 Text('관리자', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Badge(
+                    isLabelVisible: _errorBadge > 0,
+                    label: Text(_errorBadge > 99 ? '99+' : '$_errorBadge'),
+                    child: const Icon(Icons.bug_report_outlined),
+                  ),
+                  title: const Text('오류 로그'),
+                  subtitle: const Text('클라우드에 모인 오류 보기'),
+                  onTap: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ErrorLogsScreen(
+                          client: widget.auth.client,
+                        ),
+                      ),
+                    );
+                    if (mounted) _reload();
+                  },
+                ),
                 const SizedBox(height: 8),
                 Text(
                   '초대 코드 발급과 승인만 합니다. 본인 초대 입력은 필요 없습니다.',

@@ -137,6 +137,25 @@ class _ReaderScreenState extends State<ReaderScreen> {
     });
   }
 
+  /// design/156 — full-screen vertical swipe (split restore stays double-tap).
+  void _swipeToSentenceFromFigure() {
+    setState(() {
+      if (_layout != _ReaderLayoutMode.figureOnly) return;
+      _layout = _ReaderLayoutMode.sentenceOnly;
+      _edgePreviewSentence = false;
+      _edgePreviewFigure = false;
+    });
+  }
+
+  void _swipeToFigureFromSentence() {
+    setState(() {
+      if (_layout != _ReaderLayoutMode.sentenceOnly) return;
+      _layout = _ReaderLayoutMode.figureOnly;
+      _edgePreviewSentence = false;
+      _edgePreviewFigure = false;
+    });
+  }
+
   void _onSplitDragUpdate(double deltaDy, double totalH) {
     if (totalH <= _kSplitBar + 1) return;
     final usable = totalH - _kSplitBar;
@@ -328,6 +347,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       figRefHints: _figRefHints,
                                       onToggleChrome: _toggleChrome,
                                       onDoubleTapExpand: _toggleSentenceExpand,
+                                      onSwipeToFigure: _layout ==
+                                              _ReaderLayoutMode.sentenceOnly
+                                          ? _swipeToFigureFromSentence
+                                          : null,
                                     ),
                             ),
                           ),
@@ -359,6 +382,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       figureCaptionInImage: _figureCaptionInImage,
                                       onToggleChrome: _toggleChrome,
                                       onDoubleTapExpand: _toggleFigureExpand,
+                                      onSwipeToSentence: _layout ==
+                                              _ReaderLayoutMode.figureOnly
+                                          ? _swipeToSentenceFromFigure
+                                          : null,
                                       onLongPressEdit: () {
                                         final cid = s.cacheId.trim();
                                         if (cid.isEmpty) return;
@@ -475,6 +502,7 @@ class _SentencePanel extends StatelessWidget {
     this.figRefHints = true,
     this.onToggleChrome,
     this.onDoubleTapExpand,
+    this.onSwipeToFigure,
   });
 
   final LibraryController library;
@@ -489,6 +517,8 @@ class _SentencePanel extends StatelessWidget {
   final bool figRefHints;
   final VoidCallback? onToggleChrome;
   final VoidCallback? onDoubleTapExpand;
+  /// design/156 — sentence full-screen: swipe up → figure full-screen.
+  final VoidCallback? onSwipeToFigure;
 
   @override
   Widget build(BuildContext context) {
@@ -634,6 +664,7 @@ class _SentencePanel extends StatelessWidget {
                 },
                 onTap: onToggleChrome,
                 onDoubleTap: onDoubleTapExpand,
+                onSwipeUp: onSwipeToFigure,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: SingleChildScrollView(
@@ -903,6 +934,7 @@ class _FigurePanel extends StatelessWidget {
     this.onToggleChrome,
     this.onDoubleTapExpand,
     this.onLongPressEdit,
+    this.onSwipeToSentence,
   });
 
   final LibraryController library;
@@ -919,6 +951,8 @@ class _FigurePanel extends StatelessWidget {
   final VoidCallback? onDoubleTapExpand;
   /// design/151 — long-press figure panel → overlay editor.
   final VoidCallback? onLongPressEdit;
+  /// design/156 — figure full-screen: swipe down → sentence full-screen.
+  final VoidCallback? onSwipeToSentence;
 
   @override
   Widget build(BuildContext context) {
@@ -1029,6 +1063,7 @@ class _FigurePanel extends StatelessWidget {
                             onNext: () => library.advanceFigure(1),
                             onTap: onToggleChrome,
                             onDoubleTapExpand: onDoubleTapExpand,
+                            onSwipeToSentence: onSwipeToSentence,
                           ),
                         ),
                         if (!figureCaptionInImage &&
@@ -1079,6 +1114,7 @@ class _FigureImage extends StatelessWidget {
     this.onNext,
     this.onTap,
     this.onDoubleTapExpand,
+    this.onSwipeToSentence,
   });
 
   final String src;
@@ -1087,6 +1123,7 @@ class _FigureImage extends StatelessWidget {
   final VoidCallback? onNext;
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTapExpand;
+  final VoidCallback? onSwipeToSentence;
 
   @override
   Widget build(BuildContext context) {
@@ -1107,6 +1144,7 @@ class _FigureImage extends StatelessWidget {
         onNext: onNext,
         onTap: onTap,
         onDoubleTapExpand: onDoubleTapExpand,
+        onSwipeToSentence: onSwipeToSentence,
         child: Image.memory(
           decoded.bytes,
           fit: BoxFit.contain,
@@ -1122,6 +1160,7 @@ class _FigureImage extends StatelessWidget {
         onNext: onNext,
         onTap: onTap,
         onDoubleTapExpand: onDoubleTapExpand,
+        onSwipeToSentence: onSwipeToSentence,
         child: Image.network(
           src,
           fit: BoxFit.contain,
@@ -1156,6 +1195,7 @@ class _SwipePager extends StatefulWidget {
     required this.onNext,
     this.onTap,
     this.onDoubleTap,
+    this.onSwipeUp,
     this.enabled = true,
   });
 
@@ -1164,6 +1204,8 @@ class _SwipePager extends StatefulWidget {
   final Future<void> Function()? onNext;
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
+  /// design/156 — sentence full-screen only: swipe up → figure panel.
+  final VoidCallback? onSwipeUp;
   final bool enabled;
 
   @override
@@ -1173,9 +1215,11 @@ class _SwipePager extends StatefulWidget {
 class _SwipePagerState extends State<_SwipePager> {
   static const double _minDistance = 56;
   static const double _minVelocity = 180;
+  static const double _minVerticalDistance = 88;
   double _dx = 0;
+  double _dy = 0;
 
-  void _handleDragEnd(DragEndDetails details) {
+  void _handleHorizontalDragEnd(DragEndDetails details) {
     if (!widget.enabled) return;
     final v = details.primaryVelocity ?? 0;
     // design/143 — gallery convention: finger left → next, right → previous.
@@ -1189,15 +1233,42 @@ class _SwipePagerState extends State<_SwipePager> {
     }
   }
 
+  void _handleVerticalDragEnd(DragEndDetails details) {
+    if (!widget.enabled || widget.onSwipeUp == null) return;
+    final v = details.primaryVelocity ?? 0;
+    // design/156 — finger up → reveal figure full-screen.
+    final goUp = _dy < -_minVerticalDistance || v < -_minVelocity;
+    _dy = 0;
+    if (goUp) {
+      widget.onSwipeUp!();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: widget.onTap,
       onDoubleTap: widget.onDoubleTap,
-      onHorizontalDragStart: (_) => _dx = 0,
+      onHorizontalDragStart: widget.onSwipeUp == null
+          ? (_) => _dx = 0
+          : (_) {
+              _dx = 0;
+              _dy = 0;
+            },
       onHorizontalDragUpdate: (d) => _dx += d.delta.dx,
-      onHorizontalDragEnd: _handleDragEnd,
+      onHorizontalDragEnd: _handleHorizontalDragEnd,
+      onVerticalDragStart: widget.onSwipeUp == null
+          ? null
+          : (_) {
+              _dx = 0;
+              _dy = 0;
+            },
+      onVerticalDragUpdate: widget.onSwipeUp == null
+          ? null
+          : (d) => _dy += d.delta.dy,
+      onVerticalDragEnd:
+          widget.onSwipeUp == null ? null : _handleVerticalDragEnd,
       child: widget.child,
     );
   }
@@ -1222,6 +1293,7 @@ class _ZoomableFigureFrame extends StatefulWidget {
     this.onNext,
     this.onTap,
     this.onDoubleTapExpand,
+    this.onSwipeToSentence,
   });
 
   final Widget child;
@@ -1230,6 +1302,8 @@ class _ZoomableFigureFrame extends StatefulWidget {
   final VoidCallback? onNext;
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTapExpand;
+  /// design/156 — figure full-screen @ 1×: swipe down → sentence panel.
+  final VoidCallback? onSwipeToSentence;
 
   @override
   State<_ZoomableFigureFrame> createState() => _ZoomableFigureFrameState();
@@ -1238,6 +1312,8 @@ class _ZoomableFigureFrame extends StatefulWidget {
 class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
   final TransformationController _transform = TransformationController();
   static const double _minDistance = 56;
+  static const double _minVerticalDistance = 88;
+  static const double _minVelocity = 180;
   static const double _zoomEps = 1.02;
   static const double _maxScale = 8.0;
   Offset _panAtStart = Offset.zero;
@@ -1245,6 +1321,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
   int _maxPointers = 0;
   /// Scale on axis at [onInteractionStart] — base for design/118 amplify.
   double _scaleAtGestureStart = 1.0;
+  Offset _lastFocalPoint = Offset.zero;
 
   @override
   void dispose() {
@@ -1258,6 +1335,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     _panAtStart = Offset(t.x, t.y);
     _maxPointers = details.pointerCount;
     _scaleAtGestureStart = _transform.value.getMaxScaleOnAxis();
+    _lastFocalPoint = details.localFocalPoint;
   }
 
   void _onInteractionUpdate(ScaleUpdateDetails details) {
@@ -1265,6 +1343,20 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     if (details.pointerCount > _maxPointers) {
       _maxPointers = details.pointerCount;
     }
+    final scaleNow = _transform.value.getMaxScaleOnAxis();
+    // design/118+156 — amplify zoomed one-finger pan (IV is 1:1 by default).
+    if (details.pointerCount == 1 && scaleNow > _zoomEps) {
+      final delta = details.localFocalPoint - _lastFocalPoint;
+      _lastFocalPoint = details.localFocalPoint;
+      final extraX = amplifyFigurePanExtraDelta(delta: delta.dx);
+      final extraY = amplifyFigurePanExtraDelta(delta: delta.dy);
+      if (extraX.abs() > 1e-4 || extraY.abs() > 1e-4) {
+        _transform.value = Matrix4.copy(_transform.value)
+          ..translate(extraX, extraY);
+      }
+      return;
+    }
+    _lastFocalPoint = details.localFocalPoint;
     // design/118 — InteractiveViewer already applied 1:1 scale; strengthen it.
     // One-finger pan must stay untouched (117 swipe path).
     if (details.pointerCount < 2) return;
@@ -1290,6 +1382,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     final scale = _transform.value.getMaxScaleOnAxis();
     final t = _transform.value.getTranslation();
     final dx = t.x - _panAtStart.dx;
+    final dy = t.y - _panAtStart.dy;
     final maxPointers = _maxPointers;
     // Reset for the next gesture (after fingers up, one-finger swipe works again).
     _maxPointers = 0;
@@ -1297,6 +1390,17 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     // EDGE: pinch ended above 1× — keep pan/zoom; no figure change.
     if (scale > _zoomEps) {
       return;
+    }
+
+    // design/156 — vertical panel swap (before 1× snap-back).
+    if (widget.onSwipeToSentence != null && maxPointers < 2) {
+      final goDown = dy > _minVerticalDistance ||
+          details.velocity.pixelsPerSecond.dy > _minVelocity;
+      if (dy.abs() > dx.abs() && goDown) {
+        _transform.value = Matrix4.identity();
+        widget.onSwipeToSentence!();
+        return;
+      }
     }
 
     // WHY: 1× pan was only for swipe affordance — snap matrix back so the

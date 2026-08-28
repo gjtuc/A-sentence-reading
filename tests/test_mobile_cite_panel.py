@@ -12,7 +12,7 @@ from sentence_reading.api.app import app
 
 def test_status_mobile_cite_ref_panel_default() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.82"
+    assert st["version"] == "0.3.83"
     assert st["mobile_cite_ref_panel"] is True
     assert st["cite_ref_open"] is True
 

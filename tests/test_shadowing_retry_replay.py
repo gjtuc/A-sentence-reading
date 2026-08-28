@@ -35,6 +35,6 @@ def test_design_and_wiring() -> None:
     html = HTML.read_text(encoding="utf-8")
     assert 'id="shadowingPracticeRetry"' in html
     assert 'id="shadowingPracticeReplay"' in html
-    assert "0.3.82" in PUB.read_text(encoding="utf-8")
+    assert "0.3.83" in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.82"
+    assert st["version"] == "0.3.83"

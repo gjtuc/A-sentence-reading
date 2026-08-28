@@ -164,7 +164,7 @@ def test_status_github_cd_flag() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.82"
+    assert st["version"] == "0.3.83"
     assert st.get("github_cd") is True
 
 

@@ -28,12 +28,12 @@ def test_check_status_azure_and_pipeline() -> None:
     m = _load()
     ok = {
         "ok": True,
-        "version": "0.3.82",
+        "version": "0.3.83",
         "azure_layout": True,
         "azure_layout_enabled": True,
         "pipeline_version": "rich-v24",
     }
-    assert m.check_status(ok, expect_version="0.3.82", require_azure_layout=True) == []
+    assert m.check_status(ok, expect_version="0.3.83", require_azure_layout=True) == []
     assert m.check_status(ok, min_pipeline="rich-v20") == []
     bad = dict(ok)
     bad["azure_layout"] = False

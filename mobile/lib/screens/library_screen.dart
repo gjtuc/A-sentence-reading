@@ -705,9 +705,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
                                     ),
-                                  )
-                                else
-                                  const Icon(Icons.drag_handle),
+                                  ),
                               ],
                             ),
                       onTap: lib.opening ||
