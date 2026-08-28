@@ -176,21 +176,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Future<void> _reanalyze(PaperEntry entry) async {
-    if (!entry.hasSource) return;
-    final ok = await widget.library.reanalyzePaper(entry);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          ok
-              ? '재분석이 완료되었습니다.'
-              : (widget.library.error ?? '재분석에 실패했습니다.'),
-        ),
-      ),
-    );
-  }
-
   Future<void> _mergeSupplementary(PaperEntry entry) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -659,26 +644,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                         ? null
                                         : () => _mergeSupplementary(e),
                                   ),
-                                if (e.hasSource)
-                                  IconButton(
-                                    icon: Icon(
-                                      Icons.autorenew,
-                                      size: 22,
-                                      color: lib.reanalyzing &&
-                                              lib.reanalyzingCacheId == e.id
-                                          ? Theme.of(context)
-                                              .colorScheme
-                                              .primary
-                                          : null,
-                                    ),
-                                    tooltip: '재분석',
-                                    onPressed: lib.opening ||
-                                            lib.uploading ||
-                                            lib.reanalyzing ||
-                                            _deleting
-                                        ? null
-                                        : () => _reanalyze(e),
-                                  ),
                                 if (e.retentionWarn)
                                   IconButton(
                                     icon: Icon(
@@ -695,16 +660,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                             _deleting
                                         ? null
                                         : () => _showRetentionSheet(e),
-                                  ),
-                                if (lib.opening ||
-                                    (lib.reanalyzing &&
-                                        lib.reanalyzingCacheId == e.id))
-                                  const SizedBox(
-                                    width: 24,
-                                    height: 24,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
                                   ),
                               ],
                             ),

@@ -31,6 +31,6 @@ def test_design_and_wiring():
     assert "allowFigureSwipeAfterPan" in src
     assert "_maxPointers" in src
     pub = PUB.read_text(encoding="utf-8")
-    assert "0.3.83" in pub
+    assert "0.3.84" in pub
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.83"
+    assert st["version"] == "0.3.84"

@@ -683,7 +683,8 @@ class _SentencePanel extends StatelessWidget {
                               if (showKo && cur.textKo.trim().isNotEmpty) ...[
                                 const SizedBox(height: 12),
                                 richSentenceText(
-                                  cur.textKo,
+                                  // design/148 — KO display matches EN cite strip (web stripCitesForUi).
+                                  cite.stripCiteMarkersForDisplay(cur.textKo),
                                   style:
                                       Theme.of(context).textTheme.bodyMedium ??
                                           const TextStyle(fontSize: 14),
@@ -1082,8 +1083,12 @@ class _FigurePanel extends StatelessWidget {
                               child: SingleChildScrollView(
                                 child: Text(
                                   (showKo && cur.captionKo.trim().isNotEmpty)
-                                      ? cur.captionKo
-                                      : cur.caption,
+                                      ? cite.stripCiteMarkersForDisplay(
+                                          cur.captionKo,
+                                        )
+                                      : cite.stripCiteMarkersForDisplay(
+                                          cur.caption,
+                                        ),
                                   maxLines: captionFullText ? null : 2,
                                   overflow: captionFullText
                                       ? TextOverflow.visible

@@ -15,14 +15,14 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_status_version_0_3_12() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.83"
+    assert st["version"] == "0.3.84"
 
 
 def test_design_156_vertical_swipe_panels() -> None:
     p = ROOT / "docs" / "design" / "156-reader-vertical-swipe-panel.md"
     assert p.is_file()
     text = p.read_text(encoding="utf-8")
-    assert "0.3.83" in text
+    assert "0.3.84" in text
     reader = (
         ROOT / "mobile" / "lib" / "screens" / "reader_screen.dart"
     ).read_text(encoding="utf-8")

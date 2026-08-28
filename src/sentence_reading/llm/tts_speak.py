@@ -10,6 +10,8 @@ import html as html_lib
 import re
 from html.parser import HTMLParser
 
+from sentence_reading.cite_refs import strip_cite_markers_for_display
+
 _SECTION_PREFIX = re.compile(
     r"^\s*(Title|Abstract|Introduction|Methods|Experimental|Results|"
     r"Discussion|Conclusion|Body)\s*:\s*",
@@ -574,6 +576,8 @@ def spoken_text_for_tts(raw: str) -> str:
     s = _apply_symbols(s)
     s = _expand_units(s)
     s = _expand_element_symbols(s)
+    # WHY: display strips [n] but TTS used raw sentence — do not read "one" for [1].
+    s = strip_cite_markers_for_display(s)
     s = re.sub(r"\s+", " ", s).strip()
     s = s.strip(" \t\"'`")
     return s

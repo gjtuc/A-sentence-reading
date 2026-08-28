@@ -69,6 +69,15 @@ def test_equilibrium_arrow() -> None:
     assert "equilibrium" in out.lower()
 
 
+def test_cite_markers_stripped_for_tts() -> None:
+    out = spoken_text_for_tts(
+        "Methane and CO2 are major GHG contributors.[1-4]"
+    )
+    assert "[" not in out
+    assert "1-4" not in out
+    assert "contributors" in out.lower()
+
+
 def test_title_prefix_stripped() -> None:
     out = spoken_text_for_tts("Title: Nickel catalyst")
     assert not out.lower().startswith("title")
