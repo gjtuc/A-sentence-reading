@@ -45,7 +45,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _linkEmail = TextEditingController();
   AccessStatus? _access;
   List<Map<String, dynamic>> _pending = const [];
-  List<Map<String, dynamic>> _events = const [];
   bool _loading = false;
   /// WHY separate from _loading: refresh must not disable Allow/Deny.
   /// EDGE: uiautomator/user tap during reload was ignored → invitee stayed pending.
@@ -86,7 +85,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() {
         _access = null;
         _pending = const [];
-        _events = const [];
         _minted = null;
         _error = null;
         _errorBadge = 0;
@@ -102,12 +100,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final st = await widget.auth.client.fetchAccessStatus();
       List<Map<String, dynamic>> pending = const [];
-      List<Map<String, dynamic>> events = const [];
       var badge = 0;
       // Admin endpoints 403 for non-admins — ignore.
       try {
         pending = await widget.auth.client.fetchAccessPending();
-        events = await widget.auth.client.fetchAccessNotifications();
       } catch (_) {}
       if (st.isAdmin) {
         try {
@@ -120,7 +116,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() {
         _access = st;
         _pending = pending;
-        _events = events.reversed.take(20).toList();
         _errorBadge = badge;
       });
     } on AsrApiException catch (e) {
@@ -752,18 +747,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   );
                 }),
-                if (_events.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text('알림', style: Theme.of(context).textTheme.titleSmall),
-                  ..._events.take(8).map((e) {
-                    return ListTile(
-                      dense: true,
-                      title: Text('${e['type'] ?? ''}'),
-                      subtitle:
-                          Text('${e['email'] ?? ''} ${e['message'] ?? ''}'),
-                    );
-                  }),
-                ],
               ],
               // WHY: after admin Allow, invitee status stays pending until re-fetch.
               if (shouldShowSettingsInviteRedeem(access) ||

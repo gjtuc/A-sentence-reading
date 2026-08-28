@@ -108,6 +108,11 @@ from sentence_reading.llm.notes_gcs import (
     empty_notes_store,
     push_notes_store,
 )
+from sentence_reading.llm.bookmarks_gcs import (
+    download_bookmarks_store,
+    empty_bookmarks_store,
+    push_bookmarks_store,
+)
 from sentence_reading.llm.voice_gcs import (
     VOICE_BLOB_KEY_MAX,
     VOICE_BLOB_MAX_BYTES,
@@ -121,6 +126,7 @@ from sentence_reading.llm.tts import (
 )
 from sentence_reading.llm.tts_speak import spoken_text_for_tts
 from sentence_reading.llm.typography import PIPELINE_VERSION, normalize_scientific_glyphs
+from sentence_reading.cite_refs import repair_dollar_cite_artifacts
 from sentence_reading.llm.vision_ocr import recover_pdf_text
 from sentence_reading.models import Figure, PaperSession, Sentence, build_mock_session
 from sentence_reading.pdf import extract as pdf_extract
@@ -165,7 +171,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.78",
+    version="0.3.82",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -776,7 +782,9 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.78",
+        "version": "0.3.82",
+        # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
+        "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
         "azure_layout": azure_document_intelligence_available(),
         "azure_layout_enabled": (os.environ.get("ASR_AZURE_LAYOUT") or "1").strip().lower()
@@ -2401,6 +2409,95 @@ async def notes_sync_put(request: Request, payload: dict = Body(...)) -> JSONRes
             content={
                 "ok": False,
                 "error": "notes_sync_failed",
+                "message": str(exc)[:300],
+            },
+        )
+    return JSONResponse({"ok": True, "available": True, "store": merged, "message": "ok"})
+
+
+@app.get("/api/bookmarks/sync")
+def bookmarks_sync_get(request: Request) -> dict:
+    """GCS 북마크 store pull."""
+    if auth_enabled() and _request_user(request) is None:
+        return {
+            "ok": True,
+            "available": False,
+            "needs_auth": True,
+            "store": None,
+            "message": "로그인 후 북마크를 동기화합니다.",
+        }
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready"):
+        return {
+            "ok": True,
+            "available": False,
+            "store": None,
+            "message": st.get("message"),
+        }
+    if st.get("bookmarks_object") is None:
+        return {
+            "ok": True,
+            "available": False,
+            "needs_auth": True,
+            "store": None,
+            "message": "로그인된 사용자 칸이 없습니다.",
+        }
+    store = download_bookmarks_store()
+    return {
+        "ok": True,
+        "available": True,
+        "store": store if store is not None else empty_bookmarks_store(),
+        "message": "ok",
+    }
+
+
+@app.put("/api/bookmarks/sync")
+async def bookmarks_sync_put(request: Request, payload: dict = Body(...)) -> JSONResponse:
+    """로컬 bookmark store push — remote∪local 병합 후 GCS 업로드."""
+    if auth_enabled() and _request_user(request) is None:
+        return JSONResponse(
+            {
+                "ok": True,
+                "available": False,
+                "needs_auth": True,
+                "store": payload.get("store") if isinstance(payload, dict) else None,
+                "message": "로그인 후 북마크를 동기화합니다.",
+            }
+        )
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready"):
+        return JSONResponse(
+            {
+                "ok": True,
+                "available": False,
+                "store": payload.get("store") if isinstance(payload, dict) else None,
+                "message": st.get("message"),
+            }
+        )
+    if st.get("bookmarks_object") is None:
+        return JSONResponse(
+            {
+                "ok": True,
+                "available": False,
+                "needs_auth": True,
+                "store": payload.get("store") if isinstance(payload, dict) else None,
+                "message": "로그인된 사용자 칸이 없습니다.",
+            }
+        )
+    local = payload.get("store") if isinstance(payload, dict) else None
+    if not isinstance(local, dict):
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "bad_store", "message": "store object required"},
+        )
+    try:
+        merged = push_bookmarks_store(local)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "error": "bookmarks_sync_failed",
                 "message": str(exc)[:300],
             },
         )
@@ -4087,7 +4184,9 @@ async def _run_ingest_job_body(
             sentences = [
                 Sentence(
                     id=s.id,
-                    text=normalize_scientific_glyphs(s.text),
+                    text=repair_dollar_cite_artifacts(
+                        normalize_scientific_glyphs(s.text)
+                    ),
                     section=s.section,
                     start_char=s.start_char,
                     end_char=s.end_char,
@@ -4131,7 +4230,9 @@ async def _run_ingest_job_body(
             sentences = [
                 Sentence(
                     id=s.id,
-                    text=normalize_scientific_glyphs(s.text),
+                    text=repair_dollar_cite_artifacts(
+                        normalize_scientific_glyphs(s.text)
+                    ),
                     section=s.section,
                     start_char=s.start_char,
                     end_char=s.end_char,
@@ -4342,6 +4443,7 @@ async def _run_ingest_job_body(
                 doc_role=doc_role,
                 source_path=tmp_path,
                 content_hash=content_hash,
+                layout_artifacts=layout_artifacts if kind == "pdf" else None,
             )
             if (
                 cache_entry is None

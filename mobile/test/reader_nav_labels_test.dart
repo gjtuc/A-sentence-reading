@@ -15,6 +15,23 @@ void main() {
     );
   });
 
+  test('stripCiteMarkersForDisplay removes hybrid bracket-dollar cite', () {
+    expect(
+      stripCiteMarkersForDisplay('carbon dioxide [8, 9]\$1'),
+      'carbon dioxide',
+    );
+    expect(
+      stripCiteMarkersForDisplay(
+        'major scientific study [1–4]\$1',
+      ),
+      'major scientific study',
+    );
+    expect(
+      stripCiteMarkersForDisplay('word CO<sub>2</sub>\$1 here'),
+      'word CO<sub>2</sub> here',
+    );
+  });
+
   test('parseCiteNumbers reads dollar cite artifacts', () {
     expect(parseCiteNumbers('dioxide\$1 more'), [1]);
     expect(parseCiteNumbers('x\$^{8,9}\$ y'), [8, 9]);

@@ -20,6 +20,7 @@ import '../api/upload_notify.dart';
 import '../api/shadowing_models.dart';
 import '../api/translate_models.dart';
 import '../api/library_order_models.dart';
+import '../state/bookmark_controller.dart';
 import '../services/error_reporter.dart';
 import '../services/hang_watchdog.dart';
 
@@ -39,6 +40,12 @@ class LibraryController extends ChangeNotifier {
   final AsrClient _client;
   final UploadDraftStore _drafts;
   final UploadNotify _notify;
+  BookmarkController? _bookmarks;
+
+  void attachBookmarks(BookmarkController bookmarks) {
+    _bookmarks = bookmarks;
+    bookmarks.attachClient(_client);
+  }
 
   List<PaperEntry> papers = const [];
   ReadingSession? session;
@@ -410,6 +417,7 @@ class LibraryController extends ChangeNotifier {
       try {
         await _client.deletePaper(id);
         okCount += 1;
+        await _bookmarks?.purgePaper(id);
         if (session?.cacheId == id) {
           clearOpened();
         }
@@ -486,6 +494,10 @@ class LibraryController extends ChangeNotifier {
         error = '재분석은 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
         notifyListeners();
         return false;
+      }
+      // WHY: 재분석 후 읽기 탭에 옛 session이 남지 않게 최신 /open 반영.
+      if (session?.cacheId == entry.id) {
+        await open(entry);
       }
       error = null;
       notifyListeners();
@@ -609,6 +621,17 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  Future<void> _syncBookmarksForSession(ReadingSession o) async {
+    final bm = _bookmarks;
+    if (bm == null) return;
+    await bm.loadPaper(o.cacheId);
+    await bm.applyNavPrune(
+      sectionNav: o.sectionNav,
+      figureNav: o.figureNav,
+    );
+    unawaited(bm.pullFromServer());
+  }
+
   Future<ReadingSession?> open(PaperEntry entry) async {
     // design/121 — open goes through GCS-first /open; errors stay in ``error``.
     if (!entry.isValid) {
@@ -688,6 +711,7 @@ class LibraryController extends ChangeNotifier {
       }
 
       session = o;
+      unawaited(_syncBookmarksForSession(o));
       // design/129 — fill current±1 images after sentences are on screen.
       unawaited(_prefetchFigureWindow());
       // design/80 — per-user chunk backfill (opt-in); errors surface on reader.

@@ -11,6 +11,7 @@ final _dollarTexCite = RegExp(
   caseSensitive: false,
 );
 final _dollarCite = RegExp(r'(?<=[A-Za-z)\]])\$(\d{1,3})(?!\d)');
+final _dollarCiteAfterMark = RegExp(r'(\]|>)\s*\$(\d{1,3})(?!\d)');
 
 String stripTags(String? html) => (html ?? '').replaceAll(_tag, ' ');
 
@@ -82,6 +83,13 @@ List<int> _parseDollarCiteNumbers(String raw) {
       }
     }
   }
+  for (final m in _dollarCiteAfterMark.allMatches(raw)) {
+    final n = int.parse(m.group(2)!);
+    if (!seen.contains(n) && n >= 1 && n <= 999) {
+      seen.add(n);
+      out.add(n);
+    }
+  }
   for (final m in _dollarCite.allMatches(raw)) {
     final n = int.parse(m.group(1)!);
     if (!seen.contains(n) && n >= 1 && n <= 999) {
@@ -92,6 +100,22 @@ List<int> _parseDollarCiteNumbers(String raw) {
   return out;
 }
 
+String _subDollarCiteArtifacts(String s) {
+  s = s.replaceAllMapped(_dollarTexCite, (m) {
+    final inner = m.group(1) ?? m.group(2) ?? '';
+    return _expandToken(inner.replaceAll(' ', '')).isNotEmpty ? '' : m.group(0)!;
+  });
+  s = s.replaceAllMapped(_dollarCiteAfterMark, (m) {
+    final v = int.tryParse(m.group(2) ?? '');
+    return (v != null && v >= 1 && v <= 999) ? (m.group(1) ?? '') : m.group(0)!;
+  });
+  s = s.replaceAllMapped(_dollarCite, (m) {
+    final v = int.tryParse(m.group(1) ?? '');
+    return (v != null && v >= 1 && v <= 999) ? '' : m.group(0)!;
+  });
+  return s;
+}
+
 /// design/49 — display-only strip; parsing uses raw [text].
 String stripCiteMarkersForDisplay(String? html) {
   var s = html ?? '';
@@ -99,18 +123,12 @@ String stripCiteMarkersForDisplay(String? html) {
     final v = int.tryParse(m.group(1) ?? '');
     return (v != null && v >= 1 && v <= 999) ? '' : m.group(0)!;
   });
+  // WHY: $n before brackets — [8, 9]$1 hybrid (design/49)
+  s = _subDollarCiteArtifacts(s);
   s = s.replaceAllMapped(_bracket, (m) {
     return _expandToken(m.group(1)!).isNotEmpty ? '' : m.group(0)!;
   });
-  s = s.replaceAllMapped(_dollarTexCite, (m) {
-    final inner = m.group(1) ?? m.group(2) ?? '';
-    return _expandToken(inner.replaceAll(' ', '')).isNotEmpty ? '' : m.group(0)!;
-  });
-  s = s.replaceAllMapped(_dollarCite, (m) {
-    final v = int.tryParse(m.group(1) ?? '');
-    return (v != null && v >= 1 && v <= 999) ? '' : m.group(0)!;
-  });
-  s = s.replaceAll(RegExp(r'\s+([.,;:!?)])'), r'$1');
+  s = s.replaceAllMapped(RegExp(r'\s+([.,;:!?)])'), (m) => m.group(1)!);
   s = s.replaceAll(RegExp(r'\s{2,}'), ' ');
   return s.trim();
 }

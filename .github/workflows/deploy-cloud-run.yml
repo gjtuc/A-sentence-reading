@@ -13,6 +13,7 @@ on:
       - "Dockerfile"
       - "pyproject.toml"
       - "scripts/deploy_cloud_run.sh"
+      - "scripts/pre_deploy_guard.py"
       - ".github/workflows/deploy-cloud-run.yml"
 
 concurrency:
@@ -29,6 +30,19 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pre-deploy guard (design/155)
+        env:
+          ASR_CLOUD_RUN_URL: ${{ vars.ASR_CLOUD_RUN_URL || 'https://asr-sentence-reading-984608876300.asia-northeast3.run.app' }}
+        run: |
+          python scripts/pre_deploy_guard.py \
+            --url "${ASR_CLOUD_RUN_URL%/}/api/status"
 
       - name: Require deploy secrets
         env:
@@ -36,6 +50,8 @@ jobs:
           ASR_GOOGLE_CLIENT_ID: ${{ secrets.ASR_GOOGLE_CLIENT_ID }}
           ASR_AUTH_SECRET: ${{ secrets.ASR_AUTH_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT: ${{ secrets.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT }}
+          AZURE_DOCUMENT_INTELLIGENCE_KEY: ${{ secrets.AZURE_DOCUMENT_INTELLIGENCE_KEY }}
         run: |
           missing=0
           for name in GCP_SA_KEY ASR_GOOGLE_CLIENT_ID ASR_AUTH_SECRET GEMINI_API_KEY; do
@@ -45,8 +61,18 @@ jobs:
               missing=1
             fi
           done
+          # design/154 — Azure DI 필수 when ASR_AZURE_LAYOUT≠0 (기본 1). 없으면 CD가 키를 지워 Live가 PyMuPDF fallback.
+          if [ "${{ vars.ASR_AZURE_LAYOUT || '1' }}" != "0" ]; then
+            for name in AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT AZURE_DOCUMENT_INTELLIGENCE_KEY; do
+              eval "val=\${$name}"
+              if [ -z "$val" ]; then
+                echo "missing secret: $name (required for figure slot carousel)" >&2
+                missing=1
+              fi
+            done
+          fi
           if [ "$missing" -ne 0 ]; then
-            echo "Set GitHub Actions secrets (see docs/design/32-github-cd.md)." >&2
+            echo "Set GitHub Actions secrets (see docs/design/32-github-cd.md · design/154)." >&2
             exit 1
           fi
 
@@ -84,3 +110,9 @@ jobs:
           ASR_LOGIN_REQUIRED: ${{ vars.ASR_LOGIN_REQUIRED || '1' }}
           ASR_CD_SKIP_API_ENABLE: "1"
         run: bash scripts/deploy_cloud_run.sh
+
+      - name: Verify live figure pipeline (design/154)
+        run: |
+          python scripts/verify_live_status.py \
+            --require-azure-layout \
+            --min-pipeline rich-v20

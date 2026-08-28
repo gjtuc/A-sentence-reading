@@ -90,7 +90,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         title: const Text('보관본 삭제'),
         content: Text(
           '선택한 $count건을 삭제할까요?\n'
-          '클라우드(GCS) 문서와 노트·연습 기록도 함께 지워집니다.',
+          '클라우드(GCS) 문서와 노트·북마크·연습 기록도 함께 지워집니다.',
         ),
         actions: [
           TextButton(

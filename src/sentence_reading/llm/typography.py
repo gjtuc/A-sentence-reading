@@ -18,6 +18,9 @@ from sentence_reading.llm.richtext import sanitize_sentence_html
 # 캐시 무효화 — 이 값이 다르면 ingest가 보관본을 건너뛰고 다시 다듬음
 PIPELINE_VERSION = "rich-v24"  # design/152 supplementary doc_role + SI slots
 
+# design/154 — slot carousel (151+) 아래로 figure 파이프라인 회귀 금지 (배포·verify 게이트)
+FIGURE_PIPELINE_MIN = "rich-v20"
+
 # PDF가 도(°) 대신 자주 내보내는 원형 lookalike
 # U+25E6 ◦ white bullet, U+2218 ∘ ring operator, U+02DA ˚ ring above,
 # U+00BA º masculine ordinal, U+00B0 ° degree (간격 정리용으로 포함)

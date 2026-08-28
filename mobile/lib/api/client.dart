@@ -70,6 +70,7 @@ class AsrStatus {
     // design/149 — missing key → on; caption in composite PNG, hide under-image Text.
     this.figureCaptionInImage = true,
     this.mobileFigureCaptionInImage = true,
+    this.bookmarksSync = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -181,6 +182,13 @@ class AsrStatus {
           : (json.containsKey('figure_caption_in_image')
               ? json['figure_caption_in_image'] == true
               : true),
+      bookmarksSync: () {
+        final gcs = json['gcs'];
+        if (gcs is Map && gcs.containsKey('bookmarks_sync')) {
+          return gcs['bookmarks_sync'] == true;
+        }
+        return json['bookmarks_sync'] == true;
+      }(),
     );
   }
 
@@ -224,6 +232,22 @@ class AsrStatus {
   // design/149 — composite PNG; hide under-image caption when true.
   final bool figureCaptionInImage;
   final bool mobileFigureCaptionInImage;
+  final bool bookmarksSync;
+}
+
+/// `/api/bookmarks/sync` result.
+class BookmarksSyncResult {
+  const BookmarksSyncResult({
+    required this.available,
+    this.store,
+    this.needsAuth = false,
+    this.message,
+  });
+
+  final bool available;
+  final Map<String, dynamic>? store;
+  final bool needsAuth;
+  final String? message;
 }
 
 /// `/api/cite/resolve` result (design/41 · 148).
@@ -1838,6 +1862,56 @@ class AsrClient {
       throw AsrApiException('지금은 취소를 사용할 수 없습니다.', 503);
     }
     _decodeObject(res, 'ingest/uploads/cancel');
+  }
+
+  Future<BookmarksSyncResult> fetchBookmarksSync() async {
+    final res = await _http
+        .get(_uri('/api/bookmarks/sync'), headers: await _headers())
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 401) {
+      return const BookmarksSyncResult(
+        available: false,
+        needsAuth: true,
+        message: '로그인이 필요합니다.',
+      );
+    }
+    final map = _decodeObject(res, 'bookmarks/sync');
+    final store = map['store'];
+    return BookmarksSyncResult(
+      available: map['available'] == true,
+      store: store is Map<String, dynamic>
+          ? store
+          : (store is Map ? Map<String, dynamic>.from(store) : null),
+      needsAuth: map['needs_auth'] == true,
+      message: map['message']?.toString(),
+    );
+  }
+
+  Future<BookmarksSyncResult> pushBookmarksSync(Map<String, dynamic> store) async {
+    final res = await _http
+        .put(
+          _uri('/api/bookmarks/sync'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({'store': store}),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 401) {
+      return const BookmarksSyncResult(
+        available: false,
+        needsAuth: true,
+        message: '로그인이 필요합니다.',
+      );
+    }
+    final map = _decodeObject(res, 'bookmarks/sync');
+    final merged = map['store'];
+    return BookmarksSyncResult(
+      available: map['available'] == true,
+      store: merged is Map<String, dynamic>
+          ? merged
+          : (merged is Map ? Map<String, dynamic>.from(merged) : null),
+      needsAuth: map['needs_auth'] == true,
+      message: map['message']?.toString(),
+    );
   }
 
 }

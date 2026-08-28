@@ -373,11 +373,13 @@ def delete_cached_paper(
     try:
         from sentence_reading.llm.auth_google import current_gcs_uid
         from sentence_reading.llm import notes_gcs as ng
+        from sentence_reading.llm import bookmarks_gcs as bg
         from sentence_reading.llm import shadowing_chunks as sc
         from sentence_reading.llm import shadowing_takes as st
 
         uid = current_gcs_uid() or ""
         ng.remove_paper_notes(f"cache:{tid}")
+        bg.remove_paper_bookmarks(f"cache:{tid}")
         if uid:
             sc.delete_chunk_plan(uid=uid, cache_id=tid)
             st.delete_takes(uid=uid, cache_id=tid)

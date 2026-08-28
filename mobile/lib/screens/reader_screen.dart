@@ -9,6 +9,7 @@ import '../api/figure_swipe_gate.dart';
 import '../api/reading_models.dart';
 import '../api/rich_sentence.dart';
 import '../state/cite_panel_controller.dart';
+import '../state/bookmark_controller.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/translate_controller.dart';
@@ -36,6 +37,7 @@ class ReaderScreen extends StatefulWidget {
     required this.shadowing,
     required this.translate,
     required this.citePanel,
+    required this.bookmarks,
   });
 
   final LibraryController library;
@@ -44,6 +46,7 @@ class ReaderScreen extends StatefulWidget {
   final ShadowingController shadowing;
   final TranslateController translate;
   final CitePanelController citePanel;
+  final BookmarkController bookmarks;
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
@@ -191,7 +194,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final shadowing = widget.shadowing;
     final translate = widget.translate;
     return AnimatedBuilder(
-      animation: Listenable.merge([library, tts, translate, widget.citePanel]),
+      animation: Listenable.merge(
+          [library, tts, translate, widget.citePanel, widget.bookmarks]),
       builder: (context, _) {
         final s = library.session;
         if (s == null || !s.isValid) {
@@ -318,6 +322,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       client: client,
                                       session: s,
                                       citePanel: widget.citePanel,
+                                      bookmarks: widget.bookmarks,
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
                                       figRefHints: _figRefHints,
@@ -347,6 +352,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       library: library,
                                       client: client,
                                       session: s,
+                                      bookmarks: widget.bookmarks,
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
                                       captionFullText: _captionFullText,
@@ -463,6 +469,7 @@ class _SentencePanel extends StatelessWidget {
     required this.client,
     required this.session,
     required this.citePanel,
+    required this.bookmarks,
     required this.showKo,
     required this.showChrome,
     this.figRefHints = true,
@@ -475,6 +482,7 @@ class _SentencePanel extends StatelessWidget {
   final AsrClient client;
   final ReadingSession session;
   final CitePanelController citePanel;
+  final BookmarkController bookmarks;
   final bool showKo;
   final bool showChrome;
   /// design/124 — from /api/status; parent owns fetch.
@@ -489,6 +497,20 @@ class _SentencePanel extends StatelessWidget {
         ? const SectionHeaderParts(sectionName: 'no sentences', position: 0, total: 0)
         : session.sectionNav.headerPartsFor(session.sentenceIndex);
     final canPick = session.sentenceCount > 0 && session.sectionNav.sectionCount > 0;
+    final sentKey =
+        session.sectionNav.sentenceBookmarkKeyForGlobal(session.sentenceIndex);
+    final sentHighlighted = bookmarks.isSentenceBookmarked(sentKey);
+    final sectionBadge =
+        bookmarks.sectionBadgeCount(session.sectionNav, session.sentenceIndex);
+    final bookmarkHints = BookmarkPickerHints(
+      leftBadgeCount: (i) =>
+          bookmarks.pickerSectionBadgeCount(session.sectionNav, i),
+      rightHighlighted: (left, right) => bookmarks.pickerSentenceHighlighted(
+        session.sectionNav,
+        left,
+        right,
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Column(
@@ -520,18 +542,28 @@ class _SentencePanel extends StatelessWidget {
                               ? '— / —'
                               : header.rightLabel,
                           enabled: canPick,
+                          highlighted: sentHighlighted,
+                          leftBadgeCount: sectionBadge,
                           onTap: canPick
                               ? () async {
                                   final idx = await showSectionNavPicker(
                                     context: context,
                                     nav: session.sectionNav,
                                     currentGlobalIndex: session.sentenceIndex,
+                                    bookmarks: bookmarkHints,
                                   );
                                   if (idx == null) return;
                                   await tts.stop();
                                   await library.goToSentenceIndex(idx);
                                 }
                               : null,
+                          onLongPress: session.sentenceCount == 0
+                              ? null
+                              : () => _handleSentenceBookmarkLongPress(
+                                    context,
+                                    bookmarks: bookmarks,
+                                    session: session,
+                                  ),
                         ),
                       ),
                       IconButton(
@@ -863,6 +895,7 @@ class _FigurePanel extends StatelessWidget {
     required this.library,
     required this.client,
     required this.session,
+    required this.bookmarks,
     required this.showKo,
     required this.showChrome,
     this.captionFullText = true,
@@ -875,6 +908,7 @@ class _FigurePanel extends StatelessWidget {
   final LibraryController library;
   final AsrClient client;
   final ReadingSession session;
+  final BookmarkController bookmarks;
   final bool showKo;
   final bool showChrome;
   /// design/131 — false restores 2-line ellipsis (server kill / old clients).
@@ -898,6 +932,19 @@ class _FigurePanel extends StatelessWidget {
           );
     final canPick =
         session.figureCount > 0 && session.figureNav.hasPicker;
+    final figKey =
+        session.figureNav.figureBookmarkKeyForCarousel(session.figureIndex);
+    final figHighlighted = bookmarks.isFigureBookmarked(figKey);
+    final kindBadge =
+        bookmarks.kindBadgeCount(session.figureNav, session.figureIndex);
+    final bookmarkHints = BookmarkPickerHints(
+      leftBadgeCount: (i) => bookmarks.pickerKindBadgeCount(session.figureNav, i),
+      rightHighlighted: (left, right) => bookmarks.pickerFigureHighlighted(
+        session.figureNav,
+        left,
+        right,
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Column(
@@ -926,17 +973,27 @@ class _FigurePanel extends StatelessWidget {
                               ? '— / —'
                               : header.rightLabel,
                           enabled: canPick,
+                          highlighted: figHighlighted,
+                          leftBadgeCount: kindBadge,
                           onTap: canPick
                               ? () async {
                                   final idx = await showFigureNavPicker(
                                     context: context,
                                     nav: session.figureNav,
                                     currentCarouselIndex: session.figureIndex,
+                                    bookmarks: bookmarkHints,
                                   );
                                   if (idx == null) return;
                                   await library.goToFigureIndex(idx);
                                 }
                               : null,
+                          onLongPress: session.figureCount == 0
+                              ? null
+                              : () => _handleFigureBookmarkLongPress(
+                                    context,
+                                    bookmarks: bookmarks,
+                                    session: session,
+                                  ),
                         ),
                       ),
                       IconButton(
@@ -1310,5 +1367,97 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
         );
       },
     );
+  }
+}
+
+Future<void> _handleSentenceBookmarkLongPress(
+  BuildContext context, {
+  required BookmarkController bookmarks,
+  required ReadingSession session,
+}) async {
+  if (!bookmarks.canBookmark) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('북마크를 쓰려면 로그인해 주세요.')),
+    );
+    return;
+  }
+  final nav = session.sectionNav;
+  final key = nav.sentenceBookmarkKeyForGlobal(session.sentenceIndex);
+  if (bookmarks.isSentenceBookmarked(key)) {
+    await bookmarks.toggleSentenceBookmark(nav, session.sentenceIndex);
+    return;
+  }
+  final header = nav.headerPartsFor(session.sentenceIndex);
+  final label = header.sectionName.isEmpty
+      ? '${header.position}번 문장'
+      : '${header.sectionName} ${header.position}번';
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('북마크할까요?'),
+      content: Text(
+        '$label을 북마크하면 피커에서 쉽게 찾을 수 있어요.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('아니오'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('예'),
+        ),
+      ],
+    ),
+  );
+  if (ok == true) {
+    await bookmarks.toggleSentenceBookmark(nav, session.sentenceIndex);
+  }
+}
+
+Future<void> _handleFigureBookmarkLongPress(
+  BuildContext context, {
+  required BookmarkController bookmarks,
+  required ReadingSession session,
+}) async {
+  if (!bookmarks.canBookmark) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('북마크를 쓰려면 로그인해 주세요.')),
+    );
+    return;
+  }
+  final nav = session.figureNav;
+  final key = nav.figureBookmarkKeyForCarousel(session.figureIndex);
+  if (bookmarks.isFigureBookmarked(key)) {
+    await bookmarks.toggleFigureBookmark(nav, session.figureIndex);
+    return;
+  }
+  final header = nav.headerPartsFor(
+    session.figureIndex,
+    totalFigures: session.figureCount,
+  );
+  final kind = header.kindLabel.isEmpty ? 'Figure' : header.kindLabel;
+  final num = header.numberLabel.isEmpty ? '?' : header.numberLabel;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('북마크할까요?'),
+      content: Text(
+        '$kind $num을 북마크하면 피커에서 쉽게 찾을 수 있어요.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('아니오'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('예'),
+        ),
+      ],
+    ),
+  );
+  if (ok == true) {
+    await bookmarks.toggleFigureBookmark(nav, session.figureIndex);
   }
 }

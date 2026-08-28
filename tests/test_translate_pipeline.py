@@ -70,7 +70,7 @@ def _install_stage_gemini(
 
 def test_status_pipeline_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.78"
+    assert st["version"] == "0.3.82"
     assert st["translate_pipeline"] is True
     assert "translate_en_ko" in st
 
@@ -93,7 +93,7 @@ def test_ui_sends_pipeline_mode() -> None:
     assert "design/35·36" in js or "design/36" in js
     assert "pipeline" in js
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.78" in html
+    assert "app.js?v=0.3.82" in html
 
 
 def test_pipeline_full_three_stages(monkeypatch: pytest.MonkeyPatch) -> None:

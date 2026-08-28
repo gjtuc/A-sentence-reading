@@ -14,7 +14,7 @@ STATIC = ROOT / "src" / "sentence_reading" / "static"
 
 def test_status_section_review_flow() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.78"
+    assert st["version"] == "0.3.82"
     assert st["section_review_flow"] is True
     assert "live_enable" not in st
     assert "ips" not in st
@@ -41,6 +41,6 @@ def test_css_and_design_51() -> None:
     assert "0.2.59" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.78" in html
-    assert "styles.css?v=0.3.78" in html
+    assert "app.js?v=0.3.82" in html
+    assert "styles.css?v=0.3.82" in html
     assert "이어서 봅니다" in (STATIC / "index.html").read_text(encoding="utf-8")

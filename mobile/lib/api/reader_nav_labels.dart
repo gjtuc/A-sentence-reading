@@ -155,6 +155,49 @@ class SectionNavIndex {
     }
     return '${parts.sectionName} ${parts.position} / ${parts.total}';
   }
+
+  /// Internal section key (e.g. introduction) for bookmark stable keys.
+  String sectionKeyAt(int sectionIndex) {
+    if (sectionIndex < 0 || sectionIndex >= _sectionKeysInOrder.length) {
+      return '';
+    }
+    return _sectionKeysInOrder[sectionIndex];
+  }
+
+  /// Bookmark key `{sectionKey}:{position}` — position is 1-based within section.
+  String? sentenceBookmarkKeyForGlobal(int globalIndex) {
+    if (globalIndex < 0 || globalIndex >= _byGlobal.length) return null;
+    final (key, pos, _) = _byGlobal[globalIndex];
+    if (key.isEmpty || pos < 1) return null;
+    return '$key:$pos';
+  }
+
+  String? sentenceBookmarkKeyForSelection(int sectionIndex, int positionIndex) {
+    final key = sectionKeyAt(sectionIndex);
+    if (key.isEmpty) return null;
+    final pos = positionIndex + 1;
+    final total = positionCountForSection(sectionIndex);
+    if (pos < 1 || pos > total) return null;
+    return '$key:$pos';
+  }
+
+  bool isValidSentenceBookmarkKey(String bookmarkKey) {
+    final sep = bookmarkKey.lastIndexOf(':');
+    if (sep <= 0) return false;
+    final key = bookmarkKey.substring(0, sep);
+    final pos = int.tryParse(bookmarkKey.substring(sep + 1));
+    if (pos == null || pos < 1) return false;
+    final sectionIndex = _sectionKeysInOrder.indexOf(key);
+    if (sectionIndex < 0) return false;
+    return pos <= positionCountForSection(sectionIndex);
+  }
+
+  int sectionBookmarkCount(Set<String> keys, int sectionIndex) {
+    final sectionKey = sectionKeyAt(sectionIndex);
+    if (sectionKey.isEmpty) return 0;
+    final prefix = '$sectionKey:';
+    return keys.where((k) => k.startsWith(prefix)).length;
+  }
 }
 
 String _sectionKey(String? section) {
@@ -427,6 +470,45 @@ class FigureNavIndex {
     return totalFigures == 0
         ? 'no figures'
         : 'figure ${carouselIndex + 1} / $totalFigures';
+  }
+
+  String kindKeyAt(int kindIndex) {
+    if (kindIndex < 0 || kindIndex >= _kindsInOrder.length) return '';
+    return _kindsInOrder[kindIndex];
+  }
+
+  /// Bookmark key `{kind}:{number}` — e.g. figure:1, figure_s:2.
+  String? figureBookmarkKeyForCarousel(int carouselIndex) {
+    final slot = _slotFromCarousel(carouselIndex);
+    if (slot == null) return null;
+    final (kind, num) = slot;
+    return '$kind:$num';
+  }
+
+  String? figureBookmarkKeyForSelection(int kindIndex, int numberIndex) {
+    final kind = kindKeyAt(kindIndex);
+    if (kind.isEmpty) return null;
+    final num = numberAt(kindIndex, numberIndex);
+    return '$kind:$num';
+  }
+
+  bool isValidFigureBookmarkKey(String bookmarkKey) {
+    final sep = bookmarkKey.indexOf(':');
+    if (sep <= 0) return false;
+    final kind = bookmarkKey.substring(0, sep);
+    final num = int.tryParse(bookmarkKey.substring(sep + 1));
+    if (num == null || num < 1) return false;
+    final kindIndex = _kindsInOrder.indexOf(kind);
+    if (kindIndex < 0) return false;
+    final nums = _numbersByKind[kind] ?? [];
+    return nums.contains(num);
+  }
+
+  int kindBookmarkCount(Set<String> keys, int kindIndex) {
+    final kind = kindKeyAt(kindIndex);
+    if (kind.isEmpty) return 0;
+    final prefix = '$kind:';
+    return keys.where((k) => k.startsWith(prefix)).length;
   }
 }
 

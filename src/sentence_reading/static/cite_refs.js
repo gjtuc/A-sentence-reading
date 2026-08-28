@@ -10,6 +10,7 @@
     /\[(\d+(?:\s*[-–—,]\s*\d+)*(?:\s*,\s*\d+(?:\s*[-–—,]\s*\d+)*)*)\]/g;
   var SUP_NUM = /<sup>\s*(\d{1,3})\s*<\/sup>/gi;
   var DOLLAR_CITE = /(?<=[A-Za-z)\]])\$(\d{1,3})(?!\d)/g;
+  var DOLLAR_CITE_AFTER_MARK = /([\]>])\s*\$(\d{1,3})(?!\d)/g;
   var DOLLAR_TEX_CITE =
     /\$\{\^(\d+(?:\s*[,–—-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—-]\s*\d+)*)\}\$/gi;
 
@@ -75,6 +76,10 @@
     while ((m = reTex.exec(raw))) {
       add(expandToken((m[1] || m[2] || "").replace(/\s/g, "")));
     }
+    var reDolAfter = new RegExp(DOLLAR_CITE_AFTER_MARK.source, "g");
+    while ((m = reDolAfter.exec(raw))) {
+      add([parseInt(m[2], 10)]);
+    }
     var reDol = new RegExp(DOLLAR_CITE.source, "g");
     while ((m = reDol.exec(raw))) {
       add([parseInt(m[1], 10)]);
@@ -108,6 +113,22 @@
     return rows;
   }
 
+  function subDollarCiteArtifacts(s) {
+    s = s.replace(DOLLAR_TEX_CITE, function (full, inner, single) {
+      var tok = inner || single || "";
+      return expandToken(tok.replace(/\s/g, "")).length ? "" : full;
+    });
+    s = s.replace(DOLLAR_CITE_AFTER_MARK, function (full, mark, dig) {
+      var v = parseInt(dig, 10);
+      return v >= 1 && v <= 999 ? mark : full;
+    });
+    s = s.replace(DOLLAR_CITE, function (full, dig) {
+      var v = parseInt(dig, 10);
+      return v >= 1 && v <= 999 ? "" : full;
+    });
+    return s;
+  }
+
   /**
    * WHY design/49: 한 문장씩 볼 때 본문 안 [n] 위치는 중요하지 않음.
    * 칩·패널용 파싱은 원문을 쓰고, 표시만 각주 마커를 뺀다.
@@ -120,16 +141,10 @@
       if (v >= 1 && v <= 999) return "";
       return full;
     });
+    // WHY: $n before brackets — [8, 9]$1 hybrid (design/49)
+    s = subDollarCiteArtifacts(s);
     s = s.replace(BRACKET, function (full, inner) {
       return expandToken(inner).length ? "" : full;
-    });
-    s = s.replace(DOLLAR_TEX_CITE, function (full, inner, single) {
-      var tok = inner || single || "";
-      return expandToken(tok.replace(/\s/g, "")).length ? "" : full;
-    });
-    s = s.replace(DOLLAR_CITE, function (full, dig) {
-      var v = parseInt(dig, 10);
-      return v >= 1 && v <= 999 ? "" : full;
     });
     // "word. " / "word ," 앞 공백 정리 · 연속 공백
     s = s.replace(/\s+([.,;:!?)])/g, "$1");

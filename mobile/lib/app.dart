@@ -7,6 +7,7 @@ import 'services/error_reporter.dart';
 import 'state/auth_controller.dart';
 import 'state/library_controller.dart';
 import 'state/cite_panel_controller.dart';
+import 'state/bookmark_controller.dart';
 import 'state/shadowing_controller.dart';
 import 'state/theme_controller.dart';
 import 'state/translate_controller.dart';
@@ -23,6 +24,7 @@ class SentenceReadingApp extends StatefulWidget {
     this.shadowing,
     this.translate,
     this.citePanel,
+    this.bookmarks,
   });
 
   /// Optional inject for tests (memory session / fake client).
@@ -33,6 +35,7 @@ class SentenceReadingApp extends StatefulWidget {
   final ShadowingController? shadowing;
   final TranslateController? translate;
   final CitePanelController? citePanel;
+  final BookmarkController? bookmarks;
 
   @override
   State<SentenceReadingApp> createState() => _SentenceReadingAppState();
@@ -51,6 +54,8 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       widget.translate ?? TranslateController();
   late final CitePanelController _citePanel =
       widget.citePanel ?? CitePanelController();
+  late final BookmarkController _bookmarks =
+      widget.bookmarks ?? BookmarkController();
 
   /// design/133 — last uid that owned in-memory library; null after logout wipe.
   String? _boundLibraryUid;
@@ -65,6 +70,8 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     _auth.bootstrap();
     _theme.bootstrap();
     _tts.bootstrap();
+    _bookmarks.attachClient(_auth.client);
+    _library.attachBookmarks(_bookmarks);
     _auth.addListener(_onAuthPrefs);
     _syncPrefsFromAuth();
   }
@@ -78,6 +85,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       _translate.clearSession();
       _citePanel.clearSession();
       _citePanel.setServerAvailable(false);
+      _bookmarks.clearSession();
       // design/133 — AccessWaiting-only shell never mounts LibraryScreen, so
       // screen-local clearAll never runs. Wipe at app root so the next account
       // cannot see papers / resume another user's upload draft.
@@ -94,13 +102,16 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     await _shadowing.bindUid(uid);
     await _translate.bindUid(uid);
     await _citePanel.bindUid(uid);
+    await _bookmarks.bindUid(uid);
     try {
       final st = await _auth.client.fetchStatus();
       _shadowing.setServerAvailable(st.mobileShadowingPractice);
       _citePanel.setServerAvailable(st.mobileCiteRefPanel);
+      _bookmarks.setServerAvailable(st.bookmarksSync);
       asrErrorReporter?.setEnabled(
         st.cloudErrorLogs && st.mobileCloudErrorLogs,
       );
+      unawaited(_bookmarks.pullFromServer());
     } catch (_) {
       // EDGE: status fail → keep kill closed (no false enable).
       _shadowing.setServerAvailable(false);
@@ -152,6 +163,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
             shadowing: _shadowing,
             translate: _translate,
             citePanel: _citePanel,
+            bookmarks: _bookmarks,
           ),
         );
       },

@@ -208,7 +208,7 @@ def test_status_figure_caption_in_image(monkeypatch: pytest.MonkeyPatch) -> None
     from sentence_reading.api import app as app_mod
 
     st = TestClient(app_mod.app).get("/api/status").json()
-    assert st["version"] == "0.3.78"
+    assert st["version"] == "0.3.82"
     assert st["figure_caption_in_image"] is True
     assert st["mobile_figure_caption_in_image"] is True
 

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import base64
+import os
 import re
 from pathlib import Path
 
@@ -1116,22 +1117,37 @@ def extract_figures(pdf_path: Path, *, doc_role: str = "main") -> list[Figure]:
             raise ValueError("encrypted_pdf")
 
         merged: list[Figure] = []
-        used_azure = False
+        azure_configured = False
         try:
             from sentence_reading.llm.env import azure_document_intelligence_available
             from sentence_reading.pdf.azure_layout import azure_layout_enabled
             from sentence_reading.pdf.extract_figures_v2 import extract_figures_v2
 
-            if azure_layout_enabled() and azure_document_intelligence_available():
+            azure_configured = azure_layout_enabled() and azure_document_intelligence_available()
+            if azure_configured:
                 merged = extract_figures_v2(pdf_path, doc_role=doc_role)
-                used_azure = bool(merged)
-                if used_azure:
+                if merged:
                     log.info("azure_layout extracted %d figures/tables", len(merged))
+                else:
+                    log.warning("azure_layout v2 returned 0 slots (no PyMuPDF fallback)")
+                return _finalize_figure_list(doc, merged)
         except Exception as exc:
-            log.warning("azure_layout failed (%s); using PyMuPDF", exc)
-
-        if used_azure:
-            return _finalize_figure_list(doc, merged)
+            allow_fb = (os.environ.get("ASR_FIGURE_PYMUPDF_FALLBACK") or "").strip().lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            )
+            if azure_configured and not allow_fb:
+                log.error(
+                    "azure_layout failed (%s); PyMuPDF fallback disabled (design/154)",
+                    exc,
+                )
+                return _finalize_figure_list(doc, merged)
+            if azure_configured and allow_fb:
+                log.warning("azure_layout failed (%s); ASR_FIGURE_PYMUPDF_FALLBACK=1", exc)
+            else:
+                log.warning("azure_layout skipped (%s); using PyMuPDF", exc)
 
         return _finalize_figure_list(doc, _collect_pymupdf_figures(doc))
     finally:

@@ -11,7 +11,7 @@ def test_design_152_doc() -> None:
     text = (ROOT / "docs" / "design" / "152-supplementary-merge.md").read_text(
         encoding="utf-8"
     )
-    assert "0.3.78" in text
+    assert "0.3.82" in text
     assert "rich-v24" in text
     assert "doc_role" in text
     assert "merge-supplementary" in text

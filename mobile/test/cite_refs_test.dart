@@ -10,7 +10,16 @@ void main() {
     expect(parseCiteNumbers('[99999]'), isEmpty);
   });
 
-  test('stripCiteMarkersForDisplay', () {
+  test('parseCiteNumbers bracket-dollar hybrid', () {
+    expect(parseCiteNumbers('dioxide [8, 9]\$1'), [8, 9, 1]);
+    expect(parseCiteNumbers('CO<sub>2</sub>\$1'), [1]);
+  });
+
+  test('stripCiteMarkersForDisplay hybrid bracket-dollar', () {
+    expect(
+      stripCiteMarkersForDisplay('dioxide [8, 9]\$1.'),
+      'dioxide.',
+    );
     expect(
       stripCiteMarkersForDisplay('stable.[1,2] Rates'),
       'stable. Rates',

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../state/auth_controller.dart';
 import '../state/library_controller.dart';
 import '../state/cite_panel_controller.dart';
+import '../state/bookmark_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
@@ -30,6 +31,7 @@ class HomeShell extends StatefulWidget {
     required this.shadowing,
     required this.translate,
     required this.citePanel,
+    required this.bookmarks,
   });
 
   final AuthController auth;
@@ -39,6 +41,7 @@ class HomeShell extends StatefulWidget {
   final ShadowingController shadowing;
   final TranslateController translate;
   final CitePanelController citePanel;
+  final BookmarkController bookmarks;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -104,6 +107,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
       unawaited(widget.library.persistOpenedProgress());
+      unawaited(widget.bookmarks.pushToServer());
     }
     if (state == AppLifecycleState.resumed) {
       unawaited(_consumePendingOpen());
@@ -156,6 +160,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         widget.library,
         widget.tts,
         widget.theme,
+        widget.bookmarks,
       ]),
       builder: (context, _) {
         final auth = widget.auth;
@@ -207,6 +212,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             shadowing: widget.shadowing,
             translate: widget.translate,
             citePanel: widget.citePanel,
+            bookmarks: widget.bookmarks,
           ),
           SettingsScreen(
             theme: widget.theme,

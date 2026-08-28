@@ -1,0 +1,38 @@
+---
+description: ASR figure/table pipeline — design/151 slot carousel must not regress to PyMuPDF union path
+globs:
+  - src/sentence_reading/pdf/**
+  - src/sentence_reading/api/app.py
+  - scripts/deploy_cloud_run.sh
+  - .github/workflows/deploy-cloud-run.yml
+  - scripts/verify_live_status.py
+alwaysApply: false
+---
+
+# Figure pipeline guard (design/150 + 151 + 154)
+
+## Canonical path (production)
+
+PDF figures/tables **must** use:
+
+`extract_figures` → `extract_figures_v2` → `layout_map` + `slot_plan` + `caption_pairing` + `composite.py` vstack
+
+- Figure caption **below** body; table caption **above**
+- Carousel: **Fig 1→N**, then **Table 1→M** (`slot_key` on every slot)
+- **No** `rect | cap_rect` union for rasterization
+- **No** PyMuPDF `_collect_pymupdf_figures` append after v2 when Azure is configured
+
+## Before deploy or merging figure extract changes
+
+1. `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` + `KEY` in GitHub Secrets (CD fails without them)
+2. After deploy: `python scripts/verify_live_status.py --require-azure-layout --min-pipeline rich-v20`
+3. Do **not** remove Azure env vars from `deploy_cloud_run.sh` env-vars-file
+4. Do **not** reintroduce `used_azure = bool(merged)` silent PyMuPDF fallback
+
+## Emergency only
+
+`ASR_FIGURE_PYMUPDF_FALLBACK=1` — local debug; never leave on Cloud Run production.
+
+## Docs
+
+`docs/design/151-layout-map-slot-carousel.md` · `docs/design/154-figure-pipeline-guard.md`

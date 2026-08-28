@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_cite_display_clean() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.78"
+    assert st["version"] == "0.3.82"
     assert st["cite_display_clean"] is True
     assert st["cite_ref_open"] is True
     assert "live_enable" not in st
@@ -58,9 +58,33 @@ def test_strip_dollar_cite_artifacts() -> None:
     )
 
 
+def test_strip_hybrid_bracket_dollar_cite() -> None:
+    """Co–TiO₂ QA: [8, 9]$1 hybrid must not leave visible $1."""
+    methane = (
+        "It is estimated that 143 billion cubic meters of methane were flared in 2012 "
+        "which led to the emission of 350 million tons of carbon dioxide [8, 9]$1"
+    )
+    assert strip_cite_markers_for_display(methane).endswith("carbon dioxide")
+    assert "$1" not in strip_cite_markers_for_display(methane)
+    study = (
+        "Methane and carbon dioxide are major contributors to greenhouse gases (GHG's) "
+        "and their sequestration and removal is the subject of major scientific study [1–4]$1"
+    )
+    assert strip_cite_markers_for_display(study).endswith("major scientific study")
+    assert "$1" not in strip_cite_markers_for_display(study)
+    assert (
+        strip_cite_markers_for_display("word CO<sub>2</sub>$1 here")
+        == "word CO<sub>2</sub> here"
+    )
+
+
 def test_repair_dollar_cite_artifacts_ingest() -> None:
     assert repair_dollar_cite_artifacts("dioxide$1.") == "dioxide."
     assert repair_dollar_cite_artifacts("price $33.00") == "price $33.00"
+    assert (
+        repair_dollar_cite_artifacts("carbon dioxide [8, 9]$1")
+        == "carbon dioxide [8, 9]"
+    )
 
 
 def test_ui_hides_cites_like_fig_chips() -> None:
@@ -78,5 +102,5 @@ def test_ui_hides_cites_like_fig_chips() -> None:
     assert "0.2.57" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.78" in html
-    assert "styles.css?v=0.3.78" in html
+    assert "app.js?v=0.3.82" in html
+    assert "styles.css?v=0.3.82" in html

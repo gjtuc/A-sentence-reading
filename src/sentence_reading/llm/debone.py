@@ -11,6 +11,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from sentence_reading.cite_refs import repair_dollar_cite_artifacts
 from sentence_reading.llm.env import gemini_api_key, gemini_model
 from sentence_reading.llm.richtext import plain_text, sanitize_sentence_html
 from sentence_reading.llm.typography import PIPELINE_VERSION, apply_glossary
@@ -101,6 +102,7 @@ DROP entirely (do not output):
 
 KEEP citation markers that are ATTACHED to prose sentences:
 - Bracket citations like [12], [1-3], [1,2] at the end of or inside a sentence — keep them in the sentence text
+- Never use LaTeX $n for citations; keep bracket cites like [8, 9] only
 - Do NOT invent citations; only preserve ones present in the source chunk
 
 KEEP and classify each sentence with ONE section tag:
@@ -591,6 +593,17 @@ def debone_sentences(
                 )
                 for s in sentences
             ]
+
+    sentences = [
+        Sentence(
+            id=s.id,
+            text=repair_dollar_cite_artifacts(s.text),
+            section=s.section,
+            start_char=s.start_char,
+            end_char=s.end_char,
+        )
+        for s in sentences
+    ]
 
     if not sentences:
         return DeboneResult(
