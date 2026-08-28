@@ -174,8 +174,12 @@ def run_guard(
     allow_dirty: bool = False,
     allow_same_version: bool = False,
     skip_fetch: bool = False,
+    ci_mode: bool = False,
     live_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if ci_mode:
+        allow_dirty = True
+        allow_same_version = True
     errs: list[str] = []
     local_ver = read_repo_app_version()
     mobile_ver = read_pubspec_version()
@@ -204,10 +208,10 @@ def run_guard(
         elif cmp == 0 and not allow_same_version:
             errs.append(f"same_version_redeploy_blocked:{local_ver}")
 
-    if not skip_fetch:
+    if not skip_fetch and not ci_mode:
         errs.extend(git_fetch())
     branch = git_current_branch()
-    if branch in ("main", "master"):
+    if not ci_mode and branch in ("main", "master"):
         fetch_errs, behind = git_behind_remote(remote_ref)
         errs.extend(fetch_errs)
     else:
@@ -219,11 +223,13 @@ def run_guard(
         if not allow_same_version:
             errs.append(f"already_deployed_sha:{head_sha}")
 
-    if not allow_dirty and git_dirty():
+    if not allow_dirty and not ci_mode and git_dirty():
         errs.append("working_tree_dirty")
 
+    mode = "ci" if ci_mode else "deploy"
     return {
         "ok": not errs,
+        "mode": mode,
         "local_version": local_ver,
         "mobile_version": mobile_ver,
         "live_version": live_ver,
@@ -260,14 +266,22 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="allow uncommitted changes (default: block)",
     )
+    p.add_argument(
+        "--ci",
+        action="store_true",
+        help="CI/PR: only block live downgrade + version mismatch (no dirty/behind/same-version)",
+    )
     args = p.parse_args(argv)
 
-    allow_dirty = args.allow_dirty or os.environ.get("ASR_DEPLOY_ALLOW_DIRTY", "") in (
+    ci_mode = bool(args.ci)
+    allow_dirty = ci_mode or args.allow_dirty or os.environ.get(
+        "ASR_DEPLOY_ALLOW_DIRTY", ""
+    ) in (
         "1",
         "true",
         "yes",
     )
-    allow_same = args.allow_same_version or os.environ.get(
+    allow_same = ci_mode or args.allow_same_version or os.environ.get(
         "ASR_DEPLOY_ALLOW_SAME_VERSION", ""
     ) in ("1", "true", "yes")
 
@@ -276,7 +290,8 @@ def main(argv: list[str] | None = None) -> int:
         remote_ref=args.remote_ref,
         allow_dirty=allow_dirty,
         allow_same_version=allow_same,
-        skip_fetch=bool(args.skip_fetch),
+        skip_fetch=bool(args.skip_fetch) or ci_mode,
+        ci_mode=ci_mode,
     )
     print(json.dumps(result, ensure_ascii=False))
     if not result["ok"]:

@@ -18,11 +18,20 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+
+      - name: Live downgrade guard (design/155 CI)
+        env:
+          ASR_CLOUD_RUN_URL: ${{ vars.ASR_CLOUD_RUN_URL || 'https://asr-sentence-reading-984608876300.asia-northeast3.run.app' }}
+        run: |
+          python scripts/pre_deploy_guard.py --ci \
+            --url "${ASR_CLOUD_RUN_URL%/}/api/status"
 
       - name: Install package + test deps
         run: |

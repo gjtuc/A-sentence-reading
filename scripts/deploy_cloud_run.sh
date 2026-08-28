@@ -223,4 +223,12 @@ fi
 echo
 echo "Deployed: $URL"
 echo "다음: Google OAuth 클라이언트에 JavaScript 원본 추가 → $URL"
-echo "확인: python scripts/verify_live_status.py --expect 0.2.34"
+_expect_ver="$(python -c "import re; t=open('$ROOT/src/sentence_reading/api/app.py',encoding='utf-8').read(); m=re.search(r'version=\"([^\"]+)\"', t); print(m.group(1) if m else '')")"
+if [[ -n "$_expect_ver" && "${ASR_SKIP_POST_DEPLOY_VERIFY:-}" != "1" ]]; then
+  echo "post-deploy verify: expect ${_expect_ver}"
+  python "$ROOT/scripts/verify_live_status.py" \
+    --url "${URL%/}/api/status" \
+    --expect "$_expect_ver" \
+    --require-azure-layout \
+    --min-pipeline rich-v20
+fi

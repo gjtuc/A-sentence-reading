@@ -84,19 +84,32 @@ def test_mobile_app_version_match() -> None:
     assert m.read_repo_app_version() == m.read_pubspec_version()
 
 
+def test_run_guard_ci_mode_allows_same_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    m = _load()
+    local = m.read_repo_app_version()
+    r = m.run_guard(live_data={"version": local}, ci_mode=True, skip_fetch=True)
+    assert r["ok"] is True, r["errors"]
+    assert r.get("mode") == "ci"
+
+
 def test_deploy_script_wires_guard() -> None:
     text = (ROOT / "scripts" / "deploy_cloud_run.sh").read_text(encoding="utf-8")
     assert "pre_deploy_guard.py" in text
     assert "ASR_DEPLOY_GIT_SHA" in text
     assert "ASR_SKIP_DEPLOY_GUARD" in text
+    assert "post-deploy verify" in text
+    assert "verify_live_status.py" in text
 
 
 def test_workflow_wires_guard() -> None:
-    text = (ROOT / ".github" / "workflows" / "deploy-cloud-run.yml").read_text(
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    deploy = (ROOT / ".github" / "workflows" / "deploy-cloud-run.yml").read_text(
         encoding="utf-8"
     )
-    assert "pre_deploy_guard.py" in text
-    assert "fetch-depth: 0" in text
+    assert "pre_deploy_guard.py" in ci
+    assert "--ci" in ci
+    assert "pre_deploy_guard.py" in deploy
+    assert "fetch-depth: 0" in deploy
 
 
 def test_status_exposes_deploy_git_sha(monkeypatch: pytest.MonkeyPatch) -> None:

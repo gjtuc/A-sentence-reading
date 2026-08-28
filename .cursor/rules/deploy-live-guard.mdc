@@ -17,6 +17,9 @@ alwaysApply: true
 
 ## 배포 전 필수 (에이전트·사람 공통)
 
+0. **작업 시작 시** (다른 채팅·옛 워크트리 의심):  
+   `python scripts/pre_deploy_guard.py --allow-same-version`  
+   → `local_version` vs `live_version` 확인. live가 더 높으면 **pull + merge 먼저**.
 1. `git fetch origin && git pull --ff-only origin main` (또는 작업 브랜치를 main에 맞춤)
 2. `python scripts/pre_deploy_guard.py` — **exit 0** 확인
 3. `app.py` `version` / `/api/status` `version` / `mobile/pubspec.yaml` **세 곳 동시** bump (live **초과**)
