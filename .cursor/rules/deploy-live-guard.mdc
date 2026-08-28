@@ -35,8 +35,8 @@ alwaysApply: true
 |------|------|
 | 로컬 버전 < live | `local_version_downgrade` |
 | 로컬 버전 == live | `same_version_redeploy_blocked` |
-| `origin/main` 보다 N커밋 뒤 | `git_behind_remote_by_N` |
-| uncommitted 변경 | `working_tree_dirty` |
+| `origin/main` 보다 N커밋 뒤 (**main 브랜치에서만**) | `git_behind_remote_by_N` |
+| tracked 파일 uncommitted | `working_tree_dirty` |
 | app.py ≠ pubspec 버전 | `mobile_app_version_mismatch` |
 | live `deploy_git_sha` == HEAD | `already_deployed_sha` |
 

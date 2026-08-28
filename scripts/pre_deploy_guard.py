@@ -145,10 +145,18 @@ def git_behind_remote(
 
 
 def git_dirty() -> bool:
-    r = _run(["git", "status", "--porcelain"])
+    # WHY: untracked QA/tmp 스크린샷은 배포 차단에 쓰지 않음 (-uno).
+    r = _run(["git", "status", "--porcelain", "-uno"])
     if r.returncode != 0:
         return True
     return bool((r.stdout or "").strip())
+
+
+def git_current_branch() -> str:
+    r = _run(["git", "branch", "--show-current"])
+    if r.returncode != 0:
+        return ""
+    return (r.stdout or "").strip()
 
 
 def git_head_sha(short: bool = True) -> str:
@@ -198,8 +206,12 @@ def run_guard(
 
     if not skip_fetch:
         errs.extend(git_fetch())
-    fetch_errs, behind = git_behind_remote(remote_ref)
-    errs.extend(fetch_errs)
+    branch = git_current_branch()
+    if branch in ("main", "master"):
+        fetch_errs, behind = git_behind_remote(remote_ref)
+        errs.extend(fetch_errs)
+    else:
+        behind = 0
 
     head_sha = git_head_sha()
     if live_sha and head_sha and live_sha.startswith(head_sha[:12]):
@@ -217,6 +229,7 @@ def run_guard(
         "live_version": live_ver,
         "live_deploy_sha": live_sha,
         "git_head": head_sha,
+        "git_branch": branch,
         "commits_behind_remote": behind,
         "remote_ref": remote_ref,
         "errors": errs,
