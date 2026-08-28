@@ -160,7 +160,7 @@ def test_dispatch_invalid_and_simple(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_api_default_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("sentence_reading.api.app.gemini_available", lambda: True)
+    monkeypatch.setattr("sentence_reading.api.app.translate_available", lambda: True)
 
     def fake(text: str, mode: str = "pipeline") -> dict:
         return {

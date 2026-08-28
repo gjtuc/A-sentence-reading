@@ -1,4 +1,4 @@
-"""design/128 — column-wide orphan table/fig clips (0.3.51 · rich-v22)."""
+"""design/128 — column-wide orphan table/fig clips (0.3.51 · rich-v24)."""
 
 from __future__ import annotations
 
@@ -26,8 +26,8 @@ EWBANK = ROOT / "_tmp_ewbank" / "source.pdf"
 def test_status_and_pipeline_pin() -> None:
     st = TestClient(app).get("/api/status").json()
     assert st["version"] == "0.3.78"
-    assert PIPELINE_VERSION == "rich-v22"
-    assert "rich-v22" in TYPO.read_text(encoding="utf-8")
+    assert PIPELINE_VERSION == "rich-v24"
+    assert "rich-v24" in TYPO.read_text(encoding="utf-8")
     assert DESIGN.is_file()
     src = EXTRACT.read_text(encoding="utf-8")
     assert "design/128" in src

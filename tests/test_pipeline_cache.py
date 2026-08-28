@@ -64,7 +64,7 @@ def test_try_cache_hit_skips_stale(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         api,
         "find_cached_by_text",
-        lambda text, source="pdf": {
+        lambda text, source="pdf", doc_role="main": {
             "id": "aaaaaaaaaaaa",
             "pipeline_version": "ancient",
         },

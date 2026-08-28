@@ -245,10 +245,16 @@ def get_index_entry(cache_id: str) -> dict | None:
     return None
 
 
-def patch_index_entry(cache_id: str, updates: dict) -> dict | None:
+def patch_index_entry(
+    cache_id: str,
+    updates: dict | None = None,
+    **fields: object,
+) -> dict | None:
     """Merge updates into one index row · sync GCS best-effort."""
     cid = (cache_id or "").strip()
-    if not cid or not isinstance(updates, dict):
+    merged: dict = dict(updates or {})
+    merged.update(fields)
+    if not cid or not merged:
         return None
     index = _read_index()
     entries: list = list(index.get("entries") or [])
@@ -256,7 +262,7 @@ def patch_index_entry(cache_id: str, updates: dict) -> dict | None:
     for i, entry in enumerate(entries):
         if isinstance(entry, dict) and entry.get("id") == cid:
             merged = dict(entry)
-            for key, val in updates.items():
+            for key, val in merged.items():
                 if val is None:
                     merged.pop(key, None)
                 else:
@@ -548,28 +554,6 @@ def load_cached_session(
         "supplementary_cache_id": str(meta.get("supplementary_cache_id") or "") or None,
     }
     return session, info
-
-
-def patch_index_entry(cache_id: str, **fields: object) -> bool:
-    """Partial index update (ingest_status, doc_role, hidden, merge flags)."""
-    cid = (cache_id or "").strip()
-    if not cid or not fields:
-        return False
-    index = _read_index()
-    touched = False
-    for entry in index.get("entries") or []:
-        if not isinstance(entry, dict) or entry.get("id") != cid:
-            continue
-        for k, v in fields.items():
-            if v is None:
-                entry.pop(k, None)
-            else:
-                entry[k] = v
-        touched = True
-        break
-    if touched:
-        _write_index(index)
-    return touched
 
 
 def source_filename_for(kind: str) -> str:

@@ -157,7 +157,7 @@ def test_translate_failed_empty_model(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_api_invalid_and_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("sentence_reading.api.app.gemini_available", lambda: True)
+    monkeypatch.setattr("sentence_reading.api.app.translate_available", lambda: True)
     client = TestClient(app)
 
     bad = client.post("/api/translate", json={"text": 123})
@@ -199,7 +199,7 @@ def test_api_gemini_gate(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_api_exception_maps(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("sentence_reading.api.app.gemini_available", lambda: True)
+    monkeypatch.setattr("sentence_reading.api.app.translate_available", lambda: True)
 
     def boom(_t: str, _m: str = "pipeline") -> dict:
         raise RuntimeError("network down")
