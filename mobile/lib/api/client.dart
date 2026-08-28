@@ -1136,19 +1136,32 @@ class AsrClient {
   }
 
   /// Poll `/api/ingest/jobs/{id}` until done (design/71 reattach).
+  ///
+  /// design/158 — [idleTimeout] resets on each server percent/message change;
+  /// [maxDuration] is an absolute safety cap (replaces fixed 20m wall clock).
   Future<IngestJobResult> pollIngestJob({
     required String jobId,
     void Function(int percent, String message)? onProgress,
     Duration pollInterval = const Duration(milliseconds: 500),
-    Duration timeout = const Duration(minutes: 20),
+    Duration idleTimeout = const Duration(minutes: 5),
+    Duration maxDuration = const Duration(hours: 2),
     bool Function()? isCancelled,
   }) async {
     final jid = jobId.trim();
     if (jid.isEmpty || !RegExp(r'^job_[a-f0-9]{12}$').hasMatch(jid)) {
       throw AsrApiException('잘못된 작업 ID입니다.', 400);
     }
-    final deadline = DateTime.now().add(timeout);
-    while (DateTime.now().isBefore(deadline)) {
+    final absoluteDeadline = DateTime.now().add(maxDuration);
+    var idleDeadline = DateTime.now().add(idleTimeout);
+    var lastPct = -1;
+    var lastMsg = '';
+    while (DateTime.now().isBefore(absoluteDeadline)) {
+      if (DateTime.now().isAfter(idleDeadline)) {
+        throw AsrApiException(
+          '분석 진행이 멈춘 것 같습니다. 아래 「이어서 분석하기」를 눌러 주세요.',
+          504,
+        );
+      }
       // design/132 — stop polling after user cancel (server wipe → 404 is OK).
       if (isCancelled?.call() == true) {
         throw UploadCancelledException();
@@ -1184,6 +1197,11 @@ class AsrClient {
       final st = Map<String, dynamic>.from(decoded);
       final pct = st['percent'] is num ? (st['percent'] as num).toInt() : 0;
       final msg = '${st['message'] ?? ''}'.trim();
+      if (pct != lastPct || msg != lastMsg) {
+        lastPct = pct;
+        lastMsg = msg;
+        idleDeadline = DateTime.now().add(idleTimeout);
+      }
       onProgress?.call(pct, msg);
 
       final done = st['done'] == true;
@@ -1223,7 +1241,7 @@ class AsrClient {
       );
     }
     throw AsrApiException(
-      '업로드 처리 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.',
+      '전체 처리 시간이 너무 깁니다. 잠시 후 「이어서 분석하기」를 눌러 주세요.',
       504,
     );
   }
@@ -1235,7 +1253,8 @@ class AsrClient {
     required Uint8List bytes,
     void Function(int percent, String message)? onProgress,
     Duration pollInterval = const Duration(milliseconds: 500),
-    Duration timeout = const Duration(minutes: 20),
+    Duration idleTimeout = const Duration(minutes: 5),
+    Duration maxDuration = const Duration(hours: 2),
     String? existingUploadId,
     bool shadowingPractice = false,
     bool translate = true,
@@ -1282,7 +1301,8 @@ class AsrClient {
         onProgress?.call(mapped, msg);
       },
       pollInterval: pollInterval,
-      timeout: timeout,
+      idleTimeout: idleTimeout,
+      maxDuration: maxDuration,
     );
     if (result.contentHash.isEmpty && contentHash.isNotEmpty) {
       return IngestJobResult(

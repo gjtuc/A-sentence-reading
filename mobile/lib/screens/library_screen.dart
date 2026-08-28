@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../api/ingest_models.dart';
 import '../api/library_reorder_proxy.dart';
 import '../api/paper_models.dart';
 import '../state/auth_controller.dart';
@@ -217,11 +218,34 @@ class _LibraryScreenState extends State<LibraryScreen> {
     // design/71 — app auto-resumes processing / local draft without a second tap.
     final result = await widget.library.resumePendingIfAny();
     if (!mounted) return;
+    await _afterResumeResult(result);
+  }
+
+  Future<void> _resumeInterrupted() async {
+    final result = await widget.library.onAppResumed();
+    if (!mounted) return;
+    await _afterResumeResult(result);
+  }
+
+  Future<void> _resumeAndOpen() async {
+    final result = await widget.library.resumeAnalysis();
+    if (!mounted) return;
+    await _afterResumeResult(result);
+  }
+
+  Future<void> _afterResumeResult(IngestJobResult? result) async {
     final hint = widget.library.uploadBackgroundHint;
-    if (hint != null && hint.isNotEmpty) {
+    if (hint != null && hint.isNotEmpty && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(hint)));
     }
-    if (result == null) return;
+    if (result == null) {
+      if (widget.library.error != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(widget.library.error!)),
+        );
+      }
+      return;
+    }
     PaperEntry? entry;
     for (final p in widget.library.papers) {
       if (p.id == result.cacheId) {
@@ -479,6 +503,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                         const SizedBox(height: 8),
+                        if (lib.uploadStalled)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton(
+                              onPressed: lib.opening || lib.reanalyzing
+                                  ? null
+                                  : () => _resumeInterrupted(),
+                              child: const Text('지금 이어가기'),
+                            ),
+                          ),
                         Align(
                           alignment: Alignment.centerLeft,
                           child: TextButton(
@@ -534,6 +568,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           icon: const Icon(Icons.close),
                           tooltip: '닫기',
                           visualDensity: VisualDensity.compact,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (lib.resumeOfferVisible && !lib.uploading && !lib.reanalyzing)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: lib.opening
+                              ? null
+                              : () => _resumeAndOpen(),
+                          icon: const Icon(Icons.play_arrow),
+                          label: const Text('이어서 분석하기'),
+                        ),
+                        TextButton(
+                          onPressed: lib.discardResumeDraft,
+                          child: const Text('초안 삭제'),
                         ),
                       ],
                     ),

@@ -231,6 +231,84 @@ void main() {
     );
   });
 
+  test('pollIngestJob idle timeout when percent/message stall', () async {
+    final store = MemorySessionStore();
+    await store.writeToken('tok');
+    final client = AsrClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path.contains('/api/ingest/jobs/')) {
+          return http.Response(
+            '{"ok":true,"job_id":"job_abcd1234ef01","percent":10,"done":false,"message":"stuck"}',
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+      sessionStore: store,
+    );
+
+    await expectLater(
+      client.pollIngestJob(
+        jobId: 'job_abcd1234ef01',
+        pollInterval: const Duration(milliseconds: 5),
+        idleTimeout: const Duration(milliseconds: 40),
+        maxDuration: const Duration(seconds: 5),
+      ),
+      throwsA(
+        isA<AsrApiException>()
+            .having((e) => e.statusCode, 'status', 504)
+            .having(
+              (e) => e.message,
+              'msg',
+              contains('이어서 분석하기'),
+            ),
+      ),
+    );
+  });
+
+  test('pollIngestJob idle clock resets on progress change', () async {
+    final store = MemorySessionStore();
+    await store.writeToken('tok');
+    var polls = 0;
+    final client = AsrClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path.contains('/api/ingest/jobs/')) {
+          polls += 1;
+          if (polls < 4) {
+            return http.Response(
+              '{"ok":true,"job_id":"job_abcd1234ef01","percent":10,"done":false,"message":"a"}',
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          if (polls < 8) {
+            return http.Response(
+              '{"ok":true,"job_id":"job_abcd1234ef01","percent":20,"done":false,"message":"b"}',
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            '{"ok":true,"job_id":"job_abcd1234ef01","percent":100,"done":true,"cache_id":"cafebabe12","session_id":"ses1"}',
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+      sessionStore: store,
+    );
+
+    final result = await client.pollIngestJob(
+      jobId: 'job_abcd1234ef01',
+      pollInterval: const Duration(milliseconds: 5),
+      idleTimeout: const Duration(milliseconds: 30),
+      maxDuration: const Duration(seconds: 5),
+    );
+    expect(result.cacheId, 'cafebabe12');
+  });
+
   test('ingestPdfBytes fail-closed when job ok false', () async {
     final store = MemorySessionStore();
     await store.writeToken('tok');

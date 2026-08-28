@@ -75,6 +75,9 @@ class LibraryController extends ChangeNotifier {
   /// design/75 — true when progress heartbeat went silent (honest interrupt UI).
   bool uploadStalled = false;
 
+  /// design/158 — show 「이어서 분석하기」 when a resumable draft exists.
+  bool resumeOfferVisible = false;
+
   /// design/132 — user asked to cancel the in-flight upload/ingest.
   bool _uploadCancelRequested = false;
   String? _activeUploadId;
@@ -211,6 +214,18 @@ class LibraryController extends ChangeNotifier {
     uploadStalled = false;
     notifyListeners();
     unawaited(_notify.showFailed(message: error!));
+    unawaited(_refreshResumeOffer());
+  }
+
+  Future<bool> _draftResumable() async {
+    final draft = await _drafts.read();
+    if (draft == null) return false;
+    return draft.canReattach || draft.canResumeChunks;
+  }
+
+  Future<void> _refreshResumeOffer() async {
+    resumeOfferVisible = !uploading && !reanalyzing && await _draftResumable();
+    notifyListeners();
   }
 
   Future<void> _beginIngestHang({required String filename}) async {
@@ -385,6 +400,7 @@ class LibraryController extends ChangeNotifier {
     } finally {
       loading = false;
       notifyListeners();
+      unawaited(_refreshResumeOffer());
     }
   }
 
@@ -874,6 +890,24 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// design/158 — tap 「이어서 분석하기」 (same engine as auto-resume).
+  Future<IngestJobResult?> resumeAnalysis() async {
+    if (uploading || reanalyzing) return null;
+    error = null;
+    resumeOfferVisible = false;
+    notifyListeners();
+    return resumePendingIfAny();
+  }
+
+  /// design/158 — discard local upload draft (user opts out of resume).
+  Future<void> discardResumeDraft() async {
+    await _drafts.clear();
+    await _cancelWorkmanager();
+    resumeOfferVisible = false;
+    error = null;
+    notifyListeners();
+  }
+
   void clearOpened() {
     shadowingChunksError = null;
     shadowingChunksCacheId = null;
@@ -895,6 +929,7 @@ class LibraryController extends ChangeNotifier {
     papers = const [];
     session = null;
     error = null;
+    resumeOfferVisible = false;
     loading = false;
     opening = false;
     uploading = false;
@@ -1304,6 +1339,9 @@ class LibraryController extends ChangeNotifier {
           e.statusCode == 422) {
         await _drafts.clear();
         await _cancelWorkmanager();
+        resumeOfferVisible = false;
+      } else if (e.statusCode == 504 || _ingestHangTripped) {
+        resumeOfferVisible = await _draftResumable();
       }
       // design/105 — surface last stage on timeout so failure is actionable.
       final stage = uploadStage.trim();
@@ -1331,6 +1369,7 @@ class LibraryController extends ChangeNotifier {
       _ingestHangTripped = false;
       _stopStallWatch();
       notifyListeners();
+      unawaited(_refreshResumeOffer());
     }
   }
 
@@ -1401,6 +1440,9 @@ class LibraryController extends ChangeNotifier {
           e.statusCode == 422) {
         await _drafts.clear();
         await _cancelWorkmanager();
+        resumeOfferVisible = false;
+      } else if (e.statusCode == 504 || _ingestHangTripped) {
+        resumeOfferVisible = await _draftResumable();
       }
       final stage = uploadStage.trim();
       if (e.statusCode == 504 && stage.isNotEmpty) {
@@ -1427,6 +1469,7 @@ class LibraryController extends ChangeNotifier {
       _ingestHangTripped = false;
       _stopStallWatch();
       notifyListeners();
+      unawaited(_refreshResumeOffer());
     }
   }
 }
