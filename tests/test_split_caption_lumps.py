@@ -1,4 +1,4 @@
-"""design/137 — split caption lumps; fail-closed (0.3.84 · rich-v24)."""
+"""design/137 — split caption lumps; fail-closed (0.3.85 · rich-v24)."""
 
 from __future__ import annotations
 
@@ -94,13 +94,13 @@ def _build_ambiguous_lump(path: Path) -> None:
 
 def test_status_and_docs_pin_split_caption_lumps():
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.84"
+    assert st["version"] == "0.3.85"
     assert st["pipeline_version"] == "rich-v24"
     assert st["split_caption_lumps"] is True
     assert st["mobile_split_caption_lumps"] is True
     assert PIPELINE_VERSION == "rich-v24"
     assert "rich-v24" in TYPO.read_text(encoding="utf-8")
-    assert "0.3.84" in PUB.read_text(encoding="utf-8")
+    assert "0.3.85" in PUB.read_text(encoding="utf-8")
     assert DESIGN.is_file()
     assert "ASR_SPLIT_CAPTION_LUMPS" in DESIGN.read_text(encoding="utf-8")
     assert "design/137" in EXTRACT.read_text(encoding="utf-8")

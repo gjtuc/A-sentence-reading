@@ -17,7 +17,7 @@ DESIGN = os.path.join(ROOT, "docs", "design", "103-mobile-tts-voice-random.md")
 def test_status_version_pin() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.84"
+    assert st["version"] == "0.3.85"
     assert st["mobile_tts"] is True
 
 
@@ -91,7 +91,7 @@ def test_shadowing_practice_uses_tts_controller() -> None:
 
 def test_pubspec_pin() -> None:
     pub = open(os.path.join(MOBILE, "pubspec.yaml"), encoding="utf-8").read()
-    assert "0.3.84" in pub
+    assert "0.3.85" in pub
 
 
 def test_no_secrets_in_new_dart() -> None:

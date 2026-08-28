@@ -17,7 +17,7 @@ from sentence_reading.models import PaperSession, Sentence
 def test_status_version() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.84"
+    assert st["version"] == "0.3.85"
 
 
 def test_save_copies_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
