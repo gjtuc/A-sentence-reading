@@ -25,120 +25,16 @@ _AZURE_BODY_REST = re.compile(
     re.IGNORECASE,
 )
 _AZURE_PERCENT = re.compile(r"\d+\.\d+\s*%")
-_FULL_WIDTH_FRAC = 0.55
 _CAPTION_PAIR_BELOW_PT = 160.0
 _CAPTION_PAIR_ABOVE_PT = 120.0
 
 
-def _rect_spans_gutter(page_rect, rect) -> bool:
-    """True when rect crosses page midpoint (full-width figure/caption)."""
-    mid = (float(page_rect.x0) + float(page_rect.x1)) / 2.0
-    x0, x1 = float(rect.x0), float(rect.x1)
-    return x0 < mid - 2 and x1 > mid + 2
-
-
-def _composite_x_band(page, fig_rect, cap_rect) -> tuple[float, float]:
-    """design/150 — column band or full page width for composite clips."""
-    from sentence_reading.pdf.extract import _column_x_range
-
-    page_rect = page.rect
-    anchor = cap_rect if cap_rect is not None else fig_rect
-    if anchor is None:
-        pad = 6.0
-        return float(page_rect.x0) + pad, float(page_rect.x1) - pad
-
-    width_frac = float(anchor.width) / max(float(page_rect.width), 1.0)
-    if _rect_spans_gutter(page_rect, anchor) or width_frac > _FULL_WIDTH_FRAC:
-        pad = 6.0
-        return float(page_rect.x0) + pad, float(page_rect.x1) - pad
-
-    if fig_rect is not None and (
-        _rect_spans_gutter(page_rect, fig_rect)
-        or float(fig_rect.width) / max(float(page_rect.width), 1.0) > _FULL_WIDTH_FRAC
-    ):
-        pad = 6.0
-        return float(page_rect.x0) + pad, float(page_rect.x1) - pad
-
-    return _column_x_range(page_rect, anchor, bleed_frac=0.08)
-
-
-def _clamp_rect_x(rect, x0: float, x1: float):
-    """Intersect rect with column x band; preserve y."""
-    import fitz
-
-    r = fitz.Rect(rect)
-    r.x0 = max(float(r.x0), x0)
-    r.x1 = min(float(r.x1), x1)
-    if r.x1 <= r.x0 + 1:
-        return None
-    return r
-
-
-def _vstack_pngs(strips: list[bytes]) -> bytes | None:
-    """Stack PNG byte strips vertically; equalize width on white canvas."""
-    import io
-
-    from PIL import Image
-
-    images: list[Image.Image] = []
-    try:
-        for raw in strips:
-            if not raw:
-                continue
-            im = Image.open(io.BytesIO(raw)).convert("RGB")
-            if im.width < 4 or im.height < 4:
-                continue
-            images.append(im)
-        if not images:
-            return None
-        if len(images) == 1:
-            out = io.BytesIO()
-            images[0].save(out, format="PNG")
-            return out.getvalue()
-
-        max_w = max(im.width for im in images)
-        total_h = sum(im.height for im in images)
-        canvas = Image.new("RGB", (max_w, total_h), (255, 255, 255))
-        y = 0
-        for im in images:
-            x_off = (max_w - im.width) // 2
-            canvas.paste(im, (x_off, y))
-            y += im.height
-        out = io.BytesIO()
-        canvas.save(out, format="PNG")
-        return out.getvalue()
-    finally:
-        for im in images:
-            im.close()
-
-
-def _composite_figure_png(page, fig_rect, cap_rect) -> bytes | None:
-    """design/150 — separate body/caption clips within column band, vstack."""
-    from sentence_reading.pdf.extract import _render_page_clip
-
-    if fig_rect is None and cap_rect is None:
-        return None
-
-    x0, x1 = _composite_x_band(page, fig_rect, cap_rect)
-    parts: list[tuple[float, object]] = []
-    if fig_rect is not None:
-        clamped = _clamp_rect_x(fig_rect, x0, x1)
-        if clamped is not None:
-            parts.append((float(clamped.y0), clamped))
-    if cap_rect is not None:
-        clamped = _clamp_rect_x(cap_rect, x0, x1)
-        if clamped is not None:
-            parts.append((float(clamped.y0), clamped))
-    if not parts:
-        return None
-
-    parts.sort(key=lambda t: t[0])
-    strips: list[bytes] = []
-    for _y, clip in parts:
-        png = _render_page_clip(page, clip)
-        if png:
-            strips.append(png)
-    return _vstack_pngs(strips)
+from sentence_reading.pdf.composite import (  # noqa: F401 — re-export for tests
+    clamp_rect_x as _clamp_rect_x,
+    composite_figure_png as _composite_figure_png,
+    composite_x_band as _composite_x_band,
+    vstack_pngs as _vstack_pngs,
+)
 
 
 def azure_layout_enabled() -> bool:
@@ -431,6 +327,8 @@ def extract_figures_azure(pdf_path: Path) -> list[Figure]:
                 )
             )
 
+        from sentence_reading.pdf.composite import composite_table_png
+
         for table in result.tables or []:
             page_index, rect = _region_page_and_rect(
                 getattr(table, "bounding_regions", None) or []
@@ -439,17 +337,18 @@ def extract_figures_azure(pdf_path: Path) -> list[Figure]:
                 continue
             page = doc[page_index]
             caption = _match_table_caption(page, rect)
-            clip = rect
+            cap_rect = None
             if caption:
                 from sentence_reading.pdf.extract import _labeled_caption_hits
 
-                for _key, cap, cap_rect in _labeled_caption_hits(
+                for _key, cap, cr in _labeled_caption_hits(
                     page, fig_scheme=False, table=True
                 ):
                     if cap == caption:
-                        clip = rect | cap_rect
+                        cap_rect = cr
                         break
-            png = _render_page_clip(page, clip)
+            png = composite_table_png(page, rect, cap_rect) or _render_page_clip(page, rect)
+            clip = rect
             if not png:
                 continue
             cap = caption or f"Table (p.{page_index + 1})"

@@ -6,6 +6,11 @@ final _bracket = RegExp(
   r'\[(\d+(?:\s*[-–—,]\s*\d+)*(?:\s*,\s*\d+(?:\s*[-–—,]\s*\d+)*)*)\]',
 );
 final _supNum = RegExp(r'<sup>\s*(\d{1,3})\s*</sup>', caseSensitive: false);
+final _dollarTexCite = RegExp(
+  r'\$\{\^(\d+(?:\s*[,–—-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—-]\s*\d+)*)\}\$',
+  caseSensitive: false,
+);
+final _dollarCite = RegExp(r'(?<=[A-Za-z)\]])\$(\d{1,3})(?!\d)');
 
 String stripTags(String? html) => (html ?? '').replaceAll(_tag, ' ');
 
@@ -61,6 +66,29 @@ List<int> parseCiteNumbers(String? text) {
   for (final m in _supNum.allMatches(raw)) {
     addAll([int.parse(m.group(1)!)]);
   }
+  addAll(_parseDollarCiteNumbers(raw));
+  return out;
+}
+
+List<int> _parseDollarCiteNumbers(String raw) {
+  final out = <int>[];
+  final seen = <int>{};
+  for (final m in _dollarTexCite.allMatches(raw)) {
+    final inner = m.group(1) ?? m.group(2) ?? '';
+    for (final n in _expandToken(inner.replaceAll(' ', ''))) {
+      if (!seen.contains(n)) {
+        seen.add(n);
+        out.add(n);
+      }
+    }
+  }
+  for (final m in _dollarCite.allMatches(raw)) {
+    final n = int.parse(m.group(1)!);
+    if (!seen.contains(n) && n >= 1 && n <= 999) {
+      seen.add(n);
+      out.add(n);
+    }
+  }
   return out;
 }
 
@@ -73,6 +101,14 @@ String stripCiteMarkersForDisplay(String? html) {
   });
   s = s.replaceAllMapped(_bracket, (m) {
     return _expandToken(m.group(1)!).isNotEmpty ? '' : m.group(0)!;
+  });
+  s = s.replaceAllMapped(_dollarTexCite, (m) {
+    final inner = m.group(1) ?? m.group(2) ?? '';
+    return _expandToken(inner.replaceAll(' ', '')).isNotEmpty ? '' : m.group(0)!;
+  });
+  s = s.replaceAllMapped(_dollarCite, (m) {
+    final v = int.tryParse(m.group(1) ?? '');
+    return (v != null && v >= 1 && v <= 999) ? '' : m.group(0)!;
   });
   s = s.replaceAll(RegExp(r'\s+([.,;:!?)])'), r'$1');
   s = s.replaceAll(RegExp(r'\s{2,}'), ' ');

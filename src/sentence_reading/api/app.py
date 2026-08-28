@@ -91,7 +91,15 @@ from sentence_reading.llm.auth_kakao import (
     kakao_enabled,
 )
 from sentence_reading.llm.debone import DeboneResult, debone_sentences
-from sentence_reading.llm.env import azure_document_intelligence_available, gemini_available, load_asr_env
+from sentence_reading.llm.env import (
+    azure_document_intelligence_available,
+    gemini_available,
+    load_asr_env,
+    translate_available,
+    translate_backend,
+    translate_gemini_post,
+)
+from sentence_reading.llm.translate_google import google_translate_available
 from sentence_reading.llm.translate_section import translate_worker_count
 from sentence_reading.llm.richtext import plain_text
 from sentence_reading.llm.gcs_sync import gcs_status
@@ -157,7 +165,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.71",
+    version="0.3.78",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -251,6 +259,10 @@ def _paid_access_denied(request: Request) -> JSONResponse | None:
         },
     )
 
+
+from sentence_reading.api.figure_edit import register_figure_edit_routes
+
+register_figure_edit_routes(app, paid_access_denied=_paid_access_denied)
 
 
 def _want_shadowing_chunks(request: Request) -> bool:
@@ -764,7 +776,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.71",
+        "version": "0.3.78",
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
         "azure_layout": azure_document_intelligence_available(),
         "azure_layout_enabled": (os.environ.get("ASR_AZURE_LAYOUT") or "1").strip().lower()
@@ -906,7 +918,10 @@ def status(request: Request) -> dict:
         "access_invite_ttl_seconds": invite_ttl_seconds(),
         "access_redeem_max": redeem_max_attempts(),
         "access_redeem_window_sec": redeem_window_seconds(),
-        "translate_en_ko": gemini_available(),
+        "translate_en_ko": translate_available(),
+        "translate_backend": translate_backend(),
+        "translate_google": google_translate_available(),
+        "translate_gemini_post": translate_gemini_post(),
         "translate_pipeline": True,
         "translate_side_by_side": True,
         "translate_ingest_sections": True,
@@ -1796,8 +1811,8 @@ async def translate_sentence(request: Request, payload: dict = Body(...)) -> dic
         return denied
     from sentence_reading.llm.translate import translate_dispatch
 
-    if not gemini_available():
-        return {"ok": False, "error": "gemini_unavailable"}
+    if not translate_available():
+        return {"ok": False, "error": "translate_unavailable"}
     text = payload.get("text") if isinstance(payload, dict) else None
     if text is None:
         text = ""
@@ -2573,6 +2588,10 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
         data["lazy_figures"] = True
         if info.get("content_hash"):
             data["content_hash"] = info["content_hash"]
+        data["doc_role"] = str(info.get("doc_role") or "main")
+        data["supplementary_merged"] = bool(info.get("supplementary_merged"))
+        if info.get("supplementary_cache_id"):
+            data["supplementary_cache_id"] = info["supplementary_cache_id"]
         # WHY: stale 도 열어 노트(cache:id) 유지 — 원본 있으면 재분석, 없으면 파일 재업로드
         warnings = ["stale_pipeline"] if info.get("stale") else []
         warnings.extend(bf_warn)
@@ -2591,6 +2610,23 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                 "message": "논문을 열지 못했습니다. 잠시 후 다시 시도해 주세요.",
             },
         )
+
+
+@app.post("/api/cache/papers/{cache_id}/merge-supplementary")
+async def cache_merge_supplementary(request: Request, cache_id: str) -> JSONResponse:
+    """design/152 — append paired SI session into main cache entry."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    from sentence_reading.api.supplementary_merge import merge_supplementary
+
+    result = await asyncio.to_thread(merge_supplementary, cache_id)
+    code = 200 if result.get("ok") else 400
+    if result.get("error") == "cache_not_found":
+        code = 404
+    elif result.get("error") in ("session_missing", "merge_save_failed"):
+        code = 502
+    return JSONResponse(status_code=code, content=result)
 
 
 @app.post("/api/cache/papers/{cache_id}/reanalyze")
@@ -3459,10 +3495,10 @@ def _file_sha256(path: Path) -> str | None:
 
 
 def _try_cache_hit(
-    text: str, kind: str
+    text: str, kind: str, *, doc_role: str = "main"
 ) -> tuple[PaperSession, dict, dict] | None:
     """보관본 히트 시 (session, info, hit_entry)."""
-    hit = find_cached_by_text(text, source=kind)
+    hit = find_cached_by_text(text, source=kind, doc_role=doc_role)
     if not hit or not hit.get("id"):
         return None
     if str(hit.get("pipeline_version") or "") != PIPELINE_VERSION:
@@ -3483,6 +3519,7 @@ async def _backfill_cached_translations(
     kind: str,
     source_path: Path | None,
     content_hash: str | None,
+    doc_role: str = "main",
 ) -> tuple[PaperSession, list[str]]:
     """
     design/42 — 보관본에 KO가 없으면 번역만 채우고 같은 제목 키로 재저장.
@@ -3538,6 +3575,7 @@ async def _backfill_cached_translations(
             session,
             debone=True,
             source=kind,
+            doc_role=doc_role,
             source_path=source_path,
             content_hash=content_hash,
         )
@@ -3753,11 +3791,19 @@ async def _run_ingest_job_body(
             except Exception as exc:
                 raise RuntimeError(f"{label} 텍스트 추출 실패: {exc}") from exc
 
+        from sentence_reading.pdf.supplementary_detect import detect_doc_role, normalize_doc_role
+
+        job_doc_override = str((_JOBS.get(job_id) or {}).get("doc_role") or "").strip()
+        if job_doc_override:
+            doc_role = normalize_doc_role(job_doc_override)
+        else:
+            doc_role = detect_doc_role(text)
+
         # WHY: 파일명 말고 논문 제목 — 원문 앞부분에 캐시 제목이 있으면 즉시 로드
         # 재분석(skip_cache) 또는 원본 백필은 히트 경로에서도 진행
         if not skip_cache and not jump_ready:
             _job_set(job_id, percent=10, stage="cache", message="제목으로 보관본 찾는 중")
-            cached = await asyncio.to_thread(_try_cache_hit, text, kind)
+            cached = await asyncio.to_thread(_try_cache_hit, text, kind, doc_role=doc_role)
             if cached is not None:
                 # design/132 — cancel before binding an existing library id to this job.
                 _ensure_ingest_not_cancelled(job_id)
@@ -3776,6 +3822,7 @@ async def _run_ingest_job_body(
                         kind=kind,
                         source_path=tmp_path,
                         content_hash=content_hash,
+                        doc_role=str(hit.get("doc_role") or doc_role),
                     )
                 else:
                     bf_warn = ["translate_skipped_opt_out"]
@@ -3924,7 +3971,9 @@ async def _run_ingest_job_body(
         _job_set(job_id, percent=42, stage="figures", message="그림 찾는 중")
         try:
             if kind == "pdf":
-                figures = await asyncio.to_thread(pdf_extract.extract_figures, tmp_path)
+                figures = await asyncio.to_thread(
+                    pdf_extract.extract_figures, tmp_path, doc_role=doc_role
+                )
             else:
                 figures = await asyncio.to_thread(docx_extract.extract_figures, tmp_path)
         except Exception as exc:
@@ -3944,6 +3993,7 @@ async def _run_ingest_job_body(
                     image_src=f.image_src,
                     caption=normalize_scientific_glyphs(f.caption),
                     page_index=f.page_index,
+                    slot_key=f.slot_key or "",
                 )
                 for f in figures
             ]
@@ -4091,6 +4141,20 @@ async def _run_ingest_job_body(
                 for s in sentences
             ]
 
+        if doc_role == "supplementary":
+            sentences = [
+                Sentence(
+                    id=s.id,
+                    text=s.text,
+                    section="supplementary",
+                    start_char=s.start_char,
+                    end_char=s.end_char,
+                    text_ko=s.text_ko or "",
+                    text_ko_stage=s.text_ko_stage or "",
+                )
+                for s in sentences
+            ]
+
         # WHY: design/45 — 번역 전에 영어 세션을 먼저 열어 읽기 시작
         session = PaperSession(
             title=title,
@@ -4112,19 +4176,30 @@ async def _run_ingest_job_body(
             d["translate_pending"] = pending
             if content_hash:
                 d["content_hash"] = content_hash
+            d["doc_role"] = doc_role
             return d
 
         # design/132 — last cancel gate before marking ready / library publish.
         _ensure_ingest_not_cancelled(job_id)
         _job_set(job_id, percent=88, stage="ready", message="읽기 시작 · 번역 준비")
         early = _pack(pending=True)
+        layout_artifacts = None
+        if kind == "pdf":
+            try:
+                from sentence_reading.pdf.extract_figures_v2 import get_last_layout_artifacts
+
+                layout_artifacts = get_last_layout_artifacts()
+            except Exception:  # noqa: BLE001
+                layout_artifacts = None
         cache_entry = await asyncio.to_thread(
             save_paper_session,
             session,
             debone=debone_ok,
             source=kind,
+            doc_role=doc_role,
             source_path=tmp_path,
             content_hash=content_hash,
+            layout_artifacts=layout_artifacts,
         )
         if cache_entry is None and debone_ok:
             warnings.append("cache_skip_short_title")
@@ -4264,6 +4339,7 @@ async def _run_ingest_job_body(
                 session,
                 debone=debone_ok,
                 source=kind,
+                doc_role=doc_role,
                 source_path=tmp_path,
                 content_hash=content_hash,
             )

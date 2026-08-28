@@ -18,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "63-mobile-reader.md"
 def test_status_mobile_reader_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.71"
+    assert st["version"] == "0.3.78"
     assert st["mobile_reader"] is True
     assert st["mobile_library"] is True
     assert "live_enable" not in st
@@ -64,16 +64,33 @@ def test_session_cursor_patch_independent() -> None:
 
 def test_mobile_dart_reader_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.71" in pub
+    assert "0.3.78" in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "patchCursor" in client
     assert "/api/session/" in client
     models = (MOBILE / "lib" / "api" / "reading_models.dart").read_text(encoding="utf-8")
     assert "advanceSentence" in models and "advanceFigure" in models
     assert "INVARIANT" in models
+    assert "sectionNav" in models and "figureNav" in models
+    assert "slotKey" in models
+    nav = (MOBILE / "lib" / "api" / "reader_nav_labels.dart").read_text(
+        encoding="utf-8"
+    )
+    assert "SectionNavIndex" in nav and "FigureNavIndex" in nav
+    picker = (MOBILE / "lib" / "widgets" / "reader_nav_picker.dart").read_text(
+        encoding="utf-8"
+    )
+    assert "showSectionNavPicker" in picker
+    assert "showFigureNavPicker" in picker
+    assert "CupertinoPicker" in picker
+    assert "ReaderNavHeaderLabel" in picker
     reader = (MOBILE / "lib" / "screens" / "reader_screen.dart").read_text(
         encoding="utf-8"
     )
+    assert "showSectionNavPicker" in reader
+    assert "showFigureNavPicker" in reader
+    assert "ReaderNavHeaderLabel" in reader
+    assert "goToSentenceIndex" in (MOBILE / "lib" / "state" / "library_controller.dart").read_text(encoding="utf-8")
     assert "advanceSentence" in reader and "advanceFigure" in reader
     # design/93 — user-facing Live Enable / IPS footer removed
     assert "Live Enable" not in reader
@@ -110,4 +127,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.71" in html
+    assert "app.js?v=0.3.78" in html

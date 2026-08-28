@@ -22,6 +22,8 @@ class Figure:
     caption_ko: str = ""
     # WHY: design/45 — 캡션 번역 단계 (draft|sense|polish|harmonize)
     caption_ko_stage: str = ""
+    # WHY: design/151 — carousel index ↔ slot plan key (fig:3, table:2)
+    slot_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -111,6 +113,7 @@ class PaperSession:
                 "caption_ko": f.caption_ko or "",
                 "caption_ko_stage": f.caption_ko_stage or "",
                 "page_index": f.page_index,
+                "slot_key": f.slot_key or "",
             }
 
         return {

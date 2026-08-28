@@ -16,6 +16,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(autouse=True)
+def _legacy_gemini_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ASR_TRANSLATE_BACKEND", "gemini")
+    monkeypatch.setattr(
+        "sentence_reading.llm.translate_google.google_translate_available",
+        lambda: False,
+    )
+
+
+@pytest.fixture(autouse=True)
 def _clear_cache() -> None:
     tr.clear_translate_cache_for_tests()
     yield
@@ -24,7 +33,7 @@ def _clear_cache() -> None:
 
 def test_status_parallel_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.71"
+    assert st["version"] == "0.3.78"
     assert st["translate_parallel"] is True
     assert 1 <= int(st["translate_workers"]) <= 8
 
@@ -120,4 +129,4 @@ def test_parallel_workers_one_matches_serial_shape(
 
 def test_asset_version() -> None:
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.71" in served
+    assert "app.js?v=0.3.78" in served

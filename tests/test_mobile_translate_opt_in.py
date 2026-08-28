@@ -12,7 +12,7 @@ from sentence_reading.api import app as app_mod
 def test_status_version_pin() -> None:
     with TestClient(app_mod.app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.71"
+    assert st["version"] == "0.3.78"
 
 
 def test_want_translate_absent_defaults_on() -> None:
@@ -81,4 +81,4 @@ def test_mobile_settings_has_translate_switch() -> None:
     pub = open(
         os.path.join(root, "mobile", "pubspec.yaml"), encoding="utf-8"
     ).read()
-    assert "0.3.71" in pub
+    assert "0.3.78" in pub

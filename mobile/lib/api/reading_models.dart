@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'cite_refs.dart';
+import 'reader_nav_labels.dart';
 
 /// One sentence row from the session payload.
 class SentenceView {
@@ -43,6 +44,7 @@ class FigureView {
     required this.imageSrc,
     this.caption = '',
     this.captionKo = '',
+    this.slotKey = '',
   });
 
   factory FigureView.fromJson(Map<String, dynamic>? json) {
@@ -52,6 +54,7 @@ class FigureView {
       imageSrc: '${json['image_src'] ?? ''}'.trim(),
       caption: '${json['caption'] ?? ''}',
       captionKo: '${json['caption_ko'] ?? ''}',
+      slotKey: '${json['slot_key'] ?? ''}'.trim(),
     );
   }
 
@@ -60,6 +63,8 @@ class FigureView {
   String imageSrc;
   final String caption;
   final String captionKo;
+  /// design/151 — fig:3 / table:2 for carousel label (not raw carousel index).
+  final String slotKey;
 }
 
 /// Decoded raster bytes for Flutter [Image.memory], if applicable.
@@ -107,6 +112,7 @@ class ReadingSession {
     this.figureIndex = 0,
     this.warnings = const [],
     this.references = const [],
+    this.supplementaryMerged = false,
   }) {
     clampIndices();
   }
@@ -162,6 +168,7 @@ class ReadingSession {
       figureIndex: asInt(json['figure_index']),
       warnings: warnings,
       references: parseReferenceList(json['references']),
+      supplementaryMerged: json['supplementary_merged'] == true,
     );
   }
 
@@ -175,11 +182,16 @@ class ReadingSession {
   final List<String> warnings;
   /// design/148 — bibliography rows from ingest (cite panel).
   final List<CiteRefEntry> references;
+  /// design/152 — merged main+SI enables bare S2 fig chips.
+  final bool supplementaryMerged;
 
   bool get isValid => sessionId.isNotEmpty;
 
   int get sentenceCount => sentences.length;
   int get figureCount => figures.length;
+
+  SectionNavIndex get sectionNav => SectionNavIndex.fromSentences(sentences);
+  FigureNavIndex get figureNav => FigureNavIndex.fromFigures(figures);
 
   SentenceView? get currentSentence {
     if (sentences.isEmpty) return null;

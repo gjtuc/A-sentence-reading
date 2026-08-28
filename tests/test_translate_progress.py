@@ -16,6 +16,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(autouse=True)
+def _legacy_gemini_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ASR_TRANSLATE_BACKEND", "gemini")
+    monkeypatch.setattr(
+        "sentence_reading.llm.translate_google.google_translate_available",
+        lambda: False,
+    )
+
+
+@pytest.fixture(autouse=True)
 def _clear_cache() -> None:
     tr.clear_translate_cache_for_tests()
     yield
@@ -24,7 +33,7 @@ def _clear_cache() -> None:
 
 def test_status_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.71"
+    assert st["version"] == "0.3.78"
 
 
 def test_design_43_contract() -> None:

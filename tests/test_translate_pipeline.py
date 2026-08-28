@@ -17,6 +17,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(autouse=True)
+def _legacy_gemini_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ASR_TRANSLATE_BACKEND", "gemini")
+    monkeypatch.setattr(
+        "sentence_reading.llm.translate_google.google_translate_available",
+        lambda: False,
+    )
+
+
+@pytest.fixture(autouse=True)
 def _clear_cache() -> None:
     tr.clear_translate_cache_for_tests()
     yield
@@ -61,7 +70,7 @@ def _install_stage_gemini(
 
 def test_status_pipeline_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.71"
+    assert st["version"] == "0.3.78"
     assert st["translate_pipeline"] is True
     assert "translate_en_ko" in st
 
@@ -84,7 +93,7 @@ def test_ui_sends_pipeline_mode() -> None:
     assert "design/35·36" in js or "design/36" in js
     assert "pipeline" in js
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.71" in html
+    assert "app.js?v=0.3.78" in html
 
 
 def test_pipeline_full_three_stages(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -189,4 +198,4 @@ def test_edges_empty_too_long_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
     assert tr.translate_en_to_ko_pipeline("")["error"] == "empty"
     assert tr.translate_en_to_ko_pipeline("a" * (tr._MAX_CHARS + 1))["error"] == "too_long"
     monkeypatch.setattr(tr, "gemini_api_key", lambda: "")
-    assert tr.translate_en_to_ko_pipeline("Hi")["error"] == "gemini_unavailable"
+    assert tr.translate_en_to_ko_pipeline("Hi")["error"] == "translate_unavailable"

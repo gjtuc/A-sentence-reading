@@ -1,4 +1,4 @@
-/// Paper library JSON shapes from `/api/cache/papers*` (design/18 · design/62).
+/// Paper library JSON shapes from `/api/cache/papers*` (design/18 · design/62 · 152).
 library;
 
 /// One row from `GET /api/cache/papers`.
@@ -19,6 +19,10 @@ class PaperEntry {
     this.retentionCanExtend = false,
     this.retentionDaysUntilExpiry,
     this.retentionExtendDays = 90,
+    this.docRole = 'main',
+    this.libraryTag = '',
+    this.ingestStatus = 'ok',
+    this.canMergeSupplementary = false,
   });
 
   /// Tolerant parse — never throws on partial/garbage maps.
@@ -30,6 +34,14 @@ class PaperEntry {
       if (v is int) return v;
       if (v is num) return v.toInt();
       return int.tryParse('$v') ?? 0;
+    }
+
+    final docRole = '${json['doc_role'] ?? 'main'}'.trim().isEmpty
+        ? 'main'
+        : '${json['doc_role'] ?? 'main'}'.trim();
+    var libraryTag = '${json['library_tag'] ?? ''}'.trim();
+    if (libraryTag.isEmpty) {
+      libraryTag = _defaultTag(docRole);
     }
 
     return PaperEntry(
@@ -50,7 +62,24 @@ class PaperEntry {
       retentionCanExtend: _retentionBool(json['retention'], 'can_extend'),
       retentionDaysUntilExpiry: _retentionInt(json['retention'], 'days_until_expiry'),
       retentionExtendDays: _retentionInt(json['retention'], 'extend_days') ?? 90,
+      docRole: docRole,
+      libraryTag: libraryTag,
+      ingestStatus: '${json['ingest_status'] ?? 'ok'}'.trim().isEmpty
+          ? 'ok'
+          : '${json['ingest_status'] ?? 'ok'}'.trim(),
+      canMergeSupplementary: json['can_merge_supplementary'] == true,
     );
+  }
+
+  static String _defaultTag(String docRole) {
+    switch (docRole) {
+      case 'supplementary':
+        return '보충';
+      case 'merged':
+        return '메인+서플먼터리';
+      default:
+        return '메인';
+    }
   }
 
   static bool _retentionBool(Object? block, String key) {
@@ -81,12 +110,16 @@ class PaperEntry {
   final bool retentionCanExtend;
   final int? retentionDaysUntilExpiry;
   final int retentionExtendDays;
+  final String docRole;
+  final String libraryTag;
+  final String ingestStatus;
+  final bool canMergeSupplementary;
 
   bool get isValid => id.isNotEmpty && title.isNotEmpty;
 
   String get subtitle {
     final bits = <String>[
-      if (source.isNotEmpty) source,
+      if (libraryTag.isNotEmpty) libraryTag,
       if (sentenceCount > 0) '문장 $sentenceCount',
       if (figureCount > 0) '그림 $figureCount',
       if (stale) '구버전',

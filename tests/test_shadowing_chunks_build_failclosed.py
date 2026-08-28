@@ -50,9 +50,9 @@ def test_design_wiring_and_version() -> None:
     dart = MOBILE.read_text(encoding="utf-8")
     assert "maxRounds" in dart
     assert "continue" in dart
-    assert "0.3.71" in PUB.read_text(encoding="utf-8")
+    assert "0.3.78" in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.71"
+    assert st["version"] == "0.3.78"
 
 
 def test_api_unexpected_exception_is_502_not_500(

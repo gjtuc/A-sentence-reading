@@ -72,7 +72,7 @@ def test_extract_figures_uses_azure_when_configured(tmp_path: Path, monkeypatch:
     monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "k")
 
     with patch(
-        "sentence_reading.pdf.azure_layout.extract_figures_azure",
+        "sentence_reading.pdf.extract_figures_v2.extract_figures_v2",
         return_value=[azure_fig],
     ) as mock_azure:
         figs = extract_figures(pdf)
@@ -96,7 +96,7 @@ def test_extract_figures_falls_back_when_azure_empty(tmp_path: Path, monkeypatch
     )
     monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "k")
 
-    with patch("sentence_reading.pdf.azure_layout.extract_figures_azure", return_value=[]):
+    with patch("sentence_reading.pdf.extract_figures_v2.extract_figures_v2", return_value=[]):
         figs = extract_figures(pdf)
     assert figs == []
 
@@ -112,7 +112,7 @@ def test_status_reports_azure_layout(monkeypatch: pytest.MonkeyPatch) -> None:
     st = TestClient(app).get("/api/status").json()
     assert st["azure_layout"] is False
     assert st["azure_layout_enabled"] is True
-    assert st["pipeline_version"] == PIPELINE_VERSION == "rich-v18"
+    assert st["pipeline_version"] == PIPELINE_VERSION == "rich-v22"
 
     monkeypatch.setenv(
         "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT",
@@ -208,7 +208,7 @@ def test_status_figure_caption_in_image(monkeypatch: pytest.MonkeyPatch) -> None
     from sentence_reading.api import app as app_mod
 
     st = TestClient(app_mod.app).get("/api/status").json()
-    assert st["version"] == "0.3.71"
+    assert st["version"] == "0.3.78"
     assert st["figure_caption_in_image"] is True
     assert st["mobile_figure_caption_in_image"] is True
 
