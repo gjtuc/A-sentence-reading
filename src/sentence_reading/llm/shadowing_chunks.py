@@ -239,6 +239,30 @@ def _parse_chunks_json(raw: str, full: str) -> list[str] | None:
     return fixed or [full]
 
 
+def _fallback_word_chunks(full: str) -> list[str]:
+    """Deterministic growing chunks when Gemini output cannot be parsed (design/119+).
+
+    WHY: one bad model response must not block the whole paper (120 sentences).
+    """
+    words = full.split()
+    if len(words) <= 1:
+        return [full]
+    out: list[str] = []
+    step = max(1, len(words) // 4)
+    for end in range(step, len(words), step):
+        out.append(" ".join(words[:end]))
+    if not out or out[-1] != full:
+        out.append(full)
+    prev = ""
+    fixed: list[str] = []
+    for step_text in out:
+        if step_text == prev:
+            continue
+        fixed.append(step_text)
+        prev = step_text
+    return fixed or [full]
+
+
 def plan_sentence_chunks(
     text: str,
     *,
@@ -279,21 +303,30 @@ def plan_sentence_chunks(
         return (getattr(response, "text", None) or "").strip() or None
 
     gen = generate or _default_generate
-    try:
-        raw = gen(_SYSTEM, f"Sentence:\n{full}")
-    except ValueError:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        # WHY: google.genai / network errors must not become raw HTTP 500 (design/119).
-        # EDGE: log type only — never API key or prompt body.
-        log.warning("shadowing chunk gemini failed: %s", type(exc).__name__)
-        raise ValueError("gemini_unavailable") from exc
-    if not raw:
-        raise ValueError("gemini_unavailable")
-    chunks = _parse_chunks_json(raw, full)
-    if not chunks:
-        raise ValueError("bad_chunk_plan")
-    return chunks
+    for attempt in range(3):
+        try:
+            raw = gen(_SYSTEM, f"Sentence:\n{full}")
+        except ValueError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            # WHY: google.genai / network errors must not become raw HTTP 500 (design/119).
+            # EDGE: log type only — never API key or prompt body.
+            log.warning("shadowing chunk gemini failed: %s", type(exc).__name__)
+            raise ValueError("gemini_unavailable") from exc
+        if not raw:
+            raise ValueError("gemini_unavailable")
+        chunks = _parse_chunks_json(raw, full)
+        if chunks:
+            return chunks
+        log.warning(
+            "shadowing chunk parse failed (attempt %s/3)",
+            attempt + 1,
+        )
+    log.warning(
+        "shadowing chunk using word fallback after parse failures (len=%s)",
+        len(full),
+    )
+    return _fallback_word_chunks(full)
 
 def build_chunk_plan(
     *,
