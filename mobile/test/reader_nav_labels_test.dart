@@ -77,6 +77,21 @@ void main() {
     expect(nav.headerPartsFor(1).rightLabel, '2 / 2');
   });
 
+  test('FigureNavIndex title page cover', () {
+    final figures = [
+      FigureView(id: 'cover', imageSrc: '', caption: 'Title page (p.1)'),
+      FigureView(id: 'f1', imageSrc: '', slotKey: 'fig:1'),
+      FigureView(id: 'f2', imageSrc: '', slotKey: 'fig:2'),
+    ];
+    final nav = FigureNavIndex.fromFigures(figures);
+    expect(nav.kindCount, 2);
+    expect(nav.kindLabelAt(0), 'Title Page');
+    expect(nav.labelFor(0), 'title page 1 / 1');
+    expect(nav.headerPartsFor(1).rightLabel, '1 / 2');
+    expect(nav.figureBookmarkKeyForCarousel(0), 'title_page:1');
+    expect(countLibraryFigures(figures), 2);
+  });
+
   test('FigureNavIndex supplementary slot keys', () {
     final figures = [
       FigureView(id: 'f1', imageSrc: '', slotKey: 'fig:1'),

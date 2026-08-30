@@ -117,6 +117,38 @@ class PaperEntry {
 
   bool get isValid => id.isNotEmpty && title.isNotEmpty;
 
+  /// design/160 — sentence + figure counts only (no library tag / stale / TTL text).
+  String metaLine({int? figureCountOverride}) {
+    final fc = figureCountOverride ?? figureCount;
+    final bits = <String>[
+      if (sentenceCount > 0) '문장 $sentenceCount',
+      if (fc > 0) '그림 $fc',
+    ];
+    return bits.join(' · ');
+  }
+
+  /// design/160 — 보관 / 만료 / 읽기 timestamps (local `M/d HH:mm`).
+  String timingLine({String lastReadLeftAt = ''}) {
+    final bits = <String>[];
+    if (updatedAt.isNotEmpty) {
+      final stored = formatPaperMetaDateTime(updatedAt);
+      if (stored.isNotEmpty) {
+        var line = '보관: $stored';
+        if (expiresAt.isNotEmpty) {
+          final exp = formatPaperMetaDateTime(expiresAt);
+          if (exp.isNotEmpty) line += ' ($exp 만료)';
+        }
+        bits.add(line);
+      }
+    }
+    if (lastReadLeftAt.isNotEmpty) {
+      final read = formatPaperMetaDateTime(lastReadLeftAt);
+      if (read.isNotEmpty) bits.add('읽기: $read');
+    }
+    return bits.join('  ');
+  }
+
+  /// Legacy subtitle — tests only; library UI uses [metaLine] + [timingLine].
   String get subtitle {
     final bits = <String>[
       if (libraryTag.isNotEmpty) libraryTag,
@@ -128,6 +160,18 @@ class PaperEntry {
     ];
     return bits.join(' · ');
   }
+}
+
+/// ISO UTC → local `M/d HH:mm` for library meta lines.
+String formatPaperMetaDateTime(String iso) {
+  final raw = iso.trim();
+  if (raw.isEmpty) return '';
+  final dt = DateTime.tryParse(raw);
+  if (dt == null) return '';
+  final local = dt.toLocal();
+  final h = local.hour.toString().padLeft(2, '0');
+  final m = local.minute.toString().padLeft(2, '0');
+  return '${local.month}/${local.day} $h:$m';
 }
 
 /// Minimal open result kept for the Reader tab until full reader lands.

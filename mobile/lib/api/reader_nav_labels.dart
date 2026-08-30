@@ -234,10 +234,12 @@ class FigureNavIndex {
         _carouselByKindNumber = carouselByKindNumber;
 
   factory FigureNavIndex.fromFigures(List<FigureView> figures) {
+    final titlePageNumbers = <int>[];
     final figNumbers = <int>[];
     final tableNumbers = <int>[];
     final figSNumbers = <int>[];
     final tableSNumbers = <int>[];
+    final titlePageCarousel = <int, int>{};
     final figCarousel = <int, int>{};
     final tableCarousel = <int, int>{};
     final figSCarousel = <int, int>{};
@@ -252,6 +254,9 @@ class FigureNavIndex {
       }
       final (kind, num) = slot;
       switch (kind) {
+        case 'title_page':
+          titlePageNumbers.add(num);
+          titlePageCarousel[num] = i;
         case 'table':
           tableNumbers.add(num);
           tableCarousel[num] = i;
@@ -267,6 +272,7 @@ class FigureNavIndex {
       }
     }
 
+    titlePageNumbers.sort();
     figNumbers.sort();
     tableNumbers.sort();
     figSNumbers.sort();
@@ -281,6 +287,7 @@ class FigureNavIndex {
       carouselByKindNumber[kind] = carousel;
     }
 
+    addKind('title_page', titlePageNumbers, titlePageCarousel);
     addKind('figure', figNumbers, figCarousel);
     addKind('table', tableNumbers, tableCarousel);
     addKind('figure_s', figSNumbers, figSCarousel);
@@ -288,6 +295,7 @@ class FigureNavIndex {
 
     int maxOf(List<int> nums) =>
         nums.isEmpty ? 0 : nums.reduce((a, b) => a > b ? a : b);
+    final titlePageTotal = maxOf(titlePageNumbers);
     final figTotal = maxOf(figNumbers);
     final tableTotal = maxOf(tableNumbers);
     final figSTotal = maxOf(figSNumbers);
@@ -303,6 +311,10 @@ class FigureNavIndex {
       if (slot == null) continue;
       final (kind, num) = slot;
       switch (kind) {
+        case 'title_page':
+          final total =
+              titlePageTotal > 0 ? titlePageTotal : titlePageNumbers.length;
+          labels[i] = 'title page $num / $total';
         case 'table':
           final total = tableTotal > 0 ? tableTotal : tableNumbers.length;
           labels[i] = 'table ${numLabel(kind, num)} / $total';
@@ -340,6 +352,8 @@ class FigureNavIndex {
   String kindLabelAt(int kindIndex) {
     if (kindIndex < 0 || kindIndex >= _kindsInOrder.length) return '';
     switch (_kindsInOrder[kindIndex]) {
+      case 'title_page':
+        return 'Title Page';
       case 'table':
       case 'table_s':
         return 'Table';
@@ -451,9 +465,11 @@ class FigureNavIndex {
     final total = nums.isEmpty
         ? 0
         : nums.reduce((a, b) => a > b ? a : b);
-    final kindLabel = kind == 'table' || kind == 'table_s'
-        ? 'Table'
-        : (kind == 'figure_s' ? 'Figure S' : 'Figure');
+    final kindLabel = kind == 'title_page'
+        ? 'Title Page'
+        : (kind == 'table' || kind == 'table_s'
+            ? 'Table'
+            : (kind == 'figure_s' ? 'Figure S' : 'Figure'));
     return FigureHeaderParts(
       kindLabel: kindLabel,
       numberLabel: _displayNumber(kind, num),
@@ -512,9 +528,23 @@ class FigureNavIndex {
   }
 }
 
+/// Count carousel figures excluding title-page cover slots (design/160).
+int countLibraryFigures(List<FigureView> figures) {
+  var n = 0;
+  for (final fig in figures) {
+    final slot = _slotKindNumber(fig);
+    if (slot == null || slot.$1 != 'title_page') n++;
+  }
+  return n;
+}
+
 (String kind, int number)? _slotKindNumber(FigureView fig) {
   final key = fig.slotKey.trim().toLowerCase();
   if (key.isNotEmpty) {
+    final tp = RegExp(r'^title_page:(\d+)$').firstMatch(key);
+    if (tp != null) {
+      return ('title_page', int.parse(tp.group(1)!));
+    }
     final si = RegExp(r'^(fig|table):s(\d+)$').firstMatch(key);
     if (si != null) {
       final k = si.group(1)! == 'table' ? 'table_s' : 'figure_s';
@@ -525,6 +555,10 @@ class FigureNavIndex {
       final kind = m.group(1)! == 'table' ? 'table' : 'figure';
       return (kind, int.parse(m.group(2)!));
     }
+  }
+  final cap = (fig.caption).trim();
+  if (cap.toLowerCase().startsWith('title page')) {
+    return ('title_page', 1);
   }
   final capKey = captionFigKey(fig.caption);
   if (capKey == null) return null;

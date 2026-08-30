@@ -63,6 +63,9 @@ class LibraryController extends ChangeNotifier {
   String? shadowingChunksCacheId;
   bool shadowingChunksBusy = false;
 
+  /// design/160 — uid-scoped read-left timestamps for library meta lines.
+  Map<String, String> readLeftAtByCacheId = const {};
+
   /// design/74 — set when notification permission blocked but upload continues.
   String? uploadBackgroundHint;
 
@@ -404,6 +407,46 @@ class LibraryController extends ChangeNotifier {
       loading = false;
       notifyListeners();
       unawaited(_refreshResumeOffer());
+      unawaited(refreshReadLeftTimes());
+    }
+  }
+
+  /// design/160 — load read-left timestamps for current paper list.
+  Future<void> refreshReadLeftTimes() async {
+    if (papers.isEmpty) {
+      readLeftAtByCacheId = const {};
+      notifyListeners();
+      return;
+    }
+    try {
+      final uid = await _authUid();
+      readLeftAtByCacheId = await loadReadLeftAtForPapers(
+        uid: uid,
+        cacheIds: papers.map((p) => p.id),
+      );
+      notifyListeners();
+    } catch (_) {
+      // EDGE: prefs fail — keep last map.
+    }
+  }
+
+  /// design/160 — record when user leaves reading tab or backgrounds app.
+  Future<void> recordReadLeft() async {
+    final s = session;
+    if (s == null || !s.isValid || s.cacheId.isEmpty) return;
+    try {
+      final uid = await _authUid();
+      await recordReadLeftAt(uid: uid, cacheId: s.cacheId);
+      final at = await loadLastReadLeftAt(uid: uid, cacheId: s.cacheId);
+      if (at != null) {
+        readLeftAtByCacheId = {
+          ...readLeftAtByCacheId,
+          s.cacheId: at,
+        };
+        notifyListeners();
+      }
+    } catch (_) {
+      // EDGE: prefs fail must not block navigation.
     }
   }
 

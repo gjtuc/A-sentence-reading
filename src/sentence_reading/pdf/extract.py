@@ -199,6 +199,7 @@ def _maybe_title_cover_figure(doc) -> Figure | None:
         image_src=_png_data_url(png),
         caption=_COVER_CAPTION,
         page_index=0,
+        slot_key="title_page:1",
     )
 
 

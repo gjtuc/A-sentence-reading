@@ -7,6 +7,7 @@ import '../api/ingest_models.dart';
 import '../api/library_reorder_proxy.dart';
 import '../api/paper_models.dart';
 import '../state/auth_controller.dart';
+import '../state/bookmark_controller.dart';
 import '../state/library_controller.dart';
 
 /// Authenticated paper list → open · single PDF upload (design/62 · design/70 · design/122).
@@ -15,11 +16,13 @@ class LibraryScreen extends StatefulWidget {
     super.key,
     required this.auth,
     required this.library,
+    required this.bookmarks,
     this.onOpened,
   });
 
   final AuthController auth;
   final LibraryController library;
+  final BookmarkController bookmarks;
 
   /// Called after a successful open (e.g. jump to Reader tab).
   final VoidCallback? onOpened;
@@ -335,7 +338,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([widget.auth, widget.library]),
+      animation: Listenable.merge([widget.auth, widget.library, widget.bookmarks]),
       builder: (context, _) {
         if (!widget.auth.isLoggedIn) {
           return const Center(
@@ -648,6 +651,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   itemBuilder: (context, i) {
                     final e = lib.papers[i];
                     final selected = _selected.contains(e.id);
+                    final bookmarkCount = widget.bookmarks.paperBookmarkCount(e.id);
                     final tile = ListTile(
                       leading: _selecting
                           ? Checkbox(
@@ -663,26 +667,49 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           if (e.libraryTag.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(left: 8),
-                              child: Chip(
-                                label: Text(
-                                  e.libraryTag,
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                                visualDensity: VisualDensity.compact,
-                                materialTapTargetSize:
-                                    MaterialTapTargetSize.shrinkWrap,
-                                padding: EdgeInsets.zero,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (bookmarkCount > 0) ...[
+                                    Badge(
+                                      label: Text('$bookmarkCount'),
+                                      child: const SizedBox(
+                                        width: 8,
+                                        height: 8,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                  ],
+                                  Chip(
+                                    label: Text(
+                                      e.libraryTag,
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                    visualDensity: VisualDensity.compact,
+                                    materialTapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                    padding: EdgeInsets.zero,
+                                  ),
+                                ],
                               ),
                             ),
                         ],
                       ),
                       subtitle: Text(
                         [
-                          e.subtitle,
-                          if (e.updatedAt.isNotEmpty) e.updatedAt,
+                          e.metaLine(),
+                          e.timingLine(
+                            lastReadLeftAt:
+                                lib.readLeftAtByCacheId[e.id] ?? '',
+                          ),
                         ].where((s) => s.isNotEmpty).join('\n'),
                       ),
-                      isThreeLine: e.updatedAt.isNotEmpty,
+                      isThreeLine: e.metaLine().isNotEmpty ||
+                          e.timingLine(
+                                lastReadLeftAt:
+                                    lib.readLeftAtByCacheId[e.id] ?? '',
+                              )
+                              .isNotEmpty,
                       selected: _selecting && selected,
                       trailing: _selecting
                           ? null

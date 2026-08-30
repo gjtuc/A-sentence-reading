@@ -248,24 +248,26 @@ class _ReaderScreenState extends State<ReaderScreen> {
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                   ),
-                  // design/82 — separate practice mode (gated by kill + opt-in).
-                  TextButton(
-                    onPressed: (!shadowing.serverAvailable || !shadowing.enabled)
-                        ? null
-                        : () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => ShadowingPracticeScreen(
-                                  client: client,
-                                  library: library,
-                                  shadowing: shadowing,
-                                  tts: tts,
+                  if (shadowing.enabled)
+                    TextButton(
+                      onPressed: !shadowing.serverAvailable
+                          ? null
+                          : () async {
+                              await shadowing.recordPracticePressed();
+                              if (!context.mounted) return;
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => ShadowingPracticeScreen(
+                                    client: client,
+                                    library: library,
+                                    shadowing: shadowing,
+                                    tts: tts,
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
-                    child: const Text('연습'),
-                  ),
+                              );
+                            },
+                      child: const Text('연습'),
+                    ),
                 ],
               ),
             ),

@@ -38,6 +38,9 @@ class PaperBookmarks {
   Set<String> get activeSentenceKeys => activeKeys(sentences);
   Set<String> get activeFigureKeys => activeKeys(figures);
 
+  int get totalActiveCount =>
+      activeSentenceKeys.length + activeFigureKeys.length;
+
   static Set<String> activeKeys(Map<String, BookmarkEvent> events) {
     return events.entries
         .where((e) => !e.value.deleted)

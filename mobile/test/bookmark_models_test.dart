@@ -70,4 +70,18 @@ void main() {
     );
     expect(pruned.activeSentenceKeys, {'introduction:1'});
   });
+
+  test('totalActiveCount sums sentence and figure bookmarks', () {
+    final paper = PaperBookmarks(
+      sentences: {
+        'introduction:1': BookmarkEvent(at: 't'),
+        'introduction:2': BookmarkEvent(at: 't'),
+      },
+      figures: {
+        'figure:1': BookmarkEvent(at: 't'),
+      },
+    );
+    expect(paper.totalActiveCount, 3);
+    expect(const PaperBookmarks().totalActiveCount, 0);
+  });
 }

@@ -168,6 +168,14 @@ class BookmarkController extends ChangeNotifier {
     return nav.kindBookmarkCount(activeFigureKeys, kindIndex);
   }
 
+  /// Total active sentence + figure bookmarks for a library paper (by cache id).
+  int paperBookmarkCount(String cacheId) {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return 0;
+    return (_store.papers[bookmarkPaperKey(cid)] ?? const PaperBookmarks())
+        .totalActiveCount;
+  }
+
   /// Returns true if bookmark was added, false if removed.
   Future<bool> toggleSentenceBookmark(SectionNavIndex nav, int globalIndex) async {
     final key = nav.sentenceBookmarkKeyForGlobal(globalIndex);

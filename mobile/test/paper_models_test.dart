@@ -18,6 +18,29 @@ void main() {
       expect(e.subtitle, contains('구버전'));
     });
 
+    test('meta and timing lines', () {
+      final e = PaperEntry.fromJson({
+        'id': 'c1',
+        'title': 'Hello',
+        'sentence_count': 93,
+        'figure_count': 10,
+        'updated_at': '2026-08-30T15:10:06.145733Z',
+        'expires_at': '2026-11-29T15:10:06.145733Z',
+      });
+      expect(e.metaLine(), '문장 93 · 그림 10');
+      expect(e.metaLine(figureCountOverride: 8), '문장 93 · 그림 8');
+      expect(
+        formatPaperMetaDateTime('2026-08-30T15:10:06.145733Z'),
+        isNotEmpty,
+      );
+      final timing = e.timingLine(
+        lastReadLeftAt: '2026-08-30T15:40:00.000Z',
+      );
+      expect(timing, contains('보관:'));
+      expect(timing, contains('만료'));
+      expect(timing, contains('읽기:'));
+    });
+
     test('edge null garbage missing fields', () {
       expect(PaperEntry.fromJson(null).isValid, isFalse);
       expect(PaperEntry.fromJson({}).isValid, isFalse);

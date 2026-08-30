@@ -171,7 +171,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.93",
+    version="0.3.94",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -790,7 +790,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.93",
+        "version": "0.3.94",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -4799,9 +4799,24 @@ async def shadowing_chunks_build(
         )
     rows = payload.get("sentences") if isinstance(payload.get("sentences"), list) else None
     if not rows:
-        # Load from cached paper session for this user.
+        # Load from cached paper session for this user (design/121 GCS-first).
         from sentence_reading.cache.paper_cache import load_cached_session
+        from sentence_reading.llm.papers_gcs import refresh_paper_for_open
 
+        try:
+            set_gcs_uid(user.uid)
+            refreshed, refresh_code = refresh_paper_for_open(cid)
+        finally:
+            reset_gcs_uid()
+        if not refreshed and refresh_code == "gcs_pull_failed":
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "ok": False,
+                    "error": "gcs_pull_failed",
+                    "message": "클라우드에서 논문을 받지 못했습니다. 잠시 후 연습을 다시 시도해 주세요.",
+                },
+            )
         try:
             set_gcs_uid(user.uid)
             loaded = load_cached_session(cid)
@@ -4813,7 +4828,7 @@ async def shadowing_chunks_build(
                 content={
                     "ok": False,
                     "error": "paper_not_found",
-                    "message": "보관된 논문을 찾을 수 없습니다.",
+                    "message": "연습을 위해 논문 데이터를 불러오지 못했습니다.",
                 },
             )
         session, _info = loaded

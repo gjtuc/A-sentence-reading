@@ -107,11 +107,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
       unawaited(widget.library.persistOpenedProgress());
+      unawaited(widget.library.recordReadLeft());
       unawaited(widget.bookmarks.pushToServer());
     }
     if (state == AppLifecycleState.resumed) {
       unawaited(_consumePendingOpen());
       unawaited(_resumeAfterInterrupt());
+      unawaited(widget.shadowing.applyAutoOffIfStale());
       // design/84 — Allow may have happened while backgrounded.
       unawaited(_refreshAccessGate());
     }
@@ -203,6 +205,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           LibraryScreen(
             auth: widget.auth,
             library: widget.library,
+            bookmarks: widget.bookmarks,
             onOpened: _goReader,
           ),
           ReaderScreen(
@@ -229,7 +232,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           body: _padded(IndexedStack(index: _index, children: pages)),
           bottomNavigationBar: NavigationBar(
             selectedIndex: _index,
-            onDestinationSelected: (i) => setState(() => _index = i),
+            onDestinationSelected: (i) {
+              if (_index == 1 && i != 1) {
+                unawaited(widget.library.recordReadLeft());
+              }
+              setState(() => _index = i);
+            },
             destinations: const [
               NavigationDestination(
                 icon: Icon(Icons.library_books_outlined),

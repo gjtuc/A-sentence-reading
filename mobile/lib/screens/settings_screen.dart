@@ -64,6 +64,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // (admin mint chrome never shows even when ASR_ADMIN_EMAILS matches).
     widget.auth.addListener(_onAuthChanged);
     _reload();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.shadowing.applyAutoOffIfStale();
+    });
   }
 
   void _onAuthChanged() {
@@ -576,21 +579,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
             const Divider(height: 32),
-            Text('번역', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text(
-              '기본은 꺼져 있습니다. 끄면 문서 만들 때 번역하지 않고, 켠 뒤 그 문서를 열면 번역을 채웁니다.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('번역 사용'),
+              title: const Text('번역'),
               value: widget.translate.enabled,
               onChanged: !logged
                   ? null
                   : (v) async {
                       await widget.translate.setEnabled(v);
-                      // design/99 — turning ON while a paper is open → re-open for KO backfill.
                       if (!v) return;
                       final cacheId =
                           (widget.library.session?.cacheId ?? '').trim();
@@ -603,15 +599,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 widget.translate.error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
-            const Divider(height: 32),
-            Text('읽기', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text(
-              widget.citePanel.serverAvailable
-                  ? '문장에 [1] 같은 각주가 있으면 아래 References 패널에 목록을 보여줍니다. Title 첫 문장에는 이 논문 링크도 같이 나옵니다. 끄면 패널만 숨기고, 문장의 각주 표시는 계속 제거합니다.'
-                  : '서버에서 참고문헌 패널이 꺼져 있습니다.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('참고문헌 패널 표시'),
@@ -625,18 +612,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 widget.citePanel.error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
-            const Divider(height: 32),
-            Text('쉐도잉 연습', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text(
-              widget.shadowing.serverAvailable
-                  ? '켜면 문장 따라 말하기 연습을 씁니다. 읽기 화면의 「연습」에서 시작합니다.'
-                  : '서버에서 연습 API가 아직 꺼져 있을 수 있습니다. 설정은 저장되며, 서버가 켜지면 바로 사용할 수 있습니다.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('쉐도잉 연습 사용'),
+              title: const Text('따라 말하기 연습'),
               value: widget.shadowing.enabled,
               onChanged: !logged
                   ? null
