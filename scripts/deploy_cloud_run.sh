@@ -100,6 +100,9 @@ trap cleanup EXIT
   echo "ASR_SHADOWING_PRACTICE: \"${ASR_SHADOWING_PRACTICE:-0}\""
   # design/83 — login-required (unset/1=on). Kill with ASR_LOGIN_REQUIRED=0.
   echo "ASR_LOGIN_REQUIRED: \"${ASR_LOGIN_REQUIRED:-1}\""
+  _gcs_prefix="${ASR_GCS_PREFIX:-asr}"
+  _mobile_apk_url="${ASR_MOBILE_APK_URL:-https://storage.googleapis.com/${BUCKET}/${_gcs_prefix}/mobile/sentence-reading-latest.apk}"
+  echo "ASR_MOBILE_APK_URL: \"${_mobile_apk_url}\""
   if [[ -n "$KAKAO_REST" && -n "$KAKAO_SECRET" ]]; then
     echo "ASR_KAKAO_REST_API_KEY: \"${KAKAO_REST}\""
     echo "ASR_KAKAO_CLIENT_SECRET: \"${KAKAO_SECRET}\""

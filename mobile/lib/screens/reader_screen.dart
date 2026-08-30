@@ -1650,7 +1650,7 @@ Future<void> _handleSentenceBookmarkLongPress(
     builder: (ctx) => AlertDialog(
       title: const Text('북마크할까요?'),
       content: Text(
-        '$label을 북마크하면 피커에서 쉽게 찾을 수 있어요.',
+        '$label을 북마크하면 쉽게 찾을 수 있어요.',
       ),
       actions: [
         TextButton(
@@ -1697,7 +1697,7 @@ Future<void> _handleFigureBookmarkLongPress(
     builder: (ctx) => AlertDialog(
       title: const Text('북마크할까요?'),
       content: Text(
-        '$kind $num을 북마크하면 피커에서 쉽게 찾을 수 있어요.',
+        '$kind $num을 북마크하면 쉽게 찾을 수 있어요.',
       ),
       actions: [
         TextButton(

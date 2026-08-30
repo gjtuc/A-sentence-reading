@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api/access_models.dart';
+import '../api/app_version.dart';
 import '../api/auth_models.dart';
 import '../api/client.dart';
+import '../config.dart';
 import '../api/theme_models.dart';
 import '../api/tts_models.dart';
 import '../state/auth_controller.dart';
@@ -55,6 +60,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _errorBadge = 0;
   /// design/156 — account link rows hidden until label tap (no chevron hint).
   bool _accountLinksExpanded = false;
+  /// design/161 — /api/status version row.
+  bool _versionLoading = true;
+  String? _versionError;
+  String _remoteVersion = '';
+  String _mobileApkUrl = '';
 
   @override
   void initState() {
@@ -84,6 +94,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _reload() async {
+    unawaited(_fetchAppVersion());
     if (!widget.auth.isLoggedIn) {
       // WHY: Settings may stay mounted across logout (IndexedStack / tab).
       // EDGE: leftover _minted OTP or typed invite must not appear for the next account.
@@ -130,6 +141,115 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _fetchAppVersion() async {
+    setState(() {
+      _versionLoading = true;
+      _versionError = null;
+    });
+    try {
+      final st = await widget.auth.client.fetchStatus();
+      if (!mounted) return;
+      setState(() {
+        _remoteVersion = st.version.trim();
+        _mobileApkUrl = st.mobileApkUrl.trim();
+        _versionError = null;
+      });
+    } on AsrApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _versionError = e.message);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _versionError = e.toString());
+    } finally {
+      if (mounted) setState(() => _versionLoading = false);
+    }
+  }
+
+  Future<void> _launchApkDownload() async {
+    final url = _mobileApkUrl.trim();
+    if (url.isEmpty) return;
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('APK 다운로드를 열지 못했습니다.')),
+      );
+    }
+  }
+
+  Widget _buildAppVersionSection(BuildContext context) {
+    final local = kAppVersionLabel;
+    if (_versionLoading) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 8),
+        child: Text('버전 확인 중…'),
+      );
+    }
+    if (_versionError != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '버전을 확인하지 못했습니다.',
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: _fetchAppVersion,
+              child: const Text('다시 확인'),
+            ),
+          ),
+        ],
+      );
+    }
+    final remote = _remoteVersion;
+    final cmp = remote.isEmpty ? null : compareAppVersions(local, remote);
+    final updateAvailable =
+        cmp == -1 && _mobileApkUrl.isNotEmpty;
+    final lines = <Widget>[
+      Text(
+        cmp == null || cmp >= 0
+            ? '앱 $local · 최신입니다'
+            : '앱 $local · 최신 $remote',
+        style: Theme.of(context).textTheme.bodyMedium,
+      ),
+    ];
+    if (cmp == -1) {
+      lines.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            '새 버전이 있습니다.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      );
+      if (updateAvailable) {
+        lines.add(
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.tonal(
+                onPressed: _launchApkDownload,
+                child: const Text('APK 다운로드'),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: lines,
+      ),
+    );
   }
 
   Future<void> _redeem() async {
@@ -625,6 +745,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 widget.shadowing.error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
+            _buildAppVersionSection(context),
             // design/104 — invite redeem only for none/pending/denied non-admin.
             // Admin keeps mint/Allow/Deny but does not self-redeem.
             if (logged) ...[

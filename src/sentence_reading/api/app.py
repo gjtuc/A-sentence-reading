@@ -171,7 +171,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.94",
+    version="0.3.95",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -383,6 +383,12 @@ def _split_caption_lumps_enabled() -> bool:
     from sentence_reading.pdf.caption_lumps import split_caption_lumps_enabled
 
     return split_caption_lumps_enabled()
+
+
+def _mobile_apk_url() -> str | None:
+    """design/161 — public GCS APK for settings download row."""
+    raw = (os.environ.get("ASR_MOBILE_APK_URL") or "").strip()
+    return raw or None
 
 
 def _fig_ref_hints_enabled() -> bool:
@@ -790,7 +796,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.94",
+        "version": "0.3.95",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -951,6 +957,8 @@ def status(request: Request) -> dict:
         "stt_browser": True,
         "stt_server": gemini_available(),
         "tab_close": True,
+        # design/161 — settings APK download (public GCS); unset → null (no button).
+        "mobile_apk_url": _mobile_apk_url(),
     }
 
 

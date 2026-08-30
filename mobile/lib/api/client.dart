@@ -72,6 +72,7 @@ class AsrStatus {
     this.figureCaptionInImage = true,
     this.mobileFigureCaptionInImage = true,
     this.bookmarksSync = false,
+    this.mobileApkUrl = '',
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -193,6 +194,7 @@ class AsrStatus {
         }
         return json['bookmarks_sync'] == true;
       }(),
+      mobileApkUrl: '${json['mobile_apk_url'] ?? ''}'.trim(),
     );
   }
 
@@ -239,6 +241,8 @@ class AsrStatus {
   final bool figureCaptionInImage;
   final bool mobileFigureCaptionInImage;
   final bool bookmarksSync;
+  /// design/161 — public GCS APK URL when configured on server.
+  final String mobileApkUrl;
 }
 
 /// `/api/bookmarks/sync` result.
