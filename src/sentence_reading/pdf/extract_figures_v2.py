@@ -17,6 +17,10 @@ from sentence_reading.pdf.composite import (
     rect_from_dict,
     slot_missing_caption,
 )
+from sentence_reading.pdf.extract import (
+    is_caption_only_figure_png,
+    orphan_figure_png_from_caption,
+)
 from sentence_reading.pdf.layout_map import (
     LayoutMap,
     analyze_layout_map,
@@ -75,6 +79,15 @@ def _render_slot_png(
         png = composite_table_png(page, body_rect, cap_rect) or b""
     else:
         png = composite_figure_png(page, body_rect, cap_rect) or b""
+        if (
+            slot.kind == "fig"
+            and body_rect is None
+            and cap_rect is not None
+            and (not png or is_caption_only_figure_png(png))
+        ):
+            orphan_png = orphan_figure_png_from_caption(page, cap_rect)
+            if orphan_png:
+                png = orphan_png
         if not png and body_box and body_box.azure_ref and layout.operation_id:
             try:
                 png = read_figure_png(

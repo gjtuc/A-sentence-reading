@@ -719,6 +719,29 @@ def _orphan_fig_clip(page, cap_rect):
     return fitz.Rect(x0, y0, x1, y1)
 
 
+def orphan_figure_png_from_caption(page, cap_rect) -> bytes | None:
+    """Rasterize vector / missed-body figure band above a caption (design/125 B)."""
+    clip = _orphan_fig_clip(page, cap_rect)
+    clip |= cap_rect
+    return _render_page_clip(page, clip)
+
+
+def is_caption_only_figure_png(png: bytes) -> bool:
+    """True when composite is a thin caption strip (e.g. Azure partial without body)."""
+    if len(png) < _MIN_BYTES:
+        return False
+    from io import BytesIO
+
+    from PIL import Image
+
+    try:
+        im = Image.open(BytesIO(png))
+        width, height = im.size
+    except Exception:  # noqa: BLE001
+        return False
+    return height <= 400 and width > height * 4
+
+
 def _column_x_range(page_rect, cap_rect, *, bleed_frac: float = 0.08) -> tuple[float, float]:
     """
     design/128 — map a (possibly narrow) caption to its page column.
@@ -787,9 +810,7 @@ def _extract_embedded_images(
             sort_x = float(img_rect.x0)
         else:
             # B: orphan caption → page clip above caption (vector / missed embed).
-            clip = _orphan_fig_clip(page, cap_rect)
-            clip |= cap_rect
-            png = _render_page_clip(page, clip)
+            png = orphan_figure_png_from_caption(page, cap_rect)
             if not png:
                 continue
             sort_y = float(cap_rect.y0)
