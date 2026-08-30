@@ -171,7 +171,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.87",
+    version="0.3.88",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -790,7 +790,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.87",
+        "version": "0.3.88",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -2594,12 +2594,23 @@ def session_mock() -> dict:
 @app.get("/api/cache/papers")
 def cache_papers() -> dict:
     """보관된 논문 목록 (로컬 ∪ GCS index 메타)."""
+    import logging
+    import time
+
+    _log = logging.getLogger(__name__)
+    t0 = time.perf_counter()
     try:
         from sentence_reading.llm.papers_gcs import list_merged_paper_entries
 
-        return {"ok": True, "papers": list_merged_paper_entries()}
+        papers = list_merged_paper_entries()
     except Exception:
-        return {"ok": True, "papers": list_cached_papers()}
+        papers = list_cached_papers()
+    _log.info(
+        "cache_papers_handler total=%.3fs papers=%d",
+        time.perf_counter() - t0,
+        len(papers),
+    )
+    return {"ok": True, "papers": papers}
 
 
 @app.post("/api/cache/papers/{cache_id}/open")

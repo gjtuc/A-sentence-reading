@@ -609,7 +609,7 @@ class AsrClient {
   Future<List<PaperEntry>> listPapers() async {
     final res = await _http
         .get(_uri('/api/cache/papers'), headers: await _headers())
-        .timeout(const Duration(seconds: 30));
+        .timeout(const Duration(seconds: 60));
     final map = _decodeObject(res, 'cache/papers');
     final raw = map['papers'];
     if (raw is! List) {

@@ -210,8 +210,7 @@ def download_bytes(full_object_name: str, *, meter: bool = True) -> bytes | None
     try:
         client = _storage_client()
         blob = client.bucket(cfg.bucket).blob(name)
-        if not blob.exists():
-            return None
+        # design/159 — single RTT; missing object → None (no exists() preflight).
         data = blob.download_as_bytes()
         if data and meter:
             try:
@@ -222,6 +221,13 @@ def download_bytes(full_object_name: str, *, meter: bool = True) -> bytes | None
                 pass
         return data if data else None
     except Exception as exc:  # noqa: BLE001
+        try:
+            from google.api_core import exceptions as gax
+
+            if isinstance(exc, gax.NotFound):
+                return None
+        except ImportError:
+            pass
         log.warning("gcs download failed %s: %s", name, exc)
         return None
 

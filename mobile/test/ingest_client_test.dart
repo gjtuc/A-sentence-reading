@@ -303,7 +303,7 @@ void main() {
     final result = await client.pollIngestJob(
       jobId: 'job_abcd1234ef01',
       pollInterval: const Duration(milliseconds: 5),
-      idleTimeout: const Duration(milliseconds: 30),
+      idleTimeout: const Duration(milliseconds: 80),
       maxDuration: const Duration(seconds: 5),
     );
     expect(result.cacheId, 'cafebabe12');

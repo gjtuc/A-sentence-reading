@@ -394,6 +394,9 @@ class LibraryController extends ChangeNotifier {
     } on AsrApiException catch (e) {
       error = e.message;
       papers = const [];
+    } on TimeoutException catch (_) {
+      // design/159 — keep last good list; server may still complete after app gave up.
+      error = '서버 응답이 느립니다. 잠시 후 새로고침해 주세요.';
     } catch (e) {
       error = e.toString();
       papers = const [];

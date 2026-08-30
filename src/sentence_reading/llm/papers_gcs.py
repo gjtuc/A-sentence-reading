@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import Any
 
 from sentence_reading.cache.paper_cache import (
@@ -40,6 +41,12 @@ from sentence_reading.llm.gcs_sync import (
 from sentence_reading.llm.typography import PIPELINE_VERSION
 
 log = logging.getLogger(__name__)
+
+# design/159 — rate-limited lazy purge + per-uid remote index TTL cache.
+_last_purge_monotonic: float | None = None
+_PURGE_INTERVAL_SEC = 3600.0
+_remote_index_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_REMOTE_INDEX_TTL_SEC = 45.0
 
 _CACHE_ID_RE = re.compile(r"^[a-zA-Z0-9]{8,32}$")
 _FIG_FILE_RE = re.compile(r"^figures/[A-Za-z0-9._\-]+$")
@@ -113,11 +120,51 @@ def _decode_index(raw: bytes | None) -> dict[str, Any]:
     return data
 
 
+def invalidate_remote_index_cache() -> None:
+    """design/159 — call after index upload/delete."""
+    _remote_index_cache.clear()
+
+
+def reset_papers_gcs_runtime_cache_for_tests() -> None:
+    """Test helper — clear design/159 in-memory caches."""
+    global _last_purge_monotonic
+    _last_purge_monotonic = None
+    _remote_index_cache.clear()
+
+
 def download_remote_index() -> dict[str, Any]:
+    from sentence_reading.llm.auth_google import current_gcs_uid
+
+    uid = current_gcs_uid() or "__legacy__"
+    now = time.monotonic()
+    hit = _remote_index_cache.get(uid)
+    if hit is not None and (now - hit[0]) < _REMOTE_INDEX_TTL_SEC:
+        return hit[1]
     obj = papers_index_object()
     if not obj:
-        return _empty_index()
-    return _decode_index(download_bytes(obj))
+        data = _empty_index()
+    else:
+        data = _decode_index(download_bytes(obj))
+    _remote_index_cache[uid] = (now, data)
+    return data
+
+
+def _maybe_purge_expired() -> list[str]:
+    """Lazy TTL purge — at most once per instance hour (design/159)."""
+    global _last_purge_monotonic
+    from sentence_reading.cache.paper_cache import purge_expired_papers
+    from sentence_reading.llm.paper_retention import retention_enabled
+
+    if not retention_enabled():
+        return []
+    now = time.monotonic()
+    if (
+        _last_purge_monotonic is not None
+        and (now - _last_purge_monotonic) < _PURGE_INTERVAL_SEC
+    ):
+        return []
+    _last_purge_monotonic = now
+    return purge_expired_papers()
 
 
 def upload_remote_index(index: dict[str, Any]) -> bool:
@@ -136,7 +183,10 @@ def upload_remote_index(index: dict[str, Any]) -> bool:
         return False
     if len(raw) > PAPER_INDEX_MAX_BYTES:
         return False
-    return upload_bytes(obj, raw, content_type="application/json; charset=utf-8")
+    ok = upload_bytes(obj, raw, content_type="application/json; charset=utf-8")
+    if ok:
+        invalidate_remote_index_cache()
+    return ok
 
 
 def merge_index_entries(a: list[Any], b: list[Any]) -> list[dict[str, Any]]:
@@ -581,36 +631,54 @@ def list_merged_paper_entries() -> list[dict[str, Any]]:
     - auth on + no UID → empty (do not leak instance-local disk to strangers)
     - personal GCS index present → only merge local rows already in that remote index
     """
-    from sentence_reading.cache.paper_cache import (
-        _retention_list_fields,
-        purge_expired_papers,
-    )
+    from sentence_reading.cache.paper_cache import _retention_list_fields
     from sentence_reading.cache.supplementary_library import list_entries_for_api
-    from sentence_reading.llm.paper_retention import retention_enabled
-
-    if retention_enabled():
-        purge_expired_papers()
-
     from sentence_reading.llm.auth_google import auth_enabled, current_gcs_uid
 
-    if auth_enabled() and not current_gcs_uid():
+    t_total = time.perf_counter()
+
+    t0 = time.perf_counter()
+    purged = _maybe_purge_expired()
+    t_purge = time.perf_counter() - t0
+
+    uid = current_gcs_uid()
+    if auth_enabled() and not uid:
+        log.info(
+            "cache_papers_timing purge=%.3fs purged_n=%d local_read=0.000 "
+            "gcs_index=0.000 merge=0.000 enrich=0.000 total=%.3fs papers=0 uid=",
+            t_purge,
+            len(purged),
+            time.perf_counter() - t_total,
+        )
         return []
 
+    t1 = time.perf_counter()
     local = list(_read_index().get("entries") or [])
+    t_local = time.perf_counter() - t1
+
+    t2 = time.perf_counter()
     ready, _ = gcs_client_ready()
+    remote_entries: list[Any] = []
     if gcs_config().enabled and ready and papers_index_object():
-        remote = download_remote_index().get("entries") or []
+        remote_entries = download_remote_index().get("entries") or []
+    t_gcs_index = time.perf_counter() - t2
+
+    t3 = time.perf_counter()
+    if gcs_config().enabled and ready and papers_index_object():
         remote_ids = {
-            e.get("id") for e in remote if isinstance(e, dict) and e.get("id")
+            e.get("id") for e in remote_entries if isinstance(e, dict) and e.get("id")
         }
         local_mine = [
             e for e in local if isinstance(e, dict) and e.get("id") in remote_ids
         ]
-        merged = merge_index_entries(local_mine, remote)
+        merged = merge_index_entries(local_mine, remote_entries)
     elif gcs_config().enabled and ready:
         merged = []
     else:
         merged = [e for e in local if isinstance(e, dict)]
+    t_merge = time.perf_counter() - t3
+
+    t4 = time.perf_counter()
     rows = list_entries_for_api(merged)
     by_id = {str(e.get("id") or ""): e for e in merged if isinstance(e, dict)}
     out = []
@@ -628,6 +696,21 @@ def list_merged_paper_entries() -> list[dict[str, Any]]:
             }
         )
     out.sort(key=lambda e: e.get("updated_at") or "", reverse=True)
+    t_enrich = time.perf_counter() - t4
+
+    log.info(
+        "cache_papers_timing purge=%.3fs purged_n=%d local_read=%.3fs "
+        "gcs_index=%.3fs merge=%.3fs enrich=%.3fs total=%.3fs papers=%d uid=%s",
+        t_purge,
+        len(purged),
+        t_local,
+        t_gcs_index,
+        t_merge,
+        t_enrich,
+        time.perf_counter() - t_total,
+        len(out),
+        uid or "",
+    )
     return out
 
 
