@@ -79,6 +79,7 @@ List<int> _parsePlainTrailingCiteNumbers(String plain) {
   final m = _plainTrailing.firstMatch(plain);
   if (m == null) return const [];
   return _expandToken(m.group(2)!);
+}
 
 List<int> _parseDollarCiteNumbers(String raw) {
   final out = <int>[];
