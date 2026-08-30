@@ -94,6 +94,8 @@ def needs_translate_backfill(
     for s in plain_sents:
         ko = (getattr(s, "text_ko", None) or "").strip()
         stage = (getattr(s, "text_ko_stage", None) or "").strip().lower()
+        if ko and tr.is_dirty_ko_output(ko):
+            return True
         if ko and stage and stage not in _FINAL_STAGES:
             return True
         if not ko:
@@ -101,6 +103,8 @@ def needs_translate_backfill(
     for f in figures or []:
         cko = (getattr(f, "caption_ko", None) or "").strip()
         stage = (getattr(f, "caption_ko_stage", None) or "").strip().lower()
+        if cko and tr.is_dirty_ko_output(cko):
+            return True
         if cko and stage and stage not in _FINAL_STAGES:
             return True
         if _plain(getattr(f, "caption", "") or "") and not cko:
@@ -296,10 +300,13 @@ def _make_digest(section: str, english_lines: list[str]) -> dict[str, str]:
     return _parse_digest(raw or "")
 
 
-def _harmonize(en: str, ko: str, digest: dict[str, str]) -> str:
-    """요지 기준으로 draft KO 재감수. 실패 시 원 draft 유지 (fail-soft)."""
+def _harmonize(en: str, ko: str, digest: dict[str, str]) -> tuple[str, bool]:
+    """
+    요지 기준으로 draft KO 재감수.
+    Returns (ko, accepted) — dirty 출력은 draft 유지, accepted=False.
+    """
     if not gemini_api_key() or not ko:
-        return ko
+        return ko, False
     theme = (
         f"EN theme: {digest.get('en') or '(none)'}\n"
         f"KO theme: {digest.get('ko') or '(none)'}"
@@ -309,11 +316,18 @@ def _harmonize(en: str, ko: str, digest: dict[str, str]) -> str:
         "Revise Korean for theme consistency."
     )
     try:
-        out = tr._gemini_generate(_HARMONIZE_SYSTEM, user)
+        raw = tr._gemini_generate(_HARMONIZE_SYSTEM, user)
     except Exception as exc:  # noqa: BLE001
         log.warning("harmonize failed: %s", exc)
-        return ko
-    return (out or ko).strip() or ko
+        return ko, False
+    out = tr.sanitize_ko_output(raw or "")
+    if tr.is_dirty_ko_output(out):
+        log.warning("harmonize rejected dirty output")
+        return ko, False
+    final = out.strip() or ko
+    if final == ko:
+        return ko, False
+    return final, True
 
 
 def _estimate_progress_units(
@@ -433,13 +447,17 @@ def enrich_session_translations(
     def _run_harmonize(i: int, digest: dict[str, str]) -> int:
         with lock:
             draft = ko_map.get(i) or ""
+            prev_stage = stage_map.get(i, "")
         if not draft:
             return i
-        ko = _harmonize(_plain(sentences[i].text), draft, digest)
+        ko, accepted = _harmonize(_plain(sentences[i].text), draft, digest)
         with lock:
             ko_map[i] = ko
-            stage_map[i] = "harmonize"
-        _emit("sentence", i, ko, "harmonize")
+            if accepted:
+                stage_map[i] = "harmonize"
+                _emit("sentence", i, ko, "harmonize")
+            elif prev_stage:
+                stage_map[i] = prev_stage
         return i
 
     for sec, idxs in by_sec.items():
@@ -537,9 +555,11 @@ def enrich_session_translations(
 
         cap_ko = _pipeline_staged(cap, on_stage=_on_cap) or ""
         if cap_ko and (body_digest.get("en") or body_digest.get("ko")):
-            cap_ko = _harmonize(cap, cap_ko, body_digest)
-            cap_stage = "harmonize"
-            _emit("figure", fi, cap_ko, "harmonize")
+            harm_ko, accepted = _harmonize(cap, cap_ko, body_digest)
+            cap_ko = harm_ko
+            if accepted:
+                cap_stage = "harmonize"
+                _emit("figure", fi, cap_ko, "harmonize")
         elif cap_ko and not cap_stage:
             cap_stage = "polish"
         return fi, cap_ko, cap_stage
@@ -555,8 +575,10 @@ def enrich_session_translations(
                 if cap_ko and gemini_post and (
                     body_digest.get("en") or body_digest.get("ko")
                 ):
-                    cap_ko = _harmonize(cap, cap_ko, body_digest)
-                    cap_stage = "harmonize"
+                    harm_ko, accepted = _harmonize(cap, cap_ko, body_digest)
+                    cap_ko = harm_ko
+                    if accepted:
+                        cap_stage = "harmonize"
                 if cap_ko:
                     _emit("figure", fi, cap_ko, cap_stage or "google")
                 cap_results[fi] = (cap_ko, cap_stage)

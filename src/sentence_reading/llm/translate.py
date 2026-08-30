@@ -67,6 +67,45 @@ def _clean_ko(ko: str) -> str:
     return ko.strip()
 
 
+# harmonize 프롬프트·추론 메모가 text_ko에 섞이는 패턴 (design/0.3.91)
+_DIRTY_KO_META_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"let'?s\s+re-?evaluate", re.I),
+    re.compile(r"the\s+theme\s+says", re.I),
+    re.compile(r"the\s+source\s+says", re.I),
+    re.compile(r"\bre-?evaluate\b", re.I),
+    re.compile(r"english\s+source\s*:", re.I),
+    re.compile(r"korean\s+draft\s*:", re.I),
+    re.compile(r"revise\s+korean\s+for", re.I),
+)
+_HANGUL_RE = re.compile(r"[\uAC00-\uD7A3]")
+_LATIN_WORD_RE = re.compile(r"[A-Za-z]+")
+
+
+def sanitize_ko_output(ko: str) -> str:
+    """모델 출력 정규화 — harmonize 게이트 전처리."""
+    return _clean_ko(ko)
+
+
+def is_dirty_ko_output(ko: str) -> bool:
+    """
+    text_ko에 영어 메타 추론·프롬프트 누출이 섞였는지 검사.
+    보수적 — 학술 KO에 라틴 화학식만 있는 경우는 통과.
+    """
+    s = sanitize_ko_output(ko)
+    if not s:
+        return False
+    for pat in _DIRTY_KO_META_PATTERNS:
+        if pat.search(s):
+            return True
+    n = len(s)
+    if n >= 20:
+        hangul = len(_HANGUL_RE.findall(s))
+        latin_words = _LATIN_WORD_RE.findall(s)
+        if hangul / n < 0.25 and len(latin_words) >= 3:
+            return True
+    return False
+
+
 def _response_text(response: Any) -> str:
     ko = (getattr(response, "text", None) or "").strip()
     if ko:

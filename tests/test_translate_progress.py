@@ -66,8 +66,8 @@ def test_on_progress_messages_and_fractions(monkeypatch: pytest.MonkeyPatch) -> 
     def fake_digest(section: str, lines: list[str]) -> dict[str, str]:
         return {"en": f"theme {section}", "ko": f"요지 {section}"}
 
-    def fake_harm(en: str, ko: str, digest: dict[str, str]) -> str:
-        return ko + "|h"
+    def fake_harm(en: str, ko: str, digest: dict[str, str]) -> tuple[str, bool]:
+        return ko + "|h", True
 
     monkeypatch.setattr(ts, "_pipeline_staged", fake_pipeline)
     monkeypatch.setattr(ts, "_make_digest", fake_digest)
@@ -123,7 +123,7 @@ def test_on_progress_exception_fail_soft(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(
         ts, "_make_digest", lambda sec, lines: {"en": "e", "ko": "k"}
     )
-    monkeypatch.setattr(ts, "_harmonize", lambda en, ko, d: ko)
+    monkeypatch.setattr(ts, "_harmonize", lambda en, ko, d: (ko, True))
     monkeypatch.setattr(ts, "gemini_api_key", lambda: "test-key-not-real")
 
     def boom(_msg: str, _frac: float) -> None:
