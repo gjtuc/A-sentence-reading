@@ -16,7 +16,7 @@ def test_shadowing_default_off(monkeypatch) -> None:
     assert sp.shadowing_practice_enabled() is False
     with TestClient(app_mod.app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.92"
+    assert st["version"] == "0.3.93"
     assert st["shadowing_practice"] is False
     assert st["mobile_shadowing_practice"] is False
 

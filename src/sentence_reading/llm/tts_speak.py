@@ -567,6 +567,9 @@ def spoken_text_for_tts(raw: str) -> str:
         except Exception:  # noqa: BLE001
             s = re.sub(r"<[^>]+>", " ", s)
 
+    # WHY: before −→"minus" — ACS plain cites (.6−9) must strip first (0.3.93)
+    s = strip_cite_markers_for_display(s)
+
     # HTML 경로 후에도 남은 평문 첨자·화학식 숫자 → 기호 → 단위 → 원소 이름
     # WHY: °C 를 원소 C보다 먼저 치환해야 degrees Celsius 가 됨
     s = _strip_literal_tags(s)
@@ -576,8 +579,6 @@ def spoken_text_for_tts(raw: str) -> str:
     s = _apply_symbols(s)
     s = _expand_units(s)
     s = _expand_element_symbols(s)
-    # WHY: display strips [n] but TTS used raw sentence — do not read "one" for [1].
-    s = strip_cite_markers_for_display(s)
     s = re.sub(r"\s+", " ", s).strip()
     s = s.strip(" \t\"'`")
     return s

@@ -36,7 +36,7 @@ References
 
 def test_status_cite_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.85"
+    assert st["version"] == "0.3.93"
     assert st["cite_ref_open"] is True
 
 
@@ -65,8 +65,8 @@ def test_ui_assets() -> None:
     assert "/api/cite/resolve" in js
     assert "design/41" in js or "citeRefOpenBtn" in js
     served = TestClient(app).get("/").text
-    assert "cite_refs.js?v=0.3.85" in served
-    assert "app.js?v=0.3.85" in served
+    assert "cite_refs.js?v=0.3.93" in served
+    assert "app.js?v=0.3.93" in served
 
 
 def test_parse_and_extract() -> None:
@@ -84,6 +84,16 @@ def test_parse_and_extract() -> None:
     assert hints[0]["n"] == 1
     assert hints_for_sentence("no cites", bib) == []
     assert hints_for_sentence("[9]", bib) == []
+
+
+def test_plain_trailing_hints_for_sentence() -> None:
+    minus = "\u2212"
+    bib = [
+        {"n": 6, "text": "Ref six long enough.", "doi": ""},
+        {"n": 7, "text": "Ref seven long enough.", "doi": ""},
+    ]
+    hints = hints_for_sentence(f"MDR reaction.6{minus}9", bib)
+    assert [h["n"] for h in hints] == [6, 7]
 
 
 def test_extract_edge_garbage() -> None:

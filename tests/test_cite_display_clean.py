@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
 from sentence_reading.cite_refs import (
+    hints_for_sentence,
+    parse_cite_numbers,
     repair_dollar_cite_artifacts,
     strip_cite_markers_for_display,
 )
@@ -18,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_cite_display_clean() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.85"
+    assert st["version"] == "0.3.93"
     assert st["cite_display_clean"] is True
     assert st["cite_ref_open"] is True
     assert "live_enable" not in st
@@ -35,6 +37,26 @@ def test_strip_cite_markers_for_display() -> None:
     assert strip_cite_markers_for_display("   ") == ""
     # HTML typography kept
     assert "<i>Ni</i>" in strip_cite_markers_for_display("<i>Ni</i> catalyst.[1]")
+
+
+def test_plain_trailing_acs_cite_parse_and_strip() -> None:
+    """ACS plain cite — reaction.6−9 · worldwide.1−5 (0.3.93)."""
+    minus = "\u2212"
+    s6 = f"Ni nanoparticles for the MDR reaction.6{minus}9"
+    s5 = f"The benefits made it a hot topic worldwide.1{minus}5"
+    s11 = "especially the particles supported on oxides.10,11"
+    assert parse_cite_numbers(s6) == [6, 7, 8, 9]
+    assert parse_cite_numbers(s5) == [1, 2, 3, 4, 5]
+    assert parse_cite_numbers(s11) == [10, 11]
+    assert strip_cite_markers_for_display(s6) == "Ni nanoparticles for the MDR reaction."
+    assert strip_cite_markers_for_display(s5) == "The benefits made it a hot topic worldwide."
+    assert strip_cite_markers_for_display(s11) == "especially the particles supported on oxides."
+
+
+def test_plain_trailing_acs_cite_regressions() -> None:
+    assert "0.5" in strip_cite_markers_for_display("ratio 0.5Cu-Ni catalyst")
+    assert strip_cite_markers_for_display("costs $33.00 each") == "costs $33.00 each"
+    assert "−1" in strip_cite_markers_for_display("cm<sup>−1</sup> band")
 
 
 def test_glossary_skips_bracket_cite_raw() -> None:
@@ -102,5 +124,5 @@ def test_ui_hides_cites_like_fig_chips() -> None:
     assert "0.2.57" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.85" in html
-    assert "styles.css?v=0.3.85" in html
+    assert "app.js?v=0.3.93" in html
+    assert "styles.css?v=0.3.93" in html

@@ -12,7 +12,9 @@
   var DOLLAR_CITE = /(?<=[A-Za-z)\]])\$(\d{1,3})(?!\d)/g;
   var DOLLAR_CITE_AFTER_MARK = /([\]>])\s*\$(\d{1,3})(?!\d)/g;
   var DOLLAR_TEX_CITE =
-    /\$\{\^(\d+(?:\s*[,–—-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—-]\s*\d+)*)\}\$/gi;
+    /\$\{\^(\d+(?:\s*[,–—−-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—−-]\s*\d+)*)\}\$/gi;
+  var PLAIN_TRAILING =
+    /(?<=[a-zA-Z\)])(\.(\d+(?:\s*[-–—−,]\s*\d+)*))\s*$/;
 
   function stripTags(html) {
     return String(html || "").replace(/<[^>]+>/g, " ");
@@ -26,7 +28,7 @@
       .forEach(function (part) {
         part = String(part || "").trim();
         if (!part) return;
-        var m = part.match(/^(\d+)\s*[-–—]\s*(\d+)$/);
+        var m = part.match(/^(\d+)\s*[-–—−]\s*(\d+)$/);
         if (m) {
           var a = parseInt(m[1], 10);
           var b = parseInt(m[2], 10);
@@ -83,6 +85,10 @@
     var reDol = new RegExp(DOLLAR_CITE.source, "g");
     while ((m = reDol.exec(raw))) {
       add([parseInt(m[1], 10)]);
+    }
+    m = PLAIN_TRAILING.exec(plain);
+    if (m) {
+      add(expandToken(m[2]));
     }
     return out;
   }
@@ -145,6 +151,9 @@
     s = subDollarCiteArtifacts(s);
     s = s.replace(BRACKET, function (full, inner) {
       return expandToken(inner).length ? "" : full;
+    });
+    s = s.replace(PLAIN_TRAILING, function (full, dotPart, inner) {
+      return expandToken(inner).length ? "." : full;
     });
     // "word. " / "word ," 앞 공백 정리 · 연속 공백
     s = s.replace(/\s+([.,;:!?)])/g, "$1");

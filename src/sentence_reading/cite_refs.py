@@ -31,8 +31,12 @@ _DOLLAR_CITE = re.compile(r"(?<=[A-Za-z)\]])\$(\d{1,3})(?!\d)")
 _DOLLAR_CITE_AFTER_MARK = re.compile(r"([\]>])\s*\$(\d{1,3})(?!\d)")
 # $^{8,9}$ / ${^8,9}$ — LaTeX 각주
 _DOLLAR_TEX_CITE = re.compile(
-    r"\$\{\^(\d+(?:\s*[,–—-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—-]\s*\d+)*)\}\$",
+    r"\$\{\^(\d+(?:\s*[,–—−-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—−-]\s*\d+)*)\}\$",
     re.IGNORECASE,
+)
+# ACS plain trailing cite — reaction.6−9 · worldwide.1−5 (design/0.3.93)
+_PLAIN_TRAILING = re.compile(
+    r"(?<=[a-zA-Z\)])(\.(\d+(?:\s*[-–—−,]\s*\d+)*))\s*$"
 )
 # References 섹션 헤더
 _REF_HEAD = re.compile(
@@ -138,7 +142,7 @@ def _expand_num_token(token: str) -> list[int]:
         part = part.strip()
         if not part:
             continue
-        m = re.match(r"^(\d+)\s*[-–—]\s*(\d+)$", part)
+        m = re.match(r"^(\d+)\s*[-–—−]\s*(\d+)$", part)
         if m:
             a, b = int(m.group(1)), int(m.group(2))
             if a > b or b - a > 40:
@@ -155,6 +159,13 @@ def _expand_num_token(token: str) -> list[int]:
                 seen.add(n)
                 out.append(n)
     return out
+
+
+def _parse_plain_trailing_cite_numbers(text: str) -> list[int]:
+    m = _PLAIN_TRAILING.search(text or "")
+    if not m:
+        return []
+    return _expand_num_token(m.group(2))
 
 
 def parse_cite_numbers(text: str) -> list[int]:
@@ -175,6 +186,7 @@ def parse_cite_numbers(text: str) -> list[int]:
         _add([int(m.group(1))])
     for n in _parse_dollar_cite_numbers(raw):
         _add([n])
+    _add(_parse_plain_trailing_cite_numbers(strip_tags(raw)))
     return out
 
 
@@ -197,6 +209,11 @@ def strip_cite_markers_for_display(html: str) -> str:
         return "" if _expand_num_token(m.group(1)) else m.group(0)
 
     s = _BRACKET.sub(_br, s)
+
+    def _plain_trailing(m: re.Match[str]) -> str:
+        return "." if _expand_num_token(m.group(2)) else m.group(0)
+
+    s = _PLAIN_TRAILING.sub(_plain_trailing, s)
     s = re.sub(r"\s+([.,;:!?)])", r"\1", s)
     s = re.sub(r"\s{2,}", " ", s)
     return s.strip()

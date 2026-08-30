@@ -1,4 +1,4 @@
-"""partial slot orphan fallback when Azure misses figure body (0.3.92)."""
+"""partial slot orphan fallback when Azure misses figure body (0.3.93)."""
 
 from __future__ import annotations
 

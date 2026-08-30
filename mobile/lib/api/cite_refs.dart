@@ -7,11 +7,14 @@ final _bracket = RegExp(
 );
 final _supNum = RegExp(r'<sup>\s*(\d{1,3})\s*</sup>', caseSensitive: false);
 final _dollarTexCite = RegExp(
-  r'\$\{\^(\d+(?:\s*[,–—-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—-]\s*\d+)*)\}\$',
+  r'\$\{\^(\d+(?:\s*[,–—−-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—−-]\s*\d+)*)\}\$',
   caseSensitive: false,
 );
 final _dollarCite = RegExp(r'(?<=[A-Za-z)\]])\$(\d{1,3})(?!\d)');
 final _dollarCiteAfterMark = RegExp(r'(\]|>)\s*\$(\d{1,3})(?!\d)');
+final _plainTrailing = RegExp(
+  r'(?<=[a-zA-Z\)])(\.(\d+(?:\s*[-–—−,]\s*\d+)*))\s*$',
+);
 
 String stripTags(String? html) => (html ?? '').replaceAll(_tag, ' ');
 
@@ -21,7 +24,7 @@ List<int> _expandToken(String token) {
   for (final part in token.split(RegExp(r'\s*,\s*'))) {
     final p = part.trim();
     if (p.isEmpty) continue;
-    final range = RegExp(r'^(\d+)\s*[-–—]\s*(\d+)$').firstMatch(p);
+    final range = RegExp(r'^(\d+)\s*[-–—−]\s*(\d+)$').firstMatch(p);
     if (range != null) {
       final a = int.parse(range.group(1)!);
       final b = int.parse(range.group(2)!);
@@ -68,8 +71,14 @@ List<int> parseCiteNumbers(String? text) {
     addAll([int.parse(m.group(1)!)]);
   }
   addAll(_parseDollarCiteNumbers(raw));
+  addAll(_parsePlainTrailingCiteNumbers(stripTags(raw)));
   return out;
 }
+
+List<int> _parsePlainTrailingCiteNumbers(String plain) {
+  final m = _plainTrailing.firstMatch(plain);
+  if (m == null) return const [];
+  return _expandToken(m.group(2)!);
 
 List<int> _parseDollarCiteNumbers(String raw) {
   final out = <int>[];
@@ -127,6 +136,9 @@ String stripCiteMarkersForDisplay(String? html) {
   s = _subDollarCiteArtifacts(s);
   s = s.replaceAllMapped(_bracket, (m) {
     return _expandToken(m.group(1)!).isNotEmpty ? '' : m.group(0)!;
+  });
+  s = s.replaceAllMapped(_plainTrailing, (m) {
+    return _expandToken(m.group(2)!).isNotEmpty ? '.' : m.group(0)!;
   });
   s = s.replaceAllMapped(RegExp(r'\s+([.,;:!?)])'), (m) => m.group(1)!);
   s = s.replaceAll(RegExp(r'\s{2,}'), ' ');

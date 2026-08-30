@@ -78,6 +78,14 @@ def test_cite_markers_stripped_for_tts() -> None:
     assert "contributors" in out.lower()
 
 
+def test_plain_trailing_acs_cite_stripped_for_tts() -> None:
+    minus = "\u2212"
+    out = spoken_text_for_tts(f"Ni nanoparticles for the MDR reaction.6{minus}9")
+    assert minus not in out
+    assert out.endswith("reaction.")
+    assert ".6" not in out
+
+
 def test_title_prefix_stripped() -> None:
     out = spoken_text_for_tts("Title: Nickel catalyst")
     assert not out.lower().startswith("title")
