@@ -630,16 +630,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             Text(
               widget.shadowing.serverAvailable
-                  ? '기본은 꺼져 있습니다. 켜면 문장 따라 말하기 연습을 씁니다 (연습 화면은 후속 연결).'
-                  : '서버에서 이 기능이 꺼져 있습니다. 켠 것처럼 보이지 않습니다.',
+                  ? '켜면 문장 따라 말하기 연습을 씁니다. 읽기 화면의 「연습」에서 시작합니다.'
+                  : '서버에서 연습 API가 아직 꺼져 있을 수 있습니다. 설정은 저장되며, 서버가 켜지면 바로 사용할 수 있습니다.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('쉐도잉 연습 사용'),
-              value: widget.shadowing.serverAvailable && widget.shadowing.enabled,
-              // WHY: kill off → null onChanged (disabled); no false success.
-              onChanged: (!logged || !widget.shadowing.serverAvailable)
+              value: widget.shadowing.enabled,
+              onChanged: !logged
                   ? null
                   : (v) => widget.shadowing.setEnabled(v),
             ),

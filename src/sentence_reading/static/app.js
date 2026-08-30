@@ -3779,14 +3779,14 @@
     if (window.AsrShadowingPractice) AsrShadowingPractice.syncEntryBtn();
     if (!el.shadowingPracticeCheck) return;
     const avail = !!shadowingPrefs.serverAvailable;
-    el.shadowingPracticeCheck.disabled =
-      !avail || !(authState.user && authState.user.uid);
-    // WHY: kill off → show unchecked even if stale local ON (no false success).
-    el.shadowingPracticeCheck.checked = avail && !!shadowingPrefs.enabled;
+    const logged = !!(authState.user && authState.user.uid);
+    // WHY: prefs toggle stays interactive; server kill gates practice APIs only.
+    el.shadowingPracticeCheck.disabled = !logged;
+    el.shadowingPracticeCheck.checked = !!shadowingPrefs.enabled;
     if (el.shadowingPracticeHint) {
       el.shadowingPracticeHint.textContent = avail
-        ? "기본은 꺼짐입니다. 켜면 헤더 ⋯「연습」에서 따라 말하기를 씁니다 (로그인·청크 준비 필요)."
-        : "서버에서 쉐도잉 연습이 꺼져 있습니다.";
+        ? "켜면 헤더 ⋯「연습」에서 따라 말하기를 씁니다 (로그인·청크 준비 필요)."
+        : "서버 연습 API가 꺼져 있을 수 있습니다. 설정은 저장되며, 서버가 켜지면 바로 사용할 수 있습니다.";
     }
   }
 
@@ -6318,13 +6318,9 @@
 
   if (el.shadowingPracticeCheck) {
     el.shadowingPracticeCheck.addEventListener("change", function () {
-      if (!shadowingPrefs.serverAvailable) {
-        el.shadowingPracticeCheck.checked = false;
-        syncShadowingPracticeUi();
-        return;
-      }
       shadowingPrefs.enabled = !!el.shadowingPracticeCheck.checked;
       saveShadowingPrefs();
+      syncShadowingPracticeUi();
     });
   }
 

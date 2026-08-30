@@ -56,12 +56,7 @@ class ShadowingController extends ChangeNotifier {
   }
 
   Future<void> setEnabled(bool next) async {
-    // WHY: ignore client tap when server kill is off — no false success.
-    if (!serverAvailable) {
-      error = '서버에서 쉐도잉 연습이 꺼져 있습니다.';
-      notifyListeners();
-      return;
-    }
+    // WHY: prefs always writable — server kill gates practice APIs, not the toggle.
     enabled = next;
     notifyListeners();
     try {
