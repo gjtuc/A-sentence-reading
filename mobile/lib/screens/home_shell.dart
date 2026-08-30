@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../state/auth_controller.dart';
 import '../state/library_controller.dart';
 import '../state/cite_panel_controller.dart';
+import '../state/bookmark_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
@@ -30,6 +31,7 @@ class HomeShell extends StatefulWidget {
     required this.shadowing,
     required this.translate,
     required this.citePanel,
+    required this.bookmarks,
   });
 
   final AuthController auth;
@@ -39,6 +41,7 @@ class HomeShell extends StatefulWidget {
   final ShadowingController shadowing;
   final TranslateController translate;
   final CitePanelController citePanel;
+  final BookmarkController bookmarks;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -104,10 +107,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
       unawaited(widget.library.persistOpenedProgress());
+      unawaited(widget.library.recordReadLeft());
+      unawaited(widget.bookmarks.pushToServer());
     }
     if (state == AppLifecycleState.resumed) {
       unawaited(_consumePendingOpen());
       unawaited(_resumeAfterInterrupt());
+      unawaited(widget.shadowing.applyAutoOffIfStale());
       // design/84 — Allow may have happened while backgrounded.
       unawaited(_refreshAccessGate());
     }
@@ -156,6 +162,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         widget.library,
         widget.tts,
         widget.theme,
+        widget.bookmarks,
       ]),
       builder: (context, _) {
         final auth = widget.auth;
@@ -198,6 +205,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           LibraryScreen(
             auth: widget.auth,
             library: widget.library,
+            bookmarks: widget.bookmarks,
             onOpened: _goReader,
           ),
           ReaderScreen(
@@ -207,6 +215,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             shadowing: widget.shadowing,
             translate: widget.translate,
             citePanel: widget.citePanel,
+            bookmarks: widget.bookmarks,
           ),
           SettingsScreen(
             theme: widget.theme,
@@ -223,7 +232,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           body: _padded(IndexedStack(index: _index, children: pages)),
           bottomNavigationBar: NavigationBar(
             selectedIndex: _index,
-            onDestinationSelected: (i) => setState(() => _index = i),
+            onDestinationSelected: (i) {
+              if (_index == 1 && i != 1) {
+                unawaited(widget.library.recordReadLeft());
+              }
+              setState(() => _index = i);
+            },
             destinations: const [
               NavigationDestination(
                 icon: Icon(Icons.library_books_outlined),

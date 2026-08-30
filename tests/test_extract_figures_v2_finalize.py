@@ -139,6 +139,36 @@ def test_extract_figures_azure_skips_pymupdf_orphan_merge(
     assert figs[0].slot_key == "fig:1"
 
 
+def test_extract_figures_azure_empty_skips_pymupdf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf = tmp_path / "t.pdf"
+    doc = fitz.open()
+    doc.new_page()
+    doc.save(pdf)
+    doc.close()
+
+    monkeypatch.setenv("ASR_AZURE_LAYOUT", "1")
+    monkeypatch.setenv(
+        "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT",
+        "https://test.cognitiveservices.azure.com",
+    )
+    monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "k")
+
+    with patch(
+        "sentence_reading.pdf.extract_figures_v2.extract_figures_v2",
+        return_value=[],
+    ) as mock_v2:
+        with patch(
+            "sentence_reading.pdf.extract._collect_pymupdf_figures",
+        ) as mock_pymupdf:
+            figs = extract_figures(pdf)
+
+    mock_v2.assert_called_once()
+    mock_pymupdf.assert_not_called()
+    assert figs == []
+
+
 def test_finalize_legacy_path_still_sorts_pymupdf_only() -> None:
     raw = [
         _fig("Table 1. Results", page=2),

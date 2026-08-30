@@ -155,6 +155,49 @@ class SectionNavIndex {
     }
     return '${parts.sectionName} ${parts.position} / ${parts.total}';
   }
+
+  /// Internal section key (e.g. introduction) for bookmark stable keys.
+  String sectionKeyAt(int sectionIndex) {
+    if (sectionIndex < 0 || sectionIndex >= _sectionKeysInOrder.length) {
+      return '';
+    }
+    return _sectionKeysInOrder[sectionIndex];
+  }
+
+  /// Bookmark key `{sectionKey}:{position}` — position is 1-based within section.
+  String? sentenceBookmarkKeyForGlobal(int globalIndex) {
+    if (globalIndex < 0 || globalIndex >= _byGlobal.length) return null;
+    final (key, pos, _) = _byGlobal[globalIndex];
+    if (key.isEmpty || pos < 1) return null;
+    return '$key:$pos';
+  }
+
+  String? sentenceBookmarkKeyForSelection(int sectionIndex, int positionIndex) {
+    final key = sectionKeyAt(sectionIndex);
+    if (key.isEmpty) return null;
+    final pos = positionIndex + 1;
+    final total = positionCountForSection(sectionIndex);
+    if (pos < 1 || pos > total) return null;
+    return '$key:$pos';
+  }
+
+  bool isValidSentenceBookmarkKey(String bookmarkKey) {
+    final sep = bookmarkKey.lastIndexOf(':');
+    if (sep <= 0) return false;
+    final key = bookmarkKey.substring(0, sep);
+    final pos = int.tryParse(bookmarkKey.substring(sep + 1));
+    if (pos == null || pos < 1) return false;
+    final sectionIndex = _sectionKeysInOrder.indexOf(key);
+    if (sectionIndex < 0) return false;
+    return pos <= positionCountForSection(sectionIndex);
+  }
+
+  int sectionBookmarkCount(Set<String> keys, int sectionIndex) {
+    final sectionKey = sectionKeyAt(sectionIndex);
+    if (sectionKey.isEmpty) return 0;
+    final prefix = '$sectionKey:';
+    return keys.where((k) => k.startsWith(prefix)).length;
+  }
 }
 
 String _sectionKey(String? section) {
@@ -191,10 +234,12 @@ class FigureNavIndex {
         _carouselByKindNumber = carouselByKindNumber;
 
   factory FigureNavIndex.fromFigures(List<FigureView> figures) {
+    final titlePageNumbers = <int>[];
     final figNumbers = <int>[];
     final tableNumbers = <int>[];
     final figSNumbers = <int>[];
     final tableSNumbers = <int>[];
+    final titlePageCarousel = <int, int>{};
     final figCarousel = <int, int>{};
     final tableCarousel = <int, int>{};
     final figSCarousel = <int, int>{};
@@ -209,6 +254,9 @@ class FigureNavIndex {
       }
       final (kind, num) = slot;
       switch (kind) {
+        case 'title_page':
+          titlePageNumbers.add(num);
+          titlePageCarousel[num] = i;
         case 'table':
           tableNumbers.add(num);
           tableCarousel[num] = i;
@@ -224,6 +272,7 @@ class FigureNavIndex {
       }
     }
 
+    titlePageNumbers.sort();
     figNumbers.sort();
     tableNumbers.sort();
     figSNumbers.sort();
@@ -238,6 +287,7 @@ class FigureNavIndex {
       carouselByKindNumber[kind] = carousel;
     }
 
+    addKind('title_page', titlePageNumbers, titlePageCarousel);
     addKind('figure', figNumbers, figCarousel);
     addKind('table', tableNumbers, tableCarousel);
     addKind('figure_s', figSNumbers, figSCarousel);
@@ -245,6 +295,7 @@ class FigureNavIndex {
 
     int maxOf(List<int> nums) =>
         nums.isEmpty ? 0 : nums.reduce((a, b) => a > b ? a : b);
+    final titlePageTotal = maxOf(titlePageNumbers);
     final figTotal = maxOf(figNumbers);
     final tableTotal = maxOf(tableNumbers);
     final figSTotal = maxOf(figSNumbers);
@@ -260,6 +311,10 @@ class FigureNavIndex {
       if (slot == null) continue;
       final (kind, num) = slot;
       switch (kind) {
+        case 'title_page':
+          final total =
+              titlePageTotal > 0 ? titlePageTotal : titlePageNumbers.length;
+          labels[i] = 'title page $num / $total';
         case 'table':
           final total = tableTotal > 0 ? tableTotal : tableNumbers.length;
           labels[i] = 'table ${numLabel(kind, num)} / $total';
@@ -297,6 +352,8 @@ class FigureNavIndex {
   String kindLabelAt(int kindIndex) {
     if (kindIndex < 0 || kindIndex >= _kindsInOrder.length) return '';
     switch (_kindsInOrder[kindIndex]) {
+      case 'title_page':
+        return 'Title Page';
       case 'table':
       case 'table_s':
         return 'Table';
@@ -408,9 +465,11 @@ class FigureNavIndex {
     final total = nums.isEmpty
         ? 0
         : nums.reduce((a, b) => a > b ? a : b);
-    final kindLabel = kind == 'table' || kind == 'table_s'
-        ? 'Table'
-        : (kind == 'figure_s' ? 'Figure S' : 'Figure');
+    final kindLabel = kind == 'title_page'
+        ? 'Title Page'
+        : (kind == 'table' || kind == 'table_s'
+            ? 'Table'
+            : (kind == 'figure_s' ? 'Figure S' : 'Figure'));
     return FigureHeaderParts(
       kindLabel: kindLabel,
       numberLabel: _displayNumber(kind, num),
@@ -428,11 +487,64 @@ class FigureNavIndex {
         ? 'no figures'
         : 'figure ${carouselIndex + 1} / $totalFigures';
   }
+
+  String kindKeyAt(int kindIndex) {
+    if (kindIndex < 0 || kindIndex >= _kindsInOrder.length) return '';
+    return _kindsInOrder[kindIndex];
+  }
+
+  /// Bookmark key `{kind}:{number}` — e.g. figure:1, figure_s:2.
+  String? figureBookmarkKeyForCarousel(int carouselIndex) {
+    final slot = _slotFromCarousel(carouselIndex);
+    if (slot == null) return null;
+    final (kind, num) = slot;
+    return '$kind:$num';
+  }
+
+  String? figureBookmarkKeyForSelection(int kindIndex, int numberIndex) {
+    final kind = kindKeyAt(kindIndex);
+    if (kind.isEmpty) return null;
+    final num = numberAt(kindIndex, numberIndex);
+    return '$kind:$num';
+  }
+
+  bool isValidFigureBookmarkKey(String bookmarkKey) {
+    final sep = bookmarkKey.indexOf(':');
+    if (sep <= 0) return false;
+    final kind = bookmarkKey.substring(0, sep);
+    final num = int.tryParse(bookmarkKey.substring(sep + 1));
+    if (num == null || num < 1) return false;
+    final kindIndex = _kindsInOrder.indexOf(kind);
+    if (kindIndex < 0) return false;
+    final nums = _numbersByKind[kind] ?? [];
+    return nums.contains(num);
+  }
+
+  int kindBookmarkCount(Set<String> keys, int kindIndex) {
+    final kind = kindKeyAt(kindIndex);
+    if (kind.isEmpty) return 0;
+    final prefix = '$kind:';
+    return keys.where((k) => k.startsWith(prefix)).length;
+  }
+}
+
+/// Count carousel figures excluding title-page cover slots (design/160).
+int countLibraryFigures(List<FigureView> figures) {
+  var n = 0;
+  for (final fig in figures) {
+    final slot = _slotKindNumber(fig);
+    if (slot == null || slot.$1 != 'title_page') n++;
+  }
+  return n;
 }
 
 (String kind, int number)? _slotKindNumber(FigureView fig) {
   final key = fig.slotKey.trim().toLowerCase();
   if (key.isNotEmpty) {
+    final tp = RegExp(r'^title_page:(\d+)$').firstMatch(key);
+    if (tp != null) {
+      return ('title_page', int.parse(tp.group(1)!));
+    }
     final si = RegExp(r'^(fig|table):s(\d+)$').firstMatch(key);
     if (si != null) {
       final k = si.group(1)! == 'table' ? 'table_s' : 'figure_s';
@@ -443,6 +555,10 @@ class FigureNavIndex {
       final kind = m.group(1)! == 'table' ? 'table' : 'figure';
       return (kind, int.parse(m.group(2)!));
     }
+  }
+  final cap = (fig.caption).trim();
+  if (cap.toLowerCase().startsWith('title page')) {
+    return ('title_page', 1);
   }
   final capKey = captionFigKey(fig.caption);
   if (capKey == null) return null;

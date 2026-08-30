@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'cite_refs.dart';
+import 'document_citation.dart';
 import 'reader_nav_labels.dart';
 
 /// One sentence row from the session payload.
@@ -112,6 +113,7 @@ class ReadingSession {
     this.figureIndex = 0,
     this.warnings = const [],
     this.references = const [],
+    this.documentCitation = const DocumentCitation(),
     this.supplementaryMerged = false,
   }) {
     clampIndices();
@@ -168,6 +170,7 @@ class ReadingSession {
       figureIndex: asInt(json['figure_index']),
       warnings: warnings,
       references: parseReferenceList(json['references']),
+      documentCitation: parseDocumentCitation(json['document_citation']),
       supplementaryMerged: json['supplementary_merged'] == true,
     );
   }
@@ -182,6 +185,8 @@ class ReadingSession {
   final List<String> warnings;
   /// design/148 — bibliography rows from ingest (cite panel).
   final List<CiteRefEntry> references;
+  /// design/157 — this paper bibliographic row (Title panel).
+  final DocumentCitation documentCitation;
   /// design/152 — merged main+SI enables bare S2 fig chips.
   final bool supplementaryMerged;
 

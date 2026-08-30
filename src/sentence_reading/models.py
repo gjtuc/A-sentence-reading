@@ -61,6 +61,8 @@ class PaperSession:
     translate_digests: dict = field(default_factory=dict)
     # WHY: design/41 — References [{n, text, doi}]
     references: list = field(default_factory=list)
+    # WHY: design/157 — this paper row for Title section panel {text, doi, source?, confidence?}
+    document_citation: dict = field(default_factory=dict)
 
     def clamp_indices(self) -> None:
         """빈 목록이면 인덱스를 0으로 두고, UI가 empty 상태를 처리한다."""
@@ -101,6 +103,8 @@ class PaperSession:
         design/129 — ``include_images=False`` omits PNG data-URLs so /open stays
         small; clients fetch a ±1 window via ``/figures/window``.
         """
+        from sentence_reading.document_citation import public_document_citation
+
         fig = self.current_figure()
         sent = self.current_sentence()
 
@@ -162,6 +166,7 @@ class PaperSession:
                 and str(r.get("text") or "").strip()
                 and _ref_n_ok(r.get("n"))
             ],
+            "document_citation": public_document_citation(self.document_citation),
         }
 
 

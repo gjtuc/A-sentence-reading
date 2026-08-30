@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../api/ingest_models.dart';
 import '../api/library_reorder_proxy.dart';
 import '../api/paper_models.dart';
 import '../state/auth_controller.dart';
+import '../state/bookmark_controller.dart';
 import '../state/library_controller.dart';
 
 /// Authenticated paper list → open · single PDF upload (design/62 · design/70 · design/122).
@@ -14,11 +16,13 @@ class LibraryScreen extends StatefulWidget {
     super.key,
     required this.auth,
     required this.library,
+    required this.bookmarks,
     this.onOpened,
   });
 
   final AuthController auth;
   final LibraryController library;
+  final BookmarkController bookmarks;
 
   /// Called after a successful open (e.g. jump to Reader tab).
   final VoidCallback? onOpened;
@@ -90,7 +94,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         title: const Text('보관본 삭제'),
         content: Text(
           '선택한 $count건을 삭제할까요?\n'
-          '클라우드(GCS) 문서와 노트·연습 기록도 함께 지워집니다.',
+          '클라우드(GCS) 문서와 노트·북마크·연습 기록도 함께 지워집니다.',
         ),
         actions: [
           TextButton(
@@ -176,21 +180,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Future<void> _reanalyze(PaperEntry entry) async {
-    if (!entry.hasSource) return;
-    final ok = await widget.library.reanalyzePaper(entry);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          ok
-              ? '재분석이 완료되었습니다.'
-              : (widget.library.error ?? '재분석에 실패했습니다.'),
-        ),
-      ),
-    );
-  }
-
   Future<void> _mergeSupplementary(PaperEntry entry) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -232,11 +221,34 @@ class _LibraryScreenState extends State<LibraryScreen> {
     // design/71 — app auto-resumes processing / local draft without a second tap.
     final result = await widget.library.resumePendingIfAny();
     if (!mounted) return;
+    await _afterResumeResult(result);
+  }
+
+  Future<void> _resumeInterrupted() async {
+    final result = await widget.library.onAppResumed();
+    if (!mounted) return;
+    await _afterResumeResult(result);
+  }
+
+  Future<void> _resumeAndOpen() async {
+    final result = await widget.library.resumeAnalysis();
+    if (!mounted) return;
+    await _afterResumeResult(result);
+  }
+
+  Future<void> _afterResumeResult(IngestJobResult? result) async {
     final hint = widget.library.uploadBackgroundHint;
-    if (hint != null && hint.isNotEmpty) {
+    if (hint != null && hint.isNotEmpty && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(hint)));
     }
-    if (result == null) return;
+    if (result == null) {
+      if (widget.library.error != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(widget.library.error!)),
+        );
+      }
+      return;
+    }
     PaperEntry? entry;
     for (final p in widget.library.papers) {
       if (p.id == result.cacheId) {
@@ -326,7 +338,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([widget.auth, widget.library]),
+      animation: Listenable.merge([widget.auth, widget.library, widget.bookmarks]),
       builder: (context, _) {
         if (!widget.auth.isLoggedIn) {
           return const Center(
@@ -494,6 +506,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                         const SizedBox(height: 8),
+                        if (lib.uploadStalled)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton(
+                              onPressed: lib.opening || lib.reanalyzing
+                                  ? null
+                                  : () => _resumeInterrupted(),
+                              child: const Text('지금 이어가기'),
+                            ),
+                          ),
                         Align(
                           alignment: Alignment.centerLeft,
                           child: TextButton(
@@ -554,6 +576,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   ),
                 ),
+              if (lib.resumeOfferVisible && !lib.uploading && !lib.reanalyzing)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: lib.opening
+                              ? null
+                              : () => _resumeAndOpen(),
+                          icon: const Icon(Icons.play_arrow),
+                          label: const Text('이어서 분석하기'),
+                        ),
+                        TextButton(
+                          onPressed: lib.discardResumeDraft,
+                          child: const Text('초안 삭제'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               if (lib.papers.isEmpty && !lib.uploading && !lib.reanalyzing)
                 SliverFillRemaining(
                   hasScrollBody: false,
@@ -607,6 +651,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   itemBuilder: (context, i) {
                     final e = lib.papers[i];
                     final selected = _selected.contains(e.id);
+                    final bookmarkCount = widget.bookmarks.paperBookmarkCount(e.id);
                     final tile = ListTile(
                       leading: _selecting
                           ? Checkbox(
@@ -622,26 +667,49 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           if (e.libraryTag.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(left: 8),
-                              child: Chip(
-                                label: Text(
-                                  e.libraryTag,
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                                visualDensity: VisualDensity.compact,
-                                materialTapTargetSize:
-                                    MaterialTapTargetSize.shrinkWrap,
-                                padding: EdgeInsets.zero,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (bookmarkCount > 0) ...[
+                                    Badge(
+                                      label: Text('$bookmarkCount'),
+                                      child: const SizedBox(
+                                        width: 8,
+                                        height: 8,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                  ],
+                                  Chip(
+                                    label: Text(
+                                      e.libraryTag,
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                    visualDensity: VisualDensity.compact,
+                                    materialTapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                    padding: EdgeInsets.zero,
+                                  ),
+                                ],
                               ),
                             ),
                         ],
                       ),
                       subtitle: Text(
                         [
-                          e.subtitle,
-                          if (e.updatedAt.isNotEmpty) e.updatedAt,
+                          e.metaLine(),
+                          e.timingLine(
+                            lastReadLeftAt:
+                                lib.readLeftAtByCacheId[e.id] ?? '',
+                          ),
                         ].where((s) => s.isNotEmpty).join('\n'),
                       ),
-                      isThreeLine: e.updatedAt.isNotEmpty,
+                      isThreeLine: e.metaLine().isNotEmpty ||
+                          e.timingLine(
+                                lastReadLeftAt:
+                                    lib.readLeftAtByCacheId[e.id] ?? '',
+                              )
+                              .isNotEmpty,
                       selected: _selecting && selected,
                       trailing: _selecting
                           ? null
@@ -658,26 +726,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                             _deleting
                                         ? null
                                         : () => _mergeSupplementary(e),
-                                  ),
-                                if (e.hasSource)
-                                  IconButton(
-                                    icon: Icon(
-                                      Icons.autorenew,
-                                      size: 22,
-                                      color: lib.reanalyzing &&
-                                              lib.reanalyzingCacheId == e.id
-                                          ? Theme.of(context)
-                                              .colorScheme
-                                              .primary
-                                          : null,
-                                    ),
-                                    tooltip: '재분석',
-                                    onPressed: lib.opening ||
-                                            lib.uploading ||
-                                            lib.reanalyzing ||
-                                            _deleting
-                                        ? null
-                                        : () => _reanalyze(e),
                                   ),
                                 if (e.retentionWarn)
                                   IconButton(
@@ -696,18 +744,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                         ? null
                                         : () => _showRetentionSheet(e),
                                   ),
-                                if (lib.opening ||
-                                    (lib.reanalyzing &&
-                                        lib.reanalyzingCacheId == e.id))
-                                  const SizedBox(
-                                    width: 24,
-                                    height: 24,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                else
-                                  const Icon(Icons.drag_handle),
                               ],
                             ),
                       onTap: lib.opening ||

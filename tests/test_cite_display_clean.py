@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
 from sentence_reading.cite_refs import (
+    hints_for_sentence,
+    parse_cite_numbers,
     repair_dollar_cite_artifacts,
     strip_cite_markers_for_display,
 )
@@ -18,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_cite_display_clean() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.78"
+    assert st["version"] == "0.3.94"
     assert st["cite_display_clean"] is True
     assert st["cite_ref_open"] is True
     assert "live_enable" not in st
@@ -35,6 +37,26 @@ def test_strip_cite_markers_for_display() -> None:
     assert strip_cite_markers_for_display("   ") == ""
     # HTML typography kept
     assert "<i>Ni</i>" in strip_cite_markers_for_display("<i>Ni</i> catalyst.[1]")
+
+
+def test_plain_trailing_acs_cite_parse_and_strip() -> None:
+    """ACS plain cite — reaction.6−9 · worldwide.1−5 (0.3.94)."""
+    minus = "\u2212"
+    s6 = f"Ni nanoparticles for the MDR reaction.6{minus}9"
+    s5 = f"The benefits made it a hot topic worldwide.1{minus}5"
+    s11 = "especially the particles supported on oxides.10,11"
+    assert parse_cite_numbers(s6) == [6, 7, 8, 9]
+    assert parse_cite_numbers(s5) == [1, 2, 3, 4, 5]
+    assert parse_cite_numbers(s11) == [10, 11]
+    assert strip_cite_markers_for_display(s6) == "Ni nanoparticles for the MDR reaction."
+    assert strip_cite_markers_for_display(s5) == "The benefits made it a hot topic worldwide."
+    assert strip_cite_markers_for_display(s11) == "especially the particles supported on oxides."
+
+
+def test_plain_trailing_acs_cite_regressions() -> None:
+    assert "0.5" in strip_cite_markers_for_display("ratio 0.5Cu-Ni catalyst")
+    assert strip_cite_markers_for_display("costs $33.00 each") == "costs $33.00 each"
+    assert "−1" in strip_cite_markers_for_display("cm<sup>−1</sup> band")
 
 
 def test_glossary_skips_bracket_cite_raw() -> None:
@@ -58,9 +80,33 @@ def test_strip_dollar_cite_artifacts() -> None:
     )
 
 
+def test_strip_hybrid_bracket_dollar_cite() -> None:
+    """Co–TiO₂ QA: [8, 9]$1 hybrid must not leave visible $1."""
+    methane = (
+        "It is estimated that 143 billion cubic meters of methane were flared in 2012 "
+        "which led to the emission of 350 million tons of carbon dioxide [8, 9]$1"
+    )
+    assert strip_cite_markers_for_display(methane).endswith("carbon dioxide")
+    assert "$1" not in strip_cite_markers_for_display(methane)
+    study = (
+        "Methane and carbon dioxide are major contributors to greenhouse gases (GHG's) "
+        "and their sequestration and removal is the subject of major scientific study [1–4]$1"
+    )
+    assert strip_cite_markers_for_display(study).endswith("major scientific study")
+    assert "$1" not in strip_cite_markers_for_display(study)
+    assert (
+        strip_cite_markers_for_display("word CO<sub>2</sub>$1 here")
+        == "word CO<sub>2</sub> here"
+    )
+
+
 def test_repair_dollar_cite_artifacts_ingest() -> None:
     assert repair_dollar_cite_artifacts("dioxide$1.") == "dioxide."
     assert repair_dollar_cite_artifacts("price $33.00") == "price $33.00"
+    assert (
+        repair_dollar_cite_artifacts("carbon dioxide [8, 9]$1")
+        == "carbon dioxide [8, 9]"
+    )
 
 
 def test_ui_hides_cites_like_fig_chips() -> None:
@@ -78,5 +124,5 @@ def test_ui_hides_cites_like_fig_chips() -> None:
     assert "0.2.57" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.78" in html
-    assert "styles.css?v=0.3.78" in html
+    assert "app.js?v=0.3.94" in html
+    assert "styles.css?v=0.3.94" in html

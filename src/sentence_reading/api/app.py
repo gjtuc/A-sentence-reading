@@ -108,6 +108,11 @@ from sentence_reading.llm.notes_gcs import (
     empty_notes_store,
     push_notes_store,
 )
+from sentence_reading.llm.bookmarks_gcs import (
+    download_bookmarks_store,
+    empty_bookmarks_store,
+    push_bookmarks_store,
+)
 from sentence_reading.llm.voice_gcs import (
     VOICE_BLOB_KEY_MAX,
     VOICE_BLOB_MAX_BYTES,
@@ -121,6 +126,7 @@ from sentence_reading.llm.tts import (
 )
 from sentence_reading.llm.tts_speak import spoken_text_for_tts
 from sentence_reading.llm.typography import PIPELINE_VERSION, normalize_scientific_glyphs
+from sentence_reading.cite_refs import repair_dollar_cite_artifacts
 from sentence_reading.llm.vision_ocr import recover_pdf_text
 from sentence_reading.models import Figure, PaperSession, Sentence, build_mock_session
 from sentence_reading.pdf import extract as pdf_extract
@@ -165,7 +171,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.78",
+    version="0.3.94",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -388,6 +394,14 @@ def _fig_ref_hints_enabled() -> bool:
 def _mobile_cite_ref_panel_enabled() -> bool:
     """design/148 — kill: ASR_MOBILE_CITE_REF_PANEL=0 hides mobile References panel."""
     v = (os.environ.get("ASR_MOBILE_CITE_REF_PANEL") or "1").strip().lower()
+    return v not in ("0", "false", "off", "no")
+
+
+def _mobile_this_paper_panel_enabled() -> bool:
+    """design/157 — kill: ASR_MOBILE_THIS_PAPER_PANEL=0 hides Title '이 논문' panel."""
+    if not _mobile_cite_ref_panel_enabled():
+        return False
+    v = (os.environ.get("ASR_MOBILE_THIS_PAPER_PANEL") or "1").strip().lower()
     return v not in ("0", "false", "off", "no")
 
 
@@ -776,7 +790,9 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.78",
+        "version": "0.3.94",
+        # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
+        "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
         "azure_layout": azure_document_intelligence_available(),
         "azure_layout_enabled": (os.environ.get("ASR_AZURE_LAYOUT") or "1").strip().lower()
@@ -871,6 +887,8 @@ def status(request: Request) -> dict:
         "cite_display_clean": True,
         # design/148 — mobile References panel below Fig chips.
         "mobile_cite_ref_panel": _mobile_cite_ref_panel_enabled(),
+        # design/157 — Title section this-paper row (same resolve as cite).
+        "mobile_this_paper_panel": _mobile_this_paper_panel_enabled(),
         # design/149 — caption baked into figure PNG; hide under-image caption Text.
         "figure_caption_in_image": _figure_caption_in_image_enabled(),
         "mobile_figure_caption_in_image": _figure_caption_in_image_enabled(),
@@ -2407,6 +2425,95 @@ async def notes_sync_put(request: Request, payload: dict = Body(...)) -> JSONRes
     return JSONResponse({"ok": True, "available": True, "store": merged, "message": "ok"})
 
 
+@app.get("/api/bookmarks/sync")
+def bookmarks_sync_get(request: Request) -> dict:
+    """GCS 북마크 store pull."""
+    if auth_enabled() and _request_user(request) is None:
+        return {
+            "ok": True,
+            "available": False,
+            "needs_auth": True,
+            "store": None,
+            "message": "로그인 후 북마크를 동기화합니다.",
+        }
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready"):
+        return {
+            "ok": True,
+            "available": False,
+            "store": None,
+            "message": st.get("message"),
+        }
+    if st.get("bookmarks_object") is None:
+        return {
+            "ok": True,
+            "available": False,
+            "needs_auth": True,
+            "store": None,
+            "message": "로그인된 사용자 칸이 없습니다.",
+        }
+    store = download_bookmarks_store()
+    return {
+        "ok": True,
+        "available": True,
+        "store": store if store is not None else empty_bookmarks_store(),
+        "message": "ok",
+    }
+
+
+@app.put("/api/bookmarks/sync")
+async def bookmarks_sync_put(request: Request, payload: dict = Body(...)) -> JSONResponse:
+    """로컬 bookmark store push — remote∪local 병합 후 GCS 업로드."""
+    if auth_enabled() and _request_user(request) is None:
+        return JSONResponse(
+            {
+                "ok": True,
+                "available": False,
+                "needs_auth": True,
+                "store": payload.get("store") if isinstance(payload, dict) else None,
+                "message": "로그인 후 북마크를 동기화합니다.",
+            }
+        )
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready"):
+        return JSONResponse(
+            {
+                "ok": True,
+                "available": False,
+                "store": payload.get("store") if isinstance(payload, dict) else None,
+                "message": st.get("message"),
+            }
+        )
+    if st.get("bookmarks_object") is None:
+        return JSONResponse(
+            {
+                "ok": True,
+                "available": False,
+                "needs_auth": True,
+                "store": payload.get("store") if isinstance(payload, dict) else None,
+                "message": "로그인된 사용자 칸이 없습니다.",
+            }
+        )
+    local = payload.get("store") if isinstance(payload, dict) else None
+    if not isinstance(local, dict):
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "bad_store", "message": "store object required"},
+        )
+    try:
+        merged = push_bookmarks_store(local)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "error": "bookmarks_sync_failed",
+                "message": str(exc)[:300],
+            },
+        )
+    return JSONResponse({"ok": True, "available": True, "store": merged, "message": "ok"})
+
+
 @app.get("/api/tts/voices")
 def tts_voices() -> dict:
     """UI용 추천 보이스 목록."""
@@ -2487,12 +2594,23 @@ def session_mock() -> dict:
 @app.get("/api/cache/papers")
 def cache_papers() -> dict:
     """보관된 논문 목록 (로컬 ∪ GCS index 메타)."""
+    import logging
+    import time
+
+    _log = logging.getLogger(__name__)
+    t0 = time.perf_counter()
     try:
         from sentence_reading.llm.papers_gcs import list_merged_paper_entries
 
-        return {"ok": True, "papers": list_merged_paper_entries()}
+        papers = list_merged_paper_entries()
     except Exception:
-        return {"ok": True, "papers": list_cached_papers()}
+        papers = list_cached_papers()
+    _log.info(
+        "cache_papers_handler total=%.3fs papers=%d",
+        time.perf_counter() - t0,
+        len(papers),
+    )
+    return {"ok": True, "papers": papers}
 
 
 @app.post("/api/cache/papers/{cache_id}/open")
@@ -4001,6 +4119,7 @@ async def _run_ingest_job_body(
         debone_ok = False
         sentences: list = []
         references: list = []
+        document_citation: dict = {}
         title = Path(filename).stem or "Untitled"
         digests: dict = {}
         resumed_debone = False
@@ -4017,6 +4136,11 @@ async def _run_ingest_job_body(
                 debone_ok = bool(resume_pl.get("debone_ok"))
                 title = str(resume_pl.get("title") or title)
                 references = list(resume_pl.get("references") or [])
+                from sentence_reading.document_citation import public_document_citation
+
+                document_citation = public_document_citation(
+                    resume_pl.get("document_citation")
+                )
                 digests = dict(resume_pl.get("translate_digests") or {})
                 warnings.extend(
                     str(w) for w in (resume_pl.get("warnings") or []) if w
@@ -4087,7 +4211,9 @@ async def _run_ingest_job_body(
             sentences = [
                 Sentence(
                     id=s.id,
-                    text=normalize_scientific_glyphs(s.text),
+                    text=repair_dollar_cite_artifacts(
+                        normalize_scientific_glyphs(s.text)
+                    ),
                     section=s.section,
                     start_char=s.start_char,
                     end_char=s.end_char,
@@ -4108,6 +4234,19 @@ async def _run_ingest_job_body(
                 if s.section == "title" and plain_text(s.text):
                     title = plain_text(s.text)
                     break
+            from sentence_reading.document_citation import extract_document_citation
+
+            title_sents = [
+                plain_text(s.text)
+                for s in sentences
+                if s.section == "title" and plain_text(s.text)
+            ]
+            document_citation = extract_document_citation(
+                full_text=text,
+                pdf_pages=pdf_pages,
+                title=title,
+                title_section_sentences=title_sents,
+            )
             digests = {}
             _save_payload(
                 {
@@ -4124,6 +4263,7 @@ async def _run_ingest_job_body(
                     "debone_ok": debone_ok,
                     "title": title,
                     "references": references,
+                    "document_citation": document_citation,
                 }
             )
         else:
@@ -4131,7 +4271,9 @@ async def _run_ingest_job_body(
             sentences = [
                 Sentence(
                     id=s.id,
-                    text=normalize_scientific_glyphs(s.text),
+                    text=repair_dollar_cite_artifacts(
+                        normalize_scientific_glyphs(s.text)
+                    ),
                     section=s.section,
                     start_char=s.start_char,
                     end_char=s.end_char,
@@ -4140,6 +4282,21 @@ async def _run_ingest_job_body(
                 )
                 for s in sentences
             ]
+
+        if doc_role != "supplementary" and not document_citation:
+            from sentence_reading.document_citation import extract_document_citation
+
+            title_sents = [
+                plain_text(s.text)
+                for s in sentences
+                if s.section == "title" and plain_text(s.text)
+            ]
+            document_citation = extract_document_citation(
+                full_text=text,
+                pdf_pages=pdf_pages,
+                title=title,
+                title_section_sentences=title_sents,
+            )
 
         if doc_role == "supplementary":
             sentences = [
@@ -4162,6 +4319,7 @@ async def _run_ingest_job_body(
             sentences=sentences,
             translate_digests=digests,
             references=references,
+            document_citation=document_citation if doc_role != "supplementary" else {},
         )
         session_id = _remember_session(session)
 
@@ -4222,6 +4380,7 @@ async def _run_ingest_job_body(
                     "debone_ok": debone_ok,
                     "title": title,
                     "references": references,
+                    "document_citation": document_citation,
                     "translate_digests": dict(session.translate_digests or {}),
                     "cache_id": str(cache_entry.get("id") or ""),
                 }
@@ -4303,8 +4462,9 @@ async def _run_ingest_job_body(
                             ],
                             "debone_ok": debone_ok,
                             "title": title,
-                            "references": references,
-                            "translate_digests": dict(
+                    "references": references,
+                    "document_citation": document_citation,
+                    "translate_digests": dict(
                                 session.translate_digests or {}
                             ),
                             "cache_id": str(
@@ -4342,6 +4502,7 @@ async def _run_ingest_job_body(
                 doc_role=doc_role,
                 source_path=tmp_path,
                 content_hash=content_hash,
+                layout_artifacts=layout_artifacts if kind == "pdf" else None,
             )
             if (
                 cache_entry is None
@@ -4638,9 +4799,24 @@ async def shadowing_chunks_build(
         )
     rows = payload.get("sentences") if isinstance(payload.get("sentences"), list) else None
     if not rows:
-        # Load from cached paper session for this user.
+        # Load from cached paper session for this user (design/121 GCS-first).
         from sentence_reading.cache.paper_cache import load_cached_session
+        from sentence_reading.llm.papers_gcs import refresh_paper_for_open
 
+        try:
+            set_gcs_uid(user.uid)
+            refreshed, refresh_code = refresh_paper_for_open(cid)
+        finally:
+            reset_gcs_uid()
+        if not refreshed and refresh_code == "gcs_pull_failed":
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "ok": False,
+                    "error": "gcs_pull_failed",
+                    "message": "클라우드에서 논문을 받지 못했습니다. 잠시 후 연습을 다시 시도해 주세요.",
+                },
+            )
         try:
             set_gcs_uid(user.uid)
             loaded = load_cached_session(cid)
@@ -4652,7 +4828,7 @@ async def shadowing_chunks_build(
                 content={
                     "ok": False,
                     "error": "paper_not_found",
-                    "message": "보관된 논문을 찾을 수 없습니다.",
+                    "message": "연습을 위해 논문 데이터를 불러오지 못했습니다.",
                 },
             )
         session, _info = loaded

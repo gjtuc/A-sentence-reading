@@ -12,7 +12,7 @@ from sentence_reading.api import app as app_mod
 def test_status_version_pin() -> None:
     with TestClient(app_mod.app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.78"
+    assert st["version"] == "0.3.85"
 
 
 def test_mobile_library_reorder_wiring() -> None:
@@ -35,6 +35,7 @@ def test_mobile_library_reorder_wiring() -> None:
     ).read()
     assert "SliverReorderableList" in screen
     assert "ReorderableDelayedDragStartListener" in screen
+    assert "Icons.drag_handle" not in screen
     assert "reorderPapers" in ctrl
     assert "asr.library.order.v1" in models
     assert "applyLibraryOrder" in models
@@ -42,7 +43,7 @@ def test_mobile_library_reorder_wiring() -> None:
     pub = open(
         os.path.join(root, "mobile", "pubspec.yaml"), encoding="utf-8"
     ).read()
-    assert "0.3.78" in pub
+    assert "0.3.85" in pub
 
 
 def test_apply_library_order_pure() -> None:

@@ -373,11 +373,13 @@ def delete_cached_paper(
     try:
         from sentence_reading.llm.auth_google import current_gcs_uid
         from sentence_reading.llm import notes_gcs as ng
+        from sentence_reading.llm import bookmarks_gcs as bg
         from sentence_reading.llm import shadowing_chunks as sc
         from sentence_reading.llm import shadowing_takes as st
 
         uid = current_gcs_uid() or ""
         ng.remove_paper_notes(f"cache:{tid}")
+        bg.remove_paper_bookmarks(f"cache:{tid}")
         if uid:
             sc.delete_chunk_plan(uid=uid, cache_id=tid)
             st.delete_takes(uid=uid, cache_id=tid)
@@ -453,6 +455,12 @@ def _load_references(raw: object) -> list:
     from sentence_reading.cite_refs import bibliography_public
 
     return bibliography_public(raw if isinstance(raw, list) else None)
+
+
+def _load_document_citation(raw: object) -> dict:
+    from sentence_reading.document_citation import public_document_citation
+
+    return public_document_citation(raw if isinstance(raw, dict) else {})
 
 
 def load_cached_session(
@@ -538,6 +546,7 @@ def load_cached_session(
         sentence_index=int(meta.get("sentence_index") or 0),
         translate_digests=digests,
         references=_load_references(meta.get("references")),
+        document_citation=_load_document_citation(meta.get("document_citation")),
     )
     session.clamp_indices()
     info = {
@@ -826,6 +835,7 @@ def save_paper_session(
             if isinstance(v, dict)
         },
         "references": _load_references(session.references),
+        "document_citation": _load_document_citation(session.document_citation),
     }
     if has_tr:
         payload["translate_doc_version"] = "doc-v1"

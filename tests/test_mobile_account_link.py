@@ -39,7 +39,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
 def test_status_mobile_account_link() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.78"
+    assert st["version"] == "0.3.85"
     assert st["mobile_account_link"] is True
     assert "live_enable" not in st
     assert "ips" not in st
@@ -65,7 +65,7 @@ def test_mobile_dart_link_wiring() -> None:
     authc = (MOBILE / "lib/state/auth_controller.dart").read_text(encoding="utf-8")
     assert "linkGoogle" in authc and "linkKakao" in authc
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.78" in pub
+    assert "0.3.85" in pub
 
 
 def test_kakao_link_start_requires_session() -> None:

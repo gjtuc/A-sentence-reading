@@ -210,8 +210,7 @@ def download_bytes(full_object_name: str, *, meter: bool = True) -> bytes | None
     try:
         client = _storage_client()
         blob = client.bucket(cfg.bucket).blob(name)
-        if not blob.exists():
-            return None
+        # design/159 — single RTT; missing object → None (no exists() preflight).
         data = blob.download_as_bytes()
         if data and meter:
             try:
@@ -222,6 +221,13 @@ def download_bytes(full_object_name: str, *, meter: bool = True) -> bytes | None
                 pass
         return data if data else None
     except Exception as exc:  # noqa: BLE001
+        try:
+            from google.api_core import exceptions as gax
+
+            if isinstance(exc, gax.NotFound):
+                return None
+        except ImportError:
+            pass
         log.warning("gcs download failed %s: %s", name, exc)
         return None
 
@@ -269,6 +275,7 @@ def gcs_status() -> dict[str, Any]:
     ready, message = gcs_client_ready()
     from sentence_reading.llm.auth_google import auth_status_fields, current_gcs_uid
     from sentence_reading.llm.notes_gcs import notes_gcs_status_fields
+    from sentence_reading.llm.bookmarks_gcs import bookmarks_gcs_status_fields
     from sentence_reading.llm.voice_gcs import voice_gcs_status_fields
 
     out: dict[str, Any] = {
@@ -286,6 +293,7 @@ def gcs_status() -> dict[str, Any]:
     }
     out.update(auth_status_fields())
     out.update(notes_gcs_status_fields())
+    out.update(bookmarks_gcs_status_fields())
     out.update(voice_gcs_status_fields())
     from sentence_reading.llm.papers_gcs import papers_gcs_status_fields
 

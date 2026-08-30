@@ -20,6 +20,7 @@ import '../api/upload_notify.dart';
 import '../api/shadowing_models.dart';
 import '../api/translate_models.dart';
 import '../api/library_order_models.dart';
+import '../state/bookmark_controller.dart';
 import '../services/error_reporter.dart';
 import '../services/hang_watchdog.dart';
 
@@ -39,6 +40,12 @@ class LibraryController extends ChangeNotifier {
   final AsrClient _client;
   final UploadDraftStore _drafts;
   final UploadNotify _notify;
+  BookmarkController? _bookmarks;
+
+  void attachBookmarks(BookmarkController bookmarks) {
+    _bookmarks = bookmarks;
+    bookmarks.attachClient(_client);
+  }
 
   List<PaperEntry> papers = const [];
   ReadingSession? session;
@@ -56,6 +63,9 @@ class LibraryController extends ChangeNotifier {
   String? shadowingChunksCacheId;
   bool shadowingChunksBusy = false;
 
+  /// design/160 — uid-scoped read-left timestamps for library meta lines.
+  Map<String, String> readLeftAtByCacheId = const {};
+
   /// design/74 — set when notification permission blocked but upload continues.
   String? uploadBackgroundHint;
 
@@ -67,6 +77,9 @@ class LibraryController extends ChangeNotifier {
 
   /// design/75 — true when progress heartbeat went silent (honest interrupt UI).
   bool uploadStalled = false;
+
+  /// design/158 — show 「이어서 분석하기」 when a resumable draft exists.
+  bool resumeOfferVisible = false;
 
   /// design/132 — user asked to cancel the in-flight upload/ingest.
   bool _uploadCancelRequested = false;
@@ -204,6 +217,18 @@ class LibraryController extends ChangeNotifier {
     uploadStalled = false;
     notifyListeners();
     unawaited(_notify.showFailed(message: error!));
+    unawaited(_refreshResumeOffer());
+  }
+
+  Future<bool> _draftResumable() async {
+    final draft = await _drafts.read();
+    if (draft == null) return false;
+    return draft.canReattach || draft.canResumeChunks;
+  }
+
+  Future<void> _refreshResumeOffer() async {
+    resumeOfferVisible = !uploading && !reanalyzing && await _draftResumable();
+    notifyListeners();
   }
 
   Future<void> _beginIngestHang({required String filename}) async {
@@ -372,12 +397,56 @@ class LibraryController extends ChangeNotifier {
     } on AsrApiException catch (e) {
       error = e.message;
       papers = const [];
+    } on TimeoutException catch (_) {
+      // design/159 — keep last good list; server may still complete after app gave up.
+      error = '서버 응답이 느립니다. 잠시 후 새로고침해 주세요.';
     } catch (e) {
       error = e.toString();
       papers = const [];
     } finally {
       loading = false;
       notifyListeners();
+      unawaited(_refreshResumeOffer());
+      unawaited(refreshReadLeftTimes());
+    }
+  }
+
+  /// design/160 — load read-left timestamps for current paper list.
+  Future<void> refreshReadLeftTimes() async {
+    if (papers.isEmpty) {
+      readLeftAtByCacheId = const {};
+      notifyListeners();
+      return;
+    }
+    try {
+      final uid = await _authUid();
+      readLeftAtByCacheId = await loadReadLeftAtForPapers(
+        uid: uid,
+        cacheIds: papers.map((p) => p.id),
+      );
+      notifyListeners();
+    } catch (_) {
+      // EDGE: prefs fail — keep last map.
+    }
+  }
+
+  /// design/160 — record when user leaves reading tab or backgrounds app.
+  Future<void> recordReadLeft() async {
+    final s = session;
+    if (s == null || !s.isValid || s.cacheId.isEmpty) return;
+    try {
+      final uid = await _authUid();
+      await recordReadLeftAt(uid: uid, cacheId: s.cacheId);
+      final at = await loadLastReadLeftAt(uid: uid, cacheId: s.cacheId);
+      if (at != null) {
+        readLeftAtByCacheId = {
+          ...readLeftAtByCacheId,
+          s.cacheId: at,
+        };
+        notifyListeners();
+      }
+    } catch (_) {
+      // EDGE: prefs fail must not block navigation.
     }
   }
 
@@ -410,6 +479,7 @@ class LibraryController extends ChangeNotifier {
       try {
         await _client.deletePaper(id);
         okCount += 1;
+        await _bookmarks?.purgePaper(id);
         if (session?.cacheId == id) {
           clearOpened();
         }
@@ -486,6 +556,10 @@ class LibraryController extends ChangeNotifier {
         error = '재분석은 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
         notifyListeners();
         return false;
+      }
+      // WHY: 재분석 후 읽기 탭에 옛 session이 남지 않게 최신 /open 반영.
+      if (session?.cacheId == entry.id) {
+        await open(entry);
       }
       error = null;
       notifyListeners();
@@ -609,6 +683,17 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  Future<void> _syncBookmarksForSession(ReadingSession o) async {
+    final bm = _bookmarks;
+    if (bm == null) return;
+    await bm.loadPaper(o.cacheId);
+    await bm.applyNavPrune(
+      sectionNav: o.sectionNav,
+      figureNav: o.figureNav,
+    );
+    unawaited(bm.pullFromServer());
+  }
+
   Future<ReadingSession?> open(PaperEntry entry) async {
     // design/121 — open goes through GCS-first /open; errors stay in ``error``.
     if (!entry.isValid) {
@@ -688,6 +773,7 @@ class LibraryController extends ChangeNotifier {
       }
 
       session = o;
+      unawaited(_syncBookmarksForSession(o));
       // design/129 — fill current±1 images after sentences are on screen.
       unawaited(_prefetchFigureWindow());
       // design/80 — per-user chunk backfill (opt-in); errors surface on reader.
@@ -850,6 +936,24 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// design/158 — tap 「이어서 분석하기」 (same engine as auto-resume).
+  Future<IngestJobResult?> resumeAnalysis() async {
+    if (uploading || reanalyzing) return null;
+    error = null;
+    resumeOfferVisible = false;
+    notifyListeners();
+    return resumePendingIfAny();
+  }
+
+  /// design/158 — discard local upload draft (user opts out of resume).
+  Future<void> discardResumeDraft() async {
+    await _drafts.clear();
+    await _cancelWorkmanager();
+    resumeOfferVisible = false;
+    error = null;
+    notifyListeners();
+  }
+
   void clearOpened() {
     shadowingChunksError = null;
     shadowingChunksCacheId = null;
@@ -871,6 +975,7 @@ class LibraryController extends ChangeNotifier {
     papers = const [];
     session = null;
     error = null;
+    resumeOfferVisible = false;
     loading = false;
     opening = false;
     uploading = false;
@@ -1280,6 +1385,9 @@ class LibraryController extends ChangeNotifier {
           e.statusCode == 422) {
         await _drafts.clear();
         await _cancelWorkmanager();
+        resumeOfferVisible = false;
+      } else if (e.statusCode == 504 || _ingestHangTripped) {
+        resumeOfferVisible = await _draftResumable();
       }
       // design/105 — surface last stage on timeout so failure is actionable.
       final stage = uploadStage.trim();
@@ -1307,6 +1415,7 @@ class LibraryController extends ChangeNotifier {
       _ingestHangTripped = false;
       _stopStallWatch();
       notifyListeners();
+      unawaited(_refreshResumeOffer());
     }
   }
 
@@ -1377,6 +1486,9 @@ class LibraryController extends ChangeNotifier {
           e.statusCode == 422) {
         await _drafts.clear();
         await _cancelWorkmanager();
+        resumeOfferVisible = false;
+      } else if (e.statusCode == 504 || _ingestHangTripped) {
+        resumeOfferVisible = await _draftResumable();
       }
       final stage = uploadStage.trim();
       if (e.statusCode == 504 && stage.isNotEmpty) {
@@ -1403,6 +1515,7 @@ class LibraryController extends ChangeNotifier {
       _ingestHangTripped = false;
       _stopStallWatch();
       notifyListeners();
+      unawaited(_refreshResumeOffer());
     }
   }
 }

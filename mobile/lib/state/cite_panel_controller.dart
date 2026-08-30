@@ -18,6 +18,9 @@ class CitePanelController extends ChangeNotifier {
   /// Server kill from `/api/status` — false → hide panel + disable settings toggle.
   bool serverAvailable = true;
 
+  /// design/157 — separate kill for Title "이 논문" row (also off when cite kill).
+  bool thisPaperServerAvailable = true;
+
   bool ready = false;
   String? error;
   String? _uid;
@@ -48,6 +51,12 @@ class CitePanelController extends ChangeNotifier {
   void setServerAvailable(bool next) {
     if (serverAvailable == next) return;
     serverAvailable = next;
+    notifyListeners();
+  }
+
+  void setThisPaperServerAvailable(bool next) {
+    if (thisPaperServerAvailable == next) return;
+    thisPaperServerAvailable = next;
     notifyListeners();
   }
 

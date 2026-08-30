@@ -61,6 +61,17 @@ if [[ "${ASR_CD_DRY_RUN:-}" == "1" ]]; then
   exit 0
 fi
 
+# design/155 — stale 워크트리·다운그레이드 배포 차단 (다른 채팅창 회귀 방지).
+if [[ "${ASR_SKIP_DEPLOY_GUARD:-}" != "1" ]]; then
+  _guard_url="${CLOUD_URL%/}/api/status"
+  echo "pre-deploy guard: ${_guard_url}"
+  if ! python "$ROOT/scripts/pre_deploy_guard.py" --url "$_guard_url"; then
+    echo "DEPLOY ABORTED — git pull, bump version above live, commit, retry." >&2
+    echo "Emergency only: ASR_SKIP_DEPLOY_GUARD=1" >&2
+    exit 3
+  fi
+fi
+
 if ! command -v gcloud >/dev/null 2>&1; then
   echo "gcloud CLI 가 없습니다. https://cloud.google.com/sdk/docs/install 후 다시 실행하세요." >&2
   exit 1
@@ -80,6 +91,10 @@ trap cleanup EXIT
   echo "ASR_AUTH_SECRET: \"${ASR_AUTH_SECRET}\""
   echo "GEMINI_API_KEY: \"${GEMINI_API_KEY}\""
   echo "ASR_CLOUD_RUN_URL: \"${CLOUD_URL}\""
+  _deploy_sha="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+  if [[ -n "$_deploy_sha" ]]; then
+    echo "ASR_DEPLOY_GIT_SHA: \"${_deploy_sha}\""
+  fi
   echo "ASR_ADMIN_EMAILS: \"${ADMIN_EMAILS}\""
   # design/79·80 — shadowing kill (unset/0=off). CD sets via vars.ASR_SHADOWING_PRACTICE.
   echo "ASR_SHADOWING_PRACTICE: \"${ASR_SHADOWING_PRACTICE:-0}\""
@@ -94,12 +109,16 @@ trap cleanup EXIT
   fi
   AZURE_DI_ENDPOINT="${AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT:-}"
   AZURE_DI_KEY="${AZURE_DOCUMENT_INTELLIGENCE_KEY:-}"
+  ASR_AZURE_LAYOUT_VAL="${ASR_AZURE_LAYOUT:-1}"
   if [[ -n "$AZURE_DI_ENDPOINT" && -n "$AZURE_DI_KEY" ]]; then
     echo "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT: \"${AZURE_DI_ENDPOINT}\""
     echo "AZURE_DOCUMENT_INTELLIGENCE_KEY: \"${AZURE_DI_KEY}\""
-    echo "ASR_AZURE_LAYOUT: \"${ASR_AZURE_LAYOUT:-1}\""
+    echo "ASR_AZURE_LAYOUT: \"${ASR_AZURE_LAYOUT_VAL}\""
   elif [[ -n "$AZURE_DI_ENDPOINT" || -n "$AZURE_DI_KEY" ]]; then
     echo "Azure DI: set BOTH AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT and AZURE_DOCUMENT_INTELLIGENCE_KEY (or neither)." >&2
+    exit 2
+  elif [[ "$ASR_AZURE_LAYOUT_VAL" != "0" ]]; then
+    echo "Azure DI: ASR_AZURE_LAYOUT=${ASR_AZURE_LAYOUT_VAL} requires BOTH endpoint and key (design/154)." >&2
     exit 2
   fi
   # design/86 — optional SMTP for magic-link mail. host+from required together.
@@ -204,4 +223,12 @@ fi
 echo
 echo "Deployed: $URL"
 echo "다음: Google OAuth 클라이언트에 JavaScript 원본 추가 → $URL"
-echo "확인: python scripts/verify_live_status.py --expect 0.2.34"
+_expect_ver="$(cd "$ROOT" && python -c "import re; from pathlib import Path; t=Path('src/sentence_reading/api/app.py').read_text(encoding='utf-8'); m=re.search(r'version=\"([^\"]+)\"', t); print(m.group(1) if m else '')")"
+if [[ -n "$_expect_ver" && "${ASR_SKIP_POST_DEPLOY_VERIFY:-}" != "1" ]]; then
+  echo "post-deploy verify: expect ${_expect_ver}"
+  python "$ROOT/scripts/verify_live_status.py" \
+    --url "${URL%/}/api/status" \
+    --expect "$_expect_ver" \
+    --require-azure-layout \
+    --min-pipeline rich-v20
+fi

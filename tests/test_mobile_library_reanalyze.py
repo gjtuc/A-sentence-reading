@@ -1,4 +1,4 @@
-"""design/145 — mobile library reanalyze wiring (0.3.61 chip; app 0.3.78)."""
+"""design/145 — mobile library reanalyze wiring (0.3.61 chip; app 0.3.85)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ DESIGN = ROOT / "docs" / "design" / "145-mobile-library-reanalyze.md"
 
 def test_status_version_pin() -> None:
     st = TestClient(app_mod.app).get("/api/status").json()
-    assert st["version"] == "0.3.78"
+    assert st["version"] == "0.3.85"
 
 
 def test_mobile_reanalyze_wiring() -> None:
@@ -28,13 +28,14 @@ def test_mobile_reanalyze_wiring() -> None:
     screen = (MOBILE / "lib/screens/library_screen.dart").read_text(encoding="utf-8")
     client = (MOBILE / "lib/api/client.dart").read_text(encoding="utf-8")
     ctrl = (MOBILE / "lib/state/library_controller.dart").read_text(encoding="utf-8")
-    assert "Icons.autorenew" in screen
-    assert "_reanalyze" in screen
+    # Mobile UI: reanalyze hidden (pipeline quality stable); API path kept for web/admin.
+    assert "Icons.autorenew" not in screen
+    assert "_reanalyze" not in screen
     assert "startReanalyze" in client
     assert "reanalyzePaper" in ctrl
     assert "reanalyzing" in ctrl
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.78" in pub
+    assert "0.3.85" in pub
 
 
 def test_reanalyze_endpoint_has_paid_gate() -> None:

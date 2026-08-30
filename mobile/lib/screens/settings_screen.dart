@@ -45,7 +45,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _linkEmail = TextEditingController();
   AccessStatus? _access;
   List<Map<String, dynamic>> _pending = const [];
-  List<Map<String, dynamic>> _events = const [];
   bool _loading = false;
   /// WHY separate from _loading: refresh must not disable Allow/Deny.
   /// EDGE: uiautomator/user tap during reload was ignored → invitee stayed pending.
@@ -54,6 +53,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _minted;
   /// design/130 — admin unread cloud error count (settings badge).
   int _errorBadge = 0;
+  /// design/156 — account link rows hidden until label tap (no chevron hint).
+  bool _accountLinksExpanded = false;
 
   @override
   void initState() {
@@ -63,6 +64,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // (admin mint chrome never shows even when ASR_ADMIN_EMAILS matches).
     widget.auth.addListener(_onAuthChanged);
     _reload();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.shadowing.applyAutoOffIfStale();
+    });
   }
 
   void _onAuthChanged() {
@@ -86,7 +90,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() {
         _access = null;
         _pending = const [];
-        _events = const [];
         _minted = null;
         _error = null;
         _errorBadge = 0;
@@ -102,12 +105,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final st = await widget.auth.client.fetchAccessStatus();
       List<Map<String, dynamic>> pending = const [];
-      List<Map<String, dynamic>> events = const [];
       var badge = 0;
       // Admin endpoints 403 for non-admins — ignore.
       try {
         pending = await widget.auth.client.fetchAccessPending();
-        events = await widget.auth.client.fetchAccessNotifications();
       } catch (_) {}
       if (st.isAdmin) {
         try {
@@ -120,7 +121,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() {
         _access = st;
         _pending = pending;
-        _events = events.reversed.take(20).toList();
         _errorBadge = badge;
       });
     } on AsrApiException catch (e) {
@@ -374,12 +374,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (!logged || user == null)
               const Text('로그인이 필요합니다.')
             else ...[
-              Text(user.displayLabel),
-              if (user.providers.isNotEmpty)
-                Text(
-                  user.providers.join(', '),
-                  style: Theme.of(context).textTheme.bodySmall,
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => setState(
+                  () => _accountLinksExpanded = !_accountLinksExpanded,
                 ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(user.displayLabel),
+                    if (user.providers.isNotEmpty)
+                      Text(
+                        user.providers.join(', '),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 12),
               FilledButton(
                 onPressed: widget.auth.busy
@@ -393,49 +404,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       )
                     : const Text('로그아웃'),
               ),
-              const SizedBox(height: 20),
-              Text('계정 연결', style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 4),
-              Text(
-                '다른 로그인 수단을 같은 보관함에 묶습니다. '
-                '논문 목록 자동 합치기는 아직 없습니다.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              if ((widget.auth.error ?? '').isNotEmpty) ...[
-                const SizedBox(height: 8),
+              if (_accountLinksExpanded) ...[
+                const SizedBox(height: 20),
+                Text('계정 연결', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 4),
                 Text(
-                  widget.auth.error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  '다른 로그인 수단을 같은 보관함에 묶습니다. '
+                  '논문 목록 자동 합치기는 아직 없습니다.',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
+                if ((widget.auth.error ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.auth.error!,
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                ..._accountLinkTiles(user),
               ],
-              const SizedBox(height: 8),
-              ..._accountLinkTiles(user),
-            ],
-            // WHY: admin-only — cloud error triage replaces status dump (design/130).
-            // EDGE: non-admin must not see others' logs (server still 403).
-            if (access?.isAdmin == true) ...[
-              const SizedBox(height: 8),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Badge(
-                  isLabelVisible: _errorBadge > 0,
-                  label: Text(_errorBadge > 99 ? '99+' : '$_errorBadge'),
-                  child: const Icon(Icons.bug_report_outlined),
-                ),
-                title: const Text('오류 로그'),
-                subtitle: const Text('클라우드에 모인 오류 보기'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () async {
-                  await Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => ErrorLogsScreen(
-                        client: widget.auth.client,
-                      ),
-                    ),
-                  );
-                  if (mounted) _reload();
-                },
-              ),
             ],
             const Divider(height: 32),
             Text('테마', style: Theme.of(context).textTheme.titleMedium),
@@ -592,21 +579,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
             const Divider(height: 32),
-            Text('번역', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text(
-              '기본은 꺼져 있습니다. 끄면 문서 만들 때 번역하지 않고, 켠 뒤 그 문서를 열면 번역을 채웁니다.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('번역 사용'),
+              title: const Text('번역'),
               value: widget.translate.enabled,
               onChanged: !logged
                   ? null
                   : (v) async {
                       await widget.translate.setEnabled(v);
-                      // design/99 — turning ON while a paper is open → re-open for KO backfill.
                       if (!v) return;
                       final cacheId =
                           (widget.library.session?.cacheId ?? '').trim();
@@ -619,15 +599,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 widget.translate.error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
-            const Divider(height: 32),
-            Text('읽기', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text(
-              widget.citePanel.serverAvailable
-                  ? '문장에 [1] 같은 각주가 있으면 아래 References 패널에 목록을 보여줍니다. 끄면 패널만 숨기고, 문장의 각주 표시는 계속 제거합니다.'
-                  : '서버에서 참고문헌 패널이 꺼져 있습니다.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('참고문헌 패널 표시'),
@@ -641,21 +612,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 widget.citePanel.error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
-            const Divider(height: 32),
-            Text('쉐도잉 연습', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text(
-              widget.shadowing.serverAvailable
-                  ? '기본은 꺼져 있습니다. 켜면 문장 따라 말하기 연습을 씁니다 (연습 화면은 후속 연결).'
-                  : '서버에서 이 기능이 꺼져 있습니다. 켠 것처럼 보이지 않습니다.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('쉐도잉 연습 사용'),
-              value: widget.shadowing.serverAvailable && widget.shadowing.enabled,
-              // WHY: kill off → null onChanged (disabled); no false success.
-              onChanged: (!logged || !widget.shadowing.serverAvailable)
+              title: const Text('따라 말하기 연습'),
+              value: widget.shadowing.enabled,
+              onChanged: !logged
                   ? null
                   : (v) => widget.shadowing.setEnabled(v),
             ),
@@ -710,6 +671,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Divider(height: 32),
                 Text('관리자', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Badge(
+                    isLabelVisible: _errorBadge > 0,
+                    label: Text(_errorBadge > 99 ? '99+' : '$_errorBadge'),
+                    child: const Icon(Icons.bug_report_outlined),
+                  ),
+                  title: const Text('오류 로그'),
+                  subtitle: const Text('클라우드에 모인 오류 보기'),
+                  onTap: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ErrorLogsScreen(
+                          client: widget.auth.client,
+                        ),
+                      ),
+                    );
+                    if (mounted) _reload();
+                  },
+                ),
+                const SizedBox(height: 8),
                 Text(
                   '초대 코드 발급과 승인만 합니다. 본인 초대 입력은 필요 없습니다.',
                   style: Theme.of(context).textTheme.bodySmall,
@@ -752,18 +734,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   );
                 }),
-                if (_events.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text('알림', style: Theme.of(context).textTheme.titleSmall),
-                  ..._events.take(8).map((e) {
-                    return ListTile(
-                      dense: true,
-                      title: Text('${e['type'] ?? ''}'),
-                      subtitle:
-                          Text('${e['email'] ?? ''} ${e['message'] ?? ''}'),
-                    );
-                  }),
-                ],
               ],
               // WHY: after admin Allow, invitee status stays pending until re-fetch.
               if (shouldShowSettingsInviteRedeem(access) ||

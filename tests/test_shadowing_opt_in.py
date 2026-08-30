@@ -16,7 +16,7 @@ def test_shadowing_default_off(monkeypatch) -> None:
     assert sp.shadowing_practice_enabled() is False
     with TestClient(app_mod.app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.78"
+    assert st["version"] == "0.3.94"
     assert st["shadowing_practice"] is False
     assert st["mobile_shadowing_practice"] is False
 
@@ -57,7 +57,7 @@ def test_mobile_settings_has_shadowing_switch() -> None:
         os.path.join(root, "mobile", "lib", "api", "shadowing_models.dart"),
         encoding="utf-8",
     ).read()
-    assert "쉐도잉 연습" in settings
+    assert "따라 말하기 연습" in settings
     assert "serverAvailable" in settings
     assert "asr.shadowing.v1" in models
     assert "parseShadowingEnabledPref" in models

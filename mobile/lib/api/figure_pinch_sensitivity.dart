@@ -11,6 +11,9 @@ import 'dart:math' as math;
 /// zoom-out accelerate symmetrically on a log scale.
 const double kFigurePinchSensitivity = 1.85;
 
+/// Same product lock as pinch — zoomed pan should feel equally responsive.
+const double kFigurePanSensitivity = kFigurePinchSensitivity;
+
 /// Returns the relative scale to apply on top of the scale at gesture start.
 ///
 /// [rawScale] comes from [ScaleUpdateDetails.scale] (1.0 at start).
@@ -26,4 +29,17 @@ double amplifyFigurePinchScale({
   if ((rawScale - 1.0).abs() < 1e-6) return 1.0;
   // WHY: exponent > 1 → same finger travel feels stronger (design/118).
   return math.pow(rawScale, sensitivity).toDouble();
+}
+
+/// Extra pan multiplier on top of [InteractiveViewer]'s 1:1 drag when zoomed.
+///
+/// [delta] is logical px moved this frame; returns the **additional** px to apply
+/// so total travel ≈ `delta * sensitivity`.
+double amplifyFigurePanExtraDelta({
+  required double delta,
+  double sensitivity = kFigurePanSensitivity,
+}) {
+  if (!delta.isFinite) return 0.0;
+  if (!sensitivity.isFinite || sensitivity <= 1.0) return 0.0;
+  return delta * (sensitivity - 1.0);
 }

@@ -33,7 +33,7 @@ def _clear_cache() -> None:
 
 def test_status_parallel_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.78"
+    assert st["version"] == "0.3.85"
     assert st["translate_parallel"] is True
     assert 1 <= int(st["translate_workers"]) <= 8
 
@@ -75,7 +75,7 @@ def test_parallel_enrich_with_workers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         ts, "_make_digest", lambda sec, lines: {"en": "e", "ko": "k"}
     )
-    monkeypatch.setattr(ts, "_harmonize", lambda en, ko, d: ko + "|h")
+    monkeypatch.setattr(ts, "_harmonize", lambda en, ko, d: (ko + "|h", True))
 
     sents = [
         Sentence(id=f"s{i}", text=f"Sentence number {i} about Ni.", section="abstract")
@@ -118,7 +118,7 @@ def test_parallel_workers_one_matches_serial_shape(
     monkeypatch.setattr(
         ts, "_make_digest", lambda sec, lines: {"en": "e", "ko": "k"}
     )
-    monkeypatch.setattr(ts, "_harmonize", lambda en, ko, d: ko)
+    monkeypatch.setattr(ts, "_harmonize", lambda en, ko, d: (ko, True))
 
     sents = [Sentence(id="s1", text="Hello world.", section="body")]
     out_s, _f, _d, w = ts.enrich_session_translations(sents, [], workers=1)
@@ -129,4 +129,4 @@ def test_parallel_workers_one_matches_serial_shape(
 
 def test_asset_version() -> None:
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.78" in served
+    assert "app.js?v=0.3.85" in served

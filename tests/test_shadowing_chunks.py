@@ -59,6 +59,27 @@ def test_plan_mixed_ko_en(shadowing_env: Path) -> None:
     assert "강력한" in chunks[-1]
 
 
+def test_plan_sentence_chunks_fallback_when_parse_fails(shadowing_env: Path) -> None:
+    def bad_gen(system: str, user: str) -> str | None:
+        return "not valid json at all"
+
+    chunks = sc.plan_sentence_chunks(
+        "catalyst is a powerful tool for reforming",
+        generate=bad_gen,
+    )
+    assert chunks[-1] == "catalyst is a powerful tool for reforming"
+    assert len(chunks) >= 2
+    assert chunks[0].startswith("catalyst")
+
+
+def test_fallback_word_chunks_growing() -> None:
+    full = "one two three four five six seven eight"
+    chunks = sc._fallback_word_chunks(full)
+    assert chunks[-1] == full
+    for i in range(1, len(chunks)):
+        assert full.startswith(chunks[i - 1]) or chunks[i - 1].startswith(chunks[i][:5])
+
+
 def test_build_and_load_isolated(shadowing_env: Path) -> None:
     plan = sc.build_chunk_plan(
         uid="user_a_test01",
@@ -123,7 +144,7 @@ def test_kill_off_rejects(shadowing_env: Path, monkeypatch) -> None:
     r = client.get("/api/shadowing/chunks/abcd1234ef")
     assert r.status_code == 503
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.78"
+    assert st["version"] == "0.3.94"
     assert st["shadowing_chunks"] is False
 
 

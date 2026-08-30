@@ -20,7 +20,7 @@ DESIGN = ROOT / "docs" / "design" / "129-lazy-figure-open.md"
 def test_design_and_status_pin() -> None:
     assert DESIGN.is_file()
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.78"
+    assert st["version"] == "0.3.85"
     assert st.get("lazy_figure_open") is True
     assert "rich-v24" in str(st.get("pipeline_version") or "")
 

@@ -50,9 +50,9 @@ def test_design_wiring_and_version() -> None:
     dart = MOBILE.read_text(encoding="utf-8")
     assert "maxRounds" in dart
     assert "continue" in dart
-    assert "0.3.78" in PUB.read_text(encoding="utf-8")
+    assert "0.3.94" in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.78"
+    assert st["version"] == "0.3.94"
 
 
 def test_api_unexpected_exception_is_502_not_500(
@@ -92,6 +92,43 @@ def test_gemini_exception_becomes_value_error(shadowing_env: Path) -> None:
 
     with pytest.raises(ValueError, match="gemini_unavailable"):
         sc.plan_sentence_chunks("a longer sentence needing gemini path here", generate=bad_gen)
+
+
+def test_shadowing_build_gcs_pull_before_load(
+    shadowing_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """design/160 — build without sentences must GCS-pull before load_cached_session."""
+    calls: list[str] = []
+
+    def fake_refresh(cache_id: str) -> tuple[bool, str]:
+        calls.append(f"refresh:{cache_id}")
+        return True, "ok"
+
+    def fake_load(cache_id: str):
+        calls.append(f"load:{cache_id}")
+        return None
+
+    monkeypatch.setattr(
+        "sentence_reading.llm.papers_gcs.refresh_paper_for_open", fake_refresh
+    )
+    monkeypatch.setattr(
+        "sentence_reading.cache.paper_cache.load_cached_session", fake_load
+    )
+    monkeypatch.setattr(app_mod, "gemini_available", lambda: True)
+    token = issue_session_token(
+        AuthUser(uid="u_chunk160", email="a@example.com", name="A")
+    )
+    client = TestClient(app)
+    client.cookies.set("asr_session", token)
+    r = client.post(
+        "/api/shadowing/chunks/chunk160aaa/build",
+        json={"practice_enabled": True},
+    )
+    assert r.status_code == 404, r.text
+    body = r.json()
+    assert body.get("error") == "paper_not_found"
+    assert "보관된 논문" not in body.get("message", "")
+    assert calls == ["refresh:chunk160aaa", "load:chunk160aaa"]
 
 
 def test_a_b_isolation_unchanged(shadowing_env: Path) -> None:

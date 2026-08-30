@@ -10,7 +10,16 @@ void main() {
     expect(parseCiteNumbers('[99999]'), isEmpty);
   });
 
-  test('stripCiteMarkersForDisplay', () {
+  test('parseCiteNumbers bracket-dollar hybrid', () {
+    expect(parseCiteNumbers('dioxide [8, 9]\$1'), [8, 9, 1]);
+    expect(parseCiteNumbers('CO<sub>2</sub>\$1'), [1]);
+  });
+
+  test('stripCiteMarkersForDisplay hybrid bracket-dollar', () {
+    expect(
+      stripCiteMarkersForDisplay('dioxide [8, 9]\$1.'),
+      'dioxide.',
+    );
     expect(
       stripCiteMarkersForDisplay('stable.[1,2] Rates'),
       'stable. Rates',
@@ -40,6 +49,22 @@ void main() {
     expect(hints[0].n, 1);
     expect(hintsForSentence(text: 'no cites', bibliography: bib), isEmpty);
     expect(hintsForSentence(text: '[9]', bibliography: bib), isEmpty);
+  });
+
+  test('plain trailing ACS cite parse strip and hints', () {
+    const minus = '\u2212';
+    final s6 = 'Ni nanoparticles for the MDR reaction.6${minus}9';
+    expect(parseCiteNumbers(s6), [6, 7, 8, 9]);
+    expect(
+      stripCiteMarkersForDisplay(s6),
+      'Ni nanoparticles for the MDR reaction.',
+    );
+    final bib = [
+      const CiteRefEntry(n: 6, text: 'Ref six long enough.'),
+      const CiteRefEntry(n: 7, text: 'Ref seven long enough.'),
+    ];
+    final hints = hintsForSentence(text: s6, bibliography: bib);
+    expect(hints.map((e) => e.n).toList(), [6, 7]);
   });
 
   test('parseReferenceList', () {

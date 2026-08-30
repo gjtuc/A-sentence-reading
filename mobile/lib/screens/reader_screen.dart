@@ -3,12 +3,14 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../api/cite_refs.dart' as cite;
 import '../api/client.dart';
+import '../api/document_citation.dart';
 import '../api/fig_refs.dart' as fig;
 import '../api/figure_pinch_sensitivity.dart';
 import '../api/figure_swipe_gate.dart';
 import '../api/reading_models.dart';
 import '../api/rich_sentence.dart';
 import '../state/cite_panel_controller.dart';
+import '../state/bookmark_controller.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/translate_controller.dart';
@@ -36,6 +38,7 @@ class ReaderScreen extends StatefulWidget {
     required this.shadowing,
     required this.translate,
     required this.citePanel,
+    required this.bookmarks,
   });
 
   final LibraryController library;
@@ -44,6 +47,7 @@ class ReaderScreen extends StatefulWidget {
   final ShadowingController shadowing;
   final TranslateController translate;
   final CitePanelController citePanel;
+  final BookmarkController bookmarks;
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
@@ -134,6 +138,25 @@ class _ReaderScreenState extends State<ReaderScreen> {
     });
   }
 
+  /// design/156 — full-screen vertical swipe (split restore stays double-tap).
+  void _swipeToSentenceFromFigure() {
+    setState(() {
+      if (_layout != _ReaderLayoutMode.figureOnly) return;
+      _layout = _ReaderLayoutMode.sentenceOnly;
+      _edgePreviewSentence = false;
+      _edgePreviewFigure = false;
+    });
+  }
+
+  void _swipeToFigureFromSentence() {
+    setState(() {
+      if (_layout != _ReaderLayoutMode.sentenceOnly) return;
+      _layout = _ReaderLayoutMode.figureOnly;
+      _edgePreviewSentence = false;
+      _edgePreviewFigure = false;
+    });
+  }
+
   void _onSplitDragUpdate(double deltaDy, double totalH) {
     if (totalH <= _kSplitBar + 1) return;
     final usable = totalH - _kSplitBar;
@@ -191,7 +214,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final shadowing = widget.shadowing;
     final translate = widget.translate;
     return AnimatedBuilder(
-      animation: Listenable.merge([library, tts, translate, widget.citePanel]),
+      animation: Listenable.merge(
+          [library, tts, translate, widget.citePanel, widget.bookmarks]),
       builder: (context, _) {
         final s = library.session;
         if (s == null || !s.isValid) {
@@ -224,24 +248,26 @@ class _ReaderScreenState extends State<ReaderScreen> {
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                   ),
-                  // design/82 — separate practice mode (gated by kill + opt-in).
-                  TextButton(
-                    onPressed: (!shadowing.serverAvailable || !shadowing.enabled)
-                        ? null
-                        : () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => ShadowingPracticeScreen(
-                                  client: client,
-                                  library: library,
-                                  shadowing: shadowing,
-                                  tts: tts,
+                  if (shadowing.enabled)
+                    TextButton(
+                      onPressed: !shadowing.serverAvailable
+                          ? null
+                          : () async {
+                              await shadowing.recordPracticePressed();
+                              if (!context.mounted) return;
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => ShadowingPracticeScreen(
+                                    client: client,
+                                    library: library,
+                                    shadowing: shadowing,
+                                    tts: tts,
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
-                    child: const Text('연습'),
-                  ),
+                              );
+                            },
+                      child: const Text('연습'),
+                    ),
                 ],
               ),
             ),
@@ -318,11 +344,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       client: client,
                                       session: s,
                                       citePanel: widget.citePanel,
+                                      bookmarks: widget.bookmarks,
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
                                       figRefHints: _figRefHints,
                                       onToggleChrome: _toggleChrome,
                                       onDoubleTapExpand: _toggleSentenceExpand,
+                                      onSwipeToFigure: _layout ==
+                                              _ReaderLayoutMode.sentenceOnly
+                                          ? _swipeToFigureFromSentence
+                                          : null,
                                     ),
                             ),
                           ),
@@ -347,12 +378,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       library: library,
                                       client: client,
                                       session: s,
+                                      bookmarks: widget.bookmarks,
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
                                       captionFullText: _captionFullText,
                                       figureCaptionInImage: _figureCaptionInImage,
                                       onToggleChrome: _toggleChrome,
                                       onDoubleTapExpand: _toggleFigureExpand,
+                                      onSwipeToSentence: _layout ==
+                                              _ReaderLayoutMode.figureOnly
+                                          ? _swipeToSentenceFromFigure
+                                          : null,
                                       onLongPressEdit: () {
                                         final cid = s.cacheId.trim();
                                         if (cid.isEmpty) return;
@@ -463,11 +499,13 @@ class _SentencePanel extends StatelessWidget {
     required this.client,
     required this.session,
     required this.citePanel,
+    required this.bookmarks,
     required this.showKo,
     required this.showChrome,
     this.figRefHints = true,
     this.onToggleChrome,
     this.onDoubleTapExpand,
+    this.onSwipeToFigure,
   });
 
   final LibraryController library;
@@ -475,12 +513,15 @@ class _SentencePanel extends StatelessWidget {
   final AsrClient client;
   final ReadingSession session;
   final CitePanelController citePanel;
+  final BookmarkController bookmarks;
   final bool showKo;
   final bool showChrome;
   /// design/124 — from /api/status; parent owns fetch.
   final bool figRefHints;
   final VoidCallback? onToggleChrome;
   final VoidCallback? onDoubleTapExpand;
+  /// design/156 — sentence full-screen: swipe up → figure full-screen.
+  final VoidCallback? onSwipeToFigure;
 
   @override
   Widget build(BuildContext context) {
@@ -489,6 +530,20 @@ class _SentencePanel extends StatelessWidget {
         ? const SectionHeaderParts(sectionName: 'no sentences', position: 0, total: 0)
         : session.sectionNav.headerPartsFor(session.sentenceIndex);
     final canPick = session.sentenceCount > 0 && session.sectionNav.sectionCount > 0;
+    final sentKey =
+        session.sectionNav.sentenceBookmarkKeyForGlobal(session.sentenceIndex);
+    final sentHighlighted = bookmarks.isSentenceBookmarked(sentKey);
+    final sectionBadge =
+        bookmarks.sectionBadgeCount(session.sectionNav, session.sentenceIndex);
+    final bookmarkHints = BookmarkPickerHints(
+      leftBadgeCount: (i) =>
+          bookmarks.pickerSectionBadgeCount(session.sectionNav, i),
+      rightHighlighted: (left, right) => bookmarks.pickerSentenceHighlighted(
+        session.sectionNav,
+        left,
+        right,
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Column(
@@ -520,18 +575,28 @@ class _SentencePanel extends StatelessWidget {
                               ? '— / —'
                               : header.rightLabel,
                           enabled: canPick,
+                          highlighted: sentHighlighted,
+                          leftBadgeCount: sectionBadge,
                           onTap: canPick
                               ? () async {
                                   final idx = await showSectionNavPicker(
                                     context: context,
                                     nav: session.sectionNav,
                                     currentGlobalIndex: session.sentenceIndex,
+                                    bookmarks: bookmarkHints,
                                   );
                                   if (idx == null) return;
                                   await tts.stop();
                                   await library.goToSentenceIndex(idx);
                                 }
                               : null,
+                          onLongPress: session.sentenceCount == 0
+                              ? null
+                              : () => _handleSentenceBookmarkLongPress(
+                                    context,
+                                    bookmarks: bookmarks,
+                                    session: session,
+                                  ),
                         ),
                       ),
                       IconButton(
@@ -602,6 +667,7 @@ class _SentencePanel extends StatelessWidget {
                 },
                 onTap: onToggleChrome,
                 onDoubleTap: onDoubleTapExpand,
+                onSwipeUp: onSwipeToFigure,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: SingleChildScrollView(
@@ -620,7 +686,8 @@ class _SentencePanel extends StatelessWidget {
                               if (showKo && cur.textKo.trim().isNotEmpty) ...[
                                 const SizedBox(height: 12),
                                 richSentenceText(
-                                  cur.textKo,
+                                  // design/148 — KO display matches EN cite strip (web stripCitesForUi).
+                                  cite.stripCiteMarkersForDisplay(cur.textKo),
                                   style:
                                       Theme.of(context).textTheme.bodyMedium ??
                                           const TextStyle(fontSize: 14),
@@ -633,6 +700,16 @@ class _SentencePanel extends StatelessWidget {
               ),
             ),
           ),
+          if (shouldShowThisPaperPanel(
+            session: session,
+            citePanelEnabled: citePanel.enabled,
+            citePanelServerAvailable: citePanel.serverAvailable,
+            thisPaperServerAvailable: citePanel.thisPaperServerAvailable,
+          ))
+            _ThisPaperPanel(
+              client: client,
+              citation: effectiveCitation(session),
+            ),
           // design/139 — web-parity: dedicated chip row BELOW sentence frame (not inside body scroll).
           ..._figRefChipRow(context),
           if (citePanel.enabled && citePanel.serverAvailable)
@@ -698,6 +775,138 @@ class _SentencePanel extends StatelessWidget {
         ),
       ),
     ];
+  }
+}
+
+/// design/157 — single bibliographic row for the paper being read (Title 1/N).
+class _ThisPaperPanel extends StatefulWidget {
+  const _ThisPaperPanel({
+    required this.client,
+    required this.citation,
+  });
+
+  final AsrClient client;
+  final DocumentCitation citation;
+
+  @override
+  State<_ThisPaperPanel> createState() => _ThisPaperPanelState();
+}
+
+class _ThisPaperPanelState extends State<_ThisPaperPanel> {
+  bool _busy = false;
+  String? _inlineError;
+
+  Future<void> _open() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _inlineError = null;
+    });
+    try {
+      final doi = widget.citation.doi.trim();
+      if (doi.isNotEmpty) {
+        final uri = Uri.parse('https://doi.org/$doi');
+        final launched =
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (!launched && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('브라우저를 열 수 없습니다.')),
+          );
+        }
+        return;
+      }
+      final result = await widget.client.resolveCite(widget.citation.text);
+      if (!result.ok || result.url.isEmpty) {
+        final msg = result.message.isNotEmpty
+            ? result.message
+            : (result.error.isNotEmpty ? result.error : 'resolve_failed');
+        setState(() => _inlineError = msg);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('이 논문 링크를 열 수 없습니다: $msg')),
+          );
+        }
+        return;
+      }
+      final uri = Uri.tryParse(result.url);
+      if (uri == null) {
+        setState(() => _inlineError = 'bad_url');
+        return;
+      }
+      final launched =
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('브라우저를 열 수 없습니다.')),
+        );
+      }
+    } catch (e) {
+      setState(() => _inlineError = e.toString());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('이 논문 링크 오류: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.citation.isVisible) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 2),
+      child: Material(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+              child: Text(
+                '이 논문',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+            ),
+            if (_inlineError != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                child: Text(
+                  _inlineError!,
+                  style: TextStyle(color: scheme.error, fontSize: 11),
+                ),
+              ),
+            ListTile(
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              enabled: !_busy,
+              leading: Icon(
+                Icons.article_outlined,
+                size: 20,
+                color: scheme.onSurfaceVariant,
+              ),
+              title: Text(
+                widget.citation.text,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12),
+              ),
+              subtitle: widget.citation.doi.isNotEmpty
+                  ? Text(
+                      'DOI ${widget.citation.doi}',
+                      style: const TextStyle(fontSize: 10),
+                    )
+                  : null,
+              onTap: _open,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -863,6 +1072,7 @@ class _FigurePanel extends StatelessWidget {
     required this.library,
     required this.client,
     required this.session,
+    required this.bookmarks,
     required this.showKo,
     required this.showChrome,
     this.captionFullText = true,
@@ -870,11 +1080,13 @@ class _FigurePanel extends StatelessWidget {
     this.onToggleChrome,
     this.onDoubleTapExpand,
     this.onLongPressEdit,
+    this.onSwipeToSentence,
   });
 
   final LibraryController library;
   final AsrClient client;
   final ReadingSession session;
+  final BookmarkController bookmarks;
   final bool showKo;
   final bool showChrome;
   /// design/131 — false restores 2-line ellipsis (server kill / old clients).
@@ -885,6 +1097,8 @@ class _FigurePanel extends StatelessWidget {
   final VoidCallback? onDoubleTapExpand;
   /// design/151 — long-press figure panel → overlay editor.
   final VoidCallback? onLongPressEdit;
+  /// design/156 — figure full-screen: swipe down → sentence full-screen.
+  final VoidCallback? onSwipeToSentence;
 
   @override
   Widget build(BuildContext context) {
@@ -898,6 +1112,19 @@ class _FigurePanel extends StatelessWidget {
           );
     final canPick =
         session.figureCount > 0 && session.figureNav.hasPicker;
+    final figKey =
+        session.figureNav.figureBookmarkKeyForCarousel(session.figureIndex);
+    final figHighlighted = bookmarks.isFigureBookmarked(figKey);
+    final kindBadge =
+        bookmarks.kindBadgeCount(session.figureNav, session.figureIndex);
+    final bookmarkHints = BookmarkPickerHints(
+      leftBadgeCount: (i) => bookmarks.pickerKindBadgeCount(session.figureNav, i),
+      rightHighlighted: (left, right) => bookmarks.pickerFigureHighlighted(
+        session.figureNav,
+        left,
+        right,
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Column(
@@ -926,17 +1153,27 @@ class _FigurePanel extends StatelessWidget {
                               ? '— / —'
                               : header.rightLabel,
                           enabled: canPick,
+                          highlighted: figHighlighted,
+                          leftBadgeCount: kindBadge,
                           onTap: canPick
                               ? () async {
                                   final idx = await showFigureNavPicker(
                                     context: context,
                                     nav: session.figureNav,
                                     currentCarouselIndex: session.figureIndex,
+                                    bookmarks: bookmarkHints,
                                   );
                                   if (idx == null) return;
                                   await library.goToFigureIndex(idx);
                                 }
                               : null,
+                          onLongPress: session.figureCount == 0
+                              ? null
+                              : () => _handleFigureBookmarkLongPress(
+                                    context,
+                                    bookmarks: bookmarks,
+                                    session: session,
+                                  ),
                         ),
                       ),
                       IconButton(
@@ -972,6 +1209,7 @@ class _FigurePanel extends StatelessWidget {
                             onNext: () => library.advanceFigure(1),
                             onTap: onToggleChrome,
                             onDoubleTapExpand: onDoubleTapExpand,
+                            onSwipeToSentence: onSwipeToSentence,
                           ),
                         ),
                         if (!figureCaptionInImage &&
@@ -990,8 +1228,12 @@ class _FigurePanel extends StatelessWidget {
                               child: SingleChildScrollView(
                                 child: Text(
                                   (showKo && cur.captionKo.trim().isNotEmpty)
-                                      ? cur.captionKo
-                                      : cur.caption,
+                                      ? cite.stripCiteMarkersForDisplay(
+                                          cur.captionKo,
+                                        )
+                                      : cite.stripCiteMarkersForDisplay(
+                                          cur.caption,
+                                        ),
                                   maxLines: captionFullText ? null : 2,
                                   overflow: captionFullText
                                       ? TextOverflow.visible
@@ -1022,6 +1264,7 @@ class _FigureImage extends StatelessWidget {
     this.onNext,
     this.onTap,
     this.onDoubleTapExpand,
+    this.onSwipeToSentence,
   });
 
   final String src;
@@ -1030,6 +1273,7 @@ class _FigureImage extends StatelessWidget {
   final VoidCallback? onNext;
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTapExpand;
+  final VoidCallback? onSwipeToSentence;
 
   @override
   Widget build(BuildContext context) {
@@ -1050,6 +1294,7 @@ class _FigureImage extends StatelessWidget {
         onNext: onNext,
         onTap: onTap,
         onDoubleTapExpand: onDoubleTapExpand,
+        onSwipeToSentence: onSwipeToSentence,
         child: Image.memory(
           decoded.bytes,
           fit: BoxFit.contain,
@@ -1065,6 +1310,7 @@ class _FigureImage extends StatelessWidget {
         onNext: onNext,
         onTap: onTap,
         onDoubleTapExpand: onDoubleTapExpand,
+        onSwipeToSentence: onSwipeToSentence,
         child: Image.network(
           src,
           fit: BoxFit.contain,
@@ -1099,6 +1345,7 @@ class _SwipePager extends StatefulWidget {
     required this.onNext,
     this.onTap,
     this.onDoubleTap,
+    this.onSwipeUp,
     this.enabled = true,
   });
 
@@ -1107,6 +1354,8 @@ class _SwipePager extends StatefulWidget {
   final Future<void> Function()? onNext;
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
+  /// design/156 — sentence full-screen only: swipe up → figure panel.
+  final VoidCallback? onSwipeUp;
   final bool enabled;
 
   @override
@@ -1116,9 +1365,11 @@ class _SwipePager extends StatefulWidget {
 class _SwipePagerState extends State<_SwipePager> {
   static const double _minDistance = 56;
   static const double _minVelocity = 180;
+  static const double _minVerticalDistance = 88;
   double _dx = 0;
+  double _dy = 0;
 
-  void _handleDragEnd(DragEndDetails details) {
+  void _handleHorizontalDragEnd(DragEndDetails details) {
     if (!widget.enabled) return;
     final v = details.primaryVelocity ?? 0;
     // design/143 — gallery convention: finger left → next, right → previous.
@@ -1132,15 +1383,42 @@ class _SwipePagerState extends State<_SwipePager> {
     }
   }
 
+  void _handleVerticalDragEnd(DragEndDetails details) {
+    if (!widget.enabled || widget.onSwipeUp == null) return;
+    final v = details.primaryVelocity ?? 0;
+    // design/156 — finger up → reveal figure full-screen.
+    final goUp = _dy < -_minVerticalDistance || v < -_minVelocity;
+    _dy = 0;
+    if (goUp) {
+      widget.onSwipeUp!();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: widget.onTap,
       onDoubleTap: widget.onDoubleTap,
-      onHorizontalDragStart: (_) => _dx = 0,
+      onHorizontalDragStart: widget.onSwipeUp == null
+          ? (_) => _dx = 0
+          : (_) {
+              _dx = 0;
+              _dy = 0;
+            },
       onHorizontalDragUpdate: (d) => _dx += d.delta.dx,
-      onHorizontalDragEnd: _handleDragEnd,
+      onHorizontalDragEnd: _handleHorizontalDragEnd,
+      onVerticalDragStart: widget.onSwipeUp == null
+          ? null
+          : (_) {
+              _dx = 0;
+              _dy = 0;
+            },
+      onVerticalDragUpdate: widget.onSwipeUp == null
+          ? null
+          : (d) => _dy += d.delta.dy,
+      onVerticalDragEnd:
+          widget.onSwipeUp == null ? null : _handleVerticalDragEnd,
       child: widget.child,
     );
   }
@@ -1165,6 +1443,7 @@ class _ZoomableFigureFrame extends StatefulWidget {
     this.onNext,
     this.onTap,
     this.onDoubleTapExpand,
+    this.onSwipeToSentence,
   });
 
   final Widget child;
@@ -1173,6 +1452,8 @@ class _ZoomableFigureFrame extends StatefulWidget {
   final VoidCallback? onNext;
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTapExpand;
+  /// design/156 — figure full-screen @ 1×: swipe down → sentence panel.
+  final VoidCallback? onSwipeToSentence;
 
   @override
   State<_ZoomableFigureFrame> createState() => _ZoomableFigureFrameState();
@@ -1181,6 +1462,8 @@ class _ZoomableFigureFrame extends StatefulWidget {
 class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
   final TransformationController _transform = TransformationController();
   static const double _minDistance = 56;
+  static const double _minVerticalDistance = 88;
+  static const double _minVelocity = 180;
   static const double _zoomEps = 1.02;
   static const double _maxScale = 8.0;
   Offset _panAtStart = Offset.zero;
@@ -1188,6 +1471,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
   int _maxPointers = 0;
   /// Scale on axis at [onInteractionStart] — base for design/118 amplify.
   double _scaleAtGestureStart = 1.0;
+  Offset _lastFocalPoint = Offset.zero;
 
   @override
   void dispose() {
@@ -1201,6 +1485,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     _panAtStart = Offset(t.x, t.y);
     _maxPointers = details.pointerCount;
     _scaleAtGestureStart = _transform.value.getMaxScaleOnAxis();
+    _lastFocalPoint = details.localFocalPoint;
   }
 
   void _onInteractionUpdate(ScaleUpdateDetails details) {
@@ -1208,6 +1493,20 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     if (details.pointerCount > _maxPointers) {
       _maxPointers = details.pointerCount;
     }
+    final scaleNow = _transform.value.getMaxScaleOnAxis();
+    // design/118+156 — amplify zoomed one-finger pan (IV is 1:1 by default).
+    if (details.pointerCount == 1 && scaleNow > _zoomEps) {
+      final delta = details.localFocalPoint - _lastFocalPoint;
+      _lastFocalPoint = details.localFocalPoint;
+      final extraX = amplifyFigurePanExtraDelta(delta: delta.dx);
+      final extraY = amplifyFigurePanExtraDelta(delta: delta.dy);
+      if (extraX.abs() > 1e-4 || extraY.abs() > 1e-4) {
+        _transform.value = Matrix4.copy(_transform.value)
+          ..translate(extraX, extraY);
+      }
+      return;
+    }
+    _lastFocalPoint = details.localFocalPoint;
     // design/118 — InteractiveViewer already applied 1:1 scale; strengthen it.
     // One-finger pan must stay untouched (117 swipe path).
     if (details.pointerCount < 2) return;
@@ -1233,6 +1532,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     final scale = _transform.value.getMaxScaleOnAxis();
     final t = _transform.value.getTranslation();
     final dx = t.x - _panAtStart.dx;
+    final dy = t.y - _panAtStart.dy;
     final maxPointers = _maxPointers;
     // Reset for the next gesture (after fingers up, one-finger swipe works again).
     _maxPointers = 0;
@@ -1240,6 +1540,17 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     // EDGE: pinch ended above 1× — keep pan/zoom; no figure change.
     if (scale > _zoomEps) {
       return;
+    }
+
+    // design/156 — vertical panel swap (before 1× snap-back).
+    if (widget.onSwipeToSentence != null && maxPointers < 2) {
+      final goDown = dy > _minVerticalDistance ||
+          details.velocity.pixelsPerSecond.dy > _minVelocity;
+      if (dy.abs() > dx.abs() && goDown) {
+        _transform.value = Matrix4.identity();
+        widget.onSwipeToSentence!();
+        return;
+      }
     }
 
     // WHY: 1× pan was only for swipe affordance — snap matrix back so the
@@ -1310,5 +1621,97 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
         );
       },
     );
+  }
+}
+
+Future<void> _handleSentenceBookmarkLongPress(
+  BuildContext context, {
+  required BookmarkController bookmarks,
+  required ReadingSession session,
+}) async {
+  if (!bookmarks.canBookmark) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('북마크를 쓰려면 로그인해 주세요.')),
+    );
+    return;
+  }
+  final nav = session.sectionNav;
+  final key = nav.sentenceBookmarkKeyForGlobal(session.sentenceIndex);
+  if (bookmarks.isSentenceBookmarked(key)) {
+    await bookmarks.toggleSentenceBookmark(nav, session.sentenceIndex);
+    return;
+  }
+  final header = nav.headerPartsFor(session.sentenceIndex);
+  final label = header.sectionName.isEmpty
+      ? '${header.position}번 문장'
+      : '${header.sectionName} ${header.position}번';
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('북마크할까요?'),
+      content: Text(
+        '$label을 북마크하면 피커에서 쉽게 찾을 수 있어요.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('아니오'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('예'),
+        ),
+      ],
+    ),
+  );
+  if (ok == true) {
+    await bookmarks.toggleSentenceBookmark(nav, session.sentenceIndex);
+  }
+}
+
+Future<void> _handleFigureBookmarkLongPress(
+  BuildContext context, {
+  required BookmarkController bookmarks,
+  required ReadingSession session,
+}) async {
+  if (!bookmarks.canBookmark) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('북마크를 쓰려면 로그인해 주세요.')),
+    );
+    return;
+  }
+  final nav = session.figureNav;
+  final key = nav.figureBookmarkKeyForCarousel(session.figureIndex);
+  if (bookmarks.isFigureBookmarked(key)) {
+    await bookmarks.toggleFigureBookmark(nav, session.figureIndex);
+    return;
+  }
+  final header = nav.headerPartsFor(
+    session.figureIndex,
+    totalFigures: session.figureCount,
+  );
+  final kind = header.kindLabel.isEmpty ? 'Figure' : header.kindLabel;
+  final num = header.numberLabel.isEmpty ? '?' : header.numberLabel;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('북마크할까요?'),
+      content: Text(
+        '$kind $num을 북마크하면 피커에서 쉽게 찾을 수 있어요.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('아니오'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('예'),
+        ),
+      ],
+    ),
+  );
+  if (ok == true) {
+    await bookmarks.toggleFigureBookmark(nav, session.figureIndex);
   }
 }

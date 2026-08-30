@@ -27,10 +27,16 @@ _CITE_BRACKET_RAW = re.compile(
 )
 # Word-attached $n (dioxide$1) — glossary 오염·TeX 각주 잔재; $33.00(앞 공백)은 제외
 _DOLLAR_CITE = re.compile(r"(?<=[A-Za-z)\]])\$(\d{1,3})(?!\d)")
+# [8, 9]$1 · </sub>$1 — ] 또는 HTML 닫는 태그 직후 $n (Co–TiO₂ hybrid cite QA)
+_DOLLAR_CITE_AFTER_MARK = re.compile(r"([\]>])\s*\$(\d{1,3})(?!\d)")
 # $^{8,9}$ / ${^8,9}$ — LaTeX 각주
 _DOLLAR_TEX_CITE = re.compile(
-    r"\$\{\^(\d+(?:\s*[,–—-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—-]\s*\d+)*)\}\$",
+    r"\$\{\^(\d+(?:\s*[,–—−-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—−-]\s*\d+)*)\}\$",
     re.IGNORECASE,
+)
+# ACS plain trailing cite — reaction.6−9 · worldwide.1−5 (design/0.3.93)
+_PLAIN_TRAILING = re.compile(
+    r"(?<=[a-zA-Z\)])(\.(\d+(?:\s*[-–—−,]\s*\d+)*))\s*$"
 )
 # References 섹션 헤더
 _REF_HEAD = re.compile(
@@ -82,9 +88,31 @@ def _parse_dollar_cite_numbers(text: str) -> list[int]:
     for m in _DOLLAR_TEX_CITE.finditer(text or ""):
         inner = m.group(1) or m.group(2) or ""
         _add(_expand_dollar_token(inner))
+    for m in _DOLLAR_CITE_AFTER_MARK.finditer(text or ""):
+        _add([int(m.group(2))])
     for m in _DOLLAR_CITE.finditer(text or ""):
         _add([int(m.group(1))])
     return out
+
+
+def _sub_dollar_cite_artifacts(s: str) -> str:
+    """LaTeX·word-attached·]/> 뒤 $n 제거 — repair/strip 공용."""
+
+    def _tex(m: re.Match[str]) -> str:
+        inner = m.group(1) or m.group(2) or ""
+        return "" if _expand_dollar_token(inner) else m.group(0)
+
+    def _dollar(m: re.Match[str]) -> str:
+        n = int(m.group(1))
+        return "" if 1 <= n <= 999 else m.group(0)
+
+    def _after_mark(m: re.Match[str]) -> str:
+        n = int(m.group(2))
+        return m.group(1) if 1 <= n <= 999 else m.group(0)
+
+    s = _DOLLAR_TEX_CITE.sub(_tex, s)
+    s = _DOLLAR_CITE_AFTER_MARK.sub(_after_mark, s)
+    return _DOLLAR_CITE.sub(_dollar, s)
 
 
 def repair_dollar_cite_artifacts(text: str) -> str:
@@ -92,19 +120,7 @@ def repair_dollar_cite_artifacts(text: str) -> str:
     Ingest — glossary가 [8, 9]→$1로 바꾼 뒤 남는 word-attached $n 제거.
     WHY: 재분석 전 캐시·표시층 모두에서 cite 흔적($1) 정리; 가격($33)은 유지.
     """
-    s = text or ""
-
-    def _tex(m: re.Match[str]) -> str:
-        inner = m.group(1) or m.group(2) or ""
-        return "" if _expand_dollar_token(inner) else m.group(0)
-
-    s = _DOLLAR_TEX_CITE.sub(_tex, s)
-
-    def _dollar(m: re.Match[str]) -> str:
-        n = int(m.group(1))
-        return "" if 1 <= n <= 999 else m.group(0)
-
-    return _DOLLAR_CITE.sub(_dollar, s)
+    return _sub_dollar_cite_artifacts(text or "")
 
 
 def extract_doi(text: str) -> str | None:
@@ -126,7 +142,7 @@ def _expand_num_token(token: str) -> list[int]:
         part = part.strip()
         if not part:
             continue
-        m = re.match(r"^(\d+)\s*[-–—]\s*(\d+)$", part)
+        m = re.match(r"^(\d+)\s*[-–—−]\s*(\d+)$", part)
         if m:
             a, b = int(m.group(1)), int(m.group(2))
             if a > b or b - a > 40:
@@ -143,6 +159,13 @@ def _expand_num_token(token: str) -> list[int]:
                 seen.add(n)
                 out.append(n)
     return out
+
+
+def _parse_plain_trailing_cite_numbers(text: str) -> list[int]:
+    m = _PLAIN_TRAILING.search(text or "")
+    if not m:
+        return []
+    return _expand_num_token(m.group(2))
 
 
 def parse_cite_numbers(text: str) -> list[int]:
@@ -163,6 +186,7 @@ def parse_cite_numbers(text: str) -> list[int]:
         _add([int(m.group(1))])
     for n in _parse_dollar_cite_numbers(raw):
         _add([n])
+    _add(_parse_plain_trailing_cite_numbers(strip_tags(raw)))
     return out
 
 
@@ -178,23 +202,18 @@ def strip_cite_markers_for_display(html: str) -> str:
         return "" if 1 <= n <= 999 else m.group(0)
 
     s = _SUP_NUM.sub(_sup, s)
+    # WHY: $n 을 브래킷보다 먼저 — [8, 9]$1 → $1 제거 후 [8,9] 제거 (design/49 hybrid)
+    s = _sub_dollar_cite_artifacts(s)
 
     def _br(m: re.Match[str]) -> str:
         return "" if _expand_num_token(m.group(1)) else m.group(0)
 
     s = _BRACKET.sub(_br, s)
 
-    def _tex(m: re.Match[str]) -> str:
-        inner = m.group(1) or m.group(2) or ""
-        return "" if _expand_dollar_token(inner) else m.group(0)
+    def _plain_trailing(m: re.Match[str]) -> str:
+        return "." if _expand_num_token(m.group(2)) else m.group(0)
 
-    s = _DOLLAR_TEX_CITE.sub(_tex, s)
-
-    def _dollar(m: re.Match[str]) -> str:
-        n = int(m.group(1))
-        return "" if 1 <= n <= 999 else m.group(0)
-
-    s = _DOLLAR_CITE.sub(_dollar, s)
+    s = _PLAIN_TRAILING.sub(_plain_trailing, s)
     s = re.sub(r"\s+([.,;:!?)])", r"\1", s)
     s = re.sub(r"\s{2,}", " ", s)
     return s.strip()
