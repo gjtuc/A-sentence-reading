@@ -180,7 +180,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.107",
+    version="0.3.108",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -813,7 +813,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.107",
+        "version": "0.3.108",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -2986,9 +2986,16 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
         return denied
     cid = (cache_id or "").strip()
     try:
-        from sentence_reading.llm.papers_gcs import ensure_paper_local
+        from sentence_reading.llm.papers_gcs import (
+            download_paper_cache,
+            ensure_paper_local,
+            gcs_papers_ready,
+        )
 
         ensure_paper_local(cid)
+        # WHY: session may be local while source.pdf only lives in GCS (open skips source pull).
+        if get_source_path(cid) is None and gcs_papers_ready():
+            download_paper_cache(cid, include_figures=False, include_source=True)
     except Exception:
         pass
     src = get_source_path(cid)
