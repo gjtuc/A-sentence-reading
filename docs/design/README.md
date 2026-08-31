@@ -283,3 +283,4 @@
 164 — Fig-ref 패널 폴백 (0.3.99).
 167 — debone 품질 가드 · chunk split fallback · warnings·ingest_quality 영속 · Body 진단 (→0.3.100).
 166 — 모바일 주석 MVP · annotations/sync · 문장 long-press · 4색 하이라이트 (→0.3.100, 167 이후 reanchor).
+168 — ingest·open·figures **과잉 계측** · phase machine · T1–T10 불변식 · silent catch 제거 · sweeper (→0.3.112, **버그 수정 전 필수**). 체크리스트: [168-audit-checklist.md](168-audit-checklist.md).

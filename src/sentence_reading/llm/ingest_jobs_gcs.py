@@ -659,23 +659,32 @@ def try_claim_lease(job_id: str, *, owner_uid: str) -> str | None:
     return token
 
 
+def push_job_reason(job: dict[str, Any], *, force: bool = False) -> str:
+    """Why a GCS job write would run — for ops_events ingest_gcs_skip (design/168a)."""
+    if force:
+        return "force"
+    if job.get("done"):
+        return "terminal"
+    if job.get("error"):
+        return "error"
+    prev_p = int(job.get("_gcs_pushed_percent") or -1)
+    prev_s = str(job.get("_gcs_pushed_stage") or "")
+    cur_p = int(job.get("percent") or 0)
+    cur_s = str(job.get("stage") or "")
+    if cur_s != prev_s:
+        return "stage_change"
+    if cur_p - prev_p >= 1:
+        return "percent_delta"
+    return "throttle"
+
+
 def should_push_job(job: dict[str, Any], *, force: bool = False) -> bool:
     """Throttle GCS writes — stage change, +1% jump, or terminal.
 
     design/106: quality bumps 12→16 (+4) must reach other Cloud Run instances;
     the old +5% gate left polls stuck at 12% / 「추출 품질 보는 중」.
     """
-    if force or job.get("done") or job.get("error"):
-        return True
-    prev_p = int(job.get("_gcs_pushed_percent") or -1)
-    prev_s = str(job.get("_gcs_pushed_stage") or "")
-    cur_p = int(job.get("percent") or 0)
-    cur_s = str(job.get("stage") or "")
-    if cur_s != prev_s:
-        return True
-    if cur_p - prev_p >= 1:
-        return True
-    return False
+    return push_job_reason(job, force=force) != "throttle"
 
 
 def safe_filename(name: str) -> str:

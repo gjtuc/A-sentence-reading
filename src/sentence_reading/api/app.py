@@ -182,7 +182,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.111",
+    version="0.3.112",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -345,18 +345,55 @@ def _ingest_rate_limited(request: Request, action: str) -> JSONResponse | None:
 def _persist_job(job_id: str, job: dict, *, force: bool = False) -> None:
     """design/71 — mirror job to users/{uid}/ingest_jobs when GCS is on."""
     from sentence_reading.llm import ingest_jobs_gcs as ij
+    from sentence_reading.llm import ops_events as oev
 
     # design/132 — after wipe, never recreate GCS job from a discarded memory stub.
     if job.get("_discarded"):
         return
-    if not ij.should_push_job(job, force=force):
+    reason = ij.push_job_reason(job, force=force)
+    if reason == "throttle":
+        oev.emit(
+            "ingest_gcs_skip",
+            trace_id=str(job.get("trace_id") or ""),
+            job_id=job_id,
+            owner_uid=str(job.get("owner_uid") or ""),
+            content_hash=str(job.get("content_hash") or ""),
+            stage=str(job.get("stage") or ""),
+            percent=int(job.get("percent") or 0),
+            details={
+                "reason": reason,
+                "percent": int(job.get("percent") or 0),
+                "stage": str(job.get("stage") or "")[:40],
+            },
+        )
         return
     try:
-        ij.save_ingest_job(job_id, job)
+        ok = ij.save_ingest_job(job_id, job)
     except Exception as exc:  # noqa: BLE001
         # WHY: fail-soft — local poll still works on the worker instance.
         log = __import__("logging").getLogger("sentence_reading.api")
         log.warning("ingest job gcs push failed %s: %s", job_id, exc)
+        oev.emit(
+            "ingest_gcs_push",
+            trace_id=str(job.get("trace_id") or ""),
+            job_id=job_id,
+            owner_uid=str(job.get("owner_uid") or ""),
+            content_hash=str(job.get("content_hash") or ""),
+            stage=str(job.get("stage") or ""),
+            percent=int(job.get("percent") or 0),
+            details={"ok": False, "reason": reason},
+        )
+        return
+    oev.emit(
+        "ingest_gcs_push",
+        trace_id=str(job.get("trace_id") or ""),
+        job_id=job_id,
+        owner_uid=str(job.get("owner_uid") or ""),
+        content_hash=str(job.get("content_hash") or ""),
+        stage=str(job.get("stage") or ""),
+        percent=int(job.get("percent") or 0),
+        details={"ok": bool(ok), "reason": reason},
+    )
 
 
 class IngestCancelled(Exception):
@@ -628,16 +665,31 @@ def _job_set(
     message: str = "",
     cursor: dict | None = None,
 ) -> None:
+    from sentence_reading.llm import ops_events as oev
+
     job = _JOBS.get(job_id)
     if not job or job.get("done") or job.get("_discarded"):
         return
     # WHY: cooperative cancel — progress ticks become abort points between stages.
     if job.get("cancel_requested") and not _ingest_job_too_late_to_cancel(job):
         raise IngestCancelled()
+    prev_stage = str(job.get("stage") or "")
     job["percent"] = max(0, min(100, int(percent)))
     job["stage"] = stage
     if message:
         job["message"] = message
+    if prev_stage != stage:
+        oev.emit(
+            "ingest_phase_transition",
+            trace_id=str(job.get("trace_id") or ""),
+            job_id=job_id,
+            owner_uid=str(job.get("owner_uid") or ""),
+            content_hash=str(job.get("content_hash") or ""),
+            stage=stage,
+            percent=int(job.get("percent") or 0),
+            message=str(job.get("message") or ""),
+            details={"prev_stage": prev_stage[:40]},
+        )
     # design/110 — stamp resume envelope (no paper text); skip wired later.
     from sentence_reading.llm import ingest_jobs_gcs as ij
 
@@ -685,6 +737,8 @@ def _remember_session(session: PaperSession, *, cache_id: str | None = None) -> 
 
 
 def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
+    from sentence_reading.llm import ops_events as oev
+
     job = _JOBS.get(job_id)
     if job is None or job.get("_discarded"):
         return
@@ -697,6 +751,20 @@ def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
     job["result"] = data
     job["done"] = True
     _persist_job(job_id, job, force=True)
+    cache_id = ""
+    if isinstance(data, dict):
+        cache_id = str(data.get("cache_id") or "")
+    oev.emit(
+        "ingest_terminal",
+        trace_id=str(job.get("trace_id") or ""),
+        job_id=job_id,
+        cache_id=cache_id,
+        owner_uid=str(job.get("owner_uid") or ""),
+        content_hash=str(job.get("content_hash") or ""),
+        stage="done",
+        percent=100,
+        message=message,
+    )
     # WHY: source blob only needed while processing; drop after terminal success.
     owner = str(job.get("owner_uid") or "").strip()
     if owner:
@@ -784,6 +852,7 @@ def status(request: Request) -> dict:
     """기동 확인."""
     from sentence_reading.llm.ingest_rate_limit import rate_limit_enabled
     from sentence_reading.llm.error_logs import cloud_error_logs_enabled
+    from sentence_reading.llm.ops_events import ops_events_enabled
     from sentence_reading.llm.upload_audit_log import upload_audit_enabled
     _cloud_err = cloud_error_logs_enabled()
     from sentence_reading.llm.ingest_jobs_gcs import (
@@ -815,7 +884,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.111",
+        "version": "0.3.112",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -846,6 +915,8 @@ def status(request: Request) -> dict:
         # design/130 — client report + admin list; false when ASR_CLOUD_ERROR_LOGS=0.
         "cloud_error_logs": _cloud_err,
         "mobile_cloud_error_logs": _cloud_err,
+        # design/168a — structured ops events; false when ASR_OPS_EVENTS=0.
+        "ops_events": ops_events_enabled(),
         "upload_audit_log": upload_audit_enabled(),
         # design/131 — full figure captions (UI + normalize ceiling); false restores 2-line ….
         "caption_full_text": True,
@@ -3059,9 +3130,11 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
     user = _request_user(request)
     owner_uid = user.uid if user is not None else ""
     from sentence_reading.llm import ingest_jobs_gcs as ij
+    from sentence_reading.llm import ops_events as oev
 
     content_hash = await asyncio.to_thread(_file_sha256, tmp_path)
     want_tr = _want_translate(request)
+    trace_id = oev.new_trace_id()
     _JOBS[job_id] = {
         "percent": 1,
         "stage": "queued",
@@ -3072,11 +3145,23 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
         "owner_uid": owner_uid,
         "content_hash": content_hash or "",
         "filename": ij.safe_filename(filename),
+        "trace_id": trace_id,
         # WHY: mobile Settings translate opt-in must apply to reanalyze ingest (design/99).
         "want_translate": want_tr,
     }
     if owner_uid:
         _persist_job(job_id, _JOBS[job_id], force=True)
+    oev.emit(
+        "ingest_started",
+        trace_id=trace_id,
+        job_id=job_id,
+        cache_id=cid,
+        owner_uid=owner_uid,
+        content_hash=content_hash or "",
+        stage="queued",
+        percent=1,
+        details={"filename_len": len(ij.safe_filename(filename)), "bytes": len(raw)},
+    )
     asyncio.create_task(
         _run_ingest_job(
             job_id,
@@ -5017,6 +5102,7 @@ def _begin_ingest_from_bytes(
 ) -> dict:
     """Shared start path for multipart + chunked-complete (design/72)."""
     from sentence_reading.llm import ingest_jobs_gcs as ij
+    from sentence_reading.llm import ops_events as oev
 
     suffix = ".pdf" if kind == "pdf" else ".docx"
     job_id = f"job_{uuid.uuid4().hex[:12]}"
@@ -5026,6 +5112,7 @@ def _begin_ingest_from_bytes(
 
     content_hash = hashlib.sha256(raw).hexdigest()
     safe_name = ij.safe_filename(filename)
+    trace_id = oev.new_trace_id()
     _JOBS[job_id] = {
         "percent": 1,
         "stage": "queued",
@@ -5036,6 +5123,7 @@ def _begin_ingest_from_bytes(
         "owner_uid": owner_uid,
         "content_hash": content_hash,
         "filename": safe_name,
+        "trace_id": trace_id,
         # design/80 — client opt-in only; server kill checked again at build time.
         "want_shadowing_chunks": bool(want_shadowing_chunks),
         # design/99 — default True (web); mobile sends translate=0 to skip.
@@ -5050,6 +5138,16 @@ def _begin_ingest_from_bytes(
         except Exception:  # noqa: BLE001
             pass
         _persist_job(job_id, _JOBS[job_id], force=True)
+    oev.emit(
+        "ingest_started",
+        trace_id=trace_id,
+        job_id=job_id,
+        owner_uid=owner_uid,
+        content_hash=content_hash,
+        stage="queued",
+        percent=1,
+        details={"filename_len": len(safe_name), "bytes": len(raw)},
+    )
     asyncio.create_task(
         _run_ingest_job(
             job_id, tmp_path, filename, kind, content_hash=content_hash
