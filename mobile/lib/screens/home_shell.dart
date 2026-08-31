@@ -6,6 +6,7 @@ import '../state/auth_controller.dart';
 import '../state/library_controller.dart';
 import '../state/cite_panel_controller.dart';
 import '../state/bookmark_controller.dart';
+import '../state/annotation_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
@@ -32,6 +33,7 @@ class HomeShell extends StatefulWidget {
     required this.translate,
     required this.citePanel,
     required this.bookmarks,
+    required this.annotations,
   });
 
   final AuthController auth;
@@ -42,6 +44,7 @@ class HomeShell extends StatefulWidget {
   final TranslateController translate;
   final CitePanelController citePanel;
   final BookmarkController bookmarks;
+  final AnnotationController annotations;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -216,6 +219,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             translate: widget.translate,
             citePanel: widget.citePanel,
             bookmarks: widget.bookmarks,
+            annotations: widget.annotations,
           ),
           SettingsScreen(
             theme: widget.theme,

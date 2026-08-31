@@ -4979,7 +4979,20 @@
         setUploadStatus(`보관본 · 문장 ${nS} · 그림 ${nF}`, "");
       } else if (data.debone) {
         const cached = data.cached ? " · 보관됨" : "";
-        setUploadStatus(`문장 ${nS} · 그림 ${nF} · cleaned${cached}`, "");
+        const warnList = (data.warnings || []).filter(Boolean);
+        const qualityWarn = warnList.find((w) =>
+          /^(partial_debone|coverage_|chunk_fallback|ungrounded_sentences|high_body_ratio)/.test(
+            String(w),
+          ),
+        );
+        if (qualityWarn) {
+          setUploadStatus(
+            `문장 ${nS} · 그림 ${nF} · cleaned · ${qualityWarn}${cached}`,
+            "warn",
+          );
+        } else {
+          setUploadStatus(`문장 ${nS} · 그림 ${nF} · cleaned${cached}`, "");
+        }
       } else {
         const warn = (data.warnings && data.warnings[0]) || "raw";
         setUploadStatus(`문장 ${nS} · 그림 ${nF} · 정제 실패(${warn}) · raw`, "error");

@@ -23,7 +23,7 @@ def utc_now_iso() -> str:
 
 
 def sentence_to_dict(s: Sentence) -> dict[str, Any]:
-    return {
+    out: dict[str, Any] = {
         "id": s.id,
         "text": s.text,
         "section": s.section,
@@ -32,6 +32,9 @@ def sentence_to_dict(s: Sentence) -> dict[str, Any]:
         "text_ko": s.text_ko or "",
         "text_ko_stage": s.text_ko_stage or "",
     }
+    if s.quality_flags:
+        out["quality_flags"] = list(s.quality_flags)
+    return out
 
 
 def sentence_from_dict(d: dict[str, Any]) -> Sentence | None:
@@ -49,6 +52,11 @@ def sentence_from_dict(d: dict[str, Any]) -> Sentence | None:
         end_char=d.get("end_char") if isinstance(d.get("end_char"), int) else None,
         text_ko=str(d.get("text_ko") or ""),
         text_ko_stage=str(d.get("text_ko_stage") or ""),
+        quality_flags=tuple(
+            str(f).strip()
+            for f in (d.get("quality_flags") or [])
+            if str(f).strip()
+        ),
     )
 
 

@@ -41,6 +41,8 @@ class Sentence:
     text_ko: str = ""
     # WHY: design/45 — draft|sense|polish|harmonize (빈 문자열 = 미번역)
     text_ko_stage: str = ""
+    # WHY: design/167 — debone grounding / quality signals
+    quality_flags: tuple[str, ...] = ()
 
 
 @dataclass
@@ -120,6 +122,18 @@ class PaperSession:
                 "slot_key": f.slot_key or "",
             }
 
+        def _sent_public(s: Sentence) -> dict:
+            row = {
+                "id": s.id,
+                "text": s.text,
+                "section": s.section,
+                "text_ko": s.text_ko or "",
+                "text_ko_stage": s.text_ko_stage or "",
+            }
+            if s.quality_flags:
+                row["quality_flags"] = list(s.quality_flags)
+            return row
+
         return {
             "title": self.title,
             "figure_index": self.figure_index,
@@ -135,18 +149,14 @@ class PaperSession:
                 "section": sent.section,
                 "text_ko": sent.text_ko or "",
                 "text_ko_stage": sent.text_ko_stage or "",
+                **(
+                    {"quality_flags": list(sent.quality_flags)}
+                    if sent.quality_flags
+                    else {}
+                ),
             },
             "figures": [_fig_public(f) for f in self.figures],
-            "sentences": [
-                {
-                    "id": s.id,
-                    "text": s.text,
-                    "section": s.section,
-                    "text_ko": s.text_ko or "",
-                    "text_ko_stage": s.text_ko_stage or "",
-                }
-                for s in self.sentences
-            ],
+            "sentences": [_sent_public(s) for s in self.sentences],
             "translate_digests": {
                 str(k): {
                     "en": str((v or {}).get("en") or ""),

@@ -192,6 +192,18 @@ class SectionNavIndex {
     return pos <= positionCountForSection(sectionIndex);
   }
 
+  /// Reverse lookup for annotation list jump (design/166 P1).
+  int? globalIndexForBookmarkKey(String bookmarkKey) {
+    final sep = bookmarkKey.lastIndexOf(':');
+    if (sep <= 0) return null;
+    final key = bookmarkKey.substring(0, sep);
+    final pos = int.tryParse(bookmarkKey.substring(sep + 1));
+    if (pos == null || pos < 1) return null;
+    final sectionIndex = _sectionKeysInOrder.indexOf(key);
+    if (sectionIndex < 0) return null;
+    return globalIndexFor(sectionIndex, pos - 1);
+  }
+
   int sectionBookmarkCount(Set<String> keys, int sectionIndex) {
     final sectionKey = sectionKeyAt(sectionIndex);
     if (sectionKey.isEmpty) return 0;

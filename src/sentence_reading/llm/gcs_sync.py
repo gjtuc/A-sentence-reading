@@ -276,6 +276,7 @@ def gcs_status() -> dict[str, Any]:
     from sentence_reading.llm.auth_google import auth_status_fields, current_gcs_uid
     from sentence_reading.llm.notes_gcs import notes_gcs_status_fields
     from sentence_reading.llm.bookmarks_gcs import bookmarks_gcs_status_fields
+    from sentence_reading.llm.annotations_gcs import annotations_gcs_status_fields
     from sentence_reading.llm.voice_gcs import voice_gcs_status_fields
 
     out: dict[str, Any] = {
@@ -294,6 +295,7 @@ def gcs_status() -> dict[str, Any]:
     out.update(auth_status_fields())
     out.update(notes_gcs_status_fields())
     out.update(bookmarks_gcs_status_fields())
+    out.update(annotations_gcs_status_fields())
     out.update(voice_gcs_status_fields())
     from sentence_reading.llm.papers_gcs import papers_gcs_status_fields
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../api/cite_refs.dart' as cite;
@@ -11,6 +12,8 @@ import '../api/reading_models.dart';
 import '../api/rich_sentence.dart';
 import '../state/cite_panel_controller.dart';
 import '../state/bookmark_controller.dart';
+import '../api/annotation_models.dart';
+import '../state/annotation_controller.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/translate_controller.dart';
@@ -18,6 +21,9 @@ import '../state/tts_controller.dart';
 import 'shadowing_practice_screen.dart';
 import '../api/reader_nav_labels.dart';
 import '../widgets/reader_nav_picker.dart';
+import '../widgets/annotation_toolbar_sheet.dart';
+import '../widgets/annotation_list_sheet.dart';
+import '../widgets/annotated_sentence_text.dart';
 import 'figure_edit_screen.dart';
 
 /// Split reader: sentence panel + figure panel (design/63) + TTS (design/64).
@@ -39,6 +45,7 @@ class ReaderScreen extends StatefulWidget {
     required this.translate,
     required this.citePanel,
     required this.bookmarks,
+    required this.annotations,
   });
 
   final LibraryController library;
@@ -48,6 +55,7 @@ class ReaderScreen extends StatefulWidget {
   final TranslateController translate;
   final CitePanelController citePanel;
   final BookmarkController bookmarks;
+  final AnnotationController annotations;
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
@@ -138,6 +146,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
     });
   }
 
+  String _qualityBannerMessage(ReadingSession s) {
+    final w = s.warnings.where((x) => x.isNotEmpty).toList();
+    if (w.isEmpty) {
+      return '분석 품질에 주의가 필요합니다. 재분석을 권장합니다.';
+    }
+    return '분석 품질: ${w.take(3).join(' · ')}';
+  }
+
   /// design/156 — full-screen vertical swipe (split restore stays double-tap).
   void _swipeToSentenceFromFigure() {
     setState(() {
@@ -214,8 +230,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final shadowing = widget.shadowing;
     final translate = widget.translate;
     return AnimatedBuilder(
-      animation: Listenable.merge(
-          [library, tts, translate, widget.citePanel, widget.bookmarks]),
+      animation: Listenable.merge([
+        library,
+        tts,
+        translate,
+        widget.citePanel,
+        widget.bookmarks,
+        widget.annotations,
+      ]),
       builder: (context, _) {
         final s = library.session;
         if (s == null || !s.isValid) {
@@ -236,6 +258,28 @@ class _ReaderScreenState extends State<ReaderScreen> {
         final showFigure = _layout != _ReaderLayoutMode.sentenceOnly;
         return Column(
           children: [
+            if (library.showIngestQualityBanner)
+              MaterialBanner(
+                content: Text(
+                  _qualityBannerMessage(s),
+                ),
+                leading: const Icon(Icons.info_outline),
+                actions: [
+                  TextButton(
+                    onPressed: () async {
+                      final entry = library.paperEntryForCacheId(s.cacheId);
+                      if (entry != null) {
+                        await library.reanalyzePaper(entry);
+                      }
+                    },
+                    child: const Text('재분석'),
+                  ),
+                  TextButton(
+                    onPressed: library.dismissIngestQualityBanner,
+                    child: const Text('닫기'),
+                  ),
+                ],
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               child: Row(
@@ -248,6 +292,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                   ),
+                  if (widget.annotations.activeCount > 0)
+                    IconButton(
+                      tooltip: '주석 목록',
+                      onPressed: () => showAnnotationListSheet(
+                        context: context,
+                        session: s,
+                        annotations: widget.annotations,
+                        library: library,
+                      ),
+                      icon: Badge(
+                        label: Text('${widget.annotations.activeCount}'),
+                        child: const Icon(Icons.notes_outlined, size: 20),
+                      ),
+                    ),
                   if (shadowing.enabled)
                     TextButton(
                       onPressed: !shadowing.serverAvailable
@@ -345,6 +403,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       session: s,
                                       citePanel: widget.citePanel,
                                       bookmarks: widget.bookmarks,
+                                      annotations: widget.annotations,
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
                                       figRefHints: _figRefHints,
@@ -379,6 +438,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       client: client,
                                       session: s,
                                       bookmarks: widget.bookmarks,
+                                      annotations: widget.annotations,
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
                                       captionFullText: _captionFullText,
@@ -509,6 +569,7 @@ class _SentencePanel extends StatelessWidget {
     required this.session,
     required this.citePanel,
     required this.bookmarks,
+    required this.annotations,
     required this.showKo,
     required this.showChrome,
     this.figRefHints = true,
@@ -523,6 +584,7 @@ class _SentencePanel extends StatelessWidget {
   final ReadingSession session;
   final CitePanelController citePanel;
   final BookmarkController bookmarks;
+  final AnnotationController annotations;
   final bool showKo;
   final bool showChrome;
   /// design/124 — from /api/status; parent owns fetch.
@@ -544,6 +606,12 @@ class _SentencePanel extends StatelessWidget {
     final sentHighlighted = bookmarks.isSentenceBookmarked(sentKey);
     final sectionBadge =
         bookmarks.sectionBadgeCount(session.sectionNav, session.sentenceIndex);
+    final bodyWarn = session.warnings.any((w) => w.startsWith('high_body_ratio'));
+    final headerLeft = header.sectionName.isEmpty
+        ? 'Sentence'
+        : (header.sectionName.toLowerCase() == 'body' && bodyWarn
+            ? '${header.sectionName} ⚠'
+            : header.sectionName);
     final bookmarkHints = BookmarkPickerHints(
       leftBadgeCount: (i) =>
           bookmarks.pickerSectionBadgeCount(session.sectionNav, i),
@@ -577,9 +645,7 @@ class _SentencePanel extends StatelessWidget {
                       ),
                       Expanded(
                         child: ReaderNavHeaderLabel(
-                          left: header.sectionName.isEmpty
-                              ? 'Sentence'
-                              : header.sectionName,
+                          left: headerLeft,
                           right: session.sentenceCount == 0
                               ? '— / —'
                               : header.rightLabel,
@@ -682,27 +748,42 @@ class _SentencePanel extends StatelessWidget {
                   child: SingleChildScrollView(
                     child: cur == null || !cur.hasText
                         ? const Text('No sentence at this index.')
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // design/88 — allowlisted <sub>/<sup>/<i> (not raw tags).
-                              // design/148 — strip [n] markers for display (panel off still strips).
-                              richSentenceText(
-                                cite.stripCiteMarkersForDisplay(cur.text),
-                                style: Theme.of(context).textTheme.titleMedium ??
-                                    const TextStyle(fontSize: 18),
-                              ),
-                              if (showKo && cur.textKo.trim().isNotEmpty) ...[
-                                const SizedBox(height: 12),
-                                richSentenceText(
-                                  // design/148 — KO display matches EN cite strip (web stripCitesForUi).
-                                  cite.stripCiteMarkersForDisplay(cur.textKo),
-                                  style:
-                                      Theme.of(context).textTheme.bodyMedium ??
-                                          const TextStyle(fontSize: 14),
+                        : GestureDetector(
+                            onLongPress: () => _handleSentenceAnnotateLongPress(
+                              context,
+                              annotations: annotations,
+                              session: session,
+                              library: library,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (cur.isUngrounded)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Chip(
+                                      label: const Text('원문 미확인'),
+                                      backgroundColor: Colors.amber.shade100,
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                  ),
+                                AnnotatedSentenceText(
+                                  html: cite.stripCiteMarkersForDisplay(cur.text),
+                                  style: Theme.of(context).textTheme.titleMedium ??
+                                      const TextStyle(fontSize: 18),
+                                  annotations: annotations.activeForSentenceKey(sentKey),
                                 ),
+                                if (showKo && cur.textKo.trim().isNotEmpty) ...[
+                                  const SizedBox(height: 12),
+                                  richSentenceText(
+                                    cite.stripCiteMarkersForDisplay(cur.textKo),
+                                    style:
+                                        Theme.of(context).textTheme.bodyMedium ??
+                                            const TextStyle(fontSize: 14),
+                                  ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
                   ),
                 ),
@@ -1082,6 +1163,7 @@ class _FigurePanel extends StatelessWidget {
     required this.client,
     required this.session,
     required this.bookmarks,
+    required this.annotations,
     required this.showKo,
     required this.showChrome,
     this.captionFullText = true,
@@ -1096,6 +1178,7 @@ class _FigurePanel extends StatelessWidget {
   final AsrClient client;
   final ReadingSession session;
   final BookmarkController bookmarks;
+  final AnnotationController annotations;
   final bool showKo;
   final bool showChrome;
   /// design/131 — false restores 2-line ellipsis (server kill / old clients).
@@ -1192,6 +1275,17 @@ class _FigurePanel extends StatelessWidget {
                             : () => library.advanceFigure(1),
                         icon: const Icon(Icons.chevron_right),
                       ),
+                      IconButton(
+                        tooltip: annotations.figureInkMode ? '잉크 끄기' : '잉크',
+                        onPressed: session.figureCount == 0
+                            ? null
+                            : () => annotations.toggleFigureInkMode(),
+                        icon: Icon(
+                          annotations.figureInkMode
+                              ? Icons.draw
+                              : Icons.draw_outlined,
+                        ),
+                      ),
                     ],
                   )
                 : const SizedBox(width: double.infinity),
@@ -1211,14 +1305,18 @@ class _FigurePanel extends StatelessWidget {
                   : Column(
                       children: [
                         Expanded(
-                          child: _FigureImage(
-                            src: cur.imageSrc,
-                            swipeEnabled: session.figureCount > 0,
-                            onPrevious: () => library.advanceFigure(-1),
-                            onNext: () => library.advanceFigure(1),
-                            onTap: onToggleChrome,
-                            onDoubleTapExpand: onDoubleTapExpand,
-                            onSwipeToSentence: onSwipeToSentence,
+                          child: _FigureInkStack(
+                            figureKey: figKey,
+                            annotations: annotations,
+                            child: _FigureImage(
+                              src: cur.imageSrc,
+                              swipeEnabled: session.figureCount > 0 && !annotations.figureInkMode,
+                              onPrevious: () => library.advanceFigure(-1),
+                              onNext: () => library.advanceFigure(1),
+                              onTap: onToggleChrome,
+                              onDoubleTapExpand: onDoubleTapExpand,
+                              onSwipeToSentence: onSwipeToSentence,
+                            ),
                           ),
                         ),
                         if (!figureCaptionInImage &&
@@ -1263,6 +1361,141 @@ class _FigurePanel extends StatelessWidget {
       ),
     );
   }
+}
+
+}
+
+class _FigureInkStack extends StatefulWidget {
+  const _FigureInkStack({
+    required this.figureKey,
+    required this.annotations,
+    required this.child,
+  });
+
+  final String? figureKey;
+  final AnnotationController annotations;
+  final Widget child;
+
+  @override
+  State<_FigureInkStack> createState() => _FigureInkStackState();
+}
+
+class _FigureInkStackState extends State<_FigureInkStack> {
+  List<Offset> _stroke = [];
+
+  @override
+  Widget build(BuildContext context) {
+    final key = widget.figureKey;
+    final inkEvents = key == null
+        ? const <dynamic>[]
+        : widget.annotations.activeForFigureKey(key);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            widget.child,
+            if (inkEvents.isNotEmpty)
+              CustomPaint(
+                painter: _InkPathsPainter(
+                  events: inkEvents,
+                  size: Size(constraints.maxWidth, constraints.maxHeight),
+                ),
+              ),
+            if (widget.annotations.figureInkMode)
+              GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onPanStart: (d) => _stroke = [d.localPosition],
+                onPanUpdate: (d) => setState(() => _stroke.add(d.localPosition)),
+                onPanEnd: (_) async {
+                  if (key == null || _stroke.length < 2) {
+                    setState(() => _stroke = []);
+                    return;
+                  }
+                  final w = constraints.maxWidth;
+                  final h = constraints.maxHeight;
+                  if (w <= 0 || h <= 0) return;
+                  final points = _stroke
+                      .map((p) => [p.dx / w, p.dy / h])
+                      .toList(growable: false);
+                  await widget.annotations.addFigureInkPath(
+                    figureKey: key,
+                    points: points,
+                  );
+                  if (mounted) setState(() => _stroke = []);
+                },
+                child: CustomPaint(
+                  painter: _LiveStrokePainter(_stroke),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _InkPathsPainter extends CustomPainter {
+  _InkPathsPainter({required this.events, required this.size});
+
+  final List<AnnotationEvent> events;
+  final Size size;
+
+  @override
+  void paint(Canvas canvas, Size canvasSize) {
+    final paint = Paint()
+      ..color = const Color(0xFFE53935)
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    for (final ev in events) {
+      for (final path in ev.paths) {
+        final pts = path['points'];
+        if (pts is! List || pts.length < 2) continue;
+        final pathObj = Path();
+        for (var i = 0; i < pts.length; i++) {
+          final pt = pts[i];
+          if (pt is! List || pt.length < 2) continue;
+          final x = (pt[0] as num).toDouble() * canvasSize.width;
+          final y = (pt[1] as num).toDouble() * canvasSize.height;
+          if (i == 0) {
+            pathObj.moveTo(x, y);
+          } else {
+            pathObj.lineTo(x, y);
+          }
+        }
+        canvas.drawPath(pathObj, paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _InkPathsPainter oldDelegate) =>
+      oldDelegate.events != events || oldDelegate.size != size;
+}
+
+class _LiveStrokePainter extends CustomPainter {
+  _LiveStrokePainter(this.points);
+  final List<Offset> points;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.length < 2) return;
+    final paint = Paint()
+      ..color = const Color(0xFFE53935)
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (var i = 1; i < points.length; i++) {
+      path.lineTo(points[i].dx, points[i].dy);
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _LiveStrokePainter oldDelegate) =>
+      oldDelegate.points != points;
 }
 
 class _FigureImage extends StatelessWidget {
@@ -1676,6 +1909,51 @@ Future<void> _handleSentenceBookmarkLongPress(
   if (ok == true) {
     await bookmarks.toggleSentenceBookmark(nav, session.sentenceIndex);
   }
+}
+
+Future<void> _handleSentenceAnnotateLongPress(
+  BuildContext context, {
+  required AnnotationController annotations,
+  required ReadingSession session,
+  required LibraryController library,
+}) async {
+  if (!annotations.canAnnotate) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('주석을 쓰려면 로그인해 주세요.')),
+    );
+    return;
+  }
+  final nav = session.sectionNav;
+  final key = nav.sentenceBookmarkKeyForGlobal(session.sentenceIndex);
+  if (key == null) return;
+  final cur = session.currentSentence;
+  if (cur == null) return;
+  final existing = annotations.activeForSentenceKey(key);
+  final result = await showAnnotationToolbarSheet(
+    context: context,
+    existing: existing,
+  );
+  if (result == null) return;
+  if (result.delete) {
+    await annotations.removeAnnotationsForKey(key);
+    return;
+  }
+  final prefix = cur.text.length > 24 ? cur.text.substring(0, 12) : '';
+  final suffix = cur.text.length > 24 ? cur.text.substring(cur.text.length - 12) : '';
+  await annotations.upsertHighlight(
+    sentenceKey: key,
+    sentenceId: cur.id,
+    color: result.color,
+    note: result.note,
+    existingId: result.existingId,
+    selector: {
+      'type': 'TextQuoteSelector',
+      'exact': plainFromRichHtml(cur.text),
+      if (prefix.isNotEmpty) 'prefix': prefix,
+      if (suffix.isNotEmpty) 'suffix': suffix,
+    },
+  );
+  HapticFeedback.mediumImpact();
 }
 
 Future<void> _handleFigureBookmarkLongPress(

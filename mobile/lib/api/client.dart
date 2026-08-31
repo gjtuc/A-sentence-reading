@@ -72,6 +72,7 @@ class AsrStatus {
     this.figureCaptionInImage = true,
     this.mobileFigureCaptionInImage = true,
     this.bookmarksSync = false,
+    this.annotationsSync = false,
     this.mobileApkUrl = '',
   });
 
@@ -194,6 +195,13 @@ class AsrStatus {
         }
         return json['bookmarks_sync'] == true;
       }(),
+      annotationsSync: () {
+        final gcs = json['gcs'];
+        if (gcs is Map && gcs.containsKey('annotations_sync')) {
+          return gcs['annotations_sync'] == true;
+        }
+        return json['annotations_sync'] == true;
+      }(),
       mobileApkUrl: '${json['mobile_apk_url'] ?? ''}'.trim(),
     );
   }
@@ -241,6 +249,7 @@ class AsrStatus {
   final bool figureCaptionInImage;
   final bool mobileFigureCaptionInImage;
   final bool bookmarksSync;
+  final bool annotationsSync;
   /// design/161 — public GCS APK URL when configured on server.
   final String mobileApkUrl;
 }
@@ -248,6 +257,21 @@ class AsrStatus {
 /// `/api/bookmarks/sync` result.
 class BookmarksSyncResult {
   const BookmarksSyncResult({
+    required this.available,
+    this.store,
+    this.needsAuth = false,
+    this.message,
+  });
+
+  final bool available;
+  final Map<String, dynamic>? store;
+  final bool needsAuth;
+  final String? message;
+}
+
+/// `/api/annotations/sync` result (design/166).
+class AnnotationsSyncResult {
+  const AnnotationsSyncResult({
     required this.available,
     this.store,
     this.needsAuth = false,
@@ -2060,6 +2084,58 @@ class AsrClient {
     final map = _decodeObject(res, 'bookmarks/sync');
     final merged = map['store'];
     return BookmarksSyncResult(
+      available: map['available'] == true,
+      store: merged is Map<String, dynamic>
+          ? merged
+          : (merged is Map ? Map<String, dynamic>.from(merged) : null),
+      needsAuth: map['needs_auth'] == true,
+      message: map['message']?.toString(),
+    );
+  }
+
+  Future<AnnotationsSyncResult> fetchAnnotationsSync() async {
+    final res = await _http
+        .get(_uri('/api/annotations/sync'), headers: await _headers())
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 401) {
+      return const AnnotationsSyncResult(
+        available: false,
+        needsAuth: true,
+        message: '로그인이 필요합니다.',
+      );
+    }
+    final map = _decodeObject(res, 'annotations/sync');
+    final store = map['store'];
+    return AnnotationsSyncResult(
+      available: map['available'] == true,
+      store: store is Map<String, dynamic>
+          ? store
+          : (store is Map ? Map<String, dynamic>.from(store) : null),
+      needsAuth: map['needs_auth'] == true,
+      message: map['message']?.toString(),
+    );
+  }
+
+  Future<AnnotationsSyncResult> pushAnnotationsSync(
+    Map<String, dynamic> store,
+  ) async {
+    final res = await _http
+        .put(
+          _uri('/api/annotations/sync'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({'store': store}),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 401) {
+      return const AnnotationsSyncResult(
+        available: false,
+        needsAuth: true,
+        message: '로그인이 필요합니다.',
+      );
+    }
+    final map = _decodeObject(res, 'annotations/sync');
+    final merged = map['store'];
+    return AnnotationsSyncResult(
       available: map['available'] == true,
       store: merged is Map<String, dynamic>
           ? merged

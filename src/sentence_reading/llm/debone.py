@@ -12,6 +12,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from sentence_reading.cite_refs import repair_dollar_cite_artifacts
+from sentence_reading.llm.debone_quality import (
+    ChunkStat,
+    apply_grounding_flags,
+    build_ingest_quality,
+    chunk_kind,
+    fallback_split_chunk,
+    quality_to_warnings,
+)
 from sentence_reading.llm.env import gemini_api_key, gemini_model
 from sentence_reading.llm.richtext import plain_text, sanitize_sentence_html
 from sentence_reading.llm.typography import PIPELINE_VERSION, apply_glossary
@@ -129,6 +137,12 @@ CRITICAL:
 - Do NOT skip early sections. An empty sentences array is ONLY for References/author-only chunks.
 - Prefer completeness over brevity for scientific body text.
 
+EMPTY OUTPUT RULE (critical):
+- Return {"sentences":[]} ONLY when this chunk contains NO readable prose
+  (References list only, author block only, page numbers only).
+- If the chunk contains experimental/results/conclusion prose, you MUST output those sentences.
+- Never fabricate content not present in CHUNK. When in doubt, quote the source with minimal typography fixes.
+
 Rules:
 - Output JSON only, no markdown fences.
 - Preserve scientific meaning; do not invent facts.
@@ -162,8 +176,10 @@ class DeboneResult:
     sentences: list[Sentence] = field(default_factory=list)
     ok: bool = False
     warning: str | None = None
+    warnings: list[str] = field(default_factory=list)
     chunks_ok: int = 0
     chunks_total: int = 0
+    ingest_quality: dict | None = None
 
 
 @dataclass
@@ -441,6 +457,41 @@ def _process_one_chunk(
     raise last_err
 
 
+def _process_chunk_with_guard(
+    chunk: str,
+    idx: int,
+    total: int,
+    context_block: str,
+    ctx: PaperContext,
+) -> tuple[list[tuple[str, str]], ChunkStat]:
+    """Gemini debone + substantive-empty guard + split fallback (design/167)."""
+    kind = chunk_kind(chunk)
+    stat = ChunkStat(
+        index=idx,
+        chars_in=len(chunk),
+        sentences_out=0,
+        ok=False,
+        kind=kind,
+    )
+    pairs: list[tuple[str, str]] | None = None
+    try:
+        pairs = _process_one_chunk(chunk, idx, total, context_block)
+        if not pairs and kind == "substantive":
+            pairs = _process_one_chunk(chunk, idx, total, context_block)
+            if not pairs:
+                pairs = fallback_split_chunk(chunk, ctx, idx, total)
+                stat.fallback = "split"
+        elif pairs is None:
+            pairs = []
+    except Exception:  # noqa: BLE001
+        pairs = fallback_split_chunk(chunk, ctx, idx, total)
+        stat.fallback = "split"
+
+    stat.sentences_out = len(pairs or [])
+    stat.ok = stat.sentences_out > 0 or kind in ("references", "sparse")
+    return pairs or [], stat
+
+
 def _assemble_sentences(collected: list[tuple[str, str]]) -> list[Sentence]:
     decorated: list[tuple[int, int, str, str]] = []
     for i, (text, section) in enumerate(collected):
@@ -477,6 +528,37 @@ def _missing_front_matter(sentences: list[Sentence], raw_text: str) -> bool:
     return bool(re.search(r"\bAbstract\b|\bIntroduction\b", head, flags=re.IGNORECASE))
 
 
+def _apply_glossary_sentences(
+    sentences: list[Sentence], ctx: PaperContext
+) -> list[Sentence]:
+    if not (ctx.formulas or ctx.symbols):
+        return sentences
+    return [
+        Sentence(
+            id=s.id,
+            text=apply_glossary(s.text, formulas=ctx.formulas, symbols=ctx.symbols),
+            section=s.section,
+            start_char=s.start_char,
+            end_char=s.end_char,
+            text_ko=s.text_ko,
+            text_ko_stage=s.text_ko_stage,
+            quality_flags=s.quality_flags,
+        )
+        for s in sentences
+    ]
+
+
+def _collect_from_results(
+    results: list[list[tuple[str, str]] | None],
+) -> list[tuple[str, str]]:
+    collected: list[tuple[str, str]] = []
+    for pairs in results:
+        if pairs is None:
+            continue
+        collected.extend(pairs)
+    return collected
+
+
 def debone_sentences(
     raw_text: str,
     on_progress: Callable[[int, int], None] | None = None,
@@ -508,6 +590,7 @@ def debone_sentences(
         on_progress(1, progress_total)
 
     results: list[list[tuple[str, str]] | None] = [None] * n_chunks
+    chunk_stats: list[ChunkStat] = []
     failed: list[int] = []
     last_err: str | None = None
 
@@ -515,84 +598,73 @@ def debone_sentences(
         if on_progress is not None:
             on_progress(1 + i, progress_total)
         try:
-            results[i] = _process_one_chunk(chunk, i, n_chunks, context_block)
+            pairs, stat = _process_chunk_with_guard(
+                chunk, i, n_chunks, context_block, ctx
+            )
+            results[i] = pairs
+            chunk_stats.append(stat)
         except Exception as exc:  # noqa: BLE001
             last_err = str(exc)
             failed.append(i)
-
-    # 실패한 앞쪽 청크 한 번 더 (Discussion만 남는 사고 방지)
-    for i in list(failed):
-        try:
-            results[i] = _process_one_chunk(chunks[i], i, n_chunks, context_block)
-            failed.remove(i)
-        except Exception as exc:  # noqa: BLE001
-            last_err = str(exc)
+            try:
+                pairs = fallback_split_chunk(chunk, ctx, i, n_chunks)
+                results[i] = pairs
+                chunk_stats.append(
+                    ChunkStat(
+                        index=i,
+                        chars_in=len(chunk),
+                        sentences_out=len(pairs),
+                        ok=bool(pairs),
+                        kind=chunk_kind(chunk),
+                        fallback="split",
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                results[i] = None
+                chunk_stats.append(
+                    ChunkStat(
+                        index=i,
+                        chars_in=len(chunk),
+                        sentences_out=0,
+                        ok=False,
+                        kind=chunk_kind(chunk),
+                    )
+                )
 
     if on_progress is not None:
         on_progress(progress_total, progress_total)
 
-    collected: list[tuple[str, str]] = []
-    chunks_ok = 0
-    for i, pairs in enumerate(results):
-        if pairs is None:
-            continue
-        chunks_ok += 1
-        collected.extend(pairs)
+    collected = _collect_from_results(results)
 
     if not collected:
         return DeboneResult(
             ok=False,
             warning=last_err or "gemini_no_sentences",
-            chunks_ok=chunks_ok,
+            warnings=[last_err or "gemini_no_sentences"],
+            chunks_ok=sum(1 for s in chunk_stats if s.ok),
             chunks_total=n_chunks,
         )
 
     sentences = _assemble_sentences(collected)
-
-    # WHY: 청크가 첨자 HTML을 빼먹어도 survey 용어집으로 보정
-    if ctx.formulas or ctx.symbols:
-        sentences = [
-            Sentence(
-                id=s.id,
-                text=apply_glossary(
-                    s.text, formulas=ctx.formulas, symbols=ctx.symbols
-                ),
-                section=s.section,
-                start_char=s.start_char,
-                end_char=s.end_char,
-            )
-            for s in sentences
-        ]
+    sentences = _apply_glossary_sentences(sentences, ctx)
 
     # 앞부분(제목·초록·서론)이 통째로 사라졌으면 앞 절반 청크 강제 재시도
     if _missing_front_matter(sentences, raw_text):
         retry_upto = max(1, (n_chunks + 1) // 2)
         for i in range(retry_upto):
             try:
-                results[i] = _process_one_chunk(chunks[i], i, n_chunks, context_block)
+                pairs, stat = _process_chunk_with_guard(
+                    chunks[i], i, n_chunks, context_block, ctx
+                )
+                results[i] = pairs
+                if i < len(chunk_stats):
+                    chunk_stats[i] = stat
+                else:
+                    chunk_stats.append(stat)
             except Exception as exc:  # noqa: BLE001
                 last_err = str(exc)
-        collected = []
-        chunks_ok = 0
-        for pairs in results:
-            if pairs is None:
-                continue
-            chunks_ok += 1
-            collected.extend(pairs)
-        sentences = _assemble_sentences(collected)
-        if ctx.formulas or ctx.symbols:
-            sentences = [
-                Sentence(
-                    id=s.id,
-                    text=apply_glossary(
-                        s.text, formulas=ctx.formulas, symbols=ctx.symbols
-                    ),
-                    section=s.section,
-                    start_char=s.start_char,
-                    end_char=s.end_char,
-                )
-                for s in sentences
-            ]
+        collected = _collect_from_results(results)
+        sentences = _apply_glossary_sentences(_assemble_sentences(collected), ctx)
 
     sentences = [
         Sentence(
@@ -601,32 +673,45 @@ def debone_sentences(
             section=s.section,
             start_char=s.start_char,
             end_char=s.end_char,
+            text_ko=s.text_ko,
+            text_ko_stage=s.text_ko_stage,
+            quality_flags=s.quality_flags,
         )
         for s in sentences
     ]
+
+    sentences, ungrounded_ids = apply_grounding_flags(sentences, raw_text)
 
     if not sentences:
         return DeboneResult(
             ok=False,
             warning=last_err or "gemini_no_sentences",
-            chunks_ok=chunks_ok,
+            warnings=[last_err or "gemini_no_sentences"],
+            chunks_ok=sum(1 for s in chunk_stats if s.ok),
             chunks_total=n_chunks,
         )
 
-    warning = None
-    if failed or chunks_ok < n_chunks:
-        warning = f"partial_debone:{chunks_ok}/{n_chunks}" + (
-            f":{last_err}" if last_err else ""
-        )
-    if _missing_front_matter(sentences, raw_text):
-        warning = (warning + ";" if warning else "") + "missing_front_matter"
-    if warnings:
-        warning = (warning + ";" if warning else "") + ";".join(warnings)
+    missing_front = _missing_front_matter(sentences, raw_text)
+    iq = build_ingest_quality(
+        raw_text=raw_text,
+        sentences=sentences,
+        chunk_stats=chunk_stats,
+        ungrounded_ids=ungrounded_ids,
+        partial_debone_failed=failed,
+    )
+    warn_list = quality_to_warnings(
+        iq,
+        survey_warnings=warnings,
+        missing_front_matter=missing_front,
+    )
+    warning_str = ";".join(warn_list) if warn_list else None
 
     return DeboneResult(
         sentences=sentences,
         ok=True,
-        warning=warning,
-        chunks_ok=chunks_ok,
+        warning=warning_str,
+        warnings=warn_list,
+        chunks_ok=iq.chunks_ok,
         chunks_total=n_chunks,
+        ingest_quality=iq.to_dict(),
     )

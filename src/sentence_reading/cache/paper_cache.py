@@ -374,12 +374,14 @@ def delete_cached_paper(
         from sentence_reading.llm.auth_google import current_gcs_uid
         from sentence_reading.llm import notes_gcs as ng
         from sentence_reading.llm import bookmarks_gcs as bg
+        from sentence_reading.llm import annotations_gcs as an
         from sentence_reading.llm import shadowing_chunks as sc
         from sentence_reading.llm import shadowing_takes as st
 
         uid = current_gcs_uid() or ""
         ng.remove_paper_notes(f"cache:{tid}")
         bg.remove_paper_bookmarks(f"cache:{tid}")
+        an.remove_paper_annotations(f"cache:{tid}")
         if uid:
             sc.delete_chunk_plan(uid=uid, cache_id=tid)
             st.delete_takes(uid=uid, cache_id=tid)
@@ -487,6 +489,11 @@ def load_cached_session(
             section=s.get("section"),
             text_ko=str(s.get("text_ko") or ""),
             text_ko_stage=str(s.get("text_ko_stage") or ""),
+            quality_flags=tuple(
+                str(f).strip()
+                for f in (s.get("quality_flags") or [])
+                if str(f).strip()
+            ),
         )
         for i, s in enumerate(meta.get("sentences") or [])
         if isinstance(s, dict) and str(s.get("text") or "").strip()
@@ -561,6 +568,10 @@ def load_cached_session(
         "doc_role": str(meta.get("doc_role") or "main"),
         "supplementary_merged": bool(meta.get("supplementary_merged")),
         "supplementary_cache_id": str(meta.get("supplementary_cache_id") or "") or None,
+        "warnings": list(meta.get("warnings") or []),
+        "ingest_quality": meta.get("ingest_quality")
+        if isinstance(meta.get("ingest_quality"), dict)
+        else {},
     }
     return session, info
 
@@ -685,6 +696,8 @@ def save_paper_session(
     session: PaperSession,
     *,
     debone: bool = False,
+    warnings: list[str] | None = None,
+    ingest_quality: dict | None = None,
     source: str = "pdf",
     doc_role: str = "main",
     source_path: Path | None = None,
@@ -815,6 +828,8 @@ def save_paper_session(
         "supplementary_merged": bool(supplementary_merged),
         "supplementary_cache_id": (supplementary_cache_id or None),
         "merge_revision": merge_revision,
+        "warnings": list(dict.fromkeys(warnings or [])),
+        "ingest_quality": ingest_quality if isinstance(ingest_quality, dict) else {},
         "sentences": [
             {
                 "id": s.id,
@@ -822,6 +837,11 @@ def save_paper_session(
                 "section": s.section,
                 "text_ko": s.text_ko or "",
                 "text_ko_stage": s.text_ko_stage or "",
+                **(
+                    {"quality_flags": list(s.quality_flags)}
+                    if s.quality_flags
+                    else {}
+                ),
             }
             for s in session.sentences
         ],

@@ -113,6 +113,11 @@ from sentence_reading.llm.bookmarks_gcs import (
     empty_bookmarks_store,
     push_bookmarks_store,
 )
+from sentence_reading.llm.annotations_gcs import (
+    download_annotations_store,
+    empty_annotations_store,
+    push_annotations_store,
+)
 from sentence_reading.llm.voice_gcs import (
     VOICE_BLOB_KEY_MAX,
     VOICE_BLOB_MAX_BYTES,
@@ -171,7 +176,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.99",
+    version="0.3.100",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -796,7 +801,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.99",
+        "version": "0.3.100",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -2522,6 +2527,175 @@ async def bookmarks_sync_put(request: Request, payload: dict = Body(...)) -> JSO
     return JSONResponse({"ok": True, "available": True, "store": merged, "message": "ok"})
 
 
+def _annotations_paper_key(cache_id: str) -> str:
+    return f"cache:{(cache_id or '').strip()}"
+
+
+def _format_annotations_markdown(
+    paper: dict,
+    *,
+    sentences_by_id: dict[str, dict],
+    section_labels: dict[str, str] | None = None,
+) -> str:
+    lines: list[str] = []
+    raw_sentences = paper.get("sentences")
+    if not isinstance(raw_sentences, dict):
+        return ""
+    labels = section_labels or {}
+    for key in sorted(raw_sentences.keys()):
+        events = raw_sentences.get(key)
+        if not isinstance(events, list):
+            continue
+        for ev in events:
+            if not isinstance(ev, dict) or ev.get("deleted"):
+                continue
+            sid = str(ev.get("sentence_id") or "")
+            row = sentences_by_id.get(sid) or {}
+            text = plain_text(str(row.get("text") or ""))
+            sec = labels.get(key) or key.split(":", 1)[0]
+            pos = key.split(":", 1)[-1]
+            lines.append(f"## {sec} · {pos}")
+            if text:
+                lines.append(f"> {text}")
+            note = str(ev.get("note") or "").strip()
+            if note:
+                lines.append(f"📝 {note}")
+            lines.append("")
+    return "\n".join(lines).strip() + ("\n" if lines else "")
+
+
+@app.get("/api/annotations/sync")
+def annotations_sync_get(request: Request) -> dict:
+    """GCS annotations store pull."""
+    if auth_enabled() and _request_user(request) is None:
+        return {
+            "ok": True,
+            "available": False,
+            "needs_auth": True,
+            "store": None,
+            "message": "로그인 후 주석을 동기화합니다.",
+        }
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready"):
+        return {
+            "ok": True,
+            "available": False,
+            "store": None,
+            "message": st.get("message"),
+        }
+    if st.get("annotations_object") is None:
+        return {
+            "ok": True,
+            "available": False,
+            "needs_auth": True,
+            "store": None,
+            "message": "로그인된 사용자 칸이 없습니다.",
+        }
+    store = download_annotations_store()
+    return {
+        "ok": True,
+        "available": True,
+        "store": store if store is not None else empty_annotations_store(),
+        "message": "ok",
+    }
+
+
+@app.put("/api/annotations/sync")
+async def annotations_sync_put(request: Request, payload: dict = Body(...)) -> JSONResponse:
+    """로컬 annotation store push — remote∪local 병합 후 GCS 업로드."""
+    if auth_enabled() and _request_user(request) is None:
+        return JSONResponse(
+            {
+                "ok": True,
+                "available": False,
+                "needs_auth": True,
+                "store": payload.get("store") if isinstance(payload, dict) else None,
+                "message": "로그인 후 주석을 동기화합니다.",
+            }
+        )
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready"):
+        return JSONResponse(
+            {
+                "ok": True,
+                "available": False,
+                "store": payload.get("store") if isinstance(payload, dict) else None,
+                "message": st.get("message"),
+            }
+        )
+    if st.get("annotations_object") is None:
+        return JSONResponse(
+            {
+                "ok": True,
+                "available": False,
+                "needs_auth": True,
+                "store": payload.get("store") if isinstance(payload, dict) else None,
+                "message": "로그인된 사용자 칸이 없습니다.",
+            }
+        )
+    local = payload.get("store") if isinstance(payload, dict) else None
+    if not isinstance(local, dict):
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "bad_store", "message": "store object required"},
+        )
+    try:
+        merged = push_annotations_store(local)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "error": "annotations_sync_failed",
+                "message": str(exc)[:300],
+            },
+        )
+    return JSONResponse({"ok": True, "available": True, "store": merged, "message": "ok"})
+
+
+@app.get("/api/annotations/export")
+def annotations_export(
+    request: Request,
+    cache_id: str = "",
+    format: str = "markdown",
+) -> Response:
+    """Export annotations for one paper (design/166 P1)."""
+    if auth_enabled() and _request_user(request) is None:
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "error": "needs_auth", "message": "로그인이 필요합니다."},
+        )
+    cid = (cache_id or "").strip()
+    if not cid:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "bad_cache_id", "message": "cache_id required"},
+        )
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready") or st.get("annotations_object") is None:
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False, "error": "unavailable", "message": st.get("message")},
+        )
+    store = download_annotations_store() or empty_annotations_store()
+    papers = store.get("papers") or {}
+    paper = papers.get(_annotations_paper_key(cid))
+    if not isinstance(paper, dict):
+        return JSONResponse({"ok": True, "content": "", "format": format})
+
+    session, _info = load_cached_session(cid)
+    sentences_by_id: dict[str, dict] = {}
+    if session is not None:
+        for s in session.sentences:
+            sentences_by_id[s.id] = {"id": s.id, "text": s.text, "section": s.section}
+
+    fmt = (format or "markdown").strip().lower()
+    if fmt == "json":
+        return JSONResponse({"ok": True, "format": "json", "paper": paper})
+    md = _format_annotations_markdown(paper, sentences_by_id=sentences_by_id)
+    return JSONResponse({"ok": True, "format": "markdown", "content": md})
+
+
 @app.get("/api/tts/voices")
 def tts_voices() -> dict:
     """UI용 추천 보이스 목록."""
@@ -2719,9 +2893,12 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
         if info.get("supplementary_cache_id"):
             data["supplementary_cache_id"] = info["supplementary_cache_id"]
         # WHY: stale 도 열어 노트(cache:id) 유지 — 원본 있으면 재분석, 없으면 파일 재업로드
-        warnings = ["stale_pipeline"] if info.get("stale") else []
+        warnings = list(info.get("warnings") or [])
+        if info.get("stale"):
+            warnings.insert(0, "stale_pipeline")
         warnings.extend(bf_warn)
-        data["warnings"] = warnings
+        data["warnings"] = list(dict.fromkeys(warnings))
+        data["ingest_quality"] = info.get("ingest_quality") or {}
         return JSONResponse(data)
     except Exception as exc:  # noqa: BLE001
         # design/111 — never leave clients with bare HTML 500 / empty body.
@@ -4125,6 +4302,7 @@ async def _run_ingest_job_body(
             ]
 
         debone_ok = False
+        ingest_quality: dict | None = None
         sentences: list = []
         references: list = []
         document_citation: dict = {}
@@ -4153,6 +4331,9 @@ async def _run_ingest_job_body(
                 warnings.extend(
                     str(w) for w in (resume_pl.get("warnings") or []) if w
                 )
+                iq_raw = resume_pl.get("ingest_quality")
+                if isinstance(iq_raw, dict):
+                    ingest_quality = iq_raw
                 resumed_debone = True
                 floor = ij.stage_percent_floor("debone")
                 _job_set(
@@ -4203,10 +4384,18 @@ async def _run_ingest_job_body(
                 if result.ok and result.sentences:
                     sentences = result.sentences
                     debone_ok = True
-                    if result.warning:
-                        warnings.append(result.warning)
+                    if result.warnings:
+                        warnings.extend(result.warnings)
+                    elif result.warning:
+                        warnings.extend(
+                            x for x in result.warning.split(";") if x.strip()
+                        )
+                    ingest_quality = result.ingest_quality
                 else:
                     warnings.append(result.warning or "gemini_debone_failed")
+                    if result.warnings:
+                        warnings.extend(result.warnings)
+                    ingest_quality = result.ingest_quality
                     _job_set(job_id, percent=90, stage="split", message="기본 문장 나누기")
                     sentences = await asyncio.to_thread(split_into_sentences, text)
             else:
@@ -4227,6 +4416,7 @@ async def _run_ingest_job_body(
                     end_char=s.end_char,
                     text_ko=getattr(s, "text_ko", "") or "",
                     text_ko_stage=getattr(s, "text_ko_stage", "") or "",
+                    quality_flags=getattr(s, "quality_flags", ()) or (),
                 )
                 for s in sentences
             ]
@@ -4267,6 +4457,7 @@ async def _run_ingest_job_body(
                     "pages": list(pdf_pages or []),
                     "text": text,
                     "warnings": list(warnings),
+                    "ingest_quality": ingest_quality or {},
                     "sentences": [irp.sentence_to_dict(s) for s in sentences],
                     "debone_ok": debone_ok,
                     "title": title,
@@ -4336,7 +4527,8 @@ async def _run_ingest_job_body(
             d["ok"] = True
             d["session_id"] = session_id
             d["debone"] = debone_ok
-            d["warnings"] = list(warnings)
+            d["warnings"] = list(dict.fromkeys(warnings))
+            d["ingest_quality"] = ingest_quality or {}
             d["from_cache"] = False
             d["source"] = kind
             d["translate_pending"] = pending
@@ -4361,6 +4553,8 @@ async def _run_ingest_job_body(
             save_paper_session,
             session,
             debone=debone_ok,
+            warnings=list(dict.fromkeys(warnings)),
+            ingest_quality=ingest_quality,
             source=kind,
             doc_role=doc_role,
             source_path=tmp_path,
@@ -4506,6 +4700,8 @@ async def _run_ingest_job_body(
                 save_paper_session,
                 session,
                 debone=debone_ok,
+                warnings=list(dict.fromkeys(warnings)),
+                ingest_quality=ingest_quality,
                 source=kind,
                 doc_role=doc_role,
                 source_path=tmp_path,

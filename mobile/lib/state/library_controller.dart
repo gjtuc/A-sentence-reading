@@ -20,7 +20,9 @@ import '../api/upload_notify.dart';
 import '../api/shadowing_models.dart';
 import '../api/translate_models.dart';
 import '../api/library_order_models.dart';
+import '../api/bookmark_models.dart';
 import '../state/bookmark_controller.dart';
+import '../state/annotation_controller.dart';
 import '../services/error_reporter.dart';
 import '../services/hang_watchdog.dart';
 import '../services/paper_edit_stash.dart';
@@ -47,10 +49,16 @@ class LibraryController extends ChangeNotifier {
 
   PaperEditStash get editStash => _editStash;
   BookmarkController? _bookmarks;
+  AnnotationController? _annotations;
 
   void attachBookmarks(BookmarkController bookmarks) {
     _bookmarks = bookmarks;
     bookmarks.attachClient(_client);
+  }
+
+  void attachAnnotations(AnnotationController annotations) {
+    _annotations = annotations;
+    annotations.attachClient(_client);
   }
 
   List<PaperEntry> papers = const [];
@@ -68,6 +76,10 @@ class LibraryController extends ChangeNotifier {
   String? shadowingChunksError;
   String? shadowingChunksCacheId;
   bool shadowingChunksBusy = false;
+
+  /// design/167 — show ingest quality banner once per open until dismissed.
+  bool showIngestQualityBanner = false;
+  String? _dismissedQualityBannerCacheId;
 
   /// design/160 — uid-scoped read-left timestamps for library meta lines.
   Map<String, String> readLeftAtByCacheId = const {};
@@ -705,6 +717,56 @@ class LibraryController extends ChangeNotifier {
     unawaited(bm.pullFromServer());
   }
 
+  Future<void> _syncAnnotationsForSession(ReadingSession o) async {
+    final ann = _annotations;
+    if (ann == null) return;
+    await ann.loadPaper(o.cacheId);
+    await ann.applyNavPrune(
+      sectionNav: o.sectionNav,
+      figureNav: o.figureNav,
+    );
+    await ann.reanchorToSession(o);
+    unawaited(ann.pullFromServer());
+  }
+
+  bool _sessionNeedsQualityBanner(ReadingSession o) {
+    final iq = o.ingestQuality;
+    if (iq != null && iq.needsBanner(o.warnings)) return true;
+    return o.warnings.any((w) =>
+        w.startsWith('coverage_') ||
+        w.startsWith('partial_debone') ||
+        w.startsWith('chunk_fallback_split') ||
+        w.startsWith('ungrounded_sentences') ||
+        w.startsWith('high_body_ratio') ||
+        w == 'stale_pipeline');
+  }
+
+  void _maybeShowQualityBanner(ReadingSession o) {
+    if (_sessionNeedsQualityBanner(o) &&
+        o.cacheId != _dismissedQualityBannerCacheId) {
+      showIngestQualityBanner = true;
+    } else {
+      showIngestQualityBanner = false;
+    }
+  }
+
+  void dismissIngestQualityBanner() {
+    showIngestQualityBanner = false;
+    final cid = session?.cacheId;
+    if (cid != null && cid.isNotEmpty) {
+      _dismissedQualityBannerCacheId = cid;
+    }
+    notifyListeners();
+  }
+
+  PaperEntry? paperEntryForCacheId(String cacheId) {
+    final cid = cacheId.trim();
+    for (final p in papers) {
+      if (p.id == cid) return p;
+    }
+    return null;
+  }
+
   Future<ReadingSession?> open(PaperEntry entry) async {
     // design/121 — open goes through GCS-first /open; errors stay in ``error``.
     if (!entry.isValid) {
@@ -784,7 +846,9 @@ class LibraryController extends ChangeNotifier {
       }
 
       session = o;
+      _maybeShowQualityBanner(o);
       unawaited(_syncBookmarksForSession(o));
+      unawaited(_syncAnnotationsForSession(o));
       // design/129 — fill current±1 images after sentences are on screen.
       unawaited(_prefetchFigureWindow());
       // design/80 — per-user chunk backfill (opt-in); errors surface on reader.

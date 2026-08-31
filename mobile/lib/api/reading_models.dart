@@ -11,6 +11,69 @@ import 'cite_refs.dart';
 import 'document_citation.dart';
 import 'reader_nav_labels.dart';
 
+/// Ingest quality metrics persisted in session.json (design/167).
+class IngestQuality {
+  const IngestQuality({
+    this.coverageRatio = 1.0,
+    this.bodyRatio = 0.0,
+    this.ungroundedCount = 0,
+    this.chunksFallbackSplit = const [],
+    this.chunksOk = 0,
+    this.chunksTotal = 0,
+  });
+
+  factory IngestQuality.fromJson(Object? raw) {
+    if (raw is! Map) return const IngestQuality();
+    double asDouble(Object? v, [double d = 0]) {
+      if (v is num) return v.toDouble();
+      return double.tryParse('$v') ?? d;
+    }
+    int asInt(Object? v, [int d = 0]) {
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      return int.tryParse('$v') ?? d;
+    }
+    final fallback = <int>[];
+    final fb = raw['chunks_fallback_split'];
+    if (fb is List) {
+      for (final x in fb) {
+        if (x is int) {
+          fallback.add(x);
+        } else if (x is num) {
+          fallback.add(x.toInt());
+        }
+      }
+    }
+    return IngestQuality(
+      coverageRatio: asDouble(raw['coverage_ratio'], 1.0),
+      bodyRatio: asDouble(raw['body_ratio']),
+      ungroundedCount: asInt(raw['ungrounded_count']),
+      chunksFallbackSplit: fallback,
+      chunksOk: asInt(raw['chunks_ok']),
+      chunksTotal: asInt(raw['chunks_total']),
+    );
+  }
+
+  final double coverageRatio;
+  final double bodyRatio;
+  final int ungroundedCount;
+  final List<int> chunksFallbackSplit;
+  final int chunksOk;
+  final int chunksTotal;
+
+  bool needsBanner(List<String> warnings) {
+    if (warnings.any((w) =>
+        w.startsWith('coverage_') ||
+        w.startsWith('partial_debone') ||
+        w.startsWith('chunk_fallback_split') ||
+        w.startsWith('ungrounded_sentences') ||
+        w.startsWith('high_body_ratio'))) {
+      return true;
+    }
+    return coverageRatio < 0.65 || ungroundedCount > 0;
+  }
+}
+
 /// One sentence row from the session payload.
 class SentenceView {
   SentenceView({
@@ -18,15 +81,25 @@ class SentenceView {
     required this.text,
     this.section = '',
     this.textKo = '',
+    this.qualityFlags = const [],
   });
 
   factory SentenceView.fromJson(Map<String, dynamic>? json) {
     if (json == null) return SentenceView(id: '', text: '');
+    final flags = <String>[];
+    final rawF = json['quality_flags'];
+    if (rawF is List) {
+      for (final f in rawF) {
+        final s = '$f'.trim();
+        if (s.isNotEmpty) flags.add(s);
+      }
+    }
     return SentenceView(
       id: '${json['id'] ?? ''}'.trim(),
       text: '${json['text'] ?? ''}',
       section: '${json['section'] ?? ''}'.trim(),
       textKo: '${json['text_ko'] ?? ''}',
+      qualityFlags: flags,
     );
   }
 
@@ -34,8 +107,10 @@ class SentenceView {
   final String text;
   final String section;
   final String textKo;
+  final List<String> qualityFlags;
 
   bool get hasText => text.trim().isNotEmpty;
+  bool get isUngrounded => qualityFlags.contains('ungrounded');
 }
 
 /// One figure row — [imageSrc] may be data-URL, http(s), relative, or empty stub.
@@ -112,6 +187,7 @@ class ReadingSession {
     this.sentenceIndex = 0,
     this.figureIndex = 0,
     this.warnings = const [],
+    this.ingestQuality,
     this.references = const [],
     this.documentCitation = const DocumentCitation(),
     this.supplementaryMerged = false,
@@ -160,6 +236,9 @@ class ReadingSession {
         if (s.isNotEmpty) warnings.add(s);
       }
     }
+    final iqRaw = json['ingest_quality'];
+    final ingestQuality =
+        iqRaw is Map ? IngestQuality.fromJson(Map<String, dynamic>.from(iqRaw)) : null;
     return ReadingSession(
       sessionId: '${json['session_id'] ?? ''}'.trim(),
       cacheId: '${json['cache_id'] ?? ''}'.trim(),
@@ -169,6 +248,7 @@ class ReadingSession {
       sentenceIndex: asInt(json['sentence_index']),
       figureIndex: asInt(json['figure_index']),
       warnings: warnings,
+      ingestQuality: ingestQuality,
       references: parseReferenceList(json['references']),
       documentCitation: parseDocumentCitation(json['document_citation']),
       supplementaryMerged: json['supplementary_merged'] == true,
@@ -183,6 +263,7 @@ class ReadingSession {
   int sentenceIndex;
   int figureIndex;
   final List<String> warnings;
+  final IngestQuality? ingestQuality;
   /// design/148 — bibliography rows from ingest (cite panel).
   final List<CiteRefEntry> references;
   /// design/157 — this paper bibliographic row (Title panel).

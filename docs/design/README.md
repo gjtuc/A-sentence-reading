@@ -139,6 +139,13 @@
 | 146a | [146a-mobile-account-link.md](146a-mobile-account-link.md) | 앱 계정 연결/해제 (Settings) |
 | 146c | [146c-mobile-kakao-oauth-scheme.md](146c-mobile-kakao-oauth-scheme.md) | 카카오 OAuth scheme (flutter_web_auth_2) |
 | 146b | [146b-account-warehouse-merge.md](146b-account-warehouse-merge.md) | 계정 창고 병합 (**후보**) |
+| 160 | [160-mobile-library-reader-polish.md](160-mobile-library-reader-polish.md) | 보관 메타 · Title Page · shadowing GCS · 북마크 배지 |
+| 161 | [161-mobile-apk-download.md](161-mobile-apk-download.md) | 설정 APK 다운로드 |
+| 162 | [162-practice-camera-mirror.md](162-practice-camera-mirror.md) | 연습 카메라 미러 · 만료 날짜 |
+| 163 | [163-figure-layout-edit-v2.md](163-figure-layout-edit-v2.md) | Figure layout edit v2 · slot_plan · commit |
+| 164 | [164-fig-ref-panel-fallback.md](164-fig-ref-panel-fallback.md) | Fig-ref 패널 폴백 |
+| 166 | [166-reader-annotations.md](166-reader-annotations.md) | 모바일 주석 MVP · GCS sidecar · 하이라이트·메모 |
+| 167 | [167-debone-quality-guards.md](167-debone-quality-guards.md) | debone 품질 가드 · warnings 영속 · Body 진단 |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -272,3 +279,7 @@
 160 — 보관 메타 줄 · Title Page 네비 · 연습 GCS/auto-off · 설정 3스위치 · 북마크 배지 (0.3.94).
 161 — 설정 APK 다운로드 행 · 북마크 문구 (→0.3.95).
 162 — 연습 카메라 미러 · 보관 만료 날짜 · 설정 TTS 여백 (0.3.96).
+163 — Figure layout edit v2 · page_preview · commit (0.3.99).
+164 — Fig-ref 패널 폴백 (0.3.99).
+167 — debone 품질 가드 · chunk split fallback · warnings·ingest_quality 영속 · Body 진단 (→0.3.100).
+166 — 모바일 주석 MVP · annotations/sync · 문장 long-press · 4색 하이라이트 (→0.3.100, 167 이후 reanchor).

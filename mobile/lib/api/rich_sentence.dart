@@ -175,3 +175,53 @@ InlineSpan _styledSpan(String text, TextStyle base, List<String> stack) {
     ),
   );
 }
+
+/// Highlight range on plain-text offsets (design/166).
+class AnnotationRange {
+  const AnnotationRange({
+    required this.start,
+    required this.end,
+    required this.background,
+    this.underline = false,
+  });
+
+  final int start;
+  final int end;
+  final Color background;
+  final bool underline;
+}
+
+List<InlineSpan> buildAnnotatedSpans(
+  String? raw,
+  TextStyle base, {
+  List<AnnotationRange> ranges = const [],
+}) {
+  final plain = plainFromRichHtml(raw);
+  if (plain.isEmpty) return buildRichSpans(raw, base);
+  if (ranges.isEmpty) return buildRichSpans(raw, base);
+
+  final merged = List<AnnotationRange>.from(ranges)
+    ..sort((a, b) => a.start.compareTo(b.start));
+  final out = <InlineSpan>[];
+  var cursor = 0;
+  for (final r in merged) {
+    final start = r.start.clamp(0, plain.length);
+    final end = r.end.clamp(start, plain.length);
+    if (start > cursor) {
+      out.addAll(buildRichSpans(plain.substring(cursor, start), base));
+    }
+    if (end > start) {
+      final slice = plain.substring(start, end);
+      final style = base.copyWith(
+        backgroundColor: r.background.withValues(alpha: 0.4),
+        decoration: r.underline ? TextDecoration.underline : null,
+      );
+      out.addAll(buildRichSpans(slice, style));
+      cursor = end;
+    }
+  }
+  if (cursor < plain.length) {
+    out.addAll(buildRichSpans(plain.substring(cursor), base));
+  }
+  return out;
+}
