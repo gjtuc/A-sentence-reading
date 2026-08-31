@@ -223,7 +223,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
             _magnetEscaped = true;
             _inMagnet = false;
             next = (_sentenceFraction + rawDelta).clamp(_kHardMin, _kHardMax);
-            Feedback.lightImpact();
+            HapticFeedback.lightImpact();
           }
         } else {
           next =
