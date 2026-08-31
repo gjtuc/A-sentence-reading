@@ -23,8 +23,10 @@ fi
 gcloud config set project "$PROJECT_ID" >/dev/null
 URI="gs://${BUCKET}/${OBJECT}"
 gsutil cp "$APK" "$URI"
+# Bucket uses uniform access + public access prevention — APK is served via Cloud Run
+# GET /api/mobile/apk (see mobile_apk_gcs.py). Legacy ACL make-public is a no-op.
 gsutil acl ch -u AllUsers:R "$URI" 2>/dev/null || true
-PUBLIC_URL="https://storage.googleapis.com/${BUCKET}/${OBJECT}"
+PUBLIC_URL="${ASR_CLOUD_RUN_URL:-https://asr-sentence-reading-984608876300.asia-northeast3.run.app}/api/mobile/apk"
 echo "uploaded: $URI"
 echo "public:   $PUBLIC_URL"
 echo "export ASR_MOBILE_APK_URL=\"$PUBLIC_URL\""

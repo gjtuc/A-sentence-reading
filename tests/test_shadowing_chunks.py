@@ -144,7 +144,7 @@ def test_kill_off_rejects(shadowing_env: Path, monkeypatch) -> None:
     r = client.get("/api/shadowing/chunks/abcd1234ef")
     assert r.status_code == 503
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.101"
+    assert st["version"] == "0.3.103"
     assert st["shadowing_chunks"] is False
 
 

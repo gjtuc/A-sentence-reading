@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""design/161 — /api/status mobile_apk_url."""
+"""design/161 — /api/status mobile_apk_url and /api/mobile/apk proxy."""
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
@@ -7,21 +7,73 @@ from fastapi.testclient import TestClient
 from sentence_reading.api.app import app
 
 
-def test_mobile_apk_url_missing_by_default(monkeypatch) -> None:
+def test_mobile_apk_url_defaults_to_request_base(monkeypatch) -> None:
     monkeypatch.delenv("ASR_MOBILE_APK_URL", raising=False)
+    monkeypatch.delenv("ASR_CLOUD_RUN_URL", raising=False)
     monkeypatch.setenv("ASR_SKIP_ENV_FILE", "1")
     st = TestClient(app).get("/api/status").json()
-    assert st.get("mobile_apk_url") is None
+    assert st.get("mobile_apk_url") == "http://testserver/api/mobile/apk"
 
 
 def test_mobile_apk_url_from_env(monkeypatch) -> None:
     monkeypatch.setenv("ASR_SKIP_ENV_FILE", "1")
     monkeypatch.setenv(
         "ASR_MOBILE_APK_URL",
-        "https://storage.googleapis.com/asr-chaheon-warehouse/asr/mobile/sentence-reading-latest.apk",
+        "https://example.com/custom.apk",
+    )
+    st = TestClient(app).get("/api/status").json()
+    assert st.get("mobile_apk_url") == "https://example.com/custom.apk"
+
+
+def test_mobile_apk_url_defaults_to_cloud_run_proxy(monkeypatch) -> None:
+    monkeypatch.setenv("ASR_SKIP_ENV_FILE", "1")
+    monkeypatch.delenv("ASR_MOBILE_APK_URL", raising=False)
+    monkeypatch.setenv(
+        "ASR_CLOUD_RUN_URL",
+        "https://asr-sentence-reading-984608876300.asia-northeast3.run.app",
     )
     st = TestClient(app).get("/api/status").json()
     assert (
         st.get("mobile_apk_url")
-        == "https://storage.googleapis.com/asr-chaheon-warehouse/asr/mobile/sentence-reading-latest.apk"
+        == "https://asr-sentence-reading-984608876300.asia-northeast3.run.app/api/mobile/apk"
     )
+
+
+def test_mobile_apk_download_serves_bytes(monkeypatch) -> None:
+    monkeypatch.setenv("ASR_SKIP_ENV_FILE", "1")
+    payload = b"PK\x03\x04fake-apk"
+
+    def _ready() -> tuple[bool, str]:
+        return True, "ok"
+
+    def _download() -> bytes:
+        return payload
+
+    monkeypatch.setattr(
+        "sentence_reading.api.app.mobile_apk_ready",
+        _ready,
+    )
+    monkeypatch.setattr(
+        "sentence_reading.api.app.download_mobile_apk",
+        _download,
+    )
+    r = TestClient(app).get("/api/mobile/apk")
+    assert r.status_code == 200
+    assert r.content == payload
+    assert "android.package-archive" in r.headers["content-type"]
+
+
+def test_mobile_apk_download_not_found(monkeypatch) -> None:
+    monkeypatch.setenv("ASR_SKIP_ENV_FILE", "1")
+
+    def _ready() -> tuple[bool, str]:
+        return True, "ok"
+
+    monkeypatch.setattr("sentence_reading.api.app.mobile_apk_ready", _ready)
+    monkeypatch.setattr(
+        "sentence_reading.api.app.download_mobile_apk",
+        lambda: None,
+    )
+    r = TestClient(app).get("/api/mobile/apk")
+    assert r.status_code == 404
+    assert r.json()["error"] == "apk_not_found"

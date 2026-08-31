@@ -118,6 +118,7 @@ from sentence_reading.llm.annotations_gcs import (
     empty_annotations_store,
     push_annotations_store,
 )
+from sentence_reading.llm.mobile_apk_gcs import download_mobile_apk, mobile_apk_ready
 from sentence_reading.llm.voice_gcs import (
     VOICE_BLOB_KEY_MAX,
     VOICE_BLOB_MAX_BYTES,
@@ -176,7 +177,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.102",
+    version="0.3.103",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -390,10 +391,17 @@ def _split_caption_lumps_enabled() -> bool:
     return split_caption_lumps_enabled()
 
 
-def _mobile_apk_url() -> str | None:
-    """design/161 — public GCS APK for settings download row."""
+def _mobile_apk_url(*, request: Request | None = None) -> str | None:
+    """design/161 — APK download URL for settings row (Cloud Run proxy when bucket is private)."""
     raw = (os.environ.get("ASR_MOBILE_APK_URL") or "").strip()
-    return raw or None
+    if raw:
+        return raw
+    base = (os.environ.get("ASR_CLOUD_RUN_URL") or "").strip().rstrip("/")
+    if not base and request is not None:
+        base = str(request.base_url).rstrip("/")
+    if base:
+        return f"{base}/api/mobile/apk"
+    return None
 
 
 def _fig_ref_hints_enabled() -> bool:
@@ -801,7 +809,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.102",
+        "version": "0.3.103",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -962,9 +970,42 @@ def status(request: Request) -> dict:
         "stt_browser": True,
         "stt_server": gemini_available(),
         "tab_close": True,
-        # design/161 — settings APK download (public GCS); unset → null (no button).
-        "mobile_apk_url": _mobile_apk_url(),
+        # design/161 — settings APK download; Cloud Run proxy when bucket is private.
+        "mobile_apk_url": _mobile_apk_url(request=request),
     }
+
+
+@app.get("/api/mobile/apk")
+def mobile_apk_download() -> Response:
+    """design/161 — stream latest release APK from private GCS (public access prevention safe)."""
+    ready, message = mobile_apk_ready()
+    if not ready:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "apk_unavailable",
+                "message": message,
+            },
+        )
+    data = download_mobile_apk()
+    if not data:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "apk_not_found",
+                "message": "APK not uploaded yet.",
+            },
+        )
+    return Response(
+        content=data,
+        media_type="application/vnd.android.package-archive",
+        headers={
+            "Content-Disposition": 'attachment; filename="sentence-reading.apk"',
+            "Cache-Control": "public, max-age=300",
+        },
+    )
 
 
 def _session_response(
