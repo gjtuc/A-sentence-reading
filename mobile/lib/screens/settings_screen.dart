@@ -577,9 +577,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text('TTS', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
-              '읽기와 연습(쉐도잉) 듣기에 공통입니다. 서버는 1.0으로 합성하고 배속은 기기에서만 적용합니다.',
+              '읽기와 연습(쉐도잉) 듣기에 공통입니다.\n'
+              '서버는 1.0으로 합성하고 배속은 기기에서만 적용합니다.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            const SizedBox(height: 16),
             AnimatedBuilder(
               animation: widget.tts,
               builder: (context, _) {
@@ -611,7 +613,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       decoration: const InputDecoration(
                         labelText: '모드',
                         border: OutlineInputBorder(),
-                        isDense: true,
                       ),
                       value: normalizeTtsMode(tts.mode),
                       items: [

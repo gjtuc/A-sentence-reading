@@ -21,6 +21,7 @@ import '../api/tts_models.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/tts_controller.dart';
+import '../widgets/practice_mirror_panel.dart';
 
 class ShadowingPracticeScreen extends StatefulWidget {
   const ShadowingPracticeScreen({
@@ -57,6 +58,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
   int _sentenceIndex = 0;
   /// design/120 — last local take path for 「다시 듣기」 (per device, this session).
   String? _lastTakePath;
+  /// design/162 — session-only self-view mirror (not persisted).
+  bool _mirrorEnabled = false;
 
   ReadingSession? get _session => widget.library.session;
 
@@ -322,6 +325,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
     }
   }
 
+  void _toggleMirror() {
+    setState(() => _mirrorEnabled = !_mirrorEnabled);
+  }
+
   Future<void> _next({required bool skip}) async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -368,7 +375,18 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
         ? ''
         : _chunks[_chunkIndex.clamp(0, _chunks.length - 1)];
     return Scaffold(
-      appBar: AppBar(title: const Text('쉐도잉 연습')),
+      appBar: AppBar(
+        title: const Text('쉐도잉 연습'),
+        actions: [
+          IconButton(
+            icon: Icon(
+              _mirrorEnabled ? Icons.videocam : Icons.videocam_off_outlined,
+            ),
+            tooltip: _mirrorEnabled ? '카메라 끄기' : '카메라 켜기',
+            onPressed: _busy ? null : _toggleMirror,
+          ),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -378,7 +396,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
               '문장 ${_sentenceIndex + 1} · 구간 ${_chunkIndex + 1}/${_chunks.isEmpty ? 1 : _chunks.length}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            const SizedBox(height: 12),
+            if (_mirrorEnabled) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                height: MediaQuery.sizeOf(context).height * 0.32,
+                child: const PracticeMirrorPanel(),
+              ),
+            ] else
+              const SizedBox(height: 12),
             Expanded(
               child: SingleChildScrollView(
                 child: Text(

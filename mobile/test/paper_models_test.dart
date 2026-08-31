@@ -33,11 +33,14 @@ void main() {
         formatPaperMetaDateTime('2026-08-30T15:10:06.145733Z'),
         isNotEmpty,
       );
+      final expDate = formatPaperMetaDate('2026-11-29T15:10:06.145733Z');
+      expect(expDate, isNot(contains(':')));
       final timing = e.timingLine(
         lastReadLeftAt: '2026-08-30T15:40:00.000Z',
       );
       expect(timing, contains('보관:'));
-      expect(timing, contains('만료'));
+      expect(timing, contains('($expDate 만료)'));
+      expect(timing, isNot(matches(RegExp(r'\d+/\d+ \d+:\d+ 만료'))));
       expect(timing, contains('읽기:'));
     });
 

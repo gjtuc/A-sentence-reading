@@ -135,7 +135,7 @@ class PaperEntry {
       if (stored.isNotEmpty) {
         var line = '보관: $stored';
         if (expiresAt.isNotEmpty) {
-          final exp = formatPaperMetaDateTime(expiresAt);
+          final exp = formatPaperMetaDate(expiresAt);
           if (exp.isNotEmpty) line += ' ($exp 만료)';
         }
         bits.add(line);
@@ -160,6 +160,16 @@ class PaperEntry {
     ];
     return bits.join(' · ');
   }
+}
+
+/// ISO UTC → local `M/d` for library expiry suffix only.
+String formatPaperMetaDate(String iso) {
+  final raw = iso.trim();
+  if (raw.isEmpty) return '';
+  final dt = DateTime.tryParse(raw);
+  if (dt == null) return '';
+  final local = dt.toLocal();
+  return '${local.month}/${local.day}';
 }
 
 /// ISO UTC → local `M/d HH:mm` for library meta lines.
