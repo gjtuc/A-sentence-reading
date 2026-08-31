@@ -67,6 +67,14 @@ void main() {
     expect(hints.map((e) => e.n).toList(), [6, 7]);
   });
 
+  test('stripCiteMarkersForDisplay removes plain cite after Hangul', () {
+    const minus = '\u2212';
+    expect(
+      stripCiteMarkersForDisplay('가장 자주 연구된다.6${minus}9'),
+      '가장 자주 연구된다.',
+    );
+  });
+
   test('parseReferenceList', () {
     final rows = parseReferenceList([
       {'n': 2, 'text': 'Second ref', 'doi': ''},

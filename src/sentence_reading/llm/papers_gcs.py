@@ -229,6 +229,42 @@ def merge_index_entries(a: list[Any], b: list[Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _merge_session_meta_richer(remote: dict, local: dict) -> dict:
+    """Prevent stale local uploads from shrinking a repaired GCS session."""
+    out = dict(local)
+    r_figs = remote.get("figures") or []
+    l_figs = local.get("figures") or []
+    if isinstance(r_figs, list) and isinstance(l_figs, list) and len(r_figs) > len(l_figs):
+        out["figures"] = r_figs
+    r_sents = remote.get("sentences") or []
+    l_sents = local.get("sentences") or []
+    if isinstance(r_sents, list) and isinstance(l_sents, list) and len(r_sents) > len(l_sents):
+        ko_by_id = {
+            str(s.get("id") or ""): s for s in l_sents if isinstance(s, dict)
+        }
+        merged_sents: list[dict] = []
+        for rs in r_sents:
+            if not isinstance(rs, dict):
+                continue
+            row = dict(rs)
+            ls = ko_by_id.get(str(row.get("id") or ""))
+            if ls:
+                for k in ("text_ko", "text_ko_stage"):
+                    lv = str(ls.get(k) or "").strip()
+                    if lv and not str(row.get(k) or "").strip():
+                        row[k] = lv
+            merged_sents.append(row)
+        out["sentences"] = merged_sents
+    r_refs = remote.get("references") or []
+    l_refs = local.get("references") or []
+    if isinstance(r_refs, list) and isinstance(l_refs, list):
+        if len(r_refs) > len(l_refs):
+            out["references"] = r_refs
+        elif len(l_refs) > len(r_refs):
+            out["references"] = l_refs
+    return out
+
+
 def upload_paper_cache(cache_id: str) -> bool:
     """로컬 보관본 → GCS (session + figures + index merge)."""
     ready, msg = gcs_client_ready()
@@ -249,7 +285,25 @@ def upload_paper_cache(cache_id: str) -> bool:
     if not session_raw or len(session_raw) > PAPER_SESSION_MAX_BYTES:
         return False
     sess_obj = paper_session_object(cid)
-    if not sess_obj or not upload_bytes(
+    if not sess_obj:
+        return False
+    remote_raw = download_bytes(sess_obj)
+    if remote_raw:
+        try:
+            remote_meta = json.loads(remote_raw.decode("utf-8"))
+            local_meta = json.loads(session_raw.decode("utf-8"))
+            if isinstance(remote_meta, dict) and isinstance(local_meta, dict):
+                merged = _merge_session_meta_richer(remote_meta, local_meta)
+                session_raw = (
+                    json.dumps(merged, ensure_ascii=False, indent=2) + "\n"
+                ).encode("utf-8")
+                try:
+                    session_path.write_bytes(session_raw)
+                except OSError:
+                    pass
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            pass
+    if not upload_bytes(
         sess_obj, session_raw, content_type="application/json; charset=utf-8"
     ):
         return False

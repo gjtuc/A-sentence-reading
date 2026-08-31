@@ -14,7 +14,7 @@
   var DOLLAR_TEX_CITE =
     /\$\{\^(\d+(?:\s*[,–—−-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—−-]\s*\d+)*)\}\$/gi;
   var PLAIN_TRAILING =
-    /(?<=[a-zA-Z\)])(\.(\d+(?:\s*[-–—−,]\s*\d+)*))\s*$/;
+    /(?<=[a-zA-Z\)가-힣])(\.(\d+(?:\s*[-–—−,]\s*\d+)*))\s*$/;
 
   function stripTags(html) {
     return String(html || "").replace(/<[^>]+>/g, " ");

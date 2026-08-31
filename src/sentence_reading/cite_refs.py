@@ -35,8 +35,9 @@ _DOLLAR_TEX_CITE = re.compile(
     re.IGNORECASE,
 )
 # ACS plain trailing cite — reaction.6−9 · worldwide.1−5 (design/0.3.93)
+# Hangul suffix — KO translation may keep ".6−9" after "연구된다." (0.3.111).
 _PLAIN_TRAILING = re.compile(
-    r"(?<=[a-zA-Z\)])(\.(\d+(?:\s*[-–—−,]\s*\d+)*))\s*$"
+    r"(?<=[a-zA-Z\)가-힣])(\.(\d+(?:\s*[-–—−,]\s*\d+)*))\s*$"
 )
 # References 섹션 헤더 (ACS ■REFERENCES 등)
 _REF_HEAD = re.compile(

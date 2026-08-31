@@ -11,6 +11,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../api/cite_refs.dart' as cite;
 import '../api/client.dart';
 import '../api/tts_models.dart';
 import 'library_controller.dart';
@@ -192,6 +193,7 @@ class TtsController extends ChangeNotifier {
 
   /// Fetch + play arbitrary English text with current mode/voice/rate.
   Future<void> playText(String text) async {
+    text = cite.stripCiteMarkersForDisplay(text);
     if (isEmptyTtsText(text)) {
       error = 'No sentence text to speak.';
       playing = false;

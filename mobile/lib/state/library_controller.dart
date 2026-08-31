@@ -1058,6 +1058,7 @@ class LibraryController extends ChangeNotifier {
         sessionId: s.sessionId,
         center: s.figureIndex,
         span: 1,
+        cacheId: s.cacheId,
       );
       // EDGE: session may have changed while in flight.
       if (!identical(session, s)) return;

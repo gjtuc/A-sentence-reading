@@ -1508,16 +1508,21 @@ class AsrClient {
     required String sessionId,
     required int center,
     int span = 1,
+    String cacheId = '',
   }) async {
     final sid = sessionId.trim();
     if (sid.isEmpty) {
       throw AsrApiException('session id is empty', 400);
     }
+    final cid = cacheId.trim();
+    final cacheQ = cid.isEmpty
+        ? ''
+        : '&cache_id=${Uri.encodeQueryComponent(cid)}';
     final res = await _http
         .get(
           _uri(
             '/api/session/${Uri.encodeComponent(sid)}/figures/window'
-            '?center=$center&span=$span',
+            '?center=$center&span=$span$cacheQ',
           ),
           headers: await _headers(),
         )

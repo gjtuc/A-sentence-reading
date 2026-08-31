@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import tempfile
 import uuid
 import urllib.parse
@@ -23,6 +24,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from sentence_reading.cache.paper_cache import (
     attach_source_file,
+    backfill_references_from_source_pdf,
     delete_cached_paper,
     find_cached_by_text,
     get_index_entry,
@@ -180,7 +182,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.110",
+    version="0.3.111",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -813,7 +815,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.110",
+        "version": "0.3.111",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -2892,6 +2894,11 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                 },
             )
         session, info = loaded
+        if backfill_references_from_source_pdf(cache_id):
+            reloaded = load_cached_session(cache_id, load_images=False)
+            if reloaded is not None:
+                session, info = reloaded
+                asyncio.create_task(_upload_paper_cache_task(cache_id))
         # design/114 — never return ok with title-only / zero sentences.
         if paper_open_require_sentences() and not session.sentences:
             return JSONResponse(
@@ -3256,13 +3263,15 @@ def session_figures_window(
     session_id: str,
     center: int = 0,
     span: int = 1,
+    cache_id: str = "",
 ) -> JSONResponse:
     """design/129 — return PNG data-URLs for center±span only (default ±1).
 
     AuthZ: session must exist in memory (same capability model as session_get).
-    Never trusts client cache_id/path — uses _SESSION_CACHE_IDS bound at open.
+    Uses _SESSION_CACHE_IDS bound at open. When the in-memory session expired
+    (Cloud Run restart), optional ``cache_id`` reloads figures from GCS.
     """
-    from sentence_reading.cache.paper_cache import figure_data_url
+    from sentence_reading.cache.paper_cache import figure_data_url, load_cached_session
 
     # EDGE: refuse absurd windows (cost / abuse).
     try:
@@ -3292,15 +3301,30 @@ def session_figures_window(
     else:
         session = _SESSIONS.get(session_id)
         if session is None:
-            return JSONResponse(
-                status_code=404,
-                content={
-                    "ok": False,
-                    "error": "session_not_found",
-                    "message": "세션을 찾을 수 없습니다.",
-                },
-            )
-        cache_id = _SESSION_CACHE_IDS.get(session_id) or ""
+            cid = (cache_id or "").strip()
+            if cid and re.fullmatch(r"[a-zA-Z0-9]{8,32}", cid):
+                from sentence_reading.llm.papers_gcs import refresh_paper_for_open
+
+                try:
+                    refreshed, _code = refresh_paper_for_open(cid)
+                except Exception:
+                    refreshed = False
+                if refreshed:
+                    loaded = load_cached_session(cid, load_images=False)
+                    if loaded is not None:
+                        session, _info = loaded
+                        cache_id = cid
+            if session is None:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "ok": False,
+                        "error": "session_not_found",
+                        "message": "세션을 찾을 수 없습니다.",
+                    },
+                )
+        else:
+            cache_id = _SESSION_CACHE_IDS.get(session_id) or ""
 
     n = len(session.figures)
     if n < 1:
@@ -3950,6 +3974,20 @@ async def _backfill_cached_translations(
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"translate_backfill_save_failed:{str(exc)[:80]}")
     return session, warnings
+
+
+async def _upload_paper_cache_task(cache_id: str) -> None:
+    """Persist local session fixes (e.g. references backfill) to GCS."""
+    log = __import__("logging").getLogger("sentence_reading.api")
+    cid = (cache_id or "").strip()
+    if not cid:
+        return
+    try:
+        from sentence_reading.llm.papers_gcs import upload_paper_cache
+
+        await asyncio.to_thread(upload_paper_cache, cid)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("paper cache upload failed: %s", type(exc).__name__)
 
 
 async def _open_translate_backfill_task(

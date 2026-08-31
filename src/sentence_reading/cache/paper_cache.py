@@ -608,6 +608,59 @@ def get_source_path(cache_id: str) -> Path | None:
     return None
 
 
+def backfill_references_from_source_pdf(cache_id: str) -> bool:
+    """Re-extract References from source PDF when ingest text was truncated.
+
+    WHY: debone body text often misses the full bibliography block; the stored
+    PDF still has all numbered entries (acsanm QA: 21 → 43 refs).
+    """
+    cid = (cache_id or "").strip()
+    if not re.fullmatch(r"[a-zA-Z0-9]{8,32}", cid):
+        return False
+    meta_path = cache_root() / cid / _SESSION_NAME
+    if not meta_path.is_file():
+        return False
+    src = get_source_path(cid)
+    if src is None or src.suffix.lower() != ".pdf":
+        return False
+    try:
+        import fitz
+
+        doc = fitz.open(src)
+        try:
+            full_text = "".join(page.get_text() for page in doc)
+        finally:
+            doc.close()
+    except Exception:
+        return False
+    if not full_text.strip():
+        return False
+    from sentence_reading.cite_refs import bibliography_public, extract_bibliography
+
+    new_refs = bibliography_public(extract_bibliography(full_text))
+    if not new_refs:
+        return False
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(meta, dict):
+        return False
+    old_refs = meta.get("references") or []
+    old_n = len(old_refs) if isinstance(old_refs, list) else 0
+    if len(new_refs) <= old_n:
+        return False
+    meta["references"] = new_refs
+    try:
+        meta_path.write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        return False
+    return True
+
+
 def attach_source_file(
     cache_id: str,
     source_path: Path,

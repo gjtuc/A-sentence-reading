@@ -13,7 +13,7 @@ final _dollarTexCite = RegExp(
 final _dollarCite = RegExp(r'(?<=[A-Za-z)\]])\$(\d{1,3})(?!\d)');
 final _dollarCiteAfterMark = RegExp(r'(\]|>)\s*\$(\d{1,3})(?!\d)');
 final _plainTrailing = RegExp(
-  r'(?<=[a-zA-Z\)])(\.(\d+(?:\s*[-–—−,]\s*\d+)*))\s*$',
+  r'(?<=[a-zA-Z\)가-힣])(\.(\d+(?:\s*[-–—−,]\s*\d+)*))\s*$',
 );
 
 String stripTags(String? html) => (html ?? '').replaceAll(_tag, ' ');
