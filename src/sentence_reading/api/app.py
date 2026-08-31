@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -118,7 +118,10 @@ from sentence_reading.llm.annotations_gcs import (
     empty_annotations_store,
     push_annotations_store,
 )
-from sentence_reading.llm.mobile_apk_gcs import download_mobile_apk, mobile_apk_ready
+from sentence_reading.llm.mobile_apk_gcs import (
+    iter_mobile_apk_chunks,
+    mobile_apk_ready,
+)
 from sentence_reading.llm.voice_gcs import (
     VOICE_BLOB_KEY_MAX,
     VOICE_BLOB_MAX_BYTES,
@@ -177,7 +180,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.104",
+    version="0.3.105",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -809,7 +812,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.104",
+        "version": "0.3.105",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -988,8 +991,8 @@ def mobile_apk_download() -> Response:
                 "message": message,
             },
         )
-    data = download_mobile_apk()
-    if not data:
+    stream = iter_mobile_apk_chunks()
+    if stream is None:
         return JSONResponse(
             status_code=404,
             content={
@@ -998,8 +1001,8 @@ def mobile_apk_download() -> Response:
                 "message": "APK not uploaded yet.",
             },
         )
-    return Response(
-        content=data,
+    return StreamingResponse(
+        stream,
         media_type="application/vnd.android.package-archive",
         headers={
             "Content-Disposition": 'attachment; filename="sentence-reading.apk"',

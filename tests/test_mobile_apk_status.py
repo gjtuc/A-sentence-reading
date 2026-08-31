@@ -52,16 +52,13 @@ def test_mobile_apk_download_serves_bytes(monkeypatch) -> None:
     def _ready() -> tuple[bool, str]:
         return True, "ok"
 
-    def _download() -> bytes:
-        return payload
-
     monkeypatch.setattr(
         "sentence_reading.api.app.mobile_apk_ready",
         _ready,
     )
     monkeypatch.setattr(
-        "sentence_reading.api.app.download_mobile_apk",
-        _download,
+        "sentence_reading.api.app.iter_mobile_apk_chunks",
+        lambda **_: iter([payload]),
     )
     r = TestClient(app).get("/api/mobile/apk")
     assert r.status_code == 200
@@ -77,8 +74,8 @@ def test_mobile_apk_download_not_found(monkeypatch) -> None:
 
     monkeypatch.setattr("sentence_reading.api.app.mobile_apk_ready", _ready)
     monkeypatch.setattr(
-        "sentence_reading.api.app.download_mobile_apk",
-        lambda: None,
+        "sentence_reading.api.app.iter_mobile_apk_chunks",
+        lambda **_: None,
     )
     r = TestClient(app).get("/api/mobile/apk")
     assert r.status_code == 404
