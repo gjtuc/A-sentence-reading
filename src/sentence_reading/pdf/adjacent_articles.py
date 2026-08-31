@@ -24,7 +24,12 @@ _MIN_START_GAP = 3
 _FRONT_CHARS = 900
 _ARXIV_ID = re.compile(r"\barxiv:\s*\d{4}\.\d{4,5}(?:v\d+)?\b", re.IGNORECASE)
 _REFS_HEAD = re.compile(r"^\s*references\b", re.IGNORECASE | re.MULTILINE)
+_ACK_HEAD = re.compile(
+    r"^\s*(?:■\s*)?(?:acknowledg(?:e)?ments?|funding)\b",
+    re.IGNORECASE | re.MULTILINE,
+)
 _CITE_BRACKET = re.compile(r"\[\d{1,3}\]")
+_CITE_PAREN = re.compile(r"^\s*\(\d{1,3}\)\s+\S", re.MULTILINE)
 _ABSTRACT_HEAD = re.compile(r"\babstract\b", re.IGNORECASE)
 _CITE_LINE = re.compile(r"^\s*\[\d{1,3}\]\s+\S", re.MULTILINE)
 
@@ -54,14 +59,20 @@ def _looks_like_references_page(text: str) -> bool:
     head = raw[:500]
     if _REFS_HEAD.search(head):
         return True
+    # EDGE: acknowledgements-only page (ACS often puts refs on the next page).
+    if _ACK_HEAD.search(head) and not _ABSTRACT_HEAD.search(head[:700]):
+        return True
+    cite_paren = len(_CITE_PAREN.findall(raw[:3500]))
+    cite_bracket = len(_CITE_LINE.findall(raw[:3500]))
     # EDGE: Acknowledgements then References on same page (end of paper A).
     if re.search(r"\breferences\b", raw[:2200], re.IGNORECASE) and (
-        len(_CITE_LINE.findall(raw[:3500])) >= 2
+        cite_bracket >= 2
+        or cite_paren >= 2
         or len(_CITE_BRACKET.findall(raw[:2500])) >= 6
     ):
         return True
-    # EDGE: numbered bibliography lines `[16] Author…`
-    if len(_CITE_LINE.findall(raw[:3500])) >= 3:
+    # EDGE: numbered bibliography lines `[16] Author…` or `(16) Author…` (ACS).
+    if cite_bracket >= 3 or cite_paren >= 3:
         return True
     if len(_CITE_BRACKET.findall(raw[:2500])) >= 8:
         if not _ABSTRACT_HEAD.search(raw[:500]):
@@ -84,6 +95,10 @@ def _looks_like_article_start(text: str) -> bool:
     secondary starts need Abstract / corresponding author / affil+DOI as well.
     """
     if _looks_like_references_page(text):
+        return False
+    if _ACK_HEAD.search((text or "")[:400]) and not _ABSTRACT_HEAD.search(
+        _front_matter_slice(text)[:700]
+    ):
         return False
     matter = _front_matter_slice(text)
     head = matter[:700]

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../api/access_models.dart';
@@ -65,6 +66,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _versionError;
   String _remoteVersion = '';
   String _mobileApkUrl = '';
+  String _localVersion = kAppVersionLabel;
 
   @override
   void initState() {
@@ -149,9 +151,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _versionError = null;
     });
     try {
+      final info = await PackageInfo.fromPlatform();
       final st = await widget.auth.client.fetchStatus();
       if (!mounted) return;
       setState(() {
+        _localVersion = info.version.trim().isEmpty
+            ? kAppVersionLabel
+            : info.version.trim();
         _remoteVersion = st.version.trim();
         _mobileApkUrl = st.mobileApkUrl.trim();
         _versionError = null;
@@ -181,7 +187,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildAppVersionSection(BuildContext context) {
-    final local = kAppVersionLabel;
+    final local = _localVersion;
     if (_versionLoading) {
       return const Padding(
         padding: EdgeInsets.only(top: 8),

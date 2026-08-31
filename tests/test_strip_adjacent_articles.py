@@ -210,3 +210,24 @@ def test_figure_caption_corresponding_to_not_a_start():
         "The TPR results indicated that cerium reduction starts at low temperature.\n"
     )
     assert _looks_like_article_start(fig) is False
+
+
+def test_acknowledgments_page_not_second_article_start():
+    """EDGE: ACS end matter (ack + refs) must not look like a new paper (acsanm.1c00673)."""
+    from sentence_reading.pdf.adjacent_articles import _looks_like_article_start
+
+    ack_refs = (
+        "■ACKNOWLEDGMENTS\n"
+        "This work was supported by the CAS Key Laboratory of Renewable Energy, "
+        "National Natural Science Fund of China (22078134), Open Fund of the "
+        "Chemistry Department in Qingdao University of Science and Technology.\n"
+        "■REFERENCES\n"
+        "(1) Bian, Z.; Das, S.; Wai, M. H. A Review on Bimetallic Nickel-Based "
+        "Catalysts for CO2 Reforming of Methane. ChemPhysChem 2017, 18, 311.\n"
+        "(2) Smith, J.; Doe, A. Another reference line here for detection.\n"
+    )
+    assert _looks_like_article_start(ack_refs) is False
+    pages = ["Title\nAbstract\n" + ("body " * 80)] * 7 + [ack_refs]
+    plan = plan_first_article(pages)
+    assert plan.trimmed is False
+    assert plan.reason == "single_article"

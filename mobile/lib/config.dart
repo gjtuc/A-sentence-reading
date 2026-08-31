@@ -8,8 +8,8 @@ library;
 const String kDefaultApiBaseUrl =
     'https://asr-sentence-reading-984608876300.asia-northeast3.run.app';
 
-/// design/130 — reported with error events (must match pubspec versionName).
-const String kAppVersionLabel = '0.3.96';
+/// Fallback when [PackageInfo] is unavailable (error reports). Keep in sync with pubspec.
+const String kAppVersionLabel = '0.3.107';
 
 /// Runtime-overridable API settings (email session cookie in SessionStore).
 class AsrConfig {

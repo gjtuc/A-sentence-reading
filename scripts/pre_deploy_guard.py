@@ -30,6 +30,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 APP_PY = ROOT / "src" / "sentence_reading" / "api" / "app.py"
 PUBSPEC = ROOT / "mobile" / "pubspec.yaml"
+CONFIG_DART = ROOT / "mobile" / "lib" / "config.dart"
 DEFAULT_STATUS_URL = (
     "https://asr-sentence-reading-984608876300.asia-northeast3.run.app/api/status"
 )
@@ -91,6 +92,16 @@ def read_pubspec_version() -> str:
         if m:
             return m.group(1).split("+")[0]
     return ""
+
+
+def read_k_app_version_label() -> str:
+    if not CONFIG_DART.is_file():
+        return ""
+    m = re.search(
+        r"kAppVersionLabel\s*=\s*['\"]([^'\"]+)['\"]",
+        CONFIG_DART.read_text(encoding="utf-8"),
+    )
+    return m.group(1).strip() if m else ""
 
 
 def fetch_live_status(url: str, *, timeout: float = 60.0) -> dict[str, Any]:
@@ -191,6 +202,9 @@ def run_guard(
         errs.append("local_app_version_missing")
     if mobile_ver and local_ver and mobile_ver != local_ver:
         errs.append(f"mobile_app_version_mismatch:{mobile_ver}_vs_{local_ver}")
+    config_ver = read_k_app_version_label()
+    if mobile_ver and config_ver and mobile_ver != config_ver:
+        errs.append(f"mobile_config_version_mismatch:{config_ver}_vs_{mobile_ver}")
 
     try:
         live = live_data if live_data is not None else fetch_live_status(status_url)
