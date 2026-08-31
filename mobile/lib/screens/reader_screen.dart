@@ -63,7 +63,14 @@ class ReaderScreen extends StatefulWidget {
 
 class _ReaderScreenState extends State<ReaderScreen> {
   static const double _kDefaultFraction = 0.6;
-  static const double _kMagnetEps = 0.028;
+  /// Soft resistance band around default (fraction of height).
+  static const double _kMagnetResistanceBand = 0.11;
+  /// Pull this far from default → break free to 1:1 tracking (jelly snap).
+  static const double _kMagnetEscape = 0.038;
+  /// On release, snap to default when still within this distance.
+  static const double _kMagnetReleaseSnap = 0.022;
+  /// Min drag factor at default (slow pulls still move the bar).
+  static const double _kMagnetMinFactor = 0.2;
   static const double _kEdgeSnap = 0.14;
   static const double _kHardMin = 0.02;
   static const double _kHardMax = 0.98;
@@ -73,6 +80,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   double _sentenceFraction = _kDefaultFraction;
   bool _dragging = false;
   bool _inMagnet = false;
+  bool _magnetEscaped = false;
   bool _edgePreviewSentence = false;
   bool _edgePreviewFigure = false;
   /// design/100 — shared chrome for sentence + figure headers.
@@ -112,6 +120,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _chromeVisible = true;
     _dragging = false;
     _inMagnet = false;
+    _magnetEscaped = false;
     _edgePreviewSentence = false;
     _edgePreviewFigure = false;
   }
@@ -173,28 +182,56 @@ class _ReaderScreenState extends State<ReaderScreen> {
     });
   }
 
+  void _onSplitDragStart() {
+    setState(() {
+      _dragging = true;
+      _magnetEscaped = false;
+      _layout = _ReaderLayoutMode.split;
+    });
+  }
+
   void _onSplitDragUpdate(double deltaDy, double totalH) {
     if (totalH <= _kSplitBar + 1) return;
     final usable = totalH - _kSplitBar;
     setState(() {
       _dragging = true;
       _layout = _ReaderLayoutMode.split;
-      // Edge tension: drag moves slower near full-panel snap zones.
       final nearEdge = _sentenceFraction < _kEdgeSnap ||
           _sentenceFraction > 1 - _kEdgeSnap;
-      final scale = nearEdge ? 0.32 : 1.0;
-      var next =
-          (_sentenceFraction + (deltaDy / usable) * scale).clamp(_kHardMin, _kHardMax);
-      // Magnetic soft pull toward default while inside band.
-      if ((next - _kDefaultFraction).abs() <= _kMagnetEps) {
-        if (!_inMagnet) {
-          _inMagnet = true;
-          Feedback.forTap(context);
-        }
-        next = _kDefaultFraction;
-      } else {
+      final edgeScale = nearEdge ? 0.32 : 1.0;
+      final rawDelta = (deltaDy / usable) * edgeScale;
+
+      double next;
+      if (_magnetEscaped) {
+        next =
+            (_sentenceFraction + rawDelta).clamp(_kHardMin, _kHardMax);
         _inMagnet = false;
+      } else {
+        final dist = (_sentenceFraction - _kDefaultFraction).abs();
+        final inBand = dist <= _kMagnetResistanceBand;
+        if (inBand) {
+          final t = (dist / _kMagnetResistanceBand).clamp(0.0, 1.0);
+          final resistance =
+              _kMagnetMinFactor + (1.0 - _kMagnetMinFactor) * t * t;
+          next = (_sentenceFraction + rawDelta * resistance)
+              .clamp(_kHardMin, _kHardMax);
+          final newDist = (next - _kDefaultFraction).abs();
+          _inMagnet = newDist <= _kMagnetResistanceBand;
+          final projected =
+              (_sentenceFraction + rawDelta - _kDefaultFraction).abs();
+          if (newDist >= _kMagnetEscape || projected >= _kMagnetEscape) {
+            _magnetEscaped = true;
+            _inMagnet = false;
+            next = (_sentenceFraction + rawDelta).clamp(_kHardMin, _kHardMax);
+            Feedback.lightImpact();
+          }
+        } else {
+          next =
+              (_sentenceFraction + rawDelta).clamp(_kHardMin, _kHardMax);
+          _inMagnet = false;
+        }
       }
+
       _sentenceFraction = next;
       _edgePreviewSentence = next >= 1 - _kEdgeSnap;
       _edgePreviewFigure = next <= _kEdgeSnap;
@@ -204,13 +241,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void _onSplitDragEnd() {
     setState(() {
       _dragging = false;
+      _magnetEscaped = false;
       if (_sentenceFraction >= 1 - _kEdgeSnap) {
         _layout = _ReaderLayoutMode.sentenceOnly;
         _sentenceFraction = _kDefaultFraction;
       } else if (_sentenceFraction <= _kEdgeSnap) {
         _layout = _ReaderLayoutMode.figureOnly;
         _sentenceFraction = _kDefaultFraction;
-      } else if ((_sentenceFraction - _kDefaultFraction).abs() <= _kMagnetEps) {
+      } else if ((_sentenceFraction - _kDefaultFraction).abs() <=
+          _kMagnetReleaseSnap) {
         _sentenceFraction = _kDefaultFraction;
         _layout = _ReaderLayoutMode.split;
       } else {
@@ -422,6 +461,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                               magnetActive: _inMagnet,
                               edgePreviewSentence: _edgePreviewSentence,
                               edgePreviewFigure: _edgePreviewFigure,
+                              onDragStart: _onSplitDragStart,
                               onDragUpdate: (dy) =>
                                   _onSplitDragUpdate(dy, h),
                               onDragEnd: _onSplitDragEnd,
@@ -514,6 +554,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 class _SplitHandle extends StatelessWidget {
   const _SplitHandle({
     required this.height,
+    required this.onDragStart,
     required this.onDragUpdate,
     required this.onDragEnd,
     this.magnetActive = false,
@@ -522,6 +563,7 @@ class _SplitHandle extends StatelessWidget {
   });
 
   final double height;
+  final VoidCallback onDragStart;
   final ValueChanged<double> onDragUpdate;
   final VoidCallback onDragEnd;
   final bool magnetActive;
@@ -539,6 +581,7 @@ class _SplitHandle extends StatelessWidget {
     }
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
+      onVerticalDragStart: (_) => onDragStart(),
       onVerticalDragUpdate: (d) => onDragUpdate(d.delta.dy),
       onVerticalDragEnd: (_) => onDragEnd(),
       onVerticalDragCancel: onDragEnd,
