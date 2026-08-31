@@ -1363,8 +1363,6 @@ class _FigurePanel extends StatelessWidget {
   }
 }
 
-}
-
 class _FigureInkStack extends StatefulWidget {
   const _FigureInkStack({
     required this.figureKey,
@@ -1386,9 +1384,7 @@ class _FigureInkStackState extends State<_FigureInkStack> {
   @override
   Widget build(BuildContext context) {
     final key = widget.figureKey;
-    final inkEvents = key == null
-        ? const <dynamic>[]
-        : widget.annotations.activeForFigureKey(key);
+    final inkEvents = widget.annotations.activeForFigureKey(key);
     return LayoutBuilder(
       builder: (context, constraints) {
         return Stack(
