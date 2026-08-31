@@ -39,6 +39,12 @@ def test_mobile_apk_url_defaults_to_cloud_run_proxy(monkeypatch) -> None:
     )
 
 
+def test_mobile_apk_path_is_login_public() -> None:
+    from sentence_reading.llm.login_required import is_login_public_path
+
+    assert is_login_public_path("/api/mobile/apk")
+
+
 def test_mobile_apk_download_serves_bytes(monkeypatch) -> None:
     monkeypatch.setenv("ASR_SKIP_ENV_FILE", "1")
     payload = b"PK\x03\x04fake-apk"

@@ -24,6 +24,7 @@ _PUBLIC_API_EXACT = frozenset(
         "/api/auth/email/magic/request",
         "/api/auth/email/magic/open",
         "/api/auth/logout",
+        "/api/mobile/apk",
     }
 )
 
