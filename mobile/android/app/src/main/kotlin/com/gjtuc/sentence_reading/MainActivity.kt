@@ -275,22 +275,32 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * Open OEM battery / app-detail settings. Prefer ignore-list screen; fall back to app details.
-     * INVARIANT: no REQUEST_IGNORE prompt spam — user taps intentionally.
+     * Open per-app battery exemption UI. User tapped intentionally (design/76).
+     * WHY: generic ignore-list screens (esp. Samsung) often omit our app name.
      */
     private fun openBatterySettings(): Boolean {
-        return try {
-            val ignoreList = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-            if (ignoreList.resolveActivity(packageManager) != null) {
-                startActivity(ignoreList)
-                true
-            } else {
-                val detail = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                    data = Uri.parse("package:$packageName")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(POWER_SERVICE) as? PowerManager
+            if (pm != null && !pm.isIgnoringBatteryOptimizations(packageName)) {
+                try {
+                    val request = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    if (request.resolveActivity(packageManager) != null) {
+                        startActivity(request)
+                        return true
+                    }
+                } catch (_: Exception) {
+                    // fall through to app-details
                 }
-                startActivity(detail)
-                true
             }
+        }
+        return try {
+            val detail = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            startActivity(detail)
+            true
         } catch (_: Exception) {
             false
         }

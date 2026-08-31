@@ -538,7 +538,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 onPressed: () async {
                                   await lib.openBatterySettings();
                                 },
-                                child: const Text('배터리 설정'),
+                                child: const Text('배터리 제한 해제'),
                               ),
                               TextButton(
                                 onPressed: () => lib.dismissBatteryHint(),

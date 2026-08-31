@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import '../api/annotation_gate.dart';
 import '../api/annotation_models.dart';
 import '../api/annotation_store.dart';
+import '../api/figure_ink_models.dart';
 import '../api/client.dart';
 import '../api/reader_nav_labels.dart';
 import '../api/reading_models.dart';
@@ -25,6 +26,8 @@ class AnnotationController extends ChangeNotifier {
   bool serverAvailable = false;
   bool ready = false;
   bool figureInkMode = false;
+  FigureInkTool figureInkTool = FigureInkTool.pen;
+  String figureInkColor = kDefaultFigureInkColor;
   Timer? _pushTimer;
 
   bool get canAnnotate => _uid != null;
@@ -46,6 +49,8 @@ class AnnotationController extends ChangeNotifier {
     _paper = const PaperAnnotations();
     _store = AnnotationsStore.empty();
     figureInkMode = false;
+    figureInkTool = FigureInkTool.pen;
+    figureInkColor = kDefaultFigureInkColor;
     _pushTimer?.cancel();
     ready = false;
     notifyListeners();
@@ -193,18 +198,24 @@ class AnnotationController extends ChangeNotifier {
   Future<void> addFigureInkPath({
     required String figureKey,
     required List<List<double>> points,
-    String color = '#E53935',
+    String? color,
     double width = 2.0,
   }) async {
     final events = Map<String, List<AnnotationEvent>>.from(_paper.figures);
     final list = List<AnnotationEvent>.from(events[figureKey] ?? const []);
     final id = newAnnotationId();
+    final inkColor = (color ?? figureInkColor).trim();
     list.add(
       annotationEventNow(
         id: id,
         kind: 'ink',
+        color: inkColor,
         paths: [
-          {'color': color, 'width': width, 'points': points},
+          {
+            'color': inkColor,
+            'width': width,
+            'points': points,
+          },
         ],
       ),
     );
@@ -215,8 +226,53 @@ class AnnotationController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Erase the nearest ink stroke at normalized coords (figure panel).
+  Future<bool> eraseFigureInkNear({
+    required String figureKey,
+    required double nx,
+    required double ny,
+    double threshold = 0.045,
+  }) async {
+    final list = _paper.activeEventsForFigureKey(figureKey);
+    final id = inkEventIdNearPoint(
+      events: list,
+      nx: nx,
+      ny: ny,
+      threshold: threshold,
+    );
+    if (id == null) return false;
+    final events = Map<String, List<AnnotationEvent>>.from(_paper.figures);
+    final raw = List<AnnotationEvent>.from(events[figureKey] ?? const []);
+    final idx = raw.indexWhere((e) => e.id == id);
+    if (idx < 0) return false;
+    raw[idx] = annotationEventNow(id: id, deleted: true, kind: 'ink');
+    events[figureKey] = raw;
+    _paper = _paper.copyWith(figures: events);
+    await _persistPaper();
+    schedulePush();
+    notifyListeners();
+    return true;
+  }
+
+  void setFigureInkTool(FigureInkTool next) {
+    if (figureInkTool == next) return;
+    figureInkTool = next;
+    notifyListeners();
+  }
+
+  void setFigureInkColor(String hex) {
+    final h = hex.trim();
+    if (h.isEmpty || figureInkColor == h) return;
+    figureInkColor = h;
+    figureInkTool = FigureInkTool.pen;
+    notifyListeners();
+  }
+
   void toggleFigureInkMode() {
     figureInkMode = !figureInkMode;
+    if (figureInkMode) {
+      figureInkTool = FigureInkTool.pen;
+    }
     notifyListeners();
   }
 

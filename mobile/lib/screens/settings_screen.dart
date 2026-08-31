@@ -474,6 +474,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         widget.auth,
         widget.shadowing,
         widget.translate,
+        widget.citePanel,
         widget.library,
       ]),
       builder: (context, _) {
@@ -723,7 +724,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('참고문헌 패널 표시'),
-              value: widget.citePanel.serverAvailable && widget.citePanel.enabled,
+              subtitle: !widget.citePanel.serverAvailable
+                  ? const Text('서버에서 이 기능을 끈 상태입니다.')
+                  : null,
+              value: widget.citePanel.enabled,
               onChanged: (!logged || !widget.citePanel.serverAvailable)
                   ? null
                   : (v) => widget.citePanel.setEnabled(v),

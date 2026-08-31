@@ -23,6 +23,8 @@ import '../api/reader_nav_labels.dart';
 import '../widgets/reader_nav_picker.dart';
 import '../widgets/annotation_toolbar_sheet.dart';
 import '../widgets/annotation_list_sheet.dart';
+import '../api/figure_ink_models.dart';
+import '../widgets/figure_ink_toolbar.dart';
 import '../widgets/annotated_sentence_text.dart';
 import 'figure_edit_screen.dart';
 
@@ -1333,6 +1335,13 @@ class _FigurePanel extends StatelessWidget {
                   )
                 : const SizedBox(width: double.infinity),
           ),
+          FigureInkToolbar(
+            expanded: annotations.figureInkMode && session.figureCount > 0,
+            tool: annotations.figureInkTool,
+            colorHex: annotations.figureInkColor,
+            onToolChanged: annotations.setFigureInkTool,
+            onColorChanged: annotations.setFigureInkColor,
+          ),
           Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.deferToChild,
@@ -1348,18 +1357,17 @@ class _FigurePanel extends StatelessWidget {
                   : Column(
                       children: [
                         Expanded(
-                          child: _FigureInkStack(
+                          child: _FigureImage(
+                            src: cur.imageSrc,
                             figureKey: figKey,
                             annotations: annotations,
-                            child: _FigureImage(
-                              src: cur.imageSrc,
-                              swipeEnabled: session.figureCount > 0 && !annotations.figureInkMode,
-                              onPrevious: () => library.advanceFigure(-1),
-                              onNext: () => library.advanceFigure(1),
-                              onTap: onToggleChrome,
-                              onDoubleTapExpand: onDoubleTapExpand,
-                              onSwipeToSentence: onSwipeToSentence,
-                            ),
+                            swipeEnabled: session.figureCount > 0 &&
+                                !annotations.figureInkMode,
+                            onPrevious: () => library.advanceFigure(-1),
+                            onNext: () => library.advanceFigure(1),
+                            onTap: onToggleChrome,
+                            onDoubleTapExpand: onDoubleTapExpand,
+                            onSwipeToSentence: onSwipeToSentence,
                           ),
                         ),
                         if (!figureCaptionInImage &&
@@ -1406,8 +1414,8 @@ class _FigurePanel extends StatelessWidget {
   }
 }
 
-class _FigureInkStack extends StatefulWidget {
-  const _FigureInkStack({
+class _FigureInkOverlay extends StatefulWidget {
+  const _FigureInkOverlay({
     required this.figureKey,
     required this.annotations,
     required this.child,
@@ -1418,41 +1426,57 @@ class _FigureInkStack extends StatefulWidget {
   final Widget child;
 
   @override
-  State<_FigureInkStack> createState() => _FigureInkStackState();
+  State<_FigureInkOverlay> createState() => _FigureInkOverlayState();
 }
 
-class _FigureInkStackState extends State<_FigureInkStack> {
+class _FigureInkOverlayState extends State<_FigureInkOverlay> {
   List<Offset> _stroke = [];
+
+  Future<void> _eraseAt(Offset local, double w, double h) async {
+    final key = widget.figureKey;
+    if (key == null || w <= 0 || h <= 0) return;
+    await widget.annotations.eraseFigureInkNear(
+      figureKey: key,
+      nx: local.dx / w,
+      ny: local.dy / h,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final key = widget.figureKey;
     final inkEvents = widget.annotations.activeForFigureKey(key);
+    final inkMode = widget.annotations.figureInkMode;
+    final tool = widget.annotations.figureInkTool;
+    final strokeColor = figureInkColorValue(widget.annotations.figureInkColor);
     return LayoutBuilder(
       builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final h = constraints.maxHeight;
         return Stack(
           fit: StackFit.expand,
           children: [
             widget.child,
             if (inkEvents.isNotEmpty)
-              CustomPaint(
-                painter: _InkPathsPainter(
-                  events: inkEvents,
-                  size: Size(constraints.maxWidth, constraints.maxHeight),
+              IgnorePointer(
+                child: CustomPaint(
+                  painter: _InkPathsPainter(
+                    events: inkEvents,
+                    size: Size(w, h),
+                  ),
                 ),
               ),
-            if (widget.annotations.figureInkMode)
+            if (inkMode && tool == FigureInkTool.pen)
               GestureDetector(
-                behavior: HitTestBehavior.translucent,
+                behavior: HitTestBehavior.opaque,
                 onPanStart: (d) => _stroke = [d.localPosition],
-                onPanUpdate: (d) => setState(() => _stroke.add(d.localPosition)),
+                onPanUpdate: (d) =>
+                    setState(() => _stroke.add(d.localPosition)),
                 onPanEnd: (_) async {
                   if (key == null || _stroke.length < 2) {
                     setState(() => _stroke = []);
                     return;
                   }
-                  final w = constraints.maxWidth;
-                  final h = constraints.maxHeight;
                   if (w <= 0 || h <= 0) return;
                   final points = _stroke
                       .map((p) => [p.dx / w, p.dy / h])
@@ -1464,8 +1488,15 @@ class _FigureInkStackState extends State<_FigureInkStack> {
                   if (mounted) setState(() => _stroke = []);
                 },
                 child: CustomPaint(
-                  painter: _LiveStrokePainter(_stroke),
+                  painter: _LiveStrokePainter(_stroke, color: strokeColor),
                 ),
+              ),
+            if (inkMode && tool == FigureInkTool.eraser)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanStart: (d) => _eraseAt(d.localPosition, w, h),
+                onPanUpdate: (d) => _eraseAt(d.localPosition, w, h),
+                child: const SizedBox.expand(),
               ),
           ],
         );
@@ -1482,15 +1513,17 @@ class _InkPathsPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size canvasSize) {
-    final paint = Paint()
-      ..color = const Color(0xFFE53935)
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
     for (final ev in events) {
       for (final path in ev.paths) {
         final pts = path['points'];
         if (pts is! List || pts.length < 2) continue;
+        final colorRaw = '${path['color'] ?? ev.color}';
+        final width = (path['width'] as num?)?.toDouble() ?? 2.0;
+        final paint = Paint()
+          ..color = figureInkColorValue(colorRaw)
+          ..strokeWidth = width
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round;
         final pathObj = Path();
         for (var i = 0; i < pts.length; i++) {
           final pt = pts[i];
@@ -1514,14 +1547,16 @@ class _InkPathsPainter extends CustomPainter {
 }
 
 class _LiveStrokePainter extends CustomPainter {
-  _LiveStrokePainter(this.points);
+  _LiveStrokePainter(this.points, {required this.color});
+
   final List<Offset> points;
+  final Color color;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (points.length < 2) return;
     final paint = Paint()
-      ..color = const Color(0xFFE53935)
+      ..color = color
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -1540,6 +1575,8 @@ class _LiveStrokePainter extends CustomPainter {
 class _FigureImage extends StatelessWidget {
   const _FigureImage({
     required this.src,
+    this.figureKey,
+    this.annotations,
     this.swipeEnabled = false,
     this.onPrevious,
     this.onNext,
@@ -1549,6 +1586,8 @@ class _FigureImage extends StatelessWidget {
   });
 
   final String src;
+  final String? figureKey;
+  final AnnotationController? annotations;
   final bool swipeEnabled;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
@@ -1570,6 +1609,8 @@ class _FigureImage extends StatelessWidget {
     if (decoded != null) {
       return _ZoomableFigureFrame(
         key: ValueKey<String>('fig-mem-${src.length}-${src.hashCode}'),
+        figureKey: figureKey,
+        annotations: annotations,
         swipeEnabled: swipeEnabled,
         onPrevious: onPrevious,
         onNext: onNext,
@@ -1586,6 +1627,8 @@ class _FigureImage extends StatelessWidget {
     if (src.startsWith('http://') || src.startsWith('https://')) {
       return _ZoomableFigureFrame(
         key: ValueKey<String>('fig-net-${src.hashCode}'),
+        figureKey: figureKey,
+        annotations: annotations,
         swipeEnabled: swipeEnabled,
         onPrevious: onPrevious,
         onNext: onNext,
@@ -1719,6 +1762,8 @@ class _ZoomableFigureFrame extends StatefulWidget {
   const _ZoomableFigureFrame({
     super.key,
     required this.child,
+    this.figureKey,
+    this.annotations,
     this.swipeEnabled = false,
     this.onPrevious,
     this.onNext,
@@ -1728,6 +1773,8 @@ class _ZoomableFigureFrame extends StatefulWidget {
   });
 
   final Widget child;
+  final String? figureKey;
+  final AnnotationController? annotations;
   final bool swipeEnabled;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
@@ -1866,6 +1913,8 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
 
   @override
   Widget build(BuildContext context) {
+    final annotations = widget.annotations;
+    final inkMode = annotations?.figureInkMode ?? false;
     return LayoutBuilder(
       builder: (context, constraints) {
         final w = constraints.maxWidth;
@@ -1873,29 +1922,35 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
         if (!w.isFinite || !h.isFinite || w <= 0 || h <= 0) {
           return widget.child;
         }
+        final zoomChild = annotations != null
+            ? _FigureInkOverlay(
+                figureKey: widget.figureKey,
+                annotations: annotations,
+                child: widget.child,
+              )
+            : widget.child;
         // WHY: tap/double-tap only — no parent drag vs InteractiveViewer scale.
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: widget.onTap,
-          onDoubleTap: widget.onDoubleTapExpand,
+          onTap: inkMode ? null : widget.onTap,
+          onDoubleTap: inkMode ? null : widget.onDoubleTapExpand,
           child: InteractiveViewer(
             transformationController: _transform,
             minScale: 1.0,
             maxScale: _maxScale,
-            // WHY: pan at 1× enables swipe detection without HorizontalDrag.
-            // Zoomed pan still moves the figure; 1× pan snaps back on end.
-            panEnabled: true,
-            scaleEnabled: true,
+            // WHY: ink mode captures one-finger pan for strokes — disable IV.
+            panEnabled: !inkMode,
+            scaleEnabled: !inkMode,
             boundaryMargin: const EdgeInsets.all(48),
-            onInteractionStart: _onInteractionStart,
-            onInteractionUpdate: _onInteractionUpdate,
-            onInteractionEnd: _onInteractionEnd,
+            onInteractionStart: inkMode ? null : _onInteractionStart,
+            onInteractionUpdate: inkMode ? null : _onInteractionUpdate,
+            onInteractionEnd: inkMode ? null : _onInteractionEnd,
             child: SizedBox(
               width: w,
               height: h,
               child: ColoredBox(
                 color: Colors.black,
-                child: Center(child: widget.child),
+                child: Center(child: zoomChild),
               ),
             ),
           ),

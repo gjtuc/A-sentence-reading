@@ -180,7 +180,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.105",
+    version="0.3.106",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -782,6 +782,7 @@ def status(request: Request) -> dict:
     """기동 확인."""
     from sentence_reading.llm.ingest_rate_limit import rate_limit_enabled
     from sentence_reading.llm.error_logs import cloud_error_logs_enabled
+    from sentence_reading.llm.upload_audit_log import upload_audit_enabled
     _cloud_err = cloud_error_logs_enabled()
     from sentence_reading.llm.ingest_jobs_gcs import (
         ingest_checkpoint_enabled,
@@ -812,7 +813,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.105",
+        "version": "0.3.106",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -843,6 +844,7 @@ def status(request: Request) -> dict:
         # design/130 — client report + admin list; false when ASR_CLOUD_ERROR_LOGS=0.
         "cloud_error_logs": _cloud_err,
         "mobile_cloud_error_logs": _cloud_err,
+        "upload_audit_log": upload_audit_enabled(),
         # design/131 — full figure captions (UI + normalize ceiling); false restores 2-line ….
         "caption_full_text": True,
         "mobile_caption_full_text": True,
@@ -4858,6 +4860,17 @@ async def _run_ingest_job_body(
 
         if warnings:
             data["warnings"] = list(dict.fromkeys(list(data.get("warnings") or []) + warnings))
+
+        if cache_entry and owner and cache_id:
+            from sentence_reading.llm import upload_audit_log as ual
+
+            await asyncio.to_thread(
+                ual.record_upload,
+                uid=owner,
+                cache_id=str(cache_id),
+                filename=str(job_meta.get("filename") or ""),
+                job_id=job_id,
+            )
 
         _finish_job(
             job_id,

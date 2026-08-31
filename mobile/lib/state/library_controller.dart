@@ -324,11 +324,20 @@ class LibraryController extends ChangeNotifier {
       return;
     }
     uploadBatteryHint =
-        '배터리 절전으로 백그라운드 이어올리기가 멈출 수 있습니다.';
+        '업로드 중 앱을 나가도 이어올리려면 배터리 제한을 해제해야 합니다. '
+        '아래 버튼을 누르면 「허용」을 선택해 주세요.';
   }
 
-  /// UI: open OEM battery settings (design/76).
-  Future<bool> openBatterySettings() => _notify.openBatterySettings();
+  /// UI: open per-app battery exemption (design/76).
+  Future<bool> openBatterySettings() async {
+    final ok = await _notify.openBatterySettings();
+    final hash = (_activeContentHash ?? '').trim().toLowerCase();
+    if (hash.isNotEmpty) {
+      await _maybeOfferBatteryHint(hash);
+      notifyListeners();
+    }
+    return ok;
+  }
 
   /// UI: dismiss battery guidance for this content_hash only.
   Future<void> dismissBatteryHint() async {
