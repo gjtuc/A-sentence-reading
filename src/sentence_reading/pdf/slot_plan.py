@@ -25,28 +25,58 @@ class Slot:
     body_box_id: str = ""
     caption_box_id: str = ""
     caption_text: str = ""
+    body_box_ids: list[str] = field(default_factory=list)
+    caption_box_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        body_ids = self.body_box_ids or (
+            [self.body_box_id] if self.body_box_id else []
+        )
+        cap_ids = self.caption_box_ids or (
+            [self.caption_box_id] if self.caption_box_id else []
+        )
         return {
             "key": self.key,
             "kind": self.kind,
             "n": self.n,
             "status": self.status,
-            "body_box_id": self.body_box_id or None,
-            "caption_box_id": self.caption_box_id or None,
+            "body_box_id": body_ids[0] if body_ids else None,
+            "caption_box_id": cap_ids[0] if cap_ids else None,
+            "body_box_ids": body_ids,
+            "caption_box_ids": cap_ids,
             "caption_text": self.caption_text,
         }
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> Slot:
+        body_ids = [
+            str(x).strip()
+            for x in (raw.get("body_box_ids") or [])
+            if str(x).strip()
+        ]
+        if not body_ids:
+            legacy = str(raw.get("body_box_id") or "").strip()
+            if legacy:
+                body_ids = [legacy]
+        cap_ids = [
+            str(x).strip()
+            for x in (raw.get("caption_box_ids") or [])
+            if str(x).strip()
+        ]
+        if not cap_ids:
+            legacy = str(raw.get("caption_box_id") or "").strip()
+            if legacy:
+                cap_ids = [legacy]
         return cls(
             key=str(raw.get("key") or ""),
             kind=str(raw.get("kind") or "fig"),
             n=int(raw.get("n") or 0),
             status=str(raw.get("status") or "empty"),
-            body_box_id=str(raw.get("body_box_id") or ""),
-            caption_box_id=str(raw.get("caption_box_id") or ""),
+            body_box_id=body_ids[0] if body_ids else "",
+            caption_box_id=cap_ids[0] if cap_ids else "",
             caption_text=str(raw.get("caption_text") or ""),
+            body_box_ids=body_ids,
+            caption_box_ids=cap_ids,
         )
 
 
@@ -160,22 +190,62 @@ def build_slot_plan(layout: LayoutMap, *, supplementary: bool = False) -> SlotPl
     return SlotPlan(slots=slots)
 
 
+def assign_body_boxes_to_slot(
+    plan: SlotPlan,
+    layout: LayoutMap,
+    slot_key: str,
+    body_box_ids: list[str],
+) -> None:
+    slot = plan.slot_by_key(slot_key)
+    if slot is None:
+        return
+    ids = [str(x).strip() for x in body_box_ids if str(x).strip()]
+    slot.body_box_ids = ids
+    slot.body_box_id = ids[0] if ids else ""
+    for bid in ids:
+        box = layout.box_by_id(bid)
+        if box is not None:
+            box.used_by_slot = slot.key
+    if slot.caption_box_ids or slot.caption_box_id or slot.caption_text:
+        slot.status = "filled" if slot.caption_box_ids or slot.caption_box_id else "partial"
+    else:
+        slot.status = "partial" if ids else "empty"
+
+
+def assign_caption_boxes_to_slot(
+    plan: SlotPlan,
+    layout: LayoutMap,
+    slot_key: str,
+    caption_box_ids: list[str],
+    caption_text: str = "",
+) -> None:
+    slot = plan.slot_by_key(slot_key)
+    if slot is None:
+        return
+    ids = [str(x).strip() for x in caption_box_ids if str(x).strip()]
+    slot.caption_box_ids = ids
+    slot.caption_box_id = ids[0] if ids else ""
+    for cid in ids:
+        box = layout.box_by_id(cid)
+        if box is not None:
+            box.used_by_slot = slot.key
+            if not caption_text:
+                caption_text = box.text
+    if caption_text:
+        slot.caption_text = caption_text
+    if slot.body_box_ids or slot.body_box_id:
+        slot.status = "filled"
+    else:
+        slot.status = "partial" if ids or caption_text else "empty"
+
+
 def assign_body_to_slot(
     plan: SlotPlan,
     layout: LayoutMap,
     slot_key: str,
     body_box_id: str,
 ) -> None:
-    slot = plan.slot_by_key(slot_key)
-    box = layout.box_by_id(body_box_id)
-    if slot is None or box is None:
-        return
-    slot.body_box_id = body_box_id
-    box.used_by_slot = slot.key
-    if slot.caption_box_id or slot.caption_text:
-        slot.status = "filled" if slot.caption_box_id else "partial"
-    else:
-        slot.status = "partial"
+    assign_body_boxes_to_slot(plan, layout, slot_key, [body_box_id])
 
 
 def assign_caption_to_slot(
@@ -185,28 +255,19 @@ def assign_caption_to_slot(
     caption_box_id: str,
     caption_text: str = "",
 ) -> None:
-    slot = plan.slot_by_key(slot_key)
-    box = layout.box_by_id(caption_box_id)
-    if slot is None:
-        return
-    if box is not None:
-        slot.caption_box_id = caption_box_id
-        box.used_by_slot = slot.key
-        if not caption_text:
-            caption_text = box.text
-    slot.caption_text = caption_text
-    if slot.body_box_id:
-        slot.status = "filled"
-    else:
-        slot.status = "partial"
+    assign_caption_boxes_to_slot(
+        plan, layout, slot_key, [caption_box_id], caption_text=caption_text
+    )
 
 
 def refresh_slot_statuses(plan: SlotPlan) -> None:
     for slot in plan.slots:
         if slot.status == "user_confirmed":
             continue
-        has_body = bool(slot.body_box_id)
-        has_cap = bool(slot.caption_box_id or slot.caption_text.strip())
+        has_body = bool(slot.body_box_ids or slot.body_box_id)
+        has_cap = bool(
+            slot.caption_box_ids or slot.caption_box_id or slot.caption_text.strip()
+        )
         if has_body and has_cap:
             slot.status = "filled"
         elif has_body or has_cap:

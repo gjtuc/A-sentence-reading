@@ -23,6 +23,7 @@ import '../api/library_order_models.dart';
 import '../state/bookmark_controller.dart';
 import '../services/error_reporter.dart';
 import '../services/hang_watchdog.dart';
+import '../services/paper_edit_stash.dart';
 
 /// Stall after this long without progress while an upload is marked active.
 const Duration kUploadStallAfter = Duration(seconds: 45);
@@ -33,13 +34,18 @@ class LibraryController extends ChangeNotifier {
     required AsrClient client,
     UploadDraftStore? draftStore,
     UploadNotify? uploadNotify,
+    PaperEditStash? editStash,
   })  : _client = client,
         _drafts = draftStore ?? PrefsUploadDraftStore(),
-        _notify = uploadNotify ?? createUploadNotify();
+        _notify = uploadNotify ?? createUploadNotify(),
+        _editStash = editStash ?? PaperEditStash();
 
   final AsrClient _client;
   final UploadDraftStore _drafts;
   final UploadNotify _notify;
+  final PaperEditStash _editStash;
+
+  PaperEditStash get editStash => _editStash;
   BookmarkController? _bookmarks;
 
   void attachBookmarks(BookmarkController bookmarks) {
@@ -408,6 +414,9 @@ class LibraryController extends ChangeNotifier {
       notifyListeners();
       unawaited(_refreshResumeOffer());
       unawaited(refreshReadLeftTimes());
+      unawaited(
+        _editStash.purgeOrphans(papers.map((p) => p.id).toSet()),
+      );
     }
   }
 
@@ -479,6 +488,7 @@ class LibraryController extends ChangeNotifier {
       try {
         await _client.deletePaper(id);
         okCount += 1;
+        await _editStash.purge(id);
         await _bookmarks?.purgePaper(id);
         if (session?.cacheId == id) {
           clearOpened();
@@ -561,6 +571,7 @@ class LibraryController extends ChangeNotifier {
       if (session?.cacheId == entry.id) {
         await open(entry);
       }
+      await _editStash.invalidatePreviews(entry.id);
       error = null;
       notifyListeners();
       return true;
@@ -987,6 +998,7 @@ class LibraryController extends ChangeNotifier {
     _activeUploadId = null;
     _activeJobId = null;
     await _cancelWorkmanager();
+    await _editStash.purgeAll();
     await _drafts.clear();
     await _notify.stop();
     _stopStallWatch();
@@ -994,6 +1006,18 @@ class LibraryController extends ChangeNotifier {
   }
 
   static String sha256Hex(Uint8List bytes) => sha256.convert(bytes).toString();
+
+  Future<void> _importDraftToEditStash(String cacheId) async {
+    final draft = await _drafts.read();
+    if (draft == null || draft.localPath.isEmpty) return;
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return;
+    await _editStash.importFromLocalPath(
+      cacheId: cid,
+      localPath: draft.localPath,
+      contentHash: draft.contentHash,
+    );
+  }
 
   /// design/71·72 — auto resume processing job or chunked upload (with integrity).
   Future<IngestJobResult?> resumePendingIfAny() async {
@@ -1357,6 +1381,7 @@ class LibraryController extends ChangeNotifier {
           );
         },
       );
+      await _importDraftToEditStash(result.cacheId);
       await _drafts.clear();
       await _cancelWorkmanager();
       await refresh();
@@ -1459,6 +1484,7 @@ class LibraryController extends ChangeNotifier {
           );
         },
       );
+      await _importDraftToEditStash(result.cacheId);
       await _drafts.clear();
       await _cancelWorkmanager();
       await refresh();

@@ -392,11 +392,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       onLongPressEdit: () {
                                         final cid = s.cacheId.trim();
                                         if (cid.isEmpty) return;
+                                        var hasSource = false;
+                                        for (final p in library.papers) {
+                                          if (p.id == cid) {
+                                            hasSource = p.hasSource;
+                                            break;
+                                          }
+                                        }
                                         Navigator.of(context).push(
                                           MaterialPageRoute<void>(
                                             builder: (_) => FigureEditScreen(
                                               client: client,
                                               cacheId: cid,
+                                              hasSource: hasSource,
+                                              editStash: library.editStash,
                                             ),
                                           ),
                                         );

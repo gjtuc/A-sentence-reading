@@ -30,4 +30,21 @@ void main() {
     expect(hints.first.ref, 'Fig. 5');
     expect(hints.first.figureIndex, 1);
   });
+
+  test('panel fallback Figure 6C design/164', () {
+    final caps = ['Fig. 1a. A', 'Figure 6. XPS'];
+    expect(
+      parseFigRefs('(Figure 6C) and (Figure 6D)'),
+      ['Figure 6'],
+    );
+    expect(matchFigureIndex(refLabel: 'Figure 6C', captions: caps), 1);
+    final hints = hintsForSentence(
+      text: 'see (Figure 6C) and (Figure 6D)',
+      captions: caps,
+    );
+    expect(hints.length, 1);
+    expect(hints.first.ref, 'Figure 6');
+    expect(hints.first.figureIndex, 1);
+    expect(matchFigureIndex(refLabel: 'Figure 1a', captions: caps), 0);
+  });
 }

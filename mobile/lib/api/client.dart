@@ -825,6 +825,131 @@ class AsrClient {
     }
   }
 
+  /// HEAD /api/cache/papers/{id}/source — design/163-E.
+  Future<({String contentHash, int contentLength, String filename})?>
+      headPaperSource(String cacheId) async {
+    final id = cacheId.trim();
+    final res = await _http
+        .head(
+          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/source'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 60));
+    if (res.statusCode == 404) return null;
+    if (res.statusCode == 413) {
+      throw AsrApiException('원본이 너무 큽니다.', 413);
+    }
+    if (res.statusCode != 200) {
+      throw AsrApiException('원본 정보를 가져오지 못했습니다.', res.statusCode);
+    }
+    final hash = res.headers['x-content-hash'] ?? '';
+    final len = int.tryParse(res.headers['content-length'] ?? '') ?? 0;
+    final name = res.headers['x-source-filename'] ?? 'source.pdf';
+    return (contentHash: hash, contentLength: len, filename: name);
+  }
+
+  /// GET /api/cache/papers/{id}/source — design/163-E.
+  Future<Uint8List> fetchPaperSourceBytes(String cacheId) async {
+    final id = cacheId.trim();
+    final res = await _http
+        .get(
+          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/source'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(minutes: 3));
+    if (res.statusCode == 404) {
+      throw AsrApiException('원본이 없습니다.', 404);
+    }
+    if (res.statusCode == 413) {
+      throw AsrApiException('원본이 너무 큽니다.', 413);
+    }
+    if (res.statusCode != 200) {
+      throw AsrApiException('원본을 받지 못했습니다.', res.statusCode);
+    }
+    if (res.bodyBytes.isEmpty) {
+      throw AsrApiException('원본이 비어 있습니다.', 500);
+    }
+    return res.bodyBytes;
+  }
+
+  /// GET /api/cache/papers/{id}/page_preview?page_index=N — design/163.
+  Future<Uint8List> fetchPagePreview(String cacheId, int pageIndex) async {
+    final id = cacheId.trim();
+    final res = await _http
+        .get(
+          _uri(
+            '/api/cache/papers/${Uri.encodeComponent(id)}/page_preview'
+            '?page_index=$pageIndex',
+          ),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 90));
+    if (res.statusCode == 404) {
+      throw AsrApiException('페이지 미리보기를 받지 못했습니다.', 404);
+    }
+    if (res.statusCode != 200) {
+      throw AsrApiException('페이지 미리보기 실패', res.statusCode);
+    }
+    if (res.bodyBytes.isEmpty) {
+      throw AsrApiException('빈 페이지 이미지', 500);
+    }
+    return res.bodyBytes;
+  }
+
+  /// POST multipart figure_edit commit — design/163.
+  Future<void> commitFigureEdit({
+    required String cacheId,
+    required Map<String, dynamic> layoutMap,
+    required Map<String, dynamic> slotPlan,
+    required List<({
+      String slotKey,
+      String caption,
+      int? pageIndex,
+      Uint8List png,
+    })> figures,
+  }) async {
+    final id = cacheId.trim();
+    final manifest = {
+      'layout_map': layoutMap,
+      'slot_plan': slotPlan,
+      'figures': [
+        for (var i = 0; i < figures.length; i++)
+          {
+            'slot_key': figures[i].slotKey,
+            'caption': figures[i].caption,
+            'page_index': figures[i].pageIndex,
+            'file_field': 'slot_$i',
+          },
+      ],
+    };
+    final req = http.MultipartRequest(
+      'POST',
+      _uri('/api/cache/papers/${Uri.encodeComponent(id)}/figure_edit/commit'),
+    );
+    final headers = await _headers();
+    headers.remove('Content-Type');
+    req.headers.addAll(headers);
+    req.fields['manifest'] = jsonEncode(manifest);
+    for (var i = 0; i < figures.length; i++) {
+      req.files.add(
+        http.MultipartFile.fromBytes(
+          'slot_$i',
+          figures[i].png,
+          filename: '${figures[i].slotKey.replaceAll(':', '_')}.png',
+        ),
+      );
+    }
+    final streamed = await req.send().timeout(const Duration(minutes: 3));
+    final res = await http.Response.fromStream(streamed);
+    final map = _decodeObject(res, 'figure_edit/commit');
+    if (map['ok'] == false) {
+      throw AsrApiException(
+        '${map['message'] ?? 'commit failed'}',
+        res.statusCode,
+      );
+    }
+  }
+
   static final _pdfNameRe = RegExp(r'\.pdf$', caseSensitive: false);
   static const _maxUploadBytes = 50 * 1024 * 1024;
 

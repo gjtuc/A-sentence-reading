@@ -73,12 +73,14 @@ class LayoutOverlay extends StatelessWidget {
     required this.boxes,
     required this.pageIndex,
     this.onBoxTap,
+    this.selectedIds = const {},
     this.child,
   });
 
   final List<LayoutBoxView> boxes;
   final int pageIndex;
   final void Function(LayoutBoxView box)? onBoxTap;
+  final Set<String> selectedIds;
   final Widget? child;
 
   @override
@@ -104,8 +106,10 @@ class LayoutOverlay extends StatelessWidget {
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       border: Border.all(
-                        color: box.color.withValues(alpha: 0.9),
-                        width: 2,
+                        color: selectedIds.contains(box.id)
+                            ? Colors.amber.shade700
+                            : box.color.withValues(alpha: 0.9),
+                        width: selectedIds.contains(box.id) ? 3 : 2,
                       ),
                       color: box.color,
                     ),

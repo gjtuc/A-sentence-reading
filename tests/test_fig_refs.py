@@ -18,7 +18,7 @@ from sentence_reading.models import Figure
 
 def test_status_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.85"
+    assert st["version"] == "0.3.99"
     assert st.get("fig_ref_hints") is True
 
 
@@ -58,6 +58,23 @@ def test_match_and_hints() -> None:
         "See S2 for details.", figs, supplementary_merged=True
     )
     assert merged_hints == [{"ref": "S2", "figure_index": 3}]
+
+
+def test_panel_fallback_design_164() -> None:
+    figs = [
+        Figure(id="a", image_src="x", caption="Fig. 1a — sub"),
+        Figure(id="b", image_src="x", caption="Figure 6. XPS spectra"),
+    ]
+    assert parse_refs("(Figure 6C) and (Figure 6D)") == ["Figure 6"]
+    assert match_figure_index(figs, "Figure 6C") == 1
+    assert match_figure_index(figs, "Figure 6(C)") == 1
+    hints = hints_for_sentence(
+        "signals (Figure 6C) and (Figure 6D) peaks.", figs
+    )
+    assert hints == [{"ref": "Figure 6", "figure_index": 1}]
+    # Compound 1a unchanged — exact slot when present.
+    assert match_figure_index(figs, "Figure 1a") == 0
+    assert parse_refs("Figure 1a") == ["Figure 1a"]
 
 
 def test_static_and_design() -> None:

@@ -91,3 +91,27 @@ def test_assign_slot_user_confirmed(cache_with_layout: str) -> None:
     slot = body["slot_plan"]["slots"][0]
     assert slot["status"] == "user_confirmed"
     assert slot["body_box_id"] == "fb-0001"
+
+
+def test_source_and_page_preview(cache_with_layout: str, tmp_path: Path) -> None:
+    client = TestClient(app)
+    cid = cache_with_layout
+    paper_dir = tmp_path / cid
+    pdf_bytes = b"%PDF-1.4 minimal\n"
+    (paper_dir / "source.pdf").write_bytes(pdf_bytes)
+
+    r_head = client.head(f"/api/cache/papers/{cid}/source")
+    assert r_head.status_code == 200
+    assert r_head.headers.get("X-Content-Hash")
+    assert int(r_head.headers.get("content-length", "0")) == len(pdf_bytes)
+
+    r_get = client.get(f"/api/cache/papers/{cid}/source")
+    assert r_get.status_code == 200
+    assert r_get.content == pdf_bytes
+
+    r_missing = client.get("/api/cache/papers/zzzzzzzzzzzz/source")
+    assert r_missing.status_code in (400, 404)
+
+    # page_preview with invalid PDF bytes → 404 page_not_found
+    r_page = client.get(f"/api/cache/papers/{cid}/page_preview?page_index=0")
+    assert r_page.status_code == 404
