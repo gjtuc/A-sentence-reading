@@ -36,7 +36,7 @@ References
 
 def test_status_cite_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.109"
+    assert st["version"] == "0.3.110"
     assert st["cite_ref_open"] is True
 
 
@@ -65,8 +65,8 @@ def test_ui_assets() -> None:
     assert "/api/cite/resolve" in js
     assert "design/41" in js or "citeRefOpenBtn" in js
     served = TestClient(app).get("/").text
-    assert "cite_refs.js?v=0.3.109" in served
-    assert "app.js?v=0.3.109" in served
+    assert "cite_refs.js?v=0.3.110" in served
+    assert "app.js?v=0.3.110" in served
 
 
 def test_parse_and_extract() -> None:
@@ -116,6 +116,21 @@ def test_extract_acs_bullet_references_header() -> None:
     assert bibliography_public([{"n": "x", "text": "a"}, None, "z"]) == []
     assert bibliography_public([{"n": 1, "text": "ab"}]) == []  # too short
     assert bibliography_public([{"n": 1, "text": "long enough text"}])[0]["n"] == 1
+
+
+def test_extract_acs_inline_references_same_line() -> None:
+    """acsanm PDF: ■REFERENCES (7) Wang… (8) Han… on one line."""
+    text = (
+        "Ack text (62). ■REFERENCES (7) Wang, F.; Xu, L.; Zhang, J.; "
+        "Tuning the metal-support interaction in catalysts for highly efficient "
+        "methane dry reforming reaction. Appl. Catal., B 2016, 180 (0), 511−520. "
+        "(8) Han, B.; Wang, F.; Zhang, L.; Syngas production from methane steam "
+        "reforming and dry reforming reactions over sintering-resistant Ni@SiO2 "
+        "catalyst. Res. Chem. Intermed. 2020, 46 (3), 1735−1748."
+    )
+    bib = extract_bibliography(text)
+    assert [e["n"] for e in bib] == [7, 8]
+    assert "Wang, F." in bib[0]["text"]
 
 
 def test_mock_session_has_refs() -> None:

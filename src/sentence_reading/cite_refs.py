@@ -42,10 +42,16 @@ _PLAIN_TRAILING = re.compile(
 _REF_HEAD = re.compile(
     r"(?im)^\s*(?:[■•*\-]+\s*)?(references|bibliography|literature cited)\s*$"
 )
+# ACS PDF 추출: "62). ■REFERENCES (7) Wang, …" — 헤더·첫 항목이 한 줄
+_REF_INLINE = re.compile(
+    r"(?is)[■•*\-]+\s*references\s*(?=\(\d+\)|\[\d+\]|\d+\s*[\.\)])"
+)
 # 번호 매긴 항목 시작: 1.  1)  [1]  (1)  (ACS)
 _ENTRY_START = re.compile(
     r"(?m)^\s*(?:\[(\d+)\]|\((\d+)\)|(\d+)\s*[\.\)\]])\s+"
 )
+# 같은 줄·연속 본문: "(7) Wang, … (8) Han, …"
+_ENTRY_INLINE = re.compile(r"\((\d+)\)\s+(?=[A-Z\"'])")
 
 
 def strip_tags(html: str) -> str:
@@ -229,18 +235,24 @@ def extract_bibliography(full_text: str) -> list[dict[str, Any]]:
         return []
 
     # 헤더 위치
+    used_inline_header = False
     head = _REF_HEAD.search(text)
-    if not head:
-        # 본문 중간의 'References\n' 변형
-        loose = re.search(
-            r"(?is)\n\s*(?:[■•*\-]+\s*)?(references|bibliography)\s*\n",
-            text,
-        )
-        if not loose:
-            return []
-        start = loose.end()
-    else:
+    if head:
         start = head.end()
+    else:
+        inline = _REF_INLINE.search(text)
+        if inline:
+            start = inline.end()
+            used_inline_header = True
+        else:
+            # 본문 중간의 'References\n' 변형
+            loose = re.search(
+                r"(?is)\n\s*(?:[■•*\-]+\s*)?(references|bibliography)\s*\n",
+                text,
+            )
+            if not loose:
+                return []
+            start = loose.end()
 
     body = text[start:]
     # 다음 큰 섹션(부록 등)에서 자르기 — 관대
@@ -252,12 +264,23 @@ def extract_bibliography(full_text: str) -> list[dict[str, Any]]:
         body = body[: cut.start()]
 
     entries: list[dict[str, Any]] = []
-    matches = list(_ENTRY_START.finditer(body))
+    if used_inline_header:
+        matches = list(_ENTRY_INLINE.finditer(body))
+        inline_mode = True
+    else:
+        matches = list(_ENTRY_START.finditer(body))
+        inline_mode = False
+        if not matches:
+            matches = list(_ENTRY_INLINE.finditer(body))
+            inline_mode = bool(matches)
     if not matches:
         return []
 
     for i, m in enumerate(matches):
-        n_s = m.group(1) or m.group(2) or m.group(3)
+        if inline_mode:
+            n_s = m.group(1)
+        else:
+            n_s = m.group(1) or m.group(2) or m.group(3)
         try:
             n = int(n_s)
         except (TypeError, ValueError):
