@@ -100,6 +100,17 @@ def test_extract_edge_garbage() -> None:
     assert extract_bibliography("") == []
     assert extract_bibliography("no refs section") == []
     assert extract_bibliography("References\n\nnot numbered") == []
+
+
+def test_extract_acs_bullet_references_header() -> None:
+    text = (
+        "Body text here.\n\n"
+        "■REFERENCES\n"
+        "(1) Bian, Z.; Das, S. A Review on Bimetallic Nickel-Based Catalysts.\n"
+        "(2) Smith, J.; Doe, A. Another reference entry long enough.\n"
+    )
+    bib = extract_bibliography(text)
+    assert [e["n"] for e in bib] == [1, 2]
     assert extract_doi("") is None
     assert extract_doi("doi:10.1000/xyz") == "10.1000/xyz"
     assert bibliography_public([{"n": "x", "text": "a"}, None, "z"]) == []

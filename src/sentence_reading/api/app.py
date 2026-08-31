@@ -180,7 +180,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.108",
+    version="0.3.109",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -813,7 +813,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.108",
+        "version": "0.3.109",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -2915,10 +2915,22 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
             pass
         # design/99 — mobile may pass translate=0.
         # design/129 — never await Gemini KO backfill on /open (multi‑minute hang → device
-        # TimeoutException). Empty KO is honest; progressive/read paths can fill later.
-        bf_warn: list[str] = []
+        # TimeoutException). Spawn background backfill instead when KO is missing.
+        translate_pending = False
         if _want_translate(request):
-            bf_warn.append("translate_deferred_on_open")
+            from sentence_reading.llm.translate_section import needs_translate_backfill
+
+            if needs_translate_backfill(
+                session.sentences, session.figures, session.translate_digests
+            ):
+                translate_pending = True
+                asyncio.create_task(
+                    _open_translate_backfill_task(
+                        cache_id,
+                        kind=src,
+                        doc_role=str(info.get("doc_role") or "main"),
+                    )
+                )
         session_id = _remember_session(session, cache_id=cache_id)
         # design/129 — sentences/meta only; PNGs via /figures/window (fail-closed empty src).
         data = session.to_public_dict(include_images=False)
@@ -2942,9 +2954,9 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
         warnings = list(info.get("warnings") or [])
         if info.get("stale"):
             warnings.insert(0, "stale_pipeline")
-        warnings.extend(bf_warn)
         data["warnings"] = list(dict.fromkeys(warnings))
         data["ingest_quality"] = info.get("ingest_quality") or {}
+        data["translate_pending"] = translate_pending
         return JSONResponse(data)
     except Exception as exc:  # noqa: BLE001
         # design/111 — never leave clients with bare HTML 500 / empty body.
@@ -3938,6 +3950,45 @@ async def _backfill_cached_translations(
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"translate_backfill_save_failed:{str(exc)[:80]}")
     return session, warnings
+
+
+async def _open_translate_backfill_task(
+    cache_id: str,
+    *,
+    kind: str,
+    doc_role: str,
+) -> None:
+    """design/99+129 — KO backfill after /open without blocking the HTTP response."""
+    log = __import__("logging").getLogger("sentence_reading.api")
+    cid = (cache_id or "").strip()
+    if not cid:
+        return
+    try:
+        from sentence_reading.llm.papers_gcs import (
+            download_paper_cache,
+            gcs_papers_ready,
+            upload_paper_cache,
+        )
+
+        if gcs_papers_ready():
+            await asyncio.to_thread(
+                download_paper_cache, cid, include_figures=False, include_source=True
+            )
+        loaded = await asyncio.to_thread(load_cached_session, cid, load_images=False)
+        if loaded is None:
+            return
+        session, info = loaded
+        session, _ = await _backfill_cached_translations(
+            None,
+            session,
+            kind=kind,
+            source_path=get_source_path(cid),
+            content_hash=str(info.get("content_hash") or "") or None,
+            doc_role=str(info.get("doc_role") or doc_role or "main"),
+        )
+        await asyncio.to_thread(upload_paper_cache, cid)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("open translate backfill failed: %s", type(exc).__name__)
 
 
 async def _run_ingest_job(

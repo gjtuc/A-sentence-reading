@@ -22,7 +22,6 @@ import 'shadowing_practice_screen.dart';
 import '../api/reader_nav_labels.dart';
 import '../widgets/reader_nav_picker.dart';
 import '../widgets/annotation_toolbar_sheet.dart';
-import '../widgets/annotation_list_sheet.dart';
 import '../api/figure_ink_models.dart';
 import '../widgets/figure_ink_toolbar.dart';
 import '../widgets/annotated_sentence_text.dart';
@@ -365,20 +364,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                   ),
-                  if (widget.annotations.activeCount > 0)
-                    IconButton(
-                      tooltip: '주석 목록',
-                      onPressed: () => showAnnotationListSheet(
-                        context: context,
-                        session: s,
-                        annotations: widget.annotations,
-                        library: library,
-                      ),
-                      icon: Badge(
-                        label: Text('${widget.annotations.activeCount}'),
-                        child: const Icon(Icons.notes_outlined, size: 20),
-                      ),
-                    ),
                   if (shadowing.enabled)
                     TextButton(
                       onPressed: !shadowing.serverAvailable
@@ -858,6 +843,21 @@ class _SentencePanel extends StatelessWidget {
                                         Theme.of(context).textTheme.bodyMedium ??
                                             const TextStyle(fontSize: 14),
                                   ),
+                                ] else if (showKo &&
+                                    (library.translateBackfillBusy ||
+                                        session.translatePending)) ...[
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    '번역 준비 중…',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant,
+                                        ),
+                                  ),
                                 ],
                               ],
                             ),
@@ -1165,7 +1165,20 @@ class _CiteRefPanelState extends State<_CiteRefPanel> {
       text: cur.text,
       bibliography: widget.session.references,
     );
-    if (hints.isEmpty) return const SizedBox.shrink();
+    if (hints.isEmpty) {
+      if (widget.session.references.isEmpty) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 2),
+          child: Text(
+            '참고문헌을 찾지 못했습니다. 재분석하면 표시될 수 있습니다.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+        );
+      }
+      return const SizedBox.shrink();
+    }
 
     final maxH = MediaQuery.sizeOf(context).height * 0.22;
     final scheme = Theme.of(context).colorScheme;

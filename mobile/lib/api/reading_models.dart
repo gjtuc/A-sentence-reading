@@ -191,6 +191,7 @@ class ReadingSession {
     this.references = const [],
     this.documentCitation = const DocumentCitation(),
     this.supplementaryMerged = false,
+    this.translatePending = false,
   }) {
     clampIndices();
   }
@@ -252,6 +253,7 @@ class ReadingSession {
       references: parseReferenceList(json['references']),
       documentCitation: parseDocumentCitation(json['document_citation']),
       supplementaryMerged: json['supplementary_merged'] == true,
+      translatePending: json['translate_pending'] == true,
     );
   }
 
@@ -270,6 +272,15 @@ class ReadingSession {
   final DocumentCitation documentCitation;
   /// design/152 — merged main+SI enables bare S2 fig chips.
   final bool supplementaryMerged;
+  /// design/99+129 — server is backfilling KO after /open.
+  final bool translatePending;
+
+  bool get hasAnyTranslation {
+    for (final s in sentences) {
+      if (s.hasText && s.textKo.trim().isNotEmpty) return true;
+    }
+    return false;
+  }
 
   bool get isValid => sessionId.isNotEmpty;
 

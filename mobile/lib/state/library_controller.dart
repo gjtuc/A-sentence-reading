@@ -77,6 +77,10 @@ class LibraryController extends ChangeNotifier {
   String? shadowingChunksCacheId;
   bool shadowingChunksBusy = false;
 
+  /// design/99 — KO backfill polling after /open (translate_pending).
+  bool translateBackfillBusy = false;
+  Timer? _translatePollTimer;
+
   /// design/167 — show ingest quality banner once per open until dismissed.
   bool showIngestQualityBanner = false;
   String? _dismissedQualityBannerCacheId;
@@ -768,6 +772,68 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _stopTranslatePoll() {
+    _translatePollTimer?.cancel();
+    _translatePollTimer = null;
+    if (translateBackfillBusy) {
+      translateBackfillBusy = false;
+      notifyListeners();
+    }
+  }
+
+  void _maybeStartTranslatePoll(ReadingSession o) {
+    _stopTranslatePoll();
+    if (!o.translatePending && o.hasAnyTranslation) return;
+    unawaited(_wantTranslate().then((wantTr) {
+      if (!wantTr) return;
+      if (!o.translatePending && o.hasAnyTranslation) return;
+      if (session?.cacheId != o.cacheId) return;
+      translateBackfillBusy = true;
+      notifyListeners();
+      var attempts = 0;
+      _translatePollTimer?.cancel();
+      _translatePollTimer = Timer.periodic(const Duration(seconds: 8), (t) async {
+        attempts++;
+        if (attempts > 24) {
+          _stopTranslatePoll();
+          return;
+        }
+        final cid = session?.cacheId;
+        if (cid == null || cid != o.cacheId) {
+          _stopTranslatePoll();
+          return;
+        }
+        try {
+          final wantTr2 = await _wantTranslate();
+          if (!wantTr2) {
+            _stopTranslatePoll();
+            return;
+          }
+          final refreshed = await _client.openPaper(cid, translate: true);
+          if (session?.cacheId != cid) return;
+          final si = session!.sentenceIndex;
+          final fi = session!.figureIndex;
+          refreshed.sentenceIndex = si;
+          refreshed.figureIndex = fi;
+          refreshed.clampIndices();
+          session = refreshed;
+          if (!refreshed.translatePending && refreshed.hasAnyTranslation) {
+            _stopTranslatePoll();
+          }
+          notifyListeners();
+        } catch (_) {
+          // keep polling until attempts exhausted
+        }
+      });
+    }));
+  }
+
+  @override
+  void dispose() {
+    _stopTranslatePoll();
+    super.dispose();
+  }
+
   PaperEntry? paperEntryForCacheId(String cacheId) {
     final cid = cacheId.trim();
     for (final p in papers) {
@@ -856,6 +922,7 @@ class LibraryController extends ChangeNotifier {
 
       session = o;
       _maybeShowQualityBanner(o);
+      _maybeStartTranslatePoll(o);
       unawaited(_syncBookmarksForSession(o));
       unawaited(_syncAnnotationsForSession(o));
       // design/129 — fill current±1 images after sentences are on screen.

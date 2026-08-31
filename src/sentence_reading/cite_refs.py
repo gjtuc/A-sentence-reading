@@ -38,13 +38,13 @@ _DOLLAR_TEX_CITE = re.compile(
 _PLAIN_TRAILING = re.compile(
     r"(?<=[a-zA-Z\)])(\.(\d+(?:\s*[-–—−,]\s*\d+)*))\s*$"
 )
-# References 섹션 헤더
+# References 섹션 헤더 (ACS ■REFERENCES 등)
 _REF_HEAD = re.compile(
-    r"(?im)^(?:\s*)(references|bibliography|literature cited)\s*$"
+    r"(?im)^\s*(?:[■•*\-]+\s*)?(references|bibliography|literature cited)\s*$"
 )
-# 번호 매긴 항목 시작: 1.  1)  [1]  1·
+# 번호 매긴 항목 시작: 1.  1)  [1]  (1)  (ACS)
 _ENTRY_START = re.compile(
-    r"(?m)^\s*(?:\[(\d+)\]|(\d+)\s*[\.\)\]])\s+"
+    r"(?m)^\s*(?:\[(\d+)\]|\((\d+)\)|(\d+)\s*[\.\)\]])\s+"
 )
 
 
@@ -233,7 +233,7 @@ def extract_bibliography(full_text: str) -> list[dict[str, Any]]:
     if not head:
         # 본문 중간의 'References\n' 변형
         loose = re.search(
-            r"(?is)\n\s*(references|bibliography)\s*\n",
+            r"(?is)\n\s*(?:[■•*\-]+\s*)?(references|bibliography)\s*\n",
             text,
         )
         if not loose:
@@ -257,7 +257,7 @@ def extract_bibliography(full_text: str) -> list[dict[str, Any]]:
         return []
 
     for i, m in enumerate(matches):
-        n_s = m.group(1) or m.group(2)
+        n_s = m.group(1) or m.group(2) or m.group(3)
         try:
             n = int(n_s)
         except (TypeError, ValueError):
