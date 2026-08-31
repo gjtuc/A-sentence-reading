@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_cite_display_clean() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.100"
+    assert st["version"] == "0.3.101"
     assert st["cite_display_clean"] is True
     assert st["cite_ref_open"] is True
     assert "live_enable" not in st
@@ -40,7 +40,7 @@ def test_strip_cite_markers_for_display() -> None:
 
 
 def test_plain_trailing_acs_cite_parse_and_strip() -> None:
-    """ACS plain cite — reaction.6−9 · worldwide.1−5 (0.3.100)."""
+    """ACS plain cite — reaction.6−9 · worldwide.1−5 (0.3.101)."""
     minus = "\u2212"
     s6 = f"Ni nanoparticles for the MDR reaction.6{minus}9"
     s5 = f"The benefits made it a hot topic worldwide.1{minus}5"
@@ -124,5 +124,5 @@ def test_ui_hides_cites_like_fig_chips() -> None:
     assert "0.2.57" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.100" in html
-    assert "styles.css?v=0.3.100" in html
+    assert "app.js?v=0.3.101" in html
+    assert "styles.css?v=0.3.101" in html

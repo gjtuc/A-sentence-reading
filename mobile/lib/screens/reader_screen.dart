@@ -649,10 +649,17 @@ class _SentencePanel extends StatelessWidget {
                           right: session.sentenceCount == 0
                               ? '— / —'
                               : header.rightLabel,
-                          enabled: canPick,
+                          enabled: session.sentenceCount > 0,
                           highlighted: sentHighlighted,
                           leftBadgeCount: sectionBadge,
-                          onTap: canPick
+                          onTap: session.sentenceCount == 0
+                              ? null
+                              : () => _handleSentenceBookmarkTap(
+                                    context,
+                                    bookmarks: bookmarks,
+                                    session: session,
+                                  ),
+                          onLongPress: canPick
                               ? () async {
                                   final idx = await showSectionNavPicker(
                                     context: context,
@@ -665,13 +672,6 @@ class _SentencePanel extends StatelessWidget {
                                   await library.goToSentenceIndex(idx);
                                 }
                               : null,
-                          onLongPress: session.sentenceCount == 0
-                              ? null
-                              : () => _handleSentenceBookmarkLongPress(
-                                    context,
-                                    bookmarks: bookmarks,
-                                    session: session,
-                                  ),
                         ),
                       ),
                       IconButton(
@@ -1244,10 +1244,17 @@ class _FigurePanel extends StatelessWidget {
                           right: session.figureCount == 0
                               ? '— / —'
                               : header.rightLabel,
-                          enabled: canPick,
+                          enabled: session.figureCount > 0,
                           highlighted: figHighlighted,
                           leftBadgeCount: kindBadge,
-                          onTap: canPick
+                          onTap: session.figureCount == 0
+                              ? null
+                              : () => _handleFigureBookmarkTap(
+                                    context,
+                                    bookmarks: bookmarks,
+                                    session: session,
+                                  ),
+                          onLongPress: canPick
                               ? () async {
                                   final idx = await showFigureNavPicker(
                                     context: context,
@@ -1259,13 +1266,6 @@ class _FigurePanel extends StatelessWidget {
                                   await library.goToFigureIndex(idx);
                                 }
                               : null,
-                          onLongPress: session.figureCount == 0
-                              ? null
-                              : () => _handleFigureBookmarkLongPress(
-                                    context,
-                                    bookmarks: bookmarks,
-                                    session: session,
-                                  ),
                         ),
                       ),
                       IconButton(
@@ -1866,7 +1866,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
   }
 }
 
-Future<void> _handleSentenceBookmarkLongPress(
+Future<void> _handleSentenceBookmarkTap(
   BuildContext context, {
   required BookmarkController bookmarks,
   required ReadingSession session,
@@ -1956,7 +1956,7 @@ Future<void> _handleSentenceAnnotateLongPress(
   HapticFeedback.mediumImpact();
 }
 
-Future<void> _handleFigureBookmarkLongPress(
+Future<void> _handleFigureBookmarkTap(
   BuildContext context, {
   required BookmarkController bookmarks,
   required ReadingSession session,
