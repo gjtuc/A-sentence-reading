@@ -6,8 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 
-# Live must not lose sensors introduced by 169c/d/e/g (floor through trace_id).
-EVIDENCE_FLOOR_VERSION = "0.3.131"
+# Live must not lose sensors introduced by 169c/d/e/g (floor through 7d retention).
+EVIDENCE_FLOOR_VERSION = "0.3.132"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -73,11 +73,17 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "_emit_paper_delete_evidence",
             "_job_trace_id",
             "trace_id=job_trace",
+            "_evidence_rotate_loop",
+            "evidence_retention_days",
         ),
     ),
     (
         "src/sentence_reading/llm/evidence_bus.py",
-        ("emit_handoff", "new_handoff_id", "stage_token"),
+        ("emit_handoff", "new_handoff_id", "stage_token", "rotate_events", "filter_retained"),
+    ),
+    (
+        "scripts/rotate_evidence.py",
+        ("rotate_events", "--force"),
     ),
     (
         "src/sentence_reading/llm/evidence_kinds.py",

@@ -181,6 +181,7 @@ async def _lifespan(_app: FastAPI):
         pass
     # design/168e — background sweeper for lease-expired zombies.
     sweeper_task = None
+    rotate_task = None
     try:
         from sentence_reading.llm.ingest_stall import sweeper_interval_sec
 
@@ -188,13 +189,20 @@ async def _lifespan(_app: FastAPI):
             sweeper_task = asyncio.create_task(_ingest_sweeper_loop())
     except Exception:
         sweeper_task = None
+    # design/169g phase 6 — evidence/ops 7d retention rotate
+    try:
+        rotate_task = asyncio.create_task(_evidence_rotate_loop())
+    except Exception:
+        rotate_task = None
     try:
         yield
     finally:
-        if sweeper_task is not None:
-            sweeper_task.cancel()
+        for task in (sweeper_task, rotate_task):
+            if task is None:
+                continue
+            task.cancel()
             try:
-                await sweeper_task
+                await task
             except asyncio.CancelledError:
                 pass
             except Exception:
@@ -203,7 +211,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.131",
+    version="0.3.132",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1176,6 +1184,27 @@ async def _ingest_sweeper_loop() -> None:
             pass
 
 
+async def _evidence_rotate_loop() -> None:
+    """design/169g phase 6 — daily-ish evidence/ops JSONL retention rotate."""
+    # WHY: append path also filters; this covers quiet periods with no new emits.
+    interval = 6 * 3600
+    while True:
+        try:
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+            from sentence_reading.llm import ops_events as oev
+
+            eb.rotate_events(force=False)
+            oev.rotate_events(force=False)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _progress_fail_closed_enabled() -> bool:
     """design/123 — refuse open when stored progress indices are invalid.
 
@@ -1243,8 +1272,11 @@ def status(request: Request) -> dict:
     """기동 확인."""
     from sentence_reading.llm.ingest_rate_limit import rate_limit_enabled
     from sentence_reading.llm.error_logs import cloud_error_logs_enabled
-    from sentence_reading.llm.ops_events import ops_events_enabled
-    from sentence_reading.llm.evidence_bus import evidence_bus_enabled
+    from sentence_reading.llm.ops_events import ops_events_enabled, retention_days as ops_retention_days
+    from sentence_reading.llm.evidence_bus import (
+        evidence_bus_enabled,
+        retention_days as evidence_retention_days,
+    )
     from sentence_reading.llm.ingest_integrity import ingest_integrity_enabled
     from sentence_reading.llm.ingest_stall import ingest_stall_detector_enabled
     from sentence_reading.llm.upload_audit_log import upload_audit_enabled
@@ -1278,7 +1310,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.131",
+        "version": "0.3.132",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -1313,6 +1345,9 @@ def status(request: Request) -> dict:
         "ops_events": ops_events_enabled(),
         # design/169 — agent evidence bus (no UI); false when ASR_EVIDENCE_BUS=0.
         "evidence_bus": evidence_bus_enabled(),
+        # design/169g phase 6 — JSONL retention days (paper_retention과 별개).
+        "evidence_retention_days": evidence_retention_days(),
+        "ops_events_retention_days": ops_retention_days(),
         # design/168b — T1–T10 integrity checks (log-only); false when ASR_INGEST_INTEGRITY=0.
         "ingest_integrity": ingest_integrity_enabled(),
         # design/168c — phase machine + partial ingest_status.

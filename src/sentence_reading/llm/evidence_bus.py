@@ -18,6 +18,7 @@ import re
 import threading
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,7 @@ log = logging.getLogger(__name__)
 
 _LOCK = threading.RLock()
 _RATE_MEM: dict[str, list[float]] = {}
+_LAST_ROTATE_MONO: float = 0.0
 
 _MAX_CACHE_ID = 64
 _MAX_JOB_ID = 32
@@ -46,6 +48,9 @@ _MAX_BODY_BYTES = 6_000_000
 _MAX_BATCH = 50
 _RATE_MAX = 60
 _RATE_WINDOW_SEC = 60
+# design/169g phase 6 — default 7d (paper_retention과 별개)
+_DEFAULT_RETENTION_DAYS = 7
+_ROTATE_MIN_INTERVAL_SEC = 6 * 3600
 
 _CACHE_ID_RE = re.compile(r"^[A-Za-z0-9._\-]+$")
 _JOB_ID_RE = re.compile(r"^job_[a-f0-9]{12}$")
@@ -62,6 +67,59 @@ def evidence_bus_enabled() -> bool:
     load_asr_env()
     raw = (os.environ.get("ASR_EVIDENCE_BUS") or "1").strip().lower()
     return raw not in ("0", "false", "off", "no")
+
+
+def retention_days() -> int:
+    """design/169g phase 6 — keep window in days (0 = age filter off)."""
+    load_asr_env()
+    raw = (os.environ.get("ASR_EVIDENCE_RETENTION_DAYS") or str(_DEFAULT_RETENTION_DAYS)).strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = _DEFAULT_RETENTION_DAYS
+    return max(0, min(n, 365))
+
+
+def parse_event_ts(raw: Any) -> datetime | None:
+    """Parse evidence ``ts`` (ISO-Z) to UTC datetime."""
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def filter_retained(
+    events: list[dict[str, Any]],
+    *,
+    keep_days: int | None = None,
+    now: datetime | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Drop rows older than keep_days. Returns (kept, dropped_n)."""
+    days = _DEFAULT_RETENTION_DAYS if keep_days is None else int(keep_days)
+    if days <= 0 or not events:
+        return list(events), 0
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=days)
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    for ev in events:
+        if not isinstance(ev, dict):
+            dropped += 1
+            continue
+        ts = parse_event_ts(ev.get("ts"))
+        # EDGE: missing/bad ts — keep (fail-closed for observability).
+        if ts is not None and ts < cutoff:
+            dropped += 1
+            continue
+        kept.append(ev)
+    return kept, dropped
 
 
 def local_events_path() -> Path:
@@ -326,6 +384,7 @@ def append_events(events: list[dict[str, Any]]) -> int:
         with _LOCK:
             existing = _parse_events(_pull_events_raw())
             existing.extend(events)
+            existing, _dropped = filter_retained(existing, keep_days=retention_days())
             if len(existing) > _MAX_EVENTS_KEEP:
                 existing = existing[-_MAX_EVENTS_KEEP:]
             blob = (
@@ -343,6 +402,74 @@ def append_events(events: list[dict[str, Any]]) -> int:
         log.warning("evidence_bus append failed", exc_info=True)
         return 0
 
+
+def rotate_events(
+    *,
+    keep_days: int | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """
+    design/169g phase 6 — rewrite JSONL dropping rows older than keep_days.
+    Returns ``{ok, before, after, dropped, skipped}``. Never raises.
+    """
+    global _LAST_ROTATE_MONO
+    out: dict[str, Any] = {
+        "ok": False,
+        "before": 0,
+        "after": 0,
+        "dropped": 0,
+        "skipped": 0,
+        "keep_days": retention_days() if keep_days is None else int(keep_days),
+    }
+    if not evidence_bus_enabled():
+        out["skipped"] = 1
+        return out
+    now_m = time.monotonic()
+    if (
+        not force
+        and _LAST_ROTATE_MONO > 0
+        and (now_m - _LAST_ROTATE_MONO) < _ROTATE_MIN_INTERVAL_SEC
+    ):
+        out["skipped"] = 1
+        out["ok"] = True
+        return out
+    try:
+        with _LOCK:
+            existing = _parse_events(_pull_events_raw())
+            before = len(existing)
+            kept, dropped = filter_retained(
+                existing, keep_days=out["keep_days"]
+            )
+            if len(kept) > _MAX_EVENTS_KEEP:
+                dropped += len(kept) - _MAX_EVENTS_KEEP
+                kept = kept[-_MAX_EVENTS_KEEP:]
+            if dropped == 0 and not force:
+                _LAST_ROTATE_MONO = now_m
+                out.update(ok=True, before=before, after=before, dropped=0)
+                return out
+            blob = (
+                (
+                    "\n".join(json.dumps(e, ensure_ascii=False) for e in kept) + "\n"
+                ).encode("utf-8")
+                if kept
+                else b""
+            )
+            _push_events_raw(blob)
+            _LAST_ROTATE_MONO = now_m
+            out.update(ok=True, before=before, after=len(kept), dropped=dropped)
+            return out
+    except Exception:  # noqa: BLE001
+        log.warning("evidence_bus rotate failed", exc_info=True)
+        return out
+
+
+def list_events(*, limit: int = 50) -> list[dict[str, Any]]:
+    """Newest-first (tests / agent scripts only — no HTTP)."""
+    lim = max(1, min(int(limit or 50), 500))
+    with _LOCK:
+        events = _parse_events(_pull_events_raw())
+    events.reverse()
+    return events[:lim]
 
 def ingest_client_batch(
     raw_events: list[Any],
@@ -529,12 +656,3 @@ def emit_handoff(
     except Exception:  # noqa: BLE001
         log.warning("evidence_bus emit_handoff failed", exc_info=True)
         return ""
-
-
-def list_events(*, limit: int = 50) -> list[dict[str, Any]]:
-    """Newest-first (tests / agent scripts only — no HTTP)."""
-    lim = max(1, min(int(limit or 50), 500))
-    with _LOCK:
-        events = _parse_events(_pull_events_raw())
-    events.reverse()
-    return events[:lim]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -37,7 +38,7 @@ def test_verify_evidence_floor_clean() -> None:
 
 
 def test_floor_version_pin() -> None:
-    assert EVIDENCE_FLOOR_VERSION == "0.3.131"
+    assert EVIDENCE_FLOOR_VERSION == "0.3.132"
 
 
 def test_gemini_timed_emits_start_and_done(ev_tmp, monkeypatch) -> None:
@@ -126,3 +127,35 @@ def test_translate_call_carries_trace_id(ev_tmp, monkeypatch) -> None:
         ts._EVIDENCE_CTX.cache_id = ""
         ts._EVIDENCE_CTX.owner_uid = ""
         ts._EVIDENCE_CTX.trace_id = ""
+
+
+def test_evidence_retention_filter_and_rotate(ev_tmp, monkeypatch) -> None:
+    """design/169g phase 6 — drop rows older than keep_days."""
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setenv("ASR_EVIDENCE_RETENTION_DAYS", "7")
+    now = datetime(2026, 9, 1, 12, 0, 0, tzinfo=timezone.utc)
+    old_ts = (now - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    new_ts = (now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = [
+        {"id": "ev_old", "ts": old_ts, "kind": "handoff"},
+        {"id": "ev_new", "ts": new_ts, "kind": "handoff"},
+    ]
+    kept, dropped = eb.filter_retained(rows, keep_days=7, now=now)
+    assert dropped == 1
+    assert [r["id"] for r in kept] == ["ev_new"]
+    # Persist then rotate
+    path = eb.local_events_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(eb, "_LAST_ROTATE_MONO", 0.0)
+    stats = eb.rotate_events(keep_days=7, force=True)
+    assert stats["ok"] is True
+    assert stats["dropped"] == 1
+    assert stats["after"] == 1
+    left = eb.list_events(limit=10)
+    assert len(left) == 1
+    assert left[0]["id"] == "ev_new"
