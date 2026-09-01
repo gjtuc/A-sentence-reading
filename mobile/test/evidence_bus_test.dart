@@ -27,6 +27,13 @@ void main() {
     expect(kEvidenceAllowedKinds.contains('stall_fired'), isTrue);
   });
 
+  test('kinds include 169c dense translate/open', () {
+    expect(kEvidenceAllowedKinds.contains('translate_item_done'), isTrue);
+    expect(kEvidenceAllowedKinds.contains('open_ko_summary'), isTrue);
+    expect(kEvidenceAllowedKinds.contains('translate_poll_ko'), isTrue);
+    expect(kEvidenceAllowedKinds.contains('translate_call_slow'), isTrue);
+  });
+
   test('safe details keep bool/int snake keys', () {
     final bus = EvidenceBus();
     bus.setEnabled(true);

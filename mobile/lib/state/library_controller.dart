@@ -926,8 +926,20 @@ class LibraryController extends ChangeNotifier {
       if (session?.cacheId != o.cacheId) return;
       translateBackfillBusy = true;
       notifyListeners();
+      asrEvidenceBus?.record(
+        'translate_poll_start',
+        severity: 'lifecycle',
+        cacheId: o.cacheId,
+        stage: 'translate_poll',
+        ok: true,
+        details: {
+          'translate_pending': o.translatePending,
+          'ko_sentence_n': o.sentences.where((s) => s.textKo.trim().isNotEmpty).length,
+        },
+      );
       var attempts = 0;
       var pollErrorReported = false;
+      var lastKoN = o.sentences.where((s) => s.textKo.trim().isNotEmpty).length;
       _translatePollTimer?.cancel();
       _translatePollTimer = Timer.periodic(const Duration(seconds: 8), (t) async {
         attempts++;
@@ -979,6 +991,24 @@ class LibraryController extends ChangeNotifier {
           refreshed.preserveClientStateFrom(prior);
           session = refreshed;
           unawaited(_prefetchFigureWindow());
+          final koN = refreshed.sentences
+              .where((s) => s.textKo.trim().isNotEmpty)
+              .length;
+          if (koN != lastKoN) {
+            lastKoN = koN;
+            asrEvidenceBus?.record(
+              'translate_poll_ko',
+              severity: 'boundary',
+              cacheId: cid,
+              stage: 'translate_poll',
+              ok: true,
+              details: {
+                'ko_sentence_n': koN,
+                'translate_pending': refreshed.translatePending,
+                'attempt': attempts,
+              },
+            );
+          }
           if (!refreshed.translatePending && refreshed.hasAnyTranslation) {
             _stopTranslatePoll();
           }
@@ -1000,10 +1030,9 @@ class LibraryController extends ChangeNotifier {
             asrEvidenceBus?.record(
               'client_api_fail',
               severity: 'error',
-              route: 'translate_poll',
               cacheId: cid,
-              message: msg.length > 200 ? msg.substring(0, 200) : msg,
               stage: 'translate_poll',
+              message: msg.length > 200 ? msg.substring(0, 200) : msg,
               ok: false,
             );
           }
@@ -1137,6 +1166,8 @@ class LibraryController extends ChangeNotifier {
           'sentence_count': o.sentenceCount,
           'figure_count': o.figureCount,
           'translate_pending': o.translatePending,
+          'ko_sentence_n':
+              o.sentences.where((s) => s.textKo.trim().isNotEmpty).length,
         },
       );
       return session;

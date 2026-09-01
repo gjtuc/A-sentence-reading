@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
@@ -34,6 +35,10 @@ from sentence_reading.llm import translate_google as tg
 from sentence_reading.models import Figure, Sentence
 
 log = logging.getLogger(__name__)
+
+# design/169c — optional job/cache ids for call_fail/slow (set by enrich kwargs).
+_EVIDENCE_CTX = threading.local()
+_CALL_SLOW_MS = 60_000
 
 # WHY: rich-v* 와 분리 — 번역만 바뀌어도 PDF 재분석 강제하지 않음
 TRANSLATE_DOC_VERSION = "doc-v1"
@@ -78,6 +83,101 @@ _SEC_LABEL_KO: dict[str, str] = {
 
 def _sec_label(section: str) -> str:
     return _SEC_LABEL_KO.get(section, section or "본문")
+
+
+def ko_counts(
+    sentences: list[Sentence] | None,
+    figures: list[Figure] | None,
+) -> tuple[int, int]:
+    """Non-empty text_ko / caption_ko counts (design/169c). No text payload."""
+    sk = sum(
+        1
+        for s in (sentences or [])
+        if str(getattr(s, "text_ko", "") or "").strip()
+    )
+    fk = sum(
+        1
+        for f in (figures or [])
+        if str(getattr(f, "caption_ko", "") or "").strip()
+    )
+    return sk, fk
+
+
+def should_sample_translate_item(index: int, stage: str) -> bool:
+    """Spam guard: first, every 5th, or final harmonize."""
+    st = (stage or "").strip().lower()
+    if index == 0 or index % 5 == 0:
+        return True
+    return st == "harmonize"
+
+
+def _exc_type_snake(exc: BaseException) -> str:
+    name = type(exc).__name__
+    s = re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+    s = re.sub(r"[^a-z0-9_]", "", s)
+    if not s or not re.match(r"^[a-z]", s):
+        return "exc"
+    return s[:64]
+
+
+def _evidence_ids() -> tuple[str, str, str]:
+    return (
+        str(getattr(_EVIDENCE_CTX, "job_id", "") or ""),
+        str(getattr(_EVIDENCE_CTX, "cache_id", "") or ""),
+        str(getattr(_EVIDENCE_CTX, "owner_uid", "") or ""),
+    )
+
+
+def _emit_translate_call(
+    kind: str,
+    *,
+    call_kind: str,
+    elapsed_ms: int | None = None,
+    exc: BaseException | None = None,
+) -> None:
+    """Fire-and-forget design/169c call sensors. Never raises."""
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        job_id, cache_id, owner_uid = _evidence_ids()
+        details: dict[str, Any] = {
+            "call_kind": str(call_kind or "unknown")[:64],
+        }
+        if elapsed_ms is not None:
+            details["elapsed_ms"] = int(elapsed_ms)
+        if exc is not None:
+            details["exc_type"] = _exc_type_snake(exc)
+        eb.emit(
+            kind,
+            severity="error" if kind == "translate_call_fail" else "boundary",
+            job_id=job_id,
+            cache_id=cache_id,
+            owner_uid=owner_uid,
+            stage="translate",
+            details=details,
+            ok=kind != "translate_call_fail",
+            code=kind,
+        )
+    except Exception:  # noqa: BLE001
+        log.warning("translate evidence emit failed kind=%s", kind, exc_info=True)
+
+
+def _gemini_timed(call_kind: str, system: str, user: str) -> str | None:
+    """Wrap Gemini generate with 169c fail/slow evidence."""
+    t0 = time.monotonic()
+    try:
+        out = tr._gemini_generate(system, user)
+    except Exception as exc:  # noqa: BLE001
+        _emit_translate_call("translate_call_fail", call_kind=call_kind, exc=exc)
+        raise
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    if elapsed_ms >= _CALL_SLOW_MS:
+        _emit_translate_call(
+            "translate_call_slow",
+            call_kind=call_kind,
+            elapsed_ms=elapsed_ms,
+        )
+    return out
 
 
 def needs_translate_backfill(
@@ -205,7 +305,19 @@ def _pipeline_staged(
         plain = plain[: tr._MAX_CHARS]
 
     if translate_backend() == "google" and tg.google_translate_available():
-        ko = tg.translate_one_en_to_ko(plain)
+        t0 = time.monotonic()
+        try:
+            ko = tg.translate_one_en_to_ko(plain)
+        except Exception as exc:  # noqa: BLE001
+            _emit_translate_call("translate_call_fail", call_kind="google", exc=exc)
+            raise
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        if elapsed_ms >= _CALL_SLOW_MS:
+            _emit_translate_call(
+                "translate_call_slow",
+                call_kind="google",
+                elapsed_ms=elapsed_ms,
+            )
         if ko:
             if on_stage:
                 try:
@@ -228,7 +340,7 @@ def _pipeline_staged(
         return None
 
     stages_done: list[str] = []
-    draft = tr._gemini_generate(tr._SYSTEM_DRAFT, f"Translate to Korean:\n\n{plain}")
+    draft = _gemini_timed("draft", tr._SYSTEM_DRAFT, f"Translate to Korean:\n\n{plain}")
     if not draft:
         return None
     stages_done.append("draft")
@@ -240,7 +352,8 @@ def _pipeline_staged(
             log.warning("pipeline on_stage draft failed: %s", exc)
 
     try:
-        sense = tr._gemini_generate(
+        sense = _gemini_timed(
+            "sense",
             tr._SYSTEM_SENSE,
             f"English source:\n{plain}\n\nKorean draft:\n{current}\n\nRevise for terminology.",
         )
@@ -256,7 +369,8 @@ def _pipeline_staged(
         log.warning("translate sense failed: %s", exc)
 
     try:
-        polish = tr._gemini_generate(
+        polish = _gemini_timed(
+            "polish",
             tr._SYSTEM_POLISH,
             f"English source:\n{plain}\n\nKorean draft:\n{current}\n\nPolish for readability.",
         )
@@ -293,7 +407,7 @@ def _make_digest(section: str, english_lines: list[str]) -> dict[str, str]:
         "Write EN: and KO: theme summaries."
     )
     try:
-        raw = tr._gemini_generate(_DIGEST_SYSTEM, user)
+        raw = _gemini_timed("digest", _DIGEST_SYSTEM, user)
     except Exception as exc:  # noqa: BLE001
         log.warning("digest failed %s: %s", section, exc)
         return {"en": "", "ko": ""}
@@ -316,7 +430,7 @@ def _harmonize(en: str, ko: str, digest: dict[str, str]) -> tuple[str, bool]:
         "Revise Korean for theme consistency."
     )
     try:
-        raw = tr._gemini_generate(_HARMONIZE_SYSTEM, user)
+        raw = _gemini_timed("harmonize", _HARMONIZE_SYSTEM, user)
     except Exception as exc:  # noqa: BLE001
         log.warning("harmonize failed: %s", exc)
         return ko, False
@@ -359,14 +473,44 @@ def enrich_session_translations(
     on_progress: ProgressCb | None = None,
     on_item: ItemCb | None = None,
     workers: int | None = None,
+    job_id: str = "",
+    cache_id: str = "",
+    owner_uid: str = "",
 ) -> tuple[list[Sentence], list[Figure], dict[str, dict[str, str]], list[str]]:
     """
     섹션별 pipeline → digest → harmonize.
     on_progress: design/43 badge.
     on_item: design/45 — ("sentence"|"figure", index, ko, stage) 즉시 패치.
     workers: design/46 — 동시 작업 수 (None이면 env/기본).
+    job_id/cache_id/owner_uid: design/169c call evidence correlation.
     # INVARIANT: score 없음. 실패 시 해당 항목만 스킵.
     """
+    _EVIDENCE_CTX.job_id = str(job_id or "")
+    _EVIDENCE_CTX.cache_id = str(cache_id or "")
+    _EVIDENCE_CTX.owner_uid = str(owner_uid or "")
+    try:
+        return _enrich_session_translations_body(
+            sentences,
+            figures,
+            on_progress=on_progress,
+            on_item=on_item,
+            workers=workers,
+        )
+    finally:
+        _EVIDENCE_CTX.job_id = ""
+        _EVIDENCE_CTX.cache_id = ""
+        _EVIDENCE_CTX.owner_uid = ""
+
+
+def _enrich_session_translations_body(
+    sentences: list[Sentence],
+    figures: list[Figure],
+    *,
+    on_progress: ProgressCb | None = None,
+    on_item: ItemCb | None = None,
+    workers: int | None = None,
+) -> tuple[list[Sentence], list[Figure], dict[str, dict[str, str]], list[str]]:
+    """Inner enrich (evidence ctx already set)."""
     warnings: list[str] = []
     use_google = translate_backend() == "google"
     gemini_post = (

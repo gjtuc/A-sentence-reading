@@ -68,6 +68,9 @@ class _AccessWaitingScreenState extends State<AccessWaitingScreen> {
       if (!mounted) return;
       // FAIL-CLOSED: do not unlock on error (would open paid UI empty-success).
       if (!silent) setState(() => _error = e.message);
+    } on TimeoutException catch (e) {
+      if (!mounted) return;
+      if (!silent) setState(() => _error = e.toString());
     } catch (e) {
       if (!mounted) return;
       if (!silent) setState(() => _error = e.toString());

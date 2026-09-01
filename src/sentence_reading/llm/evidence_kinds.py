@@ -34,5 +34,15 @@ ALLOWED_KINDS = frozenset(
         # mirrors (optional)
         "figure_window_empty",
         "figure_blob_miss",
+        # design/169c — dense translate / open / poll
+        "translate_phase_enter",
+        "translate_item_done",
+        "translate_call_fail",
+        "translate_call_slow",
+        "translate_phase_exit",
+        "translate_save_ko",
+        "open_ko_summary",
+        "translate_poll_start",
+        "translate_poll_ko",
     }
 )

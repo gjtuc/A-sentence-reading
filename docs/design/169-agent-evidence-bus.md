@@ -338,6 +338,7 @@ ts=... kind=figure_preserve_miss prior_png=0 session_figs=7 cache=…
 |-------|------|-----|---------|
 | **169a** | `evidence_bus.py` + `POST /api/evidence/ingest` + status flag + tests + `pull_evidence.py` | 없음 | 0.3.122 |
 | **169b** | Flutter `EvidenceBus` + reanalyze/open/ingest fail + pref snapshot + ErrorReporter mirror | 없음 | 0.3.123 |
+| **169c** | Dense translate/open/auth sensors ([169c](169c-dense-translate-open-auth.md)) | 없음 | 0.3.124 |
 | **169c** | figure window / translate poll / silent_catch 전수 (checklist §G·D) | 없음 | 0.3.124 |
 | **169d** | 서버: save preserve miss · stall skip/fire · handler middleware | 없음 | 0.3.125 |
 | **169e** | web evidence.js (optional) | 없음 | — |
@@ -402,4 +403,5 @@ ts=... kind=figure_preserve_miss prior_png=0 session_figs=7 cache=…
 - [168-ingest-observability.md](168-ingest-observability.md) — ingest SoT
 - [168-audit-checklist.md](168-audit-checklist.md) — ingest 전수 (유지)
 - [169-audit-checklist.md](169-audit-checklist.md) — **본 칩 전수 (클라+서버+스크립트)**
+- [169c-dense-translate-open-auth.md](169c-dense-translate-open-auth.md) — translate/open/auth 촘촘 센서 (0.3.124)
 - [130-cloud-error-logs.md](130-cloud-error-logs.md) — admin UI; 169와 혼용 금지

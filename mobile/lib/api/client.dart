@@ -6,6 +6,7 @@
 /// cookie persistence stays in this layer (design/33).
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -382,6 +383,21 @@ class AsrClient {
     );
   }
 
+  /// design/169c — TimeoutException must carry a stable snake route.
+  void _breadcrumbTimeout(String route, Object error) {
+    final r = route.trim().toLowerCase();
+    if (r.contains('evidence')) return;
+    final msg = error.toString();
+    asrEvidenceBus?.record(
+      'client_api_timeout',
+      severity: 'error',
+      route: route,
+      message: msg.length > 200 ? msg.substring(0, 200) : msg,
+      ok: false,
+      code: 'timeout',
+    );
+  }
+
   Map<String, dynamic> _decodeObject(http.Response res, String label) {
     if (res.statusCode < 200 || res.statusCode >= 300) {
       String detail = '$label HTTP ${res.statusCode}';
@@ -411,23 +427,33 @@ class AsrClient {
 
   /// GET /api/status — health / version probe for the home shell.
   Future<AsrStatus> fetchStatus() async {
-    final res = await _http
-        .get(_uri('/api/status'), headers: await _headers())
-        .timeout(const Duration(seconds: 20));
-    final map = _decodeObject(res, 'status');
-    return AsrStatus.fromJson(map);
+    try {
+      final res = await _http
+          .get(_uri('/api/status'), headers: await _headers())
+          .timeout(const Duration(seconds: 20));
+      final map = _decodeObject(res, 'status');
+      return AsrStatus.fromJson(map);
+    } on TimeoutException catch (e) {
+      _breadcrumbTimeout('status', e);
+      rethrow;
+    }
   }
 
   /// GET /api/auth/status — session restore / provider flags.
   ///
   /// design/0.3.123 — 45s (cold start / Cloud Run busy); other APIs stay 20s.
   Future<AsrAuthStatus> fetchAuthStatus() async {
-    final res = await _http
-        .get(_uri('/api/auth/status'), headers: await _headers())
-        .timeout(const Duration(seconds: 45));
-    await _captureSession(res);
-    final map = _decodeObject(res, 'auth/status');
-    return AsrAuthStatus.fromJson(map);
+    try {
+      final res = await _http
+          .get(_uri('/api/auth/status'), headers: await _headers())
+          .timeout(const Duration(seconds: 45));
+      await _captureSession(res);
+      final map = _decodeObject(res, 'auth_status');
+      return AsrAuthStatus.fromJson(map);
+    } on TimeoutException catch (e) {
+      _breadcrumbTimeout('auth_status', e);
+      rethrow;
+    }
   }
 
 
@@ -1732,11 +1758,16 @@ class AsrClient {
 
   /// GET /api/access/status
   Future<AccessStatus> fetchAccessStatus() async {
-    final res = await _http
-        .get(_uri('/api/access/status'), headers: await _headers())
-        .timeout(const Duration(seconds: 20));
-    final map = _decodeObject(res, 'access/status');
-    return AccessStatus.fromJson(map);
+    try {
+      final res = await _http
+          .get(_uri('/api/access/status'), headers: await _headers())
+          .timeout(const Duration(seconds: 20));
+      final map = _decodeObject(res, 'access_status');
+      return AccessStatus.fromJson(map);
+    } on TimeoutException catch (e) {
+      _breadcrumbTimeout('access_status', e);
+      rethrow;
+    }
   }
 
   /// POST /api/access/invite — redeem OTP-style code → pending.

@@ -102,10 +102,17 @@
 
 | ID | 파일 | 심볼 | 시점 | kind | details | Pri | Ph | ☐ |
 |----|------|------|------|------|---------|-----|----|---|
-| T1.1 | `library_controller.dart` | `_maybeStartTranslatePoll` | start | lifecycle | cache_id | P1 | c | ☐ |
-| T1.2 | `library_controller.dart` | poll exhausted | | `translate_poll_exhausted` | attempts=24 | P0 | c | ☐ |
-| T1.3 | `library_controller.dart` | poll error | | `client_api_fail` | stage=translate_poll | P0 | c | ☐ |
+| T1.1 | `library_controller.dart` | `_maybeStartTranslatePoll` | start | `translate_poll_start` | cache_id | P1 | c | ☑ |
+| T1.2 | `library_controller.dart` | poll exhausted | | `translate_poll_exhausted` | attempts=24 | P0 | c | ☑ |
+| T1.3 | `library_controller.dart` | poll error | | `client_api_fail` | stage=translate_poll | P0 | c | ☑ |
 | T1.4 | `library_controller.dart` | wantTr2 false stop | | `pref_translate_read` | stopped_poll=1 | P0 | c | ☐ |
+| T1.5 | `library_controller.dart` | poll open KO Δ | | `translate_poll_ko` | ko_sentence_n · attempt | P0 | c | ☑ |
+| T1.6 | `llm/translate_section.py` | enrich enter/exit | | `translate_phase_enter`/`exit` | via app | P0 | c | ☑ |
+| T1.7 | `api/app.py` | `_on_item` sample | | `translate_item_done` | index · ko_*_n | P0 | c | ☑ |
+| T1.8 | `llm/translate_section.py` | gemini/google | | `translate_call_fail`/`slow` | call_kind | P0 | c | ☑ |
+| T1.9 | `api/app.py` | post-translate save | | `translate_save_ko` | ko_*_n | P0 | c | ☑ |
+| T1.10 | `api/app.py` | `cache_open` | | `open_ko_summary` | ko_n · pending · backfill | P0 | c | ☑ |
+| T1.11 | `client.dart` / access screen | TimeoutException | | `client_api_timeout` | route=auth_status\|access_status | P0 | c | ☑ |
 
 ---
 
@@ -129,7 +136,7 @@
 | S1.2 | `api/app.py` | `cache_reanalyze` | download figures | | figures_pulled bool · prior_png_count | P0 | d | ☐ |
 | S1.3 | `cache/paper_cache.py` | `save_paper_session` | force_cache_id · prior empty | `figure_preserve_miss` | prior_png · session_figs · forced | P0 | d | ☐ |
 | S1.4 | `cache/paper_cache.py` | `save_paper_session` | after write | sample | fig_meta_n · with_file_n | P1 | d | ☐ |
-| S1.5 | `api/app.py` | `cache_open` | | ops/open path + evidence boundary | translate · poll · backfill_spawned | P1 | d | ☐ |
+| S1.5 | `api/app.py` | `cache_open` | | `open_ko_summary` | translate · poll · backfill_spawned · ko_*_n | P0 | d | ☑ |
 | S1.6 | `api/app.py` | figures/window | empty all | `figure_window_empty` (ops 유지) + evidence mirror | | P0 | d | ☐ |
 | S1.7 | `api/app.py` | `_fail_job_terminal` | | `server_job_terminal_error` | reason_enum · percent | P0 | d | ☐ |
 | S1.8 | `llm/ingest_stall.py` | `check_translate_stall` | skip live | `stall_skipped_live_worker` | | P1 | d | 1/20 | ☐ |

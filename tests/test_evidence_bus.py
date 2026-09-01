@@ -71,6 +71,44 @@ def test_emit_round_trip(ev_tmp) -> None:
     assert rows[0]["details"]["prior_png"] == 0
 
 
+def test_169c_kinds_and_item_sample(ev_tmp) -> None:
+    from sentence_reading.llm.translate_section import (
+        ko_counts,
+        should_sample_translate_item,
+    )
+    from sentence_reading.models import Sentence
+
+    assert "translate_item_done" in ALLOWED_KINDS
+    assert "open_ko_summary" in ALLOWED_KINDS
+    assert "translate_call_slow" in ALLOWED_KINDS
+    assert should_sample_translate_item(0, "draft") is True
+    assert should_sample_translate_item(5, "sense") is True
+    assert should_sample_translate_item(3, "draft") is False
+    assert should_sample_translate_item(3, "harmonize") is True
+    sents = [
+        Sentence(id="a", text="Hi", section="abstract", start_char=0, end_char=2, text_ko="안녕"),
+        Sentence(id="b", text="Bye", section="abstract", start_char=3, end_char=6),
+    ]
+    assert ko_counts(sents, []) == (1, 0)
+    eb.emit(
+        "translate_item_done",
+        job_id="job_0123456789ab",
+        cache_id="abcd1234ef99",
+        details={
+            "item_kind": "sentence",
+            "index": 0,
+            "stage": "draft",
+            "ko_len": 2,
+            "ko_sentence_n": 1,
+            "ko_figure_n": 0,
+        },
+        severity="sample",
+    )
+    row = eb.list_events(limit=1)[0]
+    assert row["kind"] == "translate_item_done"
+    assert row["details"]["ko_sentence_n"] == 1
+
+
 def test_body_uid_ignored(ev_tmp, monkeypatch) -> None:
     accepted, dropped = eb.ingest_client_batch(
         [
@@ -95,7 +133,7 @@ def test_body_uid_ignored(ev_tmp, monkeypatch) -> None:
 
 def test_status_evidence_bus_pin(ev_tmp) -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.123"
+    assert st["version"] == "0.3.124"
     assert st.get("evidence_bus") is True
 
 

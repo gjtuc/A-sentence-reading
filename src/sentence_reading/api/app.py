@@ -203,7 +203,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.123",
+    version="0.3.124",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -338,11 +338,11 @@ def _spawn_open_translate_backfill(
     *,
     kind: str,
     doc_role: str,
-) -> None:
-    """Start at most one in-flight open backfill per cache_id."""
+) -> bool:
+    """Start at most one in-flight open backfill per cache_id. Returns True if spawned."""
     cid = (cache_id or "").strip()
     if not cid or cid in _OPEN_TRANSLATE_BACKFILL_INFLIGHT:
-        return
+        return False
     _OPEN_TRANSLATE_BACKFILL_INFLIGHT.add(cid)
     asyncio.create_task(
         _open_translate_backfill_task(
@@ -351,6 +351,7 @@ def _spawn_open_translate_backfill(
             doc_role=doc_role,
         )
     )
+    return True
 
 
 def _ingest_rate_limited(request: Request, action: str) -> JSONResponse | None:
@@ -1169,7 +1170,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.123",
+        "version": "0.3.124",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -3498,6 +3499,8 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
         # design/129 — never await Gemini KO backfill on /open (multi‑minute hang → device
         # TimeoutException). Spawn background backfill instead when KO is missing.
         translate_pending = False
+        backfill_spawned = False
+        translate_poll = _is_translate_poll(request)
         if _want_translate(request):
             from sentence_reading.llm.translate_section import needs_translate_backfill
 
@@ -3505,8 +3508,8 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                 session.sentences, session.figures, session.translate_digests
             ):
                 translate_pending = True
-                if not _is_translate_poll(request):
-                    _spawn_open_translate_backfill(
+                if not translate_poll:
+                    backfill_spawned = _spawn_open_translate_backfill(
                         cache_id,
                         kind=src,
                         doc_role=str(info.get("doc_role") or "main"),
@@ -3537,6 +3540,36 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
         data["warnings"] = list(dict.fromkeys(warnings))
         data["ingest_quality"] = info.get("ingest_quality") or {}
         data["translate_pending"] = translate_pending
+        # design/169c — open KO visibility for agents (no sentence text).
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+            from sentence_reading.llm.translate_section import ko_counts
+
+            ko_s, ko_f = ko_counts(session.sentences, session.figures)
+            owner = _request_user(request)
+            eb.emit(
+                "open_ko_summary",
+                severity="boundary",
+                cache_id=cache_id,
+                session_id=session_id,
+                owner_uid=owner.uid if owner is not None else "",
+                content_hash=str(info.get("content_hash") or ""),
+                stage="open",
+                route="cache_open",
+                details={
+                    "sentence_n": len(session.sentences or []),
+                    "ko_sentence_n": int(ko_s),
+                    "figure_n": len(session.figures or []),
+                    "ko_figure_n": int(ko_f),
+                    "translate_pending": bool(translate_pending),
+                    "backfill_spawned": bool(backfill_spawned),
+                    "translate_poll": bool(translate_poll),
+                },
+                ok=True,
+                code="open_ko_summary",
+            )
+        except Exception:  # noqa: BLE001
+            pass
         return JSONResponse(data)
     except Exception as exc:  # noqa: BLE001
         # design/111 — never leave clients with bare HTML 500 / empty body.
@@ -4665,12 +4698,18 @@ async def _backfill_cached_translations(
             )
 
     try:
+        owner_uid = ""
+        if job_id:
+            owner_uid = str((_JOBS.get(job_id) or {}).get("owner_uid") or "")
         sentences, figures, digests, tr_warn = await asyncio.to_thread(
             enrich_session_translations,
             session.sentences,
             session.figures,
             on_progress=_bf_progress,
             on_item=_on_item,
+            job_id=str(job_id or ""),
+            cache_id=str(cache_id or ""),
+            owner_uid=owner_uid,
         )
         warnings.extend(tr_warn)
     except Exception as exc:  # noqa: BLE001
@@ -5509,9 +5548,36 @@ async def _run_ingest_job_body(
             )
             from dataclasses import replace as dc_replace
 
+            from sentence_reading.llm import evidence_bus as eb
+            from sentence_reading.llm.env import translate_backend
             from sentence_reading.llm.translate_section import (
                 enrich_session_translations,
+                ko_counts,
+                should_sample_translate_item,
             )
+
+            early_cid = str((cache_entry or {}).get("id") or "")
+            try:
+                eb.emit(
+                    "translate_phase_enter",
+                    severity="boundary",
+                    job_id=job_id,
+                    cache_id=early_cid,
+                    owner_uid=_owner(),
+                    content_hash=str(content_hash or ""),
+                    stage="translate",
+                    percent=90,
+                    details={
+                        "want_translate": True,
+                        "sentence_n": len(session.sentences or []),
+                        "figure_n": len(session.figures or []),
+                        "backend": str(translate_backend() or "gemini")[:64],
+                    },
+                    ok=True,
+                    code="translate_phase_enter",
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
             def _tr_progress(message: str, fraction: float = 0.0) -> None:
                 lo, hi = 90, 97
@@ -5530,6 +5596,39 @@ async def _run_ingest_job_body(
                     session.figures[index] = dc_replace(
                         f, caption_ko=ko, caption_ko_stage=stage
                     )
+                if should_sample_translate_item(index, stage):
+                    try:
+                        ko_s, ko_f = ko_counts(session.sentences, session.figures)
+                        item_kind = (
+                            "sentence" if kind == "sentence" else "figure"
+                        )
+                        st = str(stage or "unknown").strip().lower()[:64] or "unknown"
+                        if not re.match(r"^[a-z][a-z0-9_]{0,63}$", st):
+                            st = "unknown"
+                        eb.emit(
+                            "translate_item_done",
+                            severity="sample",
+                            job_id=job_id,
+                            cache_id=early_cid,
+                            owner_uid=_owner(),
+                            content_hash=str(content_hash or ""),
+                            stage="translate",
+                            percent=int(
+                                (_JOBS.get(job_id) or {}).get("percent") or 90
+                            ),
+                            details={
+                                "item_kind": item_kind,
+                                "index": int(index),
+                                "stage": st,
+                                "ko_len": len(ko or ""),
+                                "ko_sentence_n": int(ko_s),
+                                "ko_figure_n": int(ko_f),
+                            },
+                            ok=True,
+                            code="translate_item_done",
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
                 if index % 5 == 0:
                     j = _JOBS.get(job_id)
                     if j is not None:
@@ -5574,6 +5673,8 @@ async def _run_ingest_job_body(
                         }
                     )
 
+            translate_ok = True
+            tr_warn: list = []
             try:
                 new_s, new_f, digests, tr_warn = await asyncio.to_thread(
                     enrich_session_translations,
@@ -5581,13 +5682,38 @@ async def _run_ingest_job_body(
                     list(session.figures),
                     on_progress=_tr_progress,
                     on_item=_on_item,
+                    job_id=job_id,
+                    cache_id=early_cid,
+                    owner_uid=_owner(),
                 )
                 warnings.extend(tr_warn)
                 session.sentences = new_s
                 session.figures = new_f
                 session.translate_digests = digests
             except Exception as exc:  # noqa: BLE001
+                translate_ok = False
                 warnings.append(f"translate_failed:{str(exc)[:80]}")
+            try:
+                ko_s, ko_f = ko_counts(session.sentences, session.figures)
+                eb.emit(
+                    "translate_phase_exit",
+                    severity="error" if not translate_ok else "boundary",
+                    job_id=job_id,
+                    cache_id=early_cid,
+                    owner_uid=_owner(),
+                    content_hash=str(content_hash or ""),
+                    stage="translate",
+                    details={
+                        "ok": bool(translate_ok),
+                        "ko_sentence_n": int(ko_s),
+                        "ko_figure_n": int(ko_f),
+                        "warn_n": len(tr_warn) if translate_ok else 1,
+                    },
+                    ok=translate_ok,
+                    code="translate_phase_exit",
+                )
+            except Exception:  # noqa: BLE001
+                pass
         elif want_translate:
             warnings.append("translate_skipped_no_gemini")
         else:
@@ -5615,6 +5741,29 @@ async def _run_ingest_job_body(
                 and "cache_skip_short_title" not in warnings
             ):
                 warnings.append("cache_skip_short_title")
+            try:
+                from sentence_reading.llm import evidence_bus as eb
+                from sentence_reading.llm.translate_section import ko_counts
+
+                ko_s, ko_f = ko_counts(session.sentences, session.figures)
+                eb.emit(
+                    "translate_save_ko",
+                    severity="boundary",
+                    job_id=job_id,
+                    cache_id=str((cache_entry or {}).get("id") or early_cache_id or ""),
+                    owner_uid=_owner(),
+                    content_hash=str(content_hash or ""),
+                    stage="save",
+                    percent=98,
+                    details={
+                        "ko_sentence_n": int(ko_s),
+                        "ko_figure_n": int(ko_f),
+                    },
+                    ok=cache_entry is not None,
+                    code="translate_save_ko",
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
         data = _pack(pending=False)
         if cache_entry:
