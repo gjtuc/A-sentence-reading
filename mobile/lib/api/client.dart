@@ -1485,10 +1485,10 @@ class AsrClient {
           422,
         );
       }
-      final cacheId = '${st['cache_id'] ?? ''}'.trim();
       // WHY: library list is GCS/cache-backed — session_id alone is not durable.
       // EDGE: short-title skip finishes without cache_id — must not look like success.
       // design/108: avoid「보관 저장 실패: 완료」when server used bare「완료」.
+      // cacheId already parsed above for progress_view each tick.
       if (cacheId.isEmpty) {
         final bareDone = msg.isEmpty || msg == '완료';
         final detail = bareDone
