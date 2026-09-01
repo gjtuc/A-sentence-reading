@@ -759,12 +759,14 @@ def save_paper_session(
     supplementary_merged: bool = False,
     supplementary_cache_id: str | None = None,
     merge_revision: int | None = None,
+    ingest_status: str = "ok",
 ) -> dict | None:
     """
     제목 키 + source(pdf/docx) + doc_role 로 저장.
     같은 제목이어도 본편 PDF 와 보충 PDF 는 서로 덮어쓰지 않음.
     source_path 가 있으면 source.pdf|docx 로 원본 백업 (한도 초과 시 생략).
     content_hash 는 원본 바이트 SHA-256 (진행 복원 교차 키).
+    ingest_status: design/168c — processing|partial|error|ok (기본 ok).
     """
     import shutil
 
@@ -776,6 +778,9 @@ def save_paper_session(
         return None
     if not session.sentences:
         return None
+    from sentence_reading.llm.ingest_jobs_gcs import normalize_ingest_status
+
+    status = normalize_ingest_status(ingest_status)
     src = (source or "pdf").lower()
     if src not in ("pdf", "docx"):
         src = "pdf"
@@ -946,7 +951,7 @@ def save_paper_session(
         "pipeline_version": PIPELINE_VERSION,
         "has_source": has_source,
         "content_hash": ch or None,
-        "ingest_status": "ok",
+        "ingest_status": status,
         "supplementary_merged": bool(supplementary_merged),
         "merged_supplementary_id": (supplementary_cache_id or None),
         "hidden_in_library": False,

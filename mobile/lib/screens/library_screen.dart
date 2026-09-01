@@ -37,6 +37,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
   final Set<String> _selected = <String>{};
   bool _deleting = false;
 
+  /// design/168c — non-ok ingest_status chip label (null = hide).
+  static String? _ingestStatusLabel(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'partial':
+        return '부분 저장';
+      case 'processing':
+        return '분석 중';
+      case 'error':
+        return '실패';
+      default:
+        return null;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -664,6 +678,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       title: Row(
                         children: [
                           Expanded(child: Text(e.title)),
+                          if (_ingestStatusLabel(e.ingestStatus) != null)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: Chip(
+                                label: Text(
+                                  _ingestStatusLabel(e.ingestStatus)!,
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                                padding: EdgeInsets.zero,
+                              ),
+                            ),
                           if (e.libraryTag.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(left: 8),

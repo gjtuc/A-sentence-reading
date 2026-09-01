@@ -182,7 +182,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.113",
+    version="0.3.114",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -698,6 +698,7 @@ def _job_set(
         pipeline_version=PIPELINE_VERSION,
         cursor=cursor,
     )
+    ij.stamp_ingest_phase(job)
     _persist_job(job_id, job)
 
 
@@ -717,6 +718,9 @@ def _job_publish_partial(job_id: str, data: dict, *, message: str = "") -> None:
     job["result"] = payload
     if message:
         job["message"] = message
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    ij.stamp_ingest_phase(job)
     _persist_job(job_id, job, force=True)
     # design/168b — T8 log-only when index still claims ok while job not done.
     try:
@@ -776,6 +780,9 @@ def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
     job["message"] = message
     job["result"] = data
     job["done"] = True
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    ij.stamp_ingest_phase(job)
     _persist_job(job_id, job, force=True)
     cache_id = ""
     if isinstance(data, dict):
@@ -927,7 +934,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.113",
+        "version": "0.3.114",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -962,6 +969,9 @@ def status(request: Request) -> dict:
         "ops_events": ops_events_enabled(),
         # design/168b — T1–T10 integrity checks (log-only); false when ASR_INGEST_INTEGRITY=0.
         "ingest_integrity": ingest_integrity_enabled(),
+        # design/168c — phase machine + partial ingest_status.
+        "ingest_phase_machine": True,
+        "ingest_status_partial": True,
         "upload_audit_log": upload_audit_enabled(),
         # design/131 — full figure captions (UI + normalize ceiling); false restores 2-line ….
         "caption_full_text": True,
@@ -4811,6 +4821,9 @@ async def _run_ingest_job_body(
 
         # design/132 — last cancel gate before marking ready / library publish.
         _ensure_ingest_not_cancelled(job_id)
+        # design/99 — read opt-in before early save so ingest_status is honest (168c).
+        job_meta = _JOBS.get(job_id) or {}
+        want_translate = bool(job_meta.get("want_translate", True))
         _job_set(job_id, percent=88, stage="ready", message="읽기 시작 · 번역 준비")
         early = _pack(pending=True)
         layout_artifacts = None
@@ -4821,6 +4834,8 @@ async def _run_ingest_job_body(
                 layout_artifacts = get_last_layout_artifacts()
             except Exception:  # noqa: BLE001
                 layout_artifacts = None
+        # design/168c — partial while translate pending; ok when translate opted out.
+        early_status = "partial" if want_translate else "ok"
         cache_entry = await asyncio.to_thread(
             save_paper_session,
             session,
@@ -4832,9 +4847,11 @@ async def _run_ingest_job_body(
             source_path=tmp_path,
             content_hash=content_hash,
             layout_artifacts=layout_artifacts,
+            ingest_status=early_status,
         )
         if cache_entry is None and debone_ok:
             warnings.append("cache_skip_short_title")
+        early_cache_id = str((cache_entry or {}).get("id") or "")
         if cache_entry:
             early["cache_id"] = cache_entry.get("id")
             early["cached"] = True
@@ -4862,9 +4879,6 @@ async def _run_ingest_job_body(
         _job_publish_partial(job_id, early, message="읽기 가능 · 번역 중")
 
         # design/99 — skip Gemini KO when client opted out (mobile Settings).
-        job_meta = _JOBS.get(job_id) or {}
-        want_translate = bool(job_meta.get("want_translate", True))
-
         if skip_translate and want_translate:
             # design/112 — payload already carried KO; do not re-bill Gemini.
             floor = ij.stage_percent_floor("translate")
@@ -4979,6 +4993,7 @@ async def _run_ingest_job_body(
                 source_path=tmp_path,
                 content_hash=content_hash,
                 layout_artifacts=layout_artifacts if kind == "pdf" else None,
+                ingest_status="ok",
             )
             if (
                 cache_entry is None
@@ -5006,6 +5021,13 @@ async def _run_ingest_job_body(
                     "처리는 끝났지만 보관함 저장에 실패했습니다. "
                     "잠시 후 다시 시도해 주세요."
                 )
+            # design/168c — if early partial save exists, mark index error.
+            err_cid = early_cache_id or ""
+            if err_cid:
+                try:
+                    patch_index_entry(err_cid, ingest_status="error")
+                except Exception:  # noqa: BLE001
+                    pass
             job_err = _JOBS.get(job_id)
             if job_err is not None:
                 job_err["done"] = True
@@ -5014,6 +5036,7 @@ async def _run_ingest_job_body(
                 job_err["stage"] = "error"
                 job_err["message"] = reason
                 job_err["result"] = None
+                ij.stamp_ingest_phase(job_err)
                 _persist_job(job_id, job_err, force=True)
             return
 

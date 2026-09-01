@@ -275,10 +275,10 @@
 - [x] tests `test_ingest_integrity.py`
 
 ### 168c — phase + ingest_status
-- [ ] A1.5 trace_id on job
-- [ ] C1.6 `processing`/`partial`/`error`/`ok`
-- [ ] D1.1 `ingest_phase` field
-- [ ] mobile `PaperEntry.ingestStatus` partial UI
+- [x] A1.5 trace_id on job
+- [x] C1.6 `processing`/`partial`/`error`/`ok`
+- [x] D1.1 `ingest_phase` field
+- [x] mobile `PaperEntry.ingestStatus` partial UI
 
 ### 168d — P0 silent catch → report
 - [ ] **G1.7** `_prefetchFigureWindow`

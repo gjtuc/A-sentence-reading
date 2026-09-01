@@ -89,8 +89,67 @@ def checkpoint_ttl_hours() -> int:
     return hours
 
 
+# design/168c — index ingest_status + job ingest_phase allowlists.
+_INGEST_STATUS_OK = frozenset({"processing", "partial", "error", "ok"})
+_INGEST_PHASE_OK = frozenset(
+    {"uploading", "reading_ready", "translate_pending", "complete", "error"}
+)
+_TRACE_ID_RE = re.compile(r"^tr_[a-f0-9]{16,32}$")
+
+
+def normalize_ingest_status(raw: object) -> str:
+    """Allowlist ingest_status; unknown → ok (fail-soft)."""
+    s = str(raw or "").strip().lower()
+    if s in _INGEST_STATUS_OK:
+        return s
+    return "ok"
+
+
+def normalize_ingest_phase(raw: object) -> str:
+    """Allowlist ingest_phase; unknown → uploading."""
+    s = str(raw or "").strip().lower()
+    if s in _INGEST_PHASE_OK:
+        return s
+    return "uploading"
+
+
+def safe_trace_id(raw: object) -> str:
+    s = str(raw or "").strip()
+    if s and _TRACE_ID_RE.match(s) and len(s) <= 40:
+        return s
+    return ""
+
+
+def derive_ingest_phase(job: dict[str, Any]) -> str:
+    """Map job fields → product ingest_phase enum (design/168c)."""
+    if not isinstance(job, dict):
+        return "uploading"
+    if job.get("error") or str(job.get("stage") or "") == "error":
+        return "error"
+    if bool(job.get("done")):
+        return "complete"
+    stage = str(job.get("stage") or "").strip().lower()
+    result = job.get("result")
+    pending = False
+    if isinstance(result, dict):
+        pending = bool(result.get("translate_pending"))
+    if stage == "translate" or pending:
+        return "translate_pending"
+    if isinstance(result, dict) and result:
+        return "reading_ready"
+    return "uploading"
+
+
+def stamp_ingest_phase(job: dict[str, Any]) -> str:
+    """Set job['ingest_phase'] from derive_ingest_phase. Returns phase."""
+    phase = derive_ingest_phase(job)
+    job["ingest_phase"] = phase
+    return phase
+
+
 def valid_job_id(job_id: str) -> bool:
     return bool(_JOB_ID_RE.match((job_id or "").strip()))
+
 
 
 def _utc_now() -> datetime:
@@ -180,6 +239,11 @@ def public_job_view(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
         "message": str(job.get("message") or ""),
         "done": bool(job.get("done")),
     }
+    tid = safe_trace_id(job.get("trace_id"))
+    if tid:
+        out["trace_id"] = tid
+    phase = normalize_ingest_phase(job.get("ingest_phase") or derive_ingest_phase(job))
+    out["ingest_phase"] = phase
     if job.get("content_hash"):
         out["content_hash"] = str(job["content_hash"])
     # design/110 — resume hint only (stage/cursor); never paper text.
@@ -200,16 +264,23 @@ def public_job_view(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
         out["error"] = "ingest_failed"
         out["message"] = str(job["error"])
         out["done"] = True
+        out["ingest_phase"] = "error"
         return out
     if job.get("done") and isinstance(job.get("result"), dict):
         out.update(job["result"])
         out["percent"] = 100
         out["done"] = True
         out["translate_pending"] = False
+        out["ingest_phase"] = "complete"
+        if tid:
+            out["trace_id"] = tid
     elif isinstance(job.get("result"), dict):
         out.update(job["result"])
         out["done"] = False
         out["translate_pending"] = True
+        out["ingest_phase"] = phase
+        if tid:
+            out["trace_id"] = tid
     return out
 
 
@@ -495,6 +566,13 @@ def serialize_job_record(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
         # design/132 — other instances must not reclaim a user-cancelled job.
         "cancel_requested": bool(job.get("cancel_requested")),
     }
+    tid = safe_trace_id(job.get("trace_id"))
+    if tid:
+        out["trace_id"] = tid
+    phase = normalize_ingest_phase(
+        job.get("ingest_phase") or derive_ingest_phase(job)
+    )
+    out["ingest_phase"] = phase
     # design/107 — lease so other instances know a worker is still alive.
     if job.get("lease_until"):
         out["lease_until"] = str(job.get("lease_until"))
