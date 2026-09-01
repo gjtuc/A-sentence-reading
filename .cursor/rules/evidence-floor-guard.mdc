@@ -1,0 +1,28 @@
+---
+description: ASR evidence floor — 169c/d/e sensors must not be removed (design/169g)
+alwaysApply: true
+---
+
+# Evidence floor guard (design/169g)
+
+## Locked
+
+Live observability from **0.3.124–0.3.127** (169c/d/e + 169g Gemini `call_start`/`done`) must not be deleted by older chats, stale worktrees, or “cleanup” refactors.
+
+- Do **not** remove kinds in `FROZEN_KINDS` (`src/sentence_reading/llm/evidence_floor.py`)
+- Do **not** strip `_google_batch_timed`, Google chunk `translate_call_start/done`, `reanalyze_pref_snapshot`, `open_ko_summary`, etc.
+- Adding kinds/handoffs is OK; **shrinking the floor is not**
+
+## Before deploy / evidence changes
+
+1. `python scripts/check_evidence_floor.py` — exit 0  
+2. `python scripts/pre_deploy_guard.py` — includes floor (design/155 + 169g)  
+3. Causal next work follows **phase order** in `docs/design/169g-causal-handoff-evidence.md` (Gemini `call_start` before new product patches for 94% stalls)
+
+## Emergency only
+
+`ASR_SKIP_EVIDENCE_FLOOR=1` — never leave on for routine deploys.
+
+## Docs
+
+`docs/design/169g-causal-handoff-evidence.md`

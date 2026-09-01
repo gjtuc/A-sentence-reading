@@ -31,6 +31,8 @@ Multiple Cursor chats or old local clones can deploy **older** `app.py` versions
 
 `.cursor/rules/deploy-live-guard.mdc` (`alwaysApply: true`)
 
+Evidence **sensor** regression (delete 169c/d/e kinds while bumping version) is **design/169g** — `check_evidence_floor.py` hooked into this guard.
+
 ## Verify after deploy
 
 ```bash

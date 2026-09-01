@@ -233,12 +233,19 @@ def _google_batch_timed(
 
 
 def _gemini_timed(call_kind: str, system: str, user: str) -> str | None:
-    """Wrap Gemini generate with 169c fail/slow evidence."""
+    """Wrap Gemini generate with 169c/169g start/fail/slow/done evidence."""
+    _emit_translate_call("translate_call_start", call_kind=call_kind)
     t0 = time.monotonic()
     try:
         out = tr._gemini_generate(system, user)
     except Exception as exc:  # noqa: BLE001
-        _emit_translate_call("translate_call_fail", call_kind=call_kind, exc=exc)
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        _emit_translate_call(
+            "translate_call_fail",
+            call_kind=call_kind,
+            elapsed_ms=elapsed_ms,
+            exc=exc,
+        )
         raise
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     if elapsed_ms >= _CALL_SLOW_MS:
@@ -247,6 +254,11 @@ def _gemini_timed(call_kind: str, system: str, user: str) -> str | None:
             call_kind=call_kind,
             elapsed_ms=elapsed_ms,
         )
+    _emit_translate_call(
+        "translate_call_done",
+        call_kind=call_kind,
+        elapsed_ms=elapsed_ms,
+    )
     return out
 
 

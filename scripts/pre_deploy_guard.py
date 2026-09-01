@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
 """
 배포 전 가드 — live 버전 역행·stale git·버전 불일치 차단 (design/155).
+증거 센서 floor (design/169g) — 169c/d/e kinds·emit marker 삭제 배포 차단.
 
 다른 채팅/옛 워크트리가 Cloud Run live를 덮어쓰는 회귀 방지:
   1. 로컬 app 버전 < live 버전 → 거부 (downgrade deploy)
   2. origin/main 보다 뒤처진 HEAD → 거부 (git pull 먼저)
   3. app.py vs mobile/pubspec 버전 불일치 → 거부
   4. (선택) working tree dirty → 거부
+  5. evidence floor kinds/markers 누락 → 거부 (ASR_SKIP_EVIDENCE_FLOOR=1 비상)
 
 환경 변수 우회 (비상만):
   ASR_SKIP_DEPLOY_GUARD=1        — 전체 가드 스킵
   ASR_DEPLOY_ALLOW_DIRTY=1      — uncommitted 허용
   ASR_DEPLOY_ALLOW_SAME_VERSION=1 — live와 같은 버전 재배포 허용
-"""
+  ASR_SKIP_EVIDENCE_FLOOR=1     — 169g floor만 스킵"""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import ssl
 import subprocess
@@ -239,6 +242,23 @@ def run_guard(
 
     if not allow_dirty and not ci_mode and git_dirty():
         errs.append("working_tree_dirty")
+
+    # design/169g — sensor regression (delete kinds/emits while bumping version)
+    if os.environ.get("ASR_SKIP_EVIDENCE_FLOOR", "").strip() not in (
+        "1",
+        "true",
+        "yes",
+    ):
+        try:
+            src = str(ROOT / "src")
+            if src not in sys.path:
+                sys.path.insert(0, src)
+            from sentence_reading.llm.evidence_floor import verify_evidence_floor
+
+            for fe in verify_evidence_floor(root=ROOT):
+                errs.append(f"evidence_floor:{fe}")
+        except Exception as exc:  # noqa: BLE001
+            errs.append(f"evidence_floor_check_failed:{type(exc).__name__}")
 
     mode = "ci" if ci_mode else "deploy"
     return {
