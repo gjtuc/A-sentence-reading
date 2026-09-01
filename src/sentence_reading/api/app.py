@@ -201,7 +201,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.116",
+    version="0.3.117",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1096,7 +1096,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.116",
+        "version": "0.3.117",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -1138,6 +1138,8 @@ def status(request: Request) -> dict:
         "silent_catch_report": True,
         # design/168e — translate stall detector; false when ASR_INGEST_STALL_SEC=0.
         "ingest_stall_detector": ingest_stall_detector_enabled(),
+        # design/168f — fig_meta stubs + index count sync.
+        "fig_meta_stubs": True,
         "upload_audit_log": upload_audit_enabled(),
         # design/131 — full figure captions (UI + normalize ceiling); false restores 2-line ….
         "caption_full_text": True,
@@ -2559,9 +2561,14 @@ def ops_cache_integrity(
     cache_id: str,
     job_id: str = "",
     emit: int = 0,
+    repair_counts: int = 0,
 ) -> JSONResponse:
-    """design/168e J1.8 — admin read-only T1–T10 audit for one cache_id."""
-    from sentence_reading.cache.paper_cache import get_index_entry, load_cached_session
+    """design/168e J1.8 — admin T1–T10 audit; 168f optional count sync."""
+    from sentence_reading.cache.paper_cache import (
+        get_index_entry,
+        load_cached_session,
+        sync_index_counts_from_session,
+    )
     from sentence_reading.llm import ingest_jobs_gcs as ij
     from sentence_reading.llm.ingest_integrity import (
         audit_cache,
@@ -2600,6 +2607,10 @@ def ops_cache_integrity(
                 "message": "캐시를 찾을 수 없습니다.",
             },
         )
+    repaired = None
+    if int(repair_counts or 0) == 1:
+        repaired = sync_index_counts_from_session(cid)
+        entry = get_index_entry(cid) or entry
     job = None
     jid = (job_id or "").strip()
     if jid:
@@ -2621,14 +2632,18 @@ def ops_cache_integrity(
             cache_id=cid,
             owner_uid=user.uid,
         )
-    return JSONResponse(
-        {
-            "ok": True,
-            "cache_id": cid,
-            "violation_count": len(violations),
-            "violations": violations_to_public(violations),
+    body: dict = {
+        "ok": True,
+        "cache_id": cid,
+        "violation_count": len(violations),
+        "violations": violations_to_public(violations),
+    }
+    if repaired is not None:
+        body["repaired_counts"] = {
+            "figure_count": repaired.get("figure_count"),
+            "sentence_count": repaired.get("sentence_count"),
         }
-    )
+    return JSONResponse(body)
 
 
 @app.post("/api/access/admin/mint")

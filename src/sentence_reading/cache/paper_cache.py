@@ -284,23 +284,23 @@ def patch_index_entry(
 ) -> dict | None:
     """Merge updates into one index row · sync GCS best-effort."""
     cid = (cache_id or "").strip()
-    merged: dict = dict(updates or {})
-    merged.update(fields)
-    if not cid or not merged:
+    patch: dict = dict(updates or {})
+    patch.update(fields)
+    if not cid or not patch:
         return None
     index = _read_index()
     entries: list = list(index.get("entries") or [])
     target: dict | None = None
     for i, entry in enumerate(entries):
         if isinstance(entry, dict) and entry.get("id") == cid:
-            merged = dict(entry)
-            for key, val in merged.items():
+            row = dict(entry)
+            for key, val in patch.items():
                 if val is None:
-                    merged.pop(key, None)
+                    row.pop(key, None)
                 else:
-                    merged[key] = val
-            entries[i] = merged
-            target = merged
+                    row[key] = val
+            entries[i] = row
+            target = row
             break
     if target is None:
         return None
@@ -313,6 +313,25 @@ def patch_index_entry(
     except Exception:
         pass
     return target
+
+
+def sync_index_counts_from_session(cache_id: str) -> dict | None:
+    """design/168f — set index sentence/figure_count from session.json (Ni/Cu repair).
+
+    Does not invent figures; only aligns counts with persisted meta.
+    """
+    cid = (cache_id or "").strip()
+    if not cid:
+        return None
+    loaded = load_cached_session(cid, load_images=False)
+    if loaded is None:
+        return None
+    session, _info = loaded
+    return patch_index_entry(
+        cid,
+        figure_count=len(session.figures),
+        sentence_count=len(session.sentences),
+    )
 
 
 def purge_expired_papers() -> list[str]:
@@ -850,10 +869,40 @@ def save_paper_session(
     paper_dir = root / cache_id
     fig_dir = paper_dir / "figures"
     prior_slot_plan = None
+    # design/168f T9 — snapshot prior PNG bytes before rmtree so stub rows
+    # (empty image_src) can keep captions + files instead of vanishing from meta.
+    prior_fig_bytes: dict[str, bytes] = {}
+    prior_fig_ext: dict[str, str] = {}
     if existing_id:
         from sentence_reading.pdf.slot_plan import load_slot_plan
 
         prior_slot_plan = load_slot_plan(root / str(existing_id))
+        old_dir = root / str(existing_id)
+        old_meta_path = old_dir / _SESSION_NAME
+        if old_meta_path.is_file():
+            try:
+                old_meta = json.loads(old_meta_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                old_meta = {}
+            for f in old_meta.get("figures") or []:
+                if not isinstance(f, dict):
+                    continue
+                fid = str(f.get("id") or "").strip()
+                rel = str(f.get("file") or "").replace("\\", "/")
+                if not fid or not rel.startswith("figures/") or ".." in rel.split("/"):
+                    continue
+                img_path = old_dir / rel
+                if not img_path.is_file():
+                    continue
+                try:
+                    raw = img_path.read_bytes()
+                except OSError:
+                    continue
+                if not raw:
+                    continue
+                prior_fig_bytes[fid] = raw
+                ext = img_path.suffix.lower().lstrip(".") or "png"
+                prior_fig_ext[fid] = ext
     if paper_dir.exists():
         # 옛 그림·원본 정리 후 재기록
         shutil.rmtree(paper_dir, ignore_errors=True)
@@ -861,25 +910,34 @@ def save_paper_session(
 
     fig_meta: list[dict] = []
     for i, fig in enumerate(session.figures):
+        fid = str(fig.id or f"fig-{i + 1:04d}").strip() or f"fig-{i + 1:04d}"
         decoded = _decode_data_url(fig.image_src)
-        if not decoded:
-            continue
-        raw, ext = decoded
-        fname = f"{fig.id or f'fig-{i + 1:04d}'}.{ext}"
-        # 경로 안전
-        fname = re.sub(r"[^\w.\-]+", "_", fname)
-        (fig_dir / fname).write_bytes(raw)
-        fig_meta.append(
-            {
-                "id": fig.id,
-                "caption": fig.caption,
-                "caption_ko": fig.caption_ko or "",
-                "caption_ko_stage": fig.caption_ko_stage or "",
-                "page_index": fig.page_index,
-                "file": f"figures/{fname}",
-                "slot_key": fig.slot_key or "",
-            }
-        )
+        file_rel = ""
+        if decoded:
+            raw, ext = decoded
+            fname = f"{fid}.{ext}"
+            fname = re.sub(r"[^\w.\-]+", "_", fname)
+            (fig_dir / fname).write_bytes(raw)
+            file_rel = f"figures/{fname}"
+        elif fid in prior_fig_bytes:
+            # WHY: lazy open / translate re-save often has empty image_src but PNG on disk.
+            ext = prior_fig_ext.get(fid) or "png"
+            fname = f"{fid}.{ext}"
+            fname = re.sub(r"[^\w.\-]+", "_", fname)
+            (fig_dir / fname).write_bytes(prior_fig_bytes[fid])
+            file_rel = f"figures/{fname}"
+        # design/168f — always keep a meta row (stub OK). Never shrink fig_meta vs session.
+        row: dict = {
+            "id": fid,
+            "caption": fig.caption,
+            "caption_ko": fig.caption_ko or "",
+            "caption_ko_stage": fig.caption_ko_stage or "",
+            "page_index": fig.page_index,
+            "slot_key": fig.slot_key or "",
+        }
+        if file_rel:
+            row["file"] = file_rel
+        fig_meta.append(row)
 
     # design/168b — log-only T9 (session figures vs written meta); never block save.
     try:

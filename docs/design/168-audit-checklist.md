@@ -295,11 +295,11 @@
 - [x] E1.3 worker_lost sweeper
 
 ### 168f — 버그 수정 (로그 확인 후)
-- [ ] **C1.3/T9** fig_meta: stub meta without data-URL
-- [ ] **C1.6/T8** partial ≠ ok
-- [ ] **H1.5** reanalyze resume
-- [ ] G7 cache_id fallback 검증
-- [ ] Ni/Cu 수동 integrity 리포트
+- [x] **C1.3/T9** fig_meta: stub meta without data-URL (+ prior PNG keep)
+- [x] **C1.6/T8** `patch_index_entry` merge fix + partial status path
+- [x] **H1.5** reanalyze resume draft (upload parity)
+- [x] G7 cache_id fallback (129/168d; window empty still reported)
+- [x] Ni/Cu: `sync_index_counts_from_session` + integrity `?repair_counts=1`
 
 ---
 

@@ -113,12 +113,13 @@ def test_t3_unit() -> None:
 
 def test_status_ingest_integrity_pin(ops_tmp) -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.116"
+    assert st["version"] == "0.3.117"
     assert st.get("ingest_integrity") is True
     assert st.get("ops_events") is True
 
 
-def test_save_hook_emits_t9_t4(ops_tmp, monkeypatch) -> None:
+def test_save_hook_keeps_stub_figures(ops_tmp, monkeypatch) -> None:
+    """design/168f T9 — empty image_src still gets fig_meta rows."""
     monkeypatch.setattr(pc, "cache_root", lambda: ops_tmp / "papers")
     title = "Ni Cu MDR integrity fixture title long enough xx"
     session = PaperSession(
@@ -134,14 +135,15 @@ def test_save_hook_emits_t9_t4(ops_tmp, monkeypatch) -> None:
     )
     entry = pc.save_paper_session(session, debone=True, source="pdf")
     assert entry is not None
-    # One figure had data-URL → fig_meta=1, session figures=3 → T9 + T4
-    assert entry["figure_count"] == 1
+    assert entry["figure_count"] == 3
+    loaded = pc.load_cached_session(entry["id"], load_images=False)
+    assert loaded is not None
+    sess, _info = loaded
+    assert len(sess.figures) == 3
     rows = oev.list_events(limit=50)
     viol = [r for r in rows if r.get("kind") == "consistency_violation"]
-    assert viol
     invs = {str((r.get("details") or {}).get("invariant") or "") for r in viol}
-    assert "t9" in invs
-    assert "t4" in invs
+    assert "t9" not in invs
 
 
 def test_emit_violations_round_trip(ops_tmp) -> None:

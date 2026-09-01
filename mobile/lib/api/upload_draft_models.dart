@@ -1,4 +1,4 @@
-/// Pending upload draft for resume (design/71 · design/72).
+/// Pending upload / reanalyze draft for resume (design/71 · 72 · 168f H1.5).
 library;
 
 import 'dart:convert';
@@ -15,6 +15,8 @@ class UploadDraft {
     this.phase = 'uploading',
     this.localPath = '',
     this.bytesLen = 0,
+    this.cacheId = '',
+    this.purpose = 'upload',
   });
 
   final String contentHash;
@@ -29,10 +31,18 @@ class UploadDraft {
   final String localPath;
   final int bytesLen;
 
+  /// design/168f — reanalyze target cache (empty for normal upload).
+  final String cacheId;
+
+  /// `upload` | `reanalyze`
+  final String purpose;
+
   bool get hasJob => jobId.trim().isNotEmpty;
   bool get hasUpload => uploadId.trim().isNotEmpty;
   bool get canReattach => hasJob && phase == 'processing';
-  bool get canResumeChunks => hasUpload && phase == 'uploading';
+  bool get canResumeChunks =>
+      purpose != 'reanalyze' && hasUpload && phase == 'uploading';
+  bool get isReanalyze => purpose == 'reanalyze';
 
   Map<String, dynamic> toJson() => {
         'content_hash': contentHash,
@@ -42,6 +52,8 @@ class UploadDraft {
         'phase': phase,
         'local_path': localPath,
         'bytes_len': bytesLen,
+        'cache_id': cacheId,
+        'purpose': purpose,
       };
 
   static UploadDraft? tryParse(String? raw) {
@@ -72,6 +84,17 @@ class UploadDraft {
     final phase = '${m['phase'] ?? 'uploading'}'.trim();
     if (phase != 'uploading' && phase != 'processing') return null;
     final len = m['bytes_len'] is num ? (m['bytes_len'] as num).toInt() : 0;
+    final cid = '${m['cache_id'] ?? ''}'.trim();
+    if (cid.isNotEmpty && !RegExp(r'^[a-zA-Z0-9]{8,32}$').hasMatch(cid)) {
+      return null;
+    }
+    var purpose = '${m['purpose'] ?? 'upload'}'.trim();
+    if (purpose != 'upload' && purpose != 'reanalyze') {
+      purpose = 'upload';
+    }
+    if (purpose == 'reanalyze' && cid.isEmpty) {
+      return null;
+    }
     return UploadDraft(
       contentHash: hash,
       filename: name,
@@ -80,6 +103,8 @@ class UploadDraft {
       phase: phase,
       localPath: '${m['local_path'] ?? ''}'.trim(),
       bytesLen: len < 0 ? 0 : len,
+      cacheId: cid,
+      purpose: purpose,
     );
   }
 
@@ -90,6 +115,8 @@ class UploadDraft {
     String? uploadId,
     String? phase,
     String? localPath,
+    String? cacheId,
+    String? purpose,
   }) {
     return UploadDraft(
       contentHash: contentHash,
@@ -99,6 +126,8 @@ class UploadDraft {
       phase: phase ?? this.phase,
       localPath: localPath ?? this.localPath,
       bytesLen: bytesLen,
+      cacheId: cacheId ?? this.cacheId,
+      purpose: purpose ?? this.purpose,
     );
   }
 }

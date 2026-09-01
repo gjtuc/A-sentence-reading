@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -561,6 +562,7 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// design/145 — reanalyze from stored source (web parity); no confirm dialog.
+  /// design/168f H1.5 — persist job draft so 504 can resume poll (upload parity).
   Future<bool> reanalyzePaper(PaperEntry entry) async {
     if (!entry.hasSource) return false;
     // WHY: one heavy job at a time — fail-closed, no overlapping ingest.
@@ -574,6 +576,7 @@ class LibraryController extends ChangeNotifier {
     uploadPercent = 0;
     uploadStage = '재분석 시작';
     error = null;
+    resumeOfferVisible = false;
     notifyListeners();
     try {
       final wantTr = await _wantTranslate();
@@ -581,14 +584,32 @@ class LibraryController extends ChangeNotifier {
         entry.id,
         translate: wantTr,
       );
+      // Stable draft key without inventing PDF bytes.
+      final hash = sha256Hex(
+        Uint8List.fromList(utf8.encode('reanalyze:${entry.id}')),
+      );
+      final draft = UploadDraft(
+        contentHash: hash,
+        filename: entry.title.trim().isEmpty ? 'reanalyze' : entry.title.trim(),
+        jobId: started.jobId,
+        phase: 'processing',
+        cacheId: entry.id,
+        purpose: 'reanalyze',
+      );
+      await _drafts.write(draft);
+      _activeJobId = started.jobId;
+      await _beginIngestHang(filename: draft.filename);
       final result = await _client.pollIngestJob(
         jobId: started.jobId,
         onProgress: (pct, msg) {
           uploadPercent = pct.clamp(0, 100);
           uploadStage = msg.isEmpty ? '재분석 중' : msg;
+          _noteIngestHangProgress(percent: uploadPercent, stage: uploadStage);
           notifyListeners();
         },
       );
+      _endIngestHang();
+      await _drafts.clear();
       await refresh();
       if (result.cacheId.isEmpty) {
         error = '재분석은 끝났지만 보관함에 반영되지 않았습니다.';
@@ -602,18 +623,29 @@ class LibraryController extends ChangeNotifier {
         return false;
       }
       // WHY: 재분석 후 읽기 탭에 옛 session이 남지 않게 최신 /open 반영.
-      if (session?.cacheId == entry.id) {
-        await open(entry);
+      if (session?.cacheId == entry.id || session?.cacheId == result.cacheId) {
+        final openEntry = paperEntryForCacheId(result.cacheId) ?? entry;
+        await open(openEntry);
       }
       await _editStash.invalidatePreviews(entry.id);
       error = null;
       notifyListeners();
       return true;
     } on AsrApiException catch (e) {
+      _endIngestHang();
+      if (e.statusCode == 504) {
+        resumeOfferVisible = await _draftResumable();
+      } else if (e.statusCode == 409 ||
+          e.statusCode == 404 ||
+          e.statusCode == 422) {
+        await _drafts.clear();
+        resumeOfferVisible = false;
+      }
       error = e.message;
       notifyListeners();
       return false;
     } catch (e) {
+      _endIngestHang();
       error = e.toString();
       notifyListeners();
       return false;
@@ -1678,6 +1710,16 @@ class LibraryController extends ChangeNotifier {
         return null;
       }
       await _notify.showCompleted(cacheId: result.cacheId);
+      if (draft.isReanalyze && draft.cacheId.isNotEmpty) {
+        final targetId =
+            result.cacheId.isNotEmpty ? result.cacheId : draft.cacheId;
+        final openEntry = paperEntryForCacheId(targetId);
+        if (openEntry != null &&
+            (session?.cacheId == draft.cacheId ||
+                session?.cacheId == result.cacheId)) {
+          await open(openEntry);
+        }
+      }
       return result;
     } on UploadCancelledException {
       await _drafts.clear();
