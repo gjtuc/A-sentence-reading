@@ -176,6 +176,37 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           );
         }
 
+        // 0.3.123 — cookie kept after auth timeout; do not bounce to LoginScreen.
+        if (auth.sessionRestorePending) {
+          return Scaffold(
+            body: _padded(
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 16),
+                      Text(
+                        auth.error ?? '서버 연결 중…',
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed: auth.busy
+                            ? null
+                            : () => unawaited(auth.bootstrap()),
+                        child: const Text('다시 시도'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
         // design/83 — identity gate first.
         if (!auth.isLoggedIn && auth.loginRequired) {
           return Scaffold(

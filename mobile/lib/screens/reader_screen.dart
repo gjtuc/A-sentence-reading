@@ -1421,6 +1421,7 @@ class _FigurePanel extends StatelessWidget {
                         Expanded(
                           child: _FigureImage(
                             src: cur.imageSrc,
+                            expectImage: session.figureCount > 0,
                             figureKey: figKey,
                             annotations: annotations,
                             swipeEnabled: session.figureCount > 0 &&
@@ -1637,6 +1638,7 @@ class _LiveStrokePainter extends CustomPainter {
 class _FigureImage extends StatelessWidget {
   const _FigureImage({
     required this.src,
+    this.expectImage = false,
     this.figureKey,
     this.annotations,
     this.swipeEnabled = false,
@@ -1648,6 +1650,8 @@ class _FigureImage extends StatelessWidget {
   });
 
   final String src;
+  /// 0.3.123 — empty src with known figures → loading, not permanent miss.
+  final bool expectImage;
   final String? figureKey;
   final AnnotationController? annotations;
   final bool swipeEnabled;
@@ -1663,8 +1667,22 @@ class _FigureImage extends StatelessWidget {
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
-        // design/124 — honest empty (product 3A); do not fake a successful image.
-        child: const Center(child: Text('이미지 없음')),
+        child: Center(
+          child: expectImage
+              ? const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(height: 12),
+                    Text('그림 불러오는 중…'),
+                  ],
+                )
+              : const Text('이미지 없음'),
+        ),
       );
     }
     final decoded = decodeRasterDataUrl(src);

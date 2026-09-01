@@ -127,6 +127,8 @@ class LibraryController extends ChangeNotifier {
   bool _hangLocalBound = false;
   int _hangLastPercent = -1;
   String _hangLastStageKey = '';
+  String _hangLastMessage = '';
+  bool _hangTranslateStallArmed = false;
 
   DateTime? _lastProgressAt;
   Timer? _stallWatch;
@@ -215,6 +217,9 @@ class LibraryController extends ChangeNotifier {
   /// design/134 — map UI stage text to coarse forward keys (label flicker ≠ progress).
   String _hangStageKey(String stage) {
     final s = stage.trim().toLowerCase();
+    if (s.contains('번역') || s.contains('translat')) {
+      return 'translate';
+    }
     if (s.contains('처리') || s.contains('process') || s.contains('정제')) {
       return 'processing';
     }
@@ -228,11 +233,25 @@ class LibraryController extends ChangeNotifier {
   }
 
   bool _hangStageForward(String next, String prev) {
-    const order = ['prepare', 'uploading', 'reattach', 'processing', 'done'];
+    const order = [
+      'prepare',
+      'uploading',
+      'reattach',
+      'processing',
+      'translate',
+      'done',
+    ];
     final a = order.indexOf(prev);
     final b = order.indexOf(next);
     if (a >= 0 && b >= 0) return b > a;
     return next.isNotEmpty && next != prev;
+  }
+
+  bool _isTranslateHangZone({required int percent, required String stage}) {
+    final key = _hangStageKey(stage);
+    return key == 'translate' ||
+        percent >= 88 ||
+        stage.contains('번역');
   }
 
   void _ensureHangLocalBound() {
@@ -242,8 +261,43 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// design/134 — local fail-closed abort; cloud report runs after via HangWatchdog.
+  /// 0.3.123 — translate zone: warn only, do not cancel poll.
   void _onIngestHangLocal(String opId, String kind) {
     if (_hangOpId == null || opId != _hangOpId) return;
+    final translateZone = _isTranslateHangZone(
+      percent: _hangLastPercent,
+      stage: uploadStage.isNotEmpty ? uploadStage : _hangLastStageKey,
+    );
+    asrEvidenceBus?.record(
+      'client_hang',
+      severity: 'error',
+      stage: translateZone ? 'translate' : _hangLastStageKey,
+      percent: _hangLastPercent < 0 ? null : _hangLastPercent,
+      message: translateZone
+          ? 'translate hang soft'
+          : 'ingest hang abort',
+      ok: false,
+      details: {
+        'translate_zone': translateZone,
+        'cancel': !translateZone,
+      },
+    );
+    if (translateZone) {
+      error =
+          '번역이 오래 걸리고 있습니다. 잠시 후 보관함을 새로고침해 주세요.';
+      uploadStage = error!;
+      notifyListeners();
+      unawaited(_notify.showFailed(message: error!));
+      // Re-arm so a later true stall can warn again; poll keeps running.
+      asrErrorReporter?.hang.begin(
+        opId,
+        stage: 'translate',
+        stallAfter: HangWatchdog.translateStall,
+        paperTitle: uploadStage,
+      );
+      _hangTranslateStallArmed = true;
+      return;
+    }
     // WHY: stop poll/chunk loops; do not call server cancel API this chip.
     _uploadCancelRequested = true;
     _ingestHangTripped = true;
@@ -272,6 +326,8 @@ class LibraryController extends ChangeNotifier {
     _ingestHangTripped = false;
     _hangLastPercent = -1;
     _hangLastStageKey = '';
+    _hangLastMessage = '';
+    _hangTranslateStallArmed = false;
     var enabled = true;
     var stall = HangWatchdog.ingestStall;
     try {
@@ -298,20 +354,29 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// Only real forward progress resets the hang clock (design/134 product 2).
+  /// 0.3.123 — message change counts (translate can sit at 90%).
   void _noteIngestHangProgress({required int percent, required String stage}) {
     final op = _hangOpId;
     if (op == null) return;
     final key = _hangStageKey(stage);
     final pct = percent.clamp(0, 100);
+    final msg = stage.trim();
     final pctUp = pct > _hangLastPercent;
     final stageUp = _hangStageForward(key, _hangLastStageKey);
-    if (!pctUp && !stageUp) {
+    final msgUp = msg.isNotEmpty && msg != _hangLastMessage;
+    if (!pctUp && !stageUp && !msgUp) {
       // Same place — leave stall timer running (do not noteRepeat every poll).
       return;
     }
     _hangLastPercent = pct;
+    _hangLastMessage = msg;
     if (stageUp || _hangLastStageKey.isEmpty) {
       _hangLastStageKey = key;
+    }
+    if (_isTranslateHangZone(percent: pct, stage: stage) &&
+        !_hangTranslateStallArmed) {
+      asrErrorReporter?.hang.setStallAfter(op, HangWatchdog.translateStall);
+      _hangTranslateStallArmed = true;
     }
     asrErrorReporter?.hang.progress(op, stage: key);
     // design/168d A1.11 — breadcrumb only on real progress (not every 500ms poll).

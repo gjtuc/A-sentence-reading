@@ -419,10 +419,12 @@ class AsrClient {
   }
 
   /// GET /api/auth/status — session restore / provider flags.
+  ///
+  /// design/0.3.123 — 45s (cold start / Cloud Run busy); other APIs stay 20s.
   Future<AsrAuthStatus> fetchAuthStatus() async {
     final res = await _http
         .get(_uri('/api/auth/status'), headers: await _headers())
-        .timeout(const Duration(seconds: 20));
+        .timeout(const Duration(seconds: 45));
     await _captureSession(res);
     final map = _decodeObject(res, 'auth/status');
     return AsrAuthStatus.fromJson(map);

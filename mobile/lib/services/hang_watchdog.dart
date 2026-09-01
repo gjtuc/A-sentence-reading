@@ -32,6 +32,9 @@ class HangWatchdog {
   /// Ingest / long job — no *progress* within this → hang (design/130·134).
   static const ingestStall = Duration(minutes: 3);
 
+  /// Translate stage can sit at 90% for a long Gemini run (0.3.123).
+  static const translateStall = Duration(minutes: 15);
+
   /// Same stage advanced with no progress this many times → loop.
   static const maxRepeatWithoutProgress = 5;
 
@@ -72,6 +75,15 @@ class HangWatchdog {
       // Same stage progress still counts as life — reset stall only.
       t.repeatSame = 0;
     }
+    t.timer = Timer(t.stallAfter, () => _fireHang(opId, t, kind: 'hang'));
+  }
+
+  /// 0.3.123 — lengthen stall (e.g. translate) without losing track identity.
+  void setStallAfter(String opId, Duration stallAfter) {
+    final t = _tracks[opId];
+    if (t == null) return;
+    t.stallAfter = stallAfter;
+    cancelTimer(opId);
     t.timer = Timer(t.stallAfter, () => _fireHang(opId, t, kind: 'hang'));
   }
 
@@ -137,7 +149,7 @@ class _Track {
   });
 
   String stage;
-  final Duration stallAfter;
+  Duration stallAfter;
   final String? paperTitle;
   final String? cacheId;
   int repeatSame = 0;

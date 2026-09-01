@@ -1,6 +1,8 @@
 /// App-wide auth session (email · Google · Kakao · design/61·65).
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../api/auth_models.dart';
@@ -8,6 +10,7 @@ import '../api/auth_deeplink.dart';
 import '../api/client.dart';
 import '../api/oauth_bridges.dart';
 import '../api/oauth_models.dart';
+import '../services/evidence_bus.dart';
 
 /// Holds current [AsrUser] and drives login/register/logout/restore/OAuth.
 class AuthController extends ChangeNotifier {
@@ -29,6 +32,7 @@ class AuthController extends ChangeNotifier {
   AsrClient get client => _client;
 
   AsrUser? user;
+  AsrUser? _cachedUser;
   AsrAuthStatus? lastStatus;
   bool bootstrapping = true;
   bool busy = false;
@@ -37,6 +41,8 @@ class AuthController extends ChangeNotifier {
   String? magicLinkHint;
   /// design/83 — server kill; missing/true → gate login. Fail-closed default.
   bool loginRequired = true;
+  /// 0.3.123 — local cookie present but auth/status timed out; not LoginScreen.
+  bool sessionRestorePending = false;
 
   bool get isLoggedIn => user != null && !user!.isEmpty;
 
@@ -44,13 +50,12 @@ class AuthController extends ChangeNotifier {
   Future<void> bootstrap() async {
     bootstrapping = true;
     error = null;
+    sessionRestorePending = false;
     notifyListeners();
     _deepLinks.setHandler(_onMagicLink);
     await _deepLinks.start();
     try {
-      final st = await _client.fetchAuthStatus();
-      lastStatus = st;
-      user = st.user;
+      await _bootstrapAuthWithRetries();
       try {
         final status = await _client.fetchStatus();
         loginRequired = status.mobileLoginRequired;
@@ -58,15 +63,79 @@ class AuthController extends ChangeNotifier {
         // EDGE: status fetch fail → keep require-login (fail-closed).
         loginRequired = true;
       }
-    } catch (e) {
-      // EDGE: offline / 5xx — stay logged out; keep local cookie for retry.
-      error = e.toString();
-      user = null;
-      loginRequired = true;
     } finally {
       bootstrapping = false;
       notifyListeners();
     }
+  }
+
+  Future<void> _bootstrapAuthWithRetries() async {
+    const delays = <Duration>[
+      Duration.zero,
+      Duration(seconds: 2),
+      Duration(seconds: 5),
+      Duration(seconds: 10),
+    ];
+    Object? lastErr;
+    for (var i = 0; i < delays.length; i++) {
+      if (delays[i] > Duration.zero) {
+        await Future<void>.delayed(delays[i]);
+      }
+      try {
+        final st = await _client.fetchAuthStatus();
+        lastStatus = st;
+        user = st.user;
+        if (user != null && !user!.isEmpty) {
+          _cachedUser = user;
+        }
+        sessionRestorePending = false;
+        error = null;
+        return;
+      } on AsrApiException catch (e) {
+        lastErr = e;
+        if (e.statusCode == 401) {
+          error = e.message;
+          user = null;
+          _cachedUser = null;
+          sessionRestorePending = false;
+          loginRequired = true;
+          return;
+        }
+        // 5xx / other — retry.
+      } catch (e) {
+        lastErr = e;
+        // Timeout / network — retry.
+      }
+    }
+    await _enterSessionRestorePending(lastErr);
+  }
+
+  Future<void> _enterSessionRestorePending(Object? err) async {
+    final token = await _client.sessionStore.readToken();
+    final hasToken = token != null && token.isNotEmpty;
+    final kept = hasToken || (_cachedUser != null && !_cachedUser!.isEmpty);
+    asrEvidenceBus?.record(
+      'client_api_timeout',
+      severity: 'error',
+      stage: 'auth_bootstrap',
+      message: (err?.toString() ?? 'auth_bootstrap_failed').length > 200
+          ? (err?.toString() ?? '').substring(0, 200)
+          : (err?.toString() ?? 'auth_bootstrap_failed'),
+      ok: false,
+      details: {'kept_session': kept},
+    );
+    if (kept) {
+      // WHY: do not wipe session on slow Cloud Run — show reconnect, not Login.
+      user = _cachedUser ?? user;
+      sessionRestorePending = true;
+      loginRequired = true;
+      error = '서버 연결이 느립니다. 다시 시도해 주세요.';
+      return;
+    }
+    error = err?.toString() ?? '로그인이 필요합니다.';
+    user = null;
+    sessionRestorePending = false;
+    loginRequired = true;
   }
 
   Future<void> _onMagicLink({String? token, String? error}) async {
@@ -260,6 +329,8 @@ class AuthController extends ChangeNotifier {
       error = e.toString();
     } finally {
       user = null;
+      _cachedUser = null;
+      sessionRestorePending = false;
       busy = false;
       notifyListeners();
     }
@@ -389,9 +460,14 @@ class AuthController extends ChangeNotifier {
     try {
       final u = await op();
       user = u;
+      if (!u.isEmpty) _cachedUser = u;
+      sessionRestorePending = false;
       try {
         lastStatus = await _client.fetchAuthStatus();
-        if (lastStatus?.user != null) user = lastStatus!.user;
+        if (lastStatus?.user != null) {
+          user = lastStatus!.user;
+          if (user != null && !user!.isEmpty) _cachedUser = user;
+        }
       } catch (_) {
         // keep login user if status refresh fails
       }

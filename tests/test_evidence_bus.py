@@ -95,7 +95,7 @@ def test_body_uid_ignored(ev_tmp, monkeypatch) -> None:
 
 def test_status_evidence_bus_pin(ev_tmp) -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.122"
+    assert st["version"] == "0.3.123"
     assert st.get("evidence_bus") is True
 
 
