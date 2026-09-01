@@ -203,10 +203,56 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.124",
+    version="0.3.125",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    """design/169d — evidence breadcrumb for unhandled server errors (no paper text)."""
+    from fastapi.exception_handlers import (
+        http_exception_handler,
+        request_validation_exception_handler,
+    )
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.responses import JSONResponse as _JR
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    if isinstance(exc, StarletteHTTPException):
+        return await http_exception_handler(request, exc)
+    if isinstance(exc, RequestValidationError):
+        return await request_validation_exception_handler(request, exc)
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        path = str(request.url.path or "/")[:120]
+        name = type(exc).__name__
+        et = re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+        et = re.sub(r"[^a-z0-9_]", "", et)[:64] or "exc"
+        if not re.match(r"^[a-z]", et):
+            et = "exc"
+        route = path if re.match(r"^/[A-Za-z0-9_/\-{}]*$", path) else "unknown"
+        eb.emit(
+            "server_handler_fail",
+            severity="error",
+            route=route,
+            details={"exc_type": et},
+            ok=False,
+            code="server_handler_fail",
+            message=str(exc)[:200],
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return _JR(
+        status_code=500,
+        content={
+            "ok": False,
+            "error": "internal_error",
+            "message": "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        },
+    )
 
 
 class _GcsUidMiddleware(BaseHTTPMiddleware):
@@ -967,6 +1013,31 @@ def _fail_job_terminal(
         message=msg,
         details={"terminal": "error"},
     )
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        reason_code = str(ops_kind or "terminal_error").strip().lower()[:64] or "terminal_error"
+        if not re.match(r"^[a-z][a-z0-9_]{0,63}$", reason_code):
+            reason_code = "terminal_error"
+        eb.emit(
+            "server_job_terminal_error",
+            severity="error",
+            job_id=job_id,
+            cache_id=str(job.get("cache_id") or job.get("target_cache_id") or ""),
+            owner_uid=str(job.get("owner_uid") or ""),
+            content_hash=str(job.get("content_hash") or ""),
+            stage="error",
+            percent=int(job.get("percent") or 0),
+            message=msg[:200],
+            details={
+                "reason_enum": reason_code,
+                "percent": int(job.get("percent") or 0),
+            },
+            ok=False,
+            code="server_job_terminal_error",
+        )
+    except Exception:  # noqa: BLE001
+        pass
     return True
 
 
@@ -1170,7 +1241,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.124",
+        "version": "0.3.125",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -3610,21 +3681,50 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
     if denied is not None:
         return denied
     cid = (cache_id or "").strip()
+    prior_png_count = 0
+    figures_pulled = 0
     try:
         from sentence_reading.llm.papers_gcs import (
             download_paper_cache,
             ensure_paper_local,
             gcs_papers_ready,
         )
+        from sentence_reading.cache.paper_cache import cache_root
 
         ensure_paper_local(cid)
         # WHY: Cloud Run open is lazy on PNGs — reanalyze save must snapshot
         # prior figures or rmtree drops them (fig 3+ → 이미지 없음).
         if gcs_papers_ready():
             download_paper_cache(cid, include_figures=True, include_source=True)
+            figures_pulled = 1
         elif get_source_path(cid) is None:
             download_paper_cache(cid, include_figures=False, include_source=True)
+        fig_dir = cache_root() / cid / "figures"
+        if fig_dir.is_dir():
+            prior_png_count = sum(
+                1
+                for p in fig_dir.iterdir()
+                if p.is_file() and p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")
+                and p.stat().st_size > 0
+            )
     except Exception:
+        pass
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        eb.emit(
+            "figures_prior_pull",
+            severity="boundary",
+            cache_id=cid,
+            stage="reanalyze",
+            details={
+                "prior_png_count": int(prior_png_count),
+                "figures_pulled": int(figures_pulled),
+            },
+            ok=True,
+            code="figures_prior_pull",
+        )
+    except Exception:  # noqa: BLE001
         pass
     src = get_source_path(cid)
     if src is None:
@@ -3725,6 +3825,8 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
                 "want_translate": 1 if want_tr else 0,
                 "reanalyze": 1,
                 "bytes": len(raw),
+                "prior_png_count": int(prior_png_count),
+                "figures_pulled": int(figures_pulled),
             },
             ok=True,
         )
@@ -4004,7 +4106,11 @@ def session_figures_window(
             }
         )
     # design/168d G1.3 — ok response with stubs that never got bytes.
-    if out and all(not str(row.get("image_src") or "").strip() for row in out):
+    empty_all = bool(out) and all(
+        not str(row.get("image_src") or "").strip() for row in out
+    )
+    empty_n = sum(1 for row in out if not str(row.get("image_src") or "").strip())
+    if empty_all:
         try:
             from sentence_reading.llm import ops_events as oev
 
@@ -4018,6 +4124,28 @@ def session_figures_window(
                     "window_n": len(out),
                     "session_n": n,
                 },
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            eb.emit(
+                "figure_window_empty",
+                severity="consistency",
+                cache_id=(cache_id or "").strip(),
+                session_id=session_id if str(session_id).startswith("ses_") else "",
+                stage="figures_window",
+                route="figures_window",
+                details={
+                    "center": center_i,
+                    "span": span_i,
+                    "window_n": len(out),
+                    "empty_n": int(empty_n),
+                    "session_n": n,
+                },
+                ok=False,
+                code="figure_window_empty",
             )
         except Exception:  # noqa: BLE001
             pass
@@ -4266,6 +4394,27 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
             )
         )
         _emit("reclaimed")
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            eb.emit(
+                "reclaim_seed",
+                severity="boundary",
+                job_id=job_id,
+                cache_id=str(job.get("target_cache_id") or ""),
+                owner_uid=owner_uid,
+                content_hash=str(content_hash or ""),
+                stage="reclaim",
+                details={
+                    "target_cache_id_present": 1 if str(job.get("target_cache_id") or "").strip() else 0,
+                    "skip_cache": 1 if skip_cache else 0,
+                    "kind_pdf": 1 if kind == "pdf" else 0,
+                },
+                ok=True,
+                code="reclaim_seed",
+            )
+        except Exception:  # noqa: BLE001
+            pass
         return True
     except Exception:  # noqa: BLE001
         _emit("reclaim_exception")

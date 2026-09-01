@@ -1626,28 +1626,40 @@ class AsrClient {
       throw AsrApiException('session id is empty', 400);
     }
     final cid = cacheId.trim();
+    asrEvidenceBus?.record(
+      'figure_window_req',
+      severity: 'lifecycle',
+      cacheId: cid,
+      stage: 'req',
+      details: {'center': center, 'span': span},
+    );
     final cacheQ = cid.isEmpty
         ? ''
         : '&cache_id=${Uri.encodeQueryComponent(cid)}';
-    final res = await _http
-        .get(
-          _uri(
-            '/api/session/${Uri.encodeComponent(sid)}/figures/window'
-            '?center=$center&span=$span$cacheQ',
-          ),
-          headers: await _headers(),
-        )
-        .timeout(const Duration(seconds: 90));
-    final map = _decodeObject(res, 'figures/window');
-    final raw = map['figures'];
-    if (raw is! List) return const [];
-    final out = <Map<String, dynamic>>[];
-    for (final item in raw) {
-      if (item is Map) {
-        out.add(Map<String, dynamic>.from(item));
+    try {
+      final res = await _http
+          .get(
+            _uri(
+              '/api/session/${Uri.encodeComponent(sid)}/figures/window'
+              '?center=$center&span=$span$cacheQ',
+            ),
+            headers: await _headers(),
+          )
+          .timeout(const Duration(seconds: 90));
+      final map = _decodeObject(res, 'figures_window');
+      final raw = map['figures'];
+      if (raw is! List) return const [];
+      final out = <Map<String, dynamic>>[];
+      for (final item in raw) {
+        if (item is Map) {
+          out.add(Map<String, dynamic>.from(item));
+        }
       }
+      return out;
+    } on TimeoutException catch (e) {
+      _breadcrumbTimeout('figures_window', e);
+      rethrow;
     }
-    return out;
   }
 
   /// design/99 — ingest/open query flags (mobile always sends translate explicitly).

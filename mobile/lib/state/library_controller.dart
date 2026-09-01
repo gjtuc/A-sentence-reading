@@ -512,15 +512,55 @@ class LibraryController extends ChangeNotifier {
     try {
       final fetched = await _client.listPapers();
       papers = await _applySavedOrder(fetched);
+      final n = papers.length;
+      // design/169d — always on fail path; sample success 1/5 via count emit.
+      asrEvidenceBus?.record(
+        'library_refresh',
+        severity: 'lifecycle',
+        stage: 'ok',
+        ok: true,
+        details: {'paper_n': n},
+      );
+      asrEvidenceBus?.record(
+        'library_count',
+        severity: 'boundary',
+        stage: 'refresh',
+        ok: true,
+        details: {'paper_n': n},
+      );
     } on AsrApiException catch (e) {
       error = e.message;
       papers = const [];
-    } on TimeoutException catch (_) {
+      asrEvidenceBus?.record(
+        'library_refresh',
+        severity: 'error',
+        stage: 'fail',
+        ok: false,
+        httpStatus: e.statusCode,
+        message: e.message.length > 200 ? e.message.substring(0, 200) : e.message,
+        details: {'paper_n': 0},
+      );
+    } on TimeoutException catch (e) {
       // design/159 — keep last good list; server may still complete after app gave up.
       error = '서버 응답이 느립니다. 잠시 후 새로고침해 주세요.';
+      asrEvidenceBus?.record(
+        'client_api_timeout',
+        severity: 'error',
+        route: 'library_list',
+        stage: 'library_refresh',
+        message: e.toString().length > 200 ? e.toString().substring(0, 200) : e.toString(),
+        ok: false,
+      );
     } catch (e) {
       error = e.toString();
       papers = const [];
+      asrEvidenceBus?.record(
+        'library_refresh',
+        severity: 'error',
+        stage: 'fail',
+        ok: false,
+        message: error!.length > 200 ? error!.substring(0, 200) : error!,
+      );
     } finally {
       loading = false;
       notifyListeners();
@@ -600,6 +640,13 @@ class LibraryController extends ChangeNotifier {
       try {
         await _client.deletePaper(id);
         okCount += 1;
+        asrEvidenceBus?.record(
+          'paper_delete',
+          severity: 'lifecycle',
+          cacheId: id,
+          stage: 'ok',
+          ok: true,
+        );
         await _editStash.purge(id);
         await _bookmarks?.purgePaper(id);
         if (session?.cacheId == id) {
@@ -607,8 +654,25 @@ class LibraryController extends ChangeNotifier {
         }
       } on AsrApiException catch (e) {
         lastErr = e.message;
+        asrEvidenceBus?.record(
+          'paper_delete',
+          severity: 'error',
+          cacheId: id,
+          stage: 'fail',
+          ok: false,
+          httpStatus: e.statusCode,
+          message: e.message.length > 200 ? e.message.substring(0, 200) : e.message,
+        );
       } catch (e) {
         lastErr = e.toString();
+        asrEvidenceBus?.record(
+          'paper_delete',
+          severity: 'error',
+          cacheId: id,
+          stage: 'fail',
+          ok: false,
+          message: lastErr!.length > 200 ? lastErr!.substring(0, 200) : lastErr!,
+        );
       }
     }
     papers = papers.where((p) => !ids.contains(p.id)).toList(growable: false);
@@ -772,10 +836,29 @@ class LibraryController extends ChangeNotifier {
       return true;
     } on AsrApiException catch (e) {
       error = e.message;
+      asrEvidenceBus?.record(
+        'client_api_fail',
+        severity: 'error',
+        route: 'merge_supplementary',
+        cacheId: entry.id,
+        stage: 'merge',
+        httpStatus: e.statusCode,
+        message: e.message.length > 200 ? e.message.substring(0, 200) : e.message,
+        ok: false,
+      );
       notifyListeners();
       return false;
     } catch (e) {
       error = e.toString();
+      asrEvidenceBus?.record(
+        'client_api_fail',
+        severity: 'error',
+        route: 'merge_supplementary',
+        cacheId: entry.id,
+        stage: 'merge',
+        message: error!.length > 200 ? error!.substring(0, 200) : error!,
+        ok: false,
+      );
       notifyListeners();
       return false;
     } finally {
@@ -1255,6 +1338,15 @@ class LibraryController extends ChangeNotifier {
     final beforeFig = s.figureIndex;
     s.advanceSentence(delta);
     assert(s.figureIndex == beforeFig, 'figure index must stay put');
+    if (s.sentenceIndex % 20 == 0) {
+      asrEvidenceBus?.record(
+        'reader_cursor',
+        severity: 'sample',
+        cacheId: s.cacheId,
+        stage: 'sentence',
+        details: {'si': s.sentenceIndex, 'fi': s.figureIndex},
+      );
+    }
     notifyListeners();
     await _syncCursor(sentence: true);
     // design/123 — durable prefs on every sentence move (product 5C).
@@ -1267,6 +1359,15 @@ class LibraryController extends ChangeNotifier {
     final beforeSent = s.sentenceIndex;
     s.advanceFigure(delta);
     assert(s.sentenceIndex == beforeSent, 'sentence index must stay put');
+    if (s.figureIndex % 5 == 0) {
+      asrEvidenceBus?.record(
+        'reader_cursor',
+        severity: 'sample',
+        cacheId: s.cacheId,
+        stage: 'figure',
+        details: {'si': s.sentenceIndex, 'fi': s.figureIndex},
+      );
+    }
     notifyListeners();
     unawaited(_prefetchFigureWindow());
     await _syncCursor(figure: true);
@@ -1322,9 +1423,34 @@ class LibraryController extends ChangeNotifier {
       final current = session;
       if (current == null || current.cacheId != s.cacheId) return;
       current.mergeFigureWindow(rows);
+      final emptyN = rows
+          .where((r) => '${r['image_src'] ?? ''}'.trim().isEmpty)
+          .length;
+      asrEvidenceBus?.record(
+        'figure_window_res',
+        severity: emptyN == rows.length && rows.isNotEmpty ? 'error' : 'boundary',
+        cacheId: s.cacheId,
+        stage: 'prefetch',
+        ok: emptyN < rows.length || rows.isEmpty,
+        details: {
+          'window_n': rows.length,
+          'empty_n': emptyN,
+          'center': s.figureIndex,
+        },
+      );
       notifyListeners();
     } catch (e) {
       // design/168d G1.7 — fail-closed UI, but report (was silent).
+      asrEvidenceBus?.record(
+        'figure_window_res',
+        severity: 'error',
+        cacheId: s.cacheId,
+        stage: 'prefetch_fail',
+        ok: false,
+        message: e.toString().length > 200
+            ? e.toString().substring(0, 200)
+            : e.toString(),
+      );
       unawaited(
         asrErrorReporter?.report(
               kind: 'figure_window_error',
@@ -1587,17 +1713,37 @@ class LibraryController extends ChangeNotifier {
   /// design/132 — cancel early upload/ingest; late stages may refuse (too late).
   Future<void> cancelUpload() async {
     if (!uploading || _uploadCancelRequested) return;
+    asrEvidenceBus?.record(
+      'ingest_cancel',
+      severity: 'lifecycle',
+      stage: 'begin',
+      jobId: (_activeJobId ?? '').trim(),
+      ok: true,
+    );
     // WHY: pre-CD live has no cancel route — a bare 404 must not look like success wipe.
     try {
       final st = await _client.fetchStatus();
       if (!st.mobileIngestCancel) {
         error = '지금은 취소를 사용할 수 없습니다.';
+        asrEvidenceBus?.record(
+          'ingest_cancel',
+          severity: 'error',
+          stage: 'unavailable',
+          ok: false,
+          code: 'cancel_unavailable',
+        );
         notifyListeners();
         return;
       }
     } catch (_) {
       // EDGE: status probe failed — refuse cancel rather than fake discard.
       error = '지금은 취소를 사용할 수 없습니다.';
+      asrEvidenceBus?.record(
+        'ingest_cancel',
+        severity: 'error',
+        stage: 'status_fail',
+        ok: false,
+      );
       notifyListeners();
       return;
     }

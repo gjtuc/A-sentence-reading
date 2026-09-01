@@ -404,4 +404,5 @@ ts=... kind=figure_preserve_miss prior_png=0 session_figs=7 cache=…
 - [168-audit-checklist.md](168-audit-checklist.md) — ingest 전수 (유지)
 - [169-audit-checklist.md](169-audit-checklist.md) — **본 칩 전수 (클라+서버+스크립트)**
 - [169c-dense-translate-open-auth.md](169c-dense-translate-open-auth.md) — translate/open/auth 촘촘 센서 (0.3.124)
+- [169d-full-product-evidence.md](169d-full-product-evidence.md) — 전 제품 P0/P1 (0.3.125)
 - [130-cloud-error-logs.md](130-cloud-error-logs.md) — admin UI; 169와 혼용 금지

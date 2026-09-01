@@ -437,25 +437,49 @@ def download_paper_cache(
     design/129 — ``include_figures=False`` skips PNG pull so /open stays fast;
     single figures are fetched later via ``ensure_figure_local``.
     """
+    def _fail(reason: str) -> bool:
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            r = str(reason or "fail").strip().lower()[:64] or "fail"
+            if not re.match(r"^[a-z][a-z0-9_]{0,63}$", r):
+                r = "fail"
+            eb.emit(
+                "download_cache_fail",
+                severity="error",
+                cache_id=str(cache_id or "").strip()[:64],
+                stage="download",
+                details={
+                    "include_figures": 1 if include_figures else 0,
+                    "include_source": 1 if include_source else 0,
+                    "reason": r,
+                },
+                ok=False,
+                code="download_cache_fail",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
     ready, msg = gcs_client_ready()
     if not gcs_config().enabled or not ready:
         log.debug("papers download skip: %s", msg)
-        return False
+        return _fail("gcs_not_ready")
     cid = (cache_id or "").strip()
     if not _CACHE_ID_RE.match(cid):
-        return False
+        return _fail("bad_cache_id")
     sess_obj = paper_session_object(cid)
     if not sess_obj:
-        return False
+        return _fail("no_session_object")
     session_raw = download_bytes(sess_obj)
     if not session_raw or len(session_raw) > PAPER_SESSION_MAX_BYTES:
-        return False
+        return _fail("session_missing")
     try:
         meta = json.loads(session_raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return False
+        return _fail("session_bad_json")
     if not isinstance(meta, dict):
-        return False
+        return _fail("session_not_dict")
 
     paper_dir = cache_root() / cid
     fig_dir = paper_dir / "figures"
@@ -463,7 +487,7 @@ def download_paper_cache(
         fig_dir.mkdir(parents=True, exist_ok=True)
         (paper_dir / _SESSION_NAME).write_bytes(session_raw)
     except OSError:
-        return False
+        return _fail("local_write_fail")
 
     if include_figures:
         for fig in meta.get("figures") or []:

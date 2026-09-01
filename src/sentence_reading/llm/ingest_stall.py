@@ -117,11 +117,51 @@ def check_translate_stall(
     if job.get("cancel_requested"):
         return None
     if job.get("_local_running"):
+        # design/169d — sample so agents see false-stall skips.
+        try:
+            import random
+
+            if random.randint(1, 20) == 1:
+                from sentence_reading.llm import evidence_bus as eb
+
+                eb.emit(
+                    "stall_skipped_live_worker",
+                    severity="sample",
+                    job_id=str(job.get("job_id") or ""),
+                    cache_id=str(job.get("cache_id") or job.get("target_cache_id") or ""),
+                    owner_uid=str(job.get("owner_uid") or ""),
+                    stage="translate",
+                    percent=int(job.get("percent") or 0),
+                    details={"reason": "local_running"},
+                    ok=True,
+                    code="stall_skipped_live_worker",
+                )
+        except Exception:  # noqa: BLE001
+            pass
         return None
     try:
         from sentence_reading.llm.ingest_jobs_gcs import lease_expired
 
         if not lease_expired(job, now=now):
+            try:
+                import random
+
+                if random.randint(1, 20) == 1:
+                    from sentence_reading.llm import evidence_bus as eb
+
+                    eb.emit(
+                        "stall_skipped_live_worker",
+                        severity="sample",
+                        cache_id=str(job.get("cache_id") or job.get("target_cache_id") or ""),
+                        owner_uid=str(job.get("owner_uid") or ""),
+                        stage="translate",
+                        percent=int(job.get("percent") or 0),
+                        details={"reason": "lease_alive"},
+                        ok=True,
+                        code="stall_skipped_live_worker",
+                    )
+            except Exception:  # noqa: BLE001
+                pass
             return None
     except Exception:  # noqa: BLE001
         # EDGE: if lease helpers fail, fall through to idle check only.

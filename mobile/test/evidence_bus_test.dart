@@ -34,6 +34,13 @@ void main() {
     expect(kEvidenceAllowedKinds.contains('translate_call_slow'), isTrue);
   });
 
+  test('kinds include 169d full-product', () {
+    expect(kEvidenceAllowedKinds.contains('library_refresh'), isTrue);
+    expect(kEvidenceAllowedKinds.contains('figure_window_res'), isTrue);
+    expect(kEvidenceAllowedKinds.contains('reclaim_seed'), isTrue);
+    expect(kEvidenceAllowedKinds.contains('download_cache_fail'), isTrue);
+  });
+
   test('safe details keep bool/int snake keys', () {
     final bus = EvidenceBus();
     bus.setEnabled(true);

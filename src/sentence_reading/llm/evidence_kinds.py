@@ -44,5 +44,14 @@ ALLOWED_KINDS = frozenset(
         "open_ko_summary",
         "translate_poll_start",
         "translate_poll_ko",
+        # design/169d — full-product dense sensors
+        "library_refresh",
+        "library_count",
+        "paper_delete",
+        "ingest_cancel",
+        "cache_save_sample",
+        "reclaim_seed",
+        "download_cache_fail",
+        "figures_prior_pull",
     }
 )

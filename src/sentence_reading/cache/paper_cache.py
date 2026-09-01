@@ -1147,4 +1147,29 @@ def save_paper_session(
         upload_paper_cache(cache_id)
     except Exception:
         pass
+    # design/169d — sample save boundary (no paper text).
+    try:
+        import random
+
+        if random.randint(1, 5) == 1:
+            from sentence_reading.llm import evidence_bus as eb
+
+            with_file = sum(1 for row in fig_meta if str(row.get("file") or "").strip())
+            eb.emit(
+                "cache_save_sample",
+                severity="sample",
+                cache_id=str(cache_id or ""),
+                content_hash=str(ch or ""),
+                stage="save",
+                details={
+                    "fig_meta_n": len(fig_meta),
+                    "with_file_n": int(with_file),
+                    "sentence_n": len(session.sentences or []),
+                    "forced": 1 if forced else 0,
+                },
+                ok=True,
+                code="cache_save_sample",
+            )
+    except Exception:  # noqa: BLE001
+        pass
     return new_entry

@@ -11,6 +11,7 @@ import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
+import '../services/evidence_bus.dart';
 import 'access_waiting_screen.dart';
 import 'library_screen.dart';
 import 'login_screen.dart';
@@ -271,6 +272,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               if (_index == 1 && i != 1) {
                 unawaited(widget.library.recordReadLeft());
               }
+              asrEvidenceBus?.record(
+                'nav_tab',
+                severity: 'lifecycle',
+                stage: 'tab',
+                details: {'tab_index': i},
+              );
               setState(() => _index = i);
             },
             destinations: const [
