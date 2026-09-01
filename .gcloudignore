@@ -13,3 +13,4 @@ logs/
 *.png
 agent-transcripts/
 .cursor/
+nul

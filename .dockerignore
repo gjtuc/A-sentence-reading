@@ -20,3 +20,4 @@ scripts/*.ps1
 **/secrets/
 *.md
 !README.md
+nul
