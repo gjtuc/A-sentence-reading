@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'screens/home_shell.dart';
 import 'services/error_reporter.dart';
+import 'services/evidence_bus.dart';
 import 'state/auth_controller.dart';
 import 'state/library_controller.dart';
 import 'state/cite_panel_controller.dart';
@@ -72,6 +73,8 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     super.initState();
     // Reuse reporter from main() when injected; otherwise create for tests.
     asrErrorReporter ??= ErrorReporter(client: _auth.client)..install();
+    asrEvidenceBus ??= EvidenceBus(client: _auth.client);
+    asrEvidenceBus?.attachClient(_auth.client);
     _auth.bootstrap();
     _theme.bootstrap();
     _tts.bootstrap();
@@ -124,11 +127,14 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       asrErrorReporter?.setEnabled(
         st.cloudErrorLogs && st.mobileCloudErrorLogs,
       );
+      // design/169 — evidence bus kill via status (missing → off).
+      asrEvidenceBus?.setEnabled(st.evidenceBus);
       unawaited(_bookmarks.pullFromServer());
       unawaited(_annotations.pullFromServer());
     } catch (_) {
       // EDGE: status fail → keep kill closed (no false enable).
       _shadowing.setServerAvailable(false);
+      asrEvidenceBus?.setEnabled(false);
     }
   }
 

@@ -146,6 +146,8 @@
 | 164 | [164-fig-ref-panel-fallback.md](164-fig-ref-panel-fallback.md) | Fig-ref 패널 폴백 |
 | 166 | [166-reader-annotations.md](166-reader-annotations.md) | 모바일 주석 MVP · GCS sidecar · 하이라이트·메모 |
 | 167 | [167-debone-quality-guards.md](167-debone-quality-guards.md) | debone 품질 가드 · warnings 영속 · Body 진단 |
+| 168 | [168-ingest-observability.md](168-ingest-observability.md) | ingest·open·figures 과잉 계측 · phase · T1–T10 · [체크리스트](168-audit-checklist.md) |
+| 169 | [169-agent-evidence-bus.md](169-agent-evidence-bus.md) | 전역 증거 버스 · UI 없음 · 에이전트 pull · [체크리스트](169-audit-checklist.md) |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -284,3 +286,4 @@
 167 — debone 품질 가드 · chunk split fallback · warnings·ingest_quality 영속 · Body 진단 (→0.3.100).
 166 — 모바일 주석 MVP · annotations/sync · 문장 long-press · 4색 하이라이트 (→0.3.100, 167 이후 reanchor).
 168 — ingest·open·figures **과잉 계측** · phase machine · T1–T10 불변식 · silent catch 제거 · sweeper (→0.3.112, **버그 수정 전 필수**). 체크리스트: [168-audit-checklist.md](168-audit-checklist.md).
+169 — **Agent Evidence Bus** 전역 증거 수집 · 오류 개선 전용 · 관리자/사용자 UI 없음 · `asr/evidence/` + `pull_evidence.py` (168/130과 분리). 체크리스트: [169-audit-checklist.md](169-audit-checklist.md).

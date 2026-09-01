@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import '../api/translate_models.dart';
 import '../api/translate_store.dart';
+import '../services/evidence_bus.dart';
 
 class TranslateController extends ChangeNotifier {
   TranslateController({TranslateStore? store})
@@ -49,6 +50,11 @@ class TranslateController extends ChangeNotifier {
   Future<void> setEnabled(bool next) async {
     enabled = next;
     notifyListeners();
+    asrEvidenceBus?.record(
+      'pref_translate_set',
+      severity: 'decision',
+      details: {'enabled': next},
+    );
     try {
       await _store.writeRaw(_uid, serializeTranslateEnabledPref(next));
       error = null;

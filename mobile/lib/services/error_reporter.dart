@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import '../api/client.dart';
 import '../config.dart';
+import 'evidence_bus.dart';
 import 'hang_watchdog.dart';
 
 /// Process-wide reporter (installed from [SentenceReadingApp]).
@@ -101,7 +102,26 @@ class ErrorReporter {
       // FAIL-CLOSED for UX: never surface report failures to the reader.
     } finally {
       _reporting = false;
+      // design/169 — mirror into agent evidence bus (no 130 UI change).
+      final ek = _evidenceKindFor(kind);
+      asrEvidenceBus?.record(
+        ek,
+        severity: 'error',
+        stage: stage,
+        message: msg.length > 200 ? msg.substring(0, 200) : msg,
+        cacheId: cacheId ?? '',
+        ok: false,
+      );
     }
+  }
+
+  String _evidenceKindFor(String kind) {
+    final k = kind.trim().toLowerCase();
+    if (k == 'hang' || k.contains('hang')) return 'client_hang';
+    if (k == 'api_error') return 'client_api_fail';
+    if (k == 'translate_poll_exhausted') return 'translate_poll_exhausted';
+    if (k.contains('silent')) return 'client_silent_catch';
+    return 'client_unhandled';
   }
 
   /// Report API failures without recursing on the report endpoint itself.

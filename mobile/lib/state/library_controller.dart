@@ -25,6 +25,7 @@ import '../api/bookmark_models.dart';
 import '../state/bookmark_controller.dart';
 import '../state/annotation_controller.dart';
 import '../services/error_reporter.dart';
+import '../services/evidence_bus.dart';
 import '../services/hang_watchdog.dart';
 import '../services/paper_edit_stash.dart';
 
@@ -591,6 +592,18 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
     try {
       final wantTr = await _wantTranslate();
+      final uid = await _authUid();
+      asrEvidenceBus?.record(
+        'reanalyze_pref_snapshot',
+        severity: 'decision',
+        cacheId: entry.id,
+        details: {
+          'want_translate_pref': wantTr,
+          'want_translate_sent': wantTr,
+          'auth_uid_present': uid != null && uid.isNotEmpty,
+          'prefs_key_suffix_len': (uid ?? '').length,
+        },
+      );
       final started = await _client.startReanalyze(
         entry.id,
         translate: wantTr,
@@ -864,6 +877,14 @@ class LibraryController extends ChangeNotifier {
                 ) ??
                 Future<void>.value(),
           );
+          asrEvidenceBus?.record(
+            'translate_poll_exhausted',
+            severity: 'error',
+            cacheId: o.cacheId,
+            stage: 'translate_poll',
+            details: {'attempts': 24},
+            ok: false,
+          );
           _stopTranslatePoll();
           return;
         }
@@ -910,6 +931,16 @@ class LibraryController extends ChangeNotifier {
                   ) ??
                   Future<void>.value(),
             );
+            final msg = e.toString();
+            asrEvidenceBus?.record(
+              'client_api_fail',
+              severity: 'error',
+              route: 'translate_poll',
+              cacheId: cid,
+              message: msg.length > 200 ? msg.substring(0, 200) : msg,
+              stage: 'translate_poll',
+              ok: false,
+            );
           }
         }
       });
@@ -941,6 +972,12 @@ class LibraryController extends ChangeNotifier {
     error = null;
     notifyListeners();
     final opId = 'open:${entry.id}';
+    asrEvidenceBus?.record(
+      'reader_open',
+      severity: 'lifecycle',
+      cacheId: entry.id,
+      stage: 'begin',
+    );
     // design/130 — hang if open never returns (infinite spinner class).
     asrErrorReporter?.hang.begin(
       opId,
@@ -956,6 +993,14 @@ class LibraryController extends ChangeNotifier {
       // Fail-closed: never keep a previous session when this open failed upstream.
       if (o.sentenceCount < 1) {
         error = '보관본에 문장이 없습니다. 재분석하거나 PDF를 다시 올려 주세요.';
+        asrEvidenceBus?.record(
+          'reader_open',
+          severity: 'error',
+          cacheId: entry.id,
+          stage: 'fail',
+          ok: false,
+          code: 'open_empty',
+        );
         unawaited(
           asrErrorReporter?.report(
                 kind: 'open_empty',
@@ -1017,10 +1062,31 @@ class LibraryController extends ChangeNotifier {
       unawaited(_prefetchFigureWindow());
       // design/80 — per-user chunk backfill (opt-in); errors surface on reader.
       unawaited(ensureShadowingChunks(entry.id));
+      asrEvidenceBus?.record(
+        'reader_open',
+        severity: 'lifecycle',
+        cacheId: o.cacheId,
+        stage: 'ok',
+        ok: true,
+        details: {
+          'sentence_count': o.sentenceCount,
+          'figure_count': o.figureCount,
+          'translate_pending': o.translatePending,
+        },
+      );
       return session;
     } on AsrApiException catch (e) {
       // WHY: leave prior session untouched only if we never assigned; clear on fail.
       error = e.message;
+      asrEvidenceBus?.record(
+        'reader_open',
+        severity: 'error',
+        cacheId: entry.id,
+        stage: 'fail',
+        ok: false,
+        httpStatus: e.statusCode,
+        message: e.message.length > 200 ? e.message.substring(0, 200) : e.message,
+      );
       unawaited(
         asrErrorReporter?.reportApiFailure(
               e,
@@ -1033,6 +1099,14 @@ class LibraryController extends ChangeNotifier {
       return null;
     } catch (e) {
       error = e.toString();
+      asrEvidenceBus?.record(
+        'reader_open',
+        severity: 'error',
+        cacheId: entry.id,
+        stage: 'fail',
+        ok: false,
+        message: error!.length > 200 ? error!.substring(0, 200) : error!,
+      );
       unawaited(
         asrErrorReporter?.report(
               kind: 'open_exception',
@@ -1553,6 +1627,16 @@ class LibraryController extends ChangeNotifier {
       try {
         final wantShadow = await _wantShadowingPractice();
         final wantTr = await _wantTranslate();
+        asrEvidenceBus?.record(
+          'ingest_upload_start',
+          severity: 'lifecycle',
+          stage: 'begin',
+          details: {
+            'bytes': bytes.length,
+            'chunked': true,
+            'want_translate_pref': wantTr,
+          },
+        );
         final started = await _client.startIngestPdfBytesChunked(
           filename: filename,
           bytes: bytes,

@@ -927,6 +927,25 @@ def save_paper_session(
                 prior_fig_bytes[fid] = raw
                 ext = img_path.suffix.lower().lstrip(".") or "png"
                 prior_fig_ext[fid] = ext
+    # design/169 — reanalyze overwrite with zero prior PNGs is a consistency hole.
+    if forced and not prior_fig_bytes and len(session.figures or []) > 0:
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            eb.emit(
+                "figure_preserve_miss",
+                severity="consistency",
+                cache_id=str(existing_id or cache_id or ""),
+                details={
+                    "prior_png": 0,
+                    "session_figs": len(session.figures or []),
+                    "forced": 1,
+                },
+                ok=False,
+                code="figure_preserve_miss",
+            )
+        except Exception:  # noqa: BLE001
+            pass
     if paper_dir.exists():
         # 옛 그림·원본 정리 후 재기록
         shutil.rmtree(paper_dir, ignore_errors=True)

@@ -203,7 +203,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.121",
+    version="0.3.122",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -981,7 +981,7 @@ def _maybe_fail_translate_stall(job_id: str, job: dict) -> bool:
     if not reason:
         return False
     idle = progress_idle_sec(job) or 0
-    return _fail_job_terminal(
+    applied = _fail_job_terminal(
         job_id,
         "번역 진행이 멈춘 것 같습니다. 다시 시도해 주세요.",
         ops_kind="translate_stalled",
@@ -993,6 +993,31 @@ def _maybe_fail_translate_stall(job_id: str, job: dict) -> bool:
         },
         percent=int(job.get("percent") or 0),
     )
+    if applied:
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            eb.emit(
+                "stall_fired",
+                severity="error",
+                job_id=job_id,
+                cache_id=str(job.get("cache_id") or job.get("target_cache_id") or ""),
+                owner_uid=str(job.get("owner_uid") or ""),
+                content_hash=str(job.get("content_hash") or ""),
+                stage="translate",
+                percent=int(job.get("percent") or 0),
+                message="번역 진행이 멈춘 것 같습니다. 다시 시도해 주세요.",
+                details={
+                    "idle_sec": int(idle),
+                    "stall_sec": int(translate_stall_sec()),
+                    "percent": int(job.get("percent") or 0),
+                },
+                ok=False,
+                code="translate_stalled",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    return applied
 
 
 async def _ingest_sweeper_loop() -> None:
@@ -1110,6 +1135,7 @@ def status(request: Request) -> dict:
     from sentence_reading.llm.ingest_rate_limit import rate_limit_enabled
     from sentence_reading.llm.error_logs import cloud_error_logs_enabled
     from sentence_reading.llm.ops_events import ops_events_enabled
+    from sentence_reading.llm.evidence_bus import evidence_bus_enabled
     from sentence_reading.llm.ingest_integrity import ingest_integrity_enabled
     from sentence_reading.llm.ingest_stall import ingest_stall_detector_enabled
     from sentence_reading.llm.upload_audit_log import upload_audit_enabled
@@ -1143,7 +1169,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.121",
+        "version": "0.3.122",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -1176,6 +1202,8 @@ def status(request: Request) -> dict:
         "mobile_cloud_error_logs": _cloud_err,
         # design/168a — structured ops events; false when ASR_OPS_EVENTS=0.
         "ops_events": ops_events_enabled(),
+        # design/169 — agent evidence bus (no UI); false when ASR_EVIDENCE_BUS=0.
+        "evidence_bus": evidence_bus_enabled(),
         # design/168b — T1–T10 integrity checks (log-only); false when ASR_INGEST_INTEGRITY=0.
         "ingest_integrity": ingest_integrity_enabled(),
         # design/168c — phase machine + partial ingest_status.
@@ -2401,6 +2429,51 @@ def access_admin_notifications(request: Request, limit: int = 50) -> JSONRespons
 
 
 
+@app.post("/api/evidence/ingest")
+async def evidence_ingest(request: Request, payload: dict = Body(None)) -> JSONResponse:
+    """design/169 — client → evidence JSONL (write-only; no GET list)."""
+    from sentence_reading.llm import evidence_bus as eb
+
+    if not eb.evidence_bus_enabled():
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "error": "evidence_bus_off",
+                "message": "증거 수집이 꺼져 있습니다.",
+            },
+        )
+    user = _request_user(request)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "ok": False,
+                "error": "auth_required",
+                "message": "로그인 후 이용해 주세요.",
+            },
+        )
+    if not isinstance(payload, dict):
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "bad_json", "message": "잘못된 요청입니다."},
+        )
+    raw_events = payload.get("events")
+    if not isinstance(raw_events, list):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "bad_events",
+                "message": "events 배열이 필요합니다.",
+            },
+        )
+    accepted, dropped = eb.ingest_client_batch(raw_events, owner_uid=user.uid)
+    return JSONResponse(
+        {"ok": True, "accepted": int(accepted), "dropped": int(dropped)}
+    )
+
+
 @app.post("/api/errors/report")
 async def errors_report(request: Request, payload: dict = Body(None)) -> JSONResponse:
     """Client → cloud error log (design/130). Auth required; uid from session only."""
@@ -3601,6 +3674,29 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
             "reanalyze": True,
         },
     )
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        eb.emit(
+            "reanalyze_start",
+            source="server",
+            severity="lifecycle",
+            trace_id=trace_id,
+            job_id=job_id,
+            cache_id=cid,
+            owner_uid=owner_uid,
+            content_hash=content_hash or "",
+            stage="queued",
+            percent=1,
+            details={
+                "want_translate": 1 if want_tr else 0,
+                "reanalyze": 1,
+                "bytes": len(raw),
+            },
+            ok=True,
+        )
+    except Exception:  # noqa: BLE001
+        pass
     asyncio.create_task(
         _run_ingest_job(
             job_id,

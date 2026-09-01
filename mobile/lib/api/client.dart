@@ -13,6 +13,7 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import '../config.dart';
+import '../services/evidence_bus.dart';
 import 'auth_models.dart';
 import 'paper_models.dart';
 import 'reading_models.dart';
@@ -74,6 +75,8 @@ class AsrStatus {
     this.bookmarksSync = false,
     this.annotationsSync = false,
     this.mobileApkUrl = '',
+    // design/169 — missing → off (fail-closed; no client evidence spam).
+    this.evidenceBus = false,
   });
 
   /// Tolerant parse: missing keys become empty strings / false — never throw on
@@ -203,6 +206,8 @@ class AsrStatus {
         return json['annotations_sync'] == true;
       }(),
       mobileApkUrl: '${json['mobile_apk_url'] ?? ''}'.trim(),
+      // design/169 — missing → off; explicit true enables EvidenceBus flush.
+      evidenceBus: json['evidence_bus'] == true,
     );
   }
 
@@ -252,6 +257,8 @@ class AsrStatus {
   final bool annotationsSync;
   /// design/161 — public GCS APK URL when configured on server.
   final String mobileApkUrl;
+  /// design/169 — agent evidence bus (no UI).
+  final bool evidenceBus;
 }
 
 /// `/api/bookmarks/sync` result.
@@ -360,6 +367,21 @@ class AsrClient {
     }
   }
 
+  void _breadcrumbApiFail(String route, int status, String message) {
+    // WHY: evidence POST fail must not recurse into evidence emit.
+    final r = route.trim().toLowerCase();
+    if (r.contains('evidence')) return;
+    final msg = message.length > 200 ? message.substring(0, 200) : message;
+    asrEvidenceBus?.record(
+      status == 504 ? 'client_api_timeout' : 'client_api_fail',
+      severity: 'error',
+      route: route,
+      httpStatus: status,
+      message: msg,
+      ok: false,
+    );
+  }
+
   Map<String, dynamic> _decodeObject(http.Response res, String label) {
     if (res.statusCode < 200 || res.statusCode >= 300) {
       String detail = '$label HTTP ${res.statusCode}';
@@ -373,6 +395,7 @@ class AsrClient {
       } catch (_) {
         // EDGE: HTML / empty error pages
       }
+      _breadcrumbApiFail(label, res.statusCode, detail);
       throw AsrApiException(detail, res.statusCode);
     }
     final body = jsonDecode(res.body);
@@ -380,6 +403,7 @@ class AsrClient {
       if (body is Map) {
         return Map<String, dynamic>.from(body);
       }
+      _breadcrumbApiFail(label, res.statusCode, '$label body is not a JSON object');
       throw AsrApiException('$label body is not a JSON object', res.statusCode);
     }
     return body;
@@ -739,6 +763,15 @@ class AsrClient {
     if (jobId.isEmpty) {
       throw AsrApiException('작업 ID를 받지 못했습니다.', 500);
     }
+    asrEvidenceBus?.record(
+      'reanalyze_start',
+      severity: 'lifecycle',
+      stage: 'ok',
+      jobId: jobId,
+      cacheId: cid,
+      ok: true,
+      details: {'want_translate_sent': translate},
+    );
     return (jobId: jobId, cacheId: cid);
   }
 
@@ -1310,6 +1343,11 @@ class AsrClient {
     var lastMsg = '';
     while (DateTime.now().isBefore(absoluteDeadline)) {
       if (DateTime.now().isAfter(idleDeadline)) {
+        _breadcrumbApiFail(
+          'ingest/jobs/poll',
+          504,
+          '분석 진행이 멈춘 것 같습니다. 아래 「이어서 분석하기」를 눌러 주세요.',
+        );
         throw AsrApiException(
           '분석 진행이 멈춘 것 같습니다. 아래 「이어서 분석하기」를 눌러 주세요.',
           504,
@@ -1330,6 +1368,7 @@ class AsrClient {
           )
           .timeout(const Duration(seconds: 30));
       if (stRes.statusCode == 401) {
+        _breadcrumbApiFail('ingest/jobs', 401, '로그인이 필요합니다.');
         throw AsrApiException('로그인이 필요합니다.', 401);
       }
       if (stRes.statusCode == 404) {
@@ -1338,13 +1377,16 @@ class AsrClient {
           throw UploadCancelledException();
         }
         // EDGE: job lost even after GCS — fail-closed, no fake success.
+        _breadcrumbApiFail('ingest/jobs', 404, '작업을 찾을 수 없습니다.');
         throw AsrApiException('작업을 찾을 수 없습니다. 다시 시도해 주세요.', 404);
       }
       if (stRes.statusCode < 200 || stRes.statusCode >= 300) {
+        _breadcrumbApiFail('ingest/jobs', stRes.statusCode, '진행 상태 조회 실패');
         throw AsrApiException('진행 상태 조회 실패', stRes.statusCode);
       }
       final decoded = jsonDecode(stRes.body);
       if (decoded is! Map) {
+        _breadcrumbApiFail('ingest/jobs', 500, '진행 상태 형식이 올바르지 않습니다.');
         throw AsrApiException('진행 상태 형식이 올바르지 않습니다.', 500);
       }
       final st = Map<String, dynamic>.from(decoded);
@@ -1354,6 +1396,13 @@ class AsrClient {
         lastPct = pct;
         lastMsg = msg;
         idleDeadline = DateTime.now().add(idleTimeout);
+        asrEvidenceBus?.record(
+          'ingest_poll_tick',
+          severity: 'lifecycle',
+          jobId: jid,
+          percent: pct,
+          stage: msg.isEmpty ? 'poll' : (msg.length > 40 ? msg.substring(0, 40) : msg),
+        );
       }
       onProgress?.call(pct, msg);
 
@@ -1370,6 +1419,17 @@ class AsrClient {
             : (errCode.isNotEmpty && errCode != 'ingest_failed'
                 ? errCode
                 : '처리에 실패했습니다.');
+        asrEvidenceBus?.record(
+          'client_api_fail',
+          severity: 'error',
+          route: 'ingest/jobs/terminal',
+          jobId: jid,
+          httpStatus: 422,
+          message: detail.length > 200 ? detail.substring(0, 200) : detail,
+          ok: false,
+          code: 'ingest_failed',
+          percent: pct,
+        );
         throw AsrApiException(
           detail,
           422,
@@ -1381,12 +1441,22 @@ class AsrClient {
       // design/108: avoid「보관 저장 실패: 완료」when server used bare「완료」.
       if (cacheId.isEmpty) {
         final bareDone = msg.isEmpty || msg == '완료';
+        final detail = bareDone
+            ? '처리는 끝났지만 보관함에 저장되지 않았습니다. 제목이 너무 짧은 PDF일 수 있습니다.'
+            : (msg.startsWith('보관') || msg.contains('보관함')
+                ? msg
+                : '보관 저장 실패: $msg');
+        asrEvidenceBus?.record(
+          'client_api_fail',
+          severity: 'error',
+          route: 'ingest/jobs/no_cache',
+          jobId: jid,
+          httpStatus: 422,
+          message: detail.length > 200 ? detail.substring(0, 200) : detail,
+          ok: false,
+        );
         throw AsrApiException(
-          bareDone
-              ? '처리는 끝났지만 보관함에 저장되지 않았습니다. 제목이 너무 짧은 PDF일 수 있습니다.'
-              : (msg.startsWith('보관') || msg.contains('보관함')
-                  ? msg
-                  : '보관 저장 실패: $msg'),
+          detail,
           422,
         );
       }
@@ -1399,6 +1469,11 @@ class AsrClient {
         contentHash: '${st['content_hash'] ?? ''}'.trim().toLowerCase(),
       );
     }
+    _breadcrumbApiFail(
+      'ingest/jobs/poll',
+      504,
+      '전체 처리 시간이 너무 깁니다.',
+    );
     throw AsrApiException(
       '전체 처리 시간이 너무 깁니다. 잠시 후 「이어서 분석하기」를 눌러 주세요.',
       504,
@@ -1959,6 +2034,34 @@ class AsrClient {
         )
         .timeout(const Duration(seconds: 20));
     _decodeObject(res, 'errors/report');
+  }
+
+  /// POST /api/evidence/ingest — design/169 (write-only; no GET).
+  Future<({int accepted, int dropped})> postEvidenceBatch(
+    List<Map<String, dynamic>> events,
+  ) async {
+    final batch = events.length > 50 ? events.sublist(0, 50) : events;
+    final res = await _http
+        .post(
+          _uri('/api/evidence/ingest'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({'events': batch}),
+        )
+        .timeout(const Duration(seconds: 20));
+    // WHY: do not use _decodeObject — evidence fail must not breadcrumb recurse.
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw AsrApiException(
+        'evidence ingest HTTP ${res.statusCode}',
+        res.statusCode,
+      );
+    }
+    final body = jsonDecode(res.body);
+    if (body is! Map) {
+      throw AsrApiException('evidence ingest bad body', res.statusCode);
+    }
+    final accepted = body['accepted'] is num ? (body['accepted'] as num).toInt() : 0;
+    final dropped = body['dropped'] is num ? (body['dropped'] as num).toInt() : 0;
+    return (accepted: accepted, dropped: dropped);
   }
 
   /// GET /api/errors/admin
