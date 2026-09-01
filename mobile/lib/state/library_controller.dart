@@ -301,6 +301,15 @@ class LibraryController extends ChangeNotifier {
       _hangLastStageKey = key;
     }
     asrErrorReporter?.hang.progress(op, stage: key);
+    // design/168d A1.11 — breadcrumb only on real progress (not every 500ms poll).
+    unawaited(
+      asrErrorReporter?.report(
+            kind: 'ingest_poll_breadcrumb',
+            message: 'pct=$pct stage=$key',
+            stage: key,
+          ) ??
+          Future<void>.value(),
+    );
   }
 
   void _endIngestHang() {
@@ -791,10 +800,21 @@ class LibraryController extends ChangeNotifier {
       translateBackfillBusy = true;
       notifyListeners();
       var attempts = 0;
+      var pollErrorReported = false;
       _translatePollTimer?.cancel();
       _translatePollTimer = Timer.periodic(const Duration(seconds: 8), (t) async {
         attempts++;
         if (attempts > 24) {
+          // design/168d D1.14 — exhausted is not success; report once.
+          unawaited(
+            asrErrorReporter?.report(
+                  kind: 'translate_poll_exhausted',
+                  message: 'open translate poll stopped after 24 attempts',
+                  stage: 'translate_poll',
+                  cacheId: o.cacheId,
+                ) ??
+                Future<void>.value(),
+          );
           _stopTranslatePoll();
           return;
         }
@@ -821,8 +841,20 @@ class LibraryController extends ChangeNotifier {
             _stopTranslatePoll();
           }
           notifyListeners();
-        } catch (_) {
-          // keep polling until attempts exhausted
+        } catch (e) {
+          // design/168d D1.15 — keep polling, but report once per cycle.
+          if (!pollErrorReported) {
+            pollErrorReported = true;
+            unawaited(
+              asrErrorReporter?.report(
+                    kind: 'translate_poll_error',
+                    message: e.toString(),
+                    stage: 'translate_poll',
+                    cacheId: cid,
+                  ) ??
+                  Future<void>.value(),
+            );
+          }
         }
       });
     }));
@@ -1064,8 +1096,17 @@ class LibraryController extends ChangeNotifier {
       if (!identical(session, s)) return;
       s.mergeFigureWindow(rows);
       notifyListeners();
-    } catch (_) {
-      // Fail-closed: leave stubs empty; UI shows “이미지 없음” / prior bytes.
+    } catch (e) {
+      // design/168d G1.7 — fail-closed UI, but report (was silent).
+      unawaited(
+        asrErrorReporter?.report(
+              kind: 'figure_window_error',
+              message: e.toString(),
+              stage: 'figure_window',
+              cacheId: s.cacheId,
+            ) ??
+            Future<void>.value(),
+      );
     }
   }
 

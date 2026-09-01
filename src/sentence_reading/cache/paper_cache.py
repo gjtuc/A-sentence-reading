@@ -127,26 +127,25 @@ def _figure_to_data_url(path: Path) -> str:
 _FIG_ID_SAFE = re.compile(r"^[A-Za-z0-9._\-]{1,64}$")
 
 
-def figure_data_url(cache_id: str, figure_id: str) -> str | None:
-    """design/129 — load one figure PNG from disk as data-URL (no path traversal).
-
-    Returns None when id/cache is bad or the file is missing (honest miss).
-    """
+def figure_data_url_with_reason(
+    cache_id: str, figure_id: str
+) -> tuple[str | None, str]:
+    """design/129+168d — data-URL or (None, reason enum). Never invent bytes."""
     cid = (cache_id or "").strip()
     fid = (figure_id or "").strip()
     # SECURITY: reject path segments / absolute paths / odd ids.
     if not re.fullmatch(r"[a-zA-Z0-9]{8,32}", cid):
-        return None
+        return None, "bad_cache_id"
     if not _FIG_ID_SAFE.fullmatch(fid):
-        return None
+        return None, "bad_figure_id"
     root = cache_root() / cid
     meta_path = root / _SESSION_NAME
     if not meta_path.is_file():
-        return None
+        return None, "session_meta_missing"
     try:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return None
+        return None, "session_meta_corrupt"
     for f in meta.get("figures") or []:
         if not isinstance(f, dict):
             continue
@@ -155,28 +154,61 @@ def figure_data_url(cache_id: str, figure_id: str) -> str | None:
         rel = str(f.get("file") or "").replace("\\", "/")
         # SECURITY: only figures/… under this paper root.
         if not rel.startswith("figures/") or ".." in rel.split("/"):
-            return None
+            return None, "bad_file_rel"
         img_path = (root / rel).resolve()
         try:
             img_path.relative_to(root.resolve())
         except ValueError:
-            return None
+            return None, "path_escape"
         if not img_path.is_file():
             # design/129 — open may skip bulk PNG pull; fetch this one from GCS.
             try:
-                from sentence_reading.llm.papers_gcs import ensure_figure_local
+                from sentence_reading.llm.papers_gcs import ensure_figure_local_with_reason
+                from sentence_reading.llm import ops_events as oev
 
-                ensured = ensure_figure_local(cid, rel)
+                ensured, ensure_reason = ensure_figure_local_with_reason(cid, rel)
                 if ensured is not None:
                     img_path = ensured.resolve()
+                elif ensure_reason not in ("local_ok", "ok"):
+                    # design/168d G1.5 — blob miss even when called via data-URL path.
+                    try:
+                        oev.emit(
+                            "figure_blob_miss",
+                            cache_id=cid,
+                            details={"reason": ensure_reason},
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
             except Exception:
-                return None
+                return None, "ensure_exception"
         if not img_path.is_file():
-            return None
+            return None, "file_missing"
         try:
-            return _figure_to_data_url(img_path)
+            return _figure_to_data_url(img_path), "ok"
         except OSError:
-            return None
+            return None, "read_oserror"
+    return None, "figure_id_not_in_meta"
+
+
+def figure_data_url(cache_id: str, figure_id: str) -> str | None:
+    """design/129 — load one figure PNG from disk as data-URL (no path traversal).
+
+    Returns None when id/cache is bad or the file is missing (honest miss).
+    design/168d — emits ``figure_data_url_miss`` on miss (reason in details).
+    """
+    url, reason = figure_data_url_with_reason(cache_id, figure_id)
+    if url:
+        return url
+    try:
+        from sentence_reading.llm import ops_events as oev
+
+        oev.emit(
+            "figure_data_url_miss",
+            cache_id=(cache_id or "").strip(),
+            details={"reason": reason},
+        )
+    except Exception:  # noqa: BLE001
+        pass
     return None
 
 

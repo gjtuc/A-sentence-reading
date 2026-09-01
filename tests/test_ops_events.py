@@ -72,8 +72,9 @@ def test_emit_round_trip(ops_tmp) -> None:
 
 def test_status_ops_events_pin(ops_tmp) -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.114"
+    assert st["version"] == "0.3.115"
     assert st.get("ops_events") is True
+    assert st.get("silent_catch_report") is True
 
 
 def test_status_ops_events_kill(monkeypatch) -> None:

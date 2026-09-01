@@ -647,36 +647,63 @@ def refresh_paper_for_open(cache_id: str) -> tuple[bool, str]:
     return True, "ok"
 
 
-def ensure_figure_local(cache_id: str, figure_rel: str) -> Path | None:
-    """design/129 — download one figure object to disk if missing.
-
-    SECURITY: only ``figures/…`` under this cache_id via paper_figure_object.
-    """
+def ensure_figure_local_with_reason(
+    cache_id: str, figure_rel: str
+) -> tuple[Path | None, str]:
+    """design/129+168d — local Path or (None, reason enum)."""
     cid = (cache_id or "").strip()
     rel = (figure_rel or "").replace("\\", "/").strip()
     if not _CACHE_ID_RE.match(cid):
-        return None
+        return None, "bad_cache_id"
     if not _FIG_FILE_RE.match(rel):
-        return None
+        return None, "bad_rel"
     paper_dir = cache_root() / cid
     out = paper_dir / rel
     if out.is_file() and out.stat().st_size > 0:
-        return out
+        return out, "local_ok"
     ready, _ = gcs_client_ready()
-    if not gcs_config().enabled or not ready:
-        return out if out.is_file() else None
+    if not gcs_config().enabled:
+        return (out if out.is_file() else None), "gcs_disabled"
+    if not ready:
+        return (out if out.is_file() else None), "gcs_not_ready"
     fig_obj = paper_figure_object(cid, rel)
     if not fig_obj:
-        return None
+        return None, "object_denied"
     raw = download_bytes(fig_obj)
-    if not raw or len(raw) > PAPER_FIGURE_MAX_BYTES:
-        return None
+    if not raw:
+        return None, "download_empty"
+    if len(raw) > PAPER_FIGURE_MAX_BYTES:
+        return None, "download_too_large"
     try:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(raw)
     except OSError:
-        return None
-    return out if out.is_file() else None
+        return None, "write_failed"
+    if out.is_file():
+        return out, "ok"
+    return None, "write_failed"
+
+
+def ensure_figure_local(cache_id: str, figure_rel: str) -> Path | None:
+    """design/129 — download one figure object to disk if missing.
+
+    SECURITY: only ``figures/…`` under this cache_id via paper_figure_object.
+    design/168d — emits ``figure_blob_miss`` on miss (reason in details).
+    """
+    path, reason = ensure_figure_local_with_reason(cache_id, figure_rel)
+    if path is not None:
+        return path
+    try:
+        from sentence_reading.llm import ops_events as oev
+
+        oev.emit(
+            "figure_blob_miss",
+            cache_id=(cache_id or "").strip(),
+            details={"reason": reason},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return None
 
 
 def pull_paper_matching_text(

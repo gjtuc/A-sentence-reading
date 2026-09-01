@@ -54,6 +54,11 @@ _ALLOWED_KINDS = frozenset(
         # design/168b
         "consistency_violation",
         "merge_session_richer",
+        # design/168d — figure / translate silent-path observability
+        "figure_window_empty",
+        "figure_data_url_miss",
+        "figure_blob_miss",
+        "open_translate_backfill_fail",
     }
 )
 

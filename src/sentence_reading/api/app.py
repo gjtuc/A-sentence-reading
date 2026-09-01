@@ -182,7 +182,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.114",
+    version="0.3.115",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -934,7 +934,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.114",
+        "version": "0.3.115",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -972,6 +972,8 @@ def status(request: Request) -> dict:
         # design/168c — phase machine + partial ingest_status.
         "ingest_phase_machine": True,
         "ingest_status_partial": True,
+        # design/168d — silent catch → ops/client report (no bug fixes yet).
+        "silent_catch_report": True,
         "upload_audit_log": upload_audit_enabled(),
         # design/131 — full figure captions (UI + normalize ceiling); false restores 2-line ….
         "caption_full_text": True,
@@ -3490,6 +3492,24 @@ def session_figures_window(
                 "caption_ko_stage": fig.caption_ko_stage or "",
             }
         )
+    # design/168d G1.3 — ok response with stubs that never got bytes.
+    if out and all(not str(row.get("image_src") or "").strip() for row in out):
+        try:
+            from sentence_reading.llm import ops_events as oev
+
+            oev.emit(
+                "figure_window_empty",
+                cache_id=(cache_id or "").strip(),
+                session_id=session_id if str(session_id).startswith("ses_") else "",
+                details={
+                    "center": center_i,
+                    "span": span_i,
+                    "window_n": len(out),
+                    "session_n": n,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
     return JSONResponse(
         {
             "ok": True,
@@ -4141,6 +4161,20 @@ async def _open_translate_backfill_task(
     cid = (cache_id or "").strip()
     if not cid:
         return
+
+    def _emit_backfill_fail(reason: str) -> None:
+        # design/168d D1.10 — ops event, not log.warning alone.
+        try:
+            from sentence_reading.llm import ops_events as oev
+
+            oev.emit(
+                "open_translate_backfill_fail",
+                cache_id=cid,
+                details={"reason": reason},
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     try:
         from sentence_reading.llm.papers_gcs import (
             download_paper_cache,
@@ -4154,6 +4188,7 @@ async def _open_translate_backfill_task(
             )
         loaded = await asyncio.to_thread(load_cached_session, cid, load_images=False)
         if loaded is None:
+            _emit_backfill_fail("session_load_miss")
             return
         session, info = loaded
         session, _ = await _backfill_cached_translations(
@@ -4167,6 +4202,10 @@ async def _open_translate_backfill_task(
         await asyncio.to_thread(upload_paper_cache, cid)
     except Exception as exc:  # noqa: BLE001
         log.warning("open translate backfill failed: %s", type(exc).__name__)
+        reason = re.sub(r"[^a-z0-9_]", "", type(exc).__name__.lower())[:40] or "exception"
+        if reason[0].isdigit():
+            reason = f"e_{reason}"
+        _emit_backfill_fail(reason)
 
 
 async def _run_ingest_job(

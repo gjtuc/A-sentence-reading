@@ -281,11 +281,11 @@
 - [x] mobile `PaperEntry.ingestStatus` partial UI
 
 ### 168d — P0 silent catch → report
-- [ ] **G1.7** `_prefetchFigureWindow`
-- [ ] **D1.14** translate poll
-- [ ] **G1.4–G1.5** figure miss reasons
-- [ ] **D1.10** open backfill fail
-- [ ] A1.11 poll breadcrumb
+- [x] **G1.7** `_prefetchFigureWindow` → `figure_window_error`
+- [x] **D1.14/D1.15** translate poll exhausted/error
+- [x] **G1.3–G1.5** `figure_window_empty` / miss reasons
+- [x] **D1.10** open backfill fail → `open_translate_backfill_fail`
+- [x] A1.11 poll breadcrumb (progress-only)
 
 ### 168e — sweeper + admin
 - [ ] J1.7, J1.8
