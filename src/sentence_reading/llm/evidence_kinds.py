@@ -46,6 +46,8 @@ ALLOWED_KINDS = frozenset(
         "open_ko_summary",
         "translate_poll_start",
         "translate_poll_ko",
+        # design/169g — causal handoff (phase 2)
+        "handoff",
         # design/169d — full-product dense sensors
         "library_refresh",
         "library_count",

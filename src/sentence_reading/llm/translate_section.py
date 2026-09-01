@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import secrets
 import threading
 import time
 from collections.abc import Callable
@@ -177,6 +178,61 @@ def _emit_translate_call(
         )
     except Exception:  # noqa: BLE001
         log.warning("translate evidence emit failed kind=%s", kind, exc_info=True)
+
+
+def _stage_token(raw: str) -> str:
+    """Snake token for evidence details (colon stages are stripped by _safe_details)."""
+    s = str(raw or "").strip().lower().replace(":", "_").replace("-", "_").replace(" ", "_")
+    s = re.sub(r"[^a-z0-9_]", "", s)[:64]
+    if not s or not re.match(r"^[a-z]", s):
+        return "unknown"
+    return s
+
+
+def _emit_handoff(
+    *,
+    from_stage: str,
+    to_stage: str,
+    section: str = "",
+    in_n: int | None = None,
+    out_n: int | None = None,
+) -> str:
+    """
+    design/169g phase 2 — A→B handoff breadcrumb. Returns handoff_id (or "").
+    Never raises.
+    """
+    hid = f"hf_{secrets.token_hex(6)}"
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        job_id, cache_id, owner_uid = _evidence_ids()
+        details: dict[str, Any] = {
+            "handoff_id": hid,
+            "from_stage": _stage_token(from_stage),
+            "to_stage": _stage_token(to_stage),
+        }
+        sec = _stage_token(section or getattr(_EVIDENCE_CTX, "section", "") or "")
+        if sec != "unknown":
+            details["section"] = sec
+        if in_n is not None:
+            details["in_n"] = int(in_n)
+        if out_n is not None:
+            details["out_n"] = int(out_n)
+        eb.emit(
+            "handoff",
+            severity="boundary",
+            job_id=job_id,
+            cache_id=cache_id,
+            owner_uid=owner_uid,
+            stage="translate",
+            details=details,
+            ok=True,
+            code="handoff",
+        )
+        return hid
+    except Exception:  # noqa: BLE001
+        log.warning("translate handoff emit failed", exc_info=True)
+        return ""
 
 
 def _google_batch_timed(
@@ -686,7 +742,14 @@ def _enrich_session_translations_body(
                 stage_map[i] = prev_stage
         return i
 
-    for sec, idxs in by_sec.items():
+    _sec_queue = [
+        (s, idxs)
+        for s, idxs in by_sec.items()
+        if any(_plain(sentences[i].text) for i in idxs)
+    ]
+    _use_google_path = bool(use_google and tg.google_translate_available())
+
+    for _si, (sec, idxs) in enumerate(_sec_queue):
         label = _sec_label(sec)
         plain_idxs = [i for i in idxs if _plain(sentences[i].text)]
         n_plain = len(plain_idxs)
@@ -694,7 +757,7 @@ def _enrich_session_translations_body(
             continue
 
         finished = 0
-        if use_google and tg.google_translate_available():
+        if _use_google_path:
             eng_for_batch = [_plain(sentences[i].text) for i in plain_idxs]
             ko_batch = _google_batch_timed(eng_for_batch, section=sec)
             for j, i in enumerate(plain_idxs):
@@ -706,6 +769,15 @@ def _enrich_session_translations_body(
                     _emit("sentence", i, ko, "google")
                 finished += 1
                 _tick(f"{label} 번역 {finished}/{n_plain}")
+            ko_after = sum(1 for i in plain_idxs if (ko_map.get(i) or "").strip())
+            if gemini_post:
+                _emit_handoff(
+                    from_stage="google_batch",
+                    to_stage="gemini_digest",
+                    section=sec,
+                    in_n=n_plain,
+                    out_n=ko_after,
+                )
         else:
             with ThreadPoolExecutor(max_workers=min(n_workers, n_plain)) as pool:
                 futs = {pool.submit(_run_sentence_pipeline, i): i for i in plain_idxs}
@@ -716,6 +788,14 @@ def _enrich_session_translations_body(
                         log.warning("parallel pipeline failed: %s", exc)
                     finished += 1
                     _tick(f"{label} 번역 {finished}/{n_plain}")
+            if gemini_post:
+                _emit_handoff(
+                    from_stage="gemini_pipeline",
+                    to_stage="gemini_digest",
+                    section=sec,
+                    in_n=n_plain,
+                    out_n=sum(1 for i in plain_idxs if (ko_map.get(i) or "").strip()),
+                )
 
         eng_lines = [_plain(sentences[i].text) for i in plain_idxs]
         if gemini_post:
@@ -727,6 +807,12 @@ def _enrich_session_translations_body(
                 harm_idxs = [i for i in plain_idxs if i in ko_map]
                 n_harm = len(harm_idxs)
                 if n_harm:
+                    _emit_handoff(
+                        from_stage="gemini_digest",
+                        to_stage="gemini_harmonize",
+                        section=sec,
+                        in_n=n_harm,
+                    )
                     finished_h = 0
                     with ThreadPoolExecutor(
                         max_workers=min(n_workers, n_harm)
@@ -741,8 +827,47 @@ def _enrich_session_translations_body(
                                 log.warning("parallel harmonize failed: %s", exc)
                             finished_h += 1
                             _tick(f"{label} 재감수 {finished_h}/{n_harm}")
+                    _emit_handoff(
+                        from_stage="gemini_harmonize",
+                        to_stage="section_done",
+                        section=sec,
+                        in_n=n_harm,
+                        out_n=finished_h,
+                    )
+                else:
+                    _emit_handoff(
+                        from_stage="gemini_digest",
+                        to_stage="section_done",
+                        section=sec,
+                        in_n=n_plain,
+                        out_n=0,
+                    )
+            else:
+                _emit_handoff(
+                    from_stage="gemini_digest",
+                    to_stage="section_done",
+                    section=sec,
+                    in_n=n_plain,
+                    out_n=0,
+                )
         else:
             digests[sec] = {"en": "", "ko": ""}
+            _emit_handoff(
+                from_stage="google_batch" if _use_google_path else "gemini_pipeline",
+                to_stage="section_done",
+                section=sec,
+                in_n=n_plain,
+                out_n=sum(1 for i in plain_idxs if (ko_map.get(i) or "").strip()),
+            )
+
+        if _si + 1 < len(_sec_queue):
+            nxt_sec = _sec_queue[_si + 1][0]
+            _emit_handoff(
+                from_stage="section_done",
+                to_stage="google_batch" if _use_google_path else "gemini_pipeline",
+                section=nxt_sec,
+                in_n=n_plain,
+            )
 
     new_sentences = [
         replace(
@@ -791,6 +916,12 @@ def _enrich_session_translations_body(
         return fi, cap_ko, cap_stage
 
     if cap_jobs:
+        _emit_handoff(
+            from_stage="section_done" if _sec_queue else "translate_phase",
+            to_stage="google_batch" if _use_google_path else "gemini_pipeline",
+            section="caption",
+            in_n=n_cap,
+        )
         finished_c = 0
         if use_google and tg.google_translate_available():
             cap_texts = [cap for _, _, cap in cap_jobs]

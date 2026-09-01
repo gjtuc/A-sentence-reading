@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 
 # Live must not lose sensors introduced by 169c/d/e/g (floor through Gemini start).
-EVIDENCE_FLOOR_VERSION = "0.3.127"
+EVIDENCE_FLOOR_VERSION = "0.3.128"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -22,6 +22,7 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "open_ko_summary",
         "translate_poll_start",
         "translate_poll_ko",
+        "handoff",
         "reanalyze_pref_snapshot",
         "stall_fired",
         "figure_preserve_miss",
@@ -45,6 +46,8 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "_google_batch_timed",
             "_gemini_timed",
             '_emit_translate_call("translate_call_start", call_kind=call_kind)',
+            "_emit_handoff",
+            'from_stage="google_batch"',
         ),
     ),
     (

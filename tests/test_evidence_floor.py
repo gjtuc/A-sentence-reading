@@ -37,7 +37,7 @@ def test_verify_evidence_floor_clean() -> None:
 
 
 def test_floor_version_pin() -> None:
-    assert EVIDENCE_FLOOR_VERSION == "0.3.127"
+    assert EVIDENCE_FLOOR_VERSION == "0.3.128"
 
 
 def test_gemini_timed_emits_start_and_done(ev_tmp, monkeypatch) -> None:
@@ -56,3 +56,24 @@ def test_gemini_timed_emits_start_and_done(ev_tmp, monkeypatch) -> None:
     assert "translate_call_done" in kinds
     rows = [r for r in eb.list_events(limit=20) if r["kind"] == "translate_call_start"]
     assert rows[0]["details"]["call_kind"] == "digest"
+
+
+def test_emit_handoff_snake_stages(ev_tmp) -> None:
+    import sentence_reading.llm.translate_section as ts
+
+    hid = ts._emit_handoff(
+        from_stage="google_batch",
+        to_stage="gemini_digest",
+        section="title",
+        in_n=1,
+        out_n=1,
+    )
+    assert hid.startswith("hf_")
+    rows = [r for r in eb.list_events(limit=10) if r["kind"] == "handoff"]
+    assert rows
+    d = rows[0]["details"]
+    assert d["from_stage"] == "google_batch"
+    assert d["to_stage"] == "gemini_digest"
+    assert d["section"] == "title"
+    assert d["in_n"] == 1
+    assert d["handoff_id"].startswith("hf_")
