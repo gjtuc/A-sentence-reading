@@ -82,6 +82,8 @@ class LibraryController extends ChangeNotifier {
   int uploadPercent = 0;
   String uploadStage = '';
   String? error;
+  /// Survives snackbar dismiss — last reanalyze/ingest failure for diagnosis.
+  String? lastIngestFailure;
   /// design/80 — fail-closed banner when chunk plan missing/failed.
   String? shadowingChunksError;
   String? shadowingChunksCacheId;
@@ -570,6 +572,9 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  /// Last terminal ingest/reanalyze failure (kept until next success) for QA.
+  String? lastIngestFailure;
+
   /// design/145 — reanalyze from stored source (web parity); no confirm dialog.
   /// design/168f H1.5 — persist job draft so 504 can resume poll (upload parity).
   Future<bool> reanalyzePaper(PaperEntry entry) async {
@@ -638,6 +643,7 @@ class LibraryController extends ChangeNotifier {
       }
       await _editStash.invalidatePreviews(entry.id);
       error = null;
+      lastIngestFailure = null;
       notifyListeners();
       return true;
     } on AsrApiException catch (e) {
@@ -650,12 +656,17 @@ class LibraryController extends ChangeNotifier {
         await _drafts.clear();
         resumeOfferVisible = false;
       }
+      final jid = (_activeJobId ?? '').trim();
       error = e.message;
+      lastIngestFailure = jid.isEmpty
+          ? e.message
+          : '${e.message} (job $jid)';
       notifyListeners();
       return false;
     } catch (e) {
       _endIngestHang();
       error = e.toString();
+      lastIngestFailure = error;
       notifyListeners();
       return false;
     } finally {

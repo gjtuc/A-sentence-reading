@@ -203,7 +203,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.120",
+    version="0.3.121",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1143,7 +1143,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.120",
+        "version": "0.3.121",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -3512,8 +3512,11 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
         )
 
         ensure_paper_local(cid)
-        # WHY: session may be local while source.pdf only lives in GCS (open skips source pull).
-        if get_source_path(cid) is None and gcs_papers_ready():
+        # WHY: Cloud Run open is lazy on PNGs — reanalyze save must snapshot
+        # prior figures or rmtree drops them (fig 3+ → 이미지 없음).
+        if gcs_papers_ready():
+            download_paper_cache(cid, include_figures=True, include_source=True)
+        elif get_source_path(cid) is None:
             download_paper_cache(cid, include_figures=False, include_source=True)
     except Exception:
         pass
@@ -3591,7 +3594,12 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
         content_hash=content_hash or "",
         stage="queued",
         percent=1,
-        details={"filename_len": len(ij.safe_filename(filename)), "bytes": len(raw)},
+        details={
+            "filename_len": len(ij.safe_filename(filename)),
+            "bytes": len(raw),
+            "want_translate": bool(want_tr),
+            "reanalyze": True,
+        },
     )
     asyncio.create_task(
         _run_ingest_job(

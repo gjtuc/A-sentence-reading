@@ -48,7 +48,7 @@ def _admin_client(monkeypatch) -> tuple[TestClient, str]:
 
 def test_status_stall_pin(ops_tmp) -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.120"
+    assert st["version"] == "0.3.121"
     assert st.get("ingest_stall_detector") is True
 
 
@@ -86,6 +86,14 @@ def test_check_translate_stall_idle(ops_tmp, monkeypatch) -> None:
     }
     assert stall.check_translate_stall(job, now=now) == "translate_idle"
     job["_progress_ts"] = now.isoformat()
+    assert stall.check_translate_stall(job, now=now) is None
+    # Live worker must not be killed for long Gemini batches.
+    job["_progress_ts"] = (now - timedelta(seconds=30)).isoformat()
+    job["_local_running"] = True
+    assert stall.check_translate_stall(job, now=now) is None
+    job["_local_running"] = False
+    future = (now + timedelta(minutes=2)).isoformat()
+    job["lease_until"] = future
     assert stall.check_translate_stall(job, now=now) is None
 
 

@@ -298,6 +298,23 @@ class _ReaderScreenState extends State<ReaderScreen> {
         final showFigure = _layout != _ReaderLayoutMode.sentenceOnly;
         return Column(
           children: [
+            if ((library.lastIngestFailure ?? '').trim().isNotEmpty)
+              MaterialBanner(
+                content: Text(library.lastIngestFailure!),
+                leading: Icon(
+                  Icons.error_outline,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      library.lastIngestFailure = null;
+                      library.notifyListeners();
+                    },
+                    child: const Text('닫기'),
+                  ),
+                ],
+              ),
             if (library.showIngestQualityBanner)
               MaterialBanner(
                 content: Text(

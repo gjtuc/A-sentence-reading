@@ -105,6 +105,8 @@ def check_translate_stall(
     """Return stall reason enum or None.
 
     Conditions: stage=translate, not done/error/cancel, idle >= stall_sec.
+    Never kill a live worker: ``_local_running`` or unexpired lease means Gemini
+    may simply be slow on a long paper (ops showed false translate_stalled).
     """
     if not ingest_stall_detector_enabled():
         return None
@@ -114,6 +116,16 @@ def check_translate_stall(
         return None
     if job.get("cancel_requested"):
         return None
+    if job.get("_local_running"):
+        return None
+    try:
+        from sentence_reading.llm.ingest_jobs_gcs import lease_expired
+
+        if not lease_expired(job, now=now):
+            return None
+    except Exception:  # noqa: BLE001
+        # EDGE: if lease helpers fail, fall through to idle check only.
+        pass
     if str(job.get("stage") or "").strip().lower() != "translate":
         return None
     idle = progress_idle_sec(job, now=now)

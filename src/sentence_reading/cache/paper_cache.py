@@ -879,6 +879,25 @@ def save_paper_session(
     prior_fig_bytes: dict[str, bytes] = {}
     prior_fig_ext: dict[str, str] = {}
     if existing_id:
+        # WHY: reanalyze on Cloud Run often has session.json but no local PNGs
+        # (open is lazy). Pull figures once so T9 preserve can work.
+        old_fig_dir = root / str(existing_id) / "figures"
+        need_pull = not old_fig_dir.is_dir() or not any(old_fig_dir.glob("*"))
+        if need_pull:
+            try:
+                from sentence_reading.llm.papers_gcs import (
+                    download_paper_cache,
+                    gcs_papers_ready,
+                )
+
+                if gcs_papers_ready():
+                    download_paper_cache(
+                        str(existing_id),
+                        include_figures=True,
+                        include_source=False,
+                    )
+            except Exception:  # noqa: BLE001
+                pass
         from sentence_reading.pdf.slot_plan import load_slot_plan
 
         prior_slot_plan = load_slot_plan(root / str(existing_id))
