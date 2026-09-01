@@ -1474,15 +1474,17 @@ class AsrClient {
   Future<ReadingSession> openPaper(
     String cacheId, {
     bool translate = true,
+    bool translatePoll = false,
   }) async {
     final id = cacheId.trim();
     if (id.isEmpty) {
       throw AsrApiException('cache id is empty', 400);
     }
-    final q = translate ? '?translate=1' : '?translate=0';
+    final q = translate ? 'translate=1' : 'translate=0';
+    final pollQ = translatePoll ? '&poll=1' : '';
     final res = await _http
         .post(
-          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/open$q'),
+          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/open?$q$pollQ'),
           headers: await _headers(jsonBody: true),
           body: '{}',
         )

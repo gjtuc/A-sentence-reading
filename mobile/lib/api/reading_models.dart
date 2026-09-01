@@ -329,6 +329,73 @@ class ReadingSession {
     if (figureIndex < 0) figureIndex += n;
   }
 
+  /// design/129 — keep lazy-loaded PNG bytes when session object is replaced
+  /// (e.g. translate poll re-open) without wiping already-fetched figures.
+  void preserveLazyFigureImagesFrom(ReadingSession? prior) {
+    if (prior == null || prior.cacheId != cacheId) return;
+    final byId = <String, String>{};
+    for (final f in prior.figures) {
+      if (f.id.isNotEmpty && f.imageSrc.isNotEmpty) {
+        byId[f.id] = f.imageSrc;
+      }
+    }
+    if (byId.isEmpty) return;
+    for (final f in figures) {
+      if (f.imageSrc.isNotEmpty) continue;
+      final kept = byId[f.id];
+      if (kept != null && kept.isNotEmpty) {
+        f.imageSrc = kept;
+      }
+    }
+  }
+
+  /// design/99 — keep KO text when translate poll re-open returns empty stubs.
+  void preserveLazyTranslationsFrom(ReadingSession? prior) {
+    if (prior == null || prior.cacheId != cacheId) return;
+    final priorSent = <String, SentenceView>{};
+    for (final s in prior.sentences) {
+      if (s.id.isNotEmpty) priorSent[s.id] = s;
+    }
+    for (var i = 0; i < sentences.length; i++) {
+      final s = sentences[i];
+      if (s.textKo.trim().isNotEmpty) continue;
+      final p = priorSent[s.id];
+      if (p != null && p.textKo.trim().isNotEmpty) {
+        sentences[i] = SentenceView(
+          id: s.id,
+          text: s.text,
+          section: s.section,
+          textKo: p.textKo,
+          qualityFlags: s.qualityFlags,
+        );
+      }
+    }
+    final priorFig = <String, FigureView>{};
+    for (final f in prior.figures) {
+      if (f.id.isNotEmpty) priorFig[f.id] = f;
+    }
+    for (var i = 0; i < figures.length; i++) {
+      final f = figures[i];
+      if (f.captionKo.trim().isNotEmpty) continue;
+      final p = priorFig[f.id];
+      if (p != null && p.captionKo.trim().isNotEmpty) {
+        figures[i] = FigureView(
+          id: f.id,
+          imageSrc: f.imageSrc,
+          caption: f.caption,
+          captionKo: p.captionKo,
+          slotKey: f.slotKey,
+        );
+      }
+    }
+  }
+
+  /// Client-side lazy state (figures + KO) across session object replacement.
+  void preserveClientStateFrom(ReadingSession? prior) {
+    preserveLazyFigureImagesFrom(prior);
+    preserveLazyTranslationsFrom(prior);
+  }
+
   /// design/129 — merge `/figures/window` rows into stubs by index (or id).
   void mergeFigureWindow(List<Map<String, dynamic>> rows) {
     for (final row in rows) {

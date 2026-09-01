@@ -861,14 +861,21 @@ class LibraryController extends ChangeNotifier {
             _stopTranslatePoll();
             return;
           }
-          final refreshed = await _client.openPaper(cid, translate: true);
+          final prior = session;
+          final refreshed = await _client.openPaper(
+            cid,
+            translate: true,
+            translatePoll: true,
+          );
           if (session?.cacheId != cid) return;
-          final si = session!.sentenceIndex;
-          final fi = session!.figureIndex;
+          final si = prior!.sentenceIndex;
+          final fi = prior.figureIndex;
           refreshed.sentenceIndex = si;
           refreshed.figureIndex = fi;
           refreshed.clampIndices();
+          refreshed.preserveClientStateFrom(prior);
           session = refreshed;
+          unawaited(_prefetchFigureWindow());
           if (!refreshed.translatePending && refreshed.hasAnyTranslation) {
             _stopTranslatePoll();
           }
@@ -1124,9 +1131,10 @@ class LibraryController extends ChangeNotifier {
         span: 1,
         cacheId: s.cacheId,
       );
-      // EDGE: session may have changed while in flight.
-      if (!identical(session, s)) return;
-      s.mergeFigureWindow(rows);
+      // EDGE: session object may be replaced (translate poll) while in flight.
+      final current = session;
+      if (current == null || current.cacheId != s.cacheId) return;
+      current.mergeFigureWindow(rows);
       notifyListeners();
     } catch (e) {
       // design/168d G1.7 — fail-closed UI, but report (was silent).

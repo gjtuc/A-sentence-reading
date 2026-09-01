@@ -63,6 +63,66 @@ void main() {
       expect(s.figureIndex, 0);
     });
 
+    test('preserveLazyTranslationsFrom keeps KO text on re-open', () {
+      final prior = ReadingSession(
+        sessionId: 'ses_old',
+        cacheId: 'paper1',
+        title: 'T',
+        sentences: [
+          SentenceView(id: 's1', text: 'one', textKo: '하나'),
+        ],
+        figures: [
+          FigureView(id: 'f1', imageSrc: '', captionKo: '그림1'),
+        ],
+      );
+      final next = ReadingSession(
+        sessionId: 'ses_new',
+        cacheId: 'paper1',
+        title: 'T',
+        sentences: [SentenceView(id: 's1', text: 'one')],
+        figures: [FigureView(id: 'f1', imageSrc: '')],
+      );
+      next.preserveLazyTranslationsFrom(prior);
+      expect(next.sentences[0].textKo, '하나');
+      expect(next.figures[0].captionKo, '그림1');
+    });
+
+    test('preserveLazyFigureImagesFrom keeps fetched PNGs on re-open', () {
+      final prior = ReadingSession(
+        sessionId: 'ses_old',
+        cacheId: 'paper1',
+        title: 'T',
+        sentences: [SentenceView(id: 's1', text: 'one')],
+        figures: [
+          FigureView(id: 'f1', imageSrc: 'data:image/png;base64,aaaa'),
+          FigureView(id: 'f2', imageSrc: 'data:image/png;base64,bbbb'),
+        ],
+      );
+      final next = ReadingSession(
+        sessionId: 'ses_new',
+        cacheId: 'paper1',
+        title: 'T',
+        sentences: [SentenceView(id: 's1', text: 'one')],
+        figures: [
+          FigureView(id: 'f1', imageSrc: ''),
+          FigureView(id: 'f2', imageSrc: ''),
+        ],
+      );
+      next.preserveLazyFigureImagesFrom(prior);
+      expect(next.figures[0].imageSrc, 'data:image/png;base64,aaaa');
+      expect(next.figures[1].imageSrc, 'data:image/png;base64,bbbb');
+    });
+
+    test('mergeFigureWindow fills by index and id only when src present', () {
+      final s = sample();
+      s.mergeFigureWindow([
+        {'index': 1, 'image_src': 'data:image/png;base64,bbbb'},
+        {'index': 0, 'image_src': ''},
+      ]);
+      expect(s.figures[0].imageSrc, 'data:image/png;base64,aaaa');
+      expect(s.figures[1].imageSrc, 'data:image/png;base64,bbbb');
+    });
+
     test('fromOpenJson tolerant garbage', () {
       final s = ReadingSession.fromOpenJson({
         'session_id': 'ses_x',

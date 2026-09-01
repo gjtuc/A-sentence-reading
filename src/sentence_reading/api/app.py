@@ -152,6 +152,8 @@ _SESSIONS: dict[str, PaperSession] = {}
 # without trusting client-supplied paths. Same LRU eviction as _SESSIONS.
 _SESSION_CACHE_IDS: dict[str, str] = {}
 _JOBS: dict[str, dict] = {}
+# design/99 — one open backfill per cache_id (mobile poll must not stack tasks).
+_OPEN_TRANSLATE_BACKFILL_INFLIGHT: set[str] = set()
 
 load_asr_env()
 
@@ -201,7 +203,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.117",
+    version="0.3.118",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -323,6 +325,32 @@ def _want_translate(request: Request) -> bool:
     if q in ("1", "true", "yes", "on"):
         return True
     return True
+
+
+def _is_translate_poll(request: Request) -> bool:
+    """Mobile translate refresh — reload GCS session only; do not spawn backfill."""
+    q = (request.query_params.get("poll") or "").strip().lower()
+    return q in ("1", "true", "yes", "on")
+
+
+def _spawn_open_translate_backfill(
+    cache_id: str,
+    *,
+    kind: str,
+    doc_role: str,
+) -> None:
+    """Start at most one in-flight open backfill per cache_id."""
+    cid = (cache_id or "").strip()
+    if not cid or cid in _OPEN_TRANSLATE_BACKFILL_INFLIGHT:
+        return
+    _OPEN_TRANSLATE_BACKFILL_INFLIGHT.add(cid)
+    asyncio.create_task(
+        _open_translate_backfill_task(
+            cid,
+            kind=kind,
+            doc_role=doc_role,
+        )
+    )
 
 
 def _ingest_rate_limited(request: Request, action: str) -> JSONResponse | None:
@@ -1096,7 +1124,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.117",
+        "version": "0.3.118",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -3385,13 +3413,12 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                 session.sentences, session.figures, session.translate_digests
             ):
                 translate_pending = True
-                asyncio.create_task(
-                    _open_translate_backfill_task(
+                if not _is_translate_poll(request):
+                    _spawn_open_translate_backfill(
                         cache_id,
                         kind=src,
                         doc_role=str(info.get("doc_role") or "main"),
                     )
-                )
         session_id = _remember_session(session, cache_id=cache_id)
         # design/129 — sentences/meta only; PNGs via /figures/window (fail-closed empty src).
         data = session.to_public_dict(include_images=False)
@@ -4428,6 +4455,8 @@ async def _backfill_cached_translations(
     source_path: Path | None,
     content_hash: str | None,
     doc_role: str = "main",
+    cache_id: str = "",
+    incremental_upload: bool = False,
 ) -> tuple[PaperSession, list[str]]:
     """
     design/42 — 보관본에 KO가 없으면 번역만 채우고 같은 제목 키로 재저장.
@@ -4462,12 +4491,55 @@ async def _backfill_cached_translations(
             stage="translate",
             message="보관본 번역 채우는 중",
         )
+    items_since_upload = 0
+
+    def _on_item(kind: str, index: int, ko: str, stage: str) -> None:
+        nonlocal items_since_upload
+        from dataclasses import replace
+
+        if kind == "sentence" and 0 <= index < len(session.sentences):
+            session.sentences[index] = replace(
+                session.sentences[index],
+                text_ko=ko,
+                text_ko_stage=stage,
+            )
+        elif kind == "figure" and 0 <= index < len(session.figures):
+            session.figures[index] = replace(
+                session.figures[index],
+                caption_ko=ko,
+                caption_ko_stage=stage,
+            )
+        cid = (cache_id or "").strip()
+        if not incremental_upload or not cid or not ko:
+            return
+        items_since_upload += 1
+        if items_since_upload % 20 != 0:
+            return
+        try:
+            save_paper_session(
+                session,
+                debone=True,
+                source=kind,
+                doc_role=doc_role,
+                source_path=source_path,
+                content_hash=content_hash,
+            )
+            from sentence_reading.llm.papers_gcs import upload_paper_cache
+
+            upload_paper_cache(cid)
+        except Exception as exc:  # noqa: BLE001
+            log = __import__("logging").getLogger("sentence_reading.api")
+            log.warning(
+                "translate incremental upload failed: %s", type(exc).__name__
+            )
+
     try:
         sentences, figures, digests, tr_warn = await asyncio.to_thread(
             enrich_session_translations,
             session.sentences,
             session.figures,
             on_progress=_bf_progress,
+            on_item=_on_item,
         )
         warnings.extend(tr_warn)
     except Exception as exc:  # noqa: BLE001
@@ -4554,6 +4626,8 @@ async def _open_translate_backfill_task(
             source_path=get_source_path(cid),
             content_hash=str(info.get("content_hash") or "") or None,
             doc_role=str(info.get("doc_role") or doc_role or "main"),
+            cache_id=cid,
+            incremental_upload=True,
         )
         await asyncio.to_thread(upload_paper_cache, cid)
     except Exception as exc:  # noqa: BLE001
@@ -4562,6 +4636,8 @@ async def _open_translate_backfill_task(
         if reason[0].isdigit():
             reason = f"e_{reason}"
         _emit_backfill_fail(reason)
+    finally:
+        _OPEN_TRANSLATE_BACKFILL_INFLIGHT.discard(cid)
 
 
 async def _run_ingest_job(
