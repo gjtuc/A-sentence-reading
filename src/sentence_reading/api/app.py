@@ -203,7 +203,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.118",
+    version="0.3.119",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -776,6 +776,17 @@ def _job_publish_partial(job_id: str, data: dict, *, message: str = "") -> None:
     job["result"] = payload
     if message:
         job["message"] = message
+    # design/168e — partial publish during translate must refresh stall clock.
+    try:
+        from sentence_reading.llm.ingest_stall import note_job_progress
+
+        note_job_progress(
+            job,
+            percent=int(job.get("percent") or 0),
+            message=str(job.get("message") or ""),
+        )
+    except Exception:  # noqa: BLE001
+        pass
     from sentence_reading.llm import ingest_jobs_gcs as ij
 
     ij.stamp_ingest_phase(job)
@@ -806,6 +817,14 @@ def _job_publish_partial(job_id: str, data: dict, *, message: str = "") -> None:
         )
     except Exception:  # noqa: BLE001
         pass
+
+
+def _ingest_force_cache_id(job_id: str) -> str:
+    """Reanalyze jobs pin the library row id — do not re-key by title."""
+    cid = str((_JOBS.get(job_id) or {}).get("target_cache_id") or "").strip()
+    if cid and re.fullmatch(r"[a-zA-Z0-9]{8,32}", cid):
+        return cid
+    return ""
 
 
 def _remember_session(session: PaperSession, *, cache_id: str | None = None) -> str:
@@ -1124,7 +1143,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.118",
+        "version": "0.3.119",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -3558,6 +3577,8 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
         "trace_id": trace_id,
         # WHY: mobile Settings translate opt-in must apply to reanalyze ingest (design/99).
         "want_translate": want_tr,
+        # WHY: reanalyze must overwrite the same cache row (not title_key guess).
+        "target_cache_id": cid,
     }
     if owner_uid:
         _persist_job(job_id, _JOBS[job_id], force=True)
@@ -5307,6 +5328,7 @@ async def _run_ingest_job_body(
                 layout_artifacts = None
         # design/168c — partial while translate pending; ok when translate opted out.
         early_status = "partial" if want_translate else "ok"
+        forced_cid = _ingest_force_cache_id(job_id)
         cache_entry = await asyncio.to_thread(
             save_paper_session,
             session,
@@ -5319,6 +5341,7 @@ async def _run_ingest_job_body(
             content_hash=content_hash,
             layout_artifacts=layout_artifacts,
             ingest_status=early_status,
+            force_cache_id=forced_cid or None,
         )
         if cache_entry is None and debone_ok:
             warnings.append("cache_skip_short_title")
@@ -5397,6 +5420,15 @@ async def _run_ingest_job_body(
                     session.figures[index] = dc_replace(
                         f, caption_ko=ko, caption_ko_stage=stage
                     )
+                if index % 5 == 0:
+                    j = _JOBS.get(job_id)
+                    if j is not None:
+                        from sentence_reading.llm.ingest_stall import note_job_progress
+
+                        note_job_progress(
+                            j,
+                            message=f"번역 중 · {index + 1}번째",
+                        )
                 packed = _pack(pending=True)
                 if cache_entry:
                     packed["cache_id"] = cache_entry.get("id")
@@ -5465,6 +5497,7 @@ async def _run_ingest_job_body(
                 content_hash=content_hash,
                 layout_artifacts=layout_artifacts if kind == "pdf" else None,
                 ingest_status="ok",
+                force_cache_id=forced_cid or None,
             )
             if (
                 cache_entry is None
@@ -5611,9 +5644,11 @@ async def _run_ingest_job_body(
         if job is not None and not job.get("_discarded"):
             job["done"] = True
             # WHY: user-facing only — no stack / paths / tokens.
-            job["error"] = str(exc)
+            raw = str(exc).strip()
+            job["error"] = raw or "처리 중 오류가 발생했습니다. 다시 시도해 주세요."
             job["percent"] = job.get("percent", 0)
             job["stage"] = "error"
+            job["message"] = job["error"]
             # WHY: durable error so mobile reattach does not spin on stale queued.
             # EDGE: keep ingest_payload for reclaim mid-stage skip (not a success).
             _persist_job(job_id, job, force=True)

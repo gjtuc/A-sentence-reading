@@ -811,6 +811,7 @@ def save_paper_session(
     supplementary_cache_id: str | None = None,
     merge_revision: int | None = None,
     ingest_status: str = "ok",
+    force_cache_id: str | None = None,
 ) -> dict | None:
     """
     제목 키 + source(pdf/docx) + doc_role 로 저장.
@@ -848,14 +849,18 @@ def save_paper_session(
     index = _read_index()
     entries: list = index.setdefault("entries", [])
     existing_id = None
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        entry_src = str(entry.get("source") or "pdf").lower()
-        entry_role = str(entry.get("doc_role") or "main").strip().lower()
-        if entry.get("title_key") == key and entry_src == src and entry_role == role:
-            existing_id = entry.get("id")
-            break
+    forced = (force_cache_id or "").strip()
+    if forced and re.fullmatch(r"[a-zA-Z0-9]{8,32}", forced):
+        existing_id = forced
+    else:
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            entry_src = str(entry.get("source") or "pdf").lower()
+            entry_role = str(entry.get("doc_role") or "main").strip().lower()
+            if entry.get("title_key") == key and entry_src == src and entry_role == role:
+                existing_id = entry.get("id")
+                break
 
     now = datetime.now(timezone.utc).isoformat()
     created_at = now

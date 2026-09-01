@@ -199,6 +199,40 @@ def test_reanalyze_starts_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     assert started[0][3] == b"%PDF-1.4 xx"
     assert job_meta
     assert job_meta[0].get("want_translate") is False
+    assert job_meta[0].get("target_cache_id") == cid
+
+
+def test_save_paper_session_force_cache_id(tmp_path, monkeypatch) -> None:
+    """Reanalyze must overwrite the pinned library row, not title_key guess."""
+    root = tmp_path / "papers"
+    monkeypatch.setattr(pc, "cache_root", lambda: root)
+    title = "Co doped titanium dioxide photocatalyst study"
+    session = PaperSession(
+        title=title,
+        sentences=[
+            Sentence(
+                id="s-1",
+                text="Introduction sentence with enough length here.",
+                section="introduction",
+            )
+        ],
+        figures=[],
+    )
+    pinned = "coti123456"
+    (root / pinned).mkdir(parents=True)
+    (root / pinned / "session.json").write_text(
+        '{"version":1,"title":"old","sentences":[],"figures":[]}',
+        encoding="utf-8",
+    )
+    entry = pc.save_paper_session(
+        session,
+        debone=True,
+        source="pdf",
+        doc_role="main",
+        force_cache_id=pinned,
+    )
+    assert entry is not None
+    assert entry["id"] == pinned
 
 
 def test_gcs_upload_includes_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

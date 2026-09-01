@@ -1364,8 +1364,14 @@ class AsrClient {
       // design/109: 422 = terminal (clear resume draft); not 5xx/retryable poll blip.
       final sessionId = '${st['session_id'] ?? ''}'.trim();
       if (st['ok'] == false && sessionId.isEmpty) {
+        final errCode = '${st['error'] ?? ''}'.trim();
+        final detail = msg.isNotEmpty
+            ? msg
+            : (errCode.isNotEmpty && errCode != 'ingest_failed'
+                ? errCode
+                : '처리에 실패했습니다.');
         throw AsrApiException(
-          msg.isEmpty ? '처리에 실패했습니다.' : msg,
+          detail,
           422,
         );
       }
