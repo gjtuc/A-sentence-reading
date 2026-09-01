@@ -79,7 +79,22 @@ if ! command -v gcloud >/dev/null 2>&1; then
 fi
 
 # WHY: 값에 쉼표·특수문자 있어도 안전 — --set-env-vars 한 줄보다 env-vars-file.
-ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/asr-run-env.XXXXXX.yaml")"
+# EDGE: Windows gcloud.cmd cannot read Git Bash /tmp — prefer TEMP / repo .tmp.
+_ASR_TMP="${TEMP:-${TMP:-}}"
+if [[ -z "$_ASR_TMP" || ! -d "$_ASR_TMP" ]]; then
+  _ASR_TMP="$ROOT/.tmp"
+  mkdir -p "$_ASR_TMP"
+fi
+# Convert Git Bash /c/... to Windows path for gcloud.cmd when available.
+if command -v cygpath >/dev/null 2>&1; then
+  _ASR_TMP="$(cygpath -w "$_ASR_TMP" 2>/dev/null || echo "$_ASR_TMP")"
+fi
+ENV_FILE="$(mktemp "${_ASR_TMP}/asr-run-env.XXXXXX.yaml" 2>/dev/null || mktemp "$ROOT/.tmp/asr-run-env.XXXXXX.yaml")"
+if command -v cygpath >/dev/null 2>&1; then
+  ENV_FILE_WIN="$(cygpath -w "$ENV_FILE" 2>/dev/null || echo "$ENV_FILE")"
+else
+  ENV_FILE_WIN="$ENV_FILE"
+fi
 cleanup() { rm -f "$ENV_FILE"; }
 trap cleanup EXIT
 
@@ -204,7 +219,7 @@ DEPLOY_ARGS=(
   --min-instances "${ASR_MIN_INSTANCES:-1}"
   --max-instances 3
   --timeout 300
-  --env-vars-file "$ENV_FILE"
+  --env-vars-file "${ENV_FILE_WIN:-$ENV_FILE}"
 )
 if [[ "${SMTP_SECRETS_MODE:-}" == "secretmanager" ]]; then
   DEPLOY_ARGS+=(--set-secrets="ASR_SMTP_USER=${SMTP_USER_SECRET:-st-auth-smtp-user}:latest,ASR_SMTP_PASS=${SMTP_PASS_SECRET:-st-auth-smtp-password}:latest")
