@@ -270,9 +270,9 @@
 - [x] tests `test_ops_events.py`
 
 ### 168b — ingest_integrity + T1–T10 (log-only)
-- [ ] J1.9 `ingest_integrity.py`
-- [ ] C1.3, C1.5, C1.6 검증 (log only, 아직 block 안 함)
-- [ ] tests `test_ingest_integrity.py`
+- [x] J1.9 `ingest_integrity.py`
+- [x] C1.3, C1.5, C1.6 검증 (log only, 아직 block 안 함)
+- [x] tests `test_ingest_integrity.py`
 
 ### 168c — phase + ingest_status
 - [ ] A1.5 trace_id on job

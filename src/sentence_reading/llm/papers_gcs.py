@@ -294,6 +294,50 @@ def upload_paper_cache(cache_id: str) -> bool:
             local_meta = json.loads(session_raw.decode("utf-8"))
             if isinstance(remote_meta, dict) and isinstance(local_meta, dict):
                 merged = _merge_session_meta_richer(remote_meta, local_meta)
+                r_figs = remote_meta.get("figures") or []
+                l_figs = local_meta.get("figures") or []
+                r_sents = remote_meta.get("sentences") or []
+                l_sents = local_meta.get("sentences") or []
+                r_refs = remote_meta.get("references") or []
+                l_refs = local_meta.get("references") or []
+                m_figs = merged.get("figures") or []
+                m_sents = merged.get("sentences") or []
+                m_refs = merged.get("references") or []
+                changed = (
+                    len(m_figs) != len(l_figs)
+                    or len(m_sents) != len(l_sents)
+                    or len(m_refs) != len(l_refs)
+                )
+                if changed:
+                    try:
+                        from sentence_reading.llm import ops_events as oev
+
+                        oev.emit(
+                            "merge_session_richer",
+                            cache_id=cid,
+                            details={
+                                "remote_figures": len(r_figs)
+                                if isinstance(r_figs, list)
+                                else 0,
+                                "local_figures": len(l_figs)
+                                if isinstance(l_figs, list)
+                                else 0,
+                                "merged_figures": len(m_figs)
+                                if isinstance(m_figs, list)
+                                else 0,
+                                "remote_sentences": len(r_sents)
+                                if isinstance(r_sents, list)
+                                else 0,
+                                "local_sentences": len(l_sents)
+                                if isinstance(l_sents, list)
+                                else 0,
+                                "merged_sentences": len(m_sents)
+                                if isinstance(m_sents, list)
+                                else 0,
+                            },
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
                 session_raw = (
                     json.dumps(merged, ensure_ascii=False, indent=2) + "\n"
                 ).encode("utf-8")

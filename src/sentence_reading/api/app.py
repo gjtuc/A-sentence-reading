@@ -182,7 +182,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.112",
+    version="0.3.113",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -718,6 +718,32 @@ def _job_publish_partial(job_id: str, data: dict, *, message: str = "") -> None:
     if message:
         job["message"] = message
     _persist_job(job_id, job, force=True)
+    # design/168b — T8 log-only when index still claims ok while job not done.
+    try:
+        from sentence_reading.cache.paper_cache import get_index_entry
+        from sentence_reading.llm.ingest_integrity import (
+            check_partial_vs_status,
+            emit_violations,
+        )
+
+        cache_id = str(payload.get("cache_id") or "").strip()
+        status = "ok"
+        if cache_id:
+            entry = get_index_entry(cache_id)
+            if isinstance(entry, dict) and entry.get("ingest_status"):
+                status = str(entry.get("ingest_status") or "ok")
+        emit_violations(
+            check_partial_vs_status(job_done=False, ingest_status=status),
+            trace_id=str(job.get("trace_id") or ""),
+            job_id=job_id,
+            cache_id=cache_id,
+            owner_uid=str(job.get("owner_uid") or ""),
+            content_hash=str(job.get("content_hash") or ""),
+            stage=str(job.get("stage") or ""),
+            percent=int(job.get("percent") or 0),
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _remember_session(session: PaperSession, *, cache_id: str | None = None) -> str:
@@ -765,6 +791,22 @@ def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
         percent=100,
         message=message,
     )
+    # design/168b — T1/T2/T7 log-only after terminal persist.
+    try:
+        from sentence_reading.llm.ingest_integrity import check_job, emit_violations
+
+        emit_violations(
+            check_job(job),
+            trace_id=str(job.get("trace_id") or ""),
+            job_id=job_id,
+            cache_id=cache_id,
+            owner_uid=str(job.get("owner_uid") or ""),
+            content_hash=str(job.get("content_hash") or ""),
+            stage="done",
+            percent=100,
+        )
+    except Exception:  # noqa: BLE001
+        pass
     # WHY: source blob only needed while processing; drop after terminal success.
     owner = str(job.get("owner_uid") or "").strip()
     if owner:
@@ -853,6 +895,7 @@ def status(request: Request) -> dict:
     from sentence_reading.llm.ingest_rate_limit import rate_limit_enabled
     from sentence_reading.llm.error_logs import cloud_error_logs_enabled
     from sentence_reading.llm.ops_events import ops_events_enabled
+    from sentence_reading.llm.ingest_integrity import ingest_integrity_enabled
     from sentence_reading.llm.upload_audit_log import upload_audit_enabled
     _cloud_err = cloud_error_logs_enabled()
     from sentence_reading.llm.ingest_jobs_gcs import (
@@ -884,7 +927,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.112",
+        "version": "0.3.113",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -917,6 +960,8 @@ def status(request: Request) -> dict:
         "mobile_cloud_error_logs": _cloud_err,
         # design/168a — structured ops events; false when ASR_OPS_EVENTS=0.
         "ops_events": ops_events_enabled(),
+        # design/168b — T1–T10 integrity checks (log-only); false when ASR_INGEST_INTEGRITY=0.
+        "ingest_integrity": ingest_integrity_enabled(),
         "upload_audit_log": upload_audit_enabled(),
         # design/131 — full figure captions (UI + normalize ceiling); false restores 2-line ….
         "caption_full_text": True,

@@ -844,6 +844,21 @@ def save_paper_session(
             }
         )
 
+    # design/168b — log-only T9 (session figures vs written meta); never block save.
+    try:
+        from sentence_reading.llm.ingest_integrity import (
+            check_fig_meta,
+            emit_violations,
+        )
+
+        emit_violations(
+            check_fig_meta(len(session.figures), len(fig_meta)),
+            cache_id=cache_id,
+            content_hash=ch or "",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
     has_source = False
     source_rel: str | None = None
     if source_path is not None:
@@ -936,6 +951,24 @@ def save_paper_session(
         "merged_supplementary_id": (supplementary_cache_id or None),
         "hidden_in_library": False,
     }
+    # design/168b — T4/T5 vs in-memory session counts (payload figures may already be truncated).
+    try:
+        from sentence_reading.llm.ingest_integrity import (
+            check_session_vs_index,
+            emit_violations,
+        )
+
+        synth = {
+            "figures": [{"id": getattr(f, "id", "")} for f in session.figures],
+            "sentences": payload.get("sentences") or [],
+        }
+        emit_violations(
+            check_session_vs_index(synth, new_entry),
+            cache_id=cache_id,
+            content_hash=ch or "",
+        )
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from sentence_reading.llm.paper_retention import (
             reset_retention_on_save,

@@ -51,6 +51,9 @@ _ALLOWED_KINDS = frozenset(
         "ingest_gcs_push",
         "ingest_gcs_skip",
         "ingest_terminal",
+        # design/168b
+        "consistency_violation",
+        "merge_session_richer",
     }
 )
 
