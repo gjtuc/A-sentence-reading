@@ -572,9 +572,6 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  /// Last terminal ingest/reanalyze failure (kept until next success) for QA.
-  String? lastIngestFailure;
-
   /// design/145 — reanalyze from stored source (web parity); no confirm dialog.
   /// design/168f H1.5 — persist job draft so 504 can resume poll (upload parity).
   Future<bool> reanalyzePaper(PaperEntry entry) async {
