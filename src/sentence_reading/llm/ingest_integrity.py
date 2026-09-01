@@ -264,6 +264,39 @@ def audit_cache(
         return []
 
 
+def violations_to_public(violations: list[Violation]) -> list[dict[str, Any]]:
+    """Admin JSON rows — invariant/code/details only (no free text)."""
+    out: list[dict[str, Any]] = []
+    for v in violations:
+        if not isinstance(v, Violation):
+            continue
+        row: dict[str, Any] = {
+            "invariant": str(v.invariant or "").strip().upper()[:8],
+            "code": str(v.code or "").strip().lower()[:64],
+        }
+        if isinstance(v.details, dict) and v.details:
+            # Reuse ops-safe filtering via emit path shape.
+            clean: dict[str, Any] = {}
+            for key, val in v.details.items():
+                k = str(key or "").strip()[:40]
+                if not k or not re.match(r"^[a-z][a-z0-9_]{0,39}$", k):
+                    continue
+                if isinstance(val, bool):
+                    clean[k] = val
+                elif isinstance(val, int):
+                    clean[k] = val
+                elif isinstance(val, float):
+                    clean[k] = round(val, 3)
+                elif isinstance(val, str):
+                    s = val.strip()[:64]
+                    if s and re.match(r"^[a-z][a-z0-9_]{0,63}$", s):
+                        clean[k] = s
+            if clean:
+                row["details"] = clean
+        out.append(row)
+    return out
+
+
 def emit_violations(
     violations: list[Violation],
     *,

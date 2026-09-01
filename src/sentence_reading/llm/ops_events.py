@@ -59,6 +59,11 @@ _ALLOWED_KINDS = frozenset(
         "figure_data_url_miss",
         "figure_blob_miss",
         "open_translate_backfill_fail",
+        # design/168e — stall / sweeper / reclaim
+        "translate_stalled",
+        "translate_section_tick",
+        "worker_lost",
+        "reclaim_attempt",
     }
 )
 

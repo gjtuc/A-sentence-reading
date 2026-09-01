@@ -289,10 +289,10 @@
 
 ### 168e — sweeper + admin
 구현 세분: [168e-impl-checklist.md](168e-impl-checklist.md) (e0–e5)
-- [ ] J1.7, J1.8
-- [ ] A1.19 reclaim events
-- [ ] **D1.5** translate stall detector
-- [ ] E1.3 worker_lost sweeper
+- [x] J1.7, J1.8
+- [x] A1.19 reclaim events
+- [x] **D1.5** translate stall detector
+- [x] E1.3 worker_lost sweeper
 
 ### 168f — 버그 수정 (로그 확인 후)
 - [ ] **C1.3/T9** fig_meta: stub meta without data-URL

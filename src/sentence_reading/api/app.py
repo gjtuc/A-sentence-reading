@@ -177,12 +177,31 @@ async def _lifespan(_app: FastAPI):
         refresh_access_gate_from_gcs()
     except Exception:
         pass
-    yield
+    # design/168e — background sweeper for lease-expired zombies.
+    sweeper_task = None
+    try:
+        from sentence_reading.llm.ingest_stall import sweeper_interval_sec
+
+        if sweeper_interval_sec() > 0:
+            sweeper_task = asyncio.create_task(_ingest_sweeper_loop())
+    except Exception:
+        sweeper_task = None
+    try:
+        yield
+    finally:
+        if sweeper_task is not None:
+            sweeper_task.cancel()
+            try:
+                await sweeper_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
 
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.115",
+    version="0.3.116",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -678,6 +697,17 @@ def _job_set(
     job["stage"] = stage
     if message:
         job["message"] = message
+    # design/168e — progress clock for translate stall detector.
+    try:
+        from sentence_reading.llm.ingest_stall import note_job_progress
+
+        note_job_progress(
+            job,
+            percent=int(job.get("percent") or 0),
+            message=str(job.get("message") or ""),
+        )
+    except Exception:  # noqa: BLE001
+        pass
     if prev_stage != stage:
         oev.emit(
             "ingest_phase_transition",
@@ -834,6 +864,137 @@ def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
             pass
 
 
+def _fail_job_terminal(
+    job_id: str,
+    reason: str,
+    *,
+    ops_kind: str = "",
+    details: dict | None = None,
+    percent: int | None = None,
+) -> bool:
+    """design/168e — mark job done+error without inventing cache_id. Returns True if applied."""
+    from sentence_reading.llm import ops_events as oev
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    job = _JOBS.get(job_id)
+    if job is None or job.get("_discarded"):
+        return False
+    if job.get("done") or job.get("error"):
+        return False
+    if job.get("cancel_requested") and not _ingest_job_too_late_to_cancel(job):
+        return False
+    msg = (reason or "").strip() or "처리가 중단되었습니다."
+    job["done"] = True
+    job["error"] = msg
+    job["stage"] = "error"
+    job["message"] = msg
+    if percent is not None:
+        job["percent"] = max(0, min(100, int(percent)))
+    else:
+        job["percent"] = int(job.get("percent") or 0)
+    # Keep partial result if present — do not invent cache_id.
+    ij.stamp_ingest_phase(job)
+    _persist_job(job_id, job, force=True)
+    kind = str(ops_kind or "").strip()
+    if kind:
+        oev.emit(
+            kind,
+            trace_id=str(job.get("trace_id") or ""),
+            job_id=job_id,
+            owner_uid=str(job.get("owner_uid") or ""),
+            content_hash=str(job.get("content_hash") or ""),
+            stage="error",
+            percent=int(job.get("percent") or 0),
+            message=msg,
+            details=details or {},
+        )
+    oev.emit(
+        "ingest_terminal",
+        trace_id=str(job.get("trace_id") or ""),
+        job_id=job_id,
+        owner_uid=str(job.get("owner_uid") or ""),
+        content_hash=str(job.get("content_hash") or ""),
+        stage="error",
+        percent=int(job.get("percent") or 0),
+        message=msg,
+        details={"terminal": "error"},
+    )
+    return True
+
+
+def _maybe_fail_translate_stall(job_id: str, job: dict) -> bool:
+    """If translate idle exceeded, terminal-fail and emit translate_stalled."""
+    from sentence_reading.llm.ingest_stall import (
+        check_translate_stall,
+        progress_idle_sec,
+        translate_stall_sec,
+    )
+
+    reason = check_translate_stall(job)
+    if not reason:
+        return False
+    idle = progress_idle_sec(job) or 0
+    return _fail_job_terminal(
+        job_id,
+        "번역 진행이 멈춘 것 같습니다. 다시 시도해 주세요.",
+        ops_kind="translate_stalled",
+        details={
+            "reason": reason,
+            "idle_sec": int(idle),
+            "stall_sec": int(translate_stall_sec()),
+            "percent": int(job.get("percent") or 0),
+        },
+        percent=int(job.get("percent") or 0),
+    )
+
+
+async def _ingest_sweeper_loop() -> None:
+    """design/168e — periodically reclaim or mark worker_lost on lease-expired jobs."""
+    from sentence_reading.llm.ingest_stall import sweeper_interval_sec, sweep_candidate
+
+    while True:
+        sec = sweeper_interval_sec()
+        if sec <= 0:
+            return
+        try:
+            await asyncio.sleep(sec)
+        except asyncio.CancelledError:
+            raise
+        try:
+            # Snapshot keys — reclaim may mutate _JOBS.
+            for jid in list(_JOBS.keys()):
+                job = _JOBS.get(jid)
+                if not isinstance(job, dict):
+                    continue
+                action = sweep_candidate(job)
+                if action == "none":
+                    continue
+                owner = str(job.get("owner_uid") or "").strip()
+                if action == "reclaim" and owner:
+                    ok = False
+                    try:
+                        ok = await _reclaim_ingest_job_from_gcs(jid, owner)
+                    except Exception:  # noqa: BLE001
+                        ok = False
+                    job2 = _JOBS.get(jid) or job
+                    if ok or job2.get("_local_running"):
+                        continue
+                    # Reclaim refused (no upload / claim fail) → worker_lost terminal.
+                    if job2.get("done") or job2.get("error"):
+                        continue
+                    _fail_job_terminal(
+                        jid,
+                        "처리 worker가 응답하지 않습니다. 다시 업로드해 주세요.",
+                        ops_kind="worker_lost",
+                        details={"reason": "lease_expired"},
+                        percent=int(job2.get("percent") or 0),
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _progress_fail_closed_enabled() -> bool:
     """design/123 — refuse open when stored progress indices are invalid.
 
@@ -903,6 +1064,7 @@ def status(request: Request) -> dict:
     from sentence_reading.llm.error_logs import cloud_error_logs_enabled
     from sentence_reading.llm.ops_events import ops_events_enabled
     from sentence_reading.llm.ingest_integrity import ingest_integrity_enabled
+    from sentence_reading.llm.ingest_stall import ingest_stall_detector_enabled
     from sentence_reading.llm.upload_audit_log import upload_audit_enabled
     _cloud_err = cloud_error_logs_enabled()
     from sentence_reading.llm.ingest_jobs_gcs import (
@@ -934,7 +1096,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.115",
+        "version": "0.3.116",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -974,6 +1136,8 @@ def status(request: Request) -> dict:
         "ingest_status_partial": True,
         # design/168d — silent catch → ops/client report (no bug fixes yet).
         "silent_catch_report": True,
+        # design/168e — translate stall detector; false when ASR_INGEST_STALL_SEC=0.
+        "ingest_stall_detector": ingest_stall_detector_enabled(),
         "upload_audit_log": upload_audit_enabled(),
         # design/131 — full figure captions (UI + normalize ceiling); false restores 2-line ….
         "caption_full_text": True,
@@ -2320,6 +2484,153 @@ def errors_admin_seen(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "seen_unix": ts})
 
 
+@app.get("/api/ops/ingest/jobs/stuck")
+def ops_ingest_jobs_stuck(
+    request: Request,
+    limit: int = 50,
+    job_id: str = "",
+) -> JSONResponse:
+    """design/168e J1.7 — admin: stuck jobs (memory + optional GCS job_id)."""
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    user = _request_user(request)
+    if user is None or not _is_admin_user(user):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "error": "admin_required",
+                "message": "관리자만 볼 수 있습니다.",
+            },
+        )
+    try:
+        lim = max(1, min(int(limit), 200))
+    except (TypeError, ValueError):
+        lim = 50
+    rows: list[dict] = []
+    source = "memory"
+    jid_q = (job_id or "").strip()
+    if jid_q:
+        if not ij.valid_job_id(jid_q):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "ok": False,
+                    "error": "bad_job_id",
+                    "message": "job_id 형식이 올바르지 않습니다.",
+                },
+            )
+        job = _JOBS.get(jid_q)
+        src = "memory"
+        if job is None:
+            loaded = ij.load_ingest_job(jid_q, owner_uid=user.uid)
+            if loaded is not None:
+                job = loaded
+                src = "gcs"
+        if job is None:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "ok": False,
+                    "error": "job_not_found",
+                    "message": "작업을 찾을 수 없습니다.",
+                },
+            )
+        stuck, reason = ij.job_is_stuck(job)
+        if stuck:
+            rows.append(ij.public_stuck_row(jid_q, job, stuck_reason=reason))
+        return JSONResponse({"ok": True, "jobs": rows, "source": src})
+
+    for jid, job in list(_JOBS.items()):
+        if not isinstance(job, dict):
+            continue
+        stuck, reason = ij.job_is_stuck(job)
+        if not stuck:
+            continue
+        rows.append(ij.public_stuck_row(jid, job, stuck_reason=reason))
+        if len(rows) >= lim:
+            break
+    return JSONResponse({"ok": True, "jobs": rows, "source": source})
+
+
+@app.get("/api/ops/cache/{cache_id}/integrity")
+def ops_cache_integrity(
+    request: Request,
+    cache_id: str,
+    job_id: str = "",
+    emit: int = 0,
+) -> JSONResponse:
+    """design/168e J1.8 — admin read-only T1–T10 audit for one cache_id."""
+    from sentence_reading.cache.paper_cache import get_index_entry, load_cached_session
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+    from sentence_reading.llm.ingest_integrity import (
+        audit_cache,
+        emit_violations,
+        violations_to_public,
+    )
+
+    user = _request_user(request)
+    if user is None or not _is_admin_user(user):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "ok": False,
+                "error": "admin_required",
+                "message": "관리자만 볼 수 있습니다.",
+            },
+        )
+    cid = (cache_id or "").strip()
+    if not re.fullmatch(r"[a-zA-Z0-9]{8,32}", cid):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "bad_cache_id",
+                "message": "cache_id 형식이 올바르지 않습니다.",
+            },
+        )
+    entry = get_index_entry(cid)
+    loaded = load_cached_session(cid, load_images=False)
+    if entry is None and loaded is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "cache_not_found",
+                "message": "캐시를 찾을 수 없습니다.",
+            },
+        )
+    job = None
+    jid = (job_id or "").strip()
+    if jid:
+        if not ij.valid_job_id(jid):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "ok": False,
+                    "error": "bad_job_id",
+                    "message": "job_id 형식이 올바르지 않습니다.",
+                },
+            )
+        job = _JOBS.get(jid) or ij.load_ingest_job(jid, owner_uid=user.uid)
+    violations = audit_cache(cid, job=job if isinstance(job, dict) else None)
+    if int(emit or 0) == 1:
+        emit_violations(
+            violations,
+            job_id=jid,
+            cache_id=cid,
+            owner_uid=user.uid,
+        )
+    return JSONResponse(
+        {
+            "ok": True,
+            "cache_id": cid,
+            "violation_count": len(violations),
+            "violations": violations_to_public(violations),
+        }
+    )
+
+
 @app.post("/api/access/admin/mint")
 async def access_admin_mint(request: Request, payload: dict = Body(None)) -> JSONResponse:
     """Mint one OTP-style invite (XXXX-XXXX). Plaintext returned once."""
@@ -3604,19 +3915,35 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
     Restart processing from GCS upload blob when the prior worker lease expired.
     WHY: root fix for orphaned 12% jobs — not a fake percent bump.
     EDGE: no blob → False (fail-closed, no empty success).
+    design/168e — emit reclaim_attempt on every exit path.
     """
     from sentence_reading.llm import ingest_jobs_gcs as ij
+    from sentence_reading.llm import ops_events as oev
+
+    def _emit(reason: str) -> None:
+        try:
+            oev.emit(
+                "reclaim_attempt",
+                job_id=job_id,
+                owner_uid=owner_uid,
+                details={"reason": reason},
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     if not ij.ingest_job_reclaim_enabled():
+        _emit("reclaim_disabled")
         return False
     existing = _JOBS.get(job_id)
     # WHY: this instance already has an active worker — do not double-start.
     if existing is not None and existing.get("_local_running"):
+        _emit("already_local")
         return False
     # design/132 — cancelled jobs must not restart on another instance.
     if existing is not None and (
         existing.get("cancel_requested") or existing.get("_discarded")
     ):
+        _emit("cancelled")
         return False
     meta_pre = ij.load_ingest_job(job_id, owner_uid=owner_uid) or {}
     if meta_pre.get("cancel_requested"):
@@ -3626,9 +3953,11 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
             owner_uid=owner_uid,
             filename=str(meta_pre.get("filename") or ""),
         )
+        _emit("cancelled")
         return False
     token = ij.try_claim_lease(job_id, owner_uid=owner_uid)
     if not token:
+        _emit("lease_claim_failed")
         return False
     raw = ij.load_ingest_upload(job_id, owner_uid=owner_uid, suffix=".pdf")
     kind = "pdf"
@@ -3639,95 +3968,102 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
         suffix = ".docx"
     if not raw:
         # EDGE: lease claimed but bytes gone — leave job as-is; next poll can retry.
+        _emit("upload_missing")
         return False
-    meta = ij.load_ingest_job(job_id, owner_uid=owner_uid) or {}
-    filename = ij.safe_filename(str(meta.get("filename") or f"reclaim{suffix}"))
-    content_hash = str(meta.get("content_hash") or "").strip() or None
-    # design/110·112 — accept/discard checkpoint; load payload for skip when enabled.
-    cp_raw = meta.get("checkpoint")
-    cp_ok, cp_reason = ij.checkpoint_is_valid(
-        cp_raw,
-        content_hash=content_hash or "",
-        pipeline_version=PIPELINE_VERSION,
-    )
-    kept_cp = cp_raw if cp_ok and isinstance(cp_raw, dict) else None
-    resume_payload = None
-    if kept_cp is not None and ij.ingest_resume_skip_enabled():
-        loaded_pl = ij.load_ingest_payload(job_id, owner_uid=owner_uid)
-        pl_ok, pl_reason = ij.payload_is_valid(
-            loaded_pl,
+    try:
+        meta = ij.load_ingest_job(job_id, owner_uid=owner_uid) or {}
+        filename = ij.safe_filename(str(meta.get("filename") or f"reclaim{suffix}"))
+        content_hash = str(meta.get("content_hash") or "").strip() or None
+        # design/110·112 — accept/discard checkpoint; load payload for skip when enabled.
+        cp_raw = meta.get("checkpoint")
+        cp_ok, cp_reason = ij.checkpoint_is_valid(
+            cp_raw,
             content_hash=content_hash or "",
             pipeline_version=PIPELINE_VERSION,
         )
-        if pl_ok:
-            resume_payload = loaded_pl
+        kept_cp = cp_raw if cp_ok and isinstance(cp_raw, dict) else None
+        resume_payload = None
+        if kept_cp is not None and ij.ingest_resume_skip_enabled():
+            loaded_pl = ij.load_ingest_payload(job_id, owner_uid=owner_uid)
+            pl_ok, pl_reason = ij.payload_is_valid(
+                loaded_pl,
+                content_hash=content_hash or "",
+                pipeline_version=PIPELINE_VERSION,
+            )
+            if pl_ok:
+                resume_payload = loaded_pl
+                reclaim_msg = ij.checkpoint_resume_message(kept_cp)
+                cp_reason = "ok"
+            else:
+                # WHY: envelope without usable payload → honest full restart.
+                kept_cp = None
+                reclaim_msg = "처리 다시 시작"
+                cp_reason = pl_reason
+                try:
+                    ij.delete_ingest_payload(job_id, owner_uid=owner_uid)
+                except Exception:  # noqa: BLE001
+                    pass
+        elif kept_cp is not None:
             reclaim_msg = ij.checkpoint_resume_message(kept_cp)
-            cp_reason = "ok"
         else:
-            # WHY: envelope without usable payload → honest full restart.
-            kept_cp = None
             reclaim_msg = "처리 다시 시작"
-            cp_reason = pl_reason
-            try:
-                ij.delete_ingest_payload(job_id, owner_uid=owner_uid)
-            except Exception:  # noqa: BLE001
-                pass
-    elif kept_cp is not None:
-        reclaim_msg = ij.checkpoint_resume_message(kept_cp)
-    else:
-        reclaim_msg = "처리 다시 시작"
-        kept_cp = None
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(raw)
-        tmp_path = Path(tmp.name)
-    seed_stage = str(
-        (resume_payload or {}).get("completed")
-        or (kept_cp or {}).get("stage")
-        or meta.get("stage")
-        or "queued"
-    )
-    seed_pct = max(
-        ij.stage_percent_floor(seed_stage),
-        int(meta.get("percent") or 1),
-    )
-    # design/112 — keep partial result only when translating from ready payload.
-    keep_result = None
-    if isinstance(meta.get("result"), dict) and str(
-        (resume_payload or {}).get("completed") or ""
-    ) in ("ready", "translate"):
-        keep_result = meta.get("result")
-    job = {
-        "percent": seed_pct,
-        "stage": seed_stage if seed_stage != "queued" else str(meta.get("stage") or "queued"),
-        "message": reclaim_msg,
-        "done": False,
-        "error": None,
-        "result": keep_result,
-        "owner_uid": owner_uid,
-        "content_hash": content_hash or "",
-        "filename": filename,
-        "want_shadowing_chunks": bool(meta.get("want_shadowing_chunks", False)),
-        "want_translate": bool(meta.get("want_translate", True)),
-        "lease_token": token,
-        "lease_until": meta.get("lease_until"),
-        "checkpoint": kept_cp,
-        "_checkpoint_reclaim": cp_reason,
-        "_resume_payload": resume_payload,
-        "_local_running": True,
-    }
-    ij.stamp_lease(job, token=token)
-    _JOBS[job_id] = job
-    _persist_job(job_id, job, force=True)
-    asyncio.create_task(
-        _run_ingest_job(
-            job_id,
-            tmp_path,
-            filename,
-            kind,
-            content_hash=content_hash,
+            kept_cp = None
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(raw)
+            tmp_path = Path(tmp.name)
+        seed_stage = str(
+            (resume_payload or {}).get("completed")
+            or (kept_cp or {}).get("stage")
+            or meta.get("stage")
+            or "queued"
         )
-    )
-    return True
+        seed_pct = max(
+            ij.stage_percent_floor(seed_stage),
+            int(meta.get("percent") or 1),
+        )
+        # design/112 — keep partial result only when translating from ready payload.
+        keep_result = None
+        if isinstance(meta.get("result"), dict) and str(
+            (resume_payload or {}).get("completed") or ""
+        ) in ("ready", "translate"):
+            keep_result = meta.get("result")
+        job = {
+            "percent": seed_pct,
+            "stage": seed_stage if seed_stage != "queued" else str(meta.get("stage") or "queued"),
+            "message": reclaim_msg,
+            "done": False,
+            "error": None,
+            "result": keep_result,
+            "owner_uid": owner_uid,
+            "content_hash": content_hash or "",
+            "filename": filename,
+            "want_shadowing_chunks": bool(meta.get("want_shadowing_chunks", False)),
+            "want_translate": bool(meta.get("want_translate", True)),
+            "lease_token": token,
+            "lease_until": meta.get("lease_until"),
+            "checkpoint": kept_cp,
+            "_checkpoint_reclaim": cp_reason,
+            "_resume_payload": resume_payload,
+            "_local_running": True,
+            "trace_id": str(meta.get("trace_id") or ""),
+        }
+        ij.stamp_lease(job, token=token)
+        _JOBS[job_id] = job
+        _persist_job(job_id, job, force=True)
+        asyncio.create_task(
+            _run_ingest_job(
+                job_id,
+                tmp_path,
+                filename,
+                kind,
+                content_hash=content_hash,
+            )
+        )
+        _emit("reclaimed")
+        return True
+    except Exception:  # noqa: BLE001
+        _emit("reclaim_exception")
+        return False
 
 
 @app.get("/api/ingest/jobs/{job_id}")
@@ -3839,6 +4175,11 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
         ):
             await _reclaim_ingest_job_from_gcs(jid, owner)
             job = _JOBS.get(jid) or job
+
+    # design/168e — translate stall before client idle 504.
+    if job is not None and not job.get("done") and not job.get("error"):
+        _maybe_fail_translate_stall(jid, job)
+        job = _JOBS.get(jid) or job
 
     return JSONResponse(ij.public_job_view(jid, job))
 

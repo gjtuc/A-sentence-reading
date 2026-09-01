@@ -181,6 +181,61 @@ def lease_expired(job: dict[str, Any], *, now: datetime | None = None) -> bool:
     return until <= clock
 
 
+def job_is_stuck(
+    job: dict[str, Any], *, now: datetime | None = None
+) -> tuple[bool, str]:
+    """design/168e — done=false stuck by lease expiry or translate stall."""
+    if not isinstance(job, dict):
+        return False, ""
+    if job.get("done") or job.get("error") or job.get("_discarded"):
+        return False, ""
+    if job.get("cancel_requested"):
+        return False, ""
+    try:
+        from sentence_reading.llm.ingest_stall import check_translate_stall
+
+        stall = check_translate_stall(job, now=now)
+        if stall:
+            return True, "translate_stalled"
+    except Exception:  # noqa: BLE001
+        pass
+    if lease_expired(job, now=now) and not job.get("_local_running"):
+        return True, "lease_expired"
+    return False, ""
+
+
+def public_stuck_row(job_id: str, job: dict[str, Any], *, stuck_reason: str) -> dict[str, Any]:
+    """Admin stuck list row — no owner email, no paper text, no full filename."""
+    from sentence_reading.llm.error_logs import redact_text
+    from sentence_reading.llm.ingest_stall import progress_idle_sec
+
+    msg = redact_text(str(job.get("message") or ""), limit=80)
+    out: dict[str, Any] = {
+        "job_id": str(job_id or "").strip(),
+        "percent": int(job.get("percent") or 0),
+        "stage": str(job.get("stage") or "")[:40],
+        "message": msg,
+        "stuck_reason": str(stuck_reason or "")[:40],
+        "done": False,
+    }
+    tid = safe_trace_id(job.get("trace_id"))
+    if tid:
+        out["trace_id"] = tid
+    ch = str(job.get("content_hash") or "").strip()
+    if re.match(r"^[a-f0-9]{64}$", ch):
+        out["content_hash"] = ch
+    lu = str(job.get("lease_until") or "").strip()
+    if lu:
+        out["lease_until"] = lu[:40]
+    idle = progress_idle_sec(job)
+    if idle is not None:
+        out["progress_age_sec"] = idle
+    fn = str(job.get("filename") or "").strip()
+    if fn:
+        out["filename_len"] = min(len(fn), 512)
+    return out
+
+
 def stamp_lease(job: dict[str, Any], *, token: str | None = None) -> str:
     """Set lease_until / lease_token on the in-memory job. Returns token."""
     tok = (token or "").strip() or uuid.uuid4().hex[:16]
