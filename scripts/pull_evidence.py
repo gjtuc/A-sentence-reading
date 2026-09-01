@@ -58,12 +58,35 @@ def _parse_ts(raw: str) -> datetime | None:
         return None
 
 
+def _gsutil_bin() -> str:
+    import os
+    import shutil
+
+    found = shutil.which("gsutil")
+    if found:
+        return found
+    # Windows Cloud SDK often missing from Git Bash PATH.
+    candidates = [
+        r"C:\Program Files (x86)\Google\Cloud SDK\google-cloud-sdk\bin\gsutil.cmd",
+        r"C:\Program Files\Google\Cloud SDK\google-cloud-sdk\bin\gsutil.cmd",
+        os.path.expandvars(
+            r"%LOCALAPPDATA%\Google\Cloud SDK\google-cloud-sdk\bin\gsutil.cmd"
+        ),
+    ]
+    for c in candidates:
+        if c and Path(c).is_file():
+            return c
+    raise FileNotFoundError("gsutil")
+
+
 def _gsutil_cat(uri: str) -> bytes:
     try:
+        bin_path = _gsutil_bin()
         proc = subprocess.run(
-            ["gsutil", "-q", "cat", uri],
+            [bin_path, "-q", "cat", uri],
             check=False,
             capture_output=True,
+            shell=False,
         )
     except FileNotFoundError as exc:
         raise RuntimeError(
@@ -71,6 +94,11 @@ def _gsutil_cat(uri: str) -> bytes:
         ) from exc
     if proc.returncode != 0:
         err = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
+        # EDGE: first deploy — object may not exist yet; treat as empty, not ADC fail.
+        low = err.lower()
+        if "no urls matched" in low or "matched no objects" in low:
+            print(f"note: no object yet for {uri} (empty)", file=sys.stderr)
+            return b""
         raise RuntimeError(
             f"gsutil cat failed for {uri} (exit {proc.returncode}): {err or 'no stderr'}"
         )
