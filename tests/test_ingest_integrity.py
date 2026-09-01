@@ -113,7 +113,7 @@ def test_t3_unit() -> None:
 
 def test_status_ingest_integrity_pin(ops_tmp) -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.134"
+    assert st["version"] == "0.3.135"
     assert st.get("ingest_integrity") is True
     assert st.get("ops_events") is True
 

@@ -346,6 +346,7 @@ ts=... kind=figure_preserve_miss prior_png=0 session_figs=7 cache=…
 | **169f** | retention **7d** (JSONL rotate) — **여전히 UI 없음** | 없음 | 0.3.132 (g phase 6) |
 | **169h** | Interior checkpoint / `blocked_on` densify ([169h](169h-interior-checkpoint-evidence.md)) | 없음 | **0.3.133** (H0–H2) |
 | **169i** | Artifact transfer ledger ([169i](169i-artifact-transfer-ledger.md)) — 169h 다음 | 없음 | **0.3.134** (I0–I2 session chain) |
+| **169j** | Translate `on_item` off critical path ([169j](169j-translate-on-item-off-critical-path.md)) | 없음 | **0.3.135** (J0–J3 writer) |
 
 **금지:** 169 중간에 admin list API · Settings 타일 · “진단 로그 보기” 추가.
 
@@ -412,4 +413,5 @@ ts=... kind=figure_preserve_miss prior_png=0 session_figs=7 cache=…
 - [169g-causal-handoff-evidence.md](169g-causal-handoff-evidence.md) — causal handoff + evidence floor guard
 - [169h-interior-checkpoint-evidence.md](169h-interior-checkpoint-evidence.md) — interior checkpoint densify
 - [169i-artifact-transfer-ledger.md](169i-artifact-transfer-ledger.md) — artifact source→sink ledger
+- [169j-translate-on-item-off-critical-path.md](169j-translate-on-item-off-critical-path.md) — on_item / writer off translate critical path
 - [130-cloud-error-logs.md](130-cloud-error-logs.md) — admin UI; 169와 혼용 금지

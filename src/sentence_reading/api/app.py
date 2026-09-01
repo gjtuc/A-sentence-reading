@@ -211,7 +211,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.134",
+    version="0.3.135",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1310,7 +1310,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.134",
+        "version": "0.3.135",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -4983,10 +4983,9 @@ async def _backfill_cached_translations(
             stage="translate",
             message="보관본 번역 채우는 중",
         )
-    items_since_upload = 0
-
     def _on_item(kind: str, index: int, ko: str, stage: str) -> None:
-        nonlocal items_since_upload
+        # design/169j — hot path only (session memory). Durable save/GCS at phase end
+        # (incremental mid-item upload blocked ThreadPool → missing pool_end).
         from dataclasses import replace
 
         if kind == "sentence" and 0 <= index < len(session.sentences):
@@ -5001,29 +5000,7 @@ async def _backfill_cached_translations(
                 caption_ko=ko,
                 caption_ko_stage=stage,
             )
-        cid = (cache_id or "").strip()
-        if not incremental_upload or not cid or not ko:
-            return
-        items_since_upload += 1
-        if items_since_upload % 20 != 0:
-            return
-        try:
-            save_paper_session(
-                session,
-                debone=True,
-                source=kind,
-                doc_role=doc_role,
-                source_path=source_path,
-                content_hash=content_hash,
-            )
-            from sentence_reading.llm.papers_gcs import upload_paper_cache
-
-            upload_paper_cache(cid)
-        except Exception as exc:  # noqa: BLE001
-            log = __import__("logging").getLogger("sentence_reading.api")
-            log.warning(
-                "translate incremental upload failed: %s", type(exc).__name__
-            )
+        _ = (ko, incremental_upload)
 
     try:
         owner_uid = ""
@@ -5918,8 +5895,52 @@ async def _run_ingest_job_body(
                 pct = int(lo + (hi - lo) * max(0.0, min(1.0, fraction)))
                 _job_set(job_id, percent=pct, stage="translate", message=message)
 
+            from sentence_reading.llm.progressive_writer import ProgressiveWriter
+
+            def _writer_publish() -> None:
+                packed = _pack(pending=True)
+                if cache_entry:
+                    packed["cache_id"] = cache_entry.get("id")
+                    packed["cached"] = True
+                    packed["has_source"] = bool(cache_entry.get("has_source"))
+                _job_publish_partial(job_id, packed)
+
+            def _writer_durable() -> None:
+                _save_payload(
+                    {
+                        **irp.base_payload(
+                            job_id=job_id,
+                            owner_uid=_owner(),
+                            content_hash=str(content_hash or ""),
+                            completed="translate",
+                        ),
+                        "pages": list(pdf_pages or []),
+                        "text": text,
+                        "warnings": list(warnings),
+                        "sentences": [
+                            irp.sentence_to_dict(s) for s in session.sentences
+                        ],
+                        "debone_ok": debone_ok,
+                        "title": title,
+                        "references": references,
+                        "document_citation": document_citation,
+                        "translate_digests": dict(session.translate_digests or {}),
+                        "cache_id": str((cache_entry or {}).get("id") or ""),
+                    }
+                )
+
+            prog_writer = ProgressiveWriter(
+                publish_fn=_writer_publish,
+                durable_fn=_writer_durable,
+                job_id=job_id,
+                cache_id=early_cid,
+                owner_uid=_owner(),
+                trace_id=job_trace,
+            )
+            prog_writer.start()
+
             def _on_item(kind: str, index: int, ko: str, stage: str) -> None:
-                # WHY: 보고 있지 않은 문장 데이터만 갱신 — UI 스냅샷 고정은 클라
+                # design/169j — hot: memory + light evidence; cold via ProgressiveWriter.
                 if kind == "sentence" and 0 <= index < len(session.sentences):
                     s = session.sentences[index]
                     session.sentences[index] = dc_replace(
@@ -5973,40 +5994,8 @@ async def _run_ingest_job_body(
                             j,
                             message=f"번역 중 · {index + 1}번째",
                         )
-                packed = _pack(pending=True)
-                if cache_entry:
-                    packed["cache_id"] = cache_entry.get("id")
-                    packed["cached"] = True
-                    packed["has_source"] = bool(cache_entry.get("has_source"))
-                _job_publish_partial(job_id, packed)
-                # Durable translate boundary for reclaim skip (owner payload only).
-                if index > 0 and index % 8 == 0:
-                    _save_payload(
-                        {
-                            **irp.base_payload(
-                                job_id=job_id,
-                                owner_uid=_owner(),
-                                content_hash=str(content_hash or ""),
-                                completed="translate",
-                            ),
-                            "pages": list(pdf_pages or []),
-                            "text": text,
-                            "warnings": list(warnings),
-                            "sentences": [
-                                irp.sentence_to_dict(s) for s in session.sentences
-                            ],
-                            "debone_ok": debone_ok,
-                            "title": title,
-                    "references": references,
-                    "document_citation": document_citation,
-                    "translate_digests": dict(
-                                session.translate_digests or {}
-                            ),
-                            "cache_id": str(
-                                (cache_entry or {}).get("id") or ""
-                            ),
-                        }
-                    )
+                want_durable = index > 0 and index % 8 == 0
+                prog_writer.enqueue_publish(want_durable=want_durable)
 
             translate_ok = True
             tr_warn: list = []
@@ -6029,6 +6018,12 @@ async def _run_ingest_job_body(
             except Exception as exc:  # noqa: BLE001
                 translate_ok = False
                 warnings.append(f"translate_failed:{str(exc)[:80]}")
+            finally:
+                # design/169j — phase exit flush (publish + durable) off critical path
+                try:
+                    await asyncio.to_thread(prog_writer.flush)
+                except Exception:  # noqa: BLE001
+                    pass
             try:
                 ko_s, ko_f = ko_counts(session.sentences, session.figures)
                 eb.emit(

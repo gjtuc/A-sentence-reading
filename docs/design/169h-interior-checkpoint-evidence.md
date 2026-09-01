@@ -1,7 +1,8 @@
 # 169h — Interior checkpoint evidence (단계 안쪽 densify)
 
 **Parent:** [169-agent-evidence-bus.md](169-agent-evidence-bus.md) · [169g-causal-handoff-evidence.md](169g-causal-handoff-evidence.md)  
-**Sibling:** [169i-artifact-transfer-ledger.md](169i-artifact-transfer-ledger.md) (조각 장부 · **이 칩 다음**)  
+**Next:** [169j](169j-translate-on-item-off-critical-path.md) — `on_item` cold path off ThreadPool (pool_end stall fix)  
+**Sibling:** [169i-artifact-transfer-ledger.md](169i-artifact-transfer-ledger.md) (조각 장부)  
 **Status:** design locked · **H0–H2 implemented in 0.3.133** (context bind + checkpoint + slow callback)  
 **UI:** 없음  
 **Depends on:** 169g Phase 0–6 live (≥0.3.132) — floor + boundary handoffs + Gemini `call_*` + 7d retention

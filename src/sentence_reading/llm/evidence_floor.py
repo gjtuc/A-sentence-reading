@@ -6,8 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 
-# Live must not lose sensors introduced by 169c/d/e/g/h/i (floor through artifact ledger).
-EVIDENCE_FLOOR_VERSION = "0.3.134"
+# Live must not lose sensors introduced by 169c/d/e/g/h/i/j (floor through progressive writer).
+EVIDENCE_FLOOR_VERSION = "0.3.135"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -45,6 +45,17 @@ FROZEN_KINDS: frozenset[str] = frozenset(
 # Relative to repo root. Each marker must appear in file text.
 FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
+        "src/sentence_reading/llm/progressive_writer.py",
+        (
+            "on_item_enqueue",
+            "writer_drop",
+            "writer_done",
+            "writer_flush",
+            "ProgressiveWriter",
+            "put_nowait",
+        ),
+    ),
+    (
         "src/sentence_reading/llm/translate_section.py",
         (
             "translate_call_start",
@@ -60,6 +71,8 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             'from_stage="google_batch"',
             "trace_id=trace_id",
             '_EVIDENCE_CTX.trace_id',
+            # design/169j — lock not held across on_item
+            "on_item(kind, index, ko, stage)",
         ),
     ),
     (
@@ -108,6 +121,9 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "trace_id=job_trace",
             "_evidence_rotate_loop",
             "evidence_retention_days",
+            "ProgressiveWriter",
+            "prog_writer.flush",
+            "enqueue_publish",
         ),
     ),
     (

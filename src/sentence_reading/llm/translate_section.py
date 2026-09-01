@@ -829,12 +829,13 @@ def _enrich_session_translations_body(
             )
 
     def _emit(kind: str, index: int, ko: str, stage: str) -> None:
+        # design/169j — do not hold ko_map lock across on_item (cold I/O must not
+        # serialize ThreadPool workers; on_item itself must stay hot-only).
         if not on_item or not ko:
             return
         t0 = time.monotonic()
         try:
-            with lock:
-                on_item(kind, index, ko, stage)
+            on_item(kind, index, ko, stage)
         except Exception as exc:  # noqa: BLE001
             log.warning("translate on_item failed: %s", exc)
             _emit_checkpoint(
