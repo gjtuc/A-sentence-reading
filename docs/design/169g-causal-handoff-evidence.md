@@ -2,7 +2,7 @@
 
 **Parent:** [169-agent-evidence-bus.md](169-agent-evidence-bus.md) · [169e-google-batch-evidence.md](169e-google-batch-evidence.md) · [155-deploy-live-guard.md](155-deploy-live-guard.md)  
 **Companion guard:** `scripts/check_evidence_floor.py` · `.cursor/rules/evidence-floor-guard.mdc`  
-**Status:** Phase 0–2 shipped through **0.3.128** (floor + Gemini start/done + `handoff`); 3–6 still phased  
+**Status:** Phase 0–3 shipped through **0.3.129** (floor + Gemini + handoff + `progress_view`); 4–6 still phased  
 **UI:** 없음  
 **Retention target:** evidence JSONL **7일** (구현 = phase F; 지금 rotate 없음)
 

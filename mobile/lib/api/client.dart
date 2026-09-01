@@ -24,6 +24,12 @@ import 'oauth_models.dart';
 import 'access_models.dart';
 import 'ingest_models.dart';
 
+/// design/169g — snake-safe message fingerprint for progress_view (no paper text).
+String _progressMsgHash(String msg) {
+  final digest = sha256.convert(utf8.encode(msg));
+  return 'h_${digest.toString().substring(0, 12)}';
+}
+
 /// Parsed `/api/status` JSON (subset used by the mobile shell).
 class AsrStatus {
   AsrStatus({
@@ -1420,6 +1426,7 @@ class AsrClient {
       final st = Map<String, dynamic>.from(decoded);
       final pct = st['percent'] is num ? (st['percent'] as num).toInt() : 0;
       final msg = '${st['message'] ?? ''}'.trim();
+      final cacheId = '${st['cache_id'] ?? st['result_cache_id'] ?? ''}'.trim();
       if (pct != lastPct || msg != lastMsg) {
         lastPct = pct;
         lastMsg = msg;
@@ -1430,6 +1437,21 @@ class AsrClient {
           jobId: jid,
           percent: pct,
           stage: msg.isEmpty ? 'poll' : (msg.length > 40 ? msg.substring(0, 40) : msg),
+        );
+        // design/169g phase 3 — UI clock for join with server handoff/call_*
+        asrEvidenceBus?.record(
+          'progress_view',
+          severity: 'sample',
+          jobId: jid,
+          cacheId: cacheId,
+          percent: pct,
+          stage: 'poll',
+          details: {
+            'view_side': 'mobile',
+            'msg_hash': _progressMsgHash(msg),
+            'msg_len': msg.length.clamp(0, 1000000),
+            if (st['done'] == true) 'job_done': true,
+          },
         );
       }
       onProgress?.call(pct, msg);

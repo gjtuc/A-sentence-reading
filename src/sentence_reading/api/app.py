@@ -203,7 +203,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.128",
+    version="0.3.129",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -795,6 +795,36 @@ def _job_set(
             message=str(job.get("message") or ""),
             details={"prev_stage": prev_stage[:40]},
         )
+    # design/169g phase 3 — server-side progress clock (sample: stage change or %5)
+    try:
+        pct_now = int(job.get("percent") or 0)
+        if prev_stage != stage or pct_now % 5 == 0:
+            import hashlib
+
+            from sentence_reading.llm import evidence_bus as eb
+
+            msg = str(job.get("message") or "")
+            mh = "h_" + hashlib.sha256(msg.encode("utf-8")).hexdigest()[:12]
+            eb.emit(
+                "progress_view",
+                source="server",
+                severity="sample",
+                trace_id=str(job.get("trace_id") or ""),
+                job_id=job_id,
+                cache_id=str(job.get("cache_id") or "")[:32],
+                owner_uid=str(job.get("owner_uid") or ""),
+                stage=str(stage or "")[:64],
+                percent=pct_now,
+                details={
+                    "view_side": "server",
+                    "msg_hash": mh,
+                    "msg_len": min(len(msg), 1_000_000),
+                },
+                ok=True,
+                code="progress_view",
+            )
+    except Exception:  # noqa: BLE001
+        pass
     # design/110 — stamp resume envelope (no paper text); skip wired later.
     from sentence_reading.llm import ingest_jobs_gcs as ij
 
@@ -1241,7 +1271,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.128",
+        "version": "0.3.129",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.

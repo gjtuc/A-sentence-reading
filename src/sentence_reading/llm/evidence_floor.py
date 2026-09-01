@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 
 # Live must not lose sensors introduced by 169c/d/e/g (floor through Gemini start).
-EVIDENCE_FLOOR_VERSION = "0.3.128"
+EVIDENCE_FLOOR_VERSION = "0.3.129"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -23,6 +23,7 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "translate_poll_start",
         "translate_poll_ko",
         "handoff",
+        "progress_view",
         "reanalyze_pref_snapshot",
         "stall_fired",
         "figure_preserve_miss",
@@ -56,7 +57,13 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     (
         "src/sentence_reading/api/app.py",
-        ("translate_phase_enter", "translate_phase_exit", "open_ko_summary"),
+        (
+            "translate_phase_enter",
+            "translate_phase_exit",
+            "open_ko_summary",
+            "progress_view",
+            'view_side": "server"',
+        ),
     ),
     (
         "src/sentence_reading/llm/evidence_kinds.py",
@@ -65,6 +72,10 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "mobile/lib/services/evidence_kinds.dart",
         tuple(sorted(FROZEN_KINDS)),
+    ),
+    (
+        "mobile/lib/api/client.dart",
+        ("progress_view", "_progressMsgHash", "view_side"),
     ),
     (
         "mobile/lib/state/library_controller.dart",
