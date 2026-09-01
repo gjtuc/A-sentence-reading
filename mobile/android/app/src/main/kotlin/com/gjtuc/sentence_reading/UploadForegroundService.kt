@@ -47,7 +47,7 @@ class UploadForegroundService : Service() {
                 val cacheId = intent.getStringExtra(EXTRA_CACHE_ID)
                 val nm = getSystemService(NotificationManager::class.java)
                 nm?.notify(NOTIF_ID, buildNotification(title, text, cacheId))
-                return START_STICKY
+                return START_NOT_STICKY
             }
             else -> {
                 val title = intent?.getStringExtra(EXTRA_TITLE) ?: "PDF 올리는 중"
@@ -66,7 +66,8 @@ class UploadForegroundService : Service() {
                     @Suppress("DEPRECATION")
                     startForeground(NOTIF_ID, notification)
                 }
-                return START_STICKY
+                // design/170 — do not resurrect orphan FGS after process death.
+                return START_NOT_STICKY
             }
         }
     }

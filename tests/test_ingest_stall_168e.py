@@ -13,6 +13,7 @@ os.environ.setdefault("ASR_SKIP_ENV_FILE", "1")
 
 from sentence_reading.api import app as app_mod
 from sentence_reading.api.app import app
+from sentence_reading.llm import evidence_bus as eb
 from sentence_reading.llm import ingest_jobs_gcs as ij
 from sentence_reading.llm import ingest_stall as stall
 from sentence_reading.llm import ops_events as oev
@@ -27,6 +28,15 @@ def ops_tmp(tmp_path, monkeypatch):
     monkeypatch.setenv("ASR_INGEST_SWEEPER_SEC", "60")
     monkeypatch.setattr(oev, "local_events_path", lambda: tmp_path / "ops_events.jsonl")
     monkeypatch.setattr(oev, "_gcs_events_object", lambda: None)
+    return tmp_path
+
+
+@pytest.fixture()
+def ev_tmp(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASR_EVIDENCE_BUS", "1")
+    monkeypatch.setattr(eb, "local_events_path", lambda: tmp_path / "evidence.jsonl")
+    monkeypatch.setattr(eb, "_gcs_events_object", lambda: None)
+    monkeypatch.setattr(eb, "_RATE_MEM", {})
     return tmp_path
 
 
@@ -48,7 +58,7 @@ def _admin_client(monkeypatch) -> tuple[TestClient, str]:
 
 def test_status_stall_pin(ops_tmp) -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.135"
+    assert st["version"] == "0.3.136"
     assert st.get("ingest_stall_detector") is True
 
 
@@ -155,6 +165,48 @@ def test_fail_job_terminal_and_poll_stall(ops_tmp, monkeypatch) -> None:
     assert job.get("error")
     kinds = [r["kind"] for r in oev.list_events(limit=20)]
     assert "translate_stalled" in kinds
+    del app_mod._JOBS[jid]
+
+
+def test_job_set_aborts_after_terminal_fail(monkeypatch) -> None:
+    """design/169k K3 — zombie worker cooperative abort."""
+    jid = "job_ccddeeff1122"
+    app_mod._JOBS[jid] = {
+        "percent": 90,
+        "stage": "translate",
+        "done": True,
+        "error": "처리 worker가 응답하지 않습니다. 다시 업로드해 주세요.",
+    }
+    with pytest.raises(app_mod.IngestCancelled):
+        app_mod._job_set(jid, percent=91, stage="translate", message="x")
+    del app_mod._JOBS[jid]
+
+
+def test_fail_job_terminal_emits_job_terminal_checkpoint(ev_tmp, monkeypatch) -> None:
+    """design/169k K3 — checkpoint before server_job_terminal_error."""
+    monkeypatch.setenv("ASR_EVIDENCE_BUS", "1")
+    jid = "job_ddeeff112233"
+    app_mod._JOBS[jid] = {
+        "percent": 90,
+        "stage": "translate",
+        "done": False,
+        "error": None,
+        "owner_uid": "u1",
+        "trace_id": "tr_test",
+    }
+    assert app_mod._fail_job_terminal(
+        jid,
+        "worker lost",
+        ops_kind="worker_lost",
+        details={"reason": "lease_expired"},
+        percent=90,
+    )
+    cps = [
+        r["details"].get("checkpoint")
+        for r in eb.list_events(limit=30)
+        if r.get("kind") == "checkpoint"
+    ]
+    assert "job_terminal" in cps
     del app_mod._JOBS[jid]
 
 

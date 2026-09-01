@@ -211,7 +211,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.135",
+    version="0.3.136",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -775,7 +775,12 @@ def _job_set(
     from sentence_reading.llm import ops_events as oev
 
     job = _JOBS.get(job_id)
-    if not job or job.get("done") or job.get("_discarded"):
+    if not job or job.get("_discarded"):
+        raise IngestCancelled()
+    # design/169k K3 — cooperative abort after terminal fail (zombie worker).
+    if job.get("done"):
+        if job.get("error"):
+            raise IngestCancelled()
         return
     # WHY: cooperative cancel — progress ticks become abort points between stages.
     if job.get("cancel_requested") and not _ingest_job_too_late_to_cancel(job):
@@ -1033,6 +1038,25 @@ def _fail_job_terminal(
     ij.stamp_ingest_phase(job)
     _persist_job(job_id, job, force=True)
     kind = str(ops_kind or "").strip()
+    # design/169k K3 — interior checkpoint before terminal (join with 169h).
+    try:
+        from sentence_reading.llm.translate_section import _emit_checkpoint
+
+        det = dict(details or {})
+        _emit_checkpoint(
+            "job_terminal",
+            blocked_on=kind or "terminal_error",
+            job_id=job_id,
+            cache_id=str(job.get("cache_id") or job.get("target_cache_id") or ""),
+            owner_uid=str(job.get("owner_uid") or ""),
+            trace_id=str(job.get("trace_id") or ""),
+            ok=False,
+            elapsed_ms=int(det["idle_sec"] * 1000)
+            if det.get("idle_sec") is not None
+            else None,
+        )
+    except Exception:  # noqa: BLE001
+        pass
     if kind:
         oev.emit(
             kind,
@@ -1175,7 +1199,11 @@ async def _ingest_sweeper_loop() -> None:
                         jid,
                         "처리 worker가 응답하지 않습니다. 다시 업로드해 주세요.",
                         ops_kind="worker_lost",
-                        details={"reason": "lease_expired"},
+                        details={
+                            "reason": "lease_expired",
+                            "reason_enum": "worker_lost",
+                            "percent": int(job2.get("percent") or 0),
+                        },
                         percent=int(job2.get("percent") or 0),
                     )
         except asyncio.CancelledError:
@@ -1310,7 +1338,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.135",
+        "version": "0.3.136",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -5928,6 +5956,37 @@ async def _run_ingest_job_body(
                         "cache_id": str((cache_entry or {}).get("id") or ""),
                     }
                 )
+                # design/169k K2 / 169i I4 — progressive KO patch gen for causal join.
+                j = _JOBS.get(job_id)
+                if j is not None:
+                    patch_seq = int(j.get("_translate_patch_seq") or 0) + 1
+                    j["_translate_patch_seq"] = patch_seq
+                else:
+                    patch_seq = 1
+                try:
+                    from sentence_reading.llm.artifact_ids import emit_artifact_derive
+                    from sentence_reading.llm.translate_section import _emit_checkpoint
+
+                    _emit_checkpoint(
+                        "patch_gen",
+                        job_id=job_id,
+                        cache_id=early_cid,
+                        owner_uid=_owner(),
+                        trace_id=job_trace,
+                        index=patch_seq,
+                    )
+                    emit_artifact_derive(
+                        activity="session_patch_ko",
+                        child_id=f"patch_{job_id}_{patch_seq}",
+                        parent_ids=[f"job_{job_id}"],
+                        gen=patch_seq,
+                        cache_id=early_cid,
+                        job_id=job_id,
+                        owner_uid=_owner(),
+                        trace_id=job_trace,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
 
             prog_writer = ProgressiveWriter(
                 publish_fn=_writer_publish,
@@ -5940,6 +5999,10 @@ async def _run_ingest_job_body(
             prog_writer.start()
 
             def _on_item(kind: str, index: int, ko: str, stage: str) -> None:
+                # design/169k K3 — stop hot path after terminal fail (zombie worker).
+                j_abort = _JOBS.get(job_id)
+                if j_abort and j_abort.get("done") and j_abort.get("error"):
+                    raise IngestCancelled()
                 # design/169j — hot: memory + light evidence; cold via ProgressiveWriter.
                 if kind == "sentence" and 0 <= index < len(session.sentences):
                     s = session.sentences[index]
@@ -6015,6 +6078,8 @@ async def _run_ingest_job_body(
                 session.sentences = new_s
                 session.figures = new_f
                 session.translate_digests = digests
+            except IngestCancelled:
+                raise
             except Exception as exc:  # noqa: BLE001
                 translate_ok = False
                 warnings.append(f"translate_failed:{str(exc)[:80]}")

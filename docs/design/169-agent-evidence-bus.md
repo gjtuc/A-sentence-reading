@@ -347,6 +347,7 @@ ts=... kind=figure_preserve_miss prior_png=0 session_figs=7 cache=…
 | **169h** | Interior checkpoint / `blocked_on` densify ([169h](169h-interior-checkpoint-evidence.md)) | 없음 | **0.3.133** (H0–H2) |
 | **169i** | Artifact transfer ledger ([169i](169i-artifact-transfer-ledger.md)) — 169h 다음 | 없음 | **0.3.134** (I0–I2 session chain) |
 | **169j** | Translate `on_item` off critical path ([169j](169j-translate-on-item-off-critical-path.md)) | 없음 | **0.3.135** (J0–J3 writer) |
+| **169k** | Pull-linked verdicts + track script ([169k](169k-observability-pull-verdicts.md)) | 없음 | K0+K1 partial |
 
 **금지:** 169 중간에 admin list API · Settings 타일 · “진단 로그 보기” 추가.
 

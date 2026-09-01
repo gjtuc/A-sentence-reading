@@ -51,6 +51,10 @@ class UploadResumeWorker(
         if (session.isEmpty() || draftRaw.isEmpty()) {
             // EDGE: nothing to resume — not a user-visible failure.
             Log.i(TAG, "E2E76_WM noop empty session_or_draft")
+            try {
+                UploadForegroundService.stop(applicationContext)
+            } catch (_: Exception) {
+            }
             return Result.success()
         }
         Log.i(TAG, "E2E76_WM resume phase=${JSONObject(draftRaw).optString("phase", "")}")

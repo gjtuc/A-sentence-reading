@@ -6,8 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 
-# Live must not lose sensors introduced by 169c/d/e/g/h/i/j (floor through progressive writer).
-EVIDENCE_FLOOR_VERSION = "0.3.135"
+# Live must not lose sensors introduced by 169c/d/e/g/h/i/j/k (floor through pull verdicts).
+EVIDENCE_FLOOR_VERSION = "0.3.136"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -76,6 +76,22 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     (
+        "src/sentence_reading/llm/track_verdict.py",
+        (
+            "JobTimeline",
+            "compute_verdicts",
+            "zombie_worker",
+            "accept_169j_title",
+        ),
+    ),
+    (
+        "scripts/track_translate.py",
+        (
+            "track_verdict",
+            "accept_169j_title",
+        ),
+    ),
+    (
         "src/sentence_reading/llm/artifact_ids.py",
         (
             "emit_artifact_transfer",
@@ -124,6 +140,11 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "ProgressiveWriter",
             "prog_writer.flush",
             "enqueue_publish",
+            "patch_gen",
+            "job_terminal",
+            "session_patch_ko",
+            "_translate_patch_seq",
+            "IngestCancelled",
         ),
     ),
     (
@@ -160,6 +181,7 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "client_upload",
             "client_open",
             "client_delete",
+            "reconcileUploadNotify",
         ),
     ),
 )

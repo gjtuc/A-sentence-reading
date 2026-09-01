@@ -950,18 +950,29 @@ def save_paper_session(
                 ext = img_path.suffix.lower().lstrip(".") or "png"
                 prior_fig_ext[fid] = ext
     # design/169 — reanalyze overwrite with zero prior PNGs is a consistency hole.
+    # design/169k K1 / 169i I3 — missing_locators (filename only) on preserve miss.
     if forced and not prior_fig_bytes and len(session.figures or []) > 0:
         try:
             from sentence_reading.llm import evidence_bus as eb
+            from sentence_reading.llm.artifact_ids import locator_local_figure
 
+            cid = str(existing_id or cache_id or "")
+            missing_locators: list[str] = []
+            for i, fig in enumerate(session.figures):
+                fid = str(fig.id or f"fig-{i + 1:04d}").strip() or f"fig-{i + 1:04d}"
+                fname = re.sub(r"[^\w.\-]+", "_", f"{fid}.png")
+                loc = locator_local_figure(cid, fname)
+                if loc:
+                    missing_locators.append(loc.rsplit("/", 1)[-1])
             eb.emit(
                 "figure_preserve_miss",
                 severity="consistency",
-                cache_id=str(existing_id or cache_id or ""),
+                cache_id=cid,
                 details={
                     "prior_png": 0,
                     "session_figs": len(session.figures or []),
                     "forced": 1,
+                    "missing_locators": missing_locators[:48],
                 },
                 ok=False,
                 code="figure_preserve_miss",
@@ -1003,6 +1014,35 @@ def save_paper_session(
         if file_rel:
             row["file"] = file_rel
         fig_meta.append(row)
+
+    # design/169k K1 / 169i I3 — sample fingerprint when prior PNGs were preserved.
+    if prior_fig_bytes and fig_meta:
+        try:
+            from sentence_reading.llm.artifact_ids import emit_artifact_observe, hash16_file
+
+            preserved = [r for r in fig_meta if r.get("file")]
+            if preserved:
+                rel = str(preserved[0].get("file") or "")
+                fp = fig_dir / rel.split("/")[-1] if rel else None
+                h16, bn = hash16_file(fp) if fp else ("", 0)
+                cid = str(cache_id or existing_id or "")
+                if h16 and rel:
+                    emit_artifact_observe(
+                        activity="vision_write_figure",
+                        cache_id=cid,
+                        artifact_kind="figure_png",
+                        locator=f"local:papers/{cid}/{rel}",
+                        content_hash=h16,
+                        bytes_n=bn,
+                        ok=True,
+                        extra={
+                            "preserved_n": len(preserved),
+                            "prior_png": len(prior_fig_bytes),
+                            "fig_fingerprint": h16,
+                        },
+                    )
+        except Exception:  # noqa: BLE001
+            pass
 
     # design/168b — log-only T9 (session figures vs written meta); never block save.
     try:

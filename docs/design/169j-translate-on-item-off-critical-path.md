@@ -3,6 +3,7 @@
 **Parent:** [169-agent-evidence-bus.md](169-agent-evidence-bus.md) · [169h-interior-checkpoint-evidence.md](169h-interior-checkpoint-evidence.md)  
 **Related stall:** title `harmonize` `call_done` → missing `harmonize_pool_end` / next section (`job_a805ad4c3980`, `job_58b02834ce38`, 2026-09-01/02)  
 **Status:** implemented in **0.3.135** (J0–J3) · live verify pending  
+**Next observability:** [169k](169k-observability-pull-verdicts.md) (verdict rules · I3/I4 · worker/zombie)  
 **UI:** 없음 (동작만; 사용자 문구 변경 없음)  
 **Depends on:** 169h live (≥0.3.133) for acceptance sensors  
 

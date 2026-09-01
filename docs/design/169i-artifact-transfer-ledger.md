@@ -213,7 +213,8 @@ Acceptance: 한 `cache_id` pull 시 **hash 체인 3단** 연결.
 
 ### Phase I3 — Figures sample + preserve_miss edges
 
-preserve_miss에 `missing_locators` (파일명만) + 성공 fig fingerprint.
+preserve_miss에 `missing_locators` (파일명만) + 성공 fig fingerprint.  
+**Partial (169k K1):** `missing_locators[]` on miss; `artifact_observe` sample on prior preserve success.
 
 ### Phase I4 — Translate patch gen + 169h 조인
 

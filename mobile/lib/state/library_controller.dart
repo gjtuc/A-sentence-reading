@@ -151,7 +151,21 @@ class LibraryController extends ChangeNotifier {
 
   UploadNotify get uploadNotify => _notify;
 
-  Future<void> initUploadNotify() => _notify.init();
+  Future<void> initUploadNotify() async {
+    await _notify.init();
+    await reconcileUploadNotify();
+  }
+
+  /// design/170 — drop orphan FGS when no in-flight upload and no resumable draft.
+  Future<void> reconcileUploadNotify() async {
+    if (uploading || reanalyzing) return;
+    final draft = await _drafts.read();
+    final resumable = draft != null &&
+        (draft.canReattach || draft.canResumeChunks);
+    if (resumable) return;
+    await _cancelWorkmanager();
+    await _notify.stop();
+  }
 
   /// design/74 — honor server kill switch; on status failure skip FG only.
   Future<bool> _backgroundNotifyEnabled() async {
@@ -579,6 +593,7 @@ class LibraryController extends ChangeNotifier {
       unawaited(
         _editStash.purgeOrphans(papers.map((p) => p.id).toSet()),
       );
+      unawaited(reconcileUploadNotify());
     }
   }
 
@@ -2028,6 +2043,7 @@ class LibraryController extends ChangeNotifier {
       // design/132 — honest cancel; design/134 hang keeps failure message.
       await _drafts.clear();
       await _cancelWorkmanager();
+      await _notify.stop();
       if (!_ingestHangTripped) {
         error = null;
       }
@@ -2140,6 +2156,7 @@ class LibraryController extends ChangeNotifier {
     } on UploadCancelledException {
       await _drafts.clear();
       await _cancelWorkmanager();
+      await _notify.stop();
       if (!_ingestHangTripped) {
         error = null;
       }
