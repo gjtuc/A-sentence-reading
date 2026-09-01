@@ -203,7 +203,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.130",
+    version="0.3.131",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -751,6 +751,11 @@ def _ensure_ingest_not_cancelled(job_id: str) -> None:
             raise IngestCancelled()
 
 
+def _job_trace_id(job_id: str) -> str:
+    """design/169g phase 5 — job.trace_id for evidence join (empty if unknown)."""
+    return str((_JOBS.get(job_id) or {}).get("trace_id") or "")
+
+
 def _job_set(
     job_id: str,
     *,
@@ -1052,6 +1057,7 @@ def _fail_job_terminal(
         eb.emit(
             "server_job_terminal_error",
             severity="error",
+            trace_id=str(job.get("trace_id") or ""),
             job_id=job_id,
             cache_id=str(job.get("cache_id") or job.get("target_cache_id") or ""),
             owner_uid=str(job.get("owner_uid") or ""),
@@ -1102,6 +1108,7 @@ def _maybe_fail_translate_stall(job_id: str, job: dict) -> bool:
             eb.emit(
                 "stall_fired",
                 severity="error",
+                trace_id=str(job.get("trace_id") or ""),
                 job_id=job_id,
                 cache_id=str(job.get("cache_id") or job.get("target_cache_id") or ""),
                 owner_uid=str(job.get("owner_uid") or ""),
@@ -1271,7 +1278,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.130",
+        "version": "0.3.131",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -3905,6 +3912,7 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
             "cache_id": cid,
             "percent": 1,
             "message": "재분석 시작",
+            "trace_id": trace_id,
         }
     )
 
@@ -4590,6 +4598,7 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
                         "filename",
                         "lease_until",
                         "lease_token",
+                        "trace_id",
                     ):
                         if key in loaded:
                             job[key] = loaded[key]
@@ -4955,8 +4964,11 @@ async def _backfill_cached_translations(
 
     try:
         owner_uid = ""
+        job_trace = ""
         if job_id:
-            owner_uid = str((_JOBS.get(job_id) or {}).get("owner_uid") or "")
+            j = _JOBS.get(job_id) or {}
+            owner_uid = str(j.get("owner_uid") or "")
+            job_trace = str(j.get("trace_id") or "")
         sentences, figures, digests, tr_warn = await asyncio.to_thread(
             enrich_session_translations,
             session.sentences,
@@ -4966,6 +4978,7 @@ async def _backfill_cached_translations(
             job_id=str(job_id or ""),
             cache_id=str(cache_id or ""),
             owner_uid=owner_uid,
+            trace_id=job_trace,
         )
         warnings.extend(tr_warn)
     except Exception as exc:  # noqa: BLE001
@@ -5813,10 +5826,12 @@ async def _run_ingest_job_body(
             )
 
             early_cid = str((cache_entry or {}).get("id") or "")
+            job_trace = _job_trace_id(job_id)
             try:
                 eb.emit(
                     "translate_phase_enter",
                     severity="boundary",
+                    trace_id=job_trace,
                     job_id=job_id,
                     cache_id=early_cid,
                     owner_uid=_owner(),
@@ -5864,6 +5879,7 @@ async def _run_ingest_job_body(
                         eb.emit(
                             "translate_item_done",
                             severity="sample",
+                            trace_id=job_trace,
                             job_id=job_id,
                             cache_id=early_cid,
                             owner_uid=_owner(),
@@ -5941,6 +5957,7 @@ async def _run_ingest_job_body(
                     job_id=job_id,
                     cache_id=early_cid,
                     owner_uid=_owner(),
+                    trace_id=job_trace,
                 )
                 warnings.extend(tr_warn)
                 session.sentences = new_s
@@ -5954,6 +5971,7 @@ async def _run_ingest_job_body(
                 eb.emit(
                     "translate_phase_exit",
                     severity="error" if not translate_ok else "boundary",
+                    trace_id=job_trace,
                     job_id=job_id,
                     cache_id=early_cid,
                     owner_uid=_owner(),
@@ -5973,6 +5991,7 @@ async def _run_ingest_job_body(
                     eb.emit_handoff(
                         from_stage="translate_phase_exit",
                         to_stage="translate_save_ko",
+                        trace_id=job_trace,
                         job_id=job_id,
                         cache_id=early_cid,
                         owner_uid=_owner(),
@@ -5987,6 +6006,9 @@ async def _run_ingest_job_body(
             warnings.append("translate_skipped_no_gemini")
         else:
             warnings.append("translate_skipped_opt_out")
+
+        # design/169g phase 5 — always resolve job trace for save-path emits
+        job_trace = _job_trace_id(job_id)
 
         if want_translate:
             _job_set(job_id, percent=98, stage="save", message="번역 저장 중")
@@ -6019,6 +6041,7 @@ async def _run_ingest_job_body(
                 eb.emit(
                     "translate_save_ko",
                     severity="boundary",
+                    trace_id=job_trace,
                     job_id=job_id,
                     cache_id=save_cid,
                     owner_uid=_owner(),
@@ -6037,6 +6060,7 @@ async def _run_ingest_job_body(
                     eb.emit_handoff(
                         from_stage="translate_save_ko",
                         to_stage="reading_ready",
+                        trace_id=job_trace,
                         job_id=job_id,
                         cache_id=save_cid,
                         owner_uid=_owner(),
@@ -6291,6 +6315,7 @@ def _begin_ingest_from_bytes(
         "percent": 1,
         "message": "업로드 완료, 읽기 시작",
         "content_hash": content_hash,
+        "trace_id": trace_id,
     }
 
 

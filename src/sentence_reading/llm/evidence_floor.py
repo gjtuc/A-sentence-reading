@@ -6,8 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 
-# Live must not lose sensors introduced by 169c/d/e/g (floor through lifecycle handoff).
-EVIDENCE_FLOOR_VERSION = "0.3.130"
+# Live must not lose sensors introduced by 169c/d/e/g (floor through trace_id).
+EVIDENCE_FLOOR_VERSION = "0.3.131"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -49,6 +49,8 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             '_emit_translate_call("translate_call_start", call_kind=call_kind)',
             "_emit_handoff",
             'from_stage="google_batch"',
+            "trace_id=trace_id",
+            '_EVIDENCE_CTX.trace_id',
         ),
     ),
     (
@@ -69,6 +71,8 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             'from_stage="reading_ready"',
             'from_stage="client_delete"',
             "_emit_paper_delete_evidence",
+            "_job_trace_id",
+            "trace_id=job_trace",
         ),
     ),
     (
@@ -85,11 +89,11 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     (
         "mobile/lib/api/client.dart",
-        ("progress_view", "_progressMsgHash", "view_side"),
+        ("progress_view", "_progressMsgHash", "view_side", "adoptJobTrace"),
     ),
     (
         "mobile/lib/services/evidence_bus.dart",
-        ("recordHandoff", "newHandoffId"),
+        ("recordHandoff", "newHandoffId", "adoptJobTrace"),
     ),
     (
         "mobile/lib/state/library_controller.dart",

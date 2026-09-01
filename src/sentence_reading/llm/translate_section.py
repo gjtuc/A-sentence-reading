@@ -121,11 +121,12 @@ def _exc_type_snake(exc: BaseException) -> str:
     return s[:64]
 
 
-def _evidence_ids() -> tuple[str, str, str]:
+def _evidence_ids() -> tuple[str, str, str, str]:
     return (
         str(getattr(_EVIDENCE_CTX, "job_id", "") or ""),
         str(getattr(_EVIDENCE_CTX, "cache_id", "") or ""),
         str(getattr(_EVIDENCE_CTX, "owner_uid", "") or ""),
+        str(getattr(_EVIDENCE_CTX, "trace_id", "") or ""),
     )
 
 
@@ -144,7 +145,7 @@ def _emit_translate_call(
     try:
         from sentence_reading.llm import evidence_bus as eb
 
-        job_id, cache_id, owner_uid = _evidence_ids()
+        job_id, cache_id, owner_uid, trace_id = _evidence_ids()
         details: dict[str, Any] = {
             "call_kind": str(call_kind or "unknown")[:64],
         }
@@ -168,6 +169,7 @@ def _emit_translate_call(
         eb.emit(
             kind,
             severity=sev,
+            trace_id=trace_id,
             job_id=job_id,
             cache_id=cache_id,
             owner_uid=owner_uid,
@@ -205,7 +207,7 @@ def _emit_handoff(
     try:
         from sentence_reading.llm import evidence_bus as eb
 
-        job_id, cache_id, owner_uid = _evidence_ids()
+        job_id, cache_id, owner_uid, trace_id = _evidence_ids()
         details: dict[str, Any] = {
             "handoff_id": hid,
             "from_stage": _stage_token(from_stage),
@@ -221,6 +223,7 @@ def _emit_handoff(
         eb.emit(
             "handoff",
             severity="boundary",
+            trace_id=trace_id,
             job_id=job_id,
             cache_id=cache_id,
             owner_uid=owner_uid,
@@ -614,18 +617,20 @@ def enrich_session_translations(
     job_id: str = "",
     cache_id: str = "",
     owner_uid: str = "",
+    trace_id: str = "",
 ) -> tuple[list[Sentence], list[Figure], dict[str, dict[str, str]], list[str]]:
     """
     섹션별 pipeline → digest → harmonize.
     on_progress: design/43 badge.
     on_item: design/45 — ("sentence"|"figure", index, ko, stage) 즉시 패치.
     workers: design/46 — 동시 작업 수 (None이면 env/기본).
-    job_id/cache_id/owner_uid: design/169c call evidence correlation.
+    job_id/cache_id/owner_uid/trace_id: design/169c/g call evidence correlation.
     # INVARIANT: score 없음. 실패 시 해당 항목만 스킵.
     """
     _EVIDENCE_CTX.job_id = str(job_id or "")
     _EVIDENCE_CTX.cache_id = str(cache_id or "")
     _EVIDENCE_CTX.owner_uid = str(owner_uid or "")
+    _EVIDENCE_CTX.trace_id = str(trace_id or "")
     try:
         return _enrich_session_translations_body(
             sentences,
@@ -638,6 +643,7 @@ def enrich_session_translations(
         _EVIDENCE_CTX.job_id = ""
         _EVIDENCE_CTX.cache_id = ""
         _EVIDENCE_CTX.owner_uid = ""
+        _EVIDENCE_CTX.trace_id = ""
 
 
 def _enrich_session_translations_body(

@@ -797,6 +797,7 @@ class AsrClient {
     if (jobId.isEmpty) {
       throw AsrApiException('작업 ID를 받지 못했습니다.', 500);
     }
+    asrEvidenceBus?.adoptJobTrace('${map['trace_id'] ?? ''}');
     asrEvidenceBus?.record(
       'reanalyze_start',
       severity: 'lifecycle',
@@ -1214,6 +1215,7 @@ class AsrClient {
     if (jobId.isEmpty) {
       throw AsrApiException('작업 ID를 받지 못했습니다.', 500);
     }
+    asrEvidenceBus?.adoptJobTrace('${map['trace_id'] ?? ''}');
     return (
       jobId: jobId,
       contentHash: '${map['content_hash'] ?? ''}'.trim().toLowerCase(),
@@ -1351,6 +1353,7 @@ class AsrClient {
     if (jobId.isEmpty) {
       throw AsrApiException('작업 ID를 받지 못했습니다.', 500);
     }
+    asrEvidenceBus?.adoptJobTrace('${start['trace_id'] ?? ''}');
     final hash = '${start['content_hash'] ?? ''}'.trim().toLowerCase();
     return (jobId: jobId, contentHash: hash);
   }
@@ -1427,6 +1430,8 @@ class AsrClient {
       final pct = st['percent'] is num ? (st['percent'] as num).toInt() : 0;
       final msg = '${st['message'] ?? ''}'.trim();
       final cacheId = '${st['cache_id'] ?? st['result_cache_id'] ?? ''}'.trim();
+      // design/169g phase 5 — join mobile evidence to server job trace
+      asrEvidenceBus?.adoptJobTrace('${st['trace_id'] ?? ''}');
       if (pct != lastPct || msg != lastMsg) {
         lastPct = pct;
         lastMsg = msg;

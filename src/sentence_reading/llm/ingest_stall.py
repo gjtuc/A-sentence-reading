@@ -127,6 +127,7 @@ def check_translate_stall(
                 eb.emit(
                     "stall_skipped_live_worker",
                     severity="sample",
+                    trace_id=str(job.get("trace_id") or ""),
                     job_id=str(job.get("job_id") or ""),
                     cache_id=str(job.get("cache_id") or job.get("target_cache_id") or ""),
                     owner_uid=str(job.get("owner_uid") or ""),
@@ -152,6 +153,7 @@ def check_translate_stall(
                     eb.emit(
                         "stall_skipped_live_worker",
                         severity="sample",
+                        trace_id=str(job.get("trace_id") or ""),
                         cache_id=str(job.get("cache_id") or job.get("target_cache_id") or ""),
                         owner_uid=str(job.get("owner_uid") or ""),
                         stage="translate",

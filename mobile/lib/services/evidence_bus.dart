@@ -56,6 +56,14 @@ class EvidenceBus {
     return _traceId;
   }
 
+  /// design/169g phase 5 — prefer server job ``trace_id`` when poll/open returns it.
+  void adoptJobTrace(String? raw) {
+    final t = (raw ?? '').trim();
+    if (t.isEmpty) return;
+    if (!RegExp(r'^tr_[a-f0-9]{16,32}$').hasMatch(t)) return;
+    _traceId = t;
+  }
+
   void _ensureTrace() {
     if (_traceId.isNotEmpty) return;
     final r = Random.secure();
@@ -80,6 +88,7 @@ class EvidenceBus {
     String route = '',
     String jobId = '',
     String cacheId = '',
+    String? traceId,
     int? percent,
     int? httpStatus,
     bool? ok,
@@ -89,6 +98,9 @@ class EvidenceBus {
     if (!_enabled) return;
     final k = kind.trim().toLowerCase();
     if (k.isEmpty || !kEvidenceAllowedKinds.contains(k)) return;
+    if (traceId != null && traceId.trim().isNotEmpty) {
+      adoptJobTrace(traceId);
+    }
     _ensureTrace();
     final ev = <String, dynamic>{
       'kind': k,
