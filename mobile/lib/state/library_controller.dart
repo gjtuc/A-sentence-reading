@@ -38,15 +38,24 @@ class LibraryController extends ChangeNotifier {
     UploadDraftStore? draftStore,
     UploadNotify? uploadNotify,
     PaperEditStash? editStash,
+    /// Settings toggle — preferred over prefs re-read (avoids auth blip → translate=0).
+    bool Function()? translateEnabled,
   })  : _client = client,
         _drafts = draftStore ?? PrefsUploadDraftStore(),
         _notify = uploadNotify ?? createUploadNotify(),
-        _editStash = editStash ?? PaperEditStash();
+        _editStash = editStash ?? PaperEditStash(),
+        _translateEnabled = translateEnabled;
 
   final AsrClient _client;
   final UploadDraftStore _drafts;
   final UploadNotify _notify;
   final PaperEditStash _editStash;
+  bool Function()? _translateEnabled;
+
+  /// Wire after [TranslateController] exists (app root).
+  void attachTranslateEnabled(bool Function() enabled) {
+    _translateEnabled = enabled;
+  }
 
   PaperEditStash get editStash => _editStash;
   BookmarkController? _bookmarks;
@@ -1374,7 +1383,18 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// design/99 — Settings translate opt-in (default OFF).
+  ///
+  /// Prefer in-memory Settings switch ([_translateEnabled]) so a brief auth
+  /// blip cannot send translate=0 on reanalyze while the toggle stays ON.
   Future<bool> _wantTranslate() async {
+    final live = _translateEnabled;
+    if (live != null) {
+      try {
+        return live();
+      } catch (_) {
+        // Fall through to prefs.
+      }
+    }
     try {
       final auth = await _client.fetchAuthStatus();
       final uid = auth.user?.uid;

@@ -79,6 +79,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     _annotations.attachClient(_auth.client);
     _library.attachBookmarks(_bookmarks);
     _library.attachAnnotations(_annotations);
+    _library.attachTranslateEnabled(() => _translate.enabled);
     _auth.addListener(_onAuthPrefs);
     _syncPrefsFromAuth();
   }

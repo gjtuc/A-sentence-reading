@@ -36,7 +36,7 @@ References
 
 def test_status_cite_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.119"
+    assert st["version"] == "0.3.120"
     assert st["cite_ref_open"] is True
 
 
@@ -65,8 +65,8 @@ def test_ui_assets() -> None:
     assert "/api/cite/resolve" in js
     assert "design/41" in js or "citeRefOpenBtn" in js
     served = TestClient(app).get("/").text
-    assert "cite_refs.js?v=0.3.119" in served
-    assert "app.js?v=0.3.119" in served
+    assert "cite_refs.js?v=0.3.120" in served
+    assert "app.js?v=0.3.120" in served
 
 
 def test_parse_and_extract() -> None:

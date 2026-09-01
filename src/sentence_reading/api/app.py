@@ -203,7 +203,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.119",
+    version="0.3.120",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1143,7 +1143,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.119",
+        "version": "0.3.120",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -4110,6 +4110,11 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
             "_local_running": True,
             "trace_id": str(meta.get("trace_id") or ""),
         }
+        tcid = str(meta.get("target_cache_id") or "").strip()
+        if tcid and re.fullmatch(r"[a-zA-Z0-9]{8,32}", tcid):
+            job["target_cache_id"] = tcid
+        # WHY: reanalyze must not take title_key cache-hit after lease reclaim.
+        skip_cache = bool(tcid)
         ij.stamp_lease(job, token=token)
         _JOBS[job_id] = job
         _persist_job(job_id, job, force=True)
@@ -4119,6 +4124,7 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
                 tmp_path,
                 filename,
                 kind,
+                skip_cache=skip_cache,
                 content_hash=content_hash,
             )
         )

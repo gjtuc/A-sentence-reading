@@ -621,6 +621,10 @@ def serialize_job_record(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
         # design/132 — other instances must not reclaim a user-cancelled job.
         "cancel_requested": bool(job.get("cancel_requested")),
     }
+    # WHY: reanalyze pin must survive instance reclaim / GCS round-trip.
+    tcid = str(job.get("target_cache_id") or "").strip()
+    if tcid and re.fullmatch(r"[a-zA-Z0-9]{8,32}", tcid):
+        out["target_cache_id"] = tcid
     tid = safe_trace_id(job.get("trace_id"))
     if tid:
         out["trace_id"] = tid

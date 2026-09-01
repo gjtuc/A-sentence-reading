@@ -104,6 +104,10 @@ def test_serialize_job_trace_and_phase() -> None:
     assert rec["trace_id"].startswith("tr_")
     assert rec["ingest_phase"] == "translate_pending"
 
+    job["target_cache_id"] = "coti123456ab"
+    rec2 = ij.serialize_job_record("job_abc123def456", job)
+    assert rec2["target_cache_id"] == "coti123456ab"
+
     view = ij.public_job_view("job_abc123def456", job)
     assert view["ingest_phase"] == "translate_pending"
     assert view["trace_id"].startswith("tr_")
@@ -112,7 +116,7 @@ def test_serialize_job_trace_and_phase() -> None:
 
 def test_status_phase_pins() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.119"
+    assert st["version"] == "0.3.120"
     assert st.get("ingest_phase_machine") is True
     assert st.get("ingest_status_partial") is True
     assert st.get("ingest_integrity") is True
