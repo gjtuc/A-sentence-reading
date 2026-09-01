@@ -3,6 +3,7 @@
 **Parent:** [169-agent-evidence-bus.md](169-agent-evidence-bus.md) · [169e-google-batch-evidence.md](169e-google-batch-evidence.md) · [155-deploy-live-guard.md](155-deploy-live-guard.md)  
 **Companion guard:** `scripts/check_evidence_floor.py` · `.cursor/rules/evidence-floor-guard.mdc`  
 **Status:** Phase 0–6 shipped through **0.3.132** (floor + causal sensors + 7d retention)  
+**Next:** [169h](169h-interior-checkpoint-evidence.md) interior densify → [169i](169i-artifact-transfer-ledger.md) artifact ledger  
 **UI:** 없음  
 **Retention target:** evidence JSONL **7일** (phase 6: `rotate_events` + append filter + Cloud Run loop; ops 동일)
 
@@ -253,5 +254,7 @@ Floor에 `translate_call_done` already frozen.
 ## 8. Related
 
 - [169c](169c-dense-translate-open-auth.md) · [169d](169d-full-product-evidence.md) · [169e](169e-google-batch-evidence.md)  
+- [169h-interior-checkpoint-evidence.md](169h-interior-checkpoint-evidence.md) — **다음:** 경계 사이 내부 checkpoint (`blocked_on`)  
+- [169i-artifact-transfer-ledger.md](169i-artifact-transfer-ledger.md) — **그다음:** 조각 source→sink 장부  
 - [155-deploy-live-guard.md](155-deploy-live-guard.md)  
 - [169-audit-checklist.md](169-audit-checklist.md)  

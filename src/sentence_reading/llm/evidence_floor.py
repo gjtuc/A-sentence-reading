@@ -6,8 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 
-# Live must not lose sensors introduced by 169c/d/e/g (floor through 7d retention).
-EVIDENCE_FLOOR_VERSION = "0.3.132"
+# Live must not lose sensors introduced by 169c/d/e/g/h (floor through 7d retention).
+EVIDENCE_FLOOR_VERSION = "0.3.133"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -24,6 +24,7 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "translate_poll_ko",
         "handoff",
         "progress_view",
+        "checkpoint",
         "reanalyze_pref_snapshot",
         "stall_fired",
         "figure_preserve_miss",
@@ -48,6 +49,10 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "_gemini_timed",
             '_emit_translate_call("translate_call_start", call_kind=call_kind)',
             "_emit_handoff",
+            "_emit_checkpoint",
+            "_bind_evidence_ctx",
+            "harmonize_pool_start",
+            "next_section_armed",
             'from_stage="google_batch"',
             "trace_id=trace_id",
             '_EVIDENCE_CTX.trace_id',

@@ -38,7 +38,7 @@ def test_verify_evidence_floor_clean() -> None:
 
 
 def test_floor_version_pin() -> None:
-    assert EVIDENCE_FLOOR_VERSION == "0.3.132"
+    assert EVIDENCE_FLOOR_VERSION == "0.3.133"
 
 
 def test_gemini_timed_emits_start_and_done(ev_tmp, monkeypatch) -> None:
@@ -159,3 +159,62 @@ def test_evidence_retention_filter_and_rotate(ev_tmp, monkeypatch) -> None:
     left = eb.list_events(limit=10)
     assert len(left) == 1
     assert left[0]["id"] == "ev_new"
+
+
+def test_bind_evidence_ctx_on_worker_thread(ev_tmp, monkeypatch) -> None:
+    """design/169h H0 — worker thread emit keeps job/trace ids."""
+    import concurrent.futures
+
+    import sentence_reading.llm.translate_section as ts
+
+    monkeypatch.setattr(
+        ts.tr,
+        "_gemini_generate",
+        lambda _system, _user: "EN: ok\nKO: 확인",
+    )
+
+    def _worker() -> None:
+        # Simulate empty local before bind (fresh thread).
+        assert not getattr(ts._EVIDENCE_CTX, "job_id", "")
+        ts._bind_evidence_ctx(
+            "job_abcd1234ef00",
+            "cid1",
+            "",
+            "tr_0123456789abcdef",
+            section="title",
+        )
+        ts._gemini_timed("harmonize", "sys", "user")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        pool.submit(_worker).result(timeout=10)
+
+    rows = [
+        r for r in eb.list_events(limit=20) if r["kind"] == "translate_call_start"
+    ]
+    assert rows
+    assert rows[0].get("job_id") == "job_abcd1234ef00"
+    assert rows[0].get("trace_id") == "tr_0123456789abcdef"
+    assert rows[0]["details"].get("call_kind") == "harmonize"
+
+
+def test_emit_checkpoint_tokens(ev_tmp) -> None:
+    """design/169h H1 — interior checkpoint kind."""
+    import sentence_reading.llm.translate_section as ts
+
+    ts._emit_checkpoint(
+        "harmonize_pool_end",
+        section="title",
+        in_n=3,
+        out_n=3,
+        job_id="job_abcd1234ef00",
+        cache_id="cid1",
+        trace_id="tr_0123456789abcdef",
+    )
+    rows = [r for r in eb.list_events(limit=10) if r["kind"] == "checkpoint"]
+    assert rows
+    d = rows[0]["details"]
+    assert d["checkpoint"] == "harmonize_pool_end"
+    assert d["section"] == "title"
+    assert d["in_n"] == 3
+    assert rows[0].get("job_id") == "job_abcd1234ef00"
+    assert rows[0].get("trace_id") == "tr_0123456789abcdef"

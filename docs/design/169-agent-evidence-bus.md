@@ -343,7 +343,9 @@ ts=... kind=figure_preserve_miss prior_png=0 session_figs=7 cache=…
 | **169d** | 서버: save preserve miss · stall skip/fire · handler middleware | 없음 | 0.3.125 |
 | **169e** | Google batch `call_start`/`done`/`slow`/`fail` (+ chunk) | 없음 | 0.3.126 |
 | **169g** | Causal handoff 설계 + **evidence floor guard** (센서 삭제 배포 차단) · Gemini start→… | 없음 | floor=0.3.126; handoff phased |
-| **169f** | retention **7d** (JSONL rotate) — **여전히 UI 없음** | 없음 | — |
+| **169f** | retention **7d** (JSONL rotate) — **여전히 UI 없음** | 없음 | 0.3.132 (g phase 6) |
+| **169h** | Interior checkpoint / `blocked_on` densify ([169h](169h-interior-checkpoint-evidence.md)) | 없음 | design; impl TBD |
+| **169i** | Artifact transfer ledger ([169i](169i-artifact-transfer-ledger.md)) — 169h 다음 | 없음 | design; impl TBD |
 
 **금지:** 169 중간에 admin list API · Settings 타일 · “진단 로그 보기” 추가.
 
@@ -408,4 +410,6 @@ ts=... kind=figure_preserve_miss prior_png=0 session_figs=7 cache=…
 - [169d-full-product-evidence.md](169d-full-product-evidence.md) — 전 제품 P0/P1 (0.3.125)
 - [169e-google-batch-evidence.md](169e-google-batch-evidence.md) — Google bulk/chunk call sensors (0.3.126)
 - [169g-causal-handoff-evidence.md](169g-causal-handoff-evidence.md) — causal handoff + evidence floor guard
+- [169h-interior-checkpoint-evidence.md](169h-interior-checkpoint-evidence.md) — interior checkpoint densify
+- [169i-artifact-transfer-ledger.md](169i-artifact-transfer-ledger.md) — artifact source→sink ledger
 - [130-cloud-error-logs.md](130-cloud-error-logs.md) — admin UI; 169와 혼용 금지

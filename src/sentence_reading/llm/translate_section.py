@@ -130,6 +130,26 @@ def _evidence_ids() -> tuple[str, str, str, str]:
     )
 
 
+def _bind_evidence_ctx(
+    job_id: str,
+    cache_id: str,
+    owner_uid: str,
+    trace_id: str,
+    *,
+    section: str = "",
+) -> None:
+    """
+    design/169h H0 — copy ids onto this thread's local.
+    ThreadPool workers do not inherit the parent threading.local.
+    """
+    _EVIDENCE_CTX.job_id = str(job_id or "")
+    _EVIDENCE_CTX.cache_id = str(cache_id or "")
+    _EVIDENCE_CTX.owner_uid = str(owner_uid or "")
+    _EVIDENCE_CTX.trace_id = str(trace_id or "")
+    if section:
+        _EVIDENCE_CTX.section = str(section)[:64]
+
+
 def _emit_translate_call(
     kind: str,
     *,
@@ -140,12 +160,20 @@ def _emit_translate_call(
     chunk_i: int | None = None,
     chunk_n: int | None = None,
     section: str = "",
+    job_id: str | None = None,
+    cache_id: str | None = None,
+    owner_uid: str | None = None,
+    trace_id: str | None = None,
 ) -> None:
     """Fire-and-forget design/169c/e call sensors. Never raises."""
     try:
         from sentence_reading.llm import evidence_bus as eb
 
-        job_id, cache_id, owner_uid, trace_id = _evidence_ids()
+        ctx_job, ctx_cache, ctx_uid, ctx_trace = _evidence_ids()
+        job_id = str(job_id if job_id is not None else ctx_job or "")
+        cache_id = str(cache_id if cache_id is not None else ctx_cache or "")
+        owner_uid = str(owner_uid if owner_uid is not None else ctx_uid or "")
+        trace_id = str(trace_id if trace_id is not None else ctx_trace or "")
         details: dict[str, Any] = {
             "call_kind": str(call_kind or "unknown")[:64],
         }
@@ -191,6 +219,75 @@ def _stage_token(raw: str) -> str:
     return s
 
 
+_CALLBACK_SLOW_MS = 200
+
+
+def _emit_checkpoint(
+    checkpoint: str,
+    *,
+    section: str = "",
+    blocked_on: str = "",
+    in_n: int | None = None,
+    out_n: int | None = None,
+    remaining: int | None = None,
+    worker_n: int | None = None,
+    elapsed_ms: int | None = None,
+    ok: bool = True,
+    exc: BaseException | None = None,
+    index: int | None = None,
+    stage: str = "",
+    job_id: str | None = None,
+    cache_id: str | None = None,
+    owner_uid: str | None = None,
+    trace_id: str | None = None,
+) -> None:
+    """design/169h — interior milestone (no paper text). Never raises."""
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        ctx_job, ctx_cache, ctx_uid, ctx_trace = _evidence_ids()
+        details: dict[str, Any] = {
+            "checkpoint": _stage_token(checkpoint),
+        }
+        sec = _stage_token(section or getattr(_EVIDENCE_CTX, "section", "") or "")
+        if sec != "unknown":
+            details["section"] = sec
+        bo = _stage_token(blocked_on) if blocked_on else ""
+        if bo and bo != "unknown":
+            details["blocked_on"] = bo
+        if in_n is not None:
+            details["in_n"] = int(in_n)
+        if out_n is not None:
+            details["out_n"] = int(out_n)
+        if remaining is not None:
+            details["remaining"] = int(remaining)
+        if worker_n is not None:
+            details["worker_n"] = int(worker_n)
+        if elapsed_ms is not None:
+            details["elapsed_ms"] = int(elapsed_ms)
+        if exc is not None:
+            details["exc_type"] = _exc_type_snake(exc)
+        if index is not None:
+            details["index"] = int(index)
+        st = _stage_token(stage) if stage else ""
+        if st and st != "unknown":
+            details["item_stage"] = st
+        eb.emit(
+            "checkpoint",
+            severity="boundary",
+            trace_id=str(trace_id if trace_id is not None else ctx_trace or ""),
+            job_id=str(job_id if job_id is not None else ctx_job or ""),
+            cache_id=str(cache_id if cache_id is not None else ctx_cache or ""),
+            owner_uid=str(owner_uid if owner_uid is not None else ctx_uid or ""),
+            stage="translate",
+            details=details,
+            ok=bool(ok),
+            code="checkpoint",
+        )
+    except Exception:  # noqa: BLE001
+        log.warning("translate checkpoint emit failed", exc_info=True)
+
+
 def _emit_handoff(
     *,
     from_stage: str,
@@ -198,6 +295,10 @@ def _emit_handoff(
     section: str = "",
     in_n: int | None = None,
     out_n: int | None = None,
+    job_id: str | None = None,
+    cache_id: str | None = None,
+    owner_uid: str | None = None,
+    trace_id: str | None = None,
 ) -> str:
     """
     design/169g phase 2 — A→B handoff breadcrumb. Returns handoff_id (or "").
@@ -207,7 +308,11 @@ def _emit_handoff(
     try:
         from sentence_reading.llm import evidence_bus as eb
 
-        job_id, cache_id, owner_uid, trace_id = _evidence_ids()
+        ctx_job, ctx_cache, ctx_uid, ctx_trace = _evidence_ids()
+        job_id = str(job_id if job_id is not None else ctx_job or "")
+        cache_id = str(cache_id if cache_id is not None else ctx_cache or "")
+        owner_uid = str(owner_uid if owner_uid is not None else ctx_uid or "")
+        trace_id = str(trace_id if trace_id is not None else ctx_trace or "")
         details: dict[str, Any] = {
             "handoff_id": hid,
             "from_stage": _stage_token(from_stage),
@@ -661,6 +766,9 @@ def _enrich_session_translations_body(
         translate_backend() == "gemini" or translate_gemini_post()
     ) and bool(gemini_api_key())
 
+    # design/169h H0 — snapshot for ThreadPool workers (threading.local not inherited)
+    ev_job, ev_cache, ev_uid, ev_trace = _evidence_ids()
+
     if use_google:
         if not tg.google_translate_available() and not gemini_api_key():
             warnings.append("translate_skipped_no_backend")
@@ -692,25 +800,78 @@ def _enrich_session_translations_body(
             frac = done / total
         if not on_progress:
             return
+        t0 = time.monotonic()
         try:
             on_progress(message, frac)
         except Exception as exc:  # noqa: BLE001
             log.warning("translate on_progress failed: %s", exc)
+            _emit_checkpoint(
+                "on_progress_exit",
+                blocked_on="on_progress_callback",
+                ok=False,
+                exc=exc,
+                job_id=ev_job,
+                cache_id=ev_cache,
+                owner_uid=ev_uid,
+                trace_id=ev_trace,
+            )
+            return
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        if elapsed_ms >= _CALLBACK_SLOW_MS:
+            _emit_checkpoint(
+                "on_progress_exit",
+                blocked_on="on_progress_callback",
+                elapsed_ms=elapsed_ms,
+                job_id=ev_job,
+                cache_id=ev_cache,
+                owner_uid=ev_uid,
+                trace_id=ev_trace,
+            )
 
     def _emit(kind: str, index: int, ko: str, stage: str) -> None:
         if not on_item or not ko:
             return
+        t0 = time.monotonic()
         try:
             with lock:
                 on_item(kind, index, ko, stage)
         except Exception as exc:  # noqa: BLE001
             log.warning("translate on_item failed: %s", exc)
+            _emit_checkpoint(
+                "on_item_exit",
+                blocked_on="on_item_callback",
+                ok=False,
+                exc=exc,
+                index=index,
+                stage=stage,
+                job_id=ev_job,
+                cache_id=ev_cache,
+                owner_uid=ev_uid,
+                trace_id=ev_trace,
+            )
+            return
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        # design/169h H2 — slow or first/every-5th sample
+        if elapsed_ms >= _CALLBACK_SLOW_MS or should_sample_translate_item(index, stage):
+            if elapsed_ms >= _CALLBACK_SLOW_MS or index == 0:
+                _emit_checkpoint(
+                    "on_item_exit",
+                    blocked_on="on_item_callback",
+                    elapsed_ms=elapsed_ms,
+                    index=index,
+                    stage=stage,
+                    job_id=ev_job,
+                    cache_id=ev_cache,
+                    owner_uid=ev_uid,
+                    trace_id=ev_trace,
+                )
 
     ko_map: dict[int, str] = {}
     stage_map: dict[int, str] = {}
     digests: dict[str, dict[str, str]] = {}
 
     def _run_sentence_pipeline(i: int) -> tuple[int, str | None, str]:
+        _bind_evidence_ctx(ev_job, ev_cache, ev_uid, ev_trace)
         last_stage = ""
 
         def _on_stage(ko: str, stage: str) -> None:
@@ -732,7 +893,8 @@ def _enrich_session_translations_body(
             _emit("sentence", i, ko, last_stage or "polish")
         return i, ko, last_stage or stage_map.get(i, "")
 
-    def _run_harmonize(i: int, digest: dict[str, str]) -> int:
+    def _run_harmonize(i: int, digest: dict[str, str], *, section: str = "") -> int:
+        _bind_evidence_ctx(ev_job, ev_cache, ev_uid, ev_trace, section=section)
         with lock:
             draft = ko_map.get(i) or ""
             prev_stage = stage_map.get(i, "")
@@ -754,6 +916,7 @@ def _enrich_session_translations_body(
         if any(_plain(sentences[i].text) for i in idxs)
     ]
     _use_google_path = bool(use_google and tg.google_translate_available())
+    queue_len = len(_sec_queue)
 
     for _si, (sec, idxs) in enumerate(_sec_queue):
         label = _sec_label(sec)
@@ -761,6 +924,21 @@ def _enrich_session_translations_body(
         n_plain = len(plain_idxs)
         if n_plain == 0:
             continue
+
+        _bind_evidence_ctx(ev_job, ev_cache, ev_uid, ev_trace, section=sec)
+        _emit_checkpoint(
+            "section_enter",
+            section=sec,
+            blocked_on="section_enter",
+            in_n=n_plain,
+            out_n=_si,
+            remaining=max(0, queue_len - _si - 1),
+            worker_n=n_workers,
+            job_id=ev_job,
+            cache_id=ev_cache,
+            owner_uid=ev_uid,
+            trace_id=ev_trace,
+        )
 
         finished = 0
         if _use_google_path:
@@ -783,6 +961,10 @@ def _enrich_session_translations_body(
                     section=sec,
                     in_n=n_plain,
                     out_n=ko_after,
+                    job_id=ev_job,
+                    cache_id=ev_cache,
+                    owner_uid=ev_uid,
+                    trace_id=ev_trace,
                 )
         else:
             with ThreadPoolExecutor(max_workers=min(n_workers, n_plain)) as pool:
@@ -792,6 +974,16 @@ def _enrich_session_translations_body(
                         fut.result()
                     except Exception as exc:  # noqa: BLE001
                         log.warning("parallel pipeline failed: %s", exc)
+                        _emit_checkpoint(
+                            "pool_task_fail",
+                            section=sec,
+                            ok=False,
+                            exc=exc,
+                            job_id=ev_job,
+                            cache_id=ev_cache,
+                            owner_uid=ev_uid,
+                            trace_id=ev_trace,
+                        )
                     finished += 1
                     _tick(f"{label} 번역 {finished}/{n_plain}")
             if gemini_post:
@@ -801,6 +993,10 @@ def _enrich_session_translations_body(
                     section=sec,
                     in_n=n_plain,
                     out_n=sum(1 for i in plain_idxs if (ko_map.get(i) or "").strip()),
+                    job_id=ev_job,
+                    cache_id=ev_cache,
+                    owner_uid=ev_uid,
+                    trace_id=ev_trace,
                 )
 
         eng_lines = [_plain(sentences[i].text) for i in plain_idxs]
@@ -818,27 +1014,88 @@ def _enrich_session_translations_body(
                         to_stage="gemini_harmonize",
                         section=sec,
                         in_n=n_harm,
+                        job_id=ev_job,
+                        cache_id=ev_cache,
+                        owner_uid=ev_uid,
+                        trace_id=ev_trace,
                     )
                     finished_h = 0
-                    with ThreadPoolExecutor(
-                        max_workers=min(n_workers, n_harm)
-                    ) as pool:
+                    harm_workers = min(n_workers, n_harm)
+                    _emit_checkpoint(
+                        "harmonize_pool_start",
+                        section=sec,
+                        blocked_on="threadpool_join",
+                        in_n=n_harm,
+                        worker_n=harm_workers,
+                        job_id=ev_job,
+                        cache_id=ev_cache,
+                        owner_uid=ev_uid,
+                        trace_id=ev_trace,
+                    )
+                    with ThreadPoolExecutor(max_workers=harm_workers) as pool:
                         futs = {
-                            pool.submit(_run_harmonize, i, digest): i for i in harm_idxs
+                            pool.submit(
+                                _run_harmonize, i, digest, section=sec
+                            ): i
+                            for i in harm_idxs
                         }
                         for fut in as_completed(futs):
                             try:
                                 fut.result()
                             except Exception as exc:  # noqa: BLE001
                                 log.warning("parallel harmonize failed: %s", exc)
+                                _emit_checkpoint(
+                                    "pool_task_fail",
+                                    section=sec,
+                                    ok=False,
+                                    exc=exc,
+                                    job_id=ev_job,
+                                    cache_id=ev_cache,
+                                    owner_uid=ev_uid,
+                                    trace_id=ev_trace,
+                                )
                             finished_h += 1
+                            rem = n_harm - finished_h
+                            if (
+                                finished_h == 1
+                                or finished_h % 5 == 0
+                                or rem == 0
+                            ):
+                                _emit_checkpoint(
+                                    "harmonize_pool_tick",
+                                    section=sec,
+                                    blocked_on="threadpool_join",
+                                    in_n=n_harm,
+                                    out_n=finished_h,
+                                    remaining=rem,
+                                    worker_n=harm_workers,
+                                    job_id=ev_job,
+                                    cache_id=ev_cache,
+                                    owner_uid=ev_uid,
+                                    trace_id=ev_trace,
+                                )
                             _tick(f"{label} 재감수 {finished_h}/{n_harm}")
+                    _emit_checkpoint(
+                        "harmonize_pool_end",
+                        section=sec,
+                        in_n=n_harm,
+                        out_n=finished_h,
+                        worker_n=harm_workers,
+                        job_id=ev_job,
+                        cache_id=ev_cache,
+                        owner_uid=ev_uid,
+                        trace_id=ev_trace,
+                    )
                     _emit_handoff(
                         from_stage="gemini_harmonize",
                         to_stage="section_done",
                         section=sec,
                         in_n=n_harm,
                         out_n=finished_h,
+                        job_id=ev_job,
+                        cache_id=ev_cache,
+                        owner_uid=ev_uid,
+                        trace_id=ev_trace,
                     )
                 else:
                     _emit_handoff(
@@ -847,6 +1104,10 @@ def _enrich_session_translations_body(
                         section=sec,
                         in_n=n_plain,
                         out_n=0,
+                        job_id=ev_job,
+                        cache_id=ev_cache,
+                        owner_uid=ev_uid,
+                        trace_id=ev_trace,
                     )
             else:
                 _emit_handoff(
@@ -855,6 +1116,10 @@ def _enrich_session_translations_body(
                     section=sec,
                     in_n=n_plain,
                     out_n=0,
+                    job_id=ev_job,
+                    cache_id=ev_cache,
+                    owner_uid=ev_uid,
+                    trace_id=ev_trace,
                 )
         else:
             digests[sec] = {"en": "", "ko": ""}
@@ -864,8 +1129,21 @@ def _enrich_session_translations_body(
                 section=sec,
                 in_n=n_plain,
                 out_n=sum(1 for i in plain_idxs if (ko_map.get(i) or "").strip()),
+                job_id=ev_job,
+                cache_id=ev_cache,
+                owner_uid=ev_uid,
+                trace_id=ev_trace,
             )
 
+        _emit_checkpoint(
+            "section_exit",
+            section=sec,
+            in_n=n_plain,
+            job_id=ev_job,
+            cache_id=ev_cache,
+            owner_uid=ev_uid,
+            trace_id=ev_trace,
+        )
         if _si + 1 < len(_sec_queue):
             nxt_sec = _sec_queue[_si + 1][0]
             _emit_handoff(
@@ -873,6 +1151,20 @@ def _enrich_session_translations_body(
                 to_stage="google_batch" if _use_google_path else "gemini_pipeline",
                 section=nxt_sec,
                 in_n=n_plain,
+                job_id=ev_job,
+                cache_id=ev_cache,
+                owner_uid=ev_uid,
+                trace_id=ev_trace,
+            )
+            _emit_checkpoint(
+                "next_section_armed",
+                section=nxt_sec,
+                blocked_on="next_section_enter",
+                in_n=n_plain,
+                job_id=ev_job,
+                cache_id=ev_cache,
+                owner_uid=ev_uid,
+                trace_id=ev_trace,
             )
 
     new_sentences = [
@@ -901,6 +1193,7 @@ def _enrich_session_translations_body(
 
     def _run_caption(job: tuple[int, Figure, str]) -> tuple[int, str, str]:
         fi, _fig, cap = job
+        _bind_evidence_ctx(ev_job, ev_cache, ev_uid, ev_trace, section="caption")
         cap_ko = ""
         cap_stage = ""
 
@@ -927,6 +1220,10 @@ def _enrich_session_translations_body(
             to_stage="google_batch" if _use_google_path else "gemini_pipeline",
             section="caption",
             in_n=n_cap,
+            job_id=ev_job,
+            cache_id=ev_cache,
+            owner_uid=ev_uid,
+            trace_id=ev_trace,
         )
         finished_c = 0
         if use_google and tg.google_translate_available():
