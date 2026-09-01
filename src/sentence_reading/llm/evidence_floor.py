@@ -6,8 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 
-# Live must not lose sensors introduced by 169c/d/e/g (floor through Gemini start).
-EVIDENCE_FLOOR_VERSION = "0.3.129"
+# Live must not lose sensors introduced by 169c/d/e/g (floor through lifecycle handoff).
+EVIDENCE_FLOOR_VERSION = "0.3.130"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -63,7 +63,17 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "open_ko_summary",
             "progress_view",
             'view_side": "server"',
+            "emit_handoff",
+            'from_stage="client_upload"',
+            'from_stage="translate_phase_exit"',
+            'from_stage="reading_ready"',
+            'from_stage="client_delete"',
+            "_emit_paper_delete_evidence",
         ),
+    ),
+    (
+        "src/sentence_reading/llm/evidence_bus.py",
+        ("emit_handoff", "new_handoff_id", "stage_token"),
     ),
     (
         "src/sentence_reading/llm/evidence_kinds.py",
@@ -78,8 +88,20 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("progress_view", "_progressMsgHash", "view_side"),
     ),
     (
+        "mobile/lib/services/evidence_bus.dart",
+        ("recordHandoff", "newHandoffId"),
+    ),
+    (
         "mobile/lib/state/library_controller.dart",
-        ("reanalyze_pref_snapshot", "translate_poll_start", "paper_delete"),
+        (
+            "reanalyze_pref_snapshot",
+            "translate_poll_start",
+            "paper_delete",
+            "recordHandoff",
+            "client_upload",
+            "client_open",
+            "client_delete",
+        ),
     ),
 )
 

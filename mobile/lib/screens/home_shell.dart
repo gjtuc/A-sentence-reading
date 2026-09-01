@@ -56,7 +56,20 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   /// null = not checked yet; true = may enter main tabs.
   bool? _accessUnlocked;
 
-  void _goReader() => setState(() => _index = 1);
+  void _goReader() {
+    final hid = widget.library.takeOpenHandoffId();
+    asrEvidenceBus?.record(
+      'nav_tab',
+      severity: 'lifecycle',
+      stage: 'tab',
+      details: {
+        'tab_index': 1,
+        'to_tab': 'reader',
+        if (hid != null && hid.isNotEmpty) 'handoff_id': hid,
+      },
+    );
+    setState(() => _index = 1);
+  }
 
   @override
   void initState() {
@@ -272,11 +285,19 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               if (_index == 1 && i != 1) {
                 unawaited(widget.library.recordReadLeft());
               }
+              final details = <String, Object?>{'tab_index': i};
+              if (i == 1) {
+                final hid = widget.library.takeOpenHandoffId();
+                if (hid != null && hid.isNotEmpty) {
+                  details['handoff_id'] = hid;
+                }
+                details['to_tab'] = 'reader';
+              }
               asrEvidenceBus?.record(
                 'nav_tab',
                 severity: 'lifecycle',
                 stage: 'tab',
-                details: {'tab_index': i},
+                details: details,
               );
               setState(() => _index = i);
             },

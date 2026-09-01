@@ -457,6 +457,80 @@ def emit(
         log.warning("evidence_bus emit failed kind=%s", kind, exc_info=True)
 
 
+def stage_token(raw: str) -> str:
+    """Snake token for evidence details (colons stripped by _safe_details)."""
+    s = str(raw or "").strip().lower().replace(":", "_").replace("-", "_").replace(" ", "_")
+    s = re.sub(r"[^a-z0-9_]", "", s)[:64]
+    if not s or not re.match(r"^[a-z]", s):
+        return "unknown"
+    return s
+
+
+def new_handoff_id() -> str:
+    return f"hf_{uuid.uuid4().hex[:12]}"
+
+
+def emit_handoff(
+    *,
+    from_stage: str,
+    to_stage: str,
+    source: str = "server",
+    severity: str = "boundary",
+    trace_id: str = "",
+    job_id: str = "",
+    cache_id: str = "",
+    owner_uid: str = "",
+    content_hash: str = "",
+    stage: str = "",
+    section: str = "",
+    in_n: int | None = None,
+    out_n: int | None = None,
+    ok: bool = True,
+    extra: dict[str, Any] | None = None,
+) -> str:
+    """
+    design/169g phase 4 — lifecycle A→B handoff. Returns handoff_id (or "").
+    Never raises.
+    """
+    hid = new_handoff_id()
+    try:
+        details: dict[str, Any] = {
+            "handoff_id": hid,
+            "from_stage": stage_token(from_stage),
+            "to_stage": stage_token(to_stage),
+        }
+        sec = stage_token(section) if section else ""
+        if sec and sec != "unknown":
+            details["section"] = sec
+        if in_n is not None:
+            details["in_n"] = int(in_n)
+        if out_n is not None:
+            details["out_n"] = int(out_n)
+        if extra:
+            for k, v in extra.items():
+                sk = str(k or "").strip()
+                if sk and sk not in details:
+                    details[sk] = v
+        emit(
+            "handoff",
+            source=source,
+            severity=severity,
+            trace_id=trace_id,
+            job_id=job_id,
+            cache_id=cache_id,
+            owner_uid=owner_uid,
+            content_hash=content_hash,
+            stage=stage or "lifecycle",
+            details=details,
+            ok=ok,
+            code="handoff",
+        )
+        return hid
+    except Exception:  # noqa: BLE001
+        log.warning("evidence_bus emit_handoff failed", exc_info=True)
+        return ""
+
+
 def list_events(*, limit: int = 50) -> list[dict[str, Any]]:
     """Newest-first (tests / agent scripts only — no HTTP)."""
     lim = max(1, min(int(limit or 50), 500))

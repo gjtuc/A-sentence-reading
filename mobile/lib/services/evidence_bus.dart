@@ -159,6 +159,49 @@ class EvidenceBus {
     }
   }
 
+  /// design/169g phase 4 — ``hf_`` + 12 hex (snake-safe for details).
+  String newHandoffId() {
+    final r = Random.secure();
+    final buf = StringBuffer('hf_');
+    for (var i = 0; i < 12; i++) {
+      buf.write(r.nextInt(16).toRadixString(16));
+    }
+    return buf.toString();
+  }
+
+  /// design/169g phase 4 — A→B lifecycle handoff (no paper text).
+  String recordHandoff({
+    required String fromStage,
+    required String toStage,
+    String jobId = '',
+    String cacheId = '',
+    String stage = 'lifecycle',
+    int? inN,
+    int? outN,
+    Map<String, Object?> extra = const {},
+  }) {
+    final hid = newHandoffId();
+    final details = <String, Object?>{
+      'handoff_id': hid,
+      'from_stage': fromStage,
+      'to_stage': toStage,
+      if (inN != null) 'in_n': inN,
+      if (outN != null) 'out_n': outN,
+      ...extra,
+    };
+    record(
+      'handoff',
+      severity: 'boundary',
+      stage: stage,
+      jobId: jobId,
+      cacheId: cacheId,
+      ok: true,
+      code: 'handoff',
+      details: details,
+    );
+    return hid;
+  }
+
   /// Test helper: clear ring without network.
   void clearForTest() {
     _ring.clear();

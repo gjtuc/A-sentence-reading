@@ -121,6 +121,16 @@ class LibraryController extends ChangeNotifier {
   String? _activeUploadId;
   String? _activeJobId;
 
+  /// design/169g phase 4 — last open→reader handoff for nav_tab join.
+  String? _lastOpenHandoffId;
+
+  /// Consume open→reader handoff id (once) for nav_tab evidence.
+  String? takeOpenHandoffId() {
+    final id = _lastOpenHandoffId;
+    _lastOpenHandoffId = null;
+    return id;
+  }
+
   /// design/134 — hang watchdog op for current upload attempt (stable per try).
   String? _hangOpId;
   bool _ingestHangTripped = false;
@@ -638,6 +648,12 @@ class LibraryController extends ChangeNotifier {
     String? lastErr;
     for (final id in ids) {
       try {
+        final hid = asrEvidenceBus?.recordHandoff(
+          fromStage: 'client_delete',
+          toStage: 'server_delete',
+          cacheId: id,
+          stage: 'delete',
+        );
         await _client.deletePaper(id);
         okCount += 1;
         asrEvidenceBus?.record(
@@ -646,6 +662,9 @@ class LibraryController extends ChangeNotifier {
           cacheId: id,
           stage: 'ok',
           ok: true,
+          details: {
+            if (hid != null && hid.isNotEmpty) 'handoff_id': hid,
+          },
         );
         await _editStash.purge(id);
         await _bookmarks?.purgePaper(id);
@@ -1149,11 +1168,22 @@ class LibraryController extends ChangeNotifier {
     error = null;
     notifyListeners();
     final opId = 'open:${entry.id}';
+    final openHid = asrEvidenceBus?.recordHandoff(
+          fromStage: 'client_open',
+          toStage: 'cache_open',
+          cacheId: entry.id,
+          stage: 'open',
+        ) ??
+        '';
+    _lastOpenHandoffId = openHid.isEmpty ? null : openHid;
     asrEvidenceBus?.record(
       'reader_open',
       severity: 'lifecycle',
       cacheId: entry.id,
       stage: 'begin',
+      details: {
+        if (openHid.isNotEmpty) 'handoff_id': openHid,
+      },
     );
     // design/130 — hang if open never returns (infinite spinner class).
     asrErrorReporter?.hang.begin(
@@ -1251,8 +1281,19 @@ class LibraryController extends ChangeNotifier {
           'translate_pending': o.translatePending,
           'ko_sentence_n':
               o.sentences.where((s) => s.textKo.trim().isNotEmpty).length,
+          if (openHid.isNotEmpty) 'handoff_id': openHid,
         },
       );
+      // design/169g phase 4 — open success → reader tab consumer
+      if (openHid.isNotEmpty) {
+        asrEvidenceBus?.recordHandoff(
+          fromStage: 'cache_open',
+          toStage: 'reader_tab',
+          cacheId: o.cacheId,
+          stage: 'open',
+          extra: {'handoff_id': openHid},
+        );
+      }
       return session;
     } on AsrApiException catch (e) {
       // WHY: leave prior session untouched only if we never assigned; clear on fail.
@@ -1879,6 +1920,12 @@ class LibraryController extends ChangeNotifier {
             'want_translate_pref': wantTr,
           },
         );
+        asrEvidenceBus?.recordHandoff(
+          fromStage: 'client_upload',
+          toStage: 'ingest_queued',
+          stage: 'upload',
+          inN: bytes.length,
+        );
         final started = await _client.startIngestPdfBytesChunked(
           filename: filename,
           bytes: bytes,
@@ -1914,6 +1961,13 @@ class LibraryController extends ChangeNotifier {
           uploadId: started.uploadId,
           jobId: started.jobId,
           phase: 'processing',
+        );
+        asrEvidenceBus?.recordHandoff(
+          fromStage: 'ingest_queued',
+          toStage: 'ingest_started',
+          jobId: started.jobId,
+          stage: 'upload',
+          inN: bytes.length,
         );
       } on AsrApiException catch (e) {
         if (e.statusCode != 503) rethrow;

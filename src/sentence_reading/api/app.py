@@ -203,7 +203,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.129",
+    version="0.3.130",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1271,7 +1271,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.129",
+        "version": "0.3.130",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -3648,13 +3648,26 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
 
             ko_s, ko_f = ko_counts(session.sentences, session.figures)
             owner = _request_user(request)
+            owner_uid = owner.uid if owner is not None else ""
+            ch = str(info.get("content_hash") or "")
+            # design/169g phase 4 — reading_ready → cache_open consumer
+            hid = eb.emit_handoff(
+                from_stage="reading_ready",
+                to_stage="cache_open",
+                cache_id=cache_id,
+                owner_uid=owner_uid,
+                content_hash=ch,
+                stage="open",
+                in_n=len(session.sentences or []),
+                out_n=int(ko_s),
+            )
             eb.emit(
                 "open_ko_summary",
                 severity="boundary",
                 cache_id=cache_id,
                 session_id=session_id,
-                owner_uid=owner.uid if owner is not None else "",
-                content_hash=str(info.get("content_hash") or ""),
+                owner_uid=owner_uid,
+                content_hash=ch,
                 stage="open",
                 route="cache_open",
                 details={
@@ -3665,6 +3678,7 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                     "translate_pending": bool(translate_pending),
                     "backfill_spawned": bool(backfill_spawned),
                     "translate_poll": bool(translate_poll),
+                    **({"handoff_id": hid} if hid else {}),
                 },
                 ok=True,
                 code="open_ko_summary",
@@ -3840,6 +3854,18 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
     try:
         from sentence_reading.llm import evidence_bus as eb
 
+        # design/169g phase 4 — reanalyze request → ingest worker
+        eb.emit_handoff(
+            from_stage="client_reanalyze",
+            to_stage="ingest_started",
+            trace_id=trace_id,
+            job_id=job_id,
+            cache_id=cid,
+            owner_uid=owner_uid,
+            content_hash=content_hash or "",
+            stage="queued",
+            in_n=len(raw),
+        )
         eb.emit(
             "reanalyze_start",
             source="server",
@@ -3956,6 +3982,55 @@ def cache_extend_retention(request: Request, cache_id: str) -> JSONResponse:
     )
 
 
+def _emit_paper_delete_evidence(
+    request: Request,
+    deleted: dict,
+) -> None:
+    """design/169g phase 4 — server delete counts + handoff. Never raises."""
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        owner = _request_user(request)
+        owner_uid = owner.uid if owner is not None else ""
+        cid = str(deleted.get("id") or "")[:64]
+        hid = eb.emit_handoff(
+            from_stage="client_delete",
+            to_stage="gcs_deleted",
+            cache_id=cid,
+            owner_uid=owner_uid,
+            stage="delete",
+            in_n=int(deleted.get("_gcs_object_n") or 0),
+            out_n=int(deleted.get("_gcs_figure_n") or 0),
+            ok=bool(int(deleted.get("_gcs_ok") or 0)),
+            extra={
+                "gcs_ok": int(deleted.get("_gcs_ok") or 0),
+                "gcs_skipped": int(deleted.get("_gcs_skipped") or 0),
+                "had_local": int(deleted.get("_had_local") or 0),
+            },
+        )
+        eb.emit(
+            "paper_delete",
+            source="server",
+            severity="lifecycle",
+            cache_id=cid,
+            owner_uid=owner_uid,
+            stage="ok",
+            details={
+                **({"handoff_id": hid} if hid else {}),
+                "object_n": int(deleted.get("_gcs_object_n") or 0),
+                "figure_n": int(deleted.get("_gcs_figure_n") or 0),
+                "gcs_ok": int(deleted.get("_gcs_ok") or 0),
+                "gcs_skipped": int(deleted.get("_gcs_skipped") or 0),
+                "had_local": int(deleted.get("_had_local") or 0),
+                "source_kind": eb.stage_token(str(deleted.get("source") or "pdf")),
+            },
+            ok=True,
+            code="paper_delete",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @app.delete("/api/cache/papers/{cache_id}")
 def cache_delete(request: Request, cache_id: str) -> JSONResponse:
     """보관(증류)본 삭제 — 로컬·GCS 논문 + 같은 uid 사용자 기록 (design/102)."""
@@ -3972,6 +4047,7 @@ def cache_delete(request: Request, cache_id: str) -> JSONResponse:
                 "message": "삭제할 보관본을 찾지 못했습니다.",
             },
         )
+    _emit_paper_delete_evidence(request, deleted)
     return JSONResponse(
         {
             "ok": True,
@@ -4010,6 +4086,7 @@ async def cache_delete_by_meta(request: Request, payload: dict = Body(...)) -> J
                 "message": "삭제할 보관본을 찾지 못했습니다.",
             },
         )
+    _emit_paper_delete_evidence(request, deleted)
     return JSONResponse(
         {
             "ok": True,
@@ -5891,6 +5968,19 @@ async def _run_ingest_job_body(
                     ok=translate_ok,
                     code="translate_phase_exit",
                 )
+                # design/169g phase 4 — translate done → durable KO save
+                if translate_ok:
+                    eb.emit_handoff(
+                        from_stage="translate_phase_exit",
+                        to_stage="translate_save_ko",
+                        job_id=job_id,
+                        cache_id=early_cid,
+                        owner_uid=_owner(),
+                        content_hash=str(content_hash or ""),
+                        stage="translate",
+                        in_n=int(ko_s),
+                        out_n=int(ko_f),
+                    )
             except Exception:  # noqa: BLE001
                 pass
         elif want_translate:
@@ -5925,11 +6015,12 @@ async def _run_ingest_job_body(
                 from sentence_reading.llm.translate_section import ko_counts
 
                 ko_s, ko_f = ko_counts(session.sentences, session.figures)
+                save_cid = str((cache_entry or {}).get("id") or early_cache_id or "")
                 eb.emit(
                     "translate_save_ko",
                     severity="boundary",
                     job_id=job_id,
-                    cache_id=str((cache_entry or {}).get("id") or early_cache_id or ""),
+                    cache_id=save_cid,
                     owner_uid=_owner(),
                     content_hash=str(content_hash or ""),
                     stage="save",
@@ -5941,6 +6032,19 @@ async def _run_ingest_job_body(
                     ok=cache_entry is not None,
                     code="translate_save_ko",
                 )
+                # design/169g phase 4 — save → openable reading_ready
+                if cache_entry is not None:
+                    eb.emit_handoff(
+                        from_stage="translate_save_ko",
+                        to_stage="reading_ready",
+                        job_id=job_id,
+                        cache_id=save_cid,
+                        owner_uid=_owner(),
+                        content_hash=str(content_hash or ""),
+                        stage="save",
+                        in_n=int(ko_s),
+                        out_n=int(ko_f),
+                    )
             except Exception:  # noqa: BLE001
                 pass
 
@@ -6160,6 +6264,22 @@ def _begin_ingest_from_bytes(
         percent=1,
         details={"filename_len": len(safe_name), "bytes": len(raw)},
     )
+    # design/169g phase 4 — upload bytes accepted → ingest worker started
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        eb.emit_handoff(
+            from_stage="client_upload",
+            to_stage="ingest_started",
+            trace_id=trace_id,
+            job_id=job_id,
+            owner_uid=owner_uid,
+            content_hash=content_hash,
+            stage="queued",
+            in_n=len(raw),
+        )
+    except Exception:  # noqa: BLE001
+        pass
     asyncio.create_task(
         _run_ingest_job(
             job_id, tmp_path, filename, kind, content_hash=content_hash

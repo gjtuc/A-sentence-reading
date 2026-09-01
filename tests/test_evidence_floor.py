@@ -37,7 +37,7 @@ def test_verify_evidence_floor_clean() -> None:
 
 
 def test_floor_version_pin() -> None:
-    assert EVIDENCE_FLOOR_VERSION == "0.3.129"
+    assert EVIDENCE_FLOOR_VERSION == "0.3.130"
 
 
 def test_gemini_timed_emits_start_and_done(ev_tmp, monkeypatch) -> None:
@@ -77,3 +77,22 @@ def test_emit_handoff_snake_stages(ev_tmp) -> None:
     assert d["section"] == "title"
     assert d["in_n"] == 1
     assert d["handoff_id"].startswith("hf_")
+
+
+def test_lifecycle_emit_handoff(ev_tmp) -> None:
+    """design/169g phase 4 — shared emit_handoff for upload/open/delete edges."""
+    hid = eb.emit_handoff(
+        from_stage="client_upload",
+        to_stage="ingest_started",
+        job_id="job_abcd1234ef00",
+        stage="queued",
+        in_n=12,
+    )
+    assert hid.startswith("hf_")
+    rows = [r for r in eb.list_events(limit=10) if r["kind"] == "handoff"]
+    assert rows
+    d = rows[0]["details"]
+    assert d["from_stage"] == "client_upload"
+    assert d["to_stage"] == "ingest_started"
+    assert d["in_n"] == 12
+    assert d["handoff_id"] == hid

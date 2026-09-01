@@ -413,10 +413,17 @@ def delete_cached_paper(
     _write_index(index)
 
     remote_ok = False
+    gcs_object_n = 0
+    gcs_figure_n = 0
+    gcs_skipped = 0
     try:
-        from sentence_reading.llm.papers_gcs import delete_paper_cache
+        from sentence_reading.llm.papers_gcs import delete_paper_cache_stats
 
-        remote_ok = bool(delete_paper_cache(tid))
+        stats = delete_paper_cache_stats(tid)
+        remote_ok = bool(stats.get("ok"))
+        gcs_object_n = int(stats.get("object_n") or 0)
+        gcs_figure_n = int(stats.get("figure_n") or 0)
+        gcs_skipped = int(stats.get("skipped") or 0)
     except Exception:
         remote_ok = False
 
@@ -439,14 +446,26 @@ def delete_cached_paper(
     except Exception:
         pass
 
-    if had_local_entry:
-        return target
+    def _with_gcs_meta(row: dict) -> dict:
+        # design/169g — counts only; stripped before any public JSON if needed.
+        out = dict(row)
+        out["_gcs_ok"] = 1 if remote_ok else 0
+        out["_gcs_object_n"] = gcs_object_n
+        out["_gcs_figure_n"] = gcs_figure_n
+        out["_gcs_skipped"] = gcs_skipped
+        out["_had_local"] = 1 if had_local_dir else 0
+        return out
+
+    if had_local_entry and isinstance(target, dict):
+        return _with_gcs_meta(target)
     if had_local_dir or remote_ok:
-        return {
-            "id": tid,
-            "title": str((target or {}).get("title") or title or ""),
-            "source": str((target or {}).get("source") or source or "pdf"),
-        }
+        return _with_gcs_meta(
+            {
+                "id": tid,
+                "title": str((target or {}).get("title") or title or ""),
+                "source": str((target or {}).get("source") or source or "pdf"),
+            }
+        )
     return None
 
 

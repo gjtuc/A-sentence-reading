@@ -868,13 +868,25 @@ def delete_paper_cache(cache_id: str) -> bool:
     GCS 논문 객체·index 항목 제거.
     session/figures 삭제 + index 에서 id 제거 후 재업로드.
     """
+    stats = delete_paper_cache_stats(cache_id)
+    return bool(stats.get("ok"))
+
+
+def delete_paper_cache_stats(cache_id: str) -> dict[str, Any]:
+    """
+    design/169g phase 4 — same delete as [delete_paper_cache] with object counts.
+    Returns ``{ok, object_n, figure_n, skipped}`` (no paper text).
+    """
     ready, msg = gcs_client_ready()
     if not gcs_config().enabled or not ready:
         log.debug("papers delete skip: %s", msg)
-        return False
+        return {"ok": False, "object_n": 0, "figure_n": 0, "skipped": 1}
     cid = (cache_id or "").strip()
     if not _CACHE_ID_RE.match(cid):
-        return False
+        return {"ok": False, "object_n": 0, "figure_n": 0, "skipped": 1}
+
+    object_n = 0
+    figure_n = 0
 
     # session 읽어 figure 목록 확보 (없어도 index 정리는 진행)
     sess_obj = paper_session_object(cid)
@@ -889,6 +901,7 @@ def delete_paper_cache(cache_id: str) -> bool:
             meta = {}
         if sess_obj:
             delete_bytes(sess_obj)
+            object_n += 1
 
     for fig in meta.get("figures") or []:
         if not isinstance(fig, dict):
@@ -896,6 +909,8 @@ def delete_paper_cache(cache_id: str) -> bool:
         fig_obj = paper_figure_object(cid, str(fig.get("file") or ""))
         if fig_obj:
             delete_bytes(fig_obj)
+            object_n += 1
+            figure_n += 1
 
     src_name = str(meta.get("source_file") or "").strip()
     if not src_name:
@@ -903,11 +918,13 @@ def delete_paper_cache(cache_id: str) -> bool:
     src_obj = paper_source_object(cid, src_name.split("/")[-1] if src_name else "")
     if src_obj:
         delete_bytes(src_obj)
+        object_n += 1
     # 다른 확장자 잔여물
     other = "source.docx" if src_name.endswith(".pdf") else "source.pdf"
     other_obj = paper_source_object(cid, other)
     if other_obj:
         delete_bytes(other_obj)
+        object_n += 1
 
     remote = download_remote_index()
     entries = [
@@ -915,7 +932,15 @@ def delete_paper_cache(cache_id: str) -> bool:
         for e in (remote.get("entries") or [])
         if isinstance(e, dict) and e.get("id") != cid
     ]
-    return upload_remote_index({"version": 1, "entries": entries})
+    ok = bool(upload_remote_index({"version": 1, "entries": entries}))
+    if ok:
+        object_n += 1  # index rewrite counts as one durable write
+    return {
+        "ok": ok,
+        "object_n": int(object_n),
+        "figure_n": int(figure_n),
+        "skipped": 0,
+    }
 
 
 def papers_gcs_status_fields() -> dict[str, Any]:
