@@ -65,7 +65,8 @@ fi
 if [[ "${ASR_SKIP_DEPLOY_GUARD:-}" != "1" ]]; then
   _guard_url="${CLOUD_URL%/}/api/status"
   echo "pre-deploy guard: ${_guard_url}"
-  if ! python "$ROOT/scripts/pre_deploy_guard.py" --url "$_guard_url"; then
+  # WHY: Windows Git Bash pwd is /c/...; python.exe then sees C:\c\... — use cwd-relative.
+  if ! python scripts/pre_deploy_guard.py --url "$_guard_url"; then
     echo "DEPLOY ABORTED — git pull, bump version above live, commit, retry." >&2
     echo "Emergency only: ASR_SKIP_DEPLOY_GUARD=1" >&2
     exit 3
