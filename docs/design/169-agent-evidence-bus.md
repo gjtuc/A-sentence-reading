@@ -344,8 +344,8 @@ ts=... kind=figure_preserve_miss prior_png=0 session_figs=7 cache=…
 | **169e** | Google batch `call_start`/`done`/`slow`/`fail` (+ chunk) | 없음 | 0.3.126 |
 | **169g** | Causal handoff 설계 + **evidence floor guard** (센서 삭제 배포 차단) · Gemini start→… | 없음 | floor=0.3.126; handoff phased |
 | **169f** | retention **7d** (JSONL rotate) — **여전히 UI 없음** | 없음 | 0.3.132 (g phase 6) |
-| **169h** | Interior checkpoint / `blocked_on` densify ([169h](169h-interior-checkpoint-evidence.md)) | 없음 | design; impl TBD |
-| **169i** | Artifact transfer ledger ([169i](169i-artifact-transfer-ledger.md)) — 169h 다음 | 없음 | design; impl TBD |
+| **169h** | Interior checkpoint / `blocked_on` densify ([169h](169h-interior-checkpoint-evidence.md)) | 없음 | **0.3.133** (H0–H2) |
+| **169i** | Artifact transfer ledger ([169i](169i-artifact-transfer-ledger.md)) — 169h 다음 | 없음 | **0.3.134** (I0–I2 session chain) |
 
 **금지:** 169 중간에 admin list API · Settings 타일 · “진단 로그 보기” 추가.
 

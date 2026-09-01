@@ -893,6 +893,7 @@ def save_paper_session(
     paper_dir = root / cache_id
     fig_dir = paper_dir / "figures"
     prior_slot_plan = None
+    prior_meta_for_gen: dict = {}
     # design/168f T9 — snapshot prior PNG bytes before rmtree so stub rows
     # (empty image_src) can keep captions + files instead of vanishing from meta.
     prior_fig_bytes: dict[str, bytes] = {}
@@ -927,6 +928,8 @@ def save_paper_session(
                 old_meta = json.loads(old_meta_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 old_meta = {}
+            if isinstance(old_meta, dict):
+                prior_meta_for_gen = old_meta
             for f in old_meta.get("figures") or []:
                 if not isinstance(f, dict):
                     continue
@@ -1084,10 +1087,48 @@ def save_paper_session(
     }
     if has_tr:
         payload["translate_doc_version"] = "doc-v1"
-    (paper_dir / _SESSION_NAME).write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    # design/169i — session generation for artifact ledger (metadata only).
+    try:
+        from sentence_reading.llm.artifact_ids import next_session_gen
+
+        art_gen = next_session_gen(prior_meta_for_gen)
+    except Exception:  # noqa: BLE001
+        art_gen = 1
+    payload["artifact_gen"] = int(art_gen)
+    session_text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    (paper_dir / _SESSION_NAME).write_text(session_text, encoding="utf-8")
+    # design/169i I1 — local write + derive (no paper text).
+    try:
+        from sentence_reading.llm import artifact_ids as aid
+
+        parent = (
+            aid.artifact_id_session(cache_id, art_gen - 1) if art_gen > 1 else ""
+        )
+        h16 = aid.hash16(session_text)
+        child = aid.artifact_id_session(cache_id, art_gen)
+        aid.emit_artifact_derive(
+            activity="local_write_session",
+            child_id=child,
+            parent_ids=[parent] if parent else None,
+            gen=art_gen,
+            content_hash=h16,
+            cache_id=cache_id,
+        )
+        aid.emit_artifact_transfer(
+            activity="local_write_session",
+            from_locator="mem:save",
+            to_locator=aid.locator_local_session(cache_id),
+            artifact_kind="session_json",
+            content_hash=h16,
+            bytes_n=len(session_text.encode("utf-8")),
+            gen=art_gen,
+            agent="cloud_run",
+            ok=True,
+            cache_id=cache_id,
+            extra={"artifact_id": child},
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
     new_entry = {
         "id": cache_id,

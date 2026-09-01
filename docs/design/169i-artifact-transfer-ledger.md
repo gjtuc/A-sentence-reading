@@ -2,9 +2,9 @@
 
 **Parent:** [169-agent-evidence-bus.md](169-agent-evidence-bus.md) · [169g-causal-handoff-evidence.md](169g-causal-handoff-evidence.md)  
 **Sibling / prerequisite:** [169h-interior-checkpoint-evidence.md](169h-interior-checkpoint-evidence.md) (**먼저** — 시간축 내부)  
-**Status:** design locked · **implementation not started**  
+**Status:** I0–I2 implemented in **0.3.134** (session hash chain + delete invalidate; figures sample later)  
 **UI:** 없음  
-**Depends on:** 169h at least H0–H1 landed (또는 병행 설계만; **코드는 169h 우선**)
+**Depends on:** 169h H0–H2 live (0.3.133+)
 
 ---
 

@@ -351,6 +351,36 @@ def upload_paper_cache(cache_id: str) -> bool:
         sess_obj, session_raw, content_type="application/json; charset=utf-8"
     ):
         return False
+    # design/169i I1 — local → gcs session transfer
+    try:
+        import time as _time
+
+        from sentence_reading.llm import artifact_ids as aid
+
+        t0 = _time.perf_counter()
+        h16 = aid.hash16(session_raw)
+        gen = 0
+        try:
+            meta_tmp = json.loads(session_raw.decode("utf-8"))
+            if isinstance(meta_tmp, dict):
+                gen = int(meta_tmp.get("artifact_gen") or 0)
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+            gen = 0
+        aid.emit_artifact_transfer(
+            activity="gcs_upload_session",
+            from_locator=aid.locator_local_session(cid),
+            to_locator=aid.locator_gcs_session(cid),
+            artifact_kind="session_json",
+            content_hash=h16,
+            bytes_n=len(session_raw),
+            gen=gen or None,
+            agent="cloud_run",
+            elapsed_ms=int((_time.perf_counter() - t0) * 1000),
+            ok=True,
+            cache_id=cid,
+        )
+    except Exception:  # noqa: BLE001
+        pass
     try:
         meta = json.loads(session_raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -488,6 +518,31 @@ def download_paper_cache(
         (paper_dir / _SESSION_NAME).write_bytes(session_raw)
     except OSError:
         return _fail("local_write_fail")
+    # design/169i I1 — gcs → local session transfer
+    try:
+        from sentence_reading.llm import artifact_ids as aid
+
+        h16 = aid.hash16(session_raw)
+        gen = 0
+        if isinstance(meta, dict):
+            try:
+                gen = int(meta.get("artifact_gen") or 0)
+            except (TypeError, ValueError):
+                gen = 0
+        aid.emit_artifact_transfer(
+            activity="gcs_download_session",
+            from_locator=aid.locator_gcs_session(cid),
+            to_locator=aid.locator_local_session(cid),
+            artifact_kind="session_json",
+            content_hash=h16,
+            bytes_n=len(session_raw),
+            gen=gen or None,
+            agent="cloud_run",
+            ok=True,
+            cache_id=cid,
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
     if include_figures:
         for fig in meta.get("figures") or []:
@@ -935,6 +990,21 @@ def delete_paper_cache_stats(cache_id: str) -> dict[str, Any]:
     ok = bool(upload_remote_index({"version": 1, "entries": entries}))
     if ok:
         object_n += 1  # index rewrite counts as one durable write
+    # design/169i I2 — invalidate session locator (counts; no paper text)
+    try:
+        from sentence_reading.llm import artifact_ids as aid
+
+        aid.emit_artifact_invalidate(
+            locator=aid.locator_gcs_session(cid),
+            artifact_kind="session_json",
+            activity="paper_delete_gcs",
+            ok=ok,
+            cache_id=cid,
+            object_n=object_n,
+            figure_n=figure_n,
+        )
+    except Exception:  # noqa: BLE001
+        pass
     return {
         "ok": ok,
         "object_n": int(object_n),

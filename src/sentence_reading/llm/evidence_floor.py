@@ -6,8 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 
-# Live must not lose sensors introduced by 169c/d/e/g/h (floor through 7d retention).
-EVIDENCE_FLOOR_VERSION = "0.3.133"
+# Live must not lose sensors introduced by 169c/d/e/g/h/i (floor through artifact ledger).
+EVIDENCE_FLOOR_VERSION = "0.3.134"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -25,6 +25,10 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "handoff",
         "progress_view",
         "checkpoint",
+        "artifact_observe",
+        "artifact_transfer",
+        "artifact_derive",
+        "artifact_invalidate",
         "reanalyze_pref_snapshot",
         "stall_fired",
         "figure_preserve_miss",
@@ -56,6 +60,30 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             'from_stage="google_batch"',
             "trace_id=trace_id",
             '_EVIDENCE_CTX.trace_id',
+        ),
+    ),
+    (
+        "src/sentence_reading/llm/artifact_ids.py",
+        (
+            "emit_artifact_transfer",
+            "emit_artifact_observe",
+            "emit_artifact_derive",
+            "emit_artifact_invalidate",
+            "hash16",
+            "locator_local_session",
+            "locator_gcs_session",
+        ),
+    ),
+    (
+        "src/sentence_reading/cache/paper_cache.py",
+        ("artifact_gen", "emit_artifact_derive", "local_write_session"),
+    ),
+    (
+        "src/sentence_reading/llm/papers_gcs.py",
+        (
+            "gcs_upload_session",
+            "gcs_download_session",
+            "emit_artifact_invalidate",
         ),
     ),
     (

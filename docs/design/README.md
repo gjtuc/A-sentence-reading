@@ -153,7 +153,7 @@
 | 169e | [169e-google-batch-evidence.md](169e-google-batch-evidence.md) | Google batch/chunk call evidence (0.3.126) |
 | 169g | [169g-causal-handoff-evidence.md](169g-causal-handoff-evidence.md) | 인과 handoff 설계 + evidence floor 가드 (7d retention 목표) |
 | 169h | [169h-interior-checkpoint-evidence.md](169h-interior-checkpoint-evidence.md) | 단계 **안쪽** checkpoint / `blocked_on` densify (title→next 스톨) |
-| 169i | [169i-artifact-transfer-ledger.md](169i-artifact-transfer-ledger.md) | 조각 source→sink 장부 (hash·locator·transfer; 169h 다음) |
+| 169i | [169i-artifact-transfer-ledger.md](169i-artifact-transfer-ledger.md) | 조각 source→sink 장부 (hash·locator·transfer; **0.3.134** I0–I2) |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  

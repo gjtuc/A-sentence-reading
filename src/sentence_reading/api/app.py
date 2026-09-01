@@ -211,7 +211,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.133",
+    version="0.3.134",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1310,7 +1310,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.133",
+        "version": "0.3.134",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -3725,6 +3725,34 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                 ok=True,
                 code="open_ko_summary",
             )
+            # design/169i I1 — open observes session bytes (hash only).
+            try:
+                from sentence_reading.llm import artifact_ids as aid
+                from sentence_reading.cache.paper_cache import cache_root
+
+                sess_path = cache_root() / str(cache_id) / "session.json"
+                h16, bn = aid.hash16_file(sess_path)
+                gen = None
+                try:
+                    meta_o = json.loads(sess_path.read_text(encoding="utf-8"))
+                    if isinstance(meta_o, dict):
+                        gen = int(meta_o.get("artifact_gen") or 0) or None
+                except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                    gen = None
+                aid.emit_artifact_observe(
+                    locator=aid.locator_local_session(cache_id),
+                    artifact_kind="session_json",
+                    content_hash=h16,
+                    bytes_n=bn or None,
+                    gen=gen,
+                    role="read",
+                    activity="cache_open",
+                    cache_id=cache_id,
+                    owner_uid=owner_uid,
+                    extra={"artifact_id": aid.artifact_id_session(cache_id, gen or 0)},
+                )
+            except Exception:  # noqa: BLE001
+                pass
         except Exception:  # noqa: BLE001
             pass
         return JSONResponse(data)

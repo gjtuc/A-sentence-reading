@@ -51,6 +51,11 @@ ALLOWED_KINDS = frozenset(
         "progress_view",
         # design/169h — interior checkpoint densify
         "checkpoint",
+        # design/169i — artifact transfer ledger
+        "artifact_observe",
+        "artifact_transfer",
+        "artifact_derive",
+        "artifact_invalidate",
         # design/169d — full-product dense sensors
         "library_refresh",
         "library_count",
