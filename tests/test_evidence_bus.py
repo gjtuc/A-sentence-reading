@@ -81,6 +81,8 @@ def test_169c_kinds_and_item_sample(ev_tmp) -> None:
     assert "translate_item_done" in ALLOWED_KINDS
     assert "open_ko_summary" in ALLOWED_KINDS
     assert "translate_call_slow" in ALLOWED_KINDS
+    assert "translate_call_start" in ALLOWED_KINDS
+    assert "translate_call_done" in ALLOWED_KINDS
     assert "library_refresh" in ALLOWED_KINDS
     assert "download_cache_fail" in ALLOWED_KINDS
     assert "reclaim_seed" in ALLOWED_KINDS
@@ -136,7 +138,7 @@ def test_body_uid_ignored(ev_tmp, monkeypatch) -> None:
 
 def test_status_evidence_bus_pin(ev_tmp) -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.125"
+    assert st["version"] == "0.3.126"
     assert st.get("evidence_bus") is True
 
 

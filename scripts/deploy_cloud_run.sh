@@ -78,6 +78,16 @@ if ! command -v gcloud >/dev/null 2>&1; then
   exit 1
 fi
 
+# EDGE: Git Bash `gcloud` shim can mangle CLOUDSDK root to C:\c\Program Files\... and
+# fail before any deploy. Prefer gcloud.cmd on Windows (same pattern as env-vars-file).
+case "$(uname -s 2>/dev/null || true)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if command -v gcloud.cmd >/dev/null 2>&1; then
+      gcloud() { command gcloud.cmd "$@"; }
+    fi
+    ;;
+esac
+
 # WHY: 값에 쉼표·특수문자 있어도 안전 — --set-env-vars 한 줄보다 env-vars-file.
 # EDGE: Windows gcloud.cmd cannot read Git Bash /tmp — prefer TEMP / repo .tmp.
 _ASR_TMP="${TEMP:-${TMP:-}}"

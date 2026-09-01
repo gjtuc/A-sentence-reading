@@ -150,6 +150,7 @@
 | 169 | [169-agent-evidence-bus.md](169-agent-evidence-bus.md) | 전역 증거 버스 · UI 없음 · 에이전트 pull · [체크리스트](169-audit-checklist.md) |
 | 169c | [169c-dense-translate-open-auth.md](169c-dense-translate-open-auth.md) | 번역·open·auth 촘촘 evidence (0.3.124) |
 | 169d | [169d-full-product-evidence.md](169d-full-product-evidence.md) | 전 제품 P0/P1 evidence (0.3.125) |
+| 169e | [169e-google-batch-evidence.md](169e-google-batch-evidence.md) | Google batch/chunk call evidence (0.3.126) |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  

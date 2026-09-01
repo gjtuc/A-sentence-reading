@@ -341,8 +341,8 @@ ts=... kind=figure_preserve_miss prior_png=0 session_figs=7 cache=…
 | **169c** | Dense translate/open/auth sensors ([169c](169c-dense-translate-open-auth.md)) | 없음 | 0.3.124 |
 | **169c** | figure window / translate poll / silent_catch 전수 (checklist §G·D) | 없음 | 0.3.124 |
 | **169d** | 서버: save preserve miss · stall skip/fire · handler middleware | 없음 | 0.3.125 |
-| **169e** | web evidence.js (optional) | 없음 | — |
-| **169f** | retention (JSONL rotate 30d) · rate tuning — **여전히 UI 없음** | 없음 | — |
+| **169e** | Google batch `call_start`/`done`/`slow`/`fail` (+ chunk) | 없음 | 0.3.126 |
+| **169f** | web evidence.js (optional) · retention — **여전히 UI 없음** | 없음 | — |
 
 **금지:** 169 중간에 admin list API · Settings 타일 · “진단 로그 보기” 추가.
 
@@ -405,4 +405,5 @@ ts=... kind=figure_preserve_miss prior_png=0 session_figs=7 cache=…
 - [169-audit-checklist.md](169-audit-checklist.md) — **본 칩 전수 (클라+서버+스크립트)**
 - [169c-dense-translate-open-auth.md](169c-dense-translate-open-auth.md) — translate/open/auth 촘촘 센서 (0.3.124)
 - [169d-full-product-evidence.md](169d-full-product-evidence.md) — 전 제품 P0/P1 (0.3.125)
+- [169e-google-batch-evidence.md](169e-google-batch-evidence.md) — Google bulk/chunk call sensors (0.3.126)
 - [130-cloud-error-logs.md](130-cloud-error-logs.md) — admin UI; 169와 혼용 금지

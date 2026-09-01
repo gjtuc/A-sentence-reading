@@ -134,8 +134,12 @@ def _emit_translate_call(
     call_kind: str,
     elapsed_ms: int | None = None,
     exc: BaseException | None = None,
+    batch_n: int | None = None,
+    chunk_i: int | None = None,
+    chunk_n: int | None = None,
+    section: str = "",
 ) -> None:
-    """Fire-and-forget design/169c call sensors. Never raises."""
+    """Fire-and-forget design/169c/e call sensors. Never raises."""
     try:
         from sentence_reading.llm import evidence_bus as eb
 
@@ -147,9 +151,22 @@ def _emit_translate_call(
             details["elapsed_ms"] = int(elapsed_ms)
         if exc is not None:
             details["exc_type"] = _exc_type_snake(exc)
+        if batch_n is not None:
+            details["batch_n"] = int(batch_n)
+        if chunk_i is not None:
+            details["chunk_i"] = int(chunk_i)
+        if chunk_n is not None:
+            details["chunk_n"] = int(chunk_n)
+        sec = str(section or getattr(_EVIDENCE_CTX, "section", "") or "").strip().lower()
+        sec = re.sub(r"[^a-z0-9_]", "", sec.replace("-", "_").replace(" ", "_"))[:64]
+        if sec and re.match(r"^[a-z]", sec):
+            details["section"] = sec
+        sev = "error" if kind == "translate_call_fail" else "boundary"
+        if kind == "translate_call_start":
+            sev = "boundary"
         eb.emit(
             kind,
-            severity="error" if kind == "translate_call_fail" else "boundary",
+            severity=sev,
             job_id=job_id,
             cache_id=cache_id,
             owner_uid=owner_uid,
@@ -160,6 +177,59 @@ def _emit_translate_call(
         )
     except Exception:  # noqa: BLE001
         log.warning("translate evidence emit failed kind=%s", kind, exc_info=True)
+
+
+def _google_batch_timed(
+    texts: list[str],
+    *,
+    section: str = "",
+) -> list[str | None]:
+    """
+    design/169e — wrap Google bulk translate with call_start/slow/fail.
+    WHY: section batch can block for many minutes with zero item_done ticks.
+    """
+    pending_n = sum(1 for t in texts if str(t or "").strip())
+    prev_sec = getattr(_EVIDENCE_CTX, "section", "")
+    _EVIDENCE_CTX.section = str(section or "")[:64]
+    _emit_translate_call(
+        "translate_call_start",
+        call_kind="google_batch",
+        batch_n=pending_n,
+        section=section,
+    )
+    t0 = time.monotonic()
+    try:
+        out = tg.translate_batch_en_to_ko(texts)
+    except Exception as exc:  # noqa: BLE001
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        _emit_translate_call(
+            "translate_call_fail",
+            call_kind="google_batch",
+            elapsed_ms=elapsed_ms,
+            exc=exc,
+            batch_n=pending_n,
+            section=section,
+        )
+        _EVIDENCE_CTX.section = prev_sec
+        raise
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    if elapsed_ms >= _CALL_SLOW_MS:
+        _emit_translate_call(
+            "translate_call_slow",
+            call_kind="google_batch",
+            elapsed_ms=elapsed_ms,
+            batch_n=pending_n,
+            section=section,
+        )
+    _emit_translate_call(
+        "translate_call_done",
+        call_kind="google_batch",
+        elapsed_ms=elapsed_ms,
+        batch_n=pending_n,
+        section=section,
+    )
+    _EVIDENCE_CTX.section = prev_sec
+    return out
 
 
 def _gemini_timed(call_kind: str, system: str, user: str) -> str | None:
@@ -614,7 +684,7 @@ def _enrich_session_translations_body(
         finished = 0
         if use_google and tg.google_translate_available():
             eng_for_batch = [_plain(sentences[i].text) for i in plain_idxs]
-            ko_batch = tg.translate_batch_en_to_ko(eng_for_batch)
+            ko_batch = _google_batch_timed(eng_for_batch, section=sec)
             for j, i in enumerate(plain_idxs):
                 ko = ko_batch[j] if j < len(ko_batch) else None
                 if ko:
@@ -712,7 +782,7 @@ def _enrich_session_translations_body(
         finished_c = 0
         if use_google and tg.google_translate_available():
             cap_texts = [cap for _, _, cap in cap_jobs]
-            ko_batch = tg.translate_batch_en_to_ko(cap_texts)
+            ko_batch = _google_batch_timed(cap_texts, section="caption")
             for j, (fi, _fig, cap) in enumerate(cap_jobs):
                 cap_ko = (ko_batch[j] if j < len(ko_batch) else None) or ""
                 cap_stage = "google" if cap_ko else ""

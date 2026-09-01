@@ -29,7 +29,7 @@ def ops_tmp(tmp_path, monkeypatch):
 
 def test_status_silent_catch_report_pin(ops_tmp) -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.125"
+    assert st["version"] == "0.3.126"
     assert st.get("silent_catch_report") is True
 
 

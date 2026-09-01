@@ -36,6 +36,8 @@ const Set<String> kEvidenceAllowedKinds = {
   'translate_item_done',
   'translate_call_fail',
   'translate_call_slow',
+  'translate_call_start',
+  'translate_call_done',
   'translate_phase_exit',
   'translate_save_ko',
   'open_ko_summary',
