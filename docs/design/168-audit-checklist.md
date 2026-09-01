@@ -288,6 +288,7 @@
 - [x] A1.11 poll breadcrumb (progress-only)
 
 ### 168e — sweeper + admin
+구현 세분: [168e-impl-checklist.md](168e-impl-checklist.md) (e0–e5)
 - [ ] J1.7, J1.8
 - [ ] A1.19 reclaim events
 - [ ] **D1.5** translate stall detector
