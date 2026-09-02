@@ -69,10 +69,16 @@ ALLOWED_KINDS = frozenset(
         "cache_save_sample",
         "reclaim_seed",
         "download_cache_fail",
-        "figures_prior_pull",
+        'figures_prior_pull',
         # design/169m — lease / sweeper causality
         "lease_heartbeat",
         "sweep_decision",
         "reclaim_attempt",
+        # design/169n — library figure hydrate
+        "figure_hydrate_start",
+        "figure_hydrate_progress",
+        "figure_hydrate_done",
+        "figure_hydrate_partial",
+        "figure_hydrate_abort",
     }
 )

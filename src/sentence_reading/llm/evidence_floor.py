@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 
 # Live must not lose sensors introduced by 169c/d/e/g/h/i/j/k (floor through pull verdicts).
-EVIDENCE_FLOOR_VERSION = "0.3.140"
+EVIDENCE_FLOOR_VERSION = "0.3.141"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -46,6 +46,11 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "lease_heartbeat",
         "sweep_decision",
         "reclaim_attempt",
+        "figure_hydrate_start",
+        "figure_hydrate_progress",
+        "figure_hydrate_done",
+        "figure_hydrate_partial",
+        "figure_hydrate_abort",
     }
 )
 
@@ -216,6 +221,9 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "client_open",
             "client_delete",
             "reconcileUploadNotify",
+            "figure_hydrate_start",
+            "enqueueFigureHydrate",
+            "hydrate_bg",
         ),
     ),
 )

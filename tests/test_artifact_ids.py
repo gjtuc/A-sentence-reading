@@ -35,7 +35,7 @@ def test_artifact_kinds_in_allowlist_and_floor() -> None:
 
 
 def test_floor_version_includes_169i() -> None:
-    assert EVIDENCE_FLOOR_VERSION == "0.3.140"
+    assert EVIDENCE_FLOOR_VERSION == "0.3.141"
 
 
 def test_hash16_and_locators() -> None:

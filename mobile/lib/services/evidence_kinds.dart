@@ -70,4 +70,10 @@ const Set<String> kEvidenceAllowedKinds = {
   'lease_heartbeat',
   'sweep_decision',
   'reclaim_attempt',
+  // design/169n — library figure hydrate
+  'figure_hydrate_start',
+  'figure_hydrate_progress',
+  'figure_hydrate_done',
+  'figure_hydrate_partial',
+  'figure_hydrate_abort',
 };

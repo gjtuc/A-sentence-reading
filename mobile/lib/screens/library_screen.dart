@@ -730,20 +730,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             lastReadLeftAt:
                                 lib.readLeftAtByCacheId[e.id] ?? '',
                           ),
+                          lib.figureHydrateLabel(e.id),
                         ].where((s) => s.isNotEmpty).join('\n'),
                       ),
-                      isThreeLine: e.metaLine().isNotEmpty ||
-                          e.timingLine(
-                                lastReadLeftAt:
-                                    lib.readLeftAtByCacheId[e.id] ?? '',
-                              )
-                              .isNotEmpty,
+                      isThreeLine: true,
                       selected: _selecting && selected,
                       trailing: _selecting
                           ? null
                           : Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                if (lib.figureHydrateSnapshot(e.id)?.showFailure ==
+                                    true)
+                                  IconButton(
+                                    icon: const Icon(Icons.refresh, size: 22),
+                                    tooltip: '그림 다시 받기',
+                                    onPressed: lib.opening ||
+                                            lib.uploading ||
+                                            lib.reanalyzing ||
+                                            _deleting
+                                        ? null
+                                        : () => lib.enqueueFigureHydrate(
+                                              e.id,
+                                              force: true,
+                                            ),
+                                  ),
+                                if (lib.figureHydrateSnapshot(e.id)?.showFailure ==
+                                    true)
+                                  IconButton(
+                                    icon: const Icon(Icons.close, size: 20),
+                                    tooltip: '알림 닫기',
+                                    onPressed: () =>
+                                        lib.dismissFigureHydrate(e.id),
+                                  ),
                                 if (e.canMergeSupplementary)
                                   IconButton(
                                     icon: const Icon(Icons.merge_type, size: 22),

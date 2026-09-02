@@ -1643,24 +1643,31 @@ class AsrClient {
 
   /// design/129 — GET /api/session/{id}/figures/window?center=&span=
   /// Returns figure rows plus optional server-side empty reason aggregates (169l L3).
+  /// [evidenceSource] distinguishes library hydrate vs reader prefetch (169n).
   Future<({List<Map<String, dynamic>> figures, Map<String, int> serverEmptyReasons})>
       fetchFigureWindow({
     required String sessionId,
     required int center,
     int span = 1,
     String cacheId = '',
+    String evidenceSource = 'reader_prefetch',
   }) async {
     final sid = sessionId.trim();
     if (sid.isEmpty) {
       throw AsrApiException('session id is empty', 400);
     }
     final cid = cacheId.trim();
+    final src = evidenceSource.trim();
     asrEvidenceBus?.record(
       'figure_window_req',
       severity: 'lifecycle',
       cacheId: cid,
       stage: 'req',
-      details: {'center': center, 'span': span},
+      details: {
+        'center': center,
+        'span': span,
+        if (src.isNotEmpty) 'source': src,
+      },
     );
     final cacheQ = cid.isEmpty
         ? ''

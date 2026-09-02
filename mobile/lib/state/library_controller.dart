@@ -29,6 +29,7 @@ import '../services/evidence_bus.dart';
 import '../services/hang_watchdog.dart';
 import '../services/paper_edit_stash.dart';
 import 'ingest_auto_resume.dart';
+import 'figure_hydrate.dart';
 
 /// Stall after this long without progress while an upload is marked active.
 const Duration kUploadStallAfter = Duration(seconds: 45);
@@ -153,7 +154,350 @@ class LibraryController extends ChangeNotifier {
   /// Set in catch; consumed in finally after uploading latch clears.
   bool _pendingAutoResume = false;
 
+  /// design/169n — library background figure byte hydrate (per cache_id).
+  final Map<String, FigureHydrateSnapshot> _figureHydrate = {};
+  final Map<String, ReadingSession> _hydrateSessions = {};
+  final List<String> _hydrateQueue = [];
+  final Set<String> _hydrateDismissed = {};
+  bool _hydrateLoopBusy = false;
+  int _hydrateGeneration = 0;
+
   ReadingSession? get opened => session;
+
+  /// design/169n — library row label (empty when hidden).
+  String figureHydrateLabel(String cacheId) {
+    final s = _figureHydrate[cacheId.trim()];
+    if (s == null) return '';
+    return s.userLabel;
+  }
+
+  FigureHydrateSnapshot? figureHydrateSnapshot(String cacheId) =>
+      _figureHydrate[cacheId.trim()];
+
+  void dismissFigureHydrate(String cacheId) {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return;
+    _hydrateDismissed.add(cid);
+    _figureHydrate.remove(cid);
+    notifyListeners();
+  }
+
+  /// Enqueue post-ingest / retry figure byte hydrate for [cacheId].
+  void enqueueFigureHydrate(String cacheId, {bool force = false}) {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return;
+    if (!force && _hydrateDismissed.contains(cid)) return;
+    if (force) _hydrateDismissed.remove(cid);
+    final cur = _figureHydrate[cid];
+    if (!force &&
+        cur != null &&
+        (cur.phase == FigureHydratePhase.arming ||
+            cur.phase == FigureHydratePhase.hydrating ||
+            cur.phase == FigureHydratePhase.doneOk)) {
+      return;
+    }
+    if (!_hydrateQueue.contains(cid)) {
+      _hydrateQueue.add(cid);
+    }
+    unawaited(_pumpFigureHydrateQueue());
+  }
+
+  Future<void> _pumpFigureHydrateQueue() async {
+    if (_hydrateLoopBusy) return;
+    _hydrateLoopBusy = true;
+    try {
+      while (_hydrateQueue.isNotEmpty) {
+        final cid = _hydrateQueue.removeAt(0);
+        if (_hydrateDismissed.contains(cid)) continue;
+        await _runFigureHydrate(cid);
+      }
+    } finally {
+      _hydrateLoopBusy = false;
+      if (_hydrateQueue.isNotEmpty) {
+        unawaited(_pumpFigureHydrateQueue());
+      }
+    }
+  }
+
+  Future<void> _runFigureHydrate(String cacheId) async {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return;
+    final gen = ++_hydrateGeneration;
+    final attempt = (_figureHydrate[cid]?.attemptN ?? 0) + 1;
+    _figureHydrate[cid] = FigureHydrateSnapshot(
+      cacheId: cid,
+      phase: FigureHydratePhase.arming,
+      total: 0,
+      filled: 0,
+      failed: 0,
+      attemptN: attempt,
+    );
+    notifyListeners();
+
+    ReadingSession? hs;
+    try {
+      final wantTr = await _wantTranslate();
+      hs = await _client.openPaper(cid, translate: wantTr);
+    } catch (e) {
+      _figureHydrate[cid] = FigureHydrateSnapshot(
+        cacheId: cid,
+        phase: FigureHydratePhase.aborted,
+        total: 0,
+        filled: 0,
+        failed: 0,
+        attemptN: attempt,
+        abortReason: 'open_failed',
+      );
+      asrEvidenceBus?.record(
+        'figure_hydrate_abort',
+        severity: 'error',
+        cacheId: cid,
+        stage: 'arming',
+        ok: false,
+        details: {'abort_reason': 'open_failed', 'attempt_n': attempt},
+        message: e.toString().length > 200
+            ? e.toString().substring(0, 200)
+            : e.toString(),
+      );
+      notifyListeners();
+      return;
+    }
+    if (gen != _hydrateGeneration && _hydrateDismissed.contains(cid)) {
+      return;
+    }
+    if (hs.figureCount < 1) {
+      _figureHydrate[cid] = FigureHydrateSnapshot(
+        cacheId: cid,
+        phase: FigureHydratePhase.doneOk,
+        total: 0,
+        filled: 0,
+        failed: 0,
+        attemptN: attempt,
+      );
+      asrEvidenceBus?.record(
+        'figure_hydrate_done',
+        severity: 'boundary',
+        cacheId: cid,
+        stage: 'hydrate_bg',
+        ok: true,
+        details: {'total': 0, 'filled': 0, 'failed': 0, 'attempt_n': attempt},
+      );
+      notifyListeners();
+      return;
+    }
+
+    // Merge any prior hydrate bytes; keep side session for open() preserve.
+    final prior = _hydrateSessions[cid];
+    if (prior != null) {
+      hs.preserveClientStateFrom(prior);
+    }
+    if (session?.cacheId == cid) {
+      hs.preserveClientStateFrom(session);
+    }
+    _hydrateSessions[cid] = hs;
+
+    var filled = countFilledFromSrcList(hs.figures.map((f) => f.imageSrc));
+    _figureHydrate[cid] = FigureHydrateSnapshot(
+      cacheId: cid,
+      phase: FigureHydratePhase.hydrating,
+      total: hs.figureCount,
+      filled: filled,
+      failed: 0,
+      attemptN: attempt,
+    );
+    asrEvidenceBus?.record(
+      'figure_hydrate_start',
+      severity: 'boundary',
+      cacheId: cid,
+      stage: 'hydrate_bg',
+      ok: true,
+      details: {
+        'total': hs.figureCount,
+        'filled': filled,
+        'failed': 0,
+        'attempt_n': attempt,
+        'source': 'hydrate_bg',
+      },
+    );
+    notifyListeners();
+
+    if (filled >= hs.figureCount) {
+      _figureHydrate[cid] = finishHydrate(
+        _figureHydrate[cid]!,
+        filled: filled,
+        failed: 0,
+      );
+      asrEvidenceBus?.record(
+        'figure_hydrate_done',
+        severity: 'boundary',
+        cacheId: cid,
+        stage: 'hydrate_bg',
+        ok: true,
+        details: {
+          'total': hs.figureCount,
+          'filled': filled,
+          'failed': 0,
+          'attempt_n': attempt,
+          'source': 'hydrate_bg',
+        },
+      );
+      notifyListeners();
+      return;
+    }
+
+    final hardFailed = <int>{};
+    final centers = hydrateCenters(total: hs.figureCount, span: 1);
+    final sw = Stopwatch()..start();
+    for (final center in centers) {
+      if (_hydrateDismissed.contains(cid)) return;
+      final live = _hydrateSessions[cid] ?? hs;
+      filled = countFilledFromSrcList(live.figures.map((f) => f.imageSrc));
+      if (filled >= live.figureCount) break;
+
+      try {
+        final window = await _client.fetchFigureWindow(
+          sessionId: live.sessionId,
+          center: center,
+          span: 1,
+          cacheId: cid,
+          evidenceSource: 'hydrate_bg',
+        );
+        final before = <int>{
+          for (var i = 0; i < live.figures.length; i++)
+            if (live.figures[i].imageSrc.trim().isNotEmpty) i,
+        };
+        live.mergeFigureWindow(window.figures);
+        if (session?.cacheId == cid) {
+          session!.mergeFigureWindow(window.figures);
+        }
+        final newly = <int>{};
+        for (final row in window.figures) {
+          final src = '${row['image_src'] ?? ''}'.trim();
+          final idxRaw = row['index'];
+          final idx = idxRaw is int
+              ? idxRaw
+              : (idxRaw is num ? idxRaw.toInt() : int.tryParse('$idxRaw'));
+          if (idx == null) continue;
+          if (src.isEmpty) {
+            if (!before.contains(idx)) hardFailed.add(idx);
+          } else {
+            newly.add(idx);
+            hardFailed.remove(idx);
+          }
+        }
+        filled = countFilledFromSrcList(live.figures.map((f) => f.imageSrc));
+        _figureHydrate[cid] = FigureHydrateSnapshot(
+          cacheId: cid,
+          phase: FigureHydratePhase.hydrating,
+          total: live.figureCount,
+          filled: filled,
+          failed: hardFailed.length,
+          attemptN: attempt,
+        );
+        final emptyN = window.figures
+            .where((r) => '${r['image_src'] ?? ''}'.trim().isEmpty)
+            .length;
+        asrEvidenceBus?.record(
+          'figure_window_res',
+          severity: emptyN > 0 ? 'error' : 'sample',
+          cacheId: cid,
+          stage: 'hydrate_bg',
+          ok: emptyN == 0,
+          details: {
+            'window_n': window.figures.length,
+            'empty_n': emptyN,
+            'center': center,
+            'source': 'hydrate_bg',
+            'filled': filled,
+            'total': live.figureCount,
+          },
+        );
+        if (newly.isNotEmpty && filled % 2 == 0) {
+          asrEvidenceBus?.record(
+            'figure_hydrate_progress',
+            severity: 'sample',
+            cacheId: cid,
+            stage: 'hydrate_bg',
+            ok: true,
+            details: {
+              'total': live.figureCount,
+              'filled': filled,
+              'failed': hardFailed.length,
+              'center': center,
+              'attempt_n': attempt,
+              'elapsed_ms': sw.elapsedMilliseconds,
+              'source': 'hydrate_bg',
+            },
+          );
+        }
+        notifyListeners();
+      } catch (e) {
+        // Mark uncovered neighbors around center as soft-fail candidates.
+        for (var i = center - 1; i <= center + 1; i++) {
+          if (i < 0 || i >= live.figureCount) continue;
+          if (live.figures[i].imageSrc.trim().isEmpty) {
+            hardFailed.add(i);
+          }
+        }
+        asrEvidenceBus?.record(
+          'figure_window_res',
+          severity: 'error',
+          cacheId: cid,
+          stage: 'hydrate_bg_fail',
+          ok: false,
+          message: e.toString().length > 200
+              ? e.toString().substring(0, 200)
+              : e.toString(),
+          details: {
+            'center': center,
+            'source': 'hydrate_bg',
+            'attempt_n': attempt,
+          },
+        );
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+    }
+
+    final liveEnd = _hydrateSessions[cid] ?? hs;
+    filled = countFilledFromSrcList(liveEnd.figures.map((f) => f.imageSrc));
+    // Any still-empty index counts as failed for honest partial.
+    for (var i = 0; i < liveEnd.figureCount; i++) {
+      if (liveEnd.figures[i].imageSrc.trim().isEmpty) {
+        hardFailed.add(i);
+      }
+    }
+    final done = finishHydrate(
+      FigureHydrateSnapshot(
+        cacheId: cid,
+        phase: FigureHydratePhase.hydrating,
+        total: liveEnd.figureCount,
+        filled: filled,
+        failed: hardFailed.length,
+        attemptN: attempt,
+      ),
+      filled: filled,
+      failed: hardFailed.length,
+    );
+    _figureHydrate[cid] = done;
+    asrEvidenceBus?.record(
+      done.phase == FigureHydratePhase.doneOk
+          ? 'figure_hydrate_done'
+          : 'figure_hydrate_partial',
+      severity: done.phase == FigureHydratePhase.doneOk ? 'boundary' : 'error',
+      cacheId: cid,
+      stage: 'hydrate_bg',
+      ok: done.phase == FigureHydratePhase.doneOk,
+      details: {
+        'total': done.total,
+        'filled': done.filled,
+        'failed': done.failed,
+        'attempt_n': attempt,
+        'elapsed_ms': sw.elapsedMilliseconds,
+        'source': 'hydrate_bg',
+      },
+    );
+    notifyListeners();
+  }
 
   UploadNotify get uploadNotify => _notify;
 
@@ -817,6 +1161,7 @@ class LibraryController extends ChangeNotifier {
         notifyListeners();
         return false;
       }
+      enqueueFigureHydrate(result.cacheId);
       // WHY: 재분석 후 읽기 탭에 옛 session이 남지 않게 최신 /open 반영.
       if (session?.cacheId == entry.id || session?.cacheId == result.cacheId) {
         final openEntry = paperEntryForCacheId(result.cacheId) ?? entry;
@@ -1316,12 +1661,19 @@ class LibraryController extends ChangeNotifier {
       }
 
       session = o;
+      // design/169n — reuse bytes already fetched on library hydrate.
+      final hydrated = _hydrateSessions[o.cacheId];
+      if (hydrated != null) {
+        o.preserveClientStateFrom(hydrated);
+      }
       _maybeShowQualityBanner(o);
       _maybeStartTranslatePoll(o);
       unawaited(_syncBookmarksForSession(o));
       unawaited(_syncAnnotationsForSession(o));
       // design/129 — fill current±1 images after sentences are on screen.
       unawaited(_prefetchFigureWindow());
+      // Keep hydrating remaining figures in background if not done.
+      enqueueFigureHydrate(o.cacheId);
       // design/80 — per-user chunk backfill (opt-in); errors surface on reader.
       unawaited(ensureShadowingChunks(entry.id));
       asrEvidenceBus?.record(
@@ -1514,6 +1866,7 @@ class LibraryController extends ChangeNotifier {
         center: s.figureIndex,
         span: 1,
         cacheId: s.cacheId,
+        evidenceSource: 'reader_prefetch',
       );
       final rows = window.figures;
       // EDGE: session object may be replaced (translate poll) while in flight.
@@ -1527,6 +1880,7 @@ class LibraryController extends ChangeNotifier {
         'window_n': rows.length,
         'empty_n': emptyN,
         'center': s.figureIndex,
+        'source': 'reader_prefetch',
       };
       if (window.serverEmptyReasons.isNotEmpty) {
         resDetails['server_empty_reasons'] = window.serverEmptyReasons;
@@ -2129,6 +2483,7 @@ class LibraryController extends ChangeNotifier {
         return null;
       }
       await _notify.showCompleted(cacheId: result.cacheId);
+      enqueueFigureHydrate(result.cacheId);
       return result;
     } on UploadCancelledException {
       // design/132 — honest cancel; design/134 hang keeps failure message.
@@ -2267,6 +2622,7 @@ class LibraryController extends ChangeNotifier {
         return null;
       }
       await _notify.showCompleted(cacheId: result.cacheId);
+      enqueueFigureHydrate(result.cacheId);
       if (draft.isReanalyze && draft.cacheId.isNotEmpty) {
         final targetId =
             result.cacheId.isNotEmpty ? result.cacheId : draft.cacheId;

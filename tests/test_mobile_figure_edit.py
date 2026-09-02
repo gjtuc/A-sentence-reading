@@ -10,7 +10,7 @@ MOBILE = ROOT / "mobile"
 
 def test_mobile_figure_edit_dart_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.140" in pub
+    assert "0.3.141" in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "fetchLayoutMap" in client
     assert "fetchSlotPlan" in client
