@@ -70,5 +70,9 @@ ALLOWED_KINDS = frozenset(
         "reclaim_seed",
         "download_cache_fail",
         "figures_prior_pull",
+        # design/169m — lease / sweeper causality
+        "lease_heartbeat",
+        "sweep_decision",
+        "reclaim_attempt",
     }
 )

@@ -211,7 +211,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.139",
+    version="0.3.140",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1086,6 +1086,29 @@ def _fail_job_terminal(
         reason_code = str(ops_kind or "terminal_error").strip().lower()[:64] or "terminal_error"
         if not re.match(r"^[a-z][a-z0-9_]{0,63}$", reason_code):
             reason_code = "terminal_error"
+        term_details: dict = {
+            "reason_enum": reason_code,
+            "percent": int(job.get("percent") or 0),
+        }
+        # design/169m — pass through sweeper lease snapshot fields (safe_details filters).
+        if isinstance(details, dict):
+            for key in (
+                "reason",
+                "reclaim_reason",
+                "will_mark_lost_path",
+                "zombie_risk",
+                "local_running",
+                "mem_lease_age_sec",
+                "gcs_lease_age_sec",
+                "gcs_lease_missing",
+                "gcs_done",
+                "mem_tok8",
+                "gcs_tok8",
+                "cr_rev8",
+                "lease_ttl_s",
+            ):
+                if key in details:
+                    term_details[key] = details[key]
         eb.emit(
             "server_job_terminal_error",
             severity="error",
@@ -1097,10 +1120,7 @@ def _fail_job_terminal(
             stage="error",
             percent=int(job.get("percent") or 0),
             message=msg[:200],
-            details={
-                "reason_enum": reason_code,
-                "percent": int(job.get("percent") or 0),
-            },
+            details=term_details,
             ok=False,
             code="server_job_terminal_error",
         )
@@ -1164,6 +1184,7 @@ def _maybe_fail_translate_stall(job_id: str, job: dict) -> bool:
 async def _ingest_sweeper_loop() -> None:
     """design/168e — periodically reclaim or mark worker_lost on lease-expired jobs."""
     from sentence_reading.llm.ingest_stall import sweeper_interval_sec, sweep_candidate
+    from sentence_reading.llm import ingest_lease_obs as ilo
 
     while True:
         sec = sweeper_interval_sec()
@@ -1180,9 +1201,46 @@ async def _ingest_sweeper_loop() -> None:
                 if not isinstance(job, dict):
                     continue
                 action = sweep_candidate(job)
-                if action == "none":
-                    continue
+                ids = ilo.job_ids(job)
+                mem = ilo.mem_snapshot(job)
                 owner = str(job.get("owner_uid") or "").strip()
+                if action == "none":
+                    if ilo.should_sample_sweep_none():
+                        try:
+                            ilo.emit_dual(
+                                "sweep_decision",
+                                job_id=jid,
+                                severity="sample",
+                                percent=int(job.get("percent") or 0),
+                                details={
+                                    "action": "none",
+                                    "why_none": ilo.why_sweep_none(job),
+                                    **mem,
+                                },
+                                ok=True,
+                                **ids,
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
+                    continue
+                # action == reclaim
+                gcs = ilo.gcs_snapshot(jid, owner) if owner else {"gcs_lease_missing": True}
+                try:
+                    ilo.emit_dual(
+                        "sweep_decision",
+                        job_id=jid,
+                        severity="boundary",
+                        percent=int(job.get("percent") or 0),
+                        details={
+                            "action": "reclaim",
+                            **mem,
+                            **gcs,
+                        },
+                        ok=True,
+                        **ids,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
                 if action == "reclaim" and owner:
                     ok = False
                     try:
@@ -1190,6 +1248,36 @@ async def _ingest_sweeper_loop() -> None:
                     except Exception:  # noqa: BLE001
                         ok = False
                     job2 = _JOBS.get(jid) or job
+                    reclaim_reason = str(
+                        job2.get("_last_reclaim_reason")
+                        or (job.get("_last_reclaim_reason") if isinstance(job, dict) else "")
+                        or "unknown"
+                    )[:64]
+                    will_mark = (
+                        not ok
+                        and not job2.get("_local_running")
+                        and not job2.get("done")
+                        and not job2.get("error")
+                    )
+                    try:
+                        ilo.emit_dual(
+                            "sweep_decision",
+                            job_id=jid,
+                            severity="boundary",
+                            percent=int(job2.get("percent") or 0),
+                            details={
+                                "action": "reclaim_result",
+                                "reclaim_ok": bool(ok),
+                                "reclaim_reason": reclaim_reason or "unknown",
+                                "will_mark_lost": bool(will_mark),
+                                **ilo.mem_snapshot(job2),
+                                **ilo.gcs_snapshot(jid, owner),
+                            },
+                            ok=bool(ok),
+                            **ilo.job_ids(job2),
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
                     if ok or job2.get("_local_running"):
                         continue
                     # Reclaim refused (no upload / claim fail) → worker_lost terminal.
@@ -1203,6 +1291,12 @@ async def _ingest_sweeper_loop() -> None:
                             "reason": "lease_expired",
                             "reason_enum": "worker_lost",
                             "percent": int(job2.get("percent") or 0),
+                            "reclaim_reason": reclaim_reason or "unknown",
+                            "will_mark_lost_path": "sweeper_after_reclaim_fail",
+                            "zombie_risk": reclaim_reason
+                            in ("gcs_lease_alive", "lease_claim_failed", "already_local"),
+                            **ilo.mem_snapshot(job2),
+                            **ilo.gcs_snapshot(jid, owner),
                         },
                         percent=int(job2.get("percent") or 0),
                     )
@@ -1338,7 +1432,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.139",
+        "version": "0.3.140",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -4479,19 +4573,73 @@ async def session_patch_cursor(session_id: str, payload: dict = Body(...)) -> JS
 async def _ingest_lease_heartbeat(job_id: str) -> None:
     """design/107 — keep lease fresh while this instance runs the worker."""
     from sentence_reading.llm import ingest_jobs_gcs as ij
+    from sentence_reading.llm import ingest_lease_obs as ilo
 
     interval = ij.heartbeat_interval_seconds()
+    hb_seq = 0
     while True:
         await asyncio.sleep(interval)
         job = _JOBS.get(job_id)
+        force_exit = False
         if not job or job.get("done") or job.get("error") or job.get("_discarded"):
-            return
-        if job.get("cancel_requested"):
-            return
-        if not job.get("_local_running"):
+            force_exit = True
+        elif job.get("cancel_requested"):
+            force_exit = True
+        elif not job.get("_local_running"):
+            force_exit = True
+        if force_exit:
+            if job is not None and hb_seq > 0:
+                try:
+                    ids = ilo.job_ids(job)
+                    det = {
+                        "hb_seq": hb_seq,
+                        "hb_interval_s": int(interval),
+                        "force_exit": True,
+                        **ilo.mem_snapshot(job),
+                    }
+                    if ilo.should_emit_heartbeat(hb_seq, force=True):
+                        ilo.emit_dual(
+                            "lease_heartbeat",
+                            job_id=job_id,
+                            severity="sample",
+                            percent=int(job.get("percent") or 0),
+                            details=det,
+                            ok=True,
+                            **ids,
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
             return
         ij.stamp_lease(job, token=str(job.get("lease_token") or "") or None)
-        _persist_job(job_id, job, force=True)
+        persist_ok = True
+        try:
+            _persist_job(job_id, job, force=True)
+        except Exception:  # noqa: BLE001
+            persist_ok = False
+        hb_seq += 1
+        if ilo.should_emit_heartbeat(hb_seq):
+            try:
+                ids = ilo.job_ids(job)
+                det = {
+                    "hb_seq": hb_seq,
+                    "hb_interval_s": int(interval),
+                    "persist_ok": persist_ok,
+                    **ilo.mem_snapshot(job),
+                }
+                age = ilo.lease_age_sec(job)
+                if age is not None:
+                    det["lease_age_sec"] = age
+                ilo.emit_dual(
+                    "lease_heartbeat",
+                    job_id=job_id,
+                    severity="sample",
+                    percent=int(job.get("percent") or 0),
+                    details=det,
+                    ok=persist_ok,
+                    **ids,
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
 
 async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
@@ -4500,25 +4648,44 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
     WHY: root fix for orphaned 12% jobs — not a fake percent bump.
     EDGE: no blob → False (fail-closed, no empty success).
     design/168e — emit reclaim_attempt on every exit path.
+    design/169m — dual-bus + mem/gcs lease ages.
     """
     from sentence_reading.llm import ingest_jobs_gcs as ij
-    from sentence_reading.llm import ops_events as oev
+    from sentence_reading.llm import ingest_lease_obs as ilo
 
-    def _emit(reason: str) -> None:
+    existing = _JOBS.get(job_id)
+
+    def _emit(reason: str, *, extra: dict | None = None) -> None:
         try:
-            oev.emit(
+            ids = ilo.job_ids(existing)
+            if not ids.get("owner_uid"):
+                ids["owner_uid"] = owner_uid
+            det: dict = {
+                "reason": str(reason or "unknown")[:64],
+                **ilo.mem_snapshot(existing),
+                **ilo.gcs_snapshot(job_id, owner_uid),
+            }
+            if extra:
+                det.update(extra)
+            ilo.emit_dual(
                 "reclaim_attempt",
                 job_id=job_id,
-                owner_uid=owner_uid,
-                details={"reason": reason},
+                severity="boundary",
+                percent=int((existing or {}).get("percent") or 0),
+                details=det,
+                ok=reason in ("claimed", "already_local", "reclaimed"),
+                **ids,
             )
+            # Stash for sweeper terminal enrichment (same dict as _JOBS entry).
+            stash = existing if existing is not None else _JOBS.get(job_id)
+            if isinstance(stash, dict):
+                stash["_last_reclaim_reason"] = str(reason or "")[:64]
         except Exception:  # noqa: BLE001
             pass
 
     if not ij.ingest_job_reclaim_enabled():
         _emit("reclaim_disabled")
         return False
-    existing = _JOBS.get(job_id)
     # WHY: this instance already has an active worker — do not double-start.
     if existing is not None and existing.get("_local_running"):
         _emit("already_local")
@@ -4539,9 +4706,9 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
         )
         _emit("cancelled")
         return False
-    token = ij.try_claim_lease(job_id, owner_uid=owner_uid)
+    token, claim_reason = ij.try_claim_lease_with_reason(job_id, owner_uid=owner_uid)
     if not token:
-        _emit("lease_claim_failed")
+        _emit(claim_reason or "lease_claim_failed")
         return False
     raw = ij.load_ingest_upload(job_id, owner_uid=owner_uid, suffix=".pdf")
     kind = "pdf"

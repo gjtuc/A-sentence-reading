@@ -116,6 +116,24 @@ def compute_verdicts(
 
     if tl.terminal_error_ts and tl.terminal_reason == "worker_lost":
         out.append("worker_lost_terminal")
+        # design/169m — classify false kill vs true orphan from terminal details.
+        term = None
+        for o in tl.events:
+            if o.get("kind") == "server_job_terminal_error":
+                term = o.get("details") or {}
+        if isinstance(term, dict):
+            rr = str(term.get("reclaim_reason") or "")
+            gcs_age = term.get("gcs_lease_age_sec")
+            mem_age = term.get("mem_lease_age_sec")
+            if rr == "gcs_lease_alive" or (
+                isinstance(gcs_age, int)
+                and gcs_age < 0
+                and isinstance(mem_age, int)
+                and mem_age > 0
+            ):
+                out.append("false_worker_lost_stale_mem_lease")
+            elif isinstance(gcs_age, int) and gcs_age > 0:
+                out.append("true_worker_orphaned")
 
     j169 = check_169j_section_pass(tl, "title")
     if j169 is True:

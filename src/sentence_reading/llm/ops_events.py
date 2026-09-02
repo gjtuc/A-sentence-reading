@@ -68,6 +68,9 @@ _ALLOWED_KINDS = frozenset(
         "translate_section_tick",
         "worker_lost",
         "reclaim_attempt",
+        # design/169m — lease / sweeper causality
+        "lease_heartbeat",
+        "sweep_decision",
     }
 )
 

@@ -49,7 +49,44 @@ def test_zombie_worker_after_terminal() -> None:
     assert any(v == "worker_lost_terminal" for v in verdicts)
 
 
-def test_harmonize_pool_active_suppresses_hang_label() -> None:
+def test_false_worker_lost_stale_mem_lease() -> None:
+    events = [
+        {
+            "kind": "server_job_terminal_error",
+            "ts": "2026-09-02T07:16:46Z",
+            "details": {
+                "reason_enum": "worker_lost",
+                "reclaim_reason": "gcs_lease_alive",
+                "mem_lease_age_sec": 12,
+                "gcs_lease_age_sec": -275,
+            },
+            "ok": False,
+        },
+    ]
+    tl = JobTimeline.from_events(events)
+    verdicts = compute_verdicts(tl, ui_pct=91, open_hangs=[], silence_s=5, prev={})
+    assert "worker_lost_terminal" in verdicts
+    assert "false_worker_lost_stale_mem_lease" in verdicts
+
+
+def test_true_worker_orphaned() -> None:
+    events = [
+        {
+            "kind": "server_job_terminal_error",
+            "ts": "2026-09-02T07:16:46Z",
+            "details": {
+                "reason_enum": "worker_lost",
+                "reclaim_reason": "upload_missing",
+                "mem_lease_age_sec": 400,
+                "gcs_lease_age_sec": 400,
+            },
+            "ok": False,
+        },
+    ]
+    tl = JobTimeline.from_events(events)
+    verdicts = compute_verdicts(tl, ui_pct=12, open_hangs=[], silence_s=5, prev={})
+    assert "true_worker_orphaned" in verdicts
+
     events = [
         _ev("translate_call_start", "2026-09-01T16:31:50Z", call_kind="harmonize", section="introduction"),
         _ev("checkpoint", "2026-09-01T16:31:55Z", checkpoint="harmonize_pool_tick", section="introduction", remaining=14),

@@ -769,31 +769,40 @@ def load_ingest_upload(
     return bytes(raw)
 
 
-def try_claim_lease(job_id: str, *, owner_uid: str) -> str | None:
+def try_claim_lease_with_reason(
+    job_id: str, *, owner_uid: str
+) -> tuple[str | None, str]:
     """
     Atomically-ish claim an expired lease on GCS.
-    Returns lease_token if this caller won; None if still leased or missing.
+    Returns (token, reason). reason is snake for ops/evidence details.
     WHY: two Cloud Run instances may poll at once — loser must not start a worker.
+    design/169m — distinguish gcs_lease_alive from race / missing.
     """
     if not ingest_job_reclaim_enabled() or not ingest_jobs_gcs_enabled():
-        return None
+        return None, "reclaim_disabled"
     uid = (owner_uid or "").strip()
     if not uid or not valid_job_id(job_id):
-        return None
+        return None, "bad_ids"
     current = load_ingest_job(job_id, owner_uid=uid)
     if current is None:
-        return None
+        return None, "job_missing"
     if current.get("done") or current.get("error"):
-        return None
+        return None, "job_already_done"
     if not lease_expired(current):
-        return None
+        return None, "gcs_lease_alive"
     token = stamp_lease(current)
     if not save_ingest_job(job_id, current):
-        return None
+        return None, "save_failed"
     # EDGE: re-read — if another writer overwrote our token, we lost.
     again = load_ingest_job(job_id, owner_uid=uid)
     if again is None or str(again.get("lease_token") or "") != token:
-        return None
+        return None, "save_lost_race"
+    return token, "claimed"
+
+
+def try_claim_lease(job_id: str, *, owner_uid: str) -> str | None:
+    """Claim expired lease; None if still leased or missing."""
+    token, _reason = try_claim_lease_with_reason(job_id, owner_uid=owner_uid)
     return token
 
 
