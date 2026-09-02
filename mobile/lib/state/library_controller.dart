@@ -1469,12 +1469,13 @@ class LibraryController extends ChangeNotifier {
     final s = session;
     if (s == null || !s.isValid || s.figureCount < 1) return;
     try {
-      final rows = await _client.fetchFigureWindow(
+      final window = await _client.fetchFigureWindow(
         sessionId: s.sessionId,
         center: s.figureIndex,
         span: 1,
         cacheId: s.cacheId,
       );
+      final rows = window.figures;
       // EDGE: session object may be replaced (translate poll) while in flight.
       final current = session;
       if (current == null || current.cacheId != s.cacheId) return;
@@ -1482,17 +1483,21 @@ class LibraryController extends ChangeNotifier {
       final emptyN = rows
           .where((r) => '${r['image_src'] ?? ''}'.trim().isEmpty)
           .length;
+      final resDetails = <String, dynamic>{
+        'window_n': rows.length,
+        'empty_n': emptyN,
+        'center': s.figureIndex,
+      };
+      if (window.serverEmptyReasons.isNotEmpty) {
+        resDetails['server_empty_reasons'] = window.serverEmptyReasons;
+      }
       asrEvidenceBus?.record(
         'figure_window_res',
         severity: emptyN == rows.length && rows.isNotEmpty ? 'error' : 'boundary',
         cacheId: s.cacheId,
         stage: 'prefetch',
         ok: emptyN < rows.length || rows.isEmpty,
-        details: {
-          'window_n': rows.length,
-          'empty_n': emptyN,
-          'center': s.figureIndex,
-        },
+        details: resDetails,
       );
       notifyListeners();
     } catch (e) {

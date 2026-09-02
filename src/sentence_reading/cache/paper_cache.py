@@ -110,6 +110,128 @@ def _decode_data_url(src: str) -> tuple[bytes, str] | None:
     return raw, ext
 
 
+def _figure_file_rel_n(fig_meta: list) -> int:
+    n = 0
+    for row in fig_meta:
+        if not isinstance(row, dict):
+            continue
+        rel = str(row.get("file") or "").strip().replace("\\", "/")
+        if rel.startswith("figures/") and ".." not in rel.split("/"):
+            n += 1
+    return n
+
+
+def _emit_figure_meta_boundary(
+    *,
+    cache_id: str,
+    art_gen: int,
+    activity: str,
+    session_fig_n: int,
+    fig_meta: list,
+    prior_png_n: int,
+    decoded_src_n: int,
+    preserved_n: int,
+    prior_meta_for_gen: dict,
+    forced: bool,
+    content_hash: str = "",
+) -> None:
+    """design/169l L1 — save boundary figure meta observability. Never raises."""
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        cid = str(cache_id or "").strip()
+        fig_meta_n = len(fig_meta)
+        file_rel_n = _figure_file_rel_n(fig_meta)
+        missing_file_n = max(0, session_fig_n - file_rel_n)
+        sample_missing_ids: list[str] = []
+        for row in fig_meta:
+            if not isinstance(row, dict):
+                continue
+            fid = str(row.get("id") or "").strip()
+            rel = str(row.get("file") or "").strip()
+            if fid and not rel.startswith("figures/"):
+                sample_missing_ids.append(fid)
+            if len(sample_missing_ids) >= 8:
+                break
+        meta_ok = file_rel_n == session_fig_n if session_fig_n > 0 else True
+        write_details = {
+            "gen": int(art_gen),
+            "activity": activity,
+            "session_fig_n": session_fig_n,
+            "fig_meta_n": fig_meta_n,
+            "file_rel_n": file_rel_n,
+            "prior_png_n": prior_png_n,
+            "decoded_src_n": decoded_src_n,
+            "preserved_n": preserved_n,
+            "missing_file_n": missing_file_n,
+        }
+        if sample_missing_ids:
+            write_details["sample_missing_ids"] = sample_missing_ids
+        eb.emit(
+            "figure_meta_write",
+            severity="boundary",
+            cache_id=cid,
+            content_hash=content_hash,
+            stage="save",
+            details=write_details,
+            ok=meta_ok,
+            code="figure_meta_ok" if meta_ok else "figure_meta_incomplete",
+        )
+        prev_figs = (
+            prior_meta_for_gen.get("figures")
+            if isinstance(prior_meta_for_gen, dict)
+            else []
+        )
+        prev_file_rel_n = _figure_file_rel_n(prev_figs if isinstance(prev_figs, list) else [])
+        gen_prev = 0
+        if isinstance(prior_meta_for_gen, dict):
+            try:
+                gen_prev = int(prior_meta_for_gen.get("artifact_gen") or 0)
+            except (TypeError, ValueError):
+                gen_prev = 0
+        if prev_file_rel_n > file_rel_n and prev_file_rel_n > 0:
+            eb.emit(
+                "figure_meta_regress",
+                severity="consistency",
+                cache_id=cid,
+                content_hash=content_hash,
+                stage="save",
+                details={
+                    "gen_prev": gen_prev,
+                    "gen_new": int(art_gen),
+                    "prev_file_rel_n": prev_file_rel_n,
+                    "new_file_rel_n": file_rel_n,
+                },
+                ok=False,
+                code="file_rel_regress",
+            )
+        preserve_miss = bool(forced and prior_png_n == 0 and session_fig_n > 0)
+        if (
+            session_fig_n > 0
+            and preserved_n == 0
+            and prior_png_n > 0
+            and not preserve_miss
+        ):
+            eb.emit(
+                "figure_preserve_skip",
+                severity="consistency",
+                cache_id=cid,
+                content_hash=content_hash,
+                stage="save",
+                details={
+                    "reason": "prior_bytes_unused",
+                    "prior_png_n": prior_png_n,
+                    "session_fig_n": session_fig_n,
+                    "forced": 1 if forced else 0,
+                    "activity": activity,
+                },
+                ok=False,
+                code="figure_preserve_skip",
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _figure_to_data_url(path: Path) -> str:
     raw = path.read_bytes()
     ext = path.suffix.lower().lstrip(".") or "png"
@@ -201,11 +323,22 @@ def figure_data_url(cache_id: str, figure_id: str) -> str | None:
         return url
     try:
         from sentence_reading.llm import ops_events as oev
+        from sentence_reading.llm import evidence_bus as eb
 
+        miss_details = {"reason": reason, "figure_id": (figure_id or "").strip()}
         oev.emit(
             "figure_data_url_miss",
             cache_id=(cache_id or "").strip(),
-            details={"reason": reason},
+            details=miss_details,
+        )
+        eb.emit(
+            "figure_data_url_miss",
+            severity="consistency",
+            cache_id=(cache_id or "").strip(),
+            stage="figure_data_url",
+            details=miss_details,
+            ok=False,
+            code=str(reason or "miss")[:64],
         )
     except Exception:  # noqa: BLE001
         pass
@@ -898,6 +1031,7 @@ def save_paper_session(
     # (empty image_src) can keep captions + files instead of vanishing from meta.
     prior_fig_bytes: dict[str, bytes] = {}
     prior_fig_ext: dict[str, str] = {}
+    prior_fig_meta: dict[str, str] = {}
     if existing_id:
         # WHY: reanalyze on Cloud Run often has session.json but no local PNGs
         # (open is lazy). Pull figures once so T9 preserve can work.
@@ -937,6 +1071,7 @@ def save_paper_session(
                 rel = str(f.get("file") or "").replace("\\", "/")
                 if not fid or not rel.startswith("figures/") or ".." in rel.split("/"):
                     continue
+                prior_fig_meta[fid] = rel
                 img_path = old_dir / rel
                 if not img_path.is_file():
                     continue
@@ -985,6 +1120,8 @@ def save_paper_session(
     fig_dir.mkdir(parents=True, exist_ok=True)
 
     fig_meta: list[dict] = []
+    decoded_src_n = 0
+    preserved_from_prior_n = 0
     for i, fig in enumerate(session.figures):
         fid = str(fig.id or f"fig-{i + 1:04d}").strip() or f"fig-{i + 1:04d}"
         decoded = _decode_data_url(fig.image_src)
@@ -995,6 +1132,7 @@ def save_paper_session(
             fname = re.sub(r"[^\w.\-]+", "_", fname)
             (fig_dir / fname).write_bytes(raw)
             file_rel = f"figures/{fname}"
+            decoded_src_n += 1
         elif fid in prior_fig_bytes:
             # WHY: lazy open / translate re-save often has empty image_src but PNG on disk.
             ext = prior_fig_ext.get(fid) or "png"
@@ -1002,6 +1140,26 @@ def save_paper_session(
             fname = re.sub(r"[^\w.\-]+", "_", fname)
             (fig_dir / fname).write_bytes(prior_fig_bytes[fid])
             file_rel = f"figures/{fname}"
+            preserved_from_prior_n += 1
+        elif fid in prior_fig_meta:
+            # design/169l — meta file rel survived but bytes not local (Cloud Run lazy open).
+            rel = prior_fig_meta[fid]
+            fname = re.sub(r"[^\w.\-]+", "_", rel.split("/")[-1])
+            dest = fig_dir / fname
+            try:
+                from sentence_reading.llm.papers_gcs import ensure_figure_local_with_reason
+
+                ensured, _ensure_reason = ensure_figure_local_with_reason(
+                    str(existing_id or cache_id), rel
+                )
+                if ensured is not None and ensured.is_file():
+                    raw = ensured.read_bytes()
+                    if raw:
+                        dest.write_bytes(raw)
+                        file_rel = f"figures/{fname}"
+                        preserved_from_prior_n += 1
+            except Exception:  # noqa: BLE001
+                pass
         # design/168f — always keep a meta row (stub OK). Never shrink fig_meta vs session.
         row: dict = {
             "id": fid,
@@ -1044,15 +1202,17 @@ def save_paper_session(
         except Exception:  # noqa: BLE001
             pass
 
-    # design/168b — log-only T9 (session figures vs written meta); never block save.
+    # design/168b — log-only T9/T11 (session figures vs written meta); never block save.
     try:
         from sentence_reading.llm.ingest_integrity import (
             check_fig_meta,
+            check_figure_file_rel,
             emit_violations,
         )
 
         emit_violations(
-            check_fig_meta(len(session.figures), len(fig_meta)),
+            check_fig_meta(len(session.figures), len(fig_meta))
+            + check_figure_file_rel(fig_meta),
             cache_id=cache_id,
             content_hash=ch or "",
         )
@@ -1169,6 +1329,29 @@ def save_paper_session(
         )
     except Exception:  # noqa: BLE001
         pass
+
+    if forced:
+        save_activity = "reanalyze"
+    elif merge_revision is not None:
+        save_activity = "merge_session"
+    elif has_tr and existing_id:
+        save_activity = "translate_save"
+    else:
+        save_activity = "ingest_store"
+    preserved_n = decoded_src_n + preserved_from_prior_n
+    _emit_figure_meta_boundary(
+        cache_id=cache_id,
+        art_gen=int(art_gen),
+        activity=save_activity,
+        session_fig_n=len(session.figures or []),
+        fig_meta=fig_meta,
+        prior_png_n=len(prior_fig_bytes),
+        decoded_src_n=decoded_src_n,
+        preserved_n=preserved_n,
+        prior_meta_for_gen=prior_meta_for_gen,
+        forced=bool(forced),
+        content_hash=ch or "",
+    )
 
     new_entry = {
         "id": cache_id,

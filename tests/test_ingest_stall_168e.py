@@ -58,7 +58,7 @@ def _admin_client(monkeypatch) -> tuple[TestClient, str]:
 
 def test_status_stall_pin(ops_tmp) -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.136"
+    assert st["version"] == "0.3.137"
     assert st.get("ingest_stall_detector") is True
 
 

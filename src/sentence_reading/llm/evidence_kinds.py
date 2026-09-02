@@ -29,11 +29,16 @@ ALLOWED_KINDS = frozenset(
         "server_handler_fail",
         "server_job_terminal_error",
         "figure_preserve_miss",
+        "figure_meta_write",
+        "figure_meta_regress",
+        "figure_preserve_skip",
+        "ingest_integrity_violation",
         "stall_skipped_live_worker",
         "stall_fired",
         # mirrors (optional)
         "figure_window_empty",
         "figure_blob_miss",
+        "figure_data_url_miss",
         # design/169c — dense translate / open / poll
         "translate_phase_enter",
         "translate_item_done",

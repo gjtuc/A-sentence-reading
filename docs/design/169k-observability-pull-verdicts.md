@@ -1,7 +1,8 @@
 # 169k — Observability pull + linked verdicts
 
 **Parent:** [169-agent-evidence-bus.md](169-agent-evidence-bus.md) · [169i-artifact-transfer-ledger.md](169i-artifact-transfer-ledger.md) · [169j-translate-on-item-off-critical-path.md](169j-translate-on-item-off-critical-path.md)  
-**Status:** **0.3.136** — K0 + K1(I3 partial) + K2(I4 patch_gen) + K3(zombie abort) + ghost FGS(170); K4 pull verdict script pending  
+**Sibling:** [169l-figure-meta-observability.md](169l-figure-meta-observability.md) — K4 figure pack + save-boundary emit (draft)  
+**Status:** **0.3.136** — K0 + K1(I3 partial) + K2(I4 patch_gen) + K3(zombie abort) + ghost FGS(170); **K4/L0 figure verdicts** ([169l](169l-figure-meta-observability.md))  
 **UI:** 없음 (에이전트 pull·track만)
 
 ---
@@ -42,7 +43,7 @@
                                 ▼
                     llm/track_verdict.py (pure rules)
                                 │
-                    scripts/evidence_verdict.py (169i §5 rules, K4)
+                    scripts/evidence_verdict.py (169l L0 figure rules — 169i §5 partial)
 ```
 
 ---

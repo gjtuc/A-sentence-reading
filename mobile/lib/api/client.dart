@@ -1642,7 +1642,9 @@ class AsrClient {
   }
 
   /// design/129 — GET /api/session/{id}/figures/window?center=&span=
-  Future<List<Map<String, dynamic>>> fetchFigureWindow({
+  /// Returns figure rows plus optional server-side empty reason aggregates (169l L3).
+  Future<({List<Map<String, dynamic>> figures, Map<String, int> serverEmptyReasons})>
+      fetchFigureWindow({
     required String sessionId,
     required int center,
     int span = 1,
@@ -1675,14 +1677,30 @@ class AsrClient {
           .timeout(const Duration(seconds: 90));
       final map = _decodeObject(res, 'figures_window');
       final raw = map['figures'];
-      if (raw is! List) return const [];
+      final reasonsRaw = map['empty_reasons'];
+      final serverEmptyReasons = <String, int>{};
+      if (reasonsRaw is Map) {
+        for (final entry in reasonsRaw.entries) {
+          final k = '${entry.key}'.trim();
+          final v = entry.value;
+          if (k.isEmpty) continue;
+          if (v is int) {
+            serverEmptyReasons[k] = v;
+          } else if (v is num) {
+            serverEmptyReasons[k] = v.toInt();
+          }
+        }
+      }
+      if (raw is! List) {
+        return (figures: const <Map<String, dynamic>>[], serverEmptyReasons: serverEmptyReasons);
+      }
       final out = <Map<String, dynamic>>[];
       for (final item in raw) {
         if (item is Map) {
           out.add(Map<String, dynamic>.from(item));
         }
       }
-      return out;
+      return (figures: out, serverEmptyReasons: serverEmptyReasons);
     } on TimeoutException catch (e) {
       _breadcrumbTimeout('figures_window', e);
       rethrow;

@@ -211,7 +211,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.136",
+    version="0.3.137",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1338,7 +1338,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.136",
+        "version": "0.3.137",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -3715,11 +3715,48 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
         try:
             from sentence_reading.llm import evidence_bus as eb
             from sentence_reading.llm.translate_section import ko_counts
+            from sentence_reading.cache.paper_cache import cache_root
 
             ko_s, ko_f = ko_counts(session.sentences, session.figures)
             owner = _request_user(request)
             owner_uid = owner.uid if owner is not None else ""
             ch = str(info.get("content_hash") or "")
+            figure_file_rel_n = 0
+            session_gen = None
+            session_hash16 = ""
+            try:
+                from sentence_reading.llm import artifact_ids as aid
+
+                sess_path = cache_root() / str(cache_id) / "session.json"
+                session_hash16, _bn = aid.hash16_file(sess_path)
+                meta_o = json.loads(sess_path.read_text(encoding="utf-8"))
+                if isinstance(meta_o, dict):
+                    try:
+                        session_gen = int(meta_o.get("artifact_gen") or 0) or None
+                    except (TypeError, ValueError):
+                        session_gen = None
+                    for f in meta_o.get("figures") or []:
+                        if not isinstance(f, dict):
+                            continue
+                        rel = str(f.get("file") or "").strip().replace("\\", "/")
+                        if rel.startswith("figures/") and ".." not in rel.split("/"):
+                            figure_file_rel_n += 1
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                pass
+            open_details = {
+                "sentence_n": len(session.sentences or []),
+                "ko_sentence_n": int(ko_s),
+                "figure_n": len(session.figures or []),
+                "ko_figure_n": int(ko_f),
+                "figure_file_rel_n": figure_file_rel_n,
+                "translate_pending": bool(translate_pending),
+                "backfill_spawned": bool(backfill_spawned),
+                "translate_poll": bool(translate_poll),
+            }
+            if session_gen is not None:
+                open_details["session_gen"] = session_gen
+            if session_hash16:
+                open_details["session_hash16"] = session_hash16
             # design/169g phase 4 — reading_ready → cache_open consumer
             hid = eb.emit_handoff(
                 from_stage="reading_ready",
@@ -3731,6 +3768,8 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                 in_n=len(session.sentences or []),
                 out_n=int(ko_s),
             )
+            if hid:
+                open_details["handoff_id"] = hid
             eb.emit(
                 "open_ko_summary",
                 severity="boundary",
@@ -3740,33 +3779,24 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                 content_hash=ch,
                 stage="open",
                 route="cache_open",
-                details={
-                    "sentence_n": len(session.sentences or []),
-                    "ko_sentence_n": int(ko_s),
-                    "figure_n": len(session.figures or []),
-                    "ko_figure_n": int(ko_f),
-                    "translate_pending": bool(translate_pending),
-                    "backfill_spawned": bool(backfill_spawned),
-                    "translate_poll": bool(translate_poll),
-                    **({"handoff_id": hid} if hid else {}),
-                },
+                details=open_details,
                 ok=True,
                 code="open_ko_summary",
             )
             # design/169i I1 — open observes session bytes (hash only).
             try:
                 from sentence_reading.llm import artifact_ids as aid
-                from sentence_reading.cache.paper_cache import cache_root
 
                 sess_path = cache_root() / str(cache_id) / "session.json"
                 h16, bn = aid.hash16_file(sess_path)
-                gen = None
-                try:
-                    meta_o = json.loads(sess_path.read_text(encoding="utf-8"))
-                    if isinstance(meta_o, dict):
-                        gen = int(meta_o.get("artifact_gen") or 0) or None
-                except (OSError, json.JSONDecodeError, TypeError, ValueError):
-                    gen = None
+                gen = session_gen
+                if gen is None:
+                    try:
+                        meta_o = json.loads(sess_path.read_text(encoding="utf-8"))
+                        if isinstance(meta_o, dict):
+                            gen = int(meta_o.get("artifact_gen") or 0) or None
+                    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                        gen = None
                 aid.emit_artifact_observe(
                     locator=aid.locator_local_session(cache_id),
                     artifact_kind="session_json",
@@ -4232,7 +4262,10 @@ def session_figures_window(
     Uses _SESSION_CACHE_IDS bound at open. When the in-memory session expired
     (Cloud Run restart), optional ``cache_id`` reloads figures from GCS.
     """
-    from sentence_reading.cache.paper_cache import figure_data_url, load_cached_session
+    from sentence_reading.cache.paper_cache import (
+        figure_data_url_with_reason,
+        load_cached_session,
+    )
 
     # EDGE: refuse absurd windows (cost / abuse).
     try:
@@ -4293,30 +4326,49 @@ def session_figures_window(
     # Clamp center into range (fail-closed empty if totally empty already handled).
     center_i = max(0, min(center_i, n - 1))
     out: list[dict] = []
+    empty_reasons: dict[str, int] = {}
+    sample_empty_ids: list[str] = []
     for i in range(center_i - span_i, center_i + span_i + 1):
         if i < 0 or i >= n:
             continue
         fig = session.figures[i]
         src = (fig.image_src or "").strip()
+        miss_reason = ""
         if not src and cache_id:
-            src = figure_data_url(cache_id, fig.id) or ""
-        # WHY: never invent bytes — empty src means missing file (design/124).
-        out.append(
-            {
-                "index": i,
-                "id": fig.id,
-                "image_src": src,
-                "caption": fig.caption,
-                "caption_ko": fig.caption_ko or "",
-                "caption_ko_stage": fig.caption_ko_stage or "",
-            }
-        )
+            src, miss_reason = figure_data_url_with_reason(cache_id, fig.id)
+            src = src or ""
+        row = {
+            "index": i,
+            "id": fig.id,
+            "image_src": src,
+            "caption": fig.caption,
+            "caption_ko": fig.caption_ko or "",
+            "caption_ko_stage": fig.caption_ko_stage or "",
+        }
+        if not src.strip():
+            reason = miss_reason or ("inline_empty" if not cache_id else "unknown")
+            empty_reasons[reason] = empty_reasons.get(reason, 0) + 1
+            if len(sample_empty_ids) < 3:
+                sample_empty_ids.append(str(fig.id or ""))
+            row["miss_reason"] = reason
+        out.append(row)
     # design/168d G1.3 — ok response with stubs that never got bytes.
     empty_all = bool(out) and all(
         not str(row.get("image_src") or "").strip() for row in out
     )
     empty_n = sum(1 for row in out if not str(row.get("image_src") or "").strip())
     if empty_all:
+        window_details = {
+            "center": center_i,
+            "span": span_i,
+            "window_n": len(out),
+            "empty_n": int(empty_n),
+            "session_n": n,
+        }
+        if empty_reasons:
+            window_details["empty_reasons"] = empty_reasons
+        if sample_empty_ids:
+            window_details["sample_empty_ids"] = sample_empty_ids
         try:
             from sentence_reading.llm import ops_events as oev
 
@@ -4329,6 +4381,7 @@ def session_figures_window(
                     "span": span_i,
                     "window_n": len(out),
                     "session_n": n,
+                    **({"empty_reasons": empty_reasons} if empty_reasons else {}),
                 },
             )
         except Exception:  # noqa: BLE001
@@ -4343,27 +4396,24 @@ def session_figures_window(
                 session_id=session_id if str(session_id).startswith("ses_") else "",
                 stage="figures_window",
                 route="figures_window",
-                details={
-                    "center": center_i,
-                    "span": span_i,
-                    "window_n": len(out),
-                    "empty_n": int(empty_n),
-                    "session_n": n,
-                },
+                details=window_details,
                 ok=False,
                 code="figure_window_empty",
             )
         except Exception:  # noqa: BLE001
             pass
-    return JSONResponse(
-        {
-            "ok": True,
-            "session_id": session_id,
-            "center": center_i,
-            "span": span_i,
-            "figures": out,
-        }
-    )
+    response_payload = {
+        "ok": True,
+        "session_id": session_id,
+        "center": center_i,
+        "span": span_i,
+        "figures": out,
+    }
+    if empty_reasons:
+        response_payload["empty_reasons"] = empty_reasons
+    if sample_empty_ids:
+        response_payload["sample_empty_ids"] = sample_empty_ids
+    return JSONResponse(response_payload)
 
 
 @app.patch("/api/session/{session_id}/cursor")

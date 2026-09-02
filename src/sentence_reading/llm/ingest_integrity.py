@@ -1,4 +1,4 @@
-"""design/168b — ingest integrity checks (T1–T10), log-only.
+"""design/168b — ingest integrity checks (T1–T11), log-only.
 
 WHY: detect job/index/session/blob inconsistency before bug-fix PRs.
 INVARIANT:
@@ -79,6 +79,35 @@ def check_job(job: dict[str, Any]) -> list[Violation]:
                 )
             )
     return out
+
+
+def check_figure_file_rel(figures: list[Any]) -> list[Violation]:
+    """T11 — when figure_n>0, every meta row must have figures/ file rel."""
+    if not isinstance(figures, list):
+        return []
+    figure_n = len(figures)
+    if figure_n <= 0:
+        return []
+    file_rel_n = 0
+    for fig in figures:
+        if not isinstance(fig, dict):
+            continue
+        rel = str(fig.get("file") or "").strip().replace("\\", "/")
+        if rel.startswith("figures/") and ".." not in rel.split("/"):
+            file_rel_n += 1
+    if file_rel_n >= figure_n:
+        return []
+    return [
+        Violation(
+            invariant="T11",
+            code="figure_file_rel_missing",
+            details={
+                "figure_n": figure_n,
+                "file_rel_n": file_rel_n,
+                "missing_n": figure_n - file_rel_n,
+            },
+        )
+    ]
 
 
 def check_fig_meta(session_figures: int, fig_meta: int) -> list[Violation]:
@@ -256,6 +285,7 @@ def audit_cache(
         figs = meta.get("figures") or []
         if isinstance(figs, list):
             out.extend(check_figure_blobs(cid, figs))
+            out.extend(check_figure_file_rel(figs))
         if isinstance(job, dict):
             out.extend(check_job(job))
         return out
@@ -338,5 +368,35 @@ def emit_violations(
                 percent=percent,
                 details=details,
             )
+        # design/169l L2 — promote violations to evidence bus (pull-visible).
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            for v in violations:
+                if not isinstance(v, Violation):
+                    continue
+                bus_details = dict(v.details or {})
+                inv = str(v.invariant or "").strip().upper()[:8]
+                code = str(v.code or "").strip().lower()[:64]
+                if inv:
+                    bus_details["invariant"] = inv.lower()
+                if code and re.match(r"^[a-z][a-z0-9_]{0,63}$", code):
+                    bus_details["code"] = code
+                eb.emit(
+                    "ingest_integrity_violation",
+                    severity="consistency",
+                    trace_id=trace_id,
+                    job_id=job_id,
+                    cache_id=cache_id,
+                    owner_uid=owner_uid,
+                    content_hash=content_hash,
+                    stage=stage,
+                    percent=percent,
+                    details=bus_details,
+                    ok=False,
+                    code=code or "integrity_violation",
+                )
+        except Exception:  # noqa: BLE001
+            log.warning("ingest_integrity evidence bus emit failed", exc_info=True)
     except Exception:  # noqa: BLE001
         log.warning("ingest_integrity emit_violations failed", exc_info=True)

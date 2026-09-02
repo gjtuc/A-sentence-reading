@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from sentence_reading.llm.track_verdict import JobTimeline, compute_verdicts  # noqa: E402
+from sentence_reading.llm.evidence_verdict import compute_cache_verdicts  # noqa: E402
 
 ADB = Path(r"C:/Users/user/Downloads/scrcpy-win64-v3.3.1/adb.exe")
 STATE = ROOT / ".tmp_track_state.json"
@@ -274,6 +275,12 @@ def analyze(ui: dict, rows: list[dict], prev: dict) -> dict:
 
     from sentence_reading.llm.track_verdict import check_169j_section_pass
 
+    figure_verdict: list[str] = []
+    figure_last: list[str] = []
+    primary_cache = cache_ids[0] if cache_ids else ""
+    if primary_cache:
+        figure_verdict, figure_last = compute_cache_verdicts(primary_cache, rows)
+
     return {
         "ts_local": datetime.now().strftime("%H:%M:%S"),
         "ui_pct": pct,
@@ -290,6 +297,8 @@ def analyze(ui: dict, rows: list[dict], prev: dict) -> dict:
         "last_kind": last_kind,
         "job_event_n": {j: len(evs) for j, evs in by_job.items()},
         "accept_169j_title": check_169j_section_pass(tl, "title") if active_job else None,
+        "figure_verdict": figure_verdict,
+        "figure_last_events": figure_last,
     }
 
 
@@ -332,9 +341,14 @@ def main() -> int:
         f"169j_title: {snap.get('accept_169j_title')}",
         f"hangs: {'; '.join(snap['hangs']) or 'none'}",
         f"verdict: {'; '.join(snap['verdict'])}",
+        f"figure_verdict: {'; '.join(snap.get('figure_verdict') or []) or 'none'}",
         "last_calls:",
     ]
     lines.extend(f"  {x}" for x in snap["last_calls"])
+    fig_last = snap.get("figure_last_events") or []
+    if fig_last:
+        lines.append("last_figure_events:")
+        lines.extend(f"  {x}" for x in fig_last)
     text = "\n".join(lines) + "\n"
     OUT.write_text(text, encoding="utf-8")
     print(text, end="")

@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 
 # Live must not lose sensors introduced by 169c/d/e/g/h/i/j/k (floor through pull verdicts).
-EVIDENCE_FLOOR_VERSION = "0.3.136"
+EVIDENCE_FLOOR_VERSION = "0.3.137"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -32,6 +32,10 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "reanalyze_pref_snapshot",
         "stall_fired",
         "figure_preserve_miss",
+        "figure_meta_write",
+        "figure_meta_regress",
+        "figure_preserve_skip",
+        "ingest_integrity_violation",
         "library_refresh",
         "paper_delete",
         "figure_window_req",
@@ -105,7 +109,20 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     (
         "src/sentence_reading/cache/paper_cache.py",
-        ("artifact_gen", "emit_artifact_derive", "local_write_session"),
+        (
+            "artifact_gen",
+            "emit_artifact_derive",
+            "local_write_session",
+            "figure_meta_write",
+            "_emit_figure_meta_boundary",
+        ),
+    ),
+    (
+        "src/sentence_reading/llm/ingest_integrity.py",
+        (
+            "check_figure_file_rel",
+            "ingest_integrity_violation",
+        ),
     ),
     (
         "src/sentence_reading/llm/papers_gcs.py",
