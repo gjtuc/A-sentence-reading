@@ -76,4 +76,10 @@ const Set<String> kEvidenceAllowedKinds = {
   'figure_hydrate_done',
   'figure_hydrate_partial',
   'figure_hydrate_abort',
+  // design/169o — post-ingest harmonize residual
+  'harmonize_residual_start',
+  'harmonize_residual_progress',
+  'harmonize_residual_done',
+  'harmonize_residual_partial',
+  'harmonize_residual_abort',
 };

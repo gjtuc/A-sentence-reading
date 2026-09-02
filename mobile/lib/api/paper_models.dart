@@ -23,6 +23,11 @@ class PaperEntry {
     this.libraryTag = '',
     this.ingestStatus = 'ok',
     this.canMergeSupplementary = false,
+    this.harmonizePending = false,
+    this.harmonizeTotal = 0,
+    this.harmonizeDone = 0,
+    this.harmonizeFailed = 0,
+    this.harmonizeAttemptN = 0,
   });
 
   /// Tolerant parse — never throws on partial/garbage maps.
@@ -68,6 +73,11 @@ class PaperEntry {
           ? 'ok'
           : '${json['ingest_status'] ?? 'ok'}'.trim(),
       canMergeSupplementary: json['can_merge_supplementary'] == true,
+      harmonizePending: json['harmonize_pending'] == true,
+      harmonizeTotal: asInt(json['harmonize_total']),
+      harmonizeDone: asInt(json['harmonize_done']),
+      harmonizeFailed: asInt(json['harmonize_failed']),
+      harmonizeAttemptN: asInt(json['harmonize_attempt_n']),
     );
   }
 
@@ -114,6 +124,12 @@ class PaperEntry {
   final String libraryTag;
   final String ingestStatus;
   final bool canMergeSupplementary;
+  /// design/169o — server residual 재감수 still running after ingest done.
+  final bool harmonizePending;
+  final int harmonizeTotal;
+  final int harmonizeDone;
+  final int harmonizeFailed;
+  final int harmonizeAttemptN;
 
   bool get isValid => id.isNotEmpty && title.isNotEmpty;
 

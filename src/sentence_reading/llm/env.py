@@ -79,6 +79,13 @@ def translate_gemini_post() -> bool:
     return raw not in ("0", "false", "no", "off")
 
 
+def harmonize_residual_enabled() -> bool:
+    """design/169o — defer sentence/caption harmonize after ingest (default on)."""
+    load_asr_env()
+    raw = (os.environ.get("ASR_HARMONIZE_RESIDUAL") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
 def translate_available() -> bool:
     from sentence_reading.llm.translate_google import google_translate_available
 

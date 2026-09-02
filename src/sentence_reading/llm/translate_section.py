@@ -694,10 +694,12 @@ def _estimate_progress_units(
     sentences: list[Sentence],
     figures: list[Figure],
     by_sec: dict[str, list[int]],
+    *,
+    run_harmonize: bool = True,
 ) -> int:
     """
     job percent 분모 — 실제 LLM 호출과 1:1은 아님.
-    WHY: pipeline(문장) + digest(섹션) + harmonize(문장) + caption.
+    WHY: pipeline(문장) + digest(섹션) + optional harmonize(문장) + caption.
     """
     units = 0
     for idxs in by_sec.values():
@@ -706,7 +708,8 @@ def _estimate_progress_units(
             continue
         units += n_plain  # translate
         units += 1  # digest
-        units += n_plain  # harmonize (요지 없으면 스킵해도 상한)
+        if run_harmonize:
+            units += n_plain  # harmonize (요지 없으면 스킵해도 상한)
     n_cap = sum(1 for f in figures if _plain(f.caption))
     units += n_cap
     return max(units, 1)
@@ -723,15 +726,21 @@ def enrich_session_translations(
     cache_id: str = "",
     owner_uid: str = "",
     trace_id: str = "",
+    run_harmonize: bool | None = None,
 ) -> tuple[list[Sentence], list[Figure], dict[str, dict[str, str]], list[str]]:
     """
-    섹션별 pipeline → digest → harmonize.
+    섹션별 pipeline → digest → optional harmonize (design/169o).
     on_progress: design/43 badge.
     on_item: design/45 — ("sentence"|"figure", index, ko, stage) 즉시 패치.
     workers: design/46 — 동시 작업 수 (None이면 env/기본).
     job_id/cache_id/owner_uid/trace_id: design/169c/g call evidence correlation.
+    run_harmonize: None → not ASR_HARMONIZE_RESIDUAL (residual on ⇒ False).
     # INVARIANT: score 없음. 실패 시 해당 항목만 스킵.
     """
+    from sentence_reading.llm.env import harmonize_residual_enabled
+
+    if run_harmonize is None:
+        run_harmonize = not harmonize_residual_enabled()
     _EVIDENCE_CTX.job_id = str(job_id or "")
     _EVIDENCE_CTX.cache_id = str(cache_id or "")
     _EVIDENCE_CTX.owner_uid = str(owner_uid or "")
@@ -743,6 +752,7 @@ def enrich_session_translations(
             on_progress=on_progress,
             on_item=on_item,
             workers=workers,
+            run_harmonize=bool(run_harmonize),
         )
     finally:
         _EVIDENCE_CTX.job_id = ""
@@ -758,6 +768,7 @@ def _enrich_session_translations_body(
     on_progress: ProgressCb | None = None,
     on_item: ItemCb | None = None,
     workers: int | None = None,
+    run_harmonize: bool = True,
 ) -> tuple[list[Sentence], list[Figure], dict[str, dict[str, str]], list[str]]:
     """Inner enrich (evidence ctx already set)."""
     warnings: list[str] = []
@@ -789,7 +800,9 @@ def _enrich_session_translations_body(
     for i, s in enumerate(sentences):
         by_sec.setdefault(_section_key(s.section), []).append(i)
 
-    total = _estimate_progress_units(sentences, figures, by_sec)
+    total = _estimate_progress_units(
+        sentences, figures, by_sec, run_harmonize=run_harmonize
+    )
     done = 0
     lock = threading.Lock()
 
@@ -1006,7 +1019,7 @@ def _enrich_session_translations_body(
             digest = _make_digest(sec, eng_lines)
             digests[sec] = digest
 
-            if digest.get("en") or digest.get("ko"):
+            if run_harmonize and (digest.get("en") or digest.get("ko")):
                 harm_idxs = [i for i in plain_idxs if i in ko_map]
                 n_harm = len(harm_idxs)
                 if n_harm:
@@ -1111,12 +1124,15 @@ def _enrich_session_translations_body(
                         trace_id=ev_trace,
                     )
             else:
+                # digest empty, or design/169o residual (harmonize deferred)
                 _emit_handoff(
                     from_stage="gemini_digest",
                     to_stage="section_done",
                     section=sec,
                     in_n=n_plain,
-                    out_n=0,
+                    out_n=sum(
+                        1 for i in plain_idxs if (ko_map.get(i) or "").strip()
+                    ),
                     job_id=ev_job,
                     cache_id=ev_cache,
                     owner_uid=ev_uid,
@@ -1205,7 +1221,11 @@ def _enrich_session_translations_body(
             _emit("figure", fi, ko, stage)
 
         cap_ko = _pipeline_staged(cap, on_stage=_on_cap) or ""
-        if cap_ko and (body_digest.get("en") or body_digest.get("ko")):
+        if (
+            run_harmonize
+            and cap_ko
+            and (body_digest.get("en") or body_digest.get("ko"))
+        ):
             harm_ko, accepted = _harmonize(cap, cap_ko, body_digest)
             cap_ko = harm_ko
             if accepted:
@@ -1233,8 +1253,11 @@ def _enrich_session_translations_body(
             for j, (fi, _fig, cap) in enumerate(cap_jobs):
                 cap_ko = (ko_batch[j] if j < len(ko_batch) else None) or ""
                 cap_stage = "google" if cap_ko else ""
-                if cap_ko and gemini_post and (
-                    body_digest.get("en") or body_digest.get("ko")
+                if (
+                    run_harmonize
+                    and cap_ko
+                    and gemini_post
+                    and (body_digest.get("en") or body_digest.get("ko"))
                 ):
                     harm_ko, accepted = _harmonize(cap, cap_ko, body_digest)
                     cap_ko = harm_ko
@@ -1282,6 +1305,312 @@ def _enrich_session_translations_body(
             log.warning("translate on_progress final failed: %s", exc)
 
     return new_sentences, new_figures, digests, warnings
+
+
+def _digest_nonempty(digest: dict[str, str] | None) -> bool:
+    if not isinstance(digest, dict):
+        return False
+    return bool(str(digest.get("en") or "").strip() or str(digest.get("ko") or "").strip())
+
+
+def count_harmonize_targets(
+    sentences: list[Sentence],
+    figures: list[Figure],
+    digests: dict[str, dict[str, str]] | None,
+) -> int:
+    """How many items still need stage=harmonize given digests (design/169o)."""
+    dig = digests if isinstance(digests, dict) else {}
+    n = 0
+    for s in sentences or []:
+        if not _plain(getattr(s, "text", "") or ""):
+            continue
+        ko = (getattr(s, "text_ko", None) or "").strip()
+        if not ko:
+            continue
+        stage = (getattr(s, "text_ko_stage", None) or "").strip().lower()
+        if stage == "harmonize":
+            continue
+        sec = _section_key(getattr(s, "section", None))
+        if not _digest_nonempty(dig.get(sec)):
+            continue
+        n += 1
+    body_digest = dig.get("body") or next(
+        (v for v in dig.values() if _digest_nonempty(v)),
+        None,
+    )
+    if _digest_nonempty(body_digest):
+        for f in figures or []:
+            if not _plain(getattr(f, "caption", "") or ""):
+                continue
+            cko = (getattr(f, "caption_ko", None) or "").strip()
+            if not cko:
+                continue
+            stage = (getattr(f, "caption_ko_stage", None) or "").strip().lower()
+            if stage == "harmonize":
+                continue
+            n += 1
+    return n
+
+
+def harmonize_session_residual(
+    sentences: list[Sentence],
+    figures: list[Figure],
+    digests: dict[str, dict[str, str]] | None,
+    *,
+    on_progress: ProgressCb | None = None,
+    on_item: ItemCb | None = None,
+    workers: int | None = None,
+    job_id: str = "",
+    cache_id: str = "",
+    owner_uid: str = "",
+    trace_id: str = "",
+) -> tuple[list[Sentence], list[Figure], list[str]]:
+    """
+    design/169o — run only harmonize pools using durable digests + draft KO.
+    Returns updated sentences/figures and warnings.
+    """
+    warnings: list[str] = []
+    dig = digest_public(digests)
+    if not any(_digest_nonempty(v) for v in dig.values()):
+        warnings.append("harmonize_skipped_no_digest")
+        return list(sentences), list(figures), warnings
+    if not gemini_api_key():
+        warnings.append("harmonize_skipped_no_gemini")
+        return list(sentences), list(figures), warnings
+
+    _EVIDENCE_CTX.job_id = str(job_id or "")
+    _EVIDENCE_CTX.cache_id = str(cache_id or "")
+    _EVIDENCE_CTX.owner_uid = str(owner_uid or "")
+    _EVIDENCE_CTX.trace_id = str(trace_id or "")
+    try:
+        return _harmonize_session_residual_body(
+            sentences,
+            figures,
+            dig,
+            on_progress=on_progress,
+            on_item=on_item,
+            workers=workers,
+            warnings=warnings,
+        )
+    finally:
+        _EVIDENCE_CTX.job_id = ""
+        _EVIDENCE_CTX.cache_id = ""
+        _EVIDENCE_CTX.owner_uid = ""
+        _EVIDENCE_CTX.trace_id = ""
+
+
+def _harmonize_session_residual_body(
+    sentences: list[Sentence],
+    figures: list[Figure],
+    digests: dict[str, dict[str, str]],
+    *,
+    on_progress: ProgressCb | None,
+    on_item: ItemCb | None,
+    workers: int | None,
+    warnings: list[str],
+) -> tuple[list[Sentence], list[Figure], list[str]]:
+    ev_job, ev_cache, ev_uid, ev_trace = _evidence_ids()
+    n_workers = (
+        max(1, min(_MAX_WORKERS, int(workers)))
+        if workers is not None
+        else translate_worker_count()
+    )
+    lock = threading.Lock()
+    ko_map: dict[int, str] = {}
+    stage_map: dict[int, str] = {}
+    for i, s in enumerate(sentences):
+        ko = (getattr(s, "text_ko", None) or "").strip()
+        if ko:
+            ko_map[i] = ko
+            stage_map[i] = (getattr(s, "text_ko_stage", None) or "").strip()
+
+    total = count_harmonize_targets(sentences, figures, digests)
+    done = 0
+
+    def _tick(message: str) -> None:
+        nonlocal done
+        with lock:
+            done = min(done + 1, max(total, 1))
+            frac = done / max(total, 1)
+        if on_progress:
+            try:
+                on_progress(message, frac)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("harmonize residual on_progress failed: %s", exc)
+
+    def _emit(kind: str, index: int, ko: str, stage: str) -> None:
+        if not on_item or not ko:
+            return
+        try:
+            on_item(kind, index, ko, stage)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("harmonize residual on_item failed: %s", exc)
+
+    def _run_harmonize(i: int, digest: dict[str, str], *, section: str = "") -> int:
+        _bind_evidence_ctx(ev_job, ev_cache, ev_uid, ev_trace, section=section)
+        with lock:
+            draft = ko_map.get(i) or ""
+            prev_stage = stage_map.get(i, "")
+        if not draft:
+            return i
+        ko, accepted = _harmonize(_plain(sentences[i].text), draft, digest)
+        with lock:
+            ko_map[i] = ko
+            if accepted:
+                stage_map[i] = "harmonize"
+                _emit("sentence", i, ko, "harmonize")
+            elif prev_stage:
+                stage_map[i] = prev_stage
+        return i
+
+    by_sec: dict[str, list[int]] = {}
+    for i, s in enumerate(sentences):
+        by_sec.setdefault(_section_key(s.section), []).append(i)
+
+    for sec, idxs in by_sec.items():
+        digest = digests.get(sec) or {}
+        if not _digest_nonempty(digest):
+            continue
+        label = _sec_label(sec)
+        harm_idxs = [
+            i
+            for i in idxs
+            if i in ko_map
+            and _plain(sentences[i].text)
+            and (stage_map.get(i) or "").lower() != "harmonize"
+        ]
+        n_harm = len(harm_idxs)
+        if n_harm == 0:
+            continue
+        _emit_handoff(
+            from_stage="residual_arm",
+            to_stage="gemini_harmonize",
+            section=sec,
+            in_n=n_harm,
+            job_id=ev_job,
+            cache_id=ev_cache,
+            owner_uid=ev_uid,
+            trace_id=ev_trace,
+        )
+        finished_h = 0
+        harm_workers = min(n_workers, n_harm)
+        _emit_checkpoint(
+            "harmonize_pool_start",
+            section=sec,
+            blocked_on="threadpool_join",
+            in_n=n_harm,
+            worker_n=harm_workers,
+            job_id=ev_job,
+            cache_id=ev_cache,
+            owner_uid=ev_uid,
+            trace_id=ev_trace,
+        )
+        with ThreadPoolExecutor(max_workers=harm_workers) as pool:
+            futs = {
+                pool.submit(_run_harmonize, i, digest, section=sec): i
+                for i in harm_idxs
+            }
+            for fut in as_completed(futs):
+                try:
+                    fut.result()
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("residual harmonize failed: %s", exc)
+                    _emit_checkpoint(
+                        "pool_task_fail",
+                        section=sec,
+                        ok=False,
+                        exc=exc,
+                        job_id=ev_job,
+                        cache_id=ev_cache,
+                        owner_uid=ev_uid,
+                        trace_id=ev_trace,
+                    )
+                finished_h += 1
+                rem = n_harm - finished_h
+                if finished_h == 1 or finished_h % 5 == 0 or rem == 0:
+                    _emit_checkpoint(
+                        "harmonize_pool_tick",
+                        section=sec,
+                        blocked_on="threadpool_join",
+                        in_n=n_harm,
+                        out_n=finished_h,
+                        remaining=rem,
+                        worker_n=harm_workers,
+                        job_id=ev_job,
+                        cache_id=ev_cache,
+                        owner_uid=ev_uid,
+                        trace_id=ev_trace,
+                    )
+                _tick(f"{label} 재감수 {finished_h}/{n_harm}")
+        _emit_checkpoint(
+            "harmonize_pool_end",
+            section=sec,
+            in_n=n_harm,
+            out_n=finished_h,
+            worker_n=harm_workers,
+            job_id=ev_job,
+            cache_id=ev_cache,
+            owner_uid=ev_uid,
+            trace_id=ev_trace,
+        )
+
+    new_sentences = [
+        replace(
+            s,
+            text_ko=ko_map.get(i) or getattr(s, "text_ko", "") or "",
+            text_ko_stage=stage_map.get(i)
+            or getattr(s, "text_ko_stage", "")
+            or "",
+        )
+        for i, s in enumerate(sentences)
+    ]
+
+    body_digest = digests.get("body") or next(
+        (v for v in digests.values() if _digest_nonempty(v)),
+        {"en": "", "ko": ""},
+    )
+    cap_results: dict[int, Figure] = {}
+    cap_targets = [
+        fi
+        for fi, fig in enumerate(figures)
+        if _plain(fig.caption)
+        and (getattr(fig, "caption_ko", None) or "").strip()
+        and (getattr(fig, "caption_ko_stage", None) or "").strip().lower()
+        != "harmonize"
+        and _digest_nonempty(body_digest)
+    ]
+    cap_n = len(cap_targets)
+    for j, fi in enumerate(cap_targets):
+        fig = figures[fi]
+        _bind_evidence_ctx(ev_job, ev_cache, ev_uid, ev_trace, section="caption")
+        cap = _plain(fig.caption)
+        draft = (getattr(fig, "caption_ko", None) or "").strip()
+        harm_ko, accepted = _harmonize(cap, draft, body_digest)
+        stage = (
+            "harmonize"
+            if accepted
+            else (getattr(fig, "caption_ko_stage", "") or "")
+        )
+        if accepted:
+            _emit("figure", fi, harm_ko, "harmonize")
+        cap_results[fi] = replace(
+            fig,
+            caption_ko=harm_ko or draft,
+            caption_ko_stage=stage,
+        )
+        _tick(f"캡션 재감수 {j + 1}/{cap_n}")
+
+    new_figures = [
+        cap_results.get(fi, fig) for fi, fig in enumerate(figures)
+    ]
+
+    if on_progress and total > 0:
+        try:
+            on_progress("재감수 마무리", 1.0)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("harmonize residual final progress failed: %s", exc)
+
+    return new_sentences, new_figures, warnings
 
 
 def digest_public(digests: dict[str, Any] | None) -> dict[str, dict[str, str]]:

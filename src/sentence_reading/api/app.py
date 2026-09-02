@@ -211,7 +211,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.141",
+    version="0.3.142",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1432,7 +1432,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.141",
+        "version": "0.3.142",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -3805,6 +3805,29 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
         data["warnings"] = list(dict.fromkeys(warnings))
         data["ingest_quality"] = info.get("ingest_quality") or {}
         data["translate_pending"] = translate_pending
+        # design/169o — surface residual progress + resume if stuck pending.
+        try:
+            from sentence_reading.llm import harmonize_residual as hr
+            from sentence_reading.llm.env import harmonize_residual_enabled
+
+            idx = get_index_entry(cache_id) or {}
+            harm = hr.index_harmonize_fields(idx)
+            data.update(harm)
+            if (
+                harmonize_residual_enabled()
+                and harm.get("harmonize_pending")
+                and not hr.residual_inflight(cache_id)
+            ):
+                owner = _request_user(request)
+                _spawn_harmonize_residual(
+                    cache_id,
+                    job_id="",
+                    owner_uid=owner.uid if owner is not None else "",
+                    content_hash=str(info.get("content_hash") or ""),
+                    attempt_n=int(harm.get("harmonize_attempt_n") or 0) + 1,
+                )
+        except Exception:  # noqa: BLE001
+            data.setdefault("harmonize_pending", False)
         # design/169c — open KO visibility for agents (no sentence text).
         try:
             from sentence_reading.llm import evidence_bus as eb
@@ -5264,6 +5287,7 @@ async def _backfill_cached_translations(
             cache_id=str(cache_id or ""),
             owner_uid=owner_uid,
             trace_id=job_trace,
+            run_harmonize=True,
         )
         warnings.extend(tr_warn)
     except Exception as exc:  # noqa: BLE001
@@ -5362,6 +5386,304 @@ async def _open_translate_backfill_task(
         _emit_backfill_fail(reason)
     finally:
         _OPEN_TRANSLATE_BACKFILL_INFLIGHT.discard(cid)
+
+
+def _spawn_harmonize_residual(
+    cache_id: str,
+    *,
+    job_id: str = "",
+    owner_uid: str = "",
+    content_hash: str = "",
+    attempt_n: int = 1,
+) -> bool:
+    """Start at most one residual harmonize per cache_id. Returns True if spawned."""
+    from sentence_reading.llm.env import harmonize_residual_enabled
+    from sentence_reading.llm import harmonize_residual as hr
+
+    if not harmonize_residual_enabled():
+        return False
+    cid = (cache_id or "").strip()
+    if not cid or not hr.try_mark_residual_inflight(cid):
+        return False
+    asyncio.create_task(
+        _run_harmonize_residual(
+            cid,
+            job_id=str(job_id or ""),
+            owner_uid=str(owner_uid or ""),
+            content_hash=str(content_hash or ""),
+            attempt_n=max(1, int(attempt_n or 1)),
+        )
+    )
+    return True
+
+
+async def _run_harmonize_residual(
+    cache_id: str,
+    *,
+    job_id: str = "",
+    owner_uid: str = "",
+    content_hash: str = "",
+    attempt_n: int = 1,
+) -> None:
+    """design/169o — post-ingest sentence/caption harmonize (fail-soft)."""
+    from sentence_reading.llm import evidence_bus as eb
+    from sentence_reading.llm import harmonize_residual as hr
+    from sentence_reading.llm.progressive_writer import ProgressiveWriter
+    from sentence_reading.llm.translate_section import (
+        count_harmonize_targets,
+        harmonize_session_residual,
+        ko_counts,
+    )
+
+    log = __import__("logging").getLogger("sentence_reading.api")
+    cid = (cache_id or "").strip()
+    if not cid:
+        return
+    jid = str(job_id or "")
+    uid = str(owner_uid or "")
+    ch = str(content_hash or "")
+    attempt = max(1, int(attempt_n or 1))
+    total = 0
+    done_n = 0
+    failed_n = 0
+
+    def _emit(kind: str, *, ok: bool = True, details: dict | None = None) -> None:
+        try:
+            eb.emit(
+                kind,
+                severity="boundary" if ok else "error",
+                job_id=jid,
+                cache_id=cid,
+                owner_uid=uid,
+                content_hash=ch,
+                stage="harmonize_residual",
+                details=details or {},
+                ok=ok,
+                code=kind,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        try:
+            from sentence_reading.llm.papers_gcs import (
+                download_paper_cache,
+                gcs_papers_ready,
+                upload_paper_cache,
+            )
+
+            if gcs_papers_ready():
+                await asyncio.to_thread(
+                    download_paper_cache, cid, include_figures=False, include_source=False
+                )
+        except Exception:  # noqa: BLE001
+            pass
+
+        loaded = await asyncio.to_thread(load_cached_session, cid, load_images=False)
+        if loaded is None:
+            _emit(
+                "harmonize_residual_abort",
+                ok=False,
+                details={"reason": "session_load_miss", "attempt_n": attempt},
+            )
+            hr.patch_harmonize_index(cid, pending=False, attempt_n=attempt)
+            return
+
+        session, info = loaded
+        if not ch:
+            ch = str(info.get("content_hash") or "")
+        digests = dict(session.translate_digests or {})
+        total = count_harmonize_targets(session.sentences, session.figures, digests)
+        if total < 1:
+            hr.patch_harmonize_index(
+                cid, pending=False, total=0, done=0, failed=0, attempt_n=attempt
+            )
+            _emit(
+                "harmonize_residual_done",
+                details={"total": 0, "done": 0, "attempt_n": attempt},
+            )
+            return
+
+        hr.patch_harmonize_index(
+            cid,
+            pending=True,
+            total=total,
+            done=0,
+            failed=0,
+            attempt_n=attempt,
+        )
+        _emit(
+            "harmonize_residual_start",
+            details={"total": total, "attempt_n": attempt},
+        )
+
+        kind = str(info.get("source") or "pdf")
+        doc_role = str(info.get("doc_role") or "main")
+        debone_ok = bool(info.get("debone"))
+        content_hash_save = ch or None
+
+        def _writer_durable() -> None:
+            save_paper_session(
+                session,
+                debone=debone_ok,
+                source=kind,
+                doc_role=doc_role,
+                content_hash=content_hash_save,
+                ingest_status="ok",
+                force_cache_id=cid,
+            )
+
+        prog = ProgressiveWriter(
+            publish_fn=lambda: None,
+            durable_fn=_writer_durable,
+            job_id=jid,
+            cache_id=cid,
+            owner_uid=uid,
+            trace_id="",
+        )
+        prog.start()
+
+        def _on_item(item_kind: str, index: int, ko: str, stage: str) -> None:
+            nonlocal done_n
+            hr.apply_on_item_to_session(session, item_kind, index, ko, stage)
+            if str(stage or "").lower() == "harmonize":
+                done_n += 1
+                if done_n == 1 or done_n % 5 == 0 or done_n >= total:
+                    hr.patch_harmonize_index(
+                        cid,
+                        pending=True,
+                        total=total,
+                        done=done_n,
+                        failed=failed_n,
+                        attempt_n=attempt,
+                    )
+                    _emit(
+                        "harmonize_residual_progress",
+                        details={
+                            "total": total,
+                            "done": done_n,
+                            "failed": failed_n,
+                            "attempt_n": attempt,
+                        },
+                    )
+            prog.enqueue_publish(want_durable=index > 0 and index % 8 == 0)
+
+        def _on_progress(message: str, fraction: float = 0.0) -> None:
+            _ = (message, fraction)
+
+        new_s, new_f, warn = await asyncio.to_thread(
+            harmonize_session_residual,
+            list(session.sentences),
+            list(session.figures),
+            digests,
+            on_progress=_on_progress,
+            on_item=_on_item,
+            job_id=jid,
+            cache_id=cid,
+            owner_uid=uid,
+        )
+        session.sentences = new_s
+        session.figures = new_f
+        await asyncio.to_thread(prog.flush)
+        _writer_durable()
+
+        remaining = count_harmonize_targets(
+            session.sentences, session.figures, digests
+        )
+        failed_n = max(0, remaining)
+        done_n = max(0, total - failed_n)
+        # One residual pass finished — do not leave pending forever on soft rejects.
+        pending = False
+        # If gemini missing or no digest, clear pending honestly as abort.
+        if "harmonize_skipped_no_digest" in warn or "harmonize_skipped_no_gemini" in warn:
+            _emit(
+                "harmonize_residual_abort",
+                ok=False,
+                details={
+                    "total": total,
+                    "done": done_n,
+                    "failed": failed_n,
+                    "attempt_n": attempt,
+                    "warn": (warn[:3] if warn else []),
+                },
+            )
+        elif failed_n > 0:
+            _emit(
+                "harmonize_residual_partial",
+                ok=False,
+                details={
+                    "total": total,
+                    "done": done_n,
+                    "failed": failed_n,
+                    "attempt_n": attempt,
+                },
+            )
+        else:
+            _emit(
+                "harmonize_residual_done",
+                details={
+                    "total": total,
+                    "done": done_n,
+                    "attempt_n": attempt,
+                    "ko_sentence_n": ko_counts(session.sentences, session.figures)[0],
+                },
+            )
+        hr.patch_harmonize_index(
+            cid,
+            pending=pending,
+            total=total,
+            done=done_n,
+            failed=failed_n,
+            attempt_n=attempt,
+        )
+        # Refresh job result if still in memory (client may have stopped polling).
+        if jid:
+            job = _JOBS.get(jid)
+            if isinstance(job, dict) and isinstance(job.get("result"), dict):
+                job["result"]["harmonize_pending"] = pending
+                job["result"]["harmonize_total"] = total
+                job["result"]["harmonize_done"] = done_n
+                job["result"]["harmonize_failed"] = failed_n
+                job["result"]["harmonize_attempt_n"] = attempt
+                try:
+                    _persist_job(jid, job, force=True)
+                except Exception:  # noqa: BLE001
+                    pass
+        try:
+            from sentence_reading.llm.papers_gcs import (
+                gcs_papers_ready,
+                upload_paper_cache,
+            )
+
+            if gcs_papers_ready():
+                await asyncio.to_thread(upload_paper_cache, cid)
+        except Exception:  # noqa: BLE001
+            pass
+    except Exception as exc:  # noqa: BLE001
+        log.warning("harmonize residual failed: %s", type(exc).__name__)
+        _emit(
+            "harmonize_residual_abort",
+            ok=False,
+            details={
+                "reason": type(exc).__name__[:40],
+                "attempt_n": attempt,
+                "total": total,
+                "done": done_n,
+            },
+        )
+        try:
+            hr.patch_harmonize_index(
+                cid,
+                pending=True,
+                total=total,
+                done=done_n,
+                failed=max(failed_n, 1),
+                attempt_n=attempt,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        hr.clear_residual_inflight(cid)
 
 
 async def _run_ingest_job(
@@ -6279,6 +6601,9 @@ async def _run_ingest_job_body(
 
             translate_ok = True
             tr_warn: list = []
+            from sentence_reading.llm.env import harmonize_residual_enabled
+
+            residual_on = bool(harmonize_residual_enabled())
             try:
                 new_s, new_f, digests, tr_warn = await asyncio.to_thread(
                     enrich_session_translations,
@@ -6290,6 +6615,7 @@ async def _run_ingest_job_body(
                     cache_id=early_cid,
                     owner_uid=_owner(),
                     trace_id=job_trace,
+                    run_harmonize=not residual_on,
                 )
                 warnings.extend(tr_warn)
                 session.sentences = new_s
@@ -6520,6 +6846,42 @@ async def _run_ingest_job_body(
         if warnings:
             data["warnings"] = list(dict.fromkeys(list(data.get("warnings") or []) + warnings))
 
+        # design/169o — arm post-ingest harmonize residual (draft KO already durable).
+        from sentence_reading.llm.env import harmonize_residual_enabled
+        from sentence_reading.llm import harmonize_residual as hr
+        from sentence_reading.llm.translate_section import count_harmonize_targets
+
+        harm_total = 0
+        if (
+            harmonize_residual_enabled()
+            and want_translate
+            and cache_entry
+            and session.translate_digests
+        ):
+            harm_total = count_harmonize_targets(
+                session.sentences,
+                session.figures,
+                session.translate_digests,
+            )
+        want_residual = bool(cache_entry) and harm_total > 0
+        data["harmonize_pending"] = want_residual
+        data["harmonize_total"] = int(harm_total) if want_residual else 0
+        data["harmonize_done"] = 0
+        data["harmonize_failed"] = 0
+        data["harmonize_attempt_n"] = 1 if want_residual else 0
+        if want_residual:
+            try:
+                hr.patch_harmonize_index(
+                    str(cache_entry.get("id") or ""),
+                    pending=True,
+                    total=harm_total,
+                    done=0,
+                    failed=0,
+                    attempt_n=1,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
         if cache_entry and owner and cache_id:
             from sentence_reading.llm import upload_audit_log as ual
 
@@ -6536,6 +6898,14 @@ async def _run_ingest_job_body(
             data,
             message="완료 · 제목으로 보관됨" if cache_entry else "완료",
         )
+        if want_residual and cache_entry:
+            _spawn_harmonize_residual(
+                str(cache_entry.get("id") or ""),
+                job_id=job_id,
+                owner_uid=str(owner or ""),
+                content_hash=str(content_hash or ""),
+                attempt_n=1,
+            )
     except IngestCancelled:
         # design/132 — discard silently; no error row, no library entry.
         job = _JOBS.get(job_id)

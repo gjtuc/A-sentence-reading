@@ -25,5 +25,7 @@ def _isolate_asr_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ASR_KAKAO_REST_API_KEY", raising=False)
     monkeypatch.delenv("ASR_GCS_BUCKET", raising=False)
     monkeypatch.setenv("ASR_AZURE_LAYOUT", "0")
+    # design/169o — suite keeps legacy inline harmonize; residual tests flip to 1.
+    monkeypatch.setenv("ASR_HARMONIZE_RESIDUAL", "0")
     monkeypatch.delenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", raising=False)
     monkeypatch.delenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", raising=False)

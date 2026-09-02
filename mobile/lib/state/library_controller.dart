@@ -30,6 +30,7 @@ import '../services/hang_watchdog.dart';
 import '../services/paper_edit_stash.dart';
 import 'ingest_auto_resume.dart';
 import 'figure_hydrate.dart';
+import 'harmonize_residual.dart';
 
 /// Stall after this long without progress while an upload is marked active.
 const Duration kUploadStallAfter = Duration(seconds: 45);
@@ -499,6 +500,159 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// design/169o — library 재감수 residual banner (server-driven poll).
+  final Map<String, HarmonizeResidualSnapshot> _harmonizeResidual = {};
+  final Map<String, Timer> _harmonizePollTimers = {};
+  final Set<String> _harmonizeDismissed = {};
+
+  String harmonizeResidualLabel(String cacheId) {
+    final s = _harmonizeResidual[cacheId.trim()];
+    if (s == null) return '';
+    return s.userLabel;
+  }
+
+  HarmonizeResidualSnapshot? harmonizeResidualSnapshot(String cacheId) =>
+      _harmonizeResidual[cacheId.trim()];
+
+  void dismissHarmonizeResidual(String cacheId) {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return;
+    _harmonizeDismissed.add(cid);
+    _harmonizePollTimers.remove(cid)?.cancel();
+    _harmonizeResidual.remove(cid);
+    notifyListeners();
+  }
+
+  /// Start / restart polling paper list fields for 재감수 progress.
+  void enqueueHarmonizeResidualPoll(
+    String cacheId, {
+    bool force = false,
+    bool pendingHint = false,
+    int totalHint = 0,
+    int doneHint = 0,
+    int failedHint = 0,
+    int attemptHint = 1,
+  }) {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return;
+    if (!force && _harmonizeDismissed.contains(cid)) return;
+    if (force) _harmonizeDismissed.remove(cid);
+    if (!force && _harmonizePollTimers.containsKey(cid)) return;
+
+    final fromPaper = paperEntryForCacheId(cid);
+    final pending = pendingHint || (fromPaper?.harmonizePending == true);
+    final total = totalHint > 0
+        ? totalHint
+        : (fromPaper?.harmonizeTotal ?? 0);
+    final done = doneHint > 0 ? doneHint : (fromPaper?.harmonizeDone ?? 0);
+    final failed =
+        failedHint > 0 ? failedHint : (fromPaper?.harmonizeFailed ?? 0);
+    final attempt = attemptHint > 0
+        ? attemptHint
+        : (fromPaper?.harmonizeAttemptN ?? 1);
+
+    if (!pending && total < 1 && !force) {
+      _harmonizeResidual.remove(cid);
+      _harmonizePollTimers.remove(cid)?.cancel();
+      return;
+    }
+
+    final snap = snapshotFromServerFields(
+      cacheId: cid,
+      pending: pending || total > done,
+      total: total,
+      done: done,
+      failed: failed,
+      attemptN: attempt,
+    );
+    _harmonizeResidual[cid] = snap;
+    asrEvidenceBus?.record(
+      'harmonize_residual_start',
+      severity: 'boundary',
+      cacheId: cid,
+      stage: 'library_poll',
+      ok: true,
+      details: {
+        'total': snap.total,
+        'done': snap.done,
+        'attempt_n': snap.attemptN,
+        'source': 'client_poll_arm',
+      },
+    );
+    notifyListeners();
+    _harmonizePollTimers.remove(cid)?.cancel();
+    _harmonizePollTimers[cid] = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => unawaited(_tickHarmonizeResidualPoll(cid)),
+    );
+    unawaited(_tickHarmonizeResidualPoll(cid));
+  }
+
+  Future<void> _tickHarmonizeResidualPoll(String cid) async {
+    try {
+      final fetched = await _client.listPapers();
+      papers = await _applySavedOrder(fetched);
+    } catch (_) {
+      // fail-soft; keep prior snapshot
+    }
+    final e = paperEntryForCacheId(cid);
+    if (e == null) return;
+    final snap = snapshotFromServerFields(
+      cacheId: cid,
+      pending: e.harmonizePending,
+      total: e.harmonizeTotal,
+      done: e.harmonizeDone,
+      failed: e.harmonizeFailed,
+      attemptN: e.harmonizeAttemptN > 0 ? e.harmonizeAttemptN : 1,
+    );
+    final prev = _harmonizeResidual[cid];
+    _harmonizeResidual[cid] = snap;
+    if (prev == null ||
+        prev.done != snap.done ||
+        prev.phase != snap.phase) {
+      if (snap.phase == HarmonizeResidualPhase.running ||
+          snap.phase == HarmonizeResidualPhase.arming) {
+        asrEvidenceBus?.record(
+          'harmonize_residual_progress',
+          severity: 'sample',
+          cacheId: cid,
+          stage: 'library_poll',
+          ok: true,
+          details: {
+            'total': snap.total,
+            'done': snap.done,
+            'failed': snap.failed,
+          },
+        );
+      }
+    }
+    if (snap.hideBanner || snap.showFailure) {
+      _harmonizePollTimers.remove(cid)?.cancel();
+      asrEvidenceBus?.record(
+        snap.phase == HarmonizeResidualPhase.doneOk
+            ? 'harmonize_residual_done'
+            : (snap.phase == HarmonizeResidualPhase.aborted
+                ? 'harmonize_residual_abort'
+                : 'harmonize_residual_partial'),
+        severity: snap.phase == HarmonizeResidualPhase.doneOk
+            ? 'boundary'
+            : 'error',
+        cacheId: cid,
+        stage: 'library_poll',
+        ok: snap.phase == HarmonizeResidualPhase.doneOk,
+        details: {
+          'total': snap.total,
+          'done': snap.done,
+          'failed': snap.failed,
+        },
+      );
+      if (snap.hideBanner) {
+        _harmonizeResidual.remove(cid);
+      }
+    }
+    notifyListeners();
+  }
+
   UploadNotify get uploadNotify => _notify;
 
   Future<void> initUploadNotify() async {
@@ -944,6 +1098,11 @@ class LibraryController extends ChangeNotifier {
         _editStash.purgeOrphans(papers.map((p) => p.id).toSet()),
       );
       unawaited(reconcileUploadNotify());
+      for (final p in papers) {
+        if (p.harmonizePending) {
+          enqueueHarmonizeResidualPoll(p.id);
+        }
+      }
     }
   }
 
@@ -1162,6 +1321,7 @@ class LibraryController extends ChangeNotifier {
         return false;
       }
       enqueueFigureHydrate(result.cacheId);
+      enqueueHarmonizeResidualPoll(result.cacheId);
       // WHY: 재분석 후 읽기 탭에 옛 session이 남지 않게 최신 /open 반영.
       if (session?.cacheId == entry.id || session?.cacheId == result.cacheId) {
         final openEntry = paperEntryForCacheId(result.cacheId) ?? entry;
@@ -2484,6 +2644,7 @@ class LibraryController extends ChangeNotifier {
       }
       await _notify.showCompleted(cacheId: result.cacheId);
       enqueueFigureHydrate(result.cacheId);
+      enqueueHarmonizeResidualPoll(result.cacheId);
       return result;
     } on UploadCancelledException {
       // design/132 — honest cancel; design/134 hang keeps failure message.
@@ -2623,6 +2784,7 @@ class LibraryController extends ChangeNotifier {
       }
       await _notify.showCompleted(cacheId: result.cacheId);
       enqueueFigureHydrate(result.cacheId);
+      enqueueHarmonizeResidualPoll(result.cacheId);
       if (draft.isReanalyze && draft.cacheId.isNotEmpty) {
         final targetId =
             result.cacheId.isNotEmpty ? result.cacheId : draft.cacheId;

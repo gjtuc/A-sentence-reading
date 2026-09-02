@@ -731,6 +731,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 lib.readLeftAtByCacheId[e.id] ?? '',
                           ),
                           lib.figureHydrateLabel(e.id),
+                          lib.harmonizeResidualLabel(e.id),
                         ].where((s) => s.isNotEmpty).join('\n'),
                       ),
                       isThreeLine: true,
@@ -762,6 +763,31 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                     tooltip: '알림 닫기',
                                     onPressed: () =>
                                         lib.dismissFigureHydrate(e.id),
+                                  ),
+                                if (lib.harmonizeResidualSnapshot(e.id)
+                                        ?.showFailure ==
+                                    true)
+                                  IconButton(
+                                    icon: const Icon(Icons.refresh, size: 22),
+                                    tooltip: '재감수 다시',
+                                    onPressed: lib.opening ||
+                                            lib.uploading ||
+                                            lib.reanalyzing ||
+                                            _deleting
+                                        ? null
+                                        : () => lib.enqueueHarmonizeResidualPoll(
+                                              e.id,
+                                              force: true,
+                                            ),
+                                  ),
+                                if (lib.harmonizeResidualSnapshot(e.id)
+                                        ?.showFailure ==
+                                    true)
+                                  IconButton(
+                                    icon: const Icon(Icons.close, size: 20),
+                                    tooltip: '재감수 알림 닫기',
+                                    onPressed: () =>
+                                        lib.dismissHarmonizeResidual(e.id),
                                   ),
                                 if (e.canMergeSupplementary)
                                   IconButton(

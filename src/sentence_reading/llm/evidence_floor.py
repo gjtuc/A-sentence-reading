@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 
 # Live must not lose sensors introduced by 169c/d/e/g/h/i/j/k (floor through pull verdicts).
-EVIDENCE_FLOOR_VERSION = "0.3.141"
+EVIDENCE_FLOOR_VERSION = "0.3.142"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -51,6 +51,11 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "figure_hydrate_done",
         "figure_hydrate_partial",
         "figure_hydrate_abort",
+        "harmonize_residual_start",
+        "harmonize_residual_progress",
+        "harmonize_residual_done",
+        "harmonize_residual_partial",
+        "harmonize_residual_abort",
     }
 )
 
@@ -85,6 +90,10 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             '_EVIDENCE_CTX.trace_id',
             # design/169j — lock not held across on_item
             "on_item(kind, index, ko, stage)",
+            # design/169o
+            "run_harmonize",
+            "harmonize_session_residual",
+            "count_harmonize_targets",
         ),
     ),
     (
@@ -174,6 +183,10 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "sweep_decision",
             "mem_lease_age_sec",
             "gcs_lease_age_sec",
+            # design/169o
+            "_run_harmonize_residual",
+            "harmonize_pending",
+            "harmonize_residual_start",
         ),
     ),
     (
@@ -224,6 +237,8 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "figure_hydrate_start",
             "enqueueFigureHydrate",
             "hydrate_bg",
+            "harmonize_residual_start",
+            "enqueueHarmonizeResidualPoll",
         ),
     ),
 )

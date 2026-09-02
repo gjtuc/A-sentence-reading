@@ -130,22 +130,42 @@ def list_entries_for_api(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not cid or not title:
             continue
         enriched = enrich_paper_list_entry(e, all_entries=raw)
-        out.append(
-            {
-                "id": cid,
-                "title": title,
-                "source": str(enriched.get("source") or "pdf"),
-                "updated_at": enriched.get("updated_at") or "",
-                "sentence_count": int(enriched.get("sentence_count") or 0),
-                "figure_count": int(enriched.get("figure_count") or 0),
-                "debone": bool(enriched.get("debone")),
-                "pipeline_version": str(enriched.get("pipeline_version") or ""),
-                "has_source": bool(enriched.get("has_source")),
-                "doc_role": enriched["doc_role"],
-                "library_tag": enriched["library_tag"],
-                "ingest_status": enriched["ingest_status"],
-                "can_merge_supplementary": enriched["can_merge_supplementary"],
-                "paired_cache_id": enriched.get("paired_cache_id"),
-            }
-        )
+        row = {
+            "id": cid,
+            "title": title,
+            "source": str(enriched.get("source") or "pdf"),
+            "updated_at": enriched.get("updated_at") or "",
+            "sentence_count": int(enriched.get("sentence_count") or 0),
+            "figure_count": int(enriched.get("figure_count") or 0),
+            "debone": bool(enriched.get("debone")),
+            "pipeline_version": str(enriched.get("pipeline_version") or ""),
+            "has_source": bool(enriched.get("has_source")),
+            "doc_role": enriched["doc_role"],
+            "library_tag": enriched["library_tag"],
+            "ingest_status": enriched["ingest_status"],
+            "can_merge_supplementary": enriched["can_merge_supplementary"],
+            "paired_cache_id": enriched.get("paired_cache_id"),
+        }
+        # design/169o — library banner polls these after ingest done.
+        if enriched.get("harmonize_pending") is not None:
+            row["harmonize_pending"] = bool(enriched.get("harmonize_pending"))
+            try:
+                row["harmonize_total"] = int(enriched.get("harmonize_total") or 0)
+            except (TypeError, ValueError):
+                row["harmonize_total"] = 0
+            try:
+                row["harmonize_done"] = int(enriched.get("harmonize_done") or 0)
+            except (TypeError, ValueError):
+                row["harmonize_done"] = 0
+            try:
+                row["harmonize_failed"] = int(enriched.get("harmonize_failed") or 0)
+            except (TypeError, ValueError):
+                row["harmonize_failed"] = 0
+            try:
+                row["harmonize_attempt_n"] = int(
+                    enriched.get("harmonize_attempt_n") or 0
+                )
+            except (TypeError, ValueError):
+                row["harmonize_attempt_n"] = 0
+        out.append(row)
     return out
