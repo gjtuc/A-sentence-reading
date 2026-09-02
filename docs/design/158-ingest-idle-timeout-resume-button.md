@@ -1,7 +1,20 @@
 # 158 — Ingest idle timeout + 「이어서 분석하기」
 
-**Version:** 0.3.87  
+**Version:** 0.3.87 (+ 0.3.138 auto-resume / 60s poll HTTP)  
 **Scope:** mobile ingest poll + library resume UX (no server change).
+
+---
+
+## 0.3.138 — poll HTTP 60s + stage-scoped auto resume
+
+| Rule | Behavior |
+|------|----------|
+| Poll/chunk create GET timeout | **60s** (was 30s) — fewer false `TimeoutException` |
+| Same stage timeout ×1–3 | Auto 「이어서 분석하기」 |
+| Same stage ×4+ | Stop auto; user taps button |
+| New stage | Counter resets |
+
+Files: `ingest_auto_resume.dart`, `library_controller.dart`, `client.dart` (`pollIngestJob` GET).
 
 ---
 

@@ -28,6 +28,7 @@ import '../services/error_reporter.dart';
 import '../services/evidence_bus.dart';
 import '../services/hang_watchdog.dart';
 import '../services/paper_edit_stash.dart';
+import 'ingest_auto_resume.dart';
 
 /// Stall after this long without progress while an upload is marked active.
 const Duration kUploadStallAfter = Duration(seconds: 45);
@@ -146,6 +147,11 @@ class LibraryController extends ChangeNotifier {
   /// Cached for one upload session — avoid /api/status on every chunk heartbeat.
   bool? _wmEnabledCache;
   DateTime? _lastWmScheduleAt;
+
+  /// Per-stage consecutive timeout auto-resume (max [kIngestAutoResumeMax]).
+  final IngestAutoResumeGate _autoResumeGate = IngestAutoResumeGate();
+  /// Set in catch; consumed in finally after uploading latch clears.
+  bool _pendingAutoResume = false;
 
   ReadingSession? get opened => session;
 
@@ -791,12 +797,14 @@ class LibraryController extends ChangeNotifier {
         onProgress: (pct, msg) {
           uploadPercent = pct.clamp(0, 100);
           uploadStage = msg.isEmpty ? '재분석 중' : msg;
+          _noteIngestStageProgress(uploadStage, percent: uploadPercent);
           _noteIngestHangProgress(percent: uploadPercent, stage: uploadStage);
           notifyListeners();
         },
       );
       _endIngestHang();
       await _drafts.clear();
+      _autoResumeGate.reset();
       await refresh();
       if (result.cacheId.isEmpty) {
         error = '재분석은 끝났지만 보관함에 반영되지 않았습니다.';
@@ -819,15 +827,42 @@ class LibraryController extends ChangeNotifier {
       lastIngestFailure = null;
       notifyListeners();
       return true;
+    } on TimeoutException catch (e) {
+      _endIngestHang();
+      final stage = uploadStage.trim();
+      error = stage.isNotEmpty
+          ? '서버 응답이 느립니다. ($stage)'
+          : '서버 응답이 느립니다. 「이어서 분석하기」를 눌러 주세요.';
+      _pendingAutoResume = _armAutoResumeAfterTimeout(stageHint: stage);
+      if (!_pendingAutoResume) {
+        resumeOfferVisible = await _draftResumable();
+      }
+      asrEvidenceBus?.record(
+        'client_api_timeout',
+        severity: 'error',
+        route: 'reanalyze_poll',
+        cacheId: entry.id,
+        message: e.toString().length > 200 ? e.toString().substring(0, 200) : e.toString(),
+        ok: false,
+      );
+      lastIngestFailure = error;
+      notifyListeners();
+      return false;
     } on AsrApiException catch (e) {
       _endIngestHang();
       if (e.statusCode == 504) {
-        resumeOfferVisible = await _draftResumable();
+        final stage = uploadStage.trim();
+        _pendingAutoResume = _armAutoResumeAfterTimeout(stageHint: stage);
+        if (!_pendingAutoResume) {
+          resumeOfferVisible = await _draftResumable();
+        }
       } else if (e.statusCode == 409 ||
           e.statusCode == 404 ||
           e.statusCode == 422) {
         await _drafts.clear();
         resumeOfferVisible = false;
+        _autoResumeGate.reset();
+        _pendingAutoResume = false;
       }
       final jid = (_activeJobId ?? '').trim();
       error = e.message;
@@ -848,6 +883,11 @@ class LibraryController extends ChangeNotifier {
       uploadPercent = 0;
       uploadStage = '';
       notifyListeners();
+      if (_pendingAutoResume) {
+        _schedulePendingAutoResume();
+      } else {
+        unawaited(_refreshResumeOffer());
+      }
     }
   }
 
@@ -1552,11 +1592,53 @@ class LibraryController extends ChangeNotifier {
     return resumePendingIfAny();
   }
 
+  void _noteIngestStageProgress(String stage, {int? percent}) {
+    _autoResumeGate.noteProgress(
+      normalizeIngestStageKey(stage, percent: percent ?? uploadPercent),
+    );
+  }
+
+  /// On TimeoutException / 504: maybe arm auto resume after finally.
+  bool _armAutoResumeAfterTimeout({required String stageHint}) {
+    final key = normalizeIngestStageKey(stageHint, percent: uploadPercent);
+    final should = _autoResumeGate.noteTimeout(key);
+    asrEvidenceBus?.record(
+      'client_api_timeout',
+      severity: should ? 'lifecycle' : 'error',
+      route: 'ingest_auto_resume',
+      stage: key.length > 40 ? key.substring(0, 40) : key,
+      ok: should,
+      details: {
+        'auto_resume': should,
+        'consecutive': _autoResumeGate.consecutiveTimeouts,
+        'max': kIngestAutoResumeMax,
+      },
+    );
+    return should;
+  }
+
+  void _schedulePendingAutoResume() {
+    if (!_pendingAutoResume) return;
+    _pendingAutoResume = false;
+    unawaited(Future<void>(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      if (_uploadCancelRequested || uploading || reanalyzing) return;
+      final draftOk = await _draftResumable();
+      if (!draftOk) return;
+      error = null;
+      resumeOfferVisible = false;
+      notifyListeners();
+      await resumePendingIfAny();
+    }));
+  }
+
   /// design/158 — discard local upload draft (user opts out of resume).
   Future<void> discardResumeDraft() async {
     await _drafts.clear();
     await _cancelWorkmanager();
     resumeOfferVisible = false;
+    _autoResumeGate.reset();
+    _pendingAutoResume = false;
     error = null;
     notifyListeners();
   }
@@ -1899,6 +1981,8 @@ class LibraryController extends ChangeNotifier {
     _uploadCancelRequested = false;
     _activeUploadId = resumeUploadId;
     _activeJobId = null;
+    _pendingAutoResume = false;
+    _autoResumeGate.reset();
     await _maybeOfferBatteryHint(hash);
     _startStallWatch();
     await _beginIngestHang(filename: filename);
@@ -2021,6 +2105,7 @@ class LibraryController extends ChangeNotifier {
           _touchProgress();
           uploadPercent = 50 + (pct.clamp(0, 100) ~/ 2);
           uploadStage = msg.isEmpty ? '처리 중' : msg;
+          _noteIngestStageProgress(uploadStage, percent: uploadPercent);
           _noteIngestHangProgress(percent: uploadPercent, stage: uploadStage);
           notifyListeners();
           unawaited(
@@ -2034,6 +2119,7 @@ class LibraryController extends ChangeNotifier {
       await _importDraftToEditStash(result.cacheId);
       await _drafts.clear();
       await _cancelWorkmanager();
+      _autoResumeGate.reset();
       await refresh();
       final seen = papers.any((p) => p.id == result.cacheId);
       if (!seen) {
@@ -2049,10 +2135,31 @@ class LibraryController extends ChangeNotifier {
       await _drafts.clear();
       await _cancelWorkmanager();
       await _notify.stop();
+      _autoResumeGate.reset();
+      _pendingAutoResume = false;
       if (!_ingestHangTripped) {
         error = null;
       }
       await refresh();
+      return null;
+    } on TimeoutException catch (e) {
+      final stage = uploadStage.trim();
+      error = stage.isNotEmpty
+          ? '서버 응답이 느립니다. ($stage)'
+          : '서버 응답이 느립니다. 「이어서 분석하기」를 눌러 주세요.';
+      _pendingAutoResume = _armAutoResumeAfterTimeout(stageHint: stage);
+      if (!_pendingAutoResume) {
+        resumeOfferVisible = await _draftResumable();
+      }
+      asrEvidenceBus?.record(
+        'client_api_timeout',
+        severity: 'error',
+        route: 'ingest_poll',
+        stage: stage.isEmpty ? 'upload' : (stage.length > 40 ? stage.substring(0, 40) : stage),
+        message: e.toString().length > 200 ? e.toString().substring(0, 200) : e.toString(),
+        ok: false,
+      );
+      await _notify.showFailed(message: error!);
       return null;
     } on AsrApiException catch (e) {
       // design/109: terminal job (422) or lost/conflict — do not reattach forever.
@@ -2062,8 +2169,14 @@ class LibraryController extends ChangeNotifier {
         await _drafts.clear();
         await _cancelWorkmanager();
         resumeOfferVisible = false;
+        _autoResumeGate.reset();
+        _pendingAutoResume = false;
       } else if (e.statusCode == 504 || _ingestHangTripped) {
-        resumeOfferVisible = await _draftResumable();
+        final stage = uploadStage.trim();
+        _pendingAutoResume = _armAutoResumeAfterTimeout(stageHint: stage);
+        if (!_pendingAutoResume) {
+          resumeOfferVisible = await _draftResumable();
+        }
       }
       // design/105 — surface last stage on timeout so failure is actionable.
       final stage = uploadStage.trim();
@@ -2091,7 +2204,11 @@ class LibraryController extends ChangeNotifier {
       _ingestHangTripped = false;
       _stopStallWatch();
       notifyListeners();
-      unawaited(_refreshResumeOffer());
+      if (_pendingAutoResume) {
+        _schedulePendingAutoResume();
+      } else {
+        unawaited(_refreshResumeOffer());
+      }
     }
   }
 
@@ -2106,6 +2223,7 @@ class LibraryController extends ChangeNotifier {
     _uploadCancelRequested = false;
     _activeUploadId = draft.uploadId.isEmpty ? null : draft.uploadId;
     _activeJobId = draft.jobId.isEmpty ? null : draft.jobId;
+    _pendingAutoResume = false;
     await _maybeOfferBatteryHint(draft.contentHash);
     _startStallWatch();
     await _beginIngestHang(filename: draft.filename);
@@ -2125,6 +2243,7 @@ class LibraryController extends ChangeNotifier {
           _touchProgress();
           uploadPercent = pct;
           uploadStage = msg.isEmpty ? '이어올리는 중' : msg;
+          _noteIngestStageProgress(uploadStage, percent: uploadPercent);
           _noteIngestHangProgress(percent: uploadPercent, stage: uploadStage);
           notifyListeners();
           unawaited(
@@ -2138,6 +2257,7 @@ class LibraryController extends ChangeNotifier {
       await _importDraftToEditStash(result.cacheId);
       await _drafts.clear();
       await _cancelWorkmanager();
+      _autoResumeGate.reset();
       await refresh();
       final seen = papers.any((p) => p.id == result.cacheId);
       if (!seen) {
@@ -2162,10 +2282,31 @@ class LibraryController extends ChangeNotifier {
       await _drafts.clear();
       await _cancelWorkmanager();
       await _notify.stop();
+      _autoResumeGate.reset();
+      _pendingAutoResume = false;
       if (!_ingestHangTripped) {
         error = null;
       }
       await refresh();
+      return null;
+    } on TimeoutException catch (e) {
+      final stage = uploadStage.trim();
+      error = stage.isNotEmpty
+          ? '서버 응답이 느립니다. ($stage)'
+          : '서버 응답이 느립니다. 「이어서 분석하기」를 눌러 주세요.';
+      _pendingAutoResume = _armAutoResumeAfterTimeout(stageHint: stage);
+      if (!_pendingAutoResume) {
+        resumeOfferVisible = await _draftResumable();
+      }
+      asrEvidenceBus?.record(
+        'client_api_timeout',
+        severity: 'error',
+        route: 'ingest_poll_resume',
+        stage: stage.isEmpty ? 'resume' : (stage.length > 40 ? stage.substring(0, 40) : stage),
+        message: e.toString().length > 200 ? e.toString().substring(0, 200) : e.toString(),
+        ok: false,
+      );
+      await _notify.showFailed(message: error!);
       return null;
     } on AsrApiException catch (e) {
       // design/109: same terminal cleanup as uploadPdf.
@@ -2175,8 +2316,14 @@ class LibraryController extends ChangeNotifier {
         await _drafts.clear();
         await _cancelWorkmanager();
         resumeOfferVisible = false;
+        _autoResumeGate.reset();
+        _pendingAutoResume = false;
       } else if (e.statusCode == 504 || _ingestHangTripped) {
-        resumeOfferVisible = await _draftResumable();
+        final stage = uploadStage.trim();
+        _pendingAutoResume = _armAutoResumeAfterTimeout(stageHint: stage);
+        if (!_pendingAutoResume) {
+          resumeOfferVisible = await _draftResumable();
+        }
       }
       final stage = uploadStage.trim();
       if (e.statusCode == 504 && stage.isNotEmpty) {
@@ -2203,7 +2350,11 @@ class LibraryController extends ChangeNotifier {
       _ingestHangTripped = false;
       _stopStallWatch();
       notifyListeners();
-      unawaited(_refreshResumeOffer());
+      if (_pendingAutoResume) {
+        _schedulePendingAutoResume();
+      } else {
+        unawaited(_refreshResumeOffer());
+      }
     }
   }
 }

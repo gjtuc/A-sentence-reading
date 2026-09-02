@@ -34,6 +34,8 @@ KINDS = (
     "translate_call_done,translate_call_slow,translate_call_fail,"
     "translate_item_done,translate_save_ko,open_ko_summary,"
     "stall_fired,server_job_terminal_error,figure_preserve_miss,"
+    "figure_meta_write,figure_meta_regress,figure_preserve_skip,"
+    "figure_window_empty,figure_data_url_miss,ingest_integrity_violation,"
     "progress_view,handoff,checkpoint,artifact_transfer,artifact_observe,"
     "artifact_derive,artifact_invalidate"
 )

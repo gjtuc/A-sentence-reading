@@ -116,7 +116,7 @@ def test_serialize_job_trace_and_phase() -> None:
 
 def test_status_phase_pins() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.137"
+    assert st["version"] == "0.3.138"
     assert st.get("ingest_phase_machine") is True
     assert st.get("ingest_status_partial") is True
     assert st.get("ingest_integrity") is True

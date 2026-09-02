@@ -1091,7 +1091,7 @@ class AsrClient {
             'size': size,
           }),
         )
-        .timeout(const Duration(seconds: 30));
+        .timeout(const Duration(seconds: 60));
     await _captureSession(res);
     final map = _decodeObject(res, 'ingest/uploads');
     if (map['ok'] == false) {
@@ -1135,7 +1135,7 @@ class AsrClient {
           _uri('/api/ingest/uploads/${Uri.encodeComponent(id)}'),
           headers: await _headers(),
         )
-        .timeout(const Duration(seconds: 30));
+        .timeout(const Duration(seconds: 60));
     if (res.statusCode == 404) {
       throw AsrApiException('업로드 세션을 찾을 수 없습니다.', 404);
     }
@@ -1403,7 +1403,7 @@ class AsrClient {
             _uri('/api/ingest/jobs/${Uri.encodeComponent(jid)}'),
             headers: await _headers(),
           )
-          .timeout(const Duration(seconds: 30));
+          .timeout(const Duration(seconds: 60));
       if (stRes.statusCode == 401) {
         _breadcrumbApiFail('ingest/jobs', 401, '로그인이 필요합니다.');
         throw AsrApiException('로그인이 필요합니다.', 401);
