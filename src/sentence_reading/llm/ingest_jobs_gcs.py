@@ -31,7 +31,8 @@ _JOB_ID_RE = re.compile(r"^job_[a-f0-9]{12}$")
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9._\- ]{1,180}$")
 
 # design/107 — worker must refresh before this TTL or another instance may reclaim.
-_LEASE_TTL_S = 90
+# 300s: avoid false worker_lost when Gemini/translate pauses >90s without HB edge.
+_LEASE_TTL_S = 300
 _HEARTBEAT_INTERVAL_S = 25
 
 # design/110 — checkpoint envelope (mid-stage skip comes later; TTL ≠ lease).
