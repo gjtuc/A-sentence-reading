@@ -1515,6 +1515,12 @@ class AsrClient {
           422,
         );
       }
+      int asInt(Object? v) {
+        if (v is int) return v;
+        if (v is num) return v.toInt();
+        return int.tryParse('$v') ?? 0;
+      }
+
       return IngestJobResult(
         jobId: jid,
         cacheId: cacheId,
@@ -1522,6 +1528,11 @@ class AsrClient {
         title: '${st['title'] ?? ''}'.trim(),
         percent: pct > 0 ? pct : 100,
         contentHash: '${st['content_hash'] ?? ''}'.trim().toLowerCase(),
+        harmonizePending: st['harmonize_pending'] == true,
+        harmonizeTotal: asInt(st['harmonize_total']),
+        harmonizeDone: asInt(st['harmonize_done']),
+        harmonizeFailed: asInt(st['harmonize_failed']),
+        harmonizeAttemptN: asInt(st['harmonize_attempt_n']),
       );
     }
     _breadcrumbApiFail(
@@ -1601,6 +1612,11 @@ class AsrClient {
         title: result.title,
         percent: result.percent,
         contentHash: contentHash,
+        harmonizePending: result.harmonizePending,
+        harmonizeTotal: result.harmonizeTotal,
+        harmonizeDone: result.harmonizeDone,
+        harmonizeFailed: result.harmonizeFailed,
+        harmonizeAttemptN: result.harmonizeAttemptN,
       );
     }
     return result;

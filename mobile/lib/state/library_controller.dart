@@ -1321,7 +1321,14 @@ class LibraryController extends ChangeNotifier {
         return false;
       }
       enqueueFigureHydrate(result.cacheId);
-      enqueueHarmonizeResidualPoll(result.cacheId);
+      enqueueHarmonizeResidualPoll(
+        result.cacheId,
+        pendingHint: result.harmonizePending,
+        totalHint: result.harmonizeTotal,
+        doneHint: result.harmonizeDone,
+        failedHint: result.harmonizeFailed,
+        attemptHint: result.harmonizeAttemptN > 0 ? result.harmonizeAttemptN : 1,
+      );
       // WHY: 재분석 후 읽기 탭에 옛 session이 남지 않게 최신 /open 반영.
       if (session?.cacheId == entry.id || session?.cacheId == result.cacheId) {
         final openEntry = paperEntryForCacheId(result.cacheId) ?? entry;
@@ -2644,7 +2651,14 @@ class LibraryController extends ChangeNotifier {
       }
       await _notify.showCompleted(cacheId: result.cacheId);
       enqueueFigureHydrate(result.cacheId);
-      enqueueHarmonizeResidualPoll(result.cacheId);
+      enqueueHarmonizeResidualPoll(
+        result.cacheId,
+        pendingHint: result.harmonizePending,
+        totalHint: result.harmonizeTotal,
+        doneHint: result.harmonizeDone,
+        failedHint: result.harmonizeFailed,
+        attemptHint: result.harmonizeAttemptN > 0 ? result.harmonizeAttemptN : 1,
+      );
       return result;
     } on UploadCancelledException {
       // design/132 — honest cancel; design/134 hang keeps failure message.
@@ -2784,7 +2798,14 @@ class LibraryController extends ChangeNotifier {
       }
       await _notify.showCompleted(cacheId: result.cacheId);
       enqueueFigureHydrate(result.cacheId);
-      enqueueHarmonizeResidualPoll(result.cacheId);
+      enqueueHarmonizeResidualPoll(
+        result.cacheId,
+        pendingHint: result.harmonizePending,
+        totalHint: result.harmonizeTotal,
+        doneHint: result.harmonizeDone,
+        failedHint: result.harmonizeFailed,
+        attemptHint: result.harmonizeAttemptN > 0 ? result.harmonizeAttemptN : 1,
+      );
       if (draft.isReanalyze && draft.cacheId.isNotEmpty) {
         final targetId =
             result.cacheId.isNotEmpty ? result.cacheId : draft.cacheId;

@@ -1372,6 +1372,21 @@ def save_paper_session(
         "merged_supplementary_id": (supplementary_cache_id or None),
         "hidden_in_library": False,
     }
+    # design/169o — ProgressiveWriter / residual durable saves must not wipe
+    # library banner fields from a prior patch_index_entry.
+    for entry in entries:
+        if not (isinstance(entry, dict) and entry.get("id") == cache_id):
+            continue
+        for hk in (
+            "harmonize_pending",
+            "harmonize_total",
+            "harmonize_done",
+            "harmonize_failed",
+            "harmonize_attempt_n",
+        ):
+            if hk in entry:
+                new_entry[hk] = entry[hk]
+        break
     # design/168b — T4/T5 vs in-memory session counts (payload figures may already be truncated).
     try:
         from sentence_reading.llm.ingest_integrity import (

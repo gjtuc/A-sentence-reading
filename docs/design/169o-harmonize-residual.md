@@ -1,6 +1,6 @@
 # 169o — Harmonize residual (post-ingest · plan A)
 
-**Version:** 0.3.142 (ship)  
+**Version:** 0.3.143 (ship; 0.3.142 residual + index-preserve fix)  
 **Status:** implemented  
 **Product:** After analysis, draft KO + digests are durable; sentence/caption
 **harmonize** (재감수) continues as a server residual with honest library
@@ -9,6 +9,11 @@ translating” residual for work already finished in ingest.
 
 **Kill switch:** `ASR_HARMONIZE_RESIDUAL=0` restores today’s
 ingest-inline harmonize (no pending banner). Default **on** (`1`).
+
+**Bugfix (0.3.143):** `save_paper_session` was rewriting the library index
+row without `harmonize_*`, so ProgressiveWriter durable saves wiped
+`harmonize_pending` and the mobile `재감수 x/N` banner never appeared even
+while residual evidence advanced. Preserve those fields across saves.
 
 **Out of scope (v1):** Cloud Run worker count, multi Gemini API keys,
 infinite open timeout, translate residual after analysis, changing
