@@ -82,4 +82,18 @@ const Set<String> kEvidenceAllowedKinds = {
   'harmonize_residual_done',
   'harmonize_residual_partial',
   'harmonize_residual_abort',
+  // design/169p — shadowing practice prep evidence
+  'shadowing_gate',
+  'shadowing_ensure_start',
+  'shadowing_ensure_done',
+  'shadowing_boot_start',
+  'shadowing_boot_done',
+  'shadowing_build_round',
+  'shadowing_loop_event',
+  'shadowing_chunks_get',
+  'shadowing_chunks_build_start',
+  'shadowing_chunks_build_done',
+  'shadowing_gemini_call_start',
+  'shadowing_gemini_call_done',
+  'shadowing_ingest_stage',
 };

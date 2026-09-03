@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 
 # Live must not lose sensors introduced by 169c/d/e/g/h/i/j/k (floor through pull verdicts).
-EVIDENCE_FLOOR_VERSION = "0.3.143"
+EVIDENCE_FLOOR_VERSION = "0.3.144"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -56,6 +56,20 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "harmonize_residual_done",
         "harmonize_residual_partial",
         "harmonize_residual_abort",
+        # design/169p
+        "shadowing_gate",
+        "shadowing_ensure_start",
+        "shadowing_ensure_done",
+        "shadowing_boot_start",
+        "shadowing_boot_done",
+        "shadowing_build_round",
+        "shadowing_loop_event",
+        "shadowing_chunks_get",
+        "shadowing_chunks_build_start",
+        "shadowing_chunks_build_done",
+        "shadowing_gemini_call_start",
+        "shadowing_gemini_call_done",
+        "shadowing_ingest_stage",
     }
 )
 
@@ -187,6 +201,35 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "_run_harmonize_residual",
             "harmonize_pending",
             "harmonize_residual_start",
+            # design/169p
+            "shadowing_chunks_get",
+            "shadowing_chunks_build_start",
+            "shadowing_chunks_build_done",
+            "shadowing_ingest_stage",
+        ),
+    ),
+    (
+        "src/sentence_reading/llm/shadowing_chunks.py",
+        (
+            "shadowing_gemini_call_start",
+            "shadowing_gemini_call_done",
+            "call_kind",
+        ),
+    ),
+    (
+        "src/sentence_reading/llm/shadowing_verdict.py",
+        (
+            "ShadowingTimeline",
+            "compute_shadowing_verdicts",
+            "prep_ui_stuck",
+            "accept_prep_ok",
+        ),
+    ),
+    (
+        "scripts/track_shadowing.py",
+        (
+            "shadowing_verdict",
+            "compute_shadowing_verdicts",
         ),
     ),
     (
@@ -239,6 +282,20 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "hydrate_bg",
             "harmonize_residual_start",
             "enqueueHarmonizeResidualPoll",
+            # design/169p
+            "shadowing_ensure_start",
+            "shadowing_ensure_done",
+            "shadowing_gate",
+            "_shadowingWantProbe",
+        ),
+    ),
+    (
+        "mobile/lib/screens/shadowing_practice_screen.dart",
+        (
+            "shadowing_boot_start",
+            "shadowing_boot_done",
+            "shadowing_loop_event",
+            "shadowing_gate",
         ),
     ),
 )

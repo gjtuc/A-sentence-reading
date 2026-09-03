@@ -156,6 +156,8 @@
 | 169i | [169i-artifact-transfer-ledger.md](169i-artifact-transfer-ledger.md) | 조각 source→sink 장부 (hash·locator·transfer; **0.3.134** I0–I2) |
 | 169j | [169j-translate-on-item-off-critical-path.md](169j-translate-on-item-off-critical-path.md) | 번역 `on_item` cold path 분리 · writer/DropOldest (**0.3.135**) |
 | 169k | [169k-observability-pull-verdicts.md](169k-observability-pull-verdicts.md) | pull/track verdict 규칙 · I3 figure · I4/K3–K4 로드맵 |
+| 169o | [169o-harmonize-residual.md](169o-harmonize-residual.md) | ingest 후 harmonize residual · 배너 honesty |
+| 169p | [169p-shadowing-practice-evidence.md](169p-shadowing-practice-evidence.md) | 쉐도잉 prep 증거·verdict (제품 수정 전) |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  

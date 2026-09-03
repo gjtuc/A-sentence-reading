@@ -6,10 +6,12 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -18,6 +20,7 @@ import '../api/client.dart';
 import '../api/reading_models.dart';
 import '../api/shadowing_retry_gate.dart';
 import '../api/tts_models.dart';
+import '../services/evidence_bus.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/tts_controller.dart';
@@ -83,13 +86,43 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
     return c.isNotEmpty ? c : s.sessionId;
   }
 
+  String _sidH16(String sid) {
+    final t = sid.trim();
+    if (t.isEmpty) return '';
+    return sha256.convert(utf8.encode(t)).toString().substring(0, 16);
+  }
+
   Future<void> _boot() async {
     final session = _session;
     if (session == null || !session.isValid) {
+      asrEvidenceBus?.record(
+        'shadowing_gate',
+        severity: 'decision',
+        ok: false,
+        code: 'no_session',
+        details: {
+          'gate': 'no_session',
+          'server_flag': widget.shadowing.serverAvailable,
+          'pref': widget.shadowing.enabled,
+        },
+      );
       setState(() => _status = '논문을 연 뒤 연습을 시작해 주세요.');
       return;
     }
     if (!widget.shadowing.serverAvailable || !widget.shadowing.enabled) {
+      final gate =
+          !widget.shadowing.serverAvailable ? 'kill_off' : 'pref_off';
+      asrEvidenceBus?.record(
+        'shadowing_gate',
+        severity: 'decision',
+        ok: false,
+        code: gate,
+        details: {
+          'gate': gate,
+          'server_flag': widget.shadowing.serverAvailable,
+          'pref': widget.shadowing.enabled,
+        },
+      );
       setState(
         () => _status = '설정에서 쉐도잉 연습을 켠 뒤 다시 시도해 주세요.',
       );
@@ -97,6 +130,17 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
     }
     final cacheId = _cacheId;
     if (cacheId.isEmpty) {
+      asrEvidenceBus?.record(
+        'shadowing_gate',
+        severity: 'decision',
+        ok: false,
+        code: 'no_cache_id',
+        details: {
+          'gate': 'no_cache_id',
+          'server_flag': true,
+          'pref': true,
+        },
+      );
       setState(() => _status = '논문 id가 없습니다.');
       return;
     }
@@ -104,6 +148,17 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
       _busy = true;
       _status = '연습 구간 준비 중…';
     });
+    final sw = Stopwatch()..start();
+    asrEvidenceBus?.record(
+      'shadowing_boot_start',
+      cacheId: cacheId,
+      severity: 'lifecycle',
+    );
+    var rounds = 0;
+    var planStatus = '';
+    var errorCode = '';
+    var okOut = false;
+    var chunkN = 0;
     try {
       // WHY: product B — chunks must succeed before practice room.
       // design/113+119 — pending slices must continue; never treat pending as done.
@@ -123,9 +178,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
           built = await widget.client.buildShadowingChunks(
             cacheId,
             practiceEnabled: true,
+            round: round + 1,
           );
+          rounds = round + 1;
           final p = built['plan'];
           final st = (p is Map) ? p['status']?.toString() : null;
+          planStatus = st ?? '';
           // Fail-closed: only status=ok enters practice (pending ≠ success).
           if (built['ok'] == true && st == 'ok') {
             plan = p;
@@ -134,28 +192,81 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
           if (built['continue'] == true && st == 'pending') {
             continue;
           }
+          errorCode =
+              built['error']?.toString() ??
+              (p is Map ? p['error']?.toString() : null) ??
+              'build_failed';
           throw AsrApiException(
             built['message']?.toString() ?? '연습 구간을 만들지 못했습니다.',
             502,
           );
         }
         if (plan is! Map || plan['status']?.toString() != 'ok') {
+          errorCode = errorCode.isNotEmpty ? errorCode : 'cap_hit';
           throw AsrApiException(
             built?['message']?.toString() ??
                 '연습 구간 준비가 끝나지 않았습니다. 다시 시도해 주세요.',
             502,
           );
         }
+      } else {
+        planStatus = 'ok';
       }
       _plan = Map<String, dynamic>.from(plan as Map);
       _bindSentence(session);
+      chunkN = _chunks.length;
       if (_chunks.isEmpty) {
+        errorCode = 'chunk_empty';
         throw AsrApiException('이 문장에 연습 구간이 없습니다.', 400);
       }
+      okOut = true;
+      asrEvidenceBus?.record(
+        'shadowing_boot_done',
+        cacheId: cacheId,
+        severity: 'lifecycle',
+        ok: true,
+        details: {
+          'plan_status': planStatus,
+          'rounds': rounds,
+          'chunk_n': chunkN,
+          'sentence_id_h16': _sidH16(_sentenceId),
+          'elapsed_ms': sw.elapsedMilliseconds,
+        },
+      );
       await _runCycle();
     } on AsrApiException catch (e) {
+      asrEvidenceBus?.record(
+        'shadowing_boot_done',
+        cacheId: cacheId,
+        severity: 'lifecycle',
+        ok: false,
+        code: errorCode.isNotEmpty ? errorCode : 'api_fail',
+        details: {
+          'plan_status': planStatus,
+          'rounds': rounds,
+          'chunk_n': chunkN,
+          'sentence_id_h16': _sidH16(_sentenceId),
+          'elapsed_ms': sw.elapsedMilliseconds,
+          'error_code': errorCode.isNotEmpty ? errorCode : 'api_fail',
+        },
+      );
       setState(() => _status = e.message);
     } catch (e) {
+      asrEvidenceBus?.record(
+        'shadowing_boot_done',
+        cacheId: cacheId,
+        severity: 'lifecycle',
+        ok: false,
+        code: 'boot_error',
+        details: {
+          'plan_status': planStatus,
+          'rounds': rounds,
+          'chunk_n': chunkN,
+          'sentence_id_h16': _sidH16(_sentenceId),
+          'elapsed_ms': sw.elapsedMilliseconds,
+          'error_code': 'boot_error',
+        },
+      );
       setState(() => _status = e.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -187,20 +298,41 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
   Future<void> _playTts(String text) async {
     // design/103 — same mode/voice/rate pick as reader TTS.
     final params = widget.tts.pickPlaybackParams();
-    final bytes = await widget.client.synthesizeTts(
-      text: text,
-      voice: params.voice,
-      speakingRate: kTtsRateDefault,
-    );
-    await _player.stop();
     try {
-      await _player.setPlaybackRate(clampSpeakingRate(params.speakingRate));
-    } catch (_) {
-      // EDGE: player rate unsupported on some devices — still play.
+      final bytes = await widget.client.synthesizeTts(
+        text: text,
+        voice: params.voice,
+        speakingRate: kTtsRateDefault,
+      );
+      await _player.stop();
+      try {
+        await _player.setPlaybackRate(clampSpeakingRate(params.speakingRate));
+      } catch (_) {
+        // EDGE: player rate unsupported on some devices — still play.
+      }
+      final done = _player.onPlayerComplete.first;
+      await _player.play(BytesSource(Uint8List.fromList(bytes)));
+      await done;
+      asrEvidenceBus?.record(
+        'shadowing_loop_event',
+        cacheId: _cacheId,
+        ok: true,
+        details: {'phase': 'tts', 'ok': true},
+      );
+    } catch (e) {
+      asrEvidenceBus?.record(
+        'shadowing_loop_event',
+        cacheId: _cacheId,
+        ok: false,
+        code: 'tts_fail',
+        details: {
+          'phase': 'tts',
+          'ok': false,
+          'exc_type': e.runtimeType.toString(),
+        },
+      );
+      rethrow;
     }
-    final done = _player.onPlayerComplete.first;
-    await _player.play(BytesSource(Uint8List.fromList(bytes)));
-    await done;
   }
 
   Future<void> _runCycle() async {
@@ -219,6 +351,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
       okMic = await _mic.invokeMethod<bool>('requestPermission') ?? false;
     }
     if (!okMic) {
+      asrEvidenceBus?.record(
+        'shadowing_loop_event',
+        cacheId: _cacheId,
+        ok: false,
+        code: 'mic_perm',
+        details: {'phase': 'mic_start', 'ok': false, 'exc_type': 'mic_perm'},
+      );
       setState(() => _status = '마이크 권한이 없습니다. 건너뛰기를 사용할 수 있습니다.');
       return;
     }
@@ -227,14 +366,33 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
         '${dir.path}${Platform.pathSeparator}asr_shadow_${DateTime.now().millisecondsSinceEpoch}.m4a';
     final started = await _mic.invokeMethod<bool>('start', {'path': path}) ?? false;
     if (!started) {
+      asrEvidenceBus?.record(
+        'shadowing_loop_event',
+        cacheId: _cacheId,
+        ok: false,
+        code: 'mic_start',
+        details: {'phase': 'mic_start', 'ok': false, 'exc_type': 'mic_start'},
+      );
       setState(() => _status = '녹음을 시작하지 못했습니다. 건너뛰기를 사용할 수 있습니다.');
       return;
     }
+    asrEvidenceBus?.record(
+      'shadowing_loop_event',
+      cacheId: _cacheId,
+      ok: true,
+      details: {'phase': 'mic_start', 'ok': true},
+    );
     try {
       await _playTts(_chunks[_chunkIndex]);
       await Future<void>.delayed(_pad);
     } finally {
       final outPath = await _mic.invokeMethod<String>('stop');
+      asrEvidenceBus?.record(
+        'shadowing_loop_event',
+        cacheId: _cacheId,
+        ok: true,
+        details: {'phase': 'mic_stop', 'ok': true},
+      );
       final filePath = (outPath == null || outPath.isEmpty) ? path : outPath;
       final file = File(filePath);
       if (!await file.exists()) {
@@ -251,22 +409,43 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
       final cacheId = _cacheId;
       final blobKey =
           'shadowing|$cacheId|$_sentenceId|$_chunkIndex|${DateTime.now().millisecondsSinceEpoch}';
-      await widget.client.putVoiceBlob(
-        blobKey,
-        bytes,
-        contentType: 'audio/mp4',
-      );
-      await widget.client.postShadowingTake(
-        cacheId,
-        practiceEnabled: true,
-        sentenceId: _sentenceId,
-        chunkIndex: _chunkIndex,
-        chunkCount: _chunks.length,
-        status: 'recorded',
-        blobKey: blobKey,
-        mime: 'audio/mp4',
-      );
-      setState(() => _status = '저장됨. 「다시」·「다시 듣기」·「다음」·「건너뛰기」');
+      try {
+        await widget.client.putVoiceBlob(
+          blobKey,
+          bytes,
+          contentType: 'audio/mp4',
+        );
+        await widget.client.postShadowingTake(
+          cacheId,
+          practiceEnabled: true,
+          sentenceId: _sentenceId,
+          chunkIndex: _chunkIndex,
+          chunkCount: _chunks.length,
+          status: 'recorded',
+          blobKey: blobKey,
+          mime: 'audio/mp4',
+        );
+        asrEvidenceBus?.record(
+          'shadowing_loop_event',
+          cacheId: cacheId,
+          ok: true,
+          details: {'phase': 'take_post', 'ok': true},
+        );
+        setState(() => _status = '저장됨. 「다시」·「다시 듣기」·「다음」·「건너뛰기」');
+      } catch (e) {
+        asrEvidenceBus?.record(
+          'shadowing_loop_event',
+          cacheId: cacheId,
+          ok: false,
+          code: 'take_post',
+          details: {
+            'phase': 'take_post',
+            'ok': false,
+            'exc_type': e.runtimeType.toString(),
+          },
+        );
+        rethrow;
+      }
     }
   }
 
@@ -344,6 +523,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
           chunkIndex: _chunkIndex,
           chunkCount: _chunks.length,
           status: 'skipped',
+        );
+        asrEvidenceBus?.record(
+          'shadowing_loop_event',
+          cacheId: cacheId,
+          ok: true,
+          details: {'phase': 'skip', 'ok': true},
         );
       }
       // WHY: leaving this chunk — clear take so replay cannot play the wrong slot.

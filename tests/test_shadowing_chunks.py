@@ -52,6 +52,26 @@ def test_plan_sentence_chunks_growing(shadowing_env: Path) -> None:
     assert chunks[-1].startswith(chunks[0])
 
 
+def test_plan_sentence_chunks_emits_gemini_evidence(
+    shadowing_env: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """design/169p — Gemini start/done around plan_sentence_chunks."""
+    from sentence_reading.llm import evidence_bus as eb
+
+    monkeypatch.setenv("ASR_EVIDENCE_BUS", "1")
+    monkeypatch.setattr(eb, "local_events_path", lambda: tmp_path / "ev.jsonl")
+    monkeypatch.setattr(eb, "_gcs_events_object", lambda: None)
+    monkeypatch.setattr(eb, "_RATE_MEM", {})
+    sc.plan_sentence_chunks(
+        "catalyst is a powerful tool",
+        generate=_fake_generate,
+        cache_id="abc12345zz",
+    )
+    kinds = [r["kind"] for r in eb.list_events(limit=20)]
+    assert "shadowing_gemini_call_start" in kinds
+    assert "shadowing_gemini_call_done" in kinds
+
+
 def test_plan_mixed_ko_en(shadowing_env: Path) -> None:
     text = "catalyst is 강력한 tool"
     chunks = sc.plan_sentence_chunks(text, generate=_fake_generate)
@@ -120,7 +140,7 @@ def test_api_requires_auth_and_practice_flag(shadowing_env: Path, monkeypatch) -
     monkeypatch.setattr(
         "sentence_reading.api.app.gemini_available", lambda: True
     )
-    monkeypatch.setattr(sc, "plan_sentence_chunks", lambda text, generate=None: [text])
+    monkeypatch.setattr(sc, "plan_sentence_chunks", lambda text, generate=None, cache_id="": [text])
     r4 = client.post(
         "/api/shadowing/chunks/abcd1234ef/build",
         json={
@@ -144,7 +164,7 @@ def test_kill_off_rejects(shadowing_env: Path, monkeypatch) -> None:
     r = client.get("/api/shadowing/chunks/abcd1234ef")
     assert r.status_code == 503
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.141"
+    assert st["version"] == "0.3.144"
     assert st["shadowing_chunks"] is False
 
 
@@ -168,7 +188,7 @@ def test_api_isolation_a_b(shadowing_env: Path, monkeypatch) -> None:
     """User B must not see User A's chunk plan (empty for B)."""
     monkeypatch.setenv("ASR_GOOGLE_CLIENT_ID", "test-client.apps.googleusercontent.com")
     monkeypatch.setattr("sentence_reading.api.app.gemini_available", lambda: True)
-    monkeypatch.setattr(sc, "plan_sentence_chunks", lambda text, generate=None: [text])
+    monkeypatch.setattr(sc, "plan_sentence_chunks", lambda text, generate=None, cache_id="": [text])
 
     user_a = AuthUser(uid="user_iso_a01", email="a@example.com", name="A", picture="")
     user_b = AuthUser(uid="user_iso_b02", email="b@example.com", name="B", picture="")
@@ -216,7 +236,7 @@ def test_body_user_id_ignored(shadowing_env: Path, monkeypatch) -> None:
     """Server must use session uid only — body user_id must not redirect storage."""
     monkeypatch.setenv("ASR_GOOGLE_CLIENT_ID", "test-client.apps.googleusercontent.com")
     monkeypatch.setattr("sentence_reading.api.app.gemini_available", lambda: True)
-    monkeypatch.setattr(sc, "plan_sentence_chunks", lambda text, generate=None: [text])
+    monkeypatch.setattr(sc, "plan_sentence_chunks", lambda text, generate=None, cache_id="": [text])
     user = AuthUser(uid="user_sess_01", email="s@example.com", name="S", picture="")
     token = issue_session_token(user)
     client = TestClient(app_mod.app)

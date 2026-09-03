@@ -58,4 +58,13 @@ void main() {
     expect(bus.pendingCount, 1);
     bus.dispose();
   });
+
+  test('kinds include 169p shadowing practice', () {
+    expect(kEvidenceAllowedKinds.contains('shadowing_gate'), isTrue);
+    expect(kEvidenceAllowedKinds.contains('shadowing_boot_start'), isTrue);
+    expect(kEvidenceAllowedKinds.contains('shadowing_ensure_done'), isTrue);
+    expect(kEvidenceAllowedKinds.contains('shadowing_build_round'), isTrue);
+    expect(kEvidenceAllowedKinds.contains('shadowing_chunks_build_done'), isTrue);
+    expect(kEvidenceAllowedKinds.contains('shadowing_gemini_call_start'), isTrue);
+  });
 }

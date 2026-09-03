@@ -2083,19 +2083,28 @@ class AsrClient {
     if (id.isEmpty) {
       throw AsrApiException('논문 id가 올바르지 않습니다.', 400);
     }
-    final res = await _http.get(
-      _uri('/api/shadowing/chunks/${Uri.encodeComponent(id)}'),
-      headers: await _headers(),
-    );
-    return _decodeObject(res, 'shadowing/chunks');
+    try {
+      final res = await _http
+          .get(
+            _uri('/api/shadowing/chunks/${Uri.encodeComponent(id)}'),
+            headers: await _headers(),
+          )
+          .timeout(const Duration(seconds: 45));
+      return _decodeObject(res, 'shadowing/chunks');
+    } on TimeoutException catch (e) {
+      _breadcrumbTimeout('shadowing/chunks', e);
+      rethrow;
+    }
   }
 
   /// design/80 — backfill/retry (requires practiceEnabled true).
   /// design/113 — client timeout under Cloud Run limit so we can continue slices.
+  /// design/169p — optional [round] for shadowing_build_round evidence.
   Future<Map<String, dynamic>> buildShadowingChunks(
     String cacheId, {
     required bool practiceEnabled,
     List<Map<String, dynamic>>? sentences,
+    int? round,
   }) async {
     final id = cacheId.trim();
     if (id.isEmpty) {
@@ -2105,17 +2114,69 @@ class AsrClient {
       'practice_enabled': practiceEnabled,
       if (sentences != null) 'sentences': sentences,
     };
-    final res = await _http
-        .post(
-          _uri('/api/shadowing/chunks/${Uri.encodeComponent(id)}/build'),
-          headers: {
-            ...await _headers(),
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode(body),
-        )
-        .timeout(const Duration(seconds: 150));
-    return _decodeObject(res, 'shadowing/chunks/build');
+    try {
+      final res = await _http
+          .post(
+            _uri('/api/shadowing/chunks/${Uri.encodeComponent(id)}/build'),
+            headers: {
+              ...await _headers(),
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 150));
+      final map = _decodeObject(res, 'shadowing/chunks/build');
+      final plan = map['plan'];
+      final st = plan is Map ? plan['status']?.toString() : null;
+      final err = map['error']?.toString() ??
+          (plan is Map ? plan['error']?.toString() : null);
+      asrEvidenceBus?.record(
+        'shadowing_build_round',
+        cacheId: id,
+        ok: map['ok'] == true && st == 'ok',
+        code: (err != null && err.isNotEmpty) ? err : '',
+        details: {
+          'round': round ?? 0,
+          'plan_status': st ?? '',
+          'continue': map['continue'] == true,
+          'http_ok': true,
+          if (err != null && err.isNotEmpty) 'error': err,
+        },
+      );
+      return map;
+    } on TimeoutException catch (e) {
+      asrEvidenceBus?.record(
+        'shadowing_build_round',
+        cacheId: id,
+        ok: false,
+        code: 'timeout',
+        details: {
+          'round': round ?? 0,
+          'plan_status': '',
+          'continue': false,
+          'http_ok': false,
+          'error': 'timeout',
+        },
+      );
+      _breadcrumbTimeout('shadowing/chunks/build', e);
+      rethrow;
+    } on AsrApiException catch (e) {
+      asrEvidenceBus?.record(
+        'shadowing_build_round',
+        cacheId: id,
+        ok: false,
+        code: 'api_fail',
+        details: {
+          'round': round ?? 0,
+          'plan_status': '',
+          'continue': false,
+          'http_ok': false,
+          'error': 'api_fail',
+          'http_status': e.statusCode,
+        },
+      );
+      rethrow;
+    }
   }
 
   /// POST /api/errors/report — design/130 (fail quietly at call sites).

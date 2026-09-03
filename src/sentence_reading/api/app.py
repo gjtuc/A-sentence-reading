@@ -211,7 +211,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.143",
+    version="0.3.144",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1432,7 +1432,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.143",
+        "version": "0.3.144",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -6812,14 +6812,31 @@ async def _run_ingest_job_body(
                         "sentence_count": len(plan.get("sentences") or {}),
                         "progress": plan.get("progress"),
                     }
-                    # design/113 — pending is not failure; mobile open continues slices.
+                    # design/169p — ingest stage snapshot.
+                    from sentence_reading.llm import evidence_bus as eb
+
+                    warn = ""
                     if plan.get("status") == "pending":
                         warnings.append("shadowing_chunks_pending")
+                        warn = "shadowing_chunks_pending"
                     elif plan.get("status") != "ok":
-                        warnings.append(
+                        warn = (
                             "shadowing_chunks_failed:"
                             + str(plan.get("error") or "error")[:80]
                         )
+                        warnings.append(warn)
+                    eb.emit(
+                        "shadowing_ingest_stage",
+                        job_id=job_id,
+                        cache_id=str(cache_id),
+                        owner_uid=owner,
+                        ok=plan.get("status") == "ok",
+                        details={
+                            "plan_status": str(plan.get("status") or ""),
+                            "warning": warn,
+                            "sentence_n": len(plan.get("sentences") or {}),
+                        },
+                    )
                 except Exception as exc:  # noqa: BLE001
                     warnings.append(f"shadowing_chunks_failed:{str(exc)[:80]}")
                     data["shadowing_chunks"] = {
@@ -6827,6 +6844,21 @@ async def _run_ingest_job_body(
                         "error": "build_failed",
                         "sentence_count": 0,
                     }
+                    from sentence_reading.llm import evidence_bus as eb
+
+                    eb.emit(
+                        "shadowing_ingest_stage",
+                        job_id=job_id,
+                        cache_id=str(cache_id),
+                        owner_uid=owner,
+                        ok=False,
+                        code="build_failed",
+                        details={
+                            "plan_status": "error",
+                            "warning": f"shadowing_chunks_failed:{type(exc).__name__}",
+                            "sentence_n": 0,
+                        },
+                    )
                 finally:
                     reset_gcs_uid()
             elif want_chunks and not shadowing_practice_enabled():
@@ -6835,6 +6867,21 @@ async def _run_ingest_job_body(
                     "error": "shadowing_disabled",
                     "sentence_count": 0,
                 }
+                from sentence_reading.llm import evidence_bus as eb
+
+                eb.emit(
+                    "shadowing_ingest_stage",
+                    job_id=job_id,
+                    cache_id=str(cache_id),
+                    owner_uid=owner,
+                    ok=False,
+                    code="shadowing_disabled",
+                    details={
+                        "plan_status": "skipped",
+                        "warning": "shadowing_disabled",
+                        "sentence_n": 0,
+                    },
+                )
             elif want_chunks and not gemini_available():
                 data["shadowing_chunks"] = {
                     "status": "error",
@@ -6842,6 +6889,21 @@ async def _run_ingest_job_body(
                     "sentence_count": 0,
                 }
                 warnings.append("shadowing_chunks_failed:gemini_unavailable")
+                from sentence_reading.llm import evidence_bus as eb
+
+                eb.emit(
+                    "shadowing_ingest_stage",
+                    job_id=job_id,
+                    cache_id=str(cache_id),
+                    owner_uid=owner,
+                    ok=False,
+                    code="gemini_unavailable",
+                    details={
+                        "plan_status": "error",
+                        "warning": "shadowing_chunks_failed:gemini_unavailable",
+                        "sentence_n": 0,
+                    },
+                )
 
         if warnings:
             data["warnings"] = list(dict.fromkeys(list(data.get("warnings") or []) + warnings))
@@ -7065,6 +7127,29 @@ def shadowing_chunks_get(request: Request, cache_id: str) -> JSONResponse:
         plan = sc.load_chunk_plan(uid=user.uid, cache_id=cid)
     finally:
         reset_gcs_uid()
+    # design/169p — GET snapshot (no plan text).
+    from sentence_reading.llm import evidence_bus as eb
+
+    sents = plan.get("sentences") if isinstance(plan, dict) else None
+    prog = plan.get("progress") if isinstance(plan, dict) else None
+    eb.emit(
+        "shadowing_chunks_get",
+        cache_id=cid,
+        owner_uid=user.uid,
+        route="shadowing/chunks",
+        ok=True,
+        details={
+            "plan_status": str((plan or {}).get("status") or ""),
+            "sentence_n": len(sents) if isinstance(sents, dict) else 0,
+            "progress_done": int((prog or {}).get("done") or 0)
+            if isinstance(prog, dict)
+            else 0,
+            "progress_total": int((prog or {}).get("total") or 0)
+            if isinstance(prog, dict)
+            else 0,
+            "error": str((plan or {}).get("error") or "")[:80],
+        },
+    )
     return JSONResponse({"ok": True, "plan": plan})
 
 
@@ -7073,6 +7158,9 @@ async def shadowing_chunks_build(
     request: Request, cache_id: str, payload: dict = Body(default_factory=dict)
 ) -> JSONResponse:
     """design/80 — backfill / retry. Requires client practice_enabled true."""
+    import time
+
+    from sentence_reading.llm import evidence_bus as eb
     from sentence_reading.llm import shadowing_chunks as sc
     from sentence_reading.llm.shadowing_practice import shadowing_practice_enabled
 
@@ -7080,6 +7168,14 @@ async def shadowing_chunks_build(
     if denied is not None:
         return denied
     if not shadowing_practice_enabled():
+        eb.emit(
+            "shadowing_chunks_build_done",
+            cache_id=str(cache_id or "")[:32],
+            ok=False,
+            code="shadowing_disabled",
+            route="shadowing/chunks/build",
+            details={"error": "shadowing_disabled", "plan_status": ""},
+        )
         return JSONResponse(
             status_code=503,
             content={
@@ -7096,6 +7192,15 @@ async def shadowing_chunks_build(
         )
     # WHY: mirror translate-on gate — client setting must be on; no silent build.
     if not isinstance(payload, dict) or not payload.get("practice_enabled"):
+        eb.emit(
+            "shadowing_chunks_build_done",
+            cache_id=str(cache_id or "")[:32],
+            owner_uid=user.uid,
+            ok=False,
+            code="practice_off",
+            route="shadowing/chunks/build",
+            details={"error": "practice_off", "plan_status": ""},
+        )
         return JSONResponse(
             status_code=400,
             content={
@@ -7111,6 +7216,15 @@ async def shadowing_chunks_build(
             content={"ok": False, "error": "invalid_cache_id", "message": "논문 id가 올바르지 않습니다."},
         )
     if not gemini_available():
+        eb.emit(
+            "shadowing_chunks_build_done",
+            cache_id=cid,
+            owner_uid=user.uid,
+            ok=False,
+            code="gemini_unavailable",
+            route="shadowing/chunks/build",
+            details={"error": "gemini_unavailable", "plan_status": ""},
+        )
         return JSONResponse(
             status_code=503,
             content={
@@ -7131,6 +7245,15 @@ async def shadowing_chunks_build(
         finally:
             reset_gcs_uid()
         if not refreshed and refresh_code == "gcs_pull_failed":
+            eb.emit(
+                "shadowing_chunks_build_done",
+                cache_id=cid,
+                owner_uid=user.uid,
+                ok=False,
+                code="gcs_pull_failed",
+                route="shadowing/chunks/build",
+                details={"error": "gcs_pull_failed", "plan_status": ""},
+            )
             return JSONResponse(
                 status_code=502,
                 content={
@@ -7145,6 +7268,15 @@ async def shadowing_chunks_build(
         finally:
             reset_gcs_uid()
         if loaded is None:
+            eb.emit(
+                "shadowing_chunks_build_done",
+                cache_id=cid,
+                owner_uid=user.uid,
+                ok=False,
+                code="paper_not_found",
+                route="shadowing/chunks/build",
+                details={"error": "paper_not_found", "plan_status": ""},
+            )
             return JSONResponse(
                 status_code=404,
                 content={
@@ -7159,12 +7291,35 @@ async def shadowing_chunks_build(
             sid = getattr(s, "id", None) or str(i)
             text = getattr(s, "text", None) or ""
             rows.append({"id": str(sid), "text": str(text)})
+    budget_s = float(sc.chunk_build_budget_seconds())
+    eb.emit(
+        "shadowing_chunks_build_start",
+        cache_id=cid,
+        owner_uid=user.uid,
+        route="shadowing/chunks/build",
+        details={"budget_s": int(budget_s), "sentence_n": len(rows or [])},
+    )
+    t0 = time.monotonic()
     try:
         set_gcs_uid(user.uid)
         plan = await asyncio.to_thread(
             sc.build_chunk_plan, uid=user.uid, cache_id=cid, sentences=rows
         )
     except PermissionError:
+        eb.emit(
+            "shadowing_chunks_build_done",
+            cache_id=cid,
+            owner_uid=user.uid,
+            ok=False,
+            code="shadowing_disabled",
+            route="shadowing/chunks/build",
+            details={
+                "error": "shadowing_disabled",
+                "plan_status": "",
+                "elapsed_ms": int((time.monotonic() - t0) * 1000),
+                "budget_s": int(budget_s),
+            },
+        )
         return JSONResponse(
             status_code=503,
             content={
@@ -7174,6 +7329,20 @@ async def shadowing_chunks_build(
             },
         )
     except ValueError as exc:
+        eb.emit(
+            "shadowing_chunks_build_done",
+            cache_id=cid,
+            owner_uid=user.uid,
+            ok=False,
+            code=str(exc)[:80],
+            route="shadowing/chunks/build",
+            details={
+                "error": str(exc)[:80],
+                "plan_status": "",
+                "elapsed_ms": int((time.monotonic() - t0) * 1000),
+                "budget_s": int(budget_s),
+            },
+        )
         return JSONResponse(
             status_code=400,
             content={
@@ -7189,6 +7358,21 @@ async def shadowing_chunks_build(
         logging.getLogger(__name__).warning(
             "shadowing_chunks_build failed: %s", type(exc).__name__
         )
+        eb.emit(
+            "shadowing_chunks_build_done",
+            cache_id=cid,
+            owner_uid=user.uid,
+            ok=False,
+            code="build_failed",
+            route="shadowing/chunks/build",
+            details={
+                "error": "build_failed",
+                "plan_status": "",
+                "elapsed_ms": int((time.monotonic() - t0) * 1000),
+                "budget_s": int(budget_s),
+                "exc_type": type(exc).__name__,
+            },
+        )
         return JSONResponse(
             status_code=502,
             content={
@@ -7202,8 +7386,23 @@ async def shadowing_chunks_build(
     finally:
         reset_gcs_uid()
     status = str(plan.get("status") or "")
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
     # design/113 — pending is an honest in-progress slice (HTTP 200), not gateway 504.
     if status == "pending":
+        eb.emit(
+            "shadowing_chunks_build_done",
+            cache_id=cid,
+            owner_uid=user.uid,
+            ok=True,
+            route="shadowing/chunks/build",
+            details={
+                "continue": True,
+                "plan_status": "pending",
+                "error": str(plan.get("error") or "")[:80],
+                "elapsed_ms": elapsed_ms,
+                "budget_s": int(budget_s),
+            },
+        )
         return JSONResponse(
             {
                 "ok": True,
@@ -7214,6 +7413,21 @@ async def shadowing_chunks_build(
             }
         )
     ok = status == "ok"
+    eb.emit(
+        "shadowing_chunks_build_done",
+        cache_id=cid,
+        owner_uid=user.uid,
+        ok=ok,
+        code="" if ok else str(plan.get("error") or "error")[:80],
+        route="shadowing/chunks/build",
+        details={
+            "continue": False,
+            "plan_status": status,
+            "error": str(plan.get("error") or "")[:80],
+            "elapsed_ms": elapsed_ms,
+            "budget_s": int(budget_s),
+        },
+    )
     return JSONResponse(
         {
             "ok": ok,

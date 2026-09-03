@@ -267,8 +267,13 @@ def plan_sentence_chunks(
     text: str,
     *,
     generate: Callable[[str, str], str | None] | None = None,
+    cache_id: str = "",
 ) -> list[str]:
     """Return growing chunk strings for one sentence. Raises ValueError on fail."""
+    import time
+
+    from sentence_reading.llm import evidence_bus as eb
+
     full = _plain(text)
     if not full:
         raise ValueError("empty_sentence")
@@ -303,30 +308,72 @@ def plan_sentence_chunks(
         return (getattr(response, "text", None) or "").strip() or None
 
     gen = generate or _default_generate
-    for attempt in range(3):
-        try:
-            raw = gen(_SYSTEM, f"Sentence:\n{full}")
-        except ValueError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            # WHY: google.genai / network errors must not become raw HTTP 500 (design/119).
-            # EDGE: log type only — never API key or prompt body.
-            log.warning("shadowing chunk gemini failed: %s", type(exc).__name__)
-            raise ValueError("gemini_unavailable") from exc
-        if not raw:
-            raise ValueError("gemini_unavailable")
-        chunks = _parse_chunks_json(raw, full)
-        if chunks:
-            return chunks
-        log.warning(
-            "shadowing chunk parse failed (attempt %s/3)",
-            attempt + 1,
-        )
-    log.warning(
-        "shadowing chunk using word fallback after parse failures (len=%s)",
-        len(full),
+    cid = str(cache_id or "").strip()
+    # design/169p — start/done around Gemini (no prompt/body).
+    eb.emit(
+        "shadowing_gemini_call_start",
+        cache_id=cid,
+        details={"call_kind": "chunk_plan"},
     )
-    return _fallback_word_chunks(full)
+    t0 = time.monotonic()
+    try:
+        for attempt in range(3):
+            try:
+                raw = gen(_SYSTEM, f"Sentence:\n{full}")
+            except ValueError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                # WHY: google.genai / network errors must not become raw HTTP 500 (design/119).
+                # EDGE: log type only — never API key or prompt body.
+                log.warning("shadowing chunk gemini failed: %s", type(exc).__name__)
+                raise ValueError("gemini_unavailable") from exc
+            if not raw:
+                raise ValueError("gemini_unavailable")
+            chunks = _parse_chunks_json(raw, full)
+            if chunks:
+                eb.emit(
+                    "shadowing_gemini_call_done",
+                    cache_id=cid,
+                    ok=True,
+                    details={
+                        "call_kind": "chunk_plan",
+                        "elapsed_ms": int((time.monotonic() - t0) * 1000),
+                    },
+                )
+                return chunks
+            log.warning(
+                "shadowing chunk parse failed (attempt %s/3)",
+                attempt + 1,
+            )
+        log.warning(
+            "shadowing chunk using word fallback after parse failures (len=%s)",
+            len(full),
+        )
+        eb.emit(
+            "shadowing_gemini_call_done",
+            cache_id=cid,
+            ok=True,
+            details={
+                "call_kind": "chunk_plan",
+                "elapsed_ms": int((time.monotonic() - t0) * 1000),
+                "fallback": "word",
+            },
+        )
+        return _fallback_word_chunks(full)
+    except Exception as exc:  # noqa: BLE001
+        eb.emit(
+            "shadowing_gemini_call_done",
+            cache_id=cid,
+            ok=False,
+            code=str(exc)[:80] if isinstance(exc, ValueError) else type(exc).__name__,
+            details={
+                "call_kind": "chunk_plan",
+                "elapsed_ms": int((time.monotonic() - t0) * 1000),
+                "exc_type": type(exc).__name__,
+            },
+        )
+        raise
+
 
 def build_chunk_plan(
     *,
@@ -410,7 +457,9 @@ def build_chunk_plan(
             # EDGE: first sentence alone exceeded budget — still try one, then pending.
             pass
         try:
-            chunks = plan_sentence_chunks(text, generate=generate)
+            chunks = plan_sentence_chunks(
+                text, generate=generate, cache_id=str(cache_id or "")
+            )
         except ValueError as exc:
             err = str(exc)[:120]
             break

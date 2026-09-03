@@ -2253,13 +2253,26 @@ class LibraryController extends ChangeNotifier {
 
 
   /// design/80 · design/113 — backfill/retry; pending slices auto-continue.
+  /// design/169p — ensure_start/done + gate evidence (no product behavior change).
   Future<void> ensureShadowingChunks(String cacheId) async {
     final id = cacheId.trim();
     if (id.isEmpty) return;
     shadowingChunksCacheId = id;
-    final want = await _wantShadowingPractice();
-    if (!want) {
+    final probe = await _shadowingWantProbe();
+    if (!probe.want) {
       // WHY: preference/kill off → no banner success pretend.
+      asrEvidenceBus?.record(
+        'shadowing_gate',
+        cacheId: id,
+        severity: 'decision',
+        ok: false,
+        code: probe.gate,
+        details: {
+          'gate': probe.gate,
+          'server_flag': probe.serverFlag,
+          'pref': probe.pref,
+        },
+      );
       shadowingChunksError = null;
       shadowingChunksBusy = false;
       notifyListeners();
@@ -2268,12 +2281,24 @@ class LibraryController extends ChangeNotifier {
     shadowingChunksBusy = true;
     shadowingChunksError = null;
     notifyListeners();
+    final sw = Stopwatch()..start();
+    asrEvidenceBus?.record(
+      'shadowing_ensure_start',
+      cacheId: id,
+      severity: 'lifecycle',
+    );
+    var rounds = 0;
+    var planStatus = '';
+    var errorCode = '';
+    var okOut = false;
     try {
       final got = await _client.fetchShadowingChunks(id);
       final plan = got['plan'];
       final status = plan is Map ? plan['status']?.toString() : null;
+      planStatus = status ?? '';
       if (status == 'ok') {
         shadowingChunksError = null;
+        okOut = true;
         return;
       }
       // design/113 — several budget slices until ok/error (cap avoids infinite).
@@ -2284,7 +2309,9 @@ class LibraryController extends ChangeNotifier {
           built = await _client.buildShadowingChunks(
             id,
             practiceEnabled: true,
+            round: i + 1,
           );
+          rounds = i + 1;
         } on AsrApiException catch (e) {
           // EDGE: legacy gateway 504 before budget fix — retry a few times.
           if (e.statusCode == 504 && i < 5) {
@@ -2295,8 +2322,10 @@ class LibraryController extends ChangeNotifier {
         }
         final p2 = built['plan'];
         final st2 = p2 is Map ? p2['status']?.toString() : null;
+        planStatus = st2 ?? '';
         if (st2 == 'ok') {
           shadowingChunksError = null;
+          okOut = true;
           return;
         }
         if (st2 == 'pending' || built['continue'] == true) {
@@ -2306,6 +2335,10 @@ class LibraryController extends ChangeNotifier {
         }
         if (st2 == 'error' || built['ok'] == false) {
           final msg = built['message']?.toString();
+          errorCode =
+              built['error']?.toString() ??
+              (p2 is Map ? p2['error']?.toString() : null) ??
+              'build_failed';
           shadowingChunksError =
               (msg != null && msg.isNotEmpty)
                   ? msg
@@ -2313,16 +2346,33 @@ class LibraryController extends ChangeNotifier {
           return;
         }
         // Unknown shape — fail closed (no silent success).
+        errorCode = 'unknown_shape';
         shadowingChunksError = '연습 구간을 만들지 못했습니다. 다시 시도해 주세요.';
         return;
       }
+      errorCode = 'cap_hit';
       shadowingChunksError =
           '연습 구간 준비가 길어집니다. 다시 시도해 주세요.';
     } on AsrApiException catch (e) {
+      errorCode = 'api_fail';
       shadowingChunksError = e.message;
     } catch (_) {
+      errorCode = 'ensure_error';
       shadowingChunksError = '연습 구간 준비 중 오류가 났습니다. 다시 시도해 주세요.';
     } finally {
+      asrEvidenceBus?.record(
+        'shadowing_ensure_done',
+        cacheId: id,
+        severity: 'lifecycle',
+        ok: okOut,
+        code: errorCode,
+        details: {
+          'plan_status': planStatus,
+          'rounds': rounds,
+          'elapsed_ms': sw.elapsedMilliseconds,
+          if (errorCode.isNotEmpty) 'error_code': errorCode,
+        },
+      );
       shadowingChunksBusy = false;
       notifyListeners();
     }
@@ -2335,18 +2385,34 @@ class LibraryController extends ChangeNotifier {
   }
 
   Future<bool> _wantShadowingPractice() async {
+    final probe = await _shadowingWantProbe();
+    return probe.want;
+  }
+
+  /// design/169p — classify kill vs pref for gate evidence (no text).
+  Future<({bool want, String gate, bool serverFlag, bool pref})>
+      _shadowingWantProbe() async {
     try {
       final st = await _client.fetchStatus();
-      if (!st.mobileShadowingPractice && !st.mobileShadowingChunks) {
-        return false;
+      final serverFlag =
+          st.mobileShadowingPractice || st.mobileShadowingChunks;
+      if (!serverFlag) {
+        return (want: false, gate: 'kill_off', serverFlag: false, pref: false);
       }
       final auth = await _client.fetchAuthStatus();
       final uid = auth.user?.uid;
-      if (uid == null || uid.isEmpty) return false;
+      if (uid == null || uid.isEmpty) {
+        return (want: false, gate: 'pref_off', serverFlag: true, pref: false);
+      }
       final p = await SharedPreferences.getInstance();
-      return parseShadowingEnabledPref(p.getString(shadowingPrefsKey(uid)));
+      final pref =
+          parseShadowingEnabledPref(p.getString(shadowingPrefsKey(uid)));
+      if (!pref) {
+        return (want: false, gate: 'pref_off', serverFlag: true, pref: false);
+      }
+      return (want: true, gate: '', serverFlag: true, pref: true);
     } catch (_) {
-      return false;
+      return (want: false, gate: 'pref_off', serverFlag: false, pref: false);
     }
   }
 
