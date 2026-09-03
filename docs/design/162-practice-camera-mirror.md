@@ -15,6 +15,7 @@
 - `formatPaperMetaDate` — [`mobile/lib/api/paper_models.dart`](../../mobile/lib/api/paper_models.dart)
 - TTS copy — [`mobile/lib/screens/settings_screen.dart`](../../mobile/lib/screens/settings_screen.dart)
 - `PracticeMirrorPanel` + `camera: 0.10.6` (Camera2; Gradle 9 + camerax 0.11.x classpath issue) — [`mobile/lib/widgets/practice_mirror_panel.dart`](../../mobile/lib/widgets/practice_mirror_panel.dart)
+  - **0.3.146:** preview uses `BoxFit.cover` + clip (no stretch into the short-wide panel)
 - AppBar videocam toggle — [`mobile/lib/screens/shadowing_practice_screen.dart`](../../mobile/lib/screens/shadowing_practice_screen.dart)
 - `CAMERA` permission — [`mobile/android/app/src/main/AndroidManifest.xml`](../../mobile/android/app/src/main/AndroidManifest.xml)
 

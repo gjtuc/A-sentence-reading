@@ -124,13 +124,25 @@ class _PracticeMirrorPanelState extends State<PracticeMirrorPanel>
     if (_initializing || controller == null || !controller.value.isInitialized) {
       return const Center(child: CircularProgressIndicator());
     }
+    // WHY: parent is a fixed short-wide box; AspectRatio+stretch squashed the
+    // sensor image. Cover + clip keeps natural aspect (crop edges only).
+    final preview = controller.value.previewSize;
+    final previewW = preview?.height ?? 3.0;
+    final previewH = preview?.width ?? 4.0;
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
-      child: AspectRatio(
-        aspectRatio: controller.value.aspectRatio,
-        child: Transform.flip(
-          flipX: true,
-          child: CameraPreview(controller),
+      child: SizedBox.expand(
+        child: FittedBox(
+          fit: BoxFit.cover,
+          clipBehavior: Clip.hardEdge,
+          child: SizedBox(
+            width: previewW,
+            height: previewH,
+            child: Transform.flip(
+              flipX: true,
+              child: CameraPreview(controller),
+            ),
+          ),
         ),
       ),
     );
