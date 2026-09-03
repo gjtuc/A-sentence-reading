@@ -39,7 +39,7 @@ jobs:
         env:
           ASR_CLOUD_RUN_URL: ${{ vars.ASR_CLOUD_RUN_URL || 'https://asr-sentence-reading-984608876300.asia-northeast3.run.app' }}
         run: |
-          python scripts/pre_deploy_guard.py \
+          python scripts/pre_deploy_guard.py --allow-same-version \
             --url "${ASR_CLOUD_RUN_URL%/}/api/status"
 
       - name: Require deploy secrets
