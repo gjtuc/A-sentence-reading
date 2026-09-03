@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -99,6 +100,73 @@ def test_deploy_script_wires_guard() -> None:
     assert "ASR_SKIP_DEPLOY_GUARD" in text
     assert "post-deploy verify" in text
     assert "verify_live_status.py" in text
+
+
+def test_session_and_hook_scripts_exist() -> None:
+    assert (ROOT / "scripts" / "session_freshness_guard.py").is_file()
+    hook = (ROOT / "scripts" / "hook_block_stale_asr_deploy.py").read_text(
+        encoding="utf-8"
+    )
+    assert "pre_deploy_guard" in hook
+    assert "permission" in hook
+    assert "local_version_downgrade" in hook or "run_guard" in hook
+    design = (ROOT / "docs" / "design" / "155-deploy-live-guard.md").read_text(
+        encoding="utf-8"
+    )
+    assert "session_freshness_guard" in design
+    assert "hook_block_stale_asr_deploy" in design
+    rule = (ROOT / ".cursor" / "rules" / "deploy-live-guard.mdc").read_text(
+        encoding="utf-8"
+    )
+    assert "session_freshness_guard" in rule
+    assert "alwaysApply: true" in rule
+
+
+def test_hook_emits_deny_json_for_stale_asr_deploy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Contract: hook stdout is one permission JSON object (failClosed-safe)."""
+    import io
+    import json
+    from importlib.machinery import SourceFileLoader
+
+    path = ROOT / "scripts" / "hook_block_stale_asr_deploy.py"
+    mod = SourceFileLoader("hook_asr", str(path)).load_module()
+    payload = {
+        "command": (
+            f'cd "{ROOT}" && bash scripts/' + "deploy_" + "cloud_run.sh"
+        ),
+        "working_directory": str(ROOT),
+    }
+    # Force guard failure without network: downgrade vs fake live.
+    real_load = mod._load_guard
+
+    def fake_load(root):
+        g = real_load(root)
+        monkeypatch.setattr(
+            g,
+            "run_guard",
+            lambda **k: {
+                "ok": False,
+                "local_version": "0.0.1",
+                "live_version": "9.9.9",
+                "commits_behind_remote": 0,
+                "errors": ["local_version_downgrade:0.0.1_lt_live_9.9.9"],
+            },
+        )
+        return g
+
+    monkeypatch.setattr(mod, "_load_guard", fake_load)
+    monkeypatch.setattr(mod, "_find_asr_root", lambda c, w: ROOT)
+    buf = io.StringIO(json.dumps(payload))
+    monkeypatch.setattr(sys, "stdin", buf)
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    code = mod.main()
+    assert code == 0
+    data = json.loads(out.getvalue().strip())
+    assert data["permission"] == "deny"
+    assert "BLOCKED" in data.get("user_message", "")
 
 
 def test_workflow_wires_guard() -> None:

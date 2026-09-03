@@ -1,11 +1,5 @@
 ---
-description: ASR Cloud Run — stale 워크트리·다운그레이드 배포 금지 (design/155). 다른 채팅창이 live를 덮어쓰지 않게.
-globs:
-  - scripts/deploy_cloud_run.sh
-  - scripts/pre_deploy_guard.py
-  - .github/workflows/deploy-cloud-run.yml
-  - src/sentence_reading/api/app.py
-  - mobile/pubspec.yaml
+description: ASR Cloud Run — stale 워크트리·다운그레이드 배포 금지 (design/155). 다른 채팅이 live를 덮지 않게.
 alwaysApply: true
 ---
 
@@ -15,22 +9,29 @@ alwaysApply: true
 
 여러 Cursor 채팅·옛 워크트리에서 **이미 live에 올라간 수정보다 낮은 버전**을 커밋·배포하면 Cloud Run live가 **회귀**한다.
 
+## 새 채팅 / 의심 워크트리 — FIRST
+
+```bash
+python scripts/session_freshness_guard.py
+```
+
+- exit 1 (`must_pull`) → `git fetch && git pull --ff-only origin main` **먼저**. 제품 패치·배포 금지.
+- `local_version` < `live_version` → **옛 채팅 잔재**. 덮어쓰기 배포 시도하지 말 것.
+
 ## 배포 전 필수 (에이전트·사람 공통)
 
-0. **작업 시작 시** (다른 채팅·옛 워크트리 의심):  
-   `python scripts/pre_deploy_guard.py --allow-same-version`  
-   → `local_version` vs `live_version` 확인. live가 더 높으면 **pull + merge 먼저**.
-1. `git fetch origin && git pull --ff-only origin main` (또는 작업 브랜치를 main에 맞춤)
-2. `python scripts/pre_deploy_guard.py` — **exit 0** 확인
-3. `app.py` `version` / `/api/status` `version` / `mobile/pubspec.yaml` **세 곳 동시** bump (live **초과**)
-4. 커밋 후 `bash scripts/deploy_cloud_run.sh` (가드가 스크립트 안에서도 재실행됨)
+0. `python scripts/session_freshness_guard.py` (또는 `pre_deploy_guard.py --allow-same-version`)
+1. `git fetch origin && git pull --ff-only origin main`
+2. `app.py` `version` / `/api/status` `version` / `mobile/pubspec.yaml` / `config.dart` **동시** bump (live **초과**)
+3. `python scripts/pre_deploy_guard.py` — **exit 0**
+4. 커밋 후 `bash scripts/deploy_cloud_run.sh` (스크립트·**전역 셸 훅**이 가드 재실행)
 
 ## 절대 하지 말 것
 
 - live 버전 확인 없이 `gcloud run deploy` 직접 호출
 - `ASR_SKIP_DEPLOY_GUARD=1` — 사용자가 **비상**이라고 명시한 경우만
 - main보다 뒤처진 로컬에서 배포
-- app 0.3.80 워크트리로 live 0.3.81 덮어쓰기
+- 다른 채팅의 낮은 버전으로 live 덮어쓰기
 
 ## 가드가 막는 것
 
@@ -39,18 +40,21 @@ alwaysApply: true
 | 로컬 버전 < live | `local_version_downgrade` |
 | 로컬 버전 == live | `same_version_redeploy_blocked` |
 | 169c/d/e 센서 삭제 | `evidence_floor:*` (design/169g) |
-| `origin/main` 보다 N커밋 뒤 (**main 브랜치에서만**) | `git_behind_remote_by_N` |
+| `origin/main` 보다 N커밋 뒤 (**main**) | `git_behind_remote_by_N` |
 | tracked 파일 uncommitted | `working_tree_dirty` |
-| app.py ≠ pubspec 버전 | `mobile_app_version_mismatch` |
+| app.py ≠ pubspec ≠ config | version mismatch |
 | live `deploy_git_sha` == HEAD | `already_deployed_sha` |
+
+## 기계적 차단
+
+- 전역 Cursor hook: `block-stale-cloud-deploys.py` → `scripts/hook_block_stale_asr_deploy.py`
+- failClosed: 훅 JSON 실패 시 배포 명령 자체 deny
 
 ## 배포 후
 
 ```bash
 python scripts/verify_live_status.py --require-azure-layout --min-pipeline rich-v20 --expect <new_version>
 ```
-
-`/api/status` 의 `deploy_git_sha` 가 이번 커밋과 일치하는지 확인.
 
 ## 문서
 
