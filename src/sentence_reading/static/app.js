@@ -1072,6 +1072,7 @@
   let ingestHangStallMs = 180000;
   let ingestHangLastPct = -1;
   let ingestHangLastKey = "";
+  let ingestHangLastMsg = "";
   let ingestHangTripped = false;
 
   function clearIngestHangTimer() {
@@ -1084,6 +1085,8 @@
   function ingestHangStageKey(msg) {
     const s = String(msg || "").toLowerCase();
     if (s.indexOf("번역") >= 0 || s.indexOf("translate") >= 0) return "translate";
+    if (s.indexOf("다듬") >= 0 || s.indexOf("debone") >= 0 || s.indexOf("훑") >= 0)
+      return "debone";
     if (s.indexOf("처리") >= 0 || s.indexOf("process") >= 0) return "processing";
     if (s.indexOf("읽") >= 0 || s.indexOf("upload") >= 0) return "uploading";
     return s ? s.slice(0, 24) : "ingest";
@@ -1102,6 +1105,7 @@
     ingestHangTripped = false;
     ingestHangLastPct = -1;
     ingestHangLastKey = "";
+    ingestHangLastMsg = "";
     ingestHangEnabled = true;
     ingestHangStallMs = 180000;
     try {
@@ -1125,14 +1129,17 @@
     if (!ingestHangEnabled || ingestHangTripped) return;
     const n = typeof pct === "number" ? pct : 0;
     const key = ingestHangStageKey(msg);
+    const raw = String(msg || "").trim();
     const pctUp = n > ingestHangLastPct;
     const stageUp = key && key !== ingestHangLastKey;
-    if (!pctUp && !stageUp) {
+    const msgUp = raw && raw !== ingestHangLastMsg;
+    if (!pctUp && !stageUp && !msgUp) {
       // Same place poll — do not reset hang clock.
       return;
     }
     if (pctUp) ingestHangLastPct = n;
     if (stageUp) ingestHangLastKey = key;
+    if (msgUp) ingestHangLastMsg = raw;
     armIngestHangTimer(name);
   }
 

@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+import threading
 
 from sentence_reading.cite_refs import repair_dollar_cite_artifacts
 from sentence_reading.llm.debone_quality import (
@@ -457,12 +459,55 @@ def _process_one_chunk(
     raise last_err
 
 
+# Long Gemini chunk can exceed client hang (180s). Re-fire on_progress while waiting
+# so ingest job message/GCS stay alive (Turn2 hang at debone 8/14).
+_DEBONE_HEARTBEAT_S = 25.0
+
+
+@contextmanager
+def _debone_chunk_heartbeat(
+    on_progress: Callable[[int, int], None] | None,
+    *,
+    done: int,
+    total: int,
+    interval_s: float = _DEBONE_HEARTBEAT_S,
+) -> Iterator[None]:
+    """While a chunk Gemini call blocks, re-emit the same done/total as a liveness tick."""
+    if on_progress is None or interval_s <= 0:
+        yield
+        return
+    stop = threading.Event()
+
+    def _loop() -> None:
+        while not stop.wait(interval_s):
+            try:
+                on_progress(done, total)
+            except Exception:  # noqa: BLE001
+                break
+
+    thr = threading.Thread(
+        target=_loop,
+        name=f"debone-hb-{done}",
+        daemon=True,
+    )
+    thr.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thr.join(timeout=1.0)
+
+
 def _process_chunk_with_guard(
     chunk: str,
     idx: int,
     total: int,
     context_block: str,
     ctx: PaperContext,
+    *,
+    on_progress: Callable[[int, int], None] | None = None,
+    progress_done: int | None = None,
+    progress_total: int | None = None,
 ) -> tuple[list[tuple[str, str]], ChunkStat]:
     """Gemini debone + substantive-empty guard + split fallback (design/167)."""
     kind = chunk_kind(chunk)
@@ -474,15 +519,20 @@ def _process_chunk_with_guard(
         kind=kind,
     )
     pairs: list[tuple[str, str]] | None = None
+    hb_done = progress_done if progress_done is not None else (1 + idx)
+    hb_total = progress_total if progress_total is not None else (total + 1)
     try:
-        pairs = _process_one_chunk(chunk, idx, total, context_block)
-        if not pairs and kind == "substantive":
+        with _debone_chunk_heartbeat(
+            on_progress, done=hb_done, total=hb_total
+        ):
             pairs = _process_one_chunk(chunk, idx, total, context_block)
-            if not pairs:
-                pairs = fallback_split_chunk(chunk, ctx, idx, total)
-                stat.fallback = "split"
-        elif pairs is None:
-            pairs = []
+            if not pairs and kind == "substantive":
+                pairs = _process_one_chunk(chunk, idx, total, context_block)
+                if not pairs:
+                    pairs = fallback_split_chunk(chunk, ctx, idx, total)
+                    stat.fallback = "split"
+            elif pairs is None:
+                pairs = []
     except Exception:  # noqa: BLE001
         pairs = fallback_split_chunk(chunk, ctx, idx, total)
         stat.fallback = "split"
@@ -599,7 +649,14 @@ def debone_sentences(
             on_progress(1 + i, progress_total)
         try:
             pairs, stat = _process_chunk_with_guard(
-                chunk, i, n_chunks, context_block, ctx
+                chunk,
+                i,
+                n_chunks,
+                context_block,
+                ctx,
+                on_progress=on_progress,
+                progress_done=1 + i,
+                progress_total=progress_total,
             )
             results[i] = pairs
             chunk_stats.append(stat)
@@ -654,7 +711,14 @@ def debone_sentences(
         for i in range(retry_upto):
             try:
                 pairs, stat = _process_chunk_with_guard(
-                    chunks[i], i, n_chunks, context_block, ctx
+                    chunks[i],
+                    i,
+                    n_chunks,
+                    context_block,
+                    ctx,
+                    on_progress=on_progress,
+                    progress_done=1 + i,
+                    progress_total=progress_total,
                 )
                 results[i] = pairs
                 if i < len(chunk_stats):

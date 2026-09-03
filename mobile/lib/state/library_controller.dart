@@ -822,6 +822,9 @@ class LibraryController extends ChangeNotifier {
     if (s.contains('번역') || s.contains('translat')) {
       return 'translate';
     }
+    if (s.contains('다듬') || s.contains('debone') || s.contains('훑')) {
+      return 'debone';
+    }
     if (s.contains('처리') || s.contains('process') || s.contains('정제')) {
       return 'processing';
     }
@@ -851,9 +854,12 @@ class LibraryController extends ChangeNotifier {
 
   bool _isTranslateHangZone({required int percent, required String stage}) {
     final key = _hangStageKey(stage);
+    // Debone Gemini chunks can exceed 180s (Turn2 hang at 다듬는 중 8/14).
     return key == 'translate' ||
+        key == 'debone' ||
         percent >= 88 ||
-        stage.contains('번역');
+        stage.contains('번역') ||
+        stage.contains('다듬');
   }
 
   void _ensureHangLocalBound() {
@@ -864,6 +870,7 @@ class LibraryController extends ChangeNotifier {
 
   /// design/134 — local fail-closed abort; cloud report runs after via HangWatchdog.
   /// 0.3.123 — translate zone: warn only, do not cancel poll.
+  /// 0.3.155 — debone zone: same soft hang (long Gemini chunk).
   void _onIngestHangLocal(String opId, String kind) {
     if (_hangOpId == null || opId != _hangOpId) return;
     final translateZone = _isTranslateHangZone(
@@ -885,15 +892,18 @@ class LibraryController extends ChangeNotifier {
       },
     );
     if (translateZone) {
-      error =
-          '번역이 오래 걸리고 있습니다. 잠시 후 보관함을 새로고침해 주세요.';
+      final debone = _hangStageKey(uploadStage).contains('debone') ||
+          uploadStage.contains('다듬');
+      error = debone
+          ? '다듬기가 오래 걸리고 있습니다. 잠시만 기다려 주세요.'
+          : '번역이 오래 걸리고 있습니다. 잠시 후 보관함을 새로고침해 주세요.';
       uploadStage = error!;
       notifyListeners();
       unawaited(_notify.showFailed(message: error!));
       // Re-arm so a later true stall can warn again; poll keeps running.
       asrErrorReporter?.hang.begin(
         opId,
-        stage: 'translate',
+        stage: debone ? 'debone' : 'translate',
         stallAfter: HangWatchdog.translateStall,
         paperTitle: uploadStage,
       );

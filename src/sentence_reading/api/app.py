@@ -213,7 +213,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.154",
+    version="0.3.155",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -773,6 +773,7 @@ def _job_set(
     stage: str,
     message: str = "",
     cursor: dict | None = None,
+    force_persist: bool = False,
 ) -> None:
     from sentence_reading.llm import ops_events as oev
 
@@ -854,7 +855,7 @@ def _job_set(
         cursor=cursor,
     )
     ij.stamp_ingest_phase(job)
-    _persist_job(job_id, job)
+    _persist_job(job_id, job, force=force_persist)
 
 
 def _job_publish_partial(job_id: str, data: dict, *, message: str = "") -> None:
@@ -1436,7 +1437,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.154",
+        "version": "0.3.155",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -6230,24 +6231,45 @@ async def _run_ingest_job_body(
         if not resumed_debone:
             if gemini_available() and text.strip():
 
+                _debone_prog_done = -1
+                _debone_chunk_t0 = __import__("time").monotonic()
+
                 def on_progress(done: int, total: int) -> None:
+                    nonlocal _debone_prog_done, _debone_chunk_t0
                     if total <= 0:
                         return
                     pct = 48 + int(44 * (done / total))
+                    force_persist = False
                     if done <= 0:
                         msg = "논문 훑는 중"
+                        _debone_prog_done = done
+                        _debone_chunk_t0 = __import__("time").monotonic()
                     elif done == 1 and total > 1:
                         msg = "다듬기 시작"
+                        _debone_prog_done = done
+                        _debone_chunk_t0 = __import__("time").monotonic()
                     else:
                         chunk_done = max(0, done - 1)
                         chunk_total = max(1, total - 1)
-                        msg = f"다듬는 중 {chunk_done}/{chunk_total}"
+                        # Heartbeat: same done re-fired mid-Gemini — vary message + force GCS
+                        # so client hang (design/134 msgUp) resets across worker isolation.
+                        if done == _debone_prog_done:
+                            elapsed = max(
+                                1, int(__import__("time").monotonic() - _debone_chunk_t0)
+                            )
+                            msg = f"다듬는 중 {chunk_done}/{chunk_total} · {elapsed}초"
+                            force_persist = True
+                        else:
+                            msg = f"다듬는 중 {chunk_done}/{chunk_total}"
+                            _debone_prog_done = done
+                            _debone_chunk_t0 = __import__("time").monotonic()
                     _job_set(
                         job_id,
                         percent=pct,
                         stage="debone",
                         message=msg,
                         cursor={"done": done, "total": total},
+                        force_persist=force_persist,
                     )
 
                 _job_set(job_id, percent=48, stage="debone", message="논문 훑는 중")
