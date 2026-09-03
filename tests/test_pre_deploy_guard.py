@@ -123,20 +123,64 @@ def test_session_and_hook_scripts_exist() -> None:
 
 
 def test_design_173_implementation_hazards_locked() -> None:
-    """design/173 — hazards checklist must stay in repo (173a/b/c 착수 전)."""
+    """design/173 — hazards + observability baseline must stay in repo."""
     path = ROOT / "docs" / "design" / "173-capacity-isolation-roadmap.md"
     assert path.is_file()
     text = path.read_text(encoding="utf-8")
     assert "Implementation hazards (locked" in text
+    assert "Observability baseline (locked" in text
+    assert "capacity_baseline_snapshot.py" in text
     assert "invalidate 필수 write 경로" in text
     assert "173a → 173b → 173c" in text
     assert "Deny 후에도 TTL 동안 유료 통과" in text
     assert "ASR_ACCESS_GATE_TTL_S=0" in text
+    assert (ROOT / "scripts" / "capacity_baseline_snapshot.py").is_file()
     rule = (ROOT / ".cursor" / "rules" / "deploy-live-guard.mdc").read_text(
         encoding="utf-8"
     )
     assert "173-capacity-isolation-roadmap" in rule
     assert "Implementation hazards" in rule
+
+
+def test_capacity_baseline_snapshot_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Snapshot builds without network when status/evidence mocked."""
+    import importlib.util
+
+    script = ROOT / "scripts" / "capacity_baseline_snapshot.py"
+    spec = importlib.util.spec_from_file_location("capacity_baseline", script)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    monkeypatch.setattr(
+        mod,
+        "fetch_status",
+        lambda url: {
+            "ok": True,
+            "version": "0.3.147",
+            "deploy_git_sha": "abc",
+            "access_gate_enabled": True,
+        },
+    )
+    monkeypatch.setattr(mod, "_cloud_run_spec", lambda: {"cpu": "1", "memory": "1Gi"})
+    monkeypatch.setattr(
+        mod,
+        "_load_evidence_rows",
+        lambda **k: [
+            {
+                "kind": "client_api_timeout",
+                "details": {"route": "access_status"},
+                "ts": "2026-01-01T00:00:00Z",
+            }
+        ],
+    )
+    snap = mod.build_snapshot(
+        status_url="https://example.invalid/api/status",
+        since_raw="24h",
+        bucket_prefix="gs://test",
+    )
+    assert snap["schema"] == "asr_capacity_baseline_v1"
+    assert snap["evidence"]["access_auth_timeout_total"] == 1
+    assert snap["evidence"]["client_api_timeout_by_route"]["access_status"] == 1
 
 
 def test_hook_emits_deny_json_for_stale_asr_deploy(

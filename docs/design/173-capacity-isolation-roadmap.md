@@ -182,12 +182,99 @@ Client → poll job_status (API, light)
 
 ---
 
-## 관측 (전 phase)
+## Observability baseline (locked — 수치 조절 전 필독)
+
+173a/b/c에서 **concurrency·TTL·CPU를 바꾸기 전**에 baseline을 남긴다.  
+이미 있는 관측과 **아직 없는 구멍**을 구분한다.
+
+### 이미 있는 것 (지금 당장)
+
+| 소스 | 무엇을 보나 | 한계 |
+|------|-------------|------|
+| `GET /api/status` | version, deploy_git_sha, pipeline, access_gate_enabled | per-route latency 없음 |
+| `gcloud run services describe` | cpu, mem, concurrency, min/max scale, throttling | 과거 시계열 아님 — 스냅샷만 |
+| evidence `client_api_timeout` + `details.route` | `access_status`, `auth_status`, `auth_bootstrap` (169c) | p50/p95 없음 · **건수**만 |
+| `pull_evidence.py` | kind/job/cache 필터 JSONL | 집계는 에이전트/스크립트가 함 |
+| `scripts/session_freshness_guard.py` | 로컬 vs live 버전 | 용량 아님 |
+| Cloud Run Logs (수동) | 5xx, latency, OOM | 대시보드·쿼리 **미고정** — baseline 스크립트 밖 |
+
+### 아직 없거나 173a에서 추가할 것
+
+| Signal | phase | 상태 |
+|--------|-------|------|
+| `access_gate_ttl_s` / cache hit on `/api/status` | 173a | **구현 예정** |
+| `access_gate_refresh` evidence (pull vs skip) | 173a | **optional kind** — floor add-only |
+| `/api/access/status` server-side latency | 173a+ | Logging 또는 경량 timing — **baseline 스크립트에 없음** |
+| ingest 중 concurrent instance count | 173b | Cloud Monitoring 수동 |
+| worker instance id on job | 173c | 173c |
+
+**결론:** hazards·acceptance는 **고려해 둠**. 자동 baseline **스크립트 + 저장 규칙**은 이 절과 `capacity_baseline_snapshot.py`로 **이제 고정**.  
+수치(concurrency 16, TTL 45s 등)는 baseline **전후 비교** 없이 바꾸지 않는다.
+
+### 언제 스냅샷을 찍나 (locked)
+
+| 시점 | `--since` 권장 | 파일명 예 |
+|------|----------------|-----------|
+| **173a 착수 직전** | `24h` 또는 `7d` | `data/capacity_baseline_pre_173a.json` |
+| **173a 배포 직후** (같은 부하 재현) | `2h` | `data/capacity_baseline_post_173a.json` |
+| **173b 배포 전·후** | `24h` | `pre/post_173b.json` |
+| **173c 착수 전** | `7d` | `pre_173c.json` |
+
+동일 조건 재현(같은 논문 열기·번역 on·앱 resume)을 **수동 메모**에 적어 둔다. baseline JSON만으로 부하 동일성은 증명 안 됨.
+
+### 한 줄 명령 (기준선)
+
+```bash
+cd A-sentence-reading
+python scripts/capacity_baseline_snapshot.py --since 24h \
+  --out data/capacity_baseline_pre_173a.json
+python scripts/pull_evidence.py --since 24h \
+  --kind client_api_timeout,client_api_fail,stall_fired,translate_call_slow
+```
+
+`gsutil`·`gcloud` PATH 필요. 실패 시 stderr에 이유 — 스냅샷 JSON의 `evidence.error` / `cloud_run.error` 확인.
+
+### baseline JSON에서 볼 숫자 (173 판단용)
+
+| 필드 | 쓰임 |
+|------|------|
+| `live_status.version` / `deploy_git_sha` | 어떤 리비전 baseline인지 |
+| `cloud_run.container_concurrency` | 173b 전(80) vs 후(16) |
+| `evidence.client_api_timeout_by_route.access_status` | **173a 핵심** — 창구 타임아웃 건수 |
+| `evidence.access_auth_timeout_total` | auth+access 합 |
+| `evidence.kind_counts_baseline.translate_call_slow` | 무거운 일 동시 여부 |
+| `live_status.access_gate_ttl_s` | null = 173a 미배포 |
+
+**합격 방향 (정성, locked):** 173a 후 동일 window·유사 부하에서 `access_status` timeout 건수 **감소** + 승인 대기 오진 없음 (172).  
+p95 &lt; 2s는 173c acceptance — **서버 타이밍 추가 전**에는 evidence 건수로 대리.
+
+### 수동 재현 프로토콜 (live, locked)
+
+1. Allow된 계정 · 게이트 on (`access_gate_enabled=true`).  
+2. 보관에서 **번역 on** 논문 열기 또는 ingest 진행 중 상태 만들기.  
+3. 앱 **백그라운드 → 포그라운드** (HomeShell access refresh) 또는 설정 **새로고침**.  
+4. 증상 있으면 직후: `pull_evidence --since 30m --kind client_api_timeout`.  
+5. `route=access_status` 있는지 확인 — 있으면 173a 대상 확정.
+
+### Cloud Logging (선택, 173b 전)
+
+```text
+resource.type="cloud_run_revision"
+resource.labels.service_name="asr-sentence-reading"
+httpRequest.requestUrl:"/api/access/status"
+```
+
+p95는 Console Metrics 또는 쿼리 export — **필수는 아님**, baseline 스크립트 보완.
+
+---
+
+## 관측 (전 phase) — signal index
 
 | Signal | 용도 |
 |--------|------|
 | `client_api_timeout` route=`access_status` | 창구 실패 (172 이후에도 서버 건강 지표) |
 | `/api/status` `access_gate_ttl_s` / cache | 173a 켜짐 |
+| `scripts/capacity_baseline_snapshot.py` | phase 전후 JSON baseline |
 | Cloud Run CPU/mem utilization | 173b |
 | ingest job `lease` + worker instance id | 173c |
 | evidence: `access_gate_refresh` (optional kind) | pull 횟수 vs status 히트 |
@@ -326,7 +413,7 @@ Client → poll job_status (API, light)
 1. `python scripts/session_freshness_guard.py` → exit 0  
 2. `git fetch && git pull --ff-only origin main`  
 3. [69](69-access-gate-gcs.md) · [84](84-access-waiting-ux.md) · [172](172-access-sticky-on-timeout.md) · [155](155-deploy-live-guard.md) 재확인  
-4. evidence 기준선: `access_status` 타임아웃 빈도 기록  
+4. `python scripts/capacity_baseline_snapshot.py --since 24h --out data/capacity_baseline_pre_173a.json`  
 5. **173a만** 구현 (b/c 스펙 손대지 않기)  
 6. 테스트: TTL hit · invalidate · TTL=0 · multi-instance Allow ≤60s  
 7. 버전 **0.3.148** 삼처 bump + evidence floor  
