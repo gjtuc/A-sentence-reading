@@ -1,4 +1,4 @@
-"""Access gate hot-path TTL cache (0.3.148 · design/173a)."""
+"""Access gate hot-path TTL cache (0.3.149 · design/173a)."""
 
 from __future__ import annotations
 
@@ -132,7 +132,7 @@ def test_status_exposes_access_gate_ttl() -> None:
 
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.148"
+    assert st["version"] == "0.3.149"
     assert st["access_gate_ttl_s"] == 45
     assert "access_gate_cache" in st
     assert st["access_gate_cache"]["ttl_s"] == 45

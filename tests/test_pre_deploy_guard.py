@@ -156,7 +156,7 @@ def test_capacity_baseline_snapshot_smoke(monkeypatch: pytest.MonkeyPatch) -> No
         "fetch_status",
         lambda url: {
             "ok": True,
-            "version": "0.3.148",
+            "version": "0.3.149",
             "deploy_git_sha": "abc",
             "access_gate_enabled": True,
         },
@@ -181,6 +181,22 @@ def test_capacity_baseline_snapshot_smoke(monkeypatch: pytest.MonkeyPatch) -> No
     assert snap["schema"] == "asr_capacity_baseline_v1"
     assert snap["evidence"]["access_auth_timeout_total"] == 1
     assert snap["evidence"]["client_api_timeout_by_route"]["access_status"] == 1
+
+
+def test_design_173b_deploy_specs_locked() -> None:
+    """design/173b — Cloud Run capacity bump must stay in deploy script."""
+    script = (ROOT / "scripts" / "deploy_cloud_run.sh").read_text(encoding="utf-8")
+    assert "--memory 2Gi" in script
+    assert "--cpu 2" in script
+    assert "--max-instances 6" in script
+    assert "--concurrency 16" in script
+    assert "--no-cpu-throttling" in script
+    assert "design/173b" in script
+    design = (ROOT / "docs" / "design" / "173-capacity-isolation-roadmap.md").read_text(
+        encoding="utf-8"
+    )
+    assert "173b" in design
+    assert "--concurrency 16" in design or "concurrency 16" in design
 
 
 def test_hook_emits_deny_json_for_stale_asr_deploy(

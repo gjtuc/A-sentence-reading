@@ -217,6 +217,7 @@ fi
 # SMTP: Cloud Run rejects changing a secret-ref env to a plain string (and vice versa).
 # EDGE: rev 00087-pkk attached USER/PASS via Secret Manager; later CD with plain GitHub
 # secrets must --remove-secrets first, or keep SM mode when USER/PASS env empty.
+# design/173b — capacity bump (2CPU/2Gi, concurrency 16, maxScale 6, no CPU throttling).
 DEPLOY_ARGS=(
   run deploy "$SERVICE"
   --source .
@@ -224,10 +225,12 @@ DEPLOY_ARGS=(
   --platform managed
   --allow-unauthenticated
   --service-account "$SA_EMAIL"
-  --memory 1Gi
-  --cpu 1
+  --memory 2Gi
+  --cpu 2
   --min-instances "${ASR_MIN_INSTANCES:-1}"
-  --max-instances 3
+  --max-instances 6
+  --concurrency 16
+  --no-cpu-throttling
   --timeout 300
   --env-vars-file "${ENV_FILE_WIN:-$ENV_FILE}"
 )
