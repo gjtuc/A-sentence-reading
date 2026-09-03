@@ -13,6 +13,8 @@ on:
       - "Dockerfile"
       - "pyproject.toml"
       - "scripts/deploy_cloud_run.sh"
+      - "scripts/deploy_capacity_profile.sh"
+      - "scripts/capacity_profiles/**"
       - "scripts/pre_deploy_guard.py"
       - ".github/workflows/deploy-cloud-run.yml"
 
@@ -108,11 +110,11 @@ jobs:
           ASR_CLOUD_RUN_SERVICE: ${{ vars.ASR_CLOUD_RUN_SERVICE || 'asr-sentence-reading' }}
           ASR_SHADOWING_PRACTICE: ${{ vars.ASR_SHADOWING_PRACTICE || '0' }}
           ASR_LOGIN_REQUIRED: ${{ vars.ASR_LOGIN_REQUIRED || '1' }}
-          ASR_INGEST_INLINE: ${{ vars.ASR_INGEST_INLINE || '1' }}
           ASR_WORKER_URL: ${{ vars.ASR_WORKER_URL || '' }}
           ASR_WORKER_SECRET: ${{ secrets.ASR_WORKER_SECRET }}
+          ASR_CAPACITY_PROFILE: ${{ vars.ASR_CAPACITY_PROFILE || 'turn0-baseline-off' }}
           ASR_CD_SKIP_API_ENABLE: "1"
-        run: bash scripts/deploy_cloud_run.sh
+        run: bash scripts/deploy_capacity_profile.sh "$ASR_CAPACITY_PROFILE"
 
       - name: Verify live figure pipeline (design/154)
         run: |

@@ -135,6 +135,9 @@ trap cleanup EXIT
     echo "ASR_WORKER_SECRET: \"${ASR_WORKER_SECRET}\""
   fi
   echo "ASR_SERVICE_ROLE: \"${ASR_SERVICE_ROLE:-api}\""
+  if [[ -n "${ASR_CAPACITY_PROFILE:-}" ]]; then
+    echo "ASR_CAPACITY_PROFILE: \"${ASR_CAPACITY_PROFILE}\""
+  fi
   _gcs_prefix="${ASR_GCS_PREFIX:-asr}"
   _mobile_apk_url="${ASR_MOBILE_APK_URL:-${CLOUD_URL}/api/mobile/apk}"
   echo "ASR_MOBILE_APK_URL: \"${_mobile_apk_url}\""
@@ -232,6 +235,10 @@ _RUN_MEMORY="${ASR_CLOUD_RUN_MEMORY:-2Gi}"
 _RUN_CPU="${ASR_CLOUD_RUN_CPU:-2}"
 _RUN_MAX_INSTANCES="${ASR_MAX_INSTANCES:-6}"
 _RUN_CONCURRENCY="${ASR_CLOUD_RUN_CONCURRENCY:-16}"
+_THROTTLE_ARGS=()
+if [[ "${ASR_CPU_THROTTLING:-0}" != "1" ]]; then
+  _THROTTLE_ARGS=(--no-cpu-throttling)
+fi
 DEPLOY_ARGS=(
   run deploy "$SERVICE"
   --source .
@@ -244,7 +251,7 @@ DEPLOY_ARGS=(
   --min-instances "${ASR_MIN_INSTANCES:-1}"
   --max-instances "$_RUN_MAX_INSTANCES"
   --concurrency "$_RUN_CONCURRENCY"
-  --no-cpu-throttling
+  "${_THROTTLE_ARGS[@]}"
   --timeout 300
   --env-vars-file "${ENV_FILE_WIN:-$ENV_FILE}"
 )

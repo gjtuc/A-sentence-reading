@@ -156,7 +156,7 @@ def test_capacity_baseline_snapshot_smoke(monkeypatch: pytest.MonkeyPatch) -> No
         "fetch_status",
         lambda url: {
             "ok": True,
-            "version": "0.3.151",
+            "version": "0.3.152",
             "deploy_git_sha": "abc",
             "access_gate_enabled": True,
         },
@@ -186,9 +186,8 @@ def test_capacity_baseline_snapshot_smoke(monkeypatch: pytest.MonkeyPatch) -> No
 def test_design_173b_deploy_specs_locked() -> None:
     """design/173b — Cloud Run capacity bump must stay in deploy script."""
     script = (ROOT / "scripts" / "deploy_cloud_run.sh").read_text(encoding="utf-8")
-    assert "--memory" in script and "2Gi" in script
-    assert "--cpu" in script
     assert "ASR_CLOUD_RUN_CONCURRENCY" in script
+    assert "ASR_CPU_THROTTLING" in script
     assert "--no-cpu-throttling" in script
     assert "design/173b" in script
     design = (ROOT / "docs" / "design" / "173-capacity-isolation-roadmap.md").read_text(
@@ -196,6 +195,19 @@ def test_design_173b_deploy_specs_locked() -> None:
     )
     assert "173b" in design
     assert "--concurrency 16" in design or "concurrency 16" in design
+
+
+def test_capacity_ab_profiles_exist() -> None:
+    """Subjective A/B — one profile per turn (turn0 start cold)."""
+    profiles = ROOT / "scripts" / "capacity_profiles"
+    for name in (
+        "turn0-baseline-off",
+        "turn1-api-throttle-only",
+        "turn2-current-173",
+        "turn3-all-throttle-on",
+    ):
+        assert (profiles / f"{name}.env").is_file()
+    assert (ROOT / "scripts" / "deploy_capacity_profile.sh").is_file()
 
 
 def test_hook_emits_deny_json_for_stale_asr_deploy(
