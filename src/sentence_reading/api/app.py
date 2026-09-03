@@ -213,7 +213,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.149",
+    version="0.3.150",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1408,6 +1408,8 @@ def status(request: Request) -> dict:
     from sentence_reading.llm.ingest_jobs_gcs import (
         ingest_checkpoint_enabled,
         ingest_job_reclaim_enabled,
+        ingest_inline_enabled,
+        ingest_worker_configured,
         ingest_resume_skip_enabled,
     )
     from sentence_reading.llm.papers_gcs import (
@@ -1434,7 +1436,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.149",
+        "version": "0.3.150",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -1511,6 +1513,8 @@ def status(request: Request) -> dict:
         "mobile_upload_resume": True,
         # design/107 — cross-instance reclaim when worker lease expires.
         "ingest_job_reclaim": ingest_job_reclaim_enabled(),
+        "ingest_inline": ingest_inline_enabled(),
+        "ingest_worker": ingest_worker_configured(),
         # design/110 — checkpoint envelope (skip logic later).
         "ingest_checkpoint": ingest_checkpoint_enabled(),
         # design/112 — mid-stage payload skip.
@@ -4137,15 +4141,14 @@ async def cache_reanalyze(request: Request, cache_id: str) -> JSONResponse:
         )
     except Exception:  # noqa: BLE001
         pass
-    asyncio.create_task(
-        _run_ingest_job(
-            job_id,
-            tmp_path,
-            filename,
-            kind,
-            skip_cache=True,
-            content_hash=content_hash,
-        )
+    _spawn_ingest_worker(
+        job_id,
+        tmp_path,
+        filename,
+        kind,
+        owner_uid=owner_uid,
+        skip_cache=True,
+        content_hash=content_hash,
     )
     return JSONResponse(
         {
@@ -4713,6 +4716,31 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
     if not ij.ingest_job_reclaim_enabled():
         _emit("reclaim_disabled")
         return False
+    # design/173c — API does not claim/run; wake worker service.
+    if not ij.ingest_inline_enabled():
+        if existing is not None and existing.get("_local_running"):
+            _emit("already_local")
+            return False
+        meta_pre = ij.load_ingest_job(job_id, owner_uid=owner_uid) or {}
+        if meta_pre.get("cancel_requested"):
+            _wipe_ingest_artifacts(
+                job_id,
+                owner_uid=owner_uid,
+                filename=str(meta_pre.get("filename") or ""),
+            )
+            _emit("cancelled")
+            return False
+        if meta_pre.get("done") or meta_pre.get("error"):
+            _emit("job_already_done")
+            return False
+        if not ij.lease_expired(meta_pre):
+            _emit("gcs_lease_alive")
+            return False
+        from sentence_reading.llm import ingest_worker_wake as iww
+
+        ok_wake = await iww.wake_ingest_worker(job_id, owner_uid)
+        _emit("worker_wake" if ok_wake else "worker_wake_failed")
+        return ok_wake
     # WHY: this instance already has an active worker — do not double-start.
     if existing is not None and existing.get("_local_running"):
         _emit("already_local")
@@ -4833,15 +4861,14 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
         ij.stamp_lease(job, token=token)
         _JOBS[job_id] = job
         _persist_job(job_id, job, force=True)
-        asyncio.create_task(
-            _run_ingest_job(
-                job_id,
-                tmp_path,
-                filename,
-                kind,
-                skip_cache=skip_cache,
-                content_hash=content_hash,
-            )
+        _spawn_ingest_worker(
+            job_id,
+            tmp_path,
+            filename,
+            kind,
+            owner_uid=owner_uid,
+            skip_cache=skip_cache,
+            content_hash=content_hash,
         )
         _emit("reclaimed")
         try:
@@ -5705,6 +5732,7 @@ async def _run_ingest_job(
     job = _JOBS.get(job_id)
     if job is not None:
         job["_local_running"] = True
+        job["worker_instance_id"] = ij.worker_instance_id()
         ij.stamp_lease(job)
         _persist_job(job_id, job, force=True)
     heartbeat = asyncio.create_task(_ingest_lease_heartbeat(job_id))
@@ -5727,6 +5755,47 @@ async def _run_ingest_job(
         fin = _JOBS.get(job_id)
         if fin is not None:
             fin["_local_running"] = False
+
+
+def _spawn_ingest_worker(
+    job_id: str,
+    tmp_path: Path,
+    filename: str,
+    kind: str,
+    *,
+    owner_uid: str = "",
+    skip_cache: bool = False,
+    content_hash: str | None = None,
+) -> None:
+    """design/173c — inline create_task or external worker wake."""
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+    from sentence_reading.llm import ingest_worker_wake as iww
+
+    uid = (owner_uid or str((_JOBS.get(job_id) or {}).get("owner_uid") or "")).strip()
+
+    if ij.ingest_inline_enabled():
+        asyncio.create_task(
+            _run_ingest_job(
+                job_id,
+                tmp_path,
+                filename,
+                kind,
+                skip_cache=skip_cache,
+                content_hash=content_hash,
+            )
+        )
+        return
+
+    try:
+        Path(tmp_path).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+    async def _wake() -> None:
+        if uid:
+            await iww.wake_ingest_worker(job_id, uid)
+
+    asyncio.create_task(_wake())
 
 
 async def _run_ingest_job_body(
@@ -7080,10 +7149,14 @@ def _begin_ingest_from_bytes(
         )
     except Exception:  # noqa: BLE001
         pass
-    asyncio.create_task(
-        _run_ingest_job(
-            job_id, tmp_path, filename, kind, content_hash=content_hash
-        )
+    owner_uid = str(_JOBS[job_id].get("owner_uid") or "")
+    _spawn_ingest_worker(
+        job_id,
+        tmp_path,
+        safe_name,
+        kind,
+        owner_uid=owner_uid,
+        content_hash=content_hash,
     )
     return {
         "ok": True,

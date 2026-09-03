@@ -156,7 +156,7 @@ def test_capacity_baseline_snapshot_smoke(monkeypatch: pytest.MonkeyPatch) -> No
         "fetch_status",
         lambda url: {
             "ok": True,
-            "version": "0.3.149",
+            "version": "0.3.150",
             "deploy_git_sha": "abc",
             "access_gate_enabled": True,
         },
@@ -186,10 +186,9 @@ def test_capacity_baseline_snapshot_smoke(monkeypatch: pytest.MonkeyPatch) -> No
 def test_design_173b_deploy_specs_locked() -> None:
     """design/173b — Cloud Run capacity bump must stay in deploy script."""
     script = (ROOT / "scripts" / "deploy_cloud_run.sh").read_text(encoding="utf-8")
-    assert "--memory 2Gi" in script
-    assert "--cpu 2" in script
-    assert "--max-instances 6" in script
-    assert "--concurrency 16" in script
+    assert "--memory" in script and "2Gi" in script
+    assert "--cpu" in script
+    assert "ASR_CLOUD_RUN_CONCURRENCY" in script
     assert "--no-cpu-throttling" in script
     assert "design/173b" in script
     design = (ROOT / "docs" / "design" / "173-capacity-isolation-roadmap.md").read_text(

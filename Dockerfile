@@ -20,6 +20,6 @@ COPY src ./src
 RUN pip install --upgrade pip \
     && pip install .
 
-# Cloud Run injects PORT; do not bake secrets into the image.
+# Cloud Run injects PORT; ASR_SERVICE_ROLE=worker → ingest worker (design/173c).
 EXPOSE 8080
-CMD ["sh", "-c", "uvicorn sentence_reading.api.app:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "if [ \"${ASR_SERVICE_ROLE:-api}\" = worker ]; then uvicorn sentence_reading.worker.app:app --host 0.0.0.0 --port ${PORT}; else uvicorn sentence_reading.api.app:app --host 0.0.0.0 --port ${PORT}; fi"]

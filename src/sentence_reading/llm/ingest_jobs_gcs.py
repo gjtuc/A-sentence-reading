@@ -50,6 +50,40 @@ def ingest_job_reclaim_enabled() -> bool:
     return raw not in ("0", "false", "off", "no")
 
 
+def ingest_inline_enabled() -> bool:
+    """
+    design/173c — run ingest in API process (asyncio.create_task).
+
+    ASR_INGEST_INLINE:
+      unset / 1 → inline (legacy + rollback)
+      0 → API enqueue/wake only; worker service runs pipeline
+    """
+    raw = (os.environ.get("ASR_INGEST_INLINE") or "1").strip().lower()
+    return raw not in ("0", "false", "off", "no")
+
+
+def ingest_worker_url() -> str:
+    """Base URL for worker wake (no trailing slash)."""
+    return (os.environ.get("ASR_WORKER_URL") or "").strip().rstrip("/")
+
+
+def ingest_worker_secret() -> str:
+    return (os.environ.get("ASR_WORKER_SECRET") or "").strip()
+
+
+def ingest_worker_configured() -> bool:
+    return bool(ingest_worker_url() and ingest_worker_secret())
+
+
+def worker_instance_id() -> str:
+    """Cloud Run revision id or hostname — design/173c observability."""
+    for key in ("K_REVISION", "HOSTNAME"):
+        v = (os.environ.get(key) or "").strip()
+        if v:
+            return v[:120]
+    return "local"
+
+
 def ingest_checkpoint_enabled() -> bool:
     """Kill switch: ASR_INGEST_CHECKPOINT=0 disables envelope write/accept."""
     raw = (os.environ.get("ASR_INGEST_CHECKPOINT") or "1").strip().lower()
@@ -638,6 +672,10 @@ def serialize_job_record(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
         out["lease_until"] = str(job.get("lease_until"))
     if job.get("lease_token"):
         out["lease_token"] = str(job.get("lease_token"))[:32]
+    # design/173c — which revision ran the worker (observability).
+    wid = str(job.get("worker_instance_id") or "").strip()
+    if wid:
+        out["worker_instance_id"] = wid[:120]
     # design/110 — envelope only (no paper text).
     cp = job.get("checkpoint")
     if isinstance(cp, dict) and cp.get("stage"):

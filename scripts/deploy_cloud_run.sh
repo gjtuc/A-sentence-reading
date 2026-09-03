@@ -126,6 +126,15 @@ trap cleanup EXIT
   echo "ASR_SHADOWING_PRACTICE: \"${ASR_SHADOWING_PRACTICE:-0}\""
   # design/83 — login-required (unset/1=on). Kill with ASR_LOGIN_REQUIRED=0.
   echo "ASR_LOGIN_REQUIRED: \"${ASR_LOGIN_REQUIRED:-1}\""
+  # design/173c — inline ingest on API (0=worker only); worker URL for wake.
+  echo "ASR_INGEST_INLINE: \"${ASR_INGEST_INLINE:-1}\""
+  if [[ -n "${ASR_WORKER_URL:-}" ]]; then
+    echo "ASR_WORKER_URL: \"${ASR_WORKER_URL}\""
+  fi
+  if [[ -n "${ASR_WORKER_SECRET:-}" ]]; then
+    echo "ASR_WORKER_SECRET: \"${ASR_WORKER_SECRET}\""
+  fi
+  echo "ASR_SERVICE_ROLE: \"${ASR_SERVICE_ROLE:-api}\""
   _gcs_prefix="${ASR_GCS_PREFIX:-asr}"
   _mobile_apk_url="${ASR_MOBILE_APK_URL:-${CLOUD_URL}/api/mobile/apk}"
   echo "ASR_MOBILE_APK_URL: \"${_mobile_apk_url}\""
@@ -218,6 +227,11 @@ fi
 # EDGE: rev 00087-pkk attached USER/PASS via Secret Manager; later CD with plain GitHub
 # secrets must --remove-secrets first, or keep SM mode when USER/PASS env empty.
 # design/173b — capacity bump (2CPU/2Gi, concurrency 16, maxScale 6, no CPU throttling).
+# design/173c — override via ASR_CLOUD_RUN_* for worker service deploy.
+_RUN_MEMORY="${ASR_CLOUD_RUN_MEMORY:-2Gi}"
+_RUN_CPU="${ASR_CLOUD_RUN_CPU:-2}"
+_RUN_MAX_INSTANCES="${ASR_MAX_INSTANCES:-6}"
+_RUN_CONCURRENCY="${ASR_CLOUD_RUN_CONCURRENCY:-16}"
 DEPLOY_ARGS=(
   run deploy "$SERVICE"
   --source .
@@ -225,11 +239,11 @@ DEPLOY_ARGS=(
   --platform managed
   --allow-unauthenticated
   --service-account "$SA_EMAIL"
-  --memory 2Gi
-  --cpu 2
+  --memory "$_RUN_MEMORY"
+  --cpu "$_RUN_CPU"
   --min-instances "${ASR_MIN_INSTANCES:-1}"
-  --max-instances 6
-  --concurrency 16
+  --max-instances "$_RUN_MAX_INSTANCES"
+  --concurrency "$_RUN_CONCURRENCY"
   --no-cpu-throttling
   --timeout 300
   --env-vars-file "${ENV_FILE_WIN:-$ENV_FILE}"
