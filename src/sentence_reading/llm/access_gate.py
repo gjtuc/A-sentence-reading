@@ -12,6 +12,10 @@ Hardening (0.2.76):
 GCS durability (0.2.86 · design/69):
 - invite_codes / access_events / redeem_attempts push+pull like accounts.json.
 - WHY: Cloud Run ephemeral disk + multi-instance must share one gate truth.
+
+Hot-path TTL (0.3.148 · design/173a):
+- refresh_access_gate_from_gcs skips GCS when in-proc cache fresh (ASR_ACCESS_GATE_TTL_S).
+- Write paths invalidate; mint/redeem/decide still force refresh before merge+write.
 """
 from __future__ import annotations
 
@@ -34,6 +38,12 @@ from sentence_reading.llm.env import load_asr_env
 log = logging.getLogger(__name__)
 
 _LOCK = threading.RLock()
+
+# design/173a — in-proc gate snapshot TTL (monotonic seconds).
+_CACHE_REFRESH_MONO: float = 0.0
+_CACHE_HAS_SNAPSHOT: bool = False
+_CACHE_STATS_HITS: int = 0
+_CACHE_STATS_MISSES: int = 0
 
 STATUS_NONE = "none"
 STATUS_PENDING = "pending"
@@ -216,13 +226,90 @@ def _merge_redeem_stores(
     return {"version": 1, "by_uid": out_by}
 
 
-def refresh_access_gate_from_gcs() -> bool:
+def access_gate_ttl_seconds() -> int:
+    """
+    In-proc refresh TTL for status/paid hot path (design/173a).
+
+    ASR_ACCESS_GATE_TTL_S:
+      unset → 45s
+      0 → cache off (every refresh pulls — design/69 behavior)
+      clamp 5–60 when > 0
+    """
+    load_asr_env()
+    raw = (os.environ.get("ASR_ACCESS_GATE_TTL_S") or "").strip()
+    if not raw:
+        return 45
+    try:
+        v = int(raw)
+    except ValueError:
+        return 45
+    if v <= 0:
+        return 0
+    return max(5, min(60, v))
+
+
+def _access_gate_cache_fresh_unlocked() -> bool:
+    ttl = access_gate_ttl_seconds()
+    if ttl <= 0 or not _CACHE_HAS_SNAPSHOT or _CACHE_REFRESH_MONO <= 0:
+        return False
+    return (time.monotonic() - _CACHE_REFRESH_MONO) < float(ttl)
+
+
+def invalidate_access_gate_cache() -> None:
+    """Drop TTL freshness so the next refresh pulls GCS (design/173a writes)."""
+    global _CACHE_REFRESH_MONO
+    with _LOCK:
+        _CACHE_REFRESH_MONO = 0.0
+
+
+def _mark_access_gate_cache_refreshed() -> None:
+    global _CACHE_REFRESH_MONO, _CACHE_HAS_SNAPSHOT, _CACHE_STATS_MISSES
+    with _LOCK:
+        _CACHE_REFRESH_MONO = time.monotonic()
+        _CACHE_HAS_SNAPSHOT = True
+        _CACHE_STATS_MISSES += 1
+
+
+def access_gate_cache_status() -> dict[str, Any]:
+    with _LOCK:
+        ttl = access_gate_ttl_seconds()
+        hits = _CACHE_STATS_HITS
+        misses = _CACHE_STATS_MISSES
+        total = hits + misses
+        ratio = round(hits / total, 3) if total > 0 else None
+        return {
+            "ttl_s": ttl,
+            "fresh": _access_gate_cache_fresh_unlocked(),
+            "hit_ratio": ratio,
+        }
+
+
+def reset_access_gate_cache_for_tests() -> None:
+    """Test isolation — not for production."""
+    global _CACHE_REFRESH_MONO, _CACHE_HAS_SNAPSHOT, _CACHE_STATS_HITS, _CACHE_STATS_MISSES
+    with _LOCK:
+        _CACHE_REFRESH_MONO = 0.0
+        _CACHE_HAS_SNAPSHOT = False
+        _CACHE_STATS_HITS = 0
+        _CACHE_STATS_MISSES = 0
+
+
+def refresh_access_gate_from_gcs(*, force: bool = False) -> bool:
     """
     Pull shared gate truth before mint/redeem/decide/paid checks.
 
     WHY before critical ops: another Cloud Run instance may have minted/allowed.
     Fail-soft: GCS down → keep local (may deny paid — fail-closed for cost).
+
+    When force=False and TTL cache is fresh, skips GCS (design/173a hot path).
     """
+    global _CACHE_STATS_HITS
+    if not force and access_gate_ttl_seconds() > 0:
+        with _LOCK:
+            if _access_gate_cache_fresh_unlocked():
+                _CACHE_STATS_HITS += 1
+                return False
+
     changed = False
     try:
         from sentence_reading.llm.auth_accounts import pull_accounts_from_gcs
@@ -250,6 +337,7 @@ def refresh_access_gate_from_gcs() -> bool:
             merged_ra = _merge_redeem_stores(_read_redeem_attempts(), remote_ra)
             _write_json(redeem_attempts_path(), merged_ra)
             changed = True
+    _mark_access_gate_cache_refreshed()
     return changed
 
 
@@ -497,6 +585,7 @@ def _write_accounts(store: dict[str, Any]) -> None:
             )
     except Exception as exc:  # noqa: BLE001
         log.debug("accounts gcs push skip: %s", exc)
+    invalidate_access_gate_cache()
 
 
 def _read_invites() -> dict[str, Any]:
@@ -512,6 +601,7 @@ def _write_invites(store: dict[str, Any]) -> None:
     _write_json(invites_path(), store)
     # WHY: mint on instance A must be redeemable on B (design/69)
     _push_auth_json(invites_path(), "invite_codes.json")
+    invalidate_access_gate_cache()
 
 
 def invite_pool_nonempty() -> bool:
@@ -534,7 +624,7 @@ def mint_invite_code(
     Store only hash + metadata (+ expires_at when TTL > 0).
     """
     # WHY: pick up remote pool before appending (avoid blind local-only mint)
-    refresh_access_gate_from_gcs()
+    refresh_access_gate_from_gcs(force=True)
     # Retry on improbable hash collision
     plain = ""
     digest = ""
@@ -592,7 +682,7 @@ def mint_invite_code(
 
 def list_open_invite_meta(*, limit: int = 20) -> list[dict[str, Any]]:
     """Admin view — never returns plaintext codes."""
-    refresh_access_gate_from_gcs()
+    refresh_access_gate_from_gcs(force=True)
     with _LOCK:
         store = _read_invites()
         out: list[dict[str, Any]] = []
@@ -717,7 +807,7 @@ def append_event(event: dict[str, Any]) -> None:
 
 
 def list_events(*, limit: int = 50) -> list[dict[str, Any]]:
-    refresh_access_gate_from_gcs()
+    refresh_access_gate_from_gcs(force=True)
     path = events_path()
     if not path.is_file():
         return []
@@ -737,7 +827,7 @@ def list_events(*, limit: int = 50) -> list[dict[str, Any]]:
 
 def list_pending() -> list[dict[str, Any]]:
     # WHY: pending queue is on accounts.json — refresh before admin UI
-    refresh_access_gate_from_gcs()
+    refresh_access_gate_from_gcs(force=True)
     with _LOCK:
         store = _read_accounts()
         out: list[dict[str, Any]] = []
@@ -770,7 +860,7 @@ def redeem_invite(uid: str, code: str, *, email: str = "", name: str = "") -> di
     if not access_gate_enabled():
         raise ValueError("gate_disabled")
     # WHY: code may have been minted on another instance (design/69)
-    refresh_access_gate_from_gcs()
+    refresh_access_gate_from_gcs(force=True)
     compact = normalize_invite_code(code)
     if not compact:
         raise ValueError("empty_code")
@@ -900,7 +990,7 @@ def decide_access(
         raise ValueError("bad_decision")
 
     # WHY: decide against fresh accounts pull so we do not clobber remote status
-    refresh_access_gate_from_gcs()
+    refresh_access_gate_from_gcs(force=True)
     now = int(time.time())
     with _LOCK:
         store = _read_accounts()
@@ -940,6 +1030,6 @@ def user_may_use_paid(
     if is_admin:
         return True
     # WHY: Allow on another instance must take effect before paid API (design/69)
-    refresh_access_gate_from_gcs()
+    refresh_access_gate_from_gcs(force=False)
     st = str(get_access_for_uid(uid).get("status") or STATUS_NONE)
     return st in PAID_STATUSES

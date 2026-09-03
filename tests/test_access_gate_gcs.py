@@ -31,14 +31,16 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
     monkeypatch.setattr(pc, "project_root", lambda: root)
     agu.reset_gcs_uid()
+    ag.reset_access_gate_cache_for_tests()
     yield
+    ag.reset_access_gate_cache_for_tests()
     agu.reset_gcs_uid()
 
 
 def test_status_access_gate_gcs_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.85"
+    assert st["version"] == "0.3.148"
     assert st.get("access_gate_gcs") is True
     assert st.get("access_gate") is True
     assert "live_enable" not in st

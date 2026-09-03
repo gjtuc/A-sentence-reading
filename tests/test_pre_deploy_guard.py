@@ -156,7 +156,7 @@ def test_capacity_baseline_snapshot_smoke(monkeypatch: pytest.MonkeyPatch) -> No
         "fetch_status",
         lambda url: {
             "ok": True,
-            "version": "0.3.147",
+            "version": "0.3.148",
             "deploy_git_sha": "abc",
             "access_gate_enabled": True,
         },
