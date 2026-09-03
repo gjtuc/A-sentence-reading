@@ -33,7 +33,7 @@ def _clear_cache() -> None:
 
 def test_status_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.150"
+    assert st["version"] == "0.3.151"
 
 
 def test_design_43_contract() -> None:
