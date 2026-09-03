@@ -128,6 +128,8 @@ trap cleanup EXIT
   echo "ASR_LOGIN_REQUIRED: \"${ASR_LOGIN_REQUIRED:-1}\""
   # design/173c — inline ingest on API (0=worker only); worker URL for wake.
   echo "ASR_INGEST_INLINE: \"${ASR_INGEST_INLINE:-1}\""
+  # design/173a — access gate TTL (0=off). Profile sets explicitly for A/B turns.
+  echo "ASR_ACCESS_GATE_TTL_S: \"${ASR_ACCESS_GATE_TTL_S:-45}\""
   if [[ -n "${ASR_WORKER_URL:-}" ]]; then
     echo "ASR_WORKER_URL: \"${ASR_WORKER_URL}\""
   fi

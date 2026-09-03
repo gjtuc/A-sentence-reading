@@ -32,6 +32,9 @@ source "$PROFILE_FILE"
 set +a
 
 export ASR_CAPACITY_PROFILE="${ASR_CAPACITY_PROFILE:-$PROFILE}"
+if [[ "${CLEAR_WORKER_ENV:-}" == "1" ]]; then
+  unset ASR_WORKER_URL ASR_WORKER_SECRET
+fi
 REGION="${ASR_CLOUD_RUN_REGION:-asia-northeast3}"
 API_SERVICE="${ASR_CLOUD_RUN_SERVICE:-asr-sentence-reading}"
 WORKER_SERVICE="${ASR_WORKER_SERVICE:-asr-sentence-reading-worker}"

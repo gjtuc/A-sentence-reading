@@ -156,7 +156,7 @@ def test_capacity_baseline_snapshot_smoke(monkeypatch: pytest.MonkeyPatch) -> No
         "fetch_status",
         lambda url: {
             "ok": True,
-            "version": "0.3.152",
+            "version": "0.3.153",
             "deploy_git_sha": "abc",
             "access_gate_enabled": True,
         },
@@ -188,6 +188,7 @@ def test_design_173b_deploy_specs_locked() -> None:
     script = (ROOT / "scripts" / "deploy_cloud_run.sh").read_text(encoding="utf-8")
     assert "ASR_CLOUD_RUN_CONCURRENCY" in script
     assert "ASR_CPU_THROTTLING" in script
+    assert "ASR_ACCESS_GATE_TTL_S" in script
     assert "--no-cpu-throttling" in script
     assert "design/173b" in script
     design = (ROOT / "docs" / "design" / "173-capacity-isolation-roadmap.md").read_text(
