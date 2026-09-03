@@ -30,6 +30,66 @@ void main() {
     });
   });
 
+  group('resolveAccessUnlockOnFetch', () {
+    test('success unlocks and writes sticky true', () {
+      final r = resolveAccessUnlockOnFetch(
+        fetchOk: true,
+        statusUnlocked: true,
+        previousUnlocked: false,
+        stickyAllowed: false,
+      );
+      expect(r.unlocked, isTrue);
+      expect(r.restorePending, isFalse);
+      expect(r.writeStickyAllowed, isTrue);
+    });
+    test('success locks and writes sticky false', () {
+      final r = resolveAccessUnlockOnFetch(
+        fetchOk: true,
+        statusUnlocked: false,
+        previousUnlocked: true,
+        stickyAllowed: true,
+      );
+      expect(r.unlocked, isFalse);
+      expect(r.writeStickyAllowed, isFalse);
+    });
+    test('fail keeps prior unlock', () {
+      final r = resolveAccessUnlockOnFetch(
+        fetchOk: false,
+        previousUnlocked: true,
+        stickyAllowed: null,
+      );
+      expect(r.unlocked, isTrue);
+      expect(r.restorePending, isFalse);
+      expect(r.writeStickyAllowed, isNull);
+    });
+    test('fail keeps sticky allowed', () {
+      final r = resolveAccessUnlockOnFetch(
+        fetchOk: false,
+        previousUnlocked: null,
+        stickyAllowed: true,
+      );
+      expect(r.unlocked, isTrue);
+    });
+    test('fail keeps known lock', () {
+      final r = resolveAccessUnlockOnFetch(
+        fetchOk: false,
+        previousUnlocked: false,
+        stickyAllowed: false,
+      );
+      expect(r.unlocked, isFalse);
+      expect(r.restorePending, isFalse);
+    });
+    test('fail unknown → reconnect not waiting', () {
+      final r = resolveAccessUnlockOnFetch(
+        fetchOk: false,
+        previousUnlocked: null,
+        stickyAllowed: null,
+      );
+      expect(r.unlocked, isNull);
+      expect(r.restorePending, isTrue);
+    });
+  });
+
   test('AccessStatus isAdmin fail-closed defaults', () {
     final missing = AccessStatus.fromJson(null);
     expect(missing.isAdmin, isFalse);

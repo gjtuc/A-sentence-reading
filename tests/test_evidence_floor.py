@@ -38,7 +38,7 @@ def test_verify_evidence_floor_clean() -> None:
 
 
 def test_floor_version_pin() -> None:
-    assert EVIDENCE_FLOOR_VERSION == "0.3.146"
+    assert EVIDENCE_FLOOR_VERSION == "0.3.147"
 
 
 def test_gemini_timed_emits_start_and_done(ev_tmp, monkeypatch) -> None:

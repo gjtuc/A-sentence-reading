@@ -65,7 +65,7 @@ def _login_user(client: TestClient, email: str = "user@example.com") -> str:
 def test_status_waiting_flags() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.85"
+    assert st["version"] == "0.3.147"
     assert st["access_waiting_ux"] is True
     assert st["mobile_access_waiting_ux"] is True
     assert st["access_gate_enabled"] is True
@@ -177,3 +177,16 @@ def test_web_and_mobile_waiting_hooks() -> None:
     assert "AccessWaitingScreen" in shell
     assert "onUnlocked" in wait
     assert "Timer.periodic" in wait
+    assert "resolveAccessUnlockOnFetch" in shell or "access_models" in shell
+    assert "_accessRestorePending" in shell
+    assert "sticky" in shell.lower() or "AccessSticky" in shell
+    models = (
+        root / "mobile" / "lib" / "api" / "access_models.dart"
+    ).read_text(encoding="utf-8")
+    assert "resolveAccessUnlockOnFetch" in models
+    assert (root / "docs" / "design" / "172-access-sticky-on-timeout.md").is_file()
+    js = (root / "src" / "sentence_reading" / "static" / "app.js").read_text(
+        encoding="utf-8"
+    )
+    assert "resolveAccessUnlockOnFetch" in js
+    assert "asr.access.sticky_allowed.v1" in js

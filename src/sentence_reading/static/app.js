@@ -2767,6 +2767,8 @@
       /* ignore */
     }
     authState.user = null;
+    accessUnlockedMemory = null;
+    clearAccessStickyAllowed();
     applyAccountScope(null);
     // design/133 — shared browser: discard prior user's papers/tabs/reader.
     // WHY: applyAccountScope clears notes/progress keys but left papers[] in memory.
@@ -6973,6 +6975,55 @@
   let sentenceNotesKeyboardEnabled = false;
   let loginGateUnlocked = false;
   let accessWaitingUx = true;
+  /** @type {boolean|null} design/172 — last successful unlock this tab */
+  let accessUnlockedMemory = null;
+  const ACCESS_STICKY_KEY = "asr.access.sticky_allowed.v1";
+
+  function readAccessStickyAllowed() {
+    try {
+      const v = window.localStorage.getItem(ACCESS_STICKY_KEY);
+      if (v === "1") return true;
+      if (v === "0") return false;
+    } catch (_) {
+      /* ignore */
+    }
+    return null;
+  }
+
+  function writeAccessStickyAllowed(allowed) {
+    try {
+      window.localStorage.setItem(ACCESS_STICKY_KEY, allowed ? "1" : "0");
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function clearAccessStickyAllowed() {
+    try {
+      window.localStorage.removeItem(ACCESS_STICKY_KEY);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  /** Mirror mobile resolveAccessUnlockOnFetch (design/172). */
+  function resolveAccessUnlockOnFetch(fetchOk, statusUnlocked) {
+    if (fetchOk) {
+      return {
+        unlocked: !!statusUnlocked,
+        restorePending: false,
+        writeSticky: !!statusUnlocked,
+      };
+    }
+    const sticky = readAccessStickyAllowed();
+    if (accessUnlockedMemory === true || sticky === true) {
+      return { unlocked: true, restorePending: false, writeSticky: null };
+    }
+    if (accessUnlockedMemory === false || sticky === false) {
+      return { unlocked: false, restorePending: false, writeSticky: null };
+    }
+    return { unlocked: null, restorePending: true, writeSticky: null };
+  }
   let accessPollTimer = 0;
 
   function applyLoginGateChrome(active) {
@@ -7051,6 +7102,8 @@
 
   async function unlockMainAppFromAccess() {
     stopAccessPoll();
+    accessUnlockedMemory = true;
+    writeAccessStickyAllowed(true);
     applyAccessWaitingChrome(false);
     if (!loginGateUnlocked) {
       loginGateUnlocked = true;
@@ -7067,16 +7120,40 @@
     }
     try {
       const access = await fetchAccessView();
-      // gate off / admin / allowed → main app
-      if (!access.gate_enabled || access.can_use_paid) {
+      const unlocked = !access.gate_enabled || access.can_use_paid;
+      const decided = resolveAccessUnlockOnFetch(true, unlocked);
+      accessUnlockedMemory = decided.unlocked;
+      if (decided.writeSticky !== null && decided.writeSticky !== undefined) {
+        writeAccessStickyAllowed(!!decided.writeSticky);
+      }
+      if (unlocked) {
         await unlockMainAppFromAccess();
         return;
       }
+      accessUnlockedMemory = false;
+      writeAccessStickyAllowed(false);
       applyAccessWaitingChrome(true);
       paintAccessWaiting(access);
       startAccessPoll();
     } catch (_) {
-      // FAIL-CLOSED when waiting UX on: show waiting, do not loadMock.
+      const decided = resolveAccessUnlockOnFetch(false, false);
+      if (decided.unlocked === true) {
+        await unlockMainAppFromAccess();
+        return;
+      }
+      if (decided.restorePending) {
+        // Soft reconnect — not 「승인 대기」 copy.
+        applyAccessWaitingChrome(false);
+        if (el.accessWaitingStatus) {
+          el.accessWaitingStatus.textContent =
+            "서버 연결이 느립니다. 잠시 후 다시 시도하세요.";
+        }
+        // Retry shortly without claiming pending invite.
+        window.setTimeout(function () {
+          void enterAppOrAccessWait();
+        }, 8000);
+        return;
+      }
       applyAccessWaitingChrome(true);
       paintAccessWaiting({ status: "none" });
       startAccessPoll();

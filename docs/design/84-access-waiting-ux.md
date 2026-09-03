@@ -37,8 +37,10 @@ Modules: web `accessWaitingPanel` · Flutter `AccessWaitingScreen` · `HomeShell
 
 ## Fail-closed
 
-- 상태 조회 실패 시 게이트 on이면 본 앱 열지 않음 (대기/재시도)  
-- 성공 UI로 유료 사용 가장 금지  
+- **성공 조회**만 본 앱 / 대기 셸을 확정한다.
+- 조회 **실패** 시 본 앱을 새로 열어 유료 사용을 가장하지 않음.
+- 다만 이미 Allow(또는 sticky)인 세션은 실패만으로 대기 셸에 **튕기지 않음** → [172](172-access-sticky-on-timeout.md).
+- 미지(첫 조회 실패·sticky 없음) → 재연결 UI (승인 대기 문구 금지).
 
 ## Live Enable / IPS
 

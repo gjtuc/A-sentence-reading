@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../api/access_models.dart';
+import '../api/access_sticky_store.dart';
 import '../state/auth_controller.dart';
 import '../state/library_controller.dart';
 import '../state/cite_panel_controller.dart';
@@ -18,7 +20,7 @@ import 'login_screen.dart';
 import 'reader_screen.dart';
 import 'settings_screen.dart';
 
-/// Auth-gated shell (design/68) + access waiting (design/84).
+/// Auth-gated shell (design/68) + access waiting (design/84) + sticky (172).
 ///
 /// Logged out → login only (no bottom nav).
 /// Logged in · invite pending/denied → waiting only.
@@ -35,6 +37,7 @@ class HomeShell extends StatefulWidget {
     required this.citePanel,
     required this.bookmarks,
     required this.annotations,
+    this.accessSticky,
   });
 
   final AuthController auth;
@@ -46,6 +49,7 @@ class HomeShell extends StatefulWidget {
   final CitePanelController citePanel;
   final BookmarkController bookmarks;
   final AnnotationController annotations;
+  final AccessStickyStore? accessSticky;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -55,6 +59,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
   /// null = not checked yet; true = may enter main tabs.
   bool? _accessUnlocked;
+  /// design/172 — status timeout with no sticky → reconnect, not waiting shell.
+  bool _accessRestorePending = false;
+  Timer? _accessRetry;
+  /// Last uid while logged-in — logout clears that sticky key.
+  String _stickyUid = '';
+  late final AccessStickyStore _sticky =
+      widget.accessSticky ?? PrefsAccessStickyStore();
 
   void _goReader() {
     final hid = widget.library.takeOpenHandoffId();
@@ -85,35 +96,113 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _accessRetry?.cancel();
     widget.auth.removeListener(_onAuthChanged);
     WidgetsBinding.instance.removeObserver(this);
     widget.library.uploadNotify.setOpenCacheIdHandler(null);
     super.dispose();
   }
 
+  void _armAccessRetry() {
+    _accessRetry?.cancel();
+    _accessRetry = Timer(const Duration(seconds: 8), () {
+      if (!mounted || !widget.auth.isLoggedIn) return;
+      unawaited(_refreshAccessGate());
+    });
+  }
+
   void _onAuthChanged() {
     if (!widget.auth.isLoggedIn) {
-      // EDGE: logout must not leave previous user's unlocked shell.
-      setState(() => _accessUnlocked = null);
+      // EDGE: logout must not leave previous user's unlocked shell / sticky.
+      final uid = _stickyUid;
+      if (uid.isNotEmpty) {
+        unawaited(_sticky.clear(uid));
+      }
+      _stickyUid = '';
+      _accessRetry?.cancel();
+      setState(() {
+        _accessUnlocked = null;
+        _accessRestorePending = false;
+      });
       return;
     }
+    _stickyUid = widget.auth.user?.uid.trim() ?? '';
     unawaited(_refreshAccessGate());
   }
 
   Future<void> _refreshAccessGate() async {
     if (!widget.auth.isLoggedIn) {
-      if (mounted) setState(() => _accessUnlocked = null);
+      if (mounted) {
+        setState(() {
+          _accessUnlocked = null;
+          _accessRestorePending = false;
+        });
+      }
       return;
     }
-    try {
-      final st = await widget.auth.client.fetchAccessStatus();
-      if (!mounted) return;
-      // WHY: gate off or can_use_paid → main app; else waiting-only.
-      setState(() => _accessUnlocked = !st.gateEnabled || st.canUsePaid);
-    } catch (_) {
-      if (!mounted) return;
-      // FAIL-CLOSED: unknown access → waiting screen (retry via poll), not main app.
-      setState(() => _accessUnlocked = false);
+    final uid = widget.auth.user?.uid.trim() ?? '';
+    if (uid.isNotEmpty) _stickyUid = uid;
+    final sticky = uid.isEmpty ? null : await _sticky.readAllowed(uid);
+    Object? lastErr;
+    // Short retries before sticky path — same spirit as auth bootstrap.
+    for (final delay in const <Duration>[
+      Duration.zero,
+      Duration(seconds: 2),
+      Duration(seconds: 5),
+    ]) {
+      if (delay > Duration.zero) {
+        await Future<void>.delayed(delay);
+      }
+      if (!mounted || !widget.auth.isLoggedIn) return;
+      try {
+        final st = await widget.auth.client.fetchAccessStatus();
+        if (!mounted) return;
+        final decided = resolveAccessUnlockOnFetch(
+          fetchOk: true,
+          statusUnlocked: accessUnlockedFromStatus(st),
+          previousUnlocked: _accessUnlocked,
+          stickyAllowed: sticky,
+        );
+        _accessRetry?.cancel();
+        if (decided.writeStickyAllowed != null && uid.isNotEmpty) {
+          unawaited(_sticky.writeAllowed(uid, decided.writeStickyAllowed!));
+        }
+        setState(() {
+          _accessUnlocked = decided.unlocked;
+          _accessRestorePending = false;
+        });
+        return;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (!mounted) return;
+    final decided = resolveAccessUnlockOnFetch(
+      fetchOk: false,
+      previousUnlocked: _accessUnlocked,
+      stickyAllowed: sticky,
+    );
+    asrEvidenceBus?.record(
+      'client_api_timeout',
+      severity: 'error',
+      stage: 'access_status',
+      message: (lastErr?.toString() ?? 'access_status_failed').length > 200
+          ? (lastErr?.toString() ?? '').substring(0, 200)
+          : (lastErr?.toString() ?? 'access_status_failed'),
+      ok: false,
+      details: {
+        'route': 'access_status',
+        'sticky_kept': decided.unlocked == true,
+        'restore_pending': decided.restorePending,
+      },
+    );
+    setState(() {
+      _accessUnlocked = decided.unlocked;
+      _accessRestorePending = decided.restorePending;
+    });
+    // Retry while sticky-kept or soft reconnect.
+    if (decided.unlocked == true || decided.restorePending) {
+      _armAccessRetry();
     }
   }
 
@@ -228,8 +317,35 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           );
         }
 
-        // design/84 — invite waiting after login.
+        // design/84 · 172 — invite waiting / soft reconnect after login.
         if (auth.isLoggedIn) {
+          if (_accessRestorePending) {
+            return Scaffold(
+              body: _padded(
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 16),
+                        const Text(
+                          '서버 연결이 느립니다. 액세스 상태를 다시 확인합니다.',
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        FilledButton(
+                          onPressed: () => unawaited(_refreshAccessGate()),
+                          child: const Text('다시 시도'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
           if (_accessUnlocked == null) {
             return const Scaffold(
               body: Center(child: CircularProgressIndicator()),
@@ -241,7 +357,16 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                 AccessWaitingScreen(
                   auth: auth,
                   onUnlocked: () {
-                    if (mounted) setState(() => _accessUnlocked = true);
+                    final uid = auth.user?.uid.trim() ?? '';
+                    if (uid.isNotEmpty) {
+                      unawaited(_sticky.writeAllowed(uid, true));
+                    }
+                    if (mounted) {
+                      setState(() {
+                        _accessUnlocked = true;
+                        _accessRestorePending = false;
+                      });
+                    }
                   },
                 ),
               ),

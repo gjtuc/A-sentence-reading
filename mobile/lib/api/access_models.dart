@@ -69,6 +69,65 @@ class AccessStatus {
   bool get isDenied => status == 'denied';
 }
 
+/// Paid unlock from a successful /api/access/status body.
+bool accessUnlockedFromStatus(AccessStatus st) =>
+    !st.gateEnabled || st.canUsePaid;
+
+/// Sticky unlock after a transient access/status failure (design/172).
+///
+/// Server success still wins. On failure: keep prior unlock or disk sticky-allowed;
+/// never bounce a previously unlocked session to the waiting shell; unknown →
+/// soft reconnect (not 「승인 대기」).
+class AccessUnlockStickyResult {
+  const AccessUnlockStickyResult({
+    required this.unlocked,
+    required this.restorePending,
+    this.writeStickyAllowed,
+  });
+
+  /// null = still unknown (spinner / reconnect).
+  final bool? unlocked;
+  final bool restorePending;
+
+  /// When non-null, persist this sticky for the uid after a successful fetch.
+  final bool? writeStickyAllowed;
+}
+
+AccessUnlockStickyResult resolveAccessUnlockOnFetch({
+  required bool fetchOk,
+  bool? statusUnlocked,
+  bool? previousUnlocked,
+  bool? stickyAllowed,
+}) {
+  if (fetchOk) {
+    final u = statusUnlocked == true;
+    return AccessUnlockStickyResult(
+      unlocked: u,
+      restorePending: false,
+      writeStickyAllowed: u,
+    );
+  }
+  // Transient fail: keep known unlock / sticky-allowed (load kick fix).
+  if (previousUnlocked == true || stickyAllowed == true) {
+    return const AccessUnlockStickyResult(
+      unlocked: true,
+      restorePending: false,
+    );
+  }
+  // Known locked (session or sticky) → stay on waiting; do not invent Allow.
+  if (previousUnlocked == false || stickyAllowed == false) {
+    return const AccessUnlockStickyResult(
+      unlocked: false,
+      restorePending: false,
+    );
+  }
+  // Never learned this session and no sticky → reconnect, not waiting copy.
+  return const AccessUnlockStickyResult(
+    unlocked: null,
+    restorePending: true,
+  );
+}
+
 /// Whether Settings should show the invite-code redeem field (design/104).
 ///
 /// WHY: approved users and admins do not redeem; none/pending/denied still may
