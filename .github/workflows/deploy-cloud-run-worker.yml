@@ -1,27 +1,25 @@
-# 무엇을: main 푸시·수동으로 Cloud Run 배포 (선택).
-# 왜: design/25 수동 배포 다음 단계 — PC 없이 재배포 (design/32).
-# 불변: SA JSON·API 키를 이미지에 넣지 않음 — GitHub Secrets → env-vars-file.
-# 게이트: repository variable ASR_CD_ENABLED=1 일 때만 job 실행 (기본 off).
-name: Deploy Cloud Run
+# design/173c — deploy ingest worker Cloud Run service.
+name: Deploy Cloud Run Worker
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - "src/**"
+      - "src/sentence_reading/worker/**"
+      - "src/sentence_reading/llm/ingest_worker_wake.py"
+      - "src/sentence_reading/llm/ingest_jobs_gcs.py"
       - "Dockerfile"
-      - "pyproject.toml"
+      - "scripts/deploy_cloud_run_worker.sh"
       - "scripts/deploy_cloud_run.sh"
-      - "scripts/pre_deploy_guard.py"
-      - ".github/workflows/deploy-cloud-run.yml"
+      - ".github/workflows/deploy-cloud-run-worker.yml"
 
 concurrency:
-  group: deploy-cloud-run
+  group: deploy-cloud-run-worker
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  deploy-worker:
     if: ${{ vars.ASR_CD_ENABLED == '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -50,29 +48,17 @@ jobs:
           ASR_GOOGLE_CLIENT_ID: ${{ secrets.ASR_GOOGLE_CLIENT_ID }}
           ASR_AUTH_SECRET: ${{ secrets.ASR_AUTH_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT: ${{ secrets.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT }}
-          AZURE_DOCUMENT_INTELLIGENCE_KEY: ${{ secrets.AZURE_DOCUMENT_INTELLIGENCE_KEY }}
+          ASR_WORKER_SECRET: ${{ secrets.ASR_WORKER_SECRET }}
         run: |
           missing=0
-          for name in GCP_SA_KEY ASR_GOOGLE_CLIENT_ID ASR_AUTH_SECRET GEMINI_API_KEY; do
+          for name in GCP_SA_KEY ASR_GOOGLE_CLIENT_ID ASR_AUTH_SECRET GEMINI_API_KEY ASR_WORKER_SECRET; do
             eval "val=\${$name}"
             if [ -z "$val" ]; then
               echo "missing secret: $name" >&2
               missing=1
             fi
           done
-          # design/154 — Azure DI 필수 when ASR_AZURE_LAYOUT≠0 (기본 1). 없으면 CD가 키를 지워 Live가 PyMuPDF fallback.
-          if [ "${{ vars.ASR_AZURE_LAYOUT || '1' }}" != "0" ]; then
-            for name in AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT AZURE_DOCUMENT_INTELLIGENCE_KEY; do
-              eval "val=\${$name}"
-              if [ -z "$val" ]; then
-                echo "missing secret: $name (required for figure slot carousel)" >&2
-                missing=1
-              fi
-            done
-          fi
           if [ "$missing" -ne 0 ]; then
-            echo "Set GitHub Actions secrets (see docs/design/32-github-cd.md · design/154)." >&2
             exit 1
           fi
 
@@ -83,7 +69,7 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Deploy
+      - name: Deploy worker
         env:
           ASR_GOOGLE_CLIENT_ID: ${{ secrets.ASR_GOOGLE_CLIENT_ID }}
           ASR_AUTH_SECRET: ${{ secrets.ASR_AUTH_SECRET }}
@@ -91,7 +77,6 @@ jobs:
           ASR_ADMIN_EMAILS: ${{ secrets.ASR_ADMIN_EMAILS }}
           ASR_KAKAO_REST_API_KEY: ${{ secrets.ASR_KAKAO_REST_API_KEY }}
           ASR_KAKAO_CLIENT_SECRET: ${{ secrets.ASR_KAKAO_CLIENT_SECRET }}
-          # design/86 — optional; empty → magic request stays smtp_not_configured.
           ASR_SMTP_HOST: ${{ secrets.ASR_SMTP_HOST }}
           ASR_SMTP_FROM: ${{ secrets.ASR_SMTP_FROM }}
           ASR_SMTP_USER: ${{ secrets.ASR_SMTP_USER }}
@@ -101,21 +86,19 @@ jobs:
           AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT: ${{ secrets.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT }}
           AZURE_DOCUMENT_INTELLIGENCE_KEY: ${{ secrets.AZURE_DOCUMENT_INTELLIGENCE_KEY }}
           ASR_AZURE_LAYOUT: ${{ vars.ASR_AZURE_LAYOUT || '1' }}
-          ASR_CLOUD_RUN_URL: ${{ vars.ASR_CLOUD_RUN_URL || 'https://asr-sentence-reading-984608876300.asia-northeast3.run.app' }}
           ASR_GCS_BUCKET: ${{ vars.ASR_GCS_BUCKET || 'asr-chaheon-warehouse' }}
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'peaceful-basis-503207-t4' }}
           ASR_CLOUD_RUN_REGION: ${{ vars.ASR_CLOUD_RUN_REGION || 'asia-northeast3' }}
-          ASR_CLOUD_RUN_SERVICE: ${{ vars.ASR_CLOUD_RUN_SERVICE || 'asr-sentence-reading' }}
           ASR_SHADOWING_PRACTICE: ${{ vars.ASR_SHADOWING_PRACTICE || '0' }}
           ASR_LOGIN_REQUIRED: ${{ vars.ASR_LOGIN_REQUIRED || '1' }}
-          ASR_INGEST_INLINE: ${{ vars.ASR_INGEST_INLINE || '1' }}
-          ASR_WORKER_URL: ${{ vars.ASR_WORKER_URL || '' }}
           ASR_WORKER_SECRET: ${{ secrets.ASR_WORKER_SECRET }}
           ASR_CD_SKIP_API_ENABLE: "1"
-        run: bash scripts/deploy_cloud_run.sh
+        run: bash scripts/deploy_cloud_run_worker.sh
 
-      - name: Verify live figure pipeline (design/154)
+      - name: Print worker URL
         run: |
-          python scripts/verify_live_status.py \
-            --require-azure-layout \
-            --min-pipeline rich-v20
+          URL="$(gcloud run services describe asr-sentence-reading-worker \
+            --region="${{ vars.ASR_CLOUD_RUN_REGION || 'asia-northeast3' }}" \
+            --format='value(status.url)')"
+          echo "ASR_WORKER_URL=$URL"
+          echo "Set repository variable ASR_WORKER_URL and redeploy API with ASR_INGEST_INLINE=0 to activate."
