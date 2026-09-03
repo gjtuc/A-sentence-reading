@@ -160,6 +160,7 @@
 | 169p | [169p-shadowing-practice-evidence.md](169p-shadowing-practice-evidence.md) | 쉐도잉 prep 증거·verdict (제품 수정 전) |
 | 171 | [171-device-figure-cache.md](171-device-figure-cache.md) | 폰 그림·표 영구 캐시 · 삭제 시 purge |
 | 172 | [172-access-sticky-on-timeout.md](172-access-sticky-on-timeout.md) | access/status 타임아웃 시 sticky unlock · 승인대기 튕김 방지 |
+| 173 | [173-capacity-isolation-roadmap.md](173-capacity-isolation-roadmap.md) | 용량·격리 로드맵 (access TTL → Run bump → worker) |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -300,3 +301,4 @@
 168 — ingest·open·figures **과잉 계측** · phase machine · T1–T10 불변식 · silent catch 제거 · sweeper (→0.3.112, **버그 수정 전 필수**). 체크리스트: [168-audit-checklist.md](168-audit-checklist.md).
 169 — **Agent Evidence Bus** 전역 증거 수집 · 오류 개선 전용 · 관리자/사용자 UI 없음 · `asr/evidence/` + `pull_evidence.py` (168/130과 분리). 체크리스트: [169-audit-checklist.md](169-audit-checklist.md).
 172 — access/status 타임아웃 시 sticky unlock · 승인대기 튕김 방지 (0.3.147).
+173 — 용량·격리 로드맵: access TTL(173a) → Run bump(173b) → worker(173c). **순서 강제.**
