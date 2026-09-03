@@ -158,6 +158,7 @@
 | 169k | [169k-observability-pull-verdicts.md](169k-observability-pull-verdicts.md) | pull/track verdict 규칙 · I3 figure · I4/K3–K4 로드맵 |
 | 169o | [169o-harmonize-residual.md](169o-harmonize-residual.md) | ingest 후 harmonize residual · 배너 honesty |
 | 169p | [169p-shadowing-practice-evidence.md](169p-shadowing-practice-evidence.md) | 쉐도잉 prep 증거·verdict (제품 수정 전) |
+| 171 | [171-device-figure-cache.md](171-device-figure-cache.md) | 폰 그림·표 영구 캐시 · 삭제 시 purge |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  

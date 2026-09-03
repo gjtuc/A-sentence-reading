@@ -26,6 +26,7 @@ import '../state/bookmark_controller.dart';
 import '../state/annotation_controller.dart';
 import '../services/error_reporter.dart';
 import '../services/evidence_bus.dart';
+import '../services/figure_disk_cache.dart';
 import '../services/hang_watchdog.dart';
 import '../services/paper_edit_stash.dart';
 import 'ingest_auto_resume.dart';
@@ -42,18 +43,21 @@ class LibraryController extends ChangeNotifier {
     UploadDraftStore? draftStore,
     UploadNotify? uploadNotify,
     PaperEditStash? editStash,
+    FigureDiskCache? figureDiskCache,
     /// Settings toggle — preferred over prefs re-read (avoids auth blip → translate=0).
     bool Function()? translateEnabled,
   })  : _client = client,
         _drafts = draftStore ?? PrefsUploadDraftStore(),
         _notify = uploadNotify ?? createUploadNotify(),
         _editStash = editStash ?? PaperEditStash(),
+        _figureDisk = figureDiskCache ?? FigureDiskCache(),
         _translateEnabled = translateEnabled;
 
   final AsrClient _client;
   final UploadDraftStore _drafts;
   final UploadNotify _notify;
   final PaperEditStash _editStash;
+  final FigureDiskCache _figureDisk;
   bool Function()? _translateEnabled;
 
   /// Wire after [TranslateController] exists (app root).
@@ -62,6 +66,12 @@ class LibraryController extends ChangeNotifier {
   }
 
   PaperEditStash get editStash => _editStash;
+  FigureDiskCache get figureDiskCache => _figureDisk;
+
+  /// design/171 — bind disk cache to signed-in uid (no cross-user reads).
+  void bindFigureDiskUid(String? uid) {
+    _figureDisk.bindUid(uid);
+  }
   BookmarkController? _bookmarks;
   AnnotationController? _annotations;
 
@@ -220,6 +230,49 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  /// design/171 — fill empty imageSrc from on-device PNG cache.
+  Future<({int hit, int miss})> _injectFiguresFromDisk(ReadingSession hs) async {
+    var hit = 0;
+    var miss = 0;
+    final ch = hs.contentHash;
+    if (ch.isNotEmpty) {
+      await _figureDisk.ensureContentHash(hs.cacheId, ch);
+    }
+    for (final f in hs.figures) {
+      if (f.id.isEmpty) continue;
+      if (f.imageSrc.trim().isNotEmpty) {
+        hit++;
+        continue;
+      }
+      final url = await _figureDisk.readDataUrl(hs.cacheId, f.id);
+      if (url != null && url.isNotEmpty) {
+        f.imageSrc = url;
+        hit++;
+      } else {
+        miss++;
+      }
+    }
+    return (hit: hit, miss: miss);
+  }
+
+  Future<void> _persistFiguresFromWindowRows(
+    String cacheId,
+    List<Map<String, dynamic>> rows, {
+    String contentHash = '',
+  }) async {
+    for (final row in rows) {
+      final id = '${row['id'] ?? ''}'.trim();
+      final src = '${row['image_src'] ?? ''}'.trim();
+      if (id.isEmpty || src.isEmpty) continue;
+      await _figureDisk.writeDataUrl(
+        cacheId,
+        figureId: id,
+        imageSrc: src,
+        contentHash: contentHash,
+      );
+    }
+  }
+
   Future<void> _runFigureHydrate(String cacheId) async {
     final cid = cacheId.trim();
     if (cid.isEmpty) return;
@@ -295,6 +348,18 @@ class LibraryController extends ChangeNotifier {
     if (session?.cacheId == cid) {
       hs.preserveClientStateFrom(session);
     }
+    // design/171 — disk before network (survives process kill).
+    final disk = await _injectFiguresFromDisk(hs);
+    // Persist any RAM-only bytes (prior hydrate) onto disk.
+    for (final f in hs.figures) {
+      if (f.id.isEmpty || f.imageSrc.trim().isEmpty) continue;
+      await _figureDisk.writeDataUrl(
+        cid,
+        figureId: f.id,
+        imageSrc: f.imageSrc,
+        contentHash: hs.contentHash,
+      );
+    }
     _hydrateSessions[cid] = hs;
 
     var filled = countFilledFromSrcList(hs.figures.map((f) => f.imageSrc));
@@ -317,7 +382,9 @@ class LibraryController extends ChangeNotifier {
         'filled': filled,
         'failed': 0,
         'attempt_n': attempt,
-        'source': 'hydrate_bg',
+        'source': disk.miss == 0 && filled >= hs.figureCount ? 'disk' : 'hydrate_bg',
+        'disk_hit_n': disk.hit,
+        'disk_miss_n': disk.miss,
       },
     );
     notifyListeners();
@@ -339,7 +406,9 @@ class LibraryController extends ChangeNotifier {
           'filled': filled,
           'failed': 0,
           'attempt_n': attempt,
-          'source': 'hydrate_bg',
+          'source': 'disk',
+          'disk_hit_n': disk.hit,
+          'disk_miss_n': disk.miss,
         },
       );
       notifyListeners();
@@ -371,6 +440,11 @@ class LibraryController extends ChangeNotifier {
         if (session?.cacheId == cid) {
           session!.mergeFigureWindow(window.figures);
         }
+        await _persistFiguresFromWindowRows(
+          cid,
+          window.figures,
+          contentHash: live.contentHash,
+        );
         final newly = <int>{};
         for (final row in window.figures) {
           final src = '${row['image_src'] ?? ''}'.trim();
@@ -1191,6 +1265,10 @@ class LibraryController extends ChangeNotifier {
           },
         );
         await _editStash.purge(id);
+        await _figureDisk.purge(id);
+        _hydrateSessions.remove(id);
+        _figureHydrate.remove(id);
+        _hydrateDismissed.remove(id);
         await _bookmarks?.purgePaper(id);
         if (session?.cacheId == id) {
           clearOpened();
@@ -1828,11 +1906,14 @@ class LibraryController extends ChangeNotifier {
       }
 
       session = o;
+      // design/171 — disk inject before RAM hydrate merge.
+      await _injectFiguresFromDisk(o);
       // design/169n — reuse bytes already fetched on library hydrate.
       final hydrated = _hydrateSessions[o.cacheId];
       if (hydrated != null) {
         o.preserveClientStateFrom(hydrated);
       }
+      _hydrateSessions[o.cacheId] = o;
       _maybeShowQualityBanner(o);
       _maybeStartTranslatePoll(o);
       unawaited(_syncBookmarksForSession(o));
@@ -2027,6 +2108,17 @@ class LibraryController extends ChangeNotifier {
   Future<void> _prefetchFigureWindow() async {
     final s = session;
     if (s == null || !s.isValid || s.figureCount < 1) return;
+    // design/171 — skip network when ±1 already on session (disk/hydrate).
+    final lo = (s.figureIndex - 1).clamp(0, s.figureCount - 1);
+    final hi = (s.figureIndex + 1).clamp(0, s.figureCount - 1);
+    var needNet = false;
+    for (var i = lo; i <= hi; i++) {
+      if (s.figures[i].imageSrc.trim().isEmpty) {
+        needNet = true;
+        break;
+      }
+    }
+    if (!needNet) return;
     try {
       final window = await _client.fetchFigureWindow(
         sessionId: s.sessionId,
@@ -2040,6 +2132,11 @@ class LibraryController extends ChangeNotifier {
       final current = session;
       if (current == null || current.cacheId != s.cacheId) return;
       current.mergeFigureWindow(rows);
+      await _persistFiguresFromWindowRows(
+        current.cacheId,
+        rows,
+        contentHash: current.contentHash,
+      );
       final emptyN = rows
           .where((r) => '${r['image_src'] ?? ''}'.trim().isEmpty)
           .length;
@@ -2196,6 +2293,12 @@ class LibraryController extends ChangeNotifier {
     _activeContentHash = null;
     _activeUploadId = null;
     _activeJobId = null;
+    // design/171 — clear RAM hydrate; keep disk for same-uid re-login.
+    _hydrateSessions.clear();
+    _figureHydrate.clear();
+    _hydrateQueue.clear();
+    _hydrateDismissed.clear();
+    _figureDisk.bindUid(null);
     await _cancelWorkmanager();
     await _editStash.purgeAll();
     await _drafts.clear();

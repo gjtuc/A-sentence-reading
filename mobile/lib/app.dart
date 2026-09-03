@@ -112,6 +112,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       await _library.clearAll();
     }
     _boundLibraryUid = uid;
+    _library.bindFigureDiskUid(uid);
     await _shadowing.bindUid(uid);
     await _translate.bindUid(uid);
     await _citePanel.bindUid(uid);

@@ -192,6 +192,7 @@ class ReadingSession {
     this.documentCitation = const DocumentCitation(),
     this.supplementaryMerged = false,
     this.translatePending = false,
+    this.contentHash = '',
   }) {
     clampIndices();
   }
@@ -254,6 +255,7 @@ class ReadingSession {
       documentCitation: parseDocumentCitation(json['document_citation']),
       supplementaryMerged: json['supplementary_merged'] == true,
       translatePending: json['translate_pending'] == true,
+      contentHash: '${json['content_hash'] ?? ''}'.trim().toLowerCase(),
     );
   }
 
@@ -274,6 +276,8 @@ class ReadingSession {
   final bool supplementaryMerged;
   /// design/99+129 — server is backfilling KO after /open.
   final bool translatePending;
+  /// design/171 — paper content hash for figure disk cache invalidation.
+  final String contentHash;
 
   bool get hasAnyTranslation {
     for (final s in sentences) {
