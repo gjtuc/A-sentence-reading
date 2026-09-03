@@ -122,6 +122,23 @@ def test_session_and_hook_scripts_exist() -> None:
     assert "alwaysApply: true" in rule
 
 
+def test_design_173_implementation_hazards_locked() -> None:
+    """design/173 — hazards checklist must stay in repo (173a/b/c 착수 전)."""
+    path = ROOT / "docs" / "design" / "173-capacity-isolation-roadmap.md"
+    assert path.is_file()
+    text = path.read_text(encoding="utf-8")
+    assert "Implementation hazards (locked" in text
+    assert "invalidate 필수 write 경로" in text
+    assert "173a → 173b → 173c" in text
+    assert "Deny 후에도 TTL 동안 유료 통과" in text
+    assert "ASR_ACCESS_GATE_TTL_S=0" in text
+    rule = (ROOT / ".cursor" / "rules" / "deploy-live-guard.mdc").read_text(
+        encoding="utf-8"
+    )
+    assert "173-capacity-isolation-roadmap" in rule
+    assert "Implementation hazards" in rule
+
+
 def test_hook_emits_deny_json_for_stale_asr_deploy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

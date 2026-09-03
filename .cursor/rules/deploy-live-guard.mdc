@@ -58,4 +58,4 @@ python scripts/verify_live_status.py --require-azure-layout --min-pipeline rich-
 
 ## 문서
 
-`docs/design/155-deploy-live-guard.md`
+`docs/design/155-deploy-live-guard.md` · `docs/design/173-capacity-isolation-roadmap.md` (**Implementation hazards** — 173a 착수 전 필독)
