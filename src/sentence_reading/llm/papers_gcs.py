@@ -33,10 +33,16 @@ from sentence_reading.cache.paper_cache import (
 from sentence_reading.llm.gcs_sync import (
     delete_bytes,
     download_bytes,
+    download_bytes_generation,
     gcs_client_ready,
     gcs_config,
+    list_blobs_under,
+    papers_index_cas_enabled,
+    papers_prefix_delete_enabled,
+    papers_supersede_gc_enabled,
     personal_object_name,
     upload_bytes,
+    upload_bytes_generation_match,
 )
 from sentence_reading.llm.typography import PIPELINE_VERSION
 
@@ -60,6 +66,14 @@ PAPER_SOURCE_MAX_BYTES = SOURCE_MAX_BYTES
 
 def papers_index_object() -> str | None:
     return personal_object_name("papers", "index.json")
+
+
+def paper_prefix_object(cache_id: str) -> str | None:
+    """design/175 — GCS directory prefix for one paper (no trailing slash)."""
+    cid = (cache_id or "").strip()
+    if not _CACHE_ID_RE.match(cid):
+        return None
+    return personal_object_name("papers", cid)
 
 
 def paper_session_object(cache_id: str) -> str | None:
@@ -168,6 +182,7 @@ def _maybe_purge_expired() -> list[str]:
 
 
 def upload_remote_index(index: dict[str, Any]) -> bool:
+    """Rewrite personal papers index (legacy non-CAS path). Prefer upload_remote_index_cas."""
     obj = papers_index_object()
     if not obj:
         return False
@@ -187,6 +202,63 @@ def upload_remote_index(index: dict[str, Any]) -> bool:
     if ok:
         invalidate_remote_index_cache()
     return ok
+
+
+def upload_remote_index_cas(
+    build_entries,
+    *,
+    max_retries: int = 8,
+) -> bool:
+    """
+    design/175 — download index → build_entries(remote_entries) → CAS upload.
+    ``build_entries`` receives the current remote entry list and returns the next list.
+    """
+    obj = papers_index_object()
+    if not obj:
+        return False
+    use_cas = papers_index_cas_enabled()
+    attempts = max(1, int(max_retries))
+    for _ in range(attempts):
+        if use_cas:
+            raw, gen = download_bytes_generation(obj)
+        else:
+            raw = download_bytes(obj)
+            gen = 0
+        remote = _decode_index(raw)
+        remote_entries = list(remote.get("entries") or [])
+        try:
+            entries = build_entries(remote_entries)
+        except Exception:  # noqa: BLE001
+            return False
+        if not isinstance(entries, list):
+            entries = []
+        payload = {"version": 1, "entries": entries}
+        try:
+            out = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        except (TypeError, ValueError):
+            return False
+        if len(out) > PAPER_INDEX_MAX_BYTES:
+            return False
+        if not use_cas:
+            ok = upload_bytes(obj, out, content_type="application/json; charset=utf-8")
+            if ok:
+                invalidate_remote_index_cache()
+            return bool(ok)
+        status = upload_bytes_generation_match(
+            obj,
+            out,
+            if_generation_match=int(gen),
+            content_type="application/json; charset=utf-8",
+        )
+        if status == "ok":
+            invalidate_remote_index_cache()
+            return True
+        if status == "conflict":
+            continue
+        return False
+    return False
 
 
 def merge_index_entries(a: list[Any], b: list[Any]) -> list[dict[str, Any]]:
@@ -227,6 +299,122 @@ def merge_index_entries(a: list[Any], b: list[Any]) -> list[dict[str, Any]]:
     out = [by_id[i] for i in kept_ids if i in by_id]
     out.sort(key=lambda e: str(e.get("updated_at") or ""), reverse=True)
     return out
+
+
+def merge_index_dropped_ids(
+    *seqs: list[Any],
+    merged: list[Any],
+) -> list[str]:
+    """Ids present in inputs but absent after merge (design/175 supersede losers)."""
+    before: set[str] = set()
+    for seq in seqs:
+        if not isinstance(seq, list):
+            continue
+        for e in seq:
+            if not isinstance(e, dict):
+                continue
+            eid = str(e.get("id") or "").strip()
+            if _CACHE_ID_RE.match(eid):
+                before.add(eid)
+    after: set[str] = set()
+    if isinstance(merged, list):
+        for e in merged:
+            if not isinstance(e, dict):
+                continue
+            eid = str(e.get("id") or "").strip()
+            if _CACHE_ID_RE.match(eid):
+                after.add(eid)
+    return sorted(before - after)
+
+
+def wipe_paper_prefix(cache_id: str) -> dict[str, Any]:
+    """design/175 — list+delete every object under papers/{id}/."""
+    cid = (cache_id or "").strip()
+    empty = {
+        "ok": False,
+        "listed_n": 0,
+        "deleted_n": 0,
+        "failed_n": 0,
+        "residual_n": 0,
+        "skipped": 1,
+    }
+    if not _CACHE_ID_RE.match(cid):
+        return empty
+    prefix = paper_prefix_object(cid)
+    if not prefix:
+        return empty
+    if not papers_prefix_delete_enabled():
+        return {**empty, "skipped": 1, "ok": True}
+    ready, _msg = gcs_client_ready()
+    if not gcs_config().enabled or not ready:
+        return empty
+    # Prefer module-level list/delete so tests can monkeypatch papers_gcs bindings.
+    listed = list_blobs_under(prefix + "/")
+    deleted_n = 0
+    failed_n = 0
+    for name in listed:
+        if delete_bytes(name):
+            deleted_n += 1
+        else:
+            failed_n += 1
+    residual = list_blobs_under(prefix + "/")
+    residual_n = len(residual)
+    return {
+        "ok": residual_n == 0 and failed_n == 0,
+        "listed_n": len(listed),
+        "deleted_n": int(deleted_n),
+        "failed_n": int(failed_n),
+        "residual_n": residual_n,
+        "skipped": 0,
+    }
+
+
+def gc_superseded_paper(cache_id: str, *, winner_id: str = "") -> dict[str, Any]:
+    """design/175 — wipe loser prefix after title_key supersede; never touches index."""
+    cid = (cache_id or "").strip()
+    stats = {
+        "ok": False,
+        "cache_id": cid,
+        "winner_id": str(winner_id or "").strip()[:64],
+        "residual_n": 0,
+        "deleted_n": 0,
+        "skipped": 0,
+    }
+    if not papers_supersede_gc_enabled():
+        stats["skipped"] = 1
+        stats["ok"] = True
+        return stats
+    wipe = wipe_paper_prefix(cid)
+    stats.update(
+        {
+            "ok": bool(wipe.get("ok")),
+            "residual_n": int(wipe.get("residual_n") or 0),
+            "deleted_n": int(wipe.get("deleted_n") or 0),
+            "listed_n": int(wipe.get("listed_n") or 0),
+            "failed_n": int(wipe.get("failed_n") or 0),
+            "skipped": int(wipe.get("skipped") or 0),
+        }
+    )
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        eb.emit(
+            "papers_supersede_gc",
+            severity="boundary",
+            cache_id=cid,
+            stage="supersede_gc",
+            details={
+                "winner_id": stats["winner_id"],
+                "deleted_n": stats["deleted_n"],
+                "residual_n": stats["residual_n"],
+                "skipped": stats["skipped"],
+            },
+            ok=bool(stats["ok"]),
+            code="papers_supersede_gc",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return stats
 
 
 def _merge_session_meta_richer(remote: dict, local: dict) -> dict:
@@ -464,19 +652,32 @@ def upload_paper_cache(cache_id: str) -> bool:
                 )
                 upload_bytes(src_obj, raw, content_type=ctype)
 
-    # index: local entry ∪ remote
+    # index: local entry ∪ remote (CAS) · supersede losers get prefix GC (design/175)
     local_entries = list(_read_index().get("entries") or [])
     local_entry = next(
         (e for e in local_entries if isinstance(e, dict) and e.get("id") == cid),
         None,
     )
-    remote = download_remote_index()
-    merged = merge_index_entries(
-        remote.get("entries") or [],
-        [local_entry] if local_entry else local_entries,
-    )
-    if not upload_remote_index({"version": 1, "entries": merged}):
+    local_side: list[Any] = [local_entry] if local_entry else list(local_entries)
+    losers_final: list[str] = []
+
+    def _build(remote_entries: list[Any]) -> list[dict[str, Any]]:
+        nonlocal losers_final
+        merged = merge_index_entries(remote_entries, local_side)
+        losers_final = [
+            x
+            for x in merge_index_dropped_ids(remote_entries, local_side, merged=merged)
+            if x != cid
+        ]
+        return merged
+
+    if not upload_remote_index_cas(_build):
+        # Objects may already be written — mark fail; caller/174 must not claim listed.
         return _fail("index_upload_fail")
+
+    if losers_final and papers_supersede_gc_enabled():
+        for loser in losers_final:
+            gc_superseded_paper(loser, winner_id=cid)
     return True
 
 
@@ -1016,21 +1217,34 @@ def delete_paper_cache(cache_id: str) -> bool:
 
 def delete_paper_cache_stats(cache_id: str) -> dict[str, Any]:
     """
-    design/169g phase 4 — same delete as [delete_paper_cache] with object counts.
-    Returns ``{ok, object_n, figure_n, skipped}`` (no paper text).
+    design/169g phase 4 + design/175 — prefix wipe then CAS index remove.
+    Returns ``{ok, object_n, figure_n, residual_n, skipped}`` (no paper text).
+    ``ok`` only when residual_n==0 and index rewrite succeeded.
     """
     ready, msg = gcs_client_ready()
     if not gcs_config().enabled or not ready:
         log.debug("papers delete skip: %s", msg)
-        return {"ok": False, "object_n": 0, "figure_n": 0, "skipped": 1}
+        return {
+            "ok": False,
+            "object_n": 0,
+            "figure_n": 0,
+            "residual_n": 0,
+            "skipped": 1,
+        }
     cid = (cache_id or "").strip()
     if not _CACHE_ID_RE.match(cid):
-        return {"ok": False, "object_n": 0, "figure_n": 0, "skipped": 1}
+        return {
+            "ok": False,
+            "object_n": 0,
+            "figure_n": 0,
+            "residual_n": 0,
+            "skipped": 1,
+        }
 
     object_n = 0
     figure_n = 0
 
-    # session 읽어 figure 목록 확보 (없어도 index 정리는 진행)
+    # Legacy meta walk (fast path for known paths) then mandatory prefix wipe.
     sess_obj = paper_session_object(cid)
     session_raw = download_bytes(sess_obj) if sess_obj else None
     meta: dict[str, Any] = {}
@@ -1041,16 +1255,14 @@ def delete_paper_cache_stats(cache_id: str) -> dict[str, Any]:
                 meta = parsed
         except (UnicodeDecodeError, json.JSONDecodeError):
             meta = {}
-        if sess_obj:
-            delete_bytes(sess_obj)
+        if sess_obj and delete_bytes(sess_obj):
             object_n += 1
 
     for fig in meta.get("figures") or []:
         if not isinstance(fig, dict):
             continue
         fig_obj = paper_figure_object(cid, str(fig.get("file") or ""))
-        if fig_obj:
-            delete_bytes(fig_obj)
+        if fig_obj and delete_bytes(fig_obj):
             object_n += 1
             figure_n += 1
 
@@ -1058,26 +1270,59 @@ def delete_paper_cache_stats(cache_id: str) -> dict[str, Any]:
     if not src_name:
         src_name = source_filename_for(str(meta.get("source") or "pdf"))
     src_obj = paper_source_object(cid, src_name.split("/")[-1] if src_name else "")
-    if src_obj:
-        delete_bytes(src_obj)
+    if src_obj and delete_bytes(src_obj):
         object_n += 1
-    # 다른 확장자 잔여물
     other = "source.docx" if src_name.endswith(".pdf") else "source.pdf"
     other_obj = paper_source_object(cid, other)
-    if other_obj:
-        delete_bytes(other_obj)
+    if other_obj and delete_bytes(other_obj):
+        object_n += 1
+    for layout_name in ("layout_map.json", "slot_plan.json"):
+        layout_obj = paper_layout_json_object(cid, layout_name)
+        if layout_obj and delete_bytes(layout_obj):
+            object_n += 1
+
+    wipe = wipe_paper_prefix(cid)
+    object_n += int(wipe.get("deleted_n") or 0)
+    residual_n = int(wipe.get("residual_n") or 0)
+
+    def _build(remote_entries: list[Any]) -> list[dict[str, Any]]:
+        return [
+            e
+            for e in (remote_entries or [])
+            if isinstance(e, dict) and e.get("id") != cid
+        ]
+
+    index_ok = bool(upload_remote_index_cas(_build))
+    if index_ok:
         object_n += 1
 
-    remote = download_remote_index()
-    entries = [
-        e
-        for e in (remote.get("entries") or [])
-        if isinstance(e, dict) and e.get("id") != cid
-    ]
-    ok = bool(upload_remote_index({"version": 1, "entries": entries}))
-    if ok:
-        object_n += 1  # index rewrite counts as one durable write
-    # design/169i I2 — invalidate session locator (counts; no paper text)
+    # Re-check residual after index update (dense).
+    if papers_prefix_delete_enabled():
+        prefix = paper_prefix_object(cid)
+        if prefix:
+            residual_n = len(list_blobs_under(prefix + "/"))
+
+    ok = bool(index_ok) and residual_n == 0
+    if residual_n > 0:
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            eb.emit(
+                "papers_delete_residual",
+                severity="error",
+                cache_id=cid,
+                stage="delete",
+                details={
+                    "residual_n": residual_n,
+                    "deleted_n": int(wipe.get("deleted_n") or 0),
+                    "index_ok": bool(index_ok),
+                },
+                ok=False,
+                code="papers_delete_residual",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     try:
         from sentence_reading.llm import artifact_ids as aid
 
@@ -1096,6 +1341,7 @@ def delete_paper_cache_stats(cache_id: str) -> dict[str, Any]:
         "ok": ok,
         "object_n": int(object_n),
         "figure_n": int(figure_n),
+        "residual_n": int(residual_n),
         "skipped": 0,
     }
 
@@ -1104,4 +1350,7 @@ def papers_gcs_status_fields() -> dict[str, Any]:
     return {
         "papers_sync": True,
         "papers_index": papers_index_object(),
+        "papers_prefix_delete": papers_prefix_delete_enabled(),
+        "papers_supersede_gc": papers_supersede_gc_enabled(),
+        "papers_index_cas": papers_index_cas_enabled(),
     }

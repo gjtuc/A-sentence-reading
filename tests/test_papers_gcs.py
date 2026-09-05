@@ -17,6 +17,9 @@ from sentence_reading.llm import papers_gcs as pg
 def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setenv("ASR_GCS_BUCKET", "b")
     monkeypatch.setenv("ASR_GCS_PREFIX", "asr")
+    monkeypatch.setenv("ASR_PAPERS_INDEX_CAS", "0")
+    monkeypatch.setenv("ASR_PAPERS_PREFIX_DELETE", "1")
+    monkeypatch.setenv("ASR_PAPERS_SUPERSEDE_GC", "1")
     root = tmp_path / "papers"
     root.mkdir()
     monkeypatch.setattr(pg, "cache_root", lambda: root)
@@ -149,13 +152,15 @@ def test_status_and_list_api(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert st["version"] == "0.3.157"
     assert st.get("pipeline_version")
     papers = client.get("/api/cache/papers").json()["papers"]
     assert papers[0]["id"] == "y"
 
 
 def test_delete_paper_updates_remote_index(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ASR_PAPERS_INDEX_CAS", "0")
+    monkeypatch.setenv("ASR_PAPERS_PREFIX_DELETE", "1")
     monkeypatch.setattr(pg, "gcs_client_ready", lambda: (True, "ok"))
     monkeypatch.setattr(
         pg, "gcs_config", lambda: type("C", (), {"enabled": True, "bucket": "b", "prefix": "asr"})()
@@ -168,6 +173,7 @@ def test_delete_paper_updates_remote_index(monkeypatch: pytest.MonkeyPatch) -> N
     }
     store[f"asr/papers/{cid}/session.json"] = json.dumps(sess).encode()
     store[f"asr/papers/{cid}/figures/a.png"] = b"x"
+    store[f"asr/papers/{cid}/layout_map.json"] = b"{}"
     store["asr/papers/index.json"] = json.dumps(
         {"version": 1, "entries": [{"id": cid, "title": "T", "title_key": "t", "source": "pdf"}]}
     ).encode()
@@ -183,11 +189,17 @@ def test_delete_paper_updates_remote_index(monkeypatch: pytest.MonkeyPatch) -> N
         store.pop(name, None)
         return True
 
+    def list_under(prefix: str):
+        p = prefix if prefix.endswith("/") else prefix + "/"
+        return [k for k in list(store.keys()) if k.startswith(p)]
+
     monkeypatch.setattr(pg, "upload_bytes", up)
     monkeypatch.setattr(pg, "download_bytes", down)
     monkeypatch.setattr(pg, "delete_bytes", delete)
+    monkeypatch.setattr(pg, "list_blobs_under", list_under)
     assert pg.delete_paper_cache(cid) is True
     assert f"asr/papers/{cid}/session.json" not in store
+    assert f"asr/papers/{cid}/layout_map.json" not in store
     idx = json.loads(store["asr/papers/index.json"])
     assert idx["entries"] == []
 

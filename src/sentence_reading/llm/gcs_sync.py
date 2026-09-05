@@ -270,6 +270,181 @@ def delete_bytes(full_object_name: str) -> bool:
         return False
 
 
+def _env_flag(name: str, *, default: bool = True) -> bool:
+    """design/175 — dense defaults ON; set 0/false/off to disable."""
+    raw = (os.environ.get(name) or "").strip().lower()
+    if not raw:
+        return default
+    return raw not in ("0", "false", "no", "off")
+
+
+def papers_prefix_delete_enabled() -> bool:
+    return _env_flag("ASR_PAPERS_PREFIX_DELETE", default=True)
+
+
+def papers_supersede_gc_enabled() -> bool:
+    return _env_flag("ASR_PAPERS_SUPERSEDE_GC", default=True)
+
+
+def papers_index_cas_enabled() -> bool:
+    return _env_flag("ASR_PAPERS_INDEX_CAS", default=True)
+
+
+def download_bytes_generation(
+    full_object_name: str, *, meter: bool = True
+) -> tuple[bytes | None, int]:
+    """
+    design/175 — (payload, generation). Missing object → (None, 0) for create CAS.
+    """
+    cfg = gcs_config()
+    if not cfg.enabled:
+        return None, 0
+    name = _assert_under_prefix(full_object_name)
+    if not name:
+        return None, 0
+    ready, msg = gcs_client_ready()
+    if not ready:
+        log.debug("gcs download+gen skipped: %s", msg)
+        return None, 0
+    try:
+        blob = _storage_client().bucket(cfg.bucket).blob(name)
+        data = blob.download_as_bytes()
+        gen = int(getattr(blob, "generation", None) or 0)
+        if data and meter:
+            try:
+                from sentence_reading.llm.usage_meter import record
+
+                record(gcs_ops=1, gcs_download_bytes=len(data))
+            except Exception:  # noqa: BLE001
+                pass
+        return (data if data else None), gen
+    except Exception as exc:  # noqa: BLE001
+        try:
+            from google.api_core import exceptions as gax
+
+            if isinstance(exc, gax.NotFound):
+                return None, 0
+        except ImportError:
+            pass
+        log.warning("gcs download+gen failed %s: %s", name, exc)
+        return None, 0
+
+
+def upload_bytes_generation_match(
+    full_object_name: str,
+    data: bytes,
+    *,
+    if_generation_match: int,
+    content_type: str = "application/octet-stream",
+    meter: bool = True,
+) -> str:
+    """
+    design/175 — CAS upload. Returns ``ok`` | ``conflict`` | ``fail``.
+    ``if_generation_match=0`` creates only if the object does not exist.
+    """
+    cfg = gcs_config()
+    if not cfg.enabled:
+        return "fail"
+    if not isinstance(data, (bytes, bytearray)) or len(data) == 0:
+        return "fail"
+    name = _assert_under_prefix(full_object_name)
+    if not name:
+        return "fail"
+    ready, msg = gcs_client_ready()
+    if not ready:
+        log.debug("gcs cas upload skipped: %s", msg)
+        return "fail"
+    try:
+        client = _storage_client()
+        blob = client.bucket(cfg.bucket).blob(name)
+        payload = bytes(data)
+        blob.upload_from_string(
+            payload,
+            content_type=content_type,
+            if_generation_match=int(if_generation_match),
+        )
+        if meter:
+            try:
+                from sentence_reading.llm.usage_meter import record
+
+                record(gcs_ops=1, gcs_upload_bytes=len(payload))
+            except Exception:  # noqa: BLE001
+                pass
+        return "ok"
+    except Exception as exc:  # noqa: BLE001
+        try:
+            from google.api_core import exceptions as gax
+
+            if isinstance(exc, (gax.PreconditionFailed, gax.Conflict)):
+                return "conflict"
+        except ImportError:
+            pass
+        # Some SDK paths raise google.cloud.exceptions
+        try:
+            from google.cloud import exceptions as gce
+
+            if isinstance(exc, (gce.PreconditionFailed, gce.Conflict)):
+                return "conflict"
+        except ImportError:
+            pass
+        log.warning("gcs cas upload failed %s: %s", name, exc)
+        return "fail"
+
+
+def list_blobs_under(full_prefix: str) -> list[str]:
+    """List full object names under prefix (design/175 prefix wipe)."""
+    cfg = gcs_config()
+    if not cfg.enabled:
+        return []
+    # Allow trailing slash for directory-like prefixes.
+    # Always list as prefix + "/" so we do not match sibling ids sharing a stem.
+    raw = (full_prefix or "").strip()
+    if not raw:
+        return []
+    base = raw.rstrip("/")
+    name = _assert_under_prefix(base)
+    if not name:
+        return []
+    prefix = name + "/"
+    ready, msg = gcs_client_ready()
+    if not ready:
+        log.debug("gcs list skipped: %s", msg)
+        return []
+    try:
+        client = _storage_client()
+        out: list[str] = []
+        for blob in client.bucket(cfg.bucket).list_blobs(prefix=prefix):
+            n = str(getattr(blob, "name", "") or "")
+            if n:
+                out.append(n)
+        return out
+    except Exception as exc:  # noqa: BLE001
+        log.warning("gcs list failed %s: %s", prefix, exc)
+        return []
+
+
+def delete_prefix(full_prefix: str) -> dict[str, int]:
+    """
+    design/175 — delete every object under prefix.
+    Returns ``{listed_n, deleted_n, failed_n, residual_n}``.
+    """
+    names = list_blobs_under(full_prefix)
+    deleted_n = 0
+    failed_n = 0
+    for n in names:
+        if delete_bytes(n):
+            deleted_n += 1
+        else:
+            failed_n += 1
+    residual = list_blobs_under(full_prefix)
+    return {
+        "listed_n": len(names),
+        "deleted_n": int(deleted_n),
+        "failed_n": int(failed_n),
+        "residual_n": len(residual),
+    }
+
+
 def gcs_status() -> dict[str, Any]:
     cfg = gcs_config()
     ready, message = gcs_client_ready()

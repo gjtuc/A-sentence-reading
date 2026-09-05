@@ -71,6 +71,9 @@ ALLOWED_KINDS = frozenset(
         "download_cache_fail",
         "papers_upload_fail",
         "library_list_miss",
+        "papers_supersede_gc",
+        "papers_delete_residual",
+        "papers_gcs_orphan_sample",
         'figures_prior_pull',
         # design/169m — lease / sweeper causality
         "lease_heartbeat",
