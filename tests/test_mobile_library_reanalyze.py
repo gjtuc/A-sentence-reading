@@ -17,7 +17,7 @@ DESIGN = ROOT / "docs" / "design" / "145-mobile-library-reanalyze.md"
 
 def test_status_version_pin() -> None:
     st = TestClient(app_mod.app).get("/api/status").json()
-    assert st["version"] == "0.3.85"
+    assert st["version"] == "0.3.156"
 
 
 def test_mobile_reanalyze_wiring() -> None:
@@ -35,7 +35,7 @@ def test_mobile_reanalyze_wiring() -> None:
     assert "reanalyzePaper" in ctrl
     assert "reanalyzing" in ctrl
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.85" in pub
+    assert "0.3.156" in pub
 
 
 def test_reanalyze_endpoint_has_paid_gate() -> None:

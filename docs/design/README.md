@@ -161,6 +161,7 @@
 | 171 | [171-device-figure-cache.md](171-device-figure-cache.md) | 폰 그림·표 영구 캐시 · 삭제 시 purge |
 | 172 | [172-access-sticky-on-timeout.md](172-access-sticky-on-timeout.md) | access/status 타임아웃 시 sticky unlock · 승인대기 튕김 방지 |
 | 173 | [173-capacity-isolation-roadmap.md](173-capacity-isolation-roadmap.md) | 용량·격리 로드맵 (access TTL → Run bump → worker) |
+| 174 | [174-worker-gcs-uid-library-list.md](174-worker-gcs-uid-library-list.md) | worker GCS uid 바인딩 · 목록 miss · papers_upload_fail (**0.3.156**) |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_stt_browser() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.85"
+    assert st["version"] == "0.3.156"
     assert st["stt_browser"] is True
     assert st["translate_pipeline"] is True
 
@@ -51,7 +51,7 @@ def test_ui_assets_contract() -> None:
     assert "AsrSttPractice" in app_js
     served = TestClient(app).get("/").text
     assert "stt_practice.js?v=0.3.85" in served
-    assert "app.js?v=0.3.85" in served
+    assert "app.js?v=0.3.156" in served
 
 
 def test_normalize_and_tokenize_edges() -> None:

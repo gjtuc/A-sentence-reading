@@ -1438,13 +1438,31 @@ def save_paper_session(
             slot_plan=layout_artifacts.get("slot_plan"),
             prior_slot_plan=prior_slot_plan,
         )
-    # WHY: 보관 직후 GCS push — 실패해도 로컬 보관은 유지
+    # WHY: 보관 직후 GCS push — Live에서는 index 등재까지 확인 (design/174).
     try:
-        from sentence_reading.llm.papers_gcs import upload_paper_cache
+        from sentence_reading.llm.auth_google import auth_enabled
+        from sentence_reading.llm.papers_gcs import (
+            ensure_paper_in_remote_index,
+            gcs_papers_ready,
+            upload_paper_cache,
+        )
 
-        upload_paper_cache(cache_id)
-    except Exception:
-        pass
+        if gcs_papers_ready() and auth_enabled():
+            new_entry["_gcs_listed"] = bool(
+                ensure_paper_in_remote_index(cache_id, retries=1)
+            )
+        else:
+            upload_paper_cache(cache_id)
+            new_entry["_gcs_listed"] = True
+    except Exception:  # noqa: BLE001
+        try:
+            from sentence_reading.llm.auth_google import auth_enabled
+            from sentence_reading.llm.papers_gcs import gcs_papers_ready
+
+            if gcs_papers_ready() and auth_enabled():
+                new_entry["_gcs_listed"] = False
+        except Exception:  # noqa: BLE001
+            pass
     # design/169d — sample save boundary (no paper text).
     try:
         import random

@@ -24,7 +24,7 @@ DEBUG_MANIFEST = ROOT / "mobile" / "android" / "app" / "src" / "debug" / "Androi
 
 def test_status_live_only_and_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.85"
+    assert st["version"] == "0.3.156"
     assert st["live_only"] is True
     assert st["mobile_live_only"] is True
     assert st["pipeline_version"] == "rich-v24"
@@ -46,7 +46,7 @@ def test_docs_and_clients_no_local_surface() -> None:
     assert "로컬 실행" not in readme
     assert "8770" not in readme
     assert "asr-sentence-reading-984608876300" in readme
-    assert "0.3.85" in PUB.read_text(encoding="utf-8")
+    assert "0.3.156" in PUB.read_text(encoding="utf-8")
     cfg = CONFIG.read_text(encoding="utf-8")
     assert "fromEnvironment" not in cfg
     assert "ASR_API_BASE" not in cfg

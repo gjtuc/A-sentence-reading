@@ -267,26 +267,49 @@ def _merge_session_meta_richer(remote: dict, local: dict) -> dict:
 
 def upload_paper_cache(cache_id: str) -> bool:
     """로컬 보관본 → GCS (session + figures + index merge)."""
+    def _fail(reason: str) -> bool:
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+            from sentence_reading.llm.auth_google import current_gcs_uid
+
+            r = str(reason or "fail").strip().lower()[:64] or "fail"
+            if not re.match(r"^[a-z][a-z0-9_]{0,63}$", r):
+                r = "fail"
+            eb.emit(
+                "papers_upload_fail",
+                severity="error",
+                cache_id=str(cache_id or "").strip()[:64],
+                owner_uid=str(current_gcs_uid() or ""),
+                stage="upload",
+                details={"reason": r},
+                ok=False,
+                code="papers_upload_fail",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
     ready, msg = gcs_client_ready()
     if not gcs_config().enabled or not ready:
         log.debug("papers upload skip: %s", msg)
         return False
     cid = (cache_id or "").strip()
     if not _CACHE_ID_RE.match(cid):
-        return False
+        return _fail("bad_cache_id")
     paper_dir = cache_root() / cid
     session_path = paper_dir / _SESSION_NAME
     if not session_path.is_file():
-        return False
+        return _fail("no_session_file")
     try:
         session_raw = session_path.read_bytes()
     except OSError:
-        return False
+        return _fail("session_read_fail")
     if not session_raw or len(session_raw) > PAPER_SESSION_MAX_BYTES:
-        return False
+        return _fail("session_too_large")
     sess_obj = paper_session_object(cid)
     if not sess_obj:
-        return False
+        # auth on + no uid → personal path None (design/174).
+        return _fail("no_uid_or_object")
     remote_raw = download_bytes(sess_obj)
     if remote_raw:
         try:
@@ -350,7 +373,7 @@ def upload_paper_cache(cache_id: str) -> bool:
     if not upload_bytes(
         sess_obj, session_raw, content_type="application/json; charset=utf-8"
     ):
-        return False
+        return _fail("session_upload_fail")
     # design/169i I1 — local → gcs session transfer
     try:
         import time as _time
@@ -452,7 +475,71 @@ def upload_paper_cache(cache_id: str) -> bool:
         remote.get("entries") or [],
         [local_entry] if local_entry else local_entries,
     )
-    return upload_remote_index({"version": 1, "entries": merged})
+    if not upload_remote_index({"version": 1, "entries": merged}):
+        return _fail("index_upload_fail")
+    return True
+
+
+def ensure_paper_in_remote_index(cache_id: str, *, retries: int = 1) -> bool:
+    """Push paper to personal GCS index and confirm the id is listed (design/174).
+
+    When GCS is off / not ready → True (local-only). Auth on without uid → False.
+    """
+    from sentence_reading.llm.auth_google import auth_enabled, current_gcs_uid
+
+    cid = (cache_id or "").strip()
+    if not _CACHE_ID_RE.match(cid):
+        return False
+    ready, _msg = gcs_client_ready()
+    if not gcs_config().enabled or not ready:
+        return True
+    if auth_enabled() and not current_gcs_uid():
+        # Same hole as upload with no personal path.
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            eb.emit(
+                "papers_upload_fail",
+                severity="error",
+                cache_id=cid,
+                stage="ensure",
+                details={"reason": "no_uid"},
+                ok=False,
+                code="papers_upload_fail",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+    attempts = max(1, int(retries) + 1)
+    for _ in range(attempts):
+        invalidate_remote_index_cache()
+        if not upload_paper_cache(cid):
+            continue
+        invalidate_remote_index_cache()
+        remote = download_remote_index()
+        ids = {
+            e.get("id")
+            for e in (remote.get("entries") or [])
+            if isinstance(e, dict) and e.get("id")
+        }
+        if cid in ids:
+            return True
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        eb.emit(
+            "papers_upload_fail",
+            severity="error",
+            cache_id=cid,
+            owner_uid=str(current_gcs_uid() or ""),
+            stage="ensure",
+            details={"reason": "index_miss_after_upload"},
+            ok=False,
+            code="papers_upload_fail",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return False
 
 
 def download_paper_cache(

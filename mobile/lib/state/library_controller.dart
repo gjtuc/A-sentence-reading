@@ -1117,21 +1117,47 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  Future<void> refresh() async {
+  /// design/174 — after ingest/reanalyze: refresh, then fresh=1 once; emit on miss.
+  Future<bool> _confirmCacheInLibrary(
+    String cacheId, {
+    String jobId = '',
+    String stage = 'after_ingest',
+  }) async {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return false;
+    await refresh();
+    if (papers.any((p) => p.id == cid)) return true;
+    await refresh(fresh: true);
+    final seen = papers.any((p) => p.id == cid);
+    if (!seen) {
+      asrEvidenceBus?.record(
+        'library_list_miss',
+        severity: 'consistency',
+        cacheId: cid,
+        jobId: jobId,
+        ok: false,
+        stage: stage.length > 40 ? stage.substring(0, 40) : stage,
+        details: {'paper_n': papers.length},
+      );
+    }
+    return seen;
+  }
+
+  Future<void> refresh({bool fresh = false}) async {
     loading = true;
     error = null;
     notifyListeners();
     try {
-      final fetched = await _client.listPapers();
+      final fetched = await _client.listPapers(fresh: fresh);
       papers = await _applySavedOrder(fetched);
       final n = papers.length;
       // design/169d — always on fail path; sample success 1/5 via count emit.
       asrEvidenceBus?.record(
         'library_refresh',
         severity: 'lifecycle',
-        stage: 'ok',
+        stage: fresh ? 'ok_fresh' : 'ok',
         ok: true,
-        details: {'paper_n': n},
+        details: {'paper_n': n, 'fresh': fresh ? 1 : 0},
       );
       asrEvidenceBus?.record(
         'library_count',
@@ -1396,13 +1422,16 @@ class LibraryController extends ChangeNotifier {
       _endIngestHang();
       await _drafts.clear();
       _autoResumeGate.reset();
-      await refresh();
       if (result.cacheId.isEmpty) {
         error = '재분석은 끝났지만 보관함에 반영되지 않았습니다.';
         notifyListeners();
         return false;
       }
-      final seen = papers.any((p) => p.id == result.cacheId);
+      final seen = await _confirmCacheInLibrary(
+        result.cacheId,
+        jobId: result.jobId,
+        stage: 'after_reanalyze',
+      );
       if (!seen) {
         error = '재분석은 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
         notifyListeners();
@@ -2820,8 +2849,11 @@ class LibraryController extends ChangeNotifier {
       await _drafts.clear();
       await _cancelWorkmanager();
       _autoResumeGate.reset();
-      await refresh();
-      final seen = papers.any((p) => p.id == result.cacheId);
+      final seen = await _confirmCacheInLibrary(
+        result.cacheId,
+        jobId: result.jobId,
+        stage: 'after_upload',
+      );
       if (!seen) {
         error = '업로드는 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
         await _notify.showFailed(message: error!);
@@ -2967,8 +2999,11 @@ class LibraryController extends ChangeNotifier {
       await _drafts.clear();
       await _cancelWorkmanager();
       _autoResumeGate.reset();
-      await refresh();
-      final seen = papers.any((p) => p.id == result.cacheId);
+      final seen = await _confirmCacheInLibrary(
+        result.cacheId,
+        jobId: result.jobId,
+        stage: 'after_upload',
+      );
       if (!seen) {
         error = '업로드는 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
         await _notify.showFailed(message: error!);

@@ -17,13 +17,13 @@ PUB = ROOT / "mobile" / "pubspec.yaml"
 
 def test_status_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.85"
+    assert st["version"] == "0.3.156"
 
 
 def test_wiring_left_is_next() -> None:
     assert DESIGN.is_file()
     assert "0.3.59" in DESIGN.read_text(encoding="utf-8")
-    assert "0.3.85" in PUB.read_text(encoding="utf-8")
+    assert "0.3.156" in PUB.read_text(encoding="utf-8")
     d95 = D95.read_text(encoding="utf-8")
     assert "왼쪽→다음" in d95 or "swipe left = **next**" in d95
     dart = READER.read_text(encoding="utf-8")

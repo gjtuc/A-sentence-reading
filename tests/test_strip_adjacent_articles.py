@@ -91,13 +91,13 @@ def _single_paper(path: Path) -> None:
 
 def test_status_and_docs_pin_strip_adjacent():
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.85"
+    assert st["version"] == "0.3.156"
     assert st["pipeline_version"] == "rich-v24"
     assert st["strip_adjacent"] is True
     assert st["mobile_strip_adjacent"] is True
     assert PIPELINE_VERSION == "rich-v24"
     assert "rich-v24" in TYPO.read_text(encoding="utf-8")
-    assert "0.3.85" in PUB.read_text(encoding="utf-8")
+    assert "0.3.156" in PUB.read_text(encoding="utf-8")
     assert DESIGN.is_file()
     assert "ASR_STRIP_ADJACENT" in DESIGN.read_text(encoding="utf-8")
 

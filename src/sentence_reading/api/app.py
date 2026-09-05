@@ -56,6 +56,7 @@ from sentence_reading.llm.auth_google import (
     cookie_secure,
     email_auth_enabled,
     email_password_auth_enabled,
+    gcs_uid_scope,
     issue_oauth_state,
     mobile_kakao_deep_link,
     mobile_magic_deep_link,
@@ -213,7 +214,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.155",
+    version="0.3.156",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1437,7 +1438,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.155",
+        "version": "0.3.156",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -3672,16 +3673,25 @@ def session_mock() -> dict:
 
 
 @app.get("/api/cache/papers")
-def cache_papers() -> dict:
-    """보관된 논문 목록 (로컬 ∪ GCS index 메타)."""
+def cache_papers(fresh: int = 0) -> dict:
+    """보관된 논문 목록 (로컬 ∪ GCS index 메타).
+
+    design/174 — ``fresh=1`` bypasses per-instance remote index TTL so mobile
+    can re-list right after ingest when API cache still holds a pre-upload snapshot.
+    """
     import logging
     import time
 
     _log = logging.getLogger(__name__)
     t0 = time.perf_counter()
     try:
-        from sentence_reading.llm.papers_gcs import list_merged_paper_entries
+        from sentence_reading.llm.papers_gcs import (
+            invalidate_remote_index_cache,
+            list_merged_paper_entries,
+        )
 
+        if int(fresh or 0) == 1:
+            invalidate_remote_index_cache()
         papers = list_merged_paper_entries()
     except Exception:
         papers = list_cached_papers()
@@ -5737,17 +5747,20 @@ async def _run_ingest_job(
         job["worker_instance_id"] = ij.worker_instance_id()
         ij.stamp_lease(job)
         _persist_job(job_id, job, force=True)
+    # design/174 — bind owner uid for whole pipeline (early+final save → GCS index).
+    owner = str((job or {}).get("owner_uid") or "").strip()
     heartbeat = asyncio.create_task(_ingest_lease_heartbeat(job_id))
     try:
-        await _run_ingest_job_body(
-            job_id,
-            tmp_path,
-            filename,
-            kind,
-            skip_cache=skip_cache,
-            content_hash=content_hash,
-            warnings=warnings,
-        )
+        with gcs_uid_scope(owner or None):
+            await _run_ingest_job_body(
+                job_id,
+                tmp_path,
+                filename,
+                kind,
+                skip_cache=skip_cache,
+                content_hash=content_hash,
+                warnings=warnings,
+            )
     finally:
         heartbeat.cancel()
         try:
@@ -6464,7 +6477,18 @@ async def _run_ingest_job_body(
             ingest_status=early_status,
             force_cache_id=forced_cid or None,
         )
-        if cache_entry is None and debone_ok:
+        # design/174 — auth+GCS Live: index miss must not look like library success.
+        if (
+            isinstance(cache_entry, dict)
+            and cache_entry.get("_gcs_listed") is False
+        ):
+            warnings.append("cache_gcs_upload_failed")
+            cache_entry = None
+        if (
+            cache_entry is None
+            and debone_ok
+            and "cache_gcs_upload_failed" not in warnings
+        ):
             warnings.append("cache_skip_short_title")
         early_cache_id = str((cache_entry or {}).get("id") or "")
         if cache_entry:
@@ -6788,10 +6812,18 @@ async def _run_ingest_job_body(
                 ingest_status="ok",
                 force_cache_id=forced_cid or None,
             )
+            # design/174 — durable library = personal GCS index listed.
+            if (
+                isinstance(cache_entry, dict)
+                and cache_entry.get("_gcs_listed") is False
+            ):
+                warnings.append("cache_gcs_upload_failed")
+                cache_entry = None
             if (
                 cache_entry is None
                 and debone_ok
                 and "cache_skip_short_title" not in warnings
+                and "cache_gcs_upload_failed" not in warnings
             ):
                 warnings.append("cache_skip_short_title")
             try:
@@ -6848,6 +6880,11 @@ async def _run_ingest_job_body(
                     "논문 제목이 너무 짧거나 문장이 없어 보관함에 넣지 못했습니다. "
                     "제목이 분명한 PDF인지 확인해 주세요."
                 )
+            elif "cache_gcs_upload_failed" in warnings:
+                reason = (
+                    "처리는 끝났지만 클라우드 보관함 동기화에 실패했습니다. "
+                    "잠시 후 다시 시도해 주세요."
+                )
             else:
                 reason = (
                     "처리는 끝났지만 보관함 저장에 실패했습니다. "
@@ -6890,7 +6927,7 @@ async def _run_ingest_job_body(
                     message="쉐도잉 연습 구간 준비 중",
                 )
                 try:
-                    set_gcs_uid(owner)
+                    # design/174 — owner already bound in _run_ingest_job; do not reset_gcs_uid.
                     rows = []
                     for i, s in enumerate(session.sentences):
                         sid = getattr(s, "id", None) or str(i)
@@ -6955,8 +6992,6 @@ async def _run_ingest_job_body(
                             "sentence_n": 0,
                         },
                     )
-                finally:
-                    reset_gcs_uid()
             elif want_chunks and not shadowing_practice_enabled():
                 data["shadowing_chunks"] = {
                     "status": "skipped",

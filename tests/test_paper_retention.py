@@ -60,7 +60,7 @@ def test_api_wiring_status() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.85"
+    assert st["version"] == "0.3.156"
     assert st["paper_retention"] is True
     assert st["paper_retention_days"] == 90
     assert st["paper_retention_extend_days"] == 90

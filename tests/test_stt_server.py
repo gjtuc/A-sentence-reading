@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_stt_server_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.85"
+    assert st["version"] == "0.3.156"
     assert st["stt_browser"] is True
     assert "stt_server" in st
 
@@ -47,7 +47,7 @@ def test_ui_server_wiring() -> None:
     assert "stt_server" in app_js
     html = TestClient(app).get("/").text
     assert "stt_practice.js?v=0.3.85" in html
-    assert "app.js?v=0.3.85" in html
+    assert "app.js?v=0.3.156" in html
 
 
 def test_mime_and_size_edges(monkeypatch: pytest.MonkeyPatch) -> None:

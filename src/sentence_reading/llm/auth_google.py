@@ -16,9 +16,10 @@ import re
 import secrets
 import time
 import urllib.parse
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterator
 
 from sentence_reading.llm.env import load_asr_env
 
@@ -117,6 +118,24 @@ def set_gcs_uid(uid: str | None) -> None:
 
 def reset_gcs_uid() -> None:
     _gcs_uid.set(None)
+
+
+@contextmanager
+def gcs_uid_scope(uid: str | None) -> Iterator[None]:
+    """Bind personal GCS path for background ingest/worker (design/174).
+
+    WHY: HTTP middleware sets uid only for the request task; worker create_task
+    and Cloud Run worker service have no cookie → personal_object_name was None
+    → papers index never updated → mobile「목록에 아직 없습니다」.
+    Restores the previous ContextVar value (does not force None).
+    """
+    prev = current_gcs_uid()
+    if uid:
+        set_gcs_uid(uid)
+    try:
+        yield
+    finally:
+        set_gcs_uid(prev)
 
 
 def _b64url_encode(raw: bytes) -> str:

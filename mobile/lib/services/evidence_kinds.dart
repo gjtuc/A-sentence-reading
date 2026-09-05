@@ -65,6 +65,8 @@ const Set<String> kEvidenceAllowedKinds = {
   'cache_save_sample',
   'reclaim_seed',
   'download_cache_fail',
+  'papers_upload_fail',
+  'library_list_miss',
   'figures_prior_pull',
   // design/169m — lease / sweeper causality
   'lease_heartbeat',

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_status_version_0_3_12() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.85"
+    assert st["version"] == "0.3.156"
 
 
 def test_design_156_vertical_swipe_panels() -> None:

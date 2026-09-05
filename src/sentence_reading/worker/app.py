@@ -17,7 +17,7 @@ from sentence_reading.llm.ingest_jobs_gcs import (
 
 log = logging.getLogger(__name__)
 
-app = FastAPI(title="A-sentence-reading-worker", version="0.3.155")
+app = FastAPI(title="A-sentence-reading-worker", version="0.3.156")
 
 
 def _check_worker_secret(header: str) -> None:

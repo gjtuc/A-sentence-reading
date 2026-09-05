@@ -692,9 +692,11 @@ class AsrClient {
   /// GET /api/cache/papers — authenticated library listing.
   ///
   /// EDGE: non-list `papers` · null entries · missing id/title → skipped.
-  Future<List<PaperEntry>> listPapers() async {
+  /// design/174 — [fresh] bypasses API remote-index TTL after ingest.
+  Future<List<PaperEntry>> listPapers({bool fresh = false}) async {
+    final q = fresh ? '?fresh=1' : '';
     final res = await _http
-        .get(_uri('/api/cache/papers'), headers: await _headers())
+        .get(_uri('/api/cache/papers$q'), headers: await _headers())
         .timeout(const Duration(seconds: 60));
     final map = _decodeObject(res, 'cache/papers');
     final raw = map['papers'];
