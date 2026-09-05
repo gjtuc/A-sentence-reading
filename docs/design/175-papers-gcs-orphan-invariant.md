@@ -118,6 +118,17 @@ design/174 (worker uid empty → `personal_object_name` None) prevents writes to
 - One-shot reconcile job: classify → GC `layout_slot_only` / `body_without_session` / superseded full clones of current title → **retain** any full orphan the user still wants (explicit allow-list).  
 - Never “delete all not in index” without classification report.
 
+**Done 2026-09-05 (uid `116191504131668885631`)** — after live `0.3.157`:
+
+| | pre | post |
+|--|----:|-----:|
+| index_n | 1 | 1 (`79cb4af49327`) |
+| prefix_n | 48 | 1 |
+| orphan_n | 47 | **0** |
+| GC | — | 47/47 ok (layout 33 · full 9 · body 5) |
+
+Allow-list = index only. Forensic: `.tmp_orphan_audit_pre.json` · `.tmp_orphan_reconcile_plan.json` · `.tmp_orphan_audit_post.json` (local; not product code).
+
 ---
 
 ## Kill / rollback
