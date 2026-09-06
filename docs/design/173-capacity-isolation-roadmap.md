@@ -425,6 +425,21 @@ p95는 Console Metrics 또는 쿼리 export — **필수는 아님**, baseline �
 
 ---
 
+## Subjective capacity profiles (`scripts/capacity_profiles/`)
+
+| Profile | API min | Throttle | Intent |
+|---------|--------:|----------|--------|
+| `turn0-baseline-off` | 0 | ON | pre-173 cold baseline |
+| `turn1-api-throttle-only` | 0 | API ON / worker OFF | split + API throttle |
+| `turn2-current-173` | **1** | OFF | warm API · full 173 |
+| `turn2-scale-to-zero` | **0** | OFF | **rare uploads**: fat when awake, cold when idle |
+| `turn3-all-throttle-on` | 1 | ON | cost lever; may hurt mid-job CPU |
+
+Deploy: `bash scripts/deploy_capacity_profile.sh <profile>`.  
+`turn2-scale-to-zero` ≠ turn3: keeps `--no-cpu-throttling` so mid-job is not starved after wake.
+
+---
+
 ## Agent / 배포 규칙
 
 - 새 채팅: `python scripts/session_freshness_guard.py` (155/전역 룰).  

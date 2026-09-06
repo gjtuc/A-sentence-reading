@@ -5,9 +5,10 @@
 #   bash scripts/deploy_capacity_profile.sh turn0-baseline-off
 #   bash scripts/deploy_capacity_profile.sh turn1-api-throttle-only
 #   bash scripts/deploy_capacity_profile.sh turn2-current-173
+#   bash scripts/deploy_capacity_profile.sh turn2-scale-to-zero
 #   bash scripts/deploy_capacity_profile.sh turn3-all-throttle-on
 #
-# Before each test: wait until Cloud Run scales to zero (turn0/1 min=0) or use fresh session.
+# Before each test: wait until Cloud Run scales to zero (min=0 profiles) or use fresh session.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,7 +17,7 @@ cd "$ROOT"
 PROFILE="${1:-}"
 if [[ -z "$PROFILE" ]]; then
   echo "usage: $0 <profile-name>" >&2
-  echo "profiles: turn0-baseline-off turn1-api-throttle-only turn2-current-173 turn3-all-throttle-on" >&2
+  echo "profiles: turn0-baseline-off turn1-api-throttle-only turn2-current-173 turn2-scale-to-zero turn3-all-throttle-on" >&2
   exit 2
 fi
 

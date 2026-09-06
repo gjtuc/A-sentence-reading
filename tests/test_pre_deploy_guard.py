@@ -205,6 +205,7 @@ def test_capacity_ab_profiles_exist() -> None:
         "turn0-baseline-off",
         "turn1-api-throttle-only",
         "turn2-current-173",
+        "turn2-scale-to-zero",
         "turn3-all-throttle-on",
     ):
         assert (profiles / f"{name}.env").is_file()
