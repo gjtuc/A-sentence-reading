@@ -1750,8 +1750,8 @@ throw AsrApiException(
   }
 
 
-  /// design/180 — GET raw PNG for one figure (hydrate; not multi data-URL window).
-  Future<({String dataUrl, int bytesN, int elapsedMs})> fetchFigurePng({
+  /// design/180+181 — GET raw PNG for one figure (hydrate; not multi data-URL window).
+  Future<({String dataUrl, int bytesN, int elapsedMs, String reason})> fetchFigurePng({
     required String cacheId,
     required String figureId,
     int index = -1,
@@ -1783,11 +1783,19 @@ throw AsrApiException(
             ),
             headers: await _headers(),
           )
-          .timeout(const Duration(seconds: 120));
+          .timeout(const Duration(seconds: 180));
       if (res.statusCode == 401) {
         throw AsrApiException('로그인이 필요합니다.', 401);
       }
       if (res.statusCode == 404) {
+        var reason = 'missing';
+        try {
+          final body = jsonDecode(res.body);
+          if (body is Map && body['reason'] != null) {
+            reason = '${body['reason']}'.trim();
+            if (reason.isEmpty) reason = 'missing';
+          }
+        } catch (_) {}
         asrEvidenceBus?.record(
           'figure_png_done',
           severity: 'error',
@@ -1800,10 +1808,11 @@ throw AsrApiException(
             'elapsed_ms': sw.elapsedMilliseconds,
             'bytes_n': 0,
             'outcome': 'missing',
+            'reason': reason,
             if (src.isNotEmpty) 'source': src,
           },
         );
-        throw AsrApiException('그림을 찾을 수 없습니다.', 404);
+        throw AsrApiException('그림을 찾을 수 없습니다.', 404, reason);
       }
       if (res.statusCode < 200 || res.statusCode >= 300) {
         throw AsrApiException('그림 다운로드 실패', res.statusCode);
@@ -1832,7 +1841,27 @@ throw AsrApiException(
         dataUrl: dataUrl,
         bytesN: bytes.length,
         elapsedMs: sw.elapsedMilliseconds,
+        reason: 'ok',
       );
+    } on TimeoutException catch (e) {
+      asrEvidenceBus?.record(
+        'figure_png_done',
+        severity: 'error',
+        cacheId: cid,
+        stage: 'fail',
+        ok: false,
+        details: {
+          if (index >= 0) 'index': index,
+          'elapsed_ms': sw.elapsedMilliseconds,
+          'bytes_n': 0,
+          'outcome': 'timeout',
+          if (src.isNotEmpty) 'source': src,
+        },
+        message: e.toString().length > 200
+            ? e.toString().substring(0, 200)
+            : e.toString(),
+      );
+      rethrow;
     } catch (e) {
       if (e is AsrApiException) rethrow;
       asrEvidenceBus?.record(
@@ -1845,7 +1874,7 @@ throw AsrApiException(
           if (index >= 0) 'index': index,
           'elapsed_ms': sw.elapsedMilliseconds,
           'bytes_n': 0,
-          'outcome': 'timeout',
+          'outcome': 'network',
           if (src.isNotEmpty) 'source': src,
         },
         message: e.toString().length > 200
@@ -2637,10 +2666,12 @@ throw AsrApiException(
 }
 
 class AsrApiException implements Exception {
-  AsrApiException(this.message, [this.statusCode]);
+  AsrApiException(this.message, [this.statusCode, this.reason = '']);
 
   final String message;
   final int? statusCode;
+  /// design/181 — server fail reason enum when present (e.g. figure PNG 404).
+  final String reason;
 
   @override
   String toString() => 'AsrApiException($message, status=$statusCode)';

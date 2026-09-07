@@ -214,7 +214,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.163",
+    version="0.3.164",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1499,7 +1499,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.163",
+        "version": "0.3.164",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -3780,20 +3780,28 @@ def cache_papers(fresh: int = 0) -> dict:
 
 @app.get("/api/cache/papers/{cache_id}/figures/{figure_id}.png")
 def cache_figure_png(request: Request, cache_id: str, figure_id: str) -> Response:
-    """design/180 — raw PNG bytes for one figure (hydrate path; no data-URL window)."""
+    """design/180+181 — raw PNG; self-contained session ensure (no data-URL window)."""
     import time
 
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
-    from sentence_reading.cache.paper_cache import figure_png_bytes_with_reason
+    from sentence_reading.cache.paper_cache import figure_png_lookup
     from sentence_reading.llm import evidence_bus as eb
 
     t0 = time.perf_counter()
     cid = (cache_id or "").strip()
     fid = (figure_id or "").strip()
-    raw, reason = figure_png_bytes_with_reason(cid, fid)
+    raw, reason, lookup_details = figure_png_lookup(cid, fid)
     elapsed_ms = max(0, int((time.perf_counter() - t0) * 1000))
+    details = {
+        "elapsed_ms": elapsed_ms,
+        "bytes_n": len(raw) if raw else 0,
+        "outcome": "ok" if raw else (reason or "miss")[:64],
+        "session_ensured": int(lookup_details.get("session_ensured") or 0),
+        "pull_ms": int(lookup_details.get("pull_ms") or 0),
+        "read_ms": int(lookup_details.get("read_ms") or 0),
+    }
     try:
         eb.emit(
             "figure_png_done",
@@ -3801,11 +3809,7 @@ def cache_figure_png(request: Request, cache_id: str, figure_id: str) -> Respons
             cache_id=cid,
             stage="png",
             ok=bool(raw),
-            details={
-                "elapsed_ms": elapsed_ms,
-                "bytes_n": len(raw) if raw else 0,
-                "outcome": "ok" if raw else (reason or "miss")[:64],
-            },
+            details=details,
             code="figure_png_done",
         )
     except Exception:  # noqa: BLE001

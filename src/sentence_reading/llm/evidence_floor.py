@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 
 # Live must not lose sensors introduced by 169c/d/e/g/h/i/j/k (floor through pull verdicts).
-EVIDENCE_FLOOR_VERSION = "0.3.163"
+EVIDENCE_FLOOR_VERSION = "0.3.164"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -327,13 +327,26 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "src/sentence_reading/api/app.py",
         (
             "cache_figure_png",
-            "figure_png_bytes_with_reason",
+            "figure_png_lookup",
             "figure_png_done",
+            "session_ensured",
         ),
     ),
     (
         "src/sentence_reading/cache/paper_cache.py",
-        ("figure_png_bytes_with_reason",),
+        (
+            "figure_png_bytes_with_reason",
+            "figure_png_lookup",
+            "ensure_session_for_figure_png",
+        ),
+    ),
+    (
+        "mobile/lib/state/library_controller.dart",
+        (
+            "reuse_hydrate_session",
+            "noRetryReasons",
+            "hydrate_bg_retry",
+        ),
     ),
     (
         "scripts/rotate_evidence.py",

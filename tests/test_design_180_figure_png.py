@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""design/180 — per-figure PNG GET + floor pin."""
+"""design/180 — per-figure PNG GET + floor pin (updated for 181 lookup)."""
 
 from __future__ import annotations
 
@@ -28,21 +28,21 @@ def test_design_180_exists() -> None:
 
 def test_status_version_pin_180() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.163"
-    assert EVIDENCE_FLOOR_VERSION == "0.3.163"
+    assert st["version"] == "0.3.164"
+    assert EVIDENCE_FLOOR_VERSION == "0.3.164"
 
 
 def test_cache_figure_png_200_and_404(monkeypatch: pytest.MonkeyPatch) -> None:
     png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 
-    def _bytes(cid: str, fid: str):
+    def _lookup(cid: str, fid: str):
         if cid == "abcd1234abcd" and fid == "fig-1":
-            return png, "ok"
-        return None, "missing"
+            return png, "ok", {"session_ensured": 0, "pull_ms": 0, "read_ms": 1}
+        return None, "missing", {"session_ensured": 0, "pull_ms": 0, "read_ms": 0}
 
     monkeypatch.setattr(
-        "sentence_reading.cache.paper_cache.figure_png_bytes_with_reason",
-        _bytes,
+        "sentence_reading.cache.paper_cache.figure_png_lookup",
+        _lookup,
     )
     client = TestClient(app)
     ok = client.get("/api/cache/papers/abcd1234abcd/figures/fig-1.png")
@@ -56,13 +56,13 @@ def test_cache_figure_png_200_and_404(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body.get("error") == "figure_missing"
 
 
-def test_figure_png_bytes_helper_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_figure_png_bytes_helper_uses_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     from sentence_reading.cache import paper_cache as pc
 
     monkeypatch.setattr(
         pc,
-        "figure_data_url_with_reason",
-        lambda _c, _f: ("data:image/png;base64,aGVsbG8=", "ok"),
+        "figure_png_lookup",
+        lambda _c, _f: (b"hello", "ok", {"session_ensured": 0, "pull_ms": 0, "read_ms": 0}),
     )
     raw, reason = pc.figure_png_bytes_with_reason("abcd1234abcd", "fig-1")
     assert reason == "ok"

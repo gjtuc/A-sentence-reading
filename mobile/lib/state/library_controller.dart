@@ -446,6 +446,14 @@ class LibraryController extends ChangeNotifier {
       }
 
       final hardFailed = <int>{};
+      final noRetry = <int>{};
+      const noRetryReasons = {
+        'figure_id_not_in_meta',
+        'bad_figure_id',
+        'bad_cache_id',
+        'bad_file_rel',
+        'path_escape',
+      };
       final sw = Stopwatch()..start();
 
       Future<void> fetchEmptyPass({required bool isRetry}) async {
@@ -453,6 +461,7 @@ class LibraryController extends ChangeNotifier {
         final indexes = _emptyFigureIndexes(live0);
         for (final index in indexes) {
           if (_hydrateDismissed.contains(cid)) return;
+          if (isRetry && noRetry.contains(index)) continue;
           final live = _hydrateSessions[cid] ?? hs!;
           if (index < 0 || index >= live.figures.length) continue;
           final fig = live.figures[index];
@@ -462,6 +471,7 @@ class LibraryController extends ChangeNotifier {
           }
           if (fig.id.isEmpty) {
             hardFailed.add(index);
+            noRetry.add(index);
             continue;
           }
           try {
@@ -517,8 +527,15 @@ class LibraryController extends ChangeNotifier {
               );
             }
             notifyListeners();
-          } catch (_) {
+          } catch (e) {
             hardFailed.add(index);
+            // design/181 — never pollute library sticky error from hydrate PNG fails.
+            if (e is AsrApiException) {
+              final r = e.reason.trim();
+              if (noRetryReasons.contains(r)) {
+                noRetry.add(index);
+              }
+            }
           }
           await Future<void>.delayed(const Duration(milliseconds: 40));
         }
@@ -2026,8 +2043,30 @@ class LibraryController extends ChangeNotifier {
       cacheId: entry.id,
     );
     try {
-      final wantTr = await _wantTranslate();
-      final o = await _client.openPaper(entry.id, translate: wantTr);
+      ReadingSession o;
+      final side = _hydrateSessions[entry.id.trim()];
+      // design/181 — reuse hydrate side-session to avoid open∩PNG contention.
+      if (side != null &&
+          side.isValid &&
+          side.sentenceCount > 0 &&
+          (_hydrateActive.contains(entry.id.trim()) ||
+              side.figures.any((f) => f.imageSrc.trim().isNotEmpty))) {
+        o = side;
+        asrEvidenceBus?.record(
+          'reader_open',
+          severity: 'lifecycle',
+          cacheId: entry.id,
+          stage: 'reuse_hydrate_session',
+          ok: true,
+          details: {
+            'figure_count': o.figureCount,
+            'hydrate_active': _hydrateActive.contains(entry.id.trim()) ? 1 : 0,
+          },
+        );
+      } else {
+        final wantTr = await _wantTranslate();
+        o = await _client.openPaper(entry.id, translate: wantTr);
+      }
       asrErrorReporter?.hang.progress(opId, stage: 'library_open_ok');
       // Fail-closed: never keep a previous session when this open failed upstream.
       if (o.sentenceCount < 1) {
@@ -2159,15 +2198,39 @@ class LibraryController extends ChangeNotifier {
             Future.value(),
       );
       return null;
-    } catch (e) {
-      error = e.toString();
+    } on TimeoutException catch (_) {
+      error = '서버 응답이 느립니다. 잠시 후 다시 열어 주세요.';
       asrEvidenceBus?.record(
         'reader_open',
         severity: 'error',
         cacheId: entry.id,
         stage: 'fail',
         ok: false,
-        message: error!.length > 200 ? error!.substring(0, 200) : error!,
+        code: 'timeout',
+        message: 'timeout',
+      );
+      unawaited(
+        asrErrorReporter?.report(
+              kind: 'client_api_timeout',
+              message: 'library_open timeout',
+              stage: 'library_open',
+              paperTitle: entry.title,
+              cacheId: entry.id,
+            ) ??
+            Future.value(),
+      );
+      return null;
+    } catch (e) {
+      error = '논문을 열지 못했습니다. 잠시 후 다시 시도해 주세요.';
+      asrEvidenceBus?.record(
+        'reader_open',
+        severity: 'error',
+        cacheId: entry.id,
+        stage: 'fail',
+        ok: false,
+        message: e.toString().length > 200
+            ? e.toString().substring(0, 200)
+            : e.toString(),
       );
       unawaited(
         asrErrorReporter?.report(
@@ -2722,6 +2785,10 @@ class LibraryController extends ChangeNotifier {
       } catch (_) {
         // Fall through to prefs.
       }
+    }
+    // design/181 — during figure hydrate, avoid auth_status competing with PNG traffic.
+    if (_hydrateActive.isNotEmpty) {
+      return false;
     }
     try {
       final auth = await _client.fetchAuthStatus();

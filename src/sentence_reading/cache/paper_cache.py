@@ -248,6 +248,76 @@ def _figure_to_data_url(path: Path) -> str:
 
 _FIG_ID_SAFE = re.compile(r"^[A-Za-z0-9._\-]{1,64}$")
 
+# design/181 — process-local session ensure TTL (same instance, sequential PNGs).
+_SESSION_ENSURE_TTL_S = 60.0
+_session_ensure_at: dict[str, float] = {}
+
+
+def _figure_rel_from_meta(meta: dict, figure_id: str) -> tuple[str | None, str]:
+    """Return (rel, ok) or (None, reason)."""
+    fid = (figure_id or "").strip()
+    for f in meta.get("figures") or []:
+        if not isinstance(f, dict):
+            continue
+        if str(f.get("id") or "") != fid:
+            continue
+        rel = str(f.get("file") or "").replace("\\", "/")
+        if not rel.startswith("figures/") or ".." in rel.split("/"):
+            return None, "bad_file_rel"
+        return rel, "ok"
+    return None, "figure_id_not_in_meta"
+
+
+def ensure_session_for_figure_png(cache_id: str) -> tuple[str, int, int]:
+    """design/181 — ensure local session.json for PNG GET (open-equivalent fail-closed).
+
+    Returns ``(reason_or_ok, session_ensured_0_1, pull_ms)``.
+    ``ok`` means local meta is present and may be read.
+    """
+    import time
+
+    cid = (cache_id or "").strip()
+    if not re.fullmatch(r"[a-zA-Z0-9]{8,32}", cid):
+        return "bad_cache_id", 0, 0
+    root = cache_root() / cid
+    meta_path = root / _SESSION_NAME
+    now = time.monotonic()
+    cached_at = _session_ensure_at.get(cid)
+    ttl_ok = (
+        cached_at is not None
+        and (now - cached_at) < _SESSION_ENSURE_TTL_S
+        and meta_path.is_file()
+    )
+    if ttl_ok:
+        return "ok", 0, 0
+
+    try:
+        from sentence_reading.llm.papers_gcs import (
+            gcs_papers_ready,
+            refresh_paper_for_open,
+        )
+    except Exception:  # noqa: BLE001
+        if meta_path.is_file():
+            return "ok", 0, 0
+        return "session_meta_missing", 0, 0
+
+    if gcs_papers_ready():
+        t0 = time.perf_counter()
+        ok, code = refresh_paper_for_open(cid)
+        pull_ms = max(0, int((time.perf_counter() - t0) * 1000))
+        if not ok and code == "gcs_pull_failed":
+            return "gcs_pull_failed", 1, pull_ms
+        if not meta_path.is_file():
+            # Fail-closed: do not invent; gcs_skipped with empty disk is miss.
+            return (code if code else "session_meta_missing"), 1, pull_ms
+        _session_ensure_at[cid] = time.monotonic()
+        return "ok", 1, pull_ms
+
+    if meta_path.is_file():
+        _session_ensure_at[cid] = time.monotonic()
+        return "ok", 0, 0
+    return "session_meta_missing", 0, 0
+
 
 def figure_data_url_with_reason(
     cache_id: str, figure_id: str
@@ -312,24 +382,89 @@ def figure_data_url_with_reason(
     return None, "figure_id_not_in_meta"
 
 
+def figure_png_lookup(
+    cache_id: str, figure_id: str
+) -> tuple[bytes | None, str, dict[str, int | str]]:
+    """design/181 — raw PNG + reason + evidence details (session ensure, no data-URL)."""
+    import time
+
+    cid = (cache_id or "").strip()
+    fid = (figure_id or "").strip()
+    details: dict[str, int | str] = {
+        "session_ensured": 0,
+        "pull_ms": 0,
+        "read_ms": 0,
+    }
+    if not re.fullmatch(r"[a-zA-Z0-9]{8,32}", cid):
+        return None, "bad_cache_id", details
+    if not _FIG_ID_SAFE.fullmatch(fid):
+        return None, "bad_figure_id", details
+
+    sess_reason, ensured, pull_ms = ensure_session_for_figure_png(cid)
+    details["session_ensured"] = ensured
+    details["pull_ms"] = pull_ms
+    if sess_reason != "ok":
+        return None, sess_reason, details
+
+    root = cache_root() / cid
+    meta_path = root / _SESSION_NAME
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, "session_meta_corrupt", details
+    if not isinstance(meta, dict):
+        return None, "session_meta_corrupt", details
+
+    rel, rel_reason = _figure_rel_from_meta(meta, fid)
+    if not rel:
+        return None, rel_reason, details
+
+    img_path = (root / rel).resolve()
+    try:
+        img_path.relative_to(root.resolve())
+    except ValueError:
+        return None, "path_escape", details
+
+    if not img_path.is_file():
+        try:
+            from sentence_reading.llm.papers_gcs import ensure_figure_local_with_reason
+            from sentence_reading.llm import ops_events as oev
+
+            ensured_path, ensure_reason = ensure_figure_local_with_reason(cid, rel)
+            if ensured_path is not None:
+                img_path = ensured_path.resolve()
+            elif ensure_reason not in ("local_ok", "ok"):
+                try:
+                    oev.emit(
+                        "figure_blob_miss",
+                        cache_id=cid,
+                        details={"reason": ensure_reason},
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+                return None, str(ensure_reason or "file_missing")[:64], details
+        except Exception:
+            return None, "ensure_exception", details
+    if not img_path.is_file():
+        return None, "file_missing", details
+
+    t_read = time.perf_counter()
+    try:
+        raw = img_path.read_bytes()
+    except OSError:
+        return None, "read_oserror", details
+    details["read_ms"] = max(0, int((time.perf_counter() - t_read) * 1000))
+    if not raw:
+        return None, "empty_bytes", details
+    return raw, "ok", details
+
+
 def figure_png_bytes_with_reason(
     cache_id: str, figure_id: str
 ) -> tuple[bytes | None, str]:
-    """design/180 — raw PNG bytes or (None, reason). Same path rules as data-URL helper."""
-    url, reason = figure_data_url_with_reason(cache_id, figure_id)
-    if not url:
-        return None, reason
-    # Decode data URL produced by helper (avoids duplicating path logic).
-    try:
-        decoded = _decode_data_url(url)
-    except Exception:  # noqa: BLE001
-        return None, "decode_error"
-    if decoded is None:
-        return None, "decode_error"
-    raw, _ext = decoded
-    if not raw:
-        return None, "empty_bytes"
-    return raw, "ok"
+    """design/180+181 — raw PNG bytes or (None, reason). Self-contained session ensure."""
+    raw, reason, _details = figure_png_lookup(cache_id, figure_id)
+    return raw, reason
 
 
 def figure_data_url(cache_id: str, figure_id: str) -> str | None:
