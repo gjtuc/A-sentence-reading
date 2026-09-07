@@ -61,4 +61,30 @@ void main() {
     expect(text.contains('The catalytic'), isTrue);
     expect(text.contains('catalytic activity'), isTrue);
   });
+
+  test('plainMetrics empty ranges matches length with a preview range', () {
+    // Sentences with <sup> take the rich path when ranges are empty; the first
+    // paint preview must not change plain length / layout path (0.3.172).
+    const html =
+        'low surface area of 7 m<sup>2</sup> g<sup>−1</sup>.';
+    final base = const TextStyle(fontSize: 16);
+    final plain = plainFromRichHtml(html);
+    final armed = buildAnnotatedSpans(html, base, plainMetrics: true);
+    final preview = buildAnnotatedSpans(
+      html,
+      base,
+      plainMetrics: true,
+      ranges: [
+        AnnotationRange(
+          start: 0,
+          end: plain.indexOf(' ') + 1,
+          background: const Color(0xFFFFF59D),
+        ),
+      ],
+    );
+    String join(List<InlineSpan> spans) =>
+        spans.whereType<TextSpan>().map((s) => s.text ?? '').join();
+    expect(join(armed), plain);
+    expect(join(preview), plain);
+  });
 }

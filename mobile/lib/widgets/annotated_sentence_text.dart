@@ -112,14 +112,14 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
     return ranges;
   }
 
-  /// Hit-test without paint preview (stable layout while dragging).
+  /// Same span path as display (plainMetrics while painting). Preview omitted
+  /// so glyph positions stay fixed while the highlight grows.
   int? _indexForGlobal(Offset global) {
     final ctx = _textKey.currentContext;
     if (ctx == null) return null;
     final box = ctx.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return null;
     final local = box.globalToLocal(global);
-    // Clamp into the text box so drag past the edges stays in-sentence.
     final clampedLocal = Offset(
       local.dx.clamp(0.0, box.size.width),
       local.dy.clamp(0.0, box.size.height),
@@ -128,6 +128,7 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
       widget.html,
       widget.style,
       ranges: _persistedRanges(),
+      plainMetrics: widget.paintMode,
     );
     final tp = TextPainter(
       text: TextSpan(style: widget.style, children: spans),
@@ -152,7 +153,7 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
     final idx = _indexForGlobal(d.globalPosition);
     if (idx == null) return;
     final word = wordRangeAt(_plain, idx);
-    if (word == null) return; // space/punct: keep paint armed, ignore
+    if (word == null) return;
     _dragging = true;
     _anchorWordStart = word[0];
     _anchorWordEnd = word[1];
@@ -193,13 +194,17 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
   }
 
   void _onPanCancel() {
+    // Arena cancel must not exit highlighter — only drop the in-progress stroke.
     if (!_dragging) return;
     _dragging = false;
     _anchorWordStart = null;
     _anchorWordEnd = null;
-    _localPreviewStart = null;
-    _localPreviewEnd = null;
-    widget.onPaintCancel?.call();
+    if (_localPreviewStart != null || _localPreviewEnd != null) {
+      setState(() {
+        _localPreviewStart = null;
+        _localPreviewEnd = null;
+      });
+    }
   }
 
   @override
@@ -208,6 +213,7 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
       widget.html,
       widget.style,
       ranges: _rangesForPaint(),
+      plainMetrics: widget.paintMode,
     );
     final text = Text.rich(
       TextSpan(style: widget.style, children: spans),
@@ -215,8 +221,6 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
       textAlign: widget.textAlign,
     );
     if (!widget.paintMode) return text;
-    // Pan recognizer on the sentence wins the arena over any parent swipe
-    // (design/182 · 0.3.171). Local setState preview avoids reader rebuild.
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onPanStart: _onPanStart,

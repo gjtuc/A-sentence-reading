@@ -204,10 +204,14 @@ List<InlineSpan> buildAnnotatedSpans(
   String? raw,
   TextStyle base, {
   List<AnnotationRange> ranges = const [],
+  /// When true, always index by [plainFromRichHtml] even if [ranges] is empty.
+  /// Needed for paint mode: switching rich→plain when the first preview range
+  /// appears changes layout mid-gesture and cancels the pan (design/182).
+  bool plainMetrics = false,
 }) {
   final plain = plainFromRichHtml(raw);
   if (plain.isEmpty) return buildRichSpans(raw, base);
-  if (ranges.isEmpty) return buildRichSpans(raw, base);
+  if (ranges.isEmpty && !plainMetrics) return buildRichSpans(raw, base);
 
   // Later ranges win on overlap (caller should pass in ascending `at` order).
   final cover = List<AnnotationRange?>.filled(plain.length, null);
