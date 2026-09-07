@@ -366,7 +366,45 @@ def wipe_paper_prefix(cache_id: str) -> dict[str, Any]:
         "failed_n": int(failed_n),
         "residual_n": residual_n,
         "skipped": 0,
+        "residual_names": list(residual),
     }
+
+
+def classify_paper_blob_kind(object_name: str) -> str:
+    """design/177 — residual histogram class (no full paths in evidence)."""
+    name = (object_name or "").replace("\\", "/").lower()
+    base = name.rsplit("/", 1)[-1]
+    if base == "session.json" or name.endswith("/session.json"):
+        return "session"
+    if "/figures/" in name or base.endswith(".png"):
+        return "figure"
+    if "layout_map" in base:
+        return "layout"
+    if "slot_plan" in base:
+        return "slot"
+    if base in ("source.pdf", "source.docx") or base.startswith("source."):
+        return "source"
+    return "other"
+
+
+def residual_kind_counts(object_names: list[str] | tuple[str, ...] | None) -> dict[str, int]:
+    """design/177 — counts only."""
+    out = {
+        "n_session": 0,
+        "n_figure": 0,
+        "n_layout": 0,
+        "n_slot": 0,
+        "n_source": 0,
+        "n_other": 0,
+    }
+    for raw in object_names or ():
+        kind = classify_paper_blob_kind(str(raw or ""))
+        key = f"n_{kind}"
+        if key in out:
+            out[key] += 1
+        else:
+            out["n_other"] += 1
+    return out
 
 
 def gc_superseded_paper(cache_id: str, *, winner_id: str = "") -> dict[str, Any]:
@@ -1297,12 +1335,15 @@ def delete_paper_cache_stats(cache_id: str) -> dict[str, Any]:
         object_n += 1
 
     # Re-check residual after index update (dense).
+    residual_names: list[str] = []
     if papers_prefix_delete_enabled():
         prefix = paper_prefix_object(cid)
         if prefix:
-            residual_n = len(list_blobs_under(prefix + "/"))
+            residual_names = list(list_blobs_under(prefix + "/"))
+            residual_n = len(residual_names)
 
     ok = bool(index_ok) and residual_n == 0
+    kind_counts = residual_kind_counts(residual_names)
     if residual_n > 0:
         try:
             from sentence_reading.llm import evidence_bus as eb
@@ -1316,9 +1357,22 @@ def delete_paper_cache_stats(cache_id: str) -> dict[str, Any]:
                     "residual_n": residual_n,
                     "deleted_n": int(wipe.get("deleted_n") or 0),
                     "index_ok": bool(index_ok),
+                    **kind_counts,
                 },
                 ok=False,
                 code="papers_delete_residual",
+            )
+            eb.emit(
+                "papers_residual_kinds",
+                severity="error",
+                cache_id=cid,
+                stage="delete",
+                details={
+                    "residual_n": residual_n,
+                    **kind_counts,
+                },
+                ok=False,
+                code="papers_residual_kinds",
             )
         except Exception:  # noqa: BLE001
             pass
@@ -1343,6 +1397,7 @@ def delete_paper_cache_stats(cache_id: str) -> dict[str, Any]:
         "figure_n": int(figure_n),
         "residual_n": int(residual_n),
         "skipped": 0,
+        **kind_counts,
     }
 
 

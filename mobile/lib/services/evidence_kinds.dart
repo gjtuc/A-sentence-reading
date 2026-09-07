@@ -70,6 +70,11 @@ const Set<String> kEvidenceAllowedKinds = {
   'papers_supersede_gc',
   'papers_delete_residual',
   'papers_gcs_orphan_sample',
+  // design/177 — paper delete causal densify
+  'paper_delete_start',
+  'paper_delete_done',
+  'paper_delete_conflict',
+  'papers_residual_kinds',
   'figures_prior_pull',
   // design/169m — lease / sweeper causality
   'lease_heartbeat',

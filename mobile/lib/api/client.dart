@@ -713,27 +713,38 @@ class AsrClient {
     return out;
   }
 
-  /// DELETE /api/cache/papers/{id} — local + GCS paper + user records (design/102).
-  Future<void> deletePaper(String cacheId) async {
+  /// DELETE /api/cache/papers/{id} — local + GCS paper + user records (design/102+177).
+  Future<void> deletePaper(String cacheId, {String? handoffId}) async {
     final id = cacheId.trim();
     if (id.isEmpty) {
       throw AsrApiException('cache id is empty', 400);
     }
-    final res = await _http
-        .delete(
-          _uri('/api/cache/papers/${Uri.encodeComponent(id)}'),
-          headers: await _headers(),
-        )
-        .timeout(const Duration(seconds: 60));
-    if (res.statusCode == 404) {
-      throw AsrApiException('삭제할 보관본을 찾지 못했습니다.', 404);
+    final headers = await _headers();
+    final hid = (handoffId ?? '').trim();
+    if (hid.isNotEmpty) {
+      headers['X-Asr-Handoff-Id'] = hid;
     }
-    final map = _decodeObject(res, 'cache/delete');
-    if (map['ok'] == false) {
-      throw AsrApiException(
-        '${map['message'] ?? '삭제에 실패했습니다.'}',
-        res.statusCode,
-      );
+    try {
+      final res = await _http
+          .delete(
+            _uri('/api/cache/papers/${Uri.encodeComponent(id)}'),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 60));
+      if (res.statusCode == 404) {
+        throw AsrApiException('삭제할 보관본을 찾지 못했습니다.', 404);
+      }
+      final map = _decodeObject(res, 'cache/delete');
+      if (map['ok'] == false) {
+        throw AsrApiException(
+          '${map['message'] ?? '삭제에 실패했습니다.'}',
+          res.statusCode,
+        );
+      }
+    } on TimeoutException catch (e) {
+      // design/177 — make DELETE timeouts joinable (route=cache/delete).
+      _breadcrumbTimeout('cache/delete', e);
+      rethrow;
     }
   }
 

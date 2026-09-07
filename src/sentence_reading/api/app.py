@@ -214,7 +214,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.159",
+    version="0.3.160",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1438,7 +1438,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.159",
+        "version": "0.3.160",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -4247,17 +4247,60 @@ def cache_extend_retention(request: Request, cache_id: str) -> JSONResponse:
     )
 
 
+def _client_handoff_id(request: Request) -> str:
+    """design/177 — join mobile delete span to server emits."""
+    raw = (
+        request.headers.get("x-asr-handoff-id")
+        or request.headers.get("X-Asr-Handoff-Id")
+        or ""
+    )
+    hid = str(raw).strip()
+    if hid.startswith("hf_") and len(hid) <= 40:
+        return hid
+    return ""
+
+
+def _active_ingest_jobs_for_cache(cache_id: str) -> list[dict]:
+    """design/177 — in-memory jobs still targeting cache_id (counts only)."""
+    cid = (cache_id or "").strip()
+    if not cid:
+        return []
+    out: list[dict] = []
+    for jid, job in list(_JOBS.items()):
+        if not isinstance(job, dict):
+            continue
+        if job.get("_discarded") or job.get("done"):
+            continue
+        tc = str(job.get("target_cache_id") or job.get("cache_id") or "").strip()
+        if tc != cid:
+            continue
+        out.append(
+            {
+                "job_id_prefix": str(jid)[:16],
+                "stage": str(job.get("stage") or job.get("status") or "")[:40],
+                "percent": int(job.get("percent") or 0),
+            }
+        )
+    return out
+
+
 def _emit_paper_delete_evidence(
     request: Request,
     deleted: dict,
-) -> None:
-    """design/169g phase 4 — server delete counts + handoff. Never raises."""
+    *,
+    client_handoff_id: str = "",
+    elapsed_ms: int = 0,
+    conflict_n: int = 0,
+) -> str:
+    """design/169g phase 4 + design/177 densify. Never raises. Returns handoff id."""
+    hid_out = ""
     try:
         from sentence_reading.llm import evidence_bus as eb
 
         owner = _request_user(request)
         owner_uid = owner.uid if owner is not None else ""
         cid = str(deleted.get("id") or "")[:64]
+        client_hid = (client_handoff_id or "").strip()
         hid = eb.emit_handoff(
             from_stage="client_delete",
             to_stage="gcs_deleted",
@@ -4271,8 +4314,13 @@ def _emit_paper_delete_evidence(
                 "gcs_ok": int(deleted.get("_gcs_ok") or 0),
                 "gcs_skipped": int(deleted.get("_gcs_skipped") or 0),
                 "had_local": int(deleted.get("_had_local") or 0),
+                "residual_n": int(deleted.get("_gcs_residual_n") or 0),
+                "elapsed_ms": int(elapsed_ms or 0),
+                "conflict_n": int(conflict_n or 0),
+                **({"client_handoff_id": client_hid} if client_hid else {}),
             },
         )
+        hid_out = client_hid or (hid or "")
         eb.emit(
             "paper_delete",
             source="server",
@@ -4281,12 +4329,16 @@ def _emit_paper_delete_evidence(
             owner_uid=owner_uid,
             stage="ok",
             details={
-                **({"handoff_id": hid} if hid else {}),
+                **({"handoff_id": hid_out} if hid_out else {}),
+                **({"server_handoff_id": hid} if hid else {}),
                 "object_n": int(deleted.get("_gcs_object_n") or 0),
                 "figure_n": int(deleted.get("_gcs_figure_n") or 0),
                 "gcs_ok": int(deleted.get("_gcs_ok") or 0),
                 "gcs_skipped": int(deleted.get("_gcs_skipped") or 0),
+                "residual_n": int(deleted.get("_gcs_residual_n") or 0),
                 "had_local": int(deleted.get("_had_local") or 0),
+                "elapsed_ms": int(elapsed_ms or 0),
+                "conflict_n": int(conflict_n or 0),
                 "source_kind": eb.stage_token(str(deleted.get("source") or "pdf")),
             },
             ok=True,
@@ -4294,31 +4346,119 @@ def _emit_paper_delete_evidence(
         )
     except Exception:  # noqa: BLE001
         pass
+    return hid_out
 
 
 @app.delete("/api/cache/papers/{cache_id}")
 def cache_delete(request: Request, cache_id: str) -> JSONResponse:
-    """보관(증류)본 삭제 — 로컬·GCS 논문 + 같은 uid 사용자 기록 (design/102)."""
+    """보관(증류)본 삭제 — 로컬·GCS 논문 + 같은 uid 사용자 기록 (design/102+177)."""
+    import time as _time
+
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
-    deleted = delete_cached_paper(cache_id=cache_id)
+    t0 = _time.perf_counter()
+    cid = (cache_id or "").strip()
+    client_hid = _client_handoff_id(request)
+    owner = _request_user(request)
+    owner_uid = owner.uid if owner is not None else ""
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        eb.emit(
+            "paper_delete_start",
+            source="server",
+            severity="lifecycle",
+            cache_id=cid[:64],
+            owner_uid=owner_uid,
+            stage="start",
+            details={
+                **({"handoff_id": client_hid} if client_hid else {}),
+                "timeout_budget_ms": 60000,
+            },
+            ok=True,
+            code="paper_delete_start",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    active = _active_ingest_jobs_for_cache(cid)
+    conflict_n = len(active)
+    if conflict_n:
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            sample = active[0] if active else {}
+            eb.emit(
+                "paper_delete_conflict",
+                source="server",
+                severity="error",
+                cache_id=cid[:64],
+                owner_uid=owner_uid,
+                stage="conflict",
+                details={
+                    **({"handoff_id": client_hid} if client_hid else {}),
+                    "active_job_n": conflict_n,
+                    "sample_stage": eb.stage_token(str(sample.get("stage") or "unknown")),
+                    "sample_percent": int(sample.get("percent") or 0),
+                },
+                ok=False,
+                code="paper_delete_conflict",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    deleted = delete_cached_paper(cache_id=cid)
+    elapsed_ms = int((_time.perf_counter() - t0) * 1000)
     if deleted is None:
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            eb.emit(
+                "paper_delete",
+                source="server",
+                severity="lifecycle",
+                cache_id=cid[:64],
+                owner_uid=owner_uid,
+                stage="not_found",
+                details={
+                    **({"handoff_id": client_hid} if client_hid else {}),
+                    "elapsed_ms": elapsed_ms,
+                    "conflict_n": conflict_n,
+                },
+                ok=False,
+                code="cache_not_found",
+            )
+        except Exception:  # noqa: BLE001
+            pass
         return JSONResponse(
             status_code=404,
             content={
                 "ok": False,
                 "error": "cache_not_found",
                 "message": "삭제할 보관본을 찾지 못했습니다.",
+                "elapsed_ms": elapsed_ms,
+                **({"handoff_id": client_hid} if client_hid else {}),
             },
         )
-    _emit_paper_delete_evidence(request, deleted)
+    hid = _emit_paper_delete_evidence(
+        request,
+        deleted,
+        client_handoff_id=client_hid,
+        elapsed_ms=elapsed_ms,
+        conflict_n=conflict_n,
+    )
     return JSONResponse(
         {
             "ok": True,
             "deleted_id": deleted.get("id"),
             "title": deleted.get("title"),
             "source": deleted.get("source"),
+            "elapsed_ms": elapsed_ms,
+            "gcs_ok": bool(int(deleted.get("_gcs_ok") or 0)),
+            "residual_n": int(deleted.get("_gcs_residual_n") or 0),
+            "conflict_n": conflict_n,
+            **({"handoff_id": hid} if hid else {}),
         }
     )
 

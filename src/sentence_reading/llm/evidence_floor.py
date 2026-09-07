@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 
 # Live must not lose sensors introduced by 169c/d/e/g/h/i/j/k (floor through pull verdicts).
-EVIDENCE_FLOOR_VERSION = "0.3.159"
+EVIDENCE_FLOOR_VERSION = "0.3.160"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -47,6 +47,11 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "papers_supersede_gc",
         "papers_delete_residual",
         "papers_gcs_orphan_sample",
+        # design/177 — delete causal densify
+        "paper_delete_start",
+        "paper_delete_done",
+        "paper_delete_conflict",
+        "papers_residual_kinds",
         "reclaim_seed",
         "lease_heartbeat",
         "sweep_decision",
@@ -176,6 +181,9 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "upload_remote_index_cas",
             "papers_supersede_gc",
             "papers_delete_residual",
+            "papers_residual_kinds",
+            "classify_paper_blob_kind",
+            "residual_kind_counts",
         ),
     ),
     (
@@ -196,6 +204,10 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             'from_stage="reading_ready"',
             'from_stage="client_delete"',
             "_emit_paper_delete_evidence",
+            "paper_delete_start",
+            "paper_delete_conflict",
+            "_client_handoff_id",
+            "_active_ingest_jobs_for_cache",
             "_job_trace_id",
             "trace_id=job_trace",
             "_evidence_rotate_loop",
@@ -275,7 +287,15 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     (
         "mobile/lib/api/client.dart",
-        ("progress_view", "_progressMsgHash", "view_side", "adoptJobTrace"),
+        (
+            "progress_view",
+            "_progressMsgHash",
+            "view_side",
+            "adoptJobTrace",
+            "cache/delete",
+            "_breadcrumbTimeout",
+            "X-Asr-Handoff-Id",
+        ),
     ),
     (
         "mobile/lib/services/evidence_bus.dart",
@@ -287,6 +307,8 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "reanalyze_pref_snapshot",
             "translate_poll_start",
             "paper_delete",
+            "paper_delete_start",
+            "paper_delete_done",
             "recordHandoff",
             "client_upload",
             "client_open",

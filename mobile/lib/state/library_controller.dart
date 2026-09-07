@@ -1270,7 +1270,8 @@ class LibraryController extends ChangeNotifier {
     await _persistOrder(next.map((e) => e.id).toList(growable: false));
   }
 
-  /// design/102 — delete selected papers (GCS + user records via API).
+  /// design/102 + design/177 — delete selected papers (GCS + user records via API).
+  /// Honesty: list rows are removed only after HTTP ok for that id.
   Future<int> deletePapers(Iterable<String> cacheIds) async {
     final ids = cacheIds
         .map((e) => e.trim())
@@ -1279,17 +1280,45 @@ class LibraryController extends ChangeNotifier {
         .toList(growable: false);
     if (ids.isEmpty) return 0;
     var okCount = 0;
+    final okIds = <String>{};
     String? lastErr;
     for (final id in ids) {
+      final sw = Stopwatch()..start();
+      final hid = asrEvidenceBus?.recordHandoff(
+            fromStage: 'client_delete',
+            toStage: 'server_delete',
+            cacheId: id,
+            stage: 'delete',
+          ) ??
+          'hf_${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}';
+      asrEvidenceBus?.record(
+        'paper_delete_start',
+        severity: 'lifecycle',
+        cacheId: id,
+        stage: 'start',
+        ok: true,
+        details: {
+          'handoff_id': hid,
+          'timeout_ms': 60000,
+          'selected_n': ids.length,
+        },
+      );
       try {
-        final hid = asrEvidenceBus?.recordHandoff(
-          fromStage: 'client_delete',
-          toStage: 'server_delete',
-          cacheId: id,
-          stage: 'delete',
-        );
-        await _client.deletePaper(id);
+        await _client.deletePaper(id, handoffId: hid);
         okCount += 1;
+        okIds.add(id);
+        asrEvidenceBus?.record(
+          'paper_delete_done',
+          severity: 'lifecycle',
+          cacheId: id,
+          stage: 'ok',
+          ok: true,
+          code: 'ok',
+          details: {
+            'handoff_id': hid,
+            'elapsed_ms': sw.elapsedMilliseconds,
+          },
+        );
         asrEvidenceBus?.record(
           'paper_delete',
           severity: 'lifecycle',
@@ -1297,7 +1326,8 @@ class LibraryController extends ChangeNotifier {
           stage: 'ok',
           ok: true,
           details: {
-            if (hid != null && hid.isNotEmpty) 'handoff_id': hid,
+            'handoff_id': hid,
+            'elapsed_ms': sw.elapsedMilliseconds,
           },
         );
         await _editStash.purge(id);
@@ -1309,8 +1339,51 @@ class LibraryController extends ChangeNotifier {
         if (session?.cacheId == id) {
           clearOpened();
         }
+      } on TimeoutException catch (e) {
+        lastErr = '삭제가 시간 초과되었습니다. 서버가 바쁠 수 있으니 잠시 후 새로고침해 주세요.';
+        asrEvidenceBus?.record(
+          'paper_delete_done',
+          severity: 'error',
+          cacheId: id,
+          stage: 'timeout',
+          ok: false,
+          code: 'timeout',
+          message: e.toString().length > 200 ? e.toString().substring(0, 200) : e.toString(),
+          details: {
+            'handoff_id': hid,
+            'elapsed_ms': sw.elapsedMilliseconds,
+            'timeout_ms': 60000,
+          },
+        );
+        asrEvidenceBus?.record(
+          'paper_delete',
+          severity: 'error',
+          cacheId: id,
+          stage: 'timeout',
+          ok: false,
+          code: 'timeout',
+          message: lastErr!,
+          details: {
+            'handoff_id': hid,
+            'elapsed_ms': sw.elapsedMilliseconds,
+          },
+        );
       } on AsrApiException catch (e) {
         lastErr = e.message;
+        asrEvidenceBus?.record(
+          'paper_delete_done',
+          severity: 'error',
+          cacheId: id,
+          stage: 'http_fail',
+          ok: false,
+          httpStatus: e.statusCode,
+          code: 'http_fail',
+          message: e.message.length > 200 ? e.message.substring(0, 200) : e.message,
+          details: {
+            'handoff_id': hid,
+            'elapsed_ms': sw.elapsedMilliseconds,
+          },
+        );
         asrEvidenceBus?.record(
           'paper_delete',
           severity: 'error',
@@ -1319,9 +1392,26 @@ class LibraryController extends ChangeNotifier {
           ok: false,
           httpStatus: e.statusCode,
           message: e.message.length > 200 ? e.message.substring(0, 200) : e.message,
+          details: {
+            'handoff_id': hid,
+            'elapsed_ms': sw.elapsedMilliseconds,
+          },
         );
       } catch (e) {
         lastErr = e.toString();
+        asrEvidenceBus?.record(
+          'paper_delete_done',
+          severity: 'error',
+          cacheId: id,
+          stage: 'error',
+          ok: false,
+          code: 'error',
+          message: lastErr!.length > 200 ? lastErr!.substring(0, 200) : lastErr!,
+          details: {
+            'handoff_id': hid,
+            'elapsed_ms': sw.elapsedMilliseconds,
+          },
+        );
         asrEvidenceBus?.record(
           'paper_delete',
           severity: 'error',
@@ -1329,12 +1419,21 @@ class LibraryController extends ChangeNotifier {
           stage: 'fail',
           ok: false,
           message: lastErr!.length > 200 ? lastErr!.substring(0, 200) : lastErr!,
+          details: {
+            'handoff_id': hid,
+            'elapsed_ms': sw.elapsedMilliseconds,
+          },
         );
       }
     }
-    papers = papers.where((p) => !ids.contains(p.id)).toList(growable: false);
-    await _persistOrder(papers.map((e) => e.id).toList(growable: false));
-    error = okCount == 0 ? (lastErr ?? '삭제에 실패했습니다.') : null;
+    // design/177 J6 — only drop rows that actually deleted on the server.
+    if (okIds.isNotEmpty) {
+      papers = papers.where((p) => !okIds.contains(p.id)).toList(growable: false);
+      await _persistOrder(papers.map((e) => e.id).toList(growable: false));
+    }
+    error = okCount == ids.length
+        ? null
+        : (lastErr ?? '삭제에 실패했습니다.');
     notifyListeners();
     return okCount;
   }

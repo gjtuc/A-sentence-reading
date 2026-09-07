@@ -549,6 +549,7 @@ def delete_cached_paper(
     gcs_object_n = 0
     gcs_figure_n = 0
     gcs_skipped = 0
+    gcs_residual_n = 0
     try:
         from sentence_reading.llm.papers_gcs import delete_paper_cache_stats
 
@@ -557,6 +558,7 @@ def delete_cached_paper(
         gcs_object_n = int(stats.get("object_n") or 0)
         gcs_figure_n = int(stats.get("figure_n") or 0)
         gcs_skipped = int(stats.get("skipped") or 0)
+        gcs_residual_n = int(stats.get("residual_n") or 0)
     except Exception:
         remote_ok = False
 
@@ -586,6 +588,7 @@ def delete_cached_paper(
         out["_gcs_object_n"] = gcs_object_n
         out["_gcs_figure_n"] = gcs_figure_n
         out["_gcs_skipped"] = gcs_skipped
+        out["_gcs_residual_n"] = gcs_residual_n
         out["_had_local"] = 1 if had_local_dir else 0
         return out
 
