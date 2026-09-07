@@ -140,7 +140,7 @@ class _AnnotationToolbarBodyState extends State<_AnnotationToolbarBody> {
             const SizedBox(height: 4),
             Text(
               widget.canAnnotate
-                  ? '색을 고른 뒤 문장에서 칠할 부분을 드래그하세요'
+                  ? '색을 고른 뒤 단어를 문지르세요 (꾹 누를 필요 없음)'
                   : '하이라이트는 로그인 후 사용할 수 있습니다',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,

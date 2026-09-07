@@ -60,3 +60,72 @@ List<int>? charRangeFromSelectorExact(String plain, Map<String, dynamic>? select
   if (idx < 0) return null;
   return clampCharRange(idx, idx + exact.length, plain.length);
 }
+
+final _wordCharRe = RegExp(
+  r"[0-9A-Za-z\u00C0-\u024F\u0400-\u04FF\u0900-\u097F\u4E00-\u9FFF"
+  r"\uAC00-\uD7A3\u3040-\u30FF'’\-]",
+);
+
+bool isAnnotationWordChar(String plain, int index) {
+  if (index < 0 || index >= plain.length) return false;
+  return _wordCharRe.hasMatch(plain[index]);
+}
+
+/// Word (or contiguous word-chars) enclosing [index], half-open [start, end).
+/// If [index] is on whitespace/punct, snaps to the nearest word (prefer left).
+List<int>? wordRangeAt(String plain, int index) {
+  if (plain.isEmpty) return null;
+  var i = index.clamp(0, plain.length);
+  if (i == plain.length) i = plain.length - 1;
+  if (!isAnnotationWordChar(plain, i)) {
+    var found = -1;
+    for (var L = i; L >= 0; L--) {
+      if (isAnnotationWordChar(plain, L)) {
+        found = L;
+        break;
+      }
+    }
+    if (found < 0) {
+      for (var R = i; R < plain.length; R++) {
+        if (isAnnotationWordChar(plain, R)) {
+          found = R;
+          break;
+        }
+      }
+    }
+    if (found < 0) return null;
+    i = found;
+  }
+  var start = i;
+  while (start > 0 && isAnnotationWordChar(plain, start - 1)) {
+    start--;
+  }
+  var end = i + 1;
+  while (end < plain.length && isAnnotationWordChar(plain, end)) {
+    end++;
+  }
+  return [start, end];
+}
+
+/// Expand anchor word range and the word at [extentIndex] (latched highlighter).
+List<int>? wordSnappedSelection({
+  required String plain,
+  required int anchorStart,
+  required int anchorEnd,
+  required int extentIndex,
+}) {
+  final a = clampCharRange(anchorStart, anchorEnd, plain.length);
+  final extent = wordRangeAt(plain, extentIndex);
+  if (a == null && extent == null) return null;
+  final starts = <int>[
+    if (a != null) a[0],
+    if (extent != null) extent[0],
+  ];
+  final ends = <int>[
+    if (a != null) a[1],
+    if (extent != null) extent[1],
+  ];
+  final start = starts.reduce((x, y) => x < y ? x : y);
+  final end = ends.reduce((x, y) => x > y ? x : y);
+  return clampCharRange(start, end, plain.length);
+}

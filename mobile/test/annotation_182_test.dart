@@ -47,4 +47,22 @@ void main() {
     final again = await loadAiAskPromptsEnsuringSeed(store);
     expect(again, isEmpty);
   });
+
+  test('wordRangeAt snaps to full word', () {
+    const plain = 'The catalytic activity was measured.';
+    expect(wordRangeAt(plain, 4), [4, 13]); // catalytic
+    expect(wordRangeAt(plain, 6), [4, 13]);
+    expect(wordRangeAt(plain, 3), [0, 3]); // space → The
+  });
+
+  test('wordSnappedSelection expands by words', () {
+    const plain = 'The catalytic activity was measured.';
+    final range = wordSnappedSelection(
+      plain: plain,
+      anchorStart: 4,
+      anchorEnd: 13,
+      extentIndex: 20, // inside activity
+    );
+    expect(range, [4, 22]); // catalytic activity
+  });
 }

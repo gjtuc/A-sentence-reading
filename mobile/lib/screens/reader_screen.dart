@@ -2170,7 +2170,7 @@ Future<void> _handleSentenceAnnotateLongPress(
         sentenceIndex: session.sentenceIndex,
       );
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('칠할 부분을 드래그하세요')),
+        const SnackBar(content: Text('단어를 문지르면 칠해집니다')),
       );
       return;
     case AnnotationSheetAction.deleteAll:
