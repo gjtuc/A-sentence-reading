@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../api/annotation_models.dart';
@@ -27,7 +26,7 @@ class AnnotatedSentenceText extends StatefulWidget {
   final List<AnnotationEvent> annotations;
   final TextAlign textAlign;
 
-  /// Latched highlighter: pointer-down selects a word; drag expands by words.
+  /// Latched highlighter: touch selects a word; drag expands by words.
   final bool paintMode;
   final String? paintColor;
   final int? previewStart;
@@ -42,9 +41,10 @@ class AnnotatedSentenceText extends StatefulWidget {
 
 class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
   final GlobalKey _textKey = GlobalKey();
-  int? _activePointer;
   int? _anchorWordStart;
   int? _anchorWordEnd;
+  bool _dragging = false;
+
   /// Local preview so paint drag does not rebuild the whole reader.
   int? _localPreviewStart;
   int? _localPreviewEnd;
@@ -58,7 +58,9 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
   void didUpdateWidget(covariant AnnotatedSentenceText oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!widget.paintMode && oldWidget.paintMode) {
-      _clearDrag();
+      _dragging = false;
+      _anchorWordStart = null;
+      _anchorWordEnd = null;
       _localPreviewStart = null;
       _localPreviewEnd = null;
     }
@@ -136,12 +138,6 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
     return pos.offset.clamp(0, _plain.length);
   }
 
-  void _clearDrag() {
-    _activePointer = null;
-    _anchorWordStart = null;
-    _anchorWordEnd = null;
-  }
-
   void _setLocalPreview(int start, int end) {
     if (_localPreviewStart == start && _localPreviewEnd == end) return;
     setState(() {
@@ -151,28 +147,24 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
     widget.onPaintPreview?.call(start, end);
   }
 
-  void _onPointerDown(PointerDownEvent e) {
+  void _onPanStart(DragStartDetails d) {
     if (!widget.paintMode) return;
-    if (e.buttons != kPrimaryButton) return;
-    final idx = _indexForGlobal(e.position);
+    final idx = _indexForGlobal(d.globalPosition);
     if (idx == null) return;
     final word = wordRangeAt(_plain, idx);
-    if (word == null) {
-      widget.onPaintCancel?.call();
-      return;
-    }
-    _activePointer = e.pointer;
+    if (word == null) return; // space/punct: keep paint armed, ignore
+    _dragging = true;
     _anchorWordStart = word[0];
     _anchorWordEnd = word[1];
     _setLocalPreview(word[0], word[1]);
   }
 
-  void _onPointerMove(PointerMoveEvent e) {
-    if (!widget.paintMode || e.pointer != _activePointer) return;
+  void _onPanUpdate(DragUpdateDetails d) {
+    if (!widget.paintMode || !_dragging) return;
     final a0 = _anchorWordStart;
     final a1 = _anchorWordEnd;
     if (a0 == null || a1 == null) return;
-    final idx = _indexForGlobal(e.position);
+    final idx = _indexForGlobal(d.globalPosition);
     if (idx == null) return;
     final snapped = wordSnappedSelection(
       plain: _plain,
@@ -184,15 +176,14 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
     _setLocalPreview(snapped[0], snapped[1]);
   }
 
-  void _onPointerUp(PointerUpEvent e) {
-    if (!widget.paintMode || e.pointer != _activePointer) return;
+  void _onPanEnd(DragEndDetails _) {
+    if (!widget.paintMode || !_dragging) return;
     final start = _previewStart ?? _anchorWordStart;
     final end = _previewEnd ?? _anchorWordEnd;
-    _clearDrag();
-    if (start == null || end == null) {
-      widget.onPaintCancel?.call();
-      return;
-    }
+    _dragging = false;
+    _anchorWordStart = null;
+    _anchorWordEnd = null;
+    if (start == null || end == null) return;
     final clamped = clampCharRange(start, end, _plain.length);
     if (clamped == null) {
       widget.onPaintCancel?.call();
@@ -201,9 +192,11 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
     widget.onPaintCommitted?.call(clamped[0], clamped[1]);
   }
 
-  void _onPointerCancel(PointerCancelEvent e) {
-    if (e.pointer != _activePointer) return;
-    _clearDrag();
+  void _onPanCancel() {
+    if (!_dragging) return;
+    _dragging = false;
+    _anchorWordStart = null;
+    _anchorWordEnd = null;
     _localPreviewStart = null;
     _localPreviewEnd = null;
     widget.onPaintCancel?.call();
@@ -222,14 +215,14 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
       textAlign: widget.textAlign,
     );
     if (!widget.paintMode) return text;
-    // Listener keeps raw pointers even when an ancestor absorbs the arena
-    // (sentence swipe). Clamp hit-tests so drag past edges stays in-sentence.
-    return Listener(
+    // Pan recognizer on the sentence wins the arena over any parent swipe
+    // (design/182 · 0.3.171). Local setState preview avoids reader rebuild.
+    return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onPointerDown: _onPointerDown,
-      onPointerMove: _onPointerMove,
-      onPointerUp: _onPointerUp,
-      onPointerCancel: _onPointerCancel,
+      onPanStart: _onPanStart,
+      onPanUpdate: _onPanUpdate,
+      onPanEnd: _onPanEnd,
+      onPanCancel: _onPanCancel,
       child: text,
     );
   }
