@@ -193,6 +193,7 @@ class ReadingSession {
     this.supplementaryMerged = false,
     this.translatePending = false,
     this.contentHash = '',
+    this.firstFigTableChipSentenceIndex,
   }) {
     clampIndices();
   }
@@ -256,6 +257,12 @@ class ReadingSession {
       supplementaryMerged: json['supplementary_merged'] == true,
       translatePending: json['translate_pending'] == true,
       contentHash: '${json['content_hash'] ?? ''}'.trim().toLowerCase(),
+      firstFigTableChipSentenceIndex: () {
+        final raw = json['first_fig_table_chip_sentence_index'];
+        if (raw is int) return raw;
+        if (raw is num) return raw.toInt();
+        return int.tryParse('$raw');
+      }(),
     );
   }
 
@@ -278,6 +285,8 @@ class ReadingSession {
   final bool translatePending;
   /// design/171 — paper content hash for figure disk cache invalidation.
   final String contentHash;
+  /// design/183 — first matched Fig/Table chip sentence index (open hint).
+  final int? firstFigTableChipSentenceIndex;
 
   bool get hasAnyTranslation {
     for (final s in sentences) {

@@ -245,3 +245,30 @@ def hints_for_sentence(
         seen_idx.add(idx)
         rows.append({"ref": label, "figure_index": idx})
     return rows
+
+
+def first_fig_table_chip_sentence_index(
+    sentences: list[Any],
+    figures: list[Any],
+    *,
+    supplementary_merged: bool = False,
+) -> int | None:
+    """design/183 — first global sentence index with a *matched* Fig/Table chip.
+
+    Same predicate as mobile ``hintsForSentence`` / UI chips. Unmatched refs
+    and bibliography cite numbers do not count. ``None`` if no chip exists.
+    """
+    for i, s in enumerate(sentences or []):
+        if isinstance(s, dict):
+            text = str(s.get("text") or "")
+        else:
+            text = str(getattr(s, "text", "") or "")
+        if not strip_tags(text).strip():
+            continue
+        if hints_for_sentence(
+            text,
+            figures,
+            supplementary_merged=supplementary_merged,
+        ):
+            return i
+    return None

@@ -165,6 +165,8 @@
 | 175 | [175-papers-gcs-orphan-invariant.md](175-papers-gcs-orphan-invariant.md) | papers GCS orphan 불변식 · prefix wipe · supersede GC (**0.3.157**) |
 | 176 | [176-focus-practice-pomodoro.md](176-focus-practice-pomodoro.md) | 따라 말하기 10분 집중 시계 · 일일 성공 · tomato chrome (**0.3.159**) |
 | 177 | [177-paper-delete-causal-evidence.md](177-paper-delete-causal-evidence.md) | 보관 삭제 인과 증거 densify · timeout honesty (**0.3.160**) |
+| 182 | [182-ai-ask-partial-highlight.md](182-ai-ask-partial-highlight.md) | AI ask · 부분 하이라이트 (→0.3.172) |
+| 183 | [183-reader-layout-by-first-fig-chip.md](183-reader-layout-by-first-fig-chip.md) | 첫 Fig/Table 칩 기준 리더 레이아웃 (**0.3.173**) |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -309,3 +311,5 @@
 175 — papers GCS orphan 불변식 (0.3.157).
 176 — 따라 말하기 10분 집중 시계 · 일일 성공 · tomato UI (0.3.159).
 177 — 보관 삭제 인과 증거 densify · timeout honesty (0.3.160).
+182 — AI ask + in-sentence partial highlight (→0.3.172).
+183 — 첫 Fig/Table 칩 기준 리더 레이아웃 auto · Intro collapse · cite 접기 (0.3.173).

@@ -22,6 +22,7 @@ import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
 import 'shadowing_practice_screen.dart';
 import '../api/reader_nav_labels.dart';
+import '../api/reader_layout_policy.dart';
 import '../widgets/reader_nav_picker.dart';
 import '../widgets/annotation_toolbar_sheet.dart';
 import '../api/figure_ink_models.dart';
@@ -96,10 +97,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _captionFullText = true;
   /// design/149 — caption baked into PNG; hide under-image Text when true.
   bool _figureCaptionInImage = true;
+  /// design/183 — Intro collapse / first Fig chip expand.
+  final ReaderLayoutPolicy _layoutPolicy = ReaderLayoutPolicy();
+  bool _readerLayoutAuto = true;
 
   @override
   void initState() {
     super.initState();
+    widget.library.onSentenceIndexChanged = _onSentenceIndexChanged;
     widget.client.fetchStatus().then((st) {
       if (!mounted) return;
       // WHY: explicit false is the kill switch; do not invent a hide on status miss.
@@ -108,24 +113,116 @@ class _ReaderScreenState extends State<ReaderScreen> {
         _captionFullText = st.captionFullText;
         _figureCaptionInImage =
             st.mobileFigureCaptionInImage && st.figureCaptionInImage;
+        _readerLayoutAuto = st.readerLayoutAuto && st.figRefHints;
+        _layoutPolicy.autoEnabled = _readerLayoutAuto;
       });
     }).catchError((_) {
       // EDGE: status unreachable → keep full captions + chips (fail-open for readability).
     });
   }
 
+  @override
+  void dispose() {
+    if (widget.library.onSentenceIndexChanged == _onSentenceIndexChanged) {
+      widget.library.onSentenceIndexChanged = null;
+    }
+    super.dispose();
+  }
+
+  void _pinLayout() => _layoutPolicy.pin();
+
+  bool _sectionIsTitle(ReadingSession s) {
+    final cur = s.currentSentence;
+    if (cur == null) return false;
+    return cur.section.trim().toLowerCase() == 'title';
+  }
+
+  bool _hasCover(ReadingSession s) {
+    for (final f in s.figures) {
+      final sk = f.slotKey.trim().toLowerCase();
+      if (sk.startsWith('title_page:')) return true;
+      if (f.caption.trim().toLowerCase().startsWith('title page')) return true;
+    }
+    return false;
+  }
+
+  int? _thresholdFor(ReadingSession s) {
+    final computed = firstFigTableChipSentenceIndex(
+      sentences: s.sentences,
+      figures: s.figures,
+      supplementaryMerged: s.supplementaryMerged,
+    );
+    return computed ?? s.firstFigTableChipSentenceIndex;
+  }
+
+  void _applyDesire(ReaderLayoutDesire desire) {
+    switch (desire) {
+      case ReaderLayoutDesire.sentenceOnly:
+        if (_layout == _ReaderLayoutMode.sentenceOnly) return;
+        _layout = _ReaderLayoutMode.sentenceOnly;
+        _sentenceFraction = _kDefaultFraction;
+      case ReaderLayoutDesire.splitDefault:
+        if (_layout == _ReaderLayoutMode.split &&
+            (_sentenceFraction - _kDefaultFraction).abs() < 0.001) {
+          return;
+        }
+        _layout = _ReaderLayoutMode.split;
+        _sentenceFraction = _kDefaultFraction;
+    }
+    _edgePreviewSentence = false;
+    _edgePreviewFigure = false;
+  }
+
+  void _applyAutoLayoutForIndex(ReadingSession s, int sentenceIndex) {
+    if (!_layoutPolicy.followsAuto) return;
+    if (widget.annotations.sentencePaintMode) return;
+    final desire = _layoutPolicy.desireFor(
+      sentenceIndex: sentenceIndex,
+      sectionIsTitle: _sectionIsTitle(s),
+      hasCover: _hasCover(s),
+    );
+    _applyDesire(desire);
+  }
+
+  void _onSentenceIndexChanged(int from, int to) {
+    if (!mounted) return;
+    final s = widget.library.session;
+    if (s == null || !s.isValid) return;
+    if (!_layoutPolicy.followsAuto) return;
+    if (widget.annotations.sentencePaintMode) return;
+    setState(() => _applyAutoLayoutForIndex(s, to));
+  }
+
   void _ensureLayoutForSession(ReadingSession s) {
     final key = '${s.sessionId}|${s.cacheId}';
-    if (_layoutSessionKey == key) return;
+    final t = _thresholdFor(s);
+    if (_layoutSessionKey == key) {
+      // design/183 hazard — SI merge / reanalyze may change T mid-paper.
+      if (_layoutPolicy.threshold != t) {
+        _layoutPolicy.threshold = t;
+        if (_layoutPolicy.followsAuto) {
+          _applyAutoLayoutForIndex(s, s.sentenceIndex);
+        }
+      }
+      return;
+    }
     _layoutSessionKey = key;
-    _layout = _ReaderLayoutMode.split;
-    _sentenceFraction = _kDefaultFraction;
     _chromeVisible = true;
     _dragging = false;
     _inMagnet = false;
     _magnetEscaped = false;
     _edgePreviewSentence = false;
     _edgePreviewFigure = false;
+    _layoutPolicy.resetForPaper(
+      threshold: t,
+      autoEnabled: _readerLayoutAuto,
+    );
+    if (_layoutPolicy.followsAuto) {
+      _applyAutoLayoutForIndex(s, s.sentenceIndex);
+    } else {
+      _layout = _ReaderLayoutMode.split;
+      _sentenceFraction = _kDefaultFraction;
+    }
   }
 
   void _toggleChrome() {
@@ -134,6 +231,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   void _toggleSentenceExpand() {
     setState(() {
+      _pinLayout();
       if (_layout == _ReaderLayoutMode.sentenceOnly) {
         _layout = _ReaderLayoutMode.split;
         _sentenceFraction = _kDefaultFraction;
@@ -147,6 +245,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   void _toggleFigureExpand() {
     setState(() {
+      _pinLayout();
       if (_layout == _ReaderLayoutMode.figureOnly) {
         _layout = _ReaderLayoutMode.split;
         _sentenceFraction = _kDefaultFraction;
@@ -169,6 +268,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// design/156 — full-screen vertical swipe (split restore stays double-tap).
   void _swipeToSentenceFromFigure() {
     setState(() {
+      _pinLayout();
       if (_layout != _ReaderLayoutMode.figureOnly) return;
       _layout = _ReaderLayoutMode.sentenceOnly;
       _edgePreviewSentence = false;
@@ -178,6 +278,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   void _swipeToFigureFromSentence() {
     setState(() {
+      _pinLayout();
       if (_layout != _ReaderLayoutMode.sentenceOnly) return;
       _layout = _ReaderLayoutMode.figureOnly;
       _edgePreviewSentence = false;
@@ -185,8 +286,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
     });
   }
 
+  void _onFigChipPressed(int figureIndex) {
+    if (_layout == _ReaderLayoutMode.sentenceOnly) {
+      setState(() {
+        _pinLayout();
+        _layout = _ReaderLayoutMode.split;
+        _sentenceFraction = _kDefaultFraction;
+      });
+    }
+    widget.library.goToFigureIndex(figureIndex);
+  }
+
   void _onSplitDragStart() {
     setState(() {
+      _pinLayout();
       _dragging = true;
       _magnetEscaped = false;
       _layout = _ReaderLayoutMode.split;
@@ -484,6 +597,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
                                       figRefHints: _figRefHints,
+                                      citeCollapsed: _layoutPolicy.citeCollapsed,
+                                      onToggleCiteCollapsed: () {
+                                        setState(() {
+                                          _layoutPolicy.citeCollapsed =
+                                              !_layoutPolicy.citeCollapsed;
+                                        });
+                                      },
+                                      onFigChipPressed: _onFigChipPressed,
                                       onToggleChrome: _toggleChrome,
                                       onDoubleTapExpand: _toggleSentenceExpand,
                                       onSwipeToFigure: _layout ==
@@ -654,6 +775,9 @@ class _SentencePanel extends StatelessWidget {
     required this.showKo,
     required this.showChrome,
     this.figRefHints = true,
+    this.citeCollapsed = true,
+    this.onToggleCiteCollapsed,
+    this.onFigChipPressed,
     this.onToggleChrome,
     this.onDoubleTapExpand,
     this.onSwipeToFigure,
@@ -670,6 +794,10 @@ class _SentencePanel extends StatelessWidget {
   final bool showChrome;
   /// design/124 — from /api/status; parent owns fetch.
   final bool figRefHints;
+  /// design/183 — local cite sheet collapse (not settings kill).
+  final bool citeCollapsed;
+  final VoidCallback? onToggleCiteCollapsed;
+  final void Function(int figureIndex)? onFigChipPressed;
   final VoidCallback? onToggleChrome;
   final VoidCallback? onDoubleTapExpand;
   /// design/156 — sentence full-screen: swipe up → figure full-screen.
@@ -967,9 +1095,36 @@ class _SentencePanel extends StatelessWidget {
           // design/139 — web-parity: dedicated chip row BELOW sentence frame (not inside body scroll).
           ..._figRefChipRow(context),
           if (citePanel.enabled && citePanel.serverAvailable)
-            _CiteRefPanel(
-              client: client,
-              session: session,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                InkWell(
+                  onTap: onToggleCiteCollapsed,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                    child: Row(
+                      children: [
+                        Icon(
+                          citeCollapsed
+                              ? Icons.expand_more
+                              : Icons.expand_less,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '참고문헌',
+                          style: Theme.of(context).textTheme.labelLarge,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (!citeCollapsed)
+                  _CiteRefPanel(
+                    client: client,
+                    session: session,
+                  ),
+              ],
             ),
         ],
       ),
@@ -1018,7 +1173,13 @@ class _SentencePanel extends StatelessWidget {
                 ),
                 onPressed: () {
                   // WHY: figure only — sentence index must stay (design/28 · 139).
-                  library.goToFigureIndex(h.figureIndex);
+                  // design/183 — reveal split if sentence-only so the jump is visible.
+                  final go = onFigChipPressed;
+                  if (go != null) {
+                    go(h.figureIndex);
+                  } else {
+                    library.goToFigureIndex(h.figureIndex);
+                  }
                 },
                 child: Text(
                   '${h.ref} →',

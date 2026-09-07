@@ -85,6 +85,9 @@ class LibraryController extends ChangeNotifier {
     annotations.attachClient(_client);
   }
 
+  /// design/183 — fired after a real sentence_index change (advance / jump).
+  void Function(int from, int to)? onSentenceIndexChanged;
+
   List<PaperEntry> papers = const [];
   ReadingSession? session;
   bool loading = false;
@@ -2280,8 +2283,13 @@ class LibraryController extends ChangeNotifier {
     // design/182 — latched highlight paint must not change sentence mid-drag.
     if (_annotations?.blocksReaderNavigation == true) return;
     final beforeFig = s.figureIndex;
+    final from = s.sentenceIndex;
     s.advanceSentence(delta);
     assert(s.figureIndex == beforeFig, 'figure index must stay put');
+    final to = s.sentenceIndex;
+    if (from != to) {
+      onSentenceIndexChanged?.call(from, to);
+    }
     if (s.sentenceIndex % 20 == 0) {
       asrEvidenceBus?.record(
         'reader_cursor',
@@ -2329,8 +2337,10 @@ class LibraryController extends ChangeNotifier {
     // design/182 — latched highlight paint must not change sentence mid-drag.
     if (_annotations?.blocksReaderNavigation == true) return;
     final beforeFig = s.figureIndex;
+    final from = s.sentenceIndex;
     s.sentenceIndex = index;
     assert(s.figureIndex == beforeFig, 'sentence jump must not move figure');
+    onSentenceIndexChanged?.call(from, index);
     notifyListeners();
     await _syncCursor(sentence: true);
     await persistOpenedProgress();

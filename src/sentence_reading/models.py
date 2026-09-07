@@ -99,13 +99,14 @@ class PaperSession:
             return None
         return self.sentences[self.sentence_index]
 
-    def to_public_dict(self, *, include_images: bool = True) -> dict:
+    def to_public_dict(self, *, include_images: bool = True, supplementary_merged: bool = False) -> dict:
         """API/프론트용 스냅샷.
 
         design/129 — ``include_images=False`` omits PNG data-URLs so /open stays
         small; clients fetch a ±1 window via ``/figures/window``.
         """
         from sentence_reading.document_citation import public_document_citation
+        from sentence_reading.fig_refs import first_fig_table_chip_sentence_index
 
         fig = self.current_figure()
         sent = self.current_sentence()
@@ -177,6 +178,12 @@ class PaperSession:
                 and _ref_n_ok(r.get("n"))
             ],
             "document_citation": public_document_citation(self.document_citation),
+            # design/183 — open hint; client recomputes T from chips (SoT).
+            "first_fig_table_chip_sentence_index": first_fig_table_chip_sentence_index(
+                self.sentences,
+                self.figures,
+                supplementary_merged=supplementary_merged,
+            ),
         }
 
 

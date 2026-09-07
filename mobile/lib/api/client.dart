@@ -62,6 +62,8 @@ class AsrStatus {
     this.progressFailClosed = true,
     // design/28 · 124 — missing key → on (show Fig chips when server advertises).
     this.figRefHints = true,
+    // design/183 — missing key → on; explicit false kills Intro layout auto.
+    this.readerLayoutAuto = true,
     // design/130 — missing key → on (report); explicit false kills.
     this.cloudErrorLogs = true,
     this.mobileCloudErrorLogs = true,
@@ -147,6 +149,9 @@ class AsrStatus {
       // design/124 — missing key → show chips; explicit false hides (server kill).
       figRefHints: json.containsKey('fig_ref_hints')
           ? json['fig_ref_hints'] == true
+          : true,
+      readerLayoutAuto: json.containsKey('reader_layout_auto')
+          ? json['reader_layout_auto'] == true
           : true,
       // design/130 — missing → on; explicit false kills reporting.
       cloudErrorLogs: json.containsKey('cloud_error_logs')
@@ -242,6 +247,8 @@ class AsrStatus {
   final bool mobileAccessWaitingUx;
   final bool progressFailClosed;
   final bool figRefHints;
+  /// design/183 — auto sentenceOnly/split from first Fig/Table chip.
+  final bool readerLayoutAuto;
   // design/130 — missing key → on; explicit false kills client reporting.
   final bool cloudErrorLogs;
   final bool mobileCloudErrorLogs;

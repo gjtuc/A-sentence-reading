@@ -214,7 +214,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.172",
+    version="0.3.173",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -554,6 +554,12 @@ def _mobile_apk_url(*, request: Request | None = None) -> str | None:
 def _fig_ref_hints_enabled() -> bool:
     """design/139 — kill: ASR_FIG_REF_HINTS=0 hides Fig./Scheme/Table chips (app+web)."""
     v = (os.environ.get("ASR_FIG_REF_HINTS") or "1").strip().lower()
+    return v not in ("0", "false", "off", "no")
+
+
+def _reader_layout_auto_enabled() -> bool:
+    """design/183 — kill: ASR_READER_LAYOUT_AUTO=0 keeps legacy always-split open."""
+    v = (os.environ.get("ASR_READER_LAYOUT_AUTO") or "1").strip().lower()
     return v not in ("0", "false", "off", "no")
 
 
@@ -1499,7 +1505,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.172",
+        "version": "0.3.173",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -1617,6 +1623,8 @@ def status(request: Request) -> dict:
         "usage_meter": True,
         # design/28 · 139 — Fig. chips; kill ASR_FIG_REF_HINTS=0.
         "fig_ref_hints": _fig_ref_hints_enabled(),
+        # design/183 — Intro layout auto; kill ASR_READER_LAYOUT_AUTO=0.
+        "reader_layout_auto": _reader_layout_auto_enabled(),
         "cite_ref_open": True,
         "cite_display_clean": True,
         # design/148 — mobile References panel below Fig chips.
@@ -3932,7 +3940,10 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                     )
         session_id = _remember_session(session, cache_id=cache_id)
         # design/129 — sentences/meta only; PNGs via /figures/window (fail-closed empty src).
-        data = session.to_public_dict(include_images=False)
+        data = session.to_public_dict(
+            include_images=False,
+            supplementary_merged=bool(info.get("supplementary_merged")),
+        )
         data["ok"] = True
         data["session_id"] = session_id
         data["debone"] = bool(info.get("debone"))
