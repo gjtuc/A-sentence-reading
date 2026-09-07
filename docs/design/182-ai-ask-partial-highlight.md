@@ -212,7 +212,7 @@ Server / deploy / evidence floor: **no change** for this feature alone.
 
 | 규칙 | |
 |------|--|
-| Paint ON | 문장 텍스트가 포인터를 먹고 `_SwipePager` **horizontal drag 비활성** |
+| Paint ON | 문장 텍스트가 포인터를 먹고 `_SwipePager` **drag 콜백을 null** (enabled만 false면 arena에 남아 칠하기 드래그 실패 — 0.3.167) |
 | Paint OFF | 기존과 동일 |
 | 세로 스크롤 vs 선택 | 슬롭(예: 8–16px)로 가로=선택 / 세로=스크롤 — 문서화 |
 | 문장 이동 | `advanceSentence` 등 진입에서 **즉시 `clearPaintMode()`** (J1) |
