@@ -1395,7 +1395,7 @@ class AsrClient {
       ok: outcome == 'ok',
       code: outcome,
       message: message == null
-          ? null
+          ? ''
           : (message.length > 200 ? message.substring(0, 200) : message),
       details: {
         'outcome': outcome,
