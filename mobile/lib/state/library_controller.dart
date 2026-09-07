@@ -1842,12 +1842,8 @@ class LibraryController extends ChangeNotifier {
   }
 
   void _maybeShowQualityBanner(ReadingSession o) {
-    if (_sessionNeedsQualityBanner(o) &&
-        o.cacheId != _dismissedQualityBannerCacheId) {
-      showIngestQualityBanner = true;
-    } else {
-      showIngestQualityBanner = false;
-    }
+    // Product: ingest quality banner hidden (warnings still persist in session).
+    showIngestQualityBanner = false;
   }
 
   void dismissIngestQualityBanner() {

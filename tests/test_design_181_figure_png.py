@@ -23,15 +23,15 @@ DESIGN = ROOT / "docs" / "design" / "181-figure-png-self-contained.md"
 def test_design_181_exists() -> None:
     assert DESIGN.is_file()
     text = DESIGN.read_text(encoding="utf-8")
-    assert "0.3.164" in text
+    assert "0.3.165" in text
     assert "session_ensured" in text
     assert "self-contained" in text.lower() or "self-contained" in text
 
 
 def test_status_version_pin_181() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.164"
-    assert EVIDENCE_FLOOR_VERSION == "0.3.164"
+    assert st["version"] == "0.3.165"
+    assert EVIDENCE_FLOOR_VERSION == "0.3.165"
 
 
 def test_png_cold_session_ensure_then_200(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

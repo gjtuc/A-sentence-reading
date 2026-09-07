@@ -28,8 +28,8 @@ def test_design_180_exists() -> None:
 
 def test_status_version_pin_180() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.164"
-    assert EVIDENCE_FLOOR_VERSION == "0.3.164"
+    assert st["version"] == "0.3.165"
+    assert EVIDENCE_FLOOR_VERSION == "0.3.165"
 
 
 def test_cache_figure_png_200_and_404(monkeypatch: pytest.MonkeyPatch) -> None:
