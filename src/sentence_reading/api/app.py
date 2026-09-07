@@ -214,7 +214,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.160",
+    version="0.3.161",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1110,6 +1110,15 @@ def _fail_job_terminal(
                 "gcs_tok8",
                 "cr_rev8",
                 "lease_ttl_s",
+                # design/178 — wake causal join on worker_lost
+                "wake_outcome",
+                "wake_path",
+                "wake_elapsed_ms",
+                "wake_http_status",
+                "wake_configured",
+                "wake_has_url",
+                "wake_has_secret",
+                "wake_exc_class",
             ):
                 if key in details:
                     term_details[key] = details[key]
@@ -1287,6 +1296,8 @@ async def _ingest_sweeper_loop() -> None:
                     # Reclaim refused (no upload / claim fail) → worker_lost terminal.
                     if job2.get("done") or job2.get("error"):
                         continue
+                    from sentence_reading.llm import ingest_worker_wake as iww
+
                     _fail_job_terminal(
                         jid,
                         "처리 worker가 응답하지 않습니다. 다시 업로드해 주세요.",
@@ -1299,6 +1310,7 @@ async def _ingest_sweeper_loop() -> None:
                             "will_mark_lost_path": "sweeper_after_reclaim_fail",
                             "zombie_risk": reclaim_reason
                             in ("gcs_lease_alive", "lease_claim_failed", "already_local"),
+                            **iww.wake_fields_from_job(job2),
                             **ilo.mem_snapshot(job2),
                             **ilo.gcs_snapshot(jid, owner),
                         },
@@ -1412,6 +1424,9 @@ def status(request: Request) -> dict:
         ingest_job_reclaim_enabled,
         ingest_inline_enabled,
         ingest_worker_configured,
+        ingest_worker_url_set,
+        ingest_worker_secret_set,
+        worker_config_ok,
         ingest_resume_skip_enabled,
     )
     from sentence_reading.llm.papers_gcs import (
@@ -1420,7 +1435,7 @@ def status(request: Request) -> dict:
     )
 
     user = _request_user(request)
-    return {
+    payload = {
         "ok": True,
         "stage": "m4",
         "pdf_extract": True,
@@ -1438,7 +1453,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.160",
+        "version": "0.3.161",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -1517,6 +1532,9 @@ def status(request: Request) -> dict:
         "ingest_job_reclaim": ingest_job_reclaim_enabled(),
         "ingest_inline": ingest_inline_enabled(),
         "ingest_worker": ingest_worker_configured(),
+        "ingest_worker_url_set": ingest_worker_url_set(),
+        "ingest_worker_secret_set": ingest_worker_secret_set(),
+        "worker_config_ok": worker_config_ok(),
         "capacity_profile": (os.environ.get("ASR_CAPACITY_PROFILE") or "").strip() or None,
         # design/110 — checkpoint envelope (skip logic later).
         "ingest_checkpoint": ingest_checkpoint_enabled(),
@@ -1626,6 +1644,15 @@ def status(request: Request) -> dict:
         # design/161 — settings APK download; Cloud Run proxy when bucket is private.
         "mobile_apk_url": _mobile_apk_url(request=request),
     }
+    # design/178 — throttled mismatch probe (joinable without upload).
+    try:
+        from sentence_reading.llm import ingest_worker_wake as iww
+
+        if not payload.get("worker_config_ok", True):
+            iww.emit_worker_config_mismatch(wake_path="status_probe")
+    except Exception:  # noqa: BLE001
+        pass
+    return payload
 
 
 @app.get("/api/mobile/apk")
@@ -4890,9 +4917,19 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
             return False
         from sentence_reading.llm import ingest_worker_wake as iww
 
-        ok_wake = await iww.wake_ingest_worker(job_id, owner_uid)
-        _emit("worker_wake" if ok_wake else "worker_wake_failed")
-        return ok_wake
+        wake = await iww.wake_ingest_worker(
+            job_id,
+            owner_uid,
+            wake_path="reclaim",
+            trace_id=str((existing or {}).get("trace_id") or ""),
+        )
+        stash = existing if existing is not None else _JOBS.get(job_id)
+        iww.stash_wake_on_job(stash if isinstance(stash, dict) else None, wake)
+        _emit(
+            "worker_wake" if wake.ok else "worker_wake_failed",
+            extra=wake.details(),
+        )
+        return wake.ok
     # WHY: this instance already has an active worker — do not double-start.
     if existing is not None and existing.get("_local_running"):
         _emit("already_local")
@@ -5947,8 +5984,16 @@ def _spawn_ingest_worker(
         pass
 
     async def _wake() -> None:
-        if uid:
-            await iww.wake_ingest_worker(job_id, uid)
+        if not uid:
+            return
+        job = _JOBS.get(job_id)
+        wake = await iww.wake_ingest_worker(
+            job_id,
+            uid,
+            wake_path="spawn",
+            trace_id=str((job or {}).get("trace_id") or ""),
+        )
+        iww.stash_wake_on_job(job if isinstance(job, dict) else None, wake)
 
     asyncio.create_task(_wake())
 

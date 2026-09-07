@@ -75,6 +75,26 @@ def ingest_worker_configured() -> bool:
     return bool(ingest_worker_url() and ingest_worker_secret())
 
 
+def ingest_worker_url_set() -> bool:
+    """design/178 — URL present (secret may still be missing)."""
+    return bool(ingest_worker_url())
+
+
+def ingest_worker_secret_set() -> bool:
+    """design/178 — secret present (URL may still be missing)."""
+    return bool(ingest_worker_secret())
+
+
+def worker_config_ok() -> bool:
+    """
+    design/178 — False when API expects external worker but wake env incomplete.
+    Inline mode is always ok for this predicate.
+    """
+    if ingest_inline_enabled():
+        return True
+    return ingest_worker_configured()
+
+
 def worker_instance_id() -> str:
     """Cloud Run revision id or hostname — design/173c observability."""
     for key in ("K_REVISION", "HOSTNAME"):

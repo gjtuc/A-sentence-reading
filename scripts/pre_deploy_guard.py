@@ -243,6 +243,14 @@ def run_guard(
     if not allow_dirty and not ci_mode and git_dirty():
         errs.append("working_tree_dirty")
 
+    # design/178 — inline=0 without worker wake env (would ship blind worker_lost).
+    _inline = (os.environ.get("ASR_INGEST_INLINE") or "1").strip().lower()
+    if _inline in ("0", "false", "off", "no"):
+        if not (os.environ.get("ASR_WORKER_URL") or "").strip() or not (
+            os.environ.get("ASR_WORKER_SECRET") or ""
+        ).strip():
+            errs.append("worker_wake_env_missing_with_inline_off")
+
     # design/169g — sensor regression (delete kinds/emits while bumping version)
     if os.environ.get("ASR_SKIP_EVIDENCE_FLOOR", "").strip() not in (
         "1",

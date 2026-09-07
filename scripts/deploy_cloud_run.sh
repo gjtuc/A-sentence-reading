@@ -19,6 +19,15 @@ cd "$ROOT"
 : "${ASR_AUTH_SECRET:?Set ASR_AUTH_SECRET (strong random)}"
 : "${GEMINI_API_KEY:?Set GEMINI_API_KEY}"
 
+# design/178 — inline=0 without wake env wipes jobs into worker_lost (not cold-start).
+_asr_inline_l="$(printf '%s' "${ASR_INGEST_INLINE:-1}" | tr '[:upper:]' '[:lower:]')"
+if [[ "$_asr_inline_l" == "0" || "$_asr_inline_l" == "false" || "$_asr_inline_l" == "off" || "$_asr_inline_l" == "no" ]]; then
+  if [[ -z "${ASR_WORKER_URL:-}" || -z "${ASR_WORKER_SECRET:-}" ]]; then
+    echo "design/178: ASR_INGEST_INLINE=0 requires ASR_WORKER_URL and ASR_WORKER_SECRET" >&2
+    exit 2
+  fi
+fi
+
 KAKAO_REST="${ASR_KAKAO_REST_API_KEY:-}"
 KAKAO_SECRET="${ASR_KAKAO_CLIENT_SECRET:-}"
 ADMIN_EMAILS="${ASR_ADMIN_EMAILS:-}"

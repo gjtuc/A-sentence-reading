@@ -36,6 +36,17 @@ export ASR_CAPACITY_PROFILE="${ASR_CAPACITY_PROFILE:-$PROFILE}"
 if [[ "${CLEAR_WORKER_ENV:-}" == "1" ]]; then
   unset ASR_WORKER_URL ASR_WORKER_SECRET
 fi
+
+# design/178 — env-vars-file omits unset keys and wipes prior wake env on API.
+# When profile runs external worker (inline=0 + DEPLOY_WORKER), require wake wiring.
+_asr_inline_l="$(printf '%s' "${ASR_INGEST_INLINE:-1}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${DEPLOY_WORKER:-}" == "1" && ( "$_asr_inline_l" == "0" || "$_asr_inline_l" == "false" || "$_asr_inline_l" == "off" || "$_asr_inline_l" == "no" ) ]]; then
+  : "${ASR_WORKER_SECRET:?design/178: ASR_WORKER_SECRET required for DEPLOY_WORKER + inline=0}"
+  if [[ -z "${ASR_WORKER_URL:-}" ]]; then
+    export ASR_WORKER_URL="${ASR_WORKER_URL_DEFAULT:-https://asr-sentence-reading-worker-viifumy7qq-du.a.run.app}"
+    echo "design/178: ASR_WORKER_URL defaulted to ${ASR_WORKER_URL}"
+  fi
+fi
 REGION="${ASR_CLOUD_RUN_REGION:-asia-northeast3}"
 API_SERVICE="${ASR_CLOUD_RUN_SERVICE:-asr-sentence-reading}"
 WORKER_SERVICE="${ASR_WORKER_SERVICE:-asr-sentence-reading-worker}"

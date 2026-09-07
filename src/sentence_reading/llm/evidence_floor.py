@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 
 # Live must not lose sensors introduced by 169c/d/e/g/h/i/j/k (floor through pull verdicts).
-EVIDENCE_FLOOR_VERSION = "0.3.160"
+EVIDENCE_FLOOR_VERSION = "0.3.161"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -85,6 +85,10 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "focus_session_end",
         "focus_block_done",
         "focus_day_success",
+        # design/178 — worker wake causal densify
+        "worker_wake_start",
+        "worker_wake_done",
+        "worker_config_mismatch",
     }
 )
 
@@ -233,6 +237,11 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "shadowing_chunks_build_start",
             "shadowing_chunks_build_done",
             "shadowing_ingest_stage",
+            # design/178
+            "worker_config_ok",
+            "wake_outcome",
+            "stash_wake_on_job",
+            "emit_worker_config_mismatch",
         ),
     ),
     (
@@ -267,6 +276,19 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "gcs_snapshot",
             "emit_dual",
             "cr_rev8",
+        ),
+    ),
+    (
+        "src/sentence_reading/llm/ingest_worker_wake.py",
+        (
+            "WakeResult",
+            "worker_wake_start",
+            "worker_wake_done",
+            "worker_config_mismatch",
+            "wake_outcome",
+            "stash_wake_on_job",
+            "wake_fields_from_job",
+            "emit_worker_config_mismatch",
         ),
     ),
     (
