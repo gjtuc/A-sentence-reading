@@ -1,8 +1,9 @@
-/// design/82+120 — separate shadowing practice mode (mobile).
+/// design/82+120+176 — shadowing practice + 10‑min speaking focus clock.
 ///
 /// Gates: login (shell) · kill · opt-in · chunks built before loop.
-/// Loop: listen → record(+2s) → next/skip.
+/// Loop: listen → record(+2s) → auto-next while focus session active.
 /// design/120 — 「다시」(speak only) · 「다시 듣기」(my take).
+/// design/176 — tomato-like chrome · sentence above timer · mic-only clock.
 library;
 
 import 'dart:async';
@@ -17,10 +18,12 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../api/client.dart';
+import '../api/focus_practice_models.dart';
 import '../api/reading_models.dart';
 import '../api/shadowing_retry_gate.dart';
 import '../api/tts_models.dart';
 import '../services/evidence_bus.dart';
+import '../state/focus_practice_controller.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/tts_controller.dart';
@@ -33,24 +36,29 @@ class ShadowingPracticeScreen extends StatefulWidget {
     required this.library,
     required this.shadowing,
     required this.tts,
+    this.focus,
   });
 
   final AsrClient client;
   final LibraryController library;
   final ShadowingController shadowing;
   final TtsController tts;
+  final FocusPracticeController? focus;
 
   @override
   State<ShadowingPracticeScreen> createState() =>
       _ShadowingPracticeScreenState();
 }
 
-class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
+class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
+    with WidgetsBindingObserver {
   static const _pad = Duration(seconds: 2);
   // WHY: design/82 — Android MediaRecorder via platform channel (no pub `record` dep).
   static const _mic = MethodChannel('asr/shadowing_mic');
 
   final _player = AudioPlayer();
+  late final FocusPracticeController _focus;
+  late final bool _ownsFocus;
 
   String? _status;
   bool _busy = false;
@@ -63,20 +71,46 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
   String? _lastTakePath;
   /// design/162 — session-only self-view mirror (not persisted).
   bool _mirrorEnabled = false;
+  /// design/176 — auto-advance after successful speak while session active.
+  bool _autoAdvance = true;
 
   ReadingSession? get _session => widget.library.session;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _ownsFocus = widget.focus == null;
+    _focus = widget.focus ?? FocusPracticeController();
+    _focus.addListener(_onFocusTick);
+    unawaited(_boot());
+  }
+
+  void _onFocusTick() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _focus.removeListener(_onFocusTick);
+    if (_focus.speaking) {
+      _focus.endSpeak(cacheId: _cacheId);
+    }
+    if (_ownsFocus) {
+      _focus.dispose();
+    }
     unawaited(_player.dispose());
     unawaited(_mic.invokeMethod<String>('stop'));
     super.dispose();
   }
 
   @override
-  void initState() {
-    super.initState();
-    unawaited(_boot());
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      _focus.onAppPaused(cacheId: _cacheId);
+    }
   }
 
   String get _cacheId {
@@ -93,6 +127,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
   }
 
   Future<void> _boot() async {
+    await _focus.bindUid(widget.shadowing.boundUid);
     final session = _session;
     if (session == null || !session.isValid) {
       asrEvidenceBus?.record(
@@ -157,7 +192,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
     var rounds = 0;
     var planStatus = '';
     var errorCode = '';
-    var okOut = false;
     var chunkN = 0;
     try {
       // WHY: product B — chunks must succeed before practice room.
@@ -219,7 +253,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
         errorCode = 'chunk_empty';
         throw AsrApiException('이 문장에 연습 구간이 없습니다.', 400);
       }
-      okOut = true;
       asrEvidenceBus?.record(
         'shadowing_boot_done',
         cacheId: cacheId,
@@ -233,6 +266,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
           'elapsed_ms': sw.elapsedMilliseconds,
         },
       );
+      _focus.startSession(cacheId: cacheId);
       await _runCycle();
     } on AsrApiException catch (e) {
       asrEvidenceBus?.record(
@@ -270,6 +304,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
       setState(() => _status = e.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
+      // Auto-advance is scheduled from successful speak (_scheduleAutoAdvance).
     }
   }
 
@@ -376,16 +411,20 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
       setState(() => _status = '녹음을 시작하지 못했습니다. 건너뛰기를 사용할 수 있습니다.');
       return;
     }
+    // design/176 plan C — clock runs only while mic speak segment is open.
+    _focus.beginSpeak();
     asrEvidenceBus?.record(
       'shadowing_loop_event',
       cacheId: _cacheId,
       ok: true,
       details: {'phase': 'mic_start', 'ok': true},
     );
+    var takeOk = false;
     try {
       await _playTts(_chunks[_chunkIndex]);
       await Future<void>.delayed(_pad);
     } finally {
+      _focus.endSpeak(cacheId: _cacheId);
       final outPath = await _mic.invokeMethod<String>('stop');
       asrEvidenceBus?.record(
         'shadowing_loop_event',
@@ -431,7 +470,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
           ok: true,
           details: {'phase': 'take_post', 'ok': true},
         );
-        setState(() => _status = '저장됨. 「다시」·「다시 듣기」·「다음」·「건너뛰기」');
+        takeOk = true;
+        setState(() => _status = _autoAdvance && _focus.sessionActive
+            ? '저장됨 · 다음 구간…'
+            : '저장됨. 「다시」·「다시 듣기」·「다음」·「건너뛰기」');
       } catch (e) {
         asrEvidenceBus?.record(
           'shadowing_loop_event',
@@ -447,6 +489,25 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
         rethrow;
       }
     }
+    // Retry stays put; successful first-pass speak chains while focus is on.
+    if (takeOk && !fromRetry) {
+      _scheduleAutoAdvance();
+    }
+  }
+
+  void _scheduleAutoAdvance() {
+    if (!_autoAdvance || !_focus.sessionActive || _focus.paused) return;
+    unawaited(() async {
+      // Wait for parent finally to clear _busy (boot / _next / restart).
+      for (var i = 0; i < 40; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        if (!mounted || !_focus.sessionActive || _focus.paused) return;
+        if (!_busy) break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      if (!mounted || _busy || !_focus.sessionActive || _focus.paused) return;
+      await _next(skip: false);
+    }());
   }
 
   Future<void> _retrySpeak() async {
@@ -508,6 +569,28 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
     setState(() => _mirrorEnabled = !_mirrorEnabled);
   }
 
+  void _onGiveUp() {
+    _focus.giveUp(cacheId: _cacheId);
+    setState(() => _status = '집중 종료. 「시작」으로 다시 말할 수 있습니다.');
+  }
+
+  void _onRestartFocus() {
+    _focus.startSession(cacheId: _cacheId);
+    setState(() => _status = '집중 시작. 말할 때만 시계가 갑니다.');
+    if (!_busy && _chunks.isNotEmpty) {
+      unawaited(() async {
+        setState(() => _busy = true);
+        try {
+          await _runCycle();
+        } catch (e) {
+          if (mounted) setState(() => _status = e.toString());
+        } finally {
+          if (mounted) setState(() => _busy = false);
+        }
+      }());
+    }
+  }
+
   Future<void> _next({required bool skip}) async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -559,75 +642,171 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen> {
     final prompt = _chunks.isEmpty
         ? ''
         : _chunks[_chunkIndex.clamp(0, _chunks.length - 1)];
+    final theme = Theme.of(context);
+    final remaining = _focus.displayRemaining;
+    final elapsed = _focus.displayElapsed;
+    final blockLabel = formatFocusClock(
+      // Tomato-like: show time spent speaking in this block (counts up).
+      elapsed,
+    );
+    final missionLeft = formatFocusClock(remaining);
+
     return Scaffold(
+      backgroundColor: const Color(0xFF1A1A1A),
       appBar: AppBar(
-        title: const Text('쉐도잉 연습'),
+        backgroundColor: const Color(0xFF1A1A1A),
+        foregroundColor: Colors.white,
+        title: const Text('따라 말하기'),
         actions: [
           IconButton(
             icon: Icon(
               _mirrorEnabled ? Icons.videocam : Icons.videocam_off_outlined,
+              color: Colors.white70,
             ),
             tooltip: _mirrorEnabled ? '카메라 끄기' : '카메라 켜기',
             onPressed: _busy ? null : _toggleMirror,
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              '문장 ${_sentenceIndex + 1} · 구간 ${_chunkIndex + 1}/${_chunks.isEmpty ? 1 : _chunks.length}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            if (_mirrorEnabled) ...[
-              const SizedBox(height: 8),
-              SizedBox(
-                height: MediaQuery.sizeOf(context).height * 0.32,
-                child: const PracticeMirrorPanel(),
-              ),
-            ] else
-              const SizedBox(height: 12),
-            Expanded(
-              child: SingleChildScrollView(
-                child: Text(
-                  prompt,
-                  style: Theme.of(context).textTheme.titleMedium,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                '문장 ${_sentenceIndex + 1} · 구간 ${_chunkIndex + 1}/${_chunks.isEmpty ? 1 : _chunks.length}',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: Colors.white54,
                 ),
               ),
-            ),
-            if (_status != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(_status!, textAlign: TextAlign.center),
-              ),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton(
-                  onPressed: _busy ? null : () => _next(skip: false),
-                  child: const Text('다음'),
-                ),
-                OutlinedButton(
-                  onPressed: _busy ? null : () => _next(skip: true),
-                  child: const Text('건너뛰기'),
-                ),
-                OutlinedButton(
-                  // design/120 — speak-only retry; unlimited.
-                  onPressed: _busy ? null : _retrySpeak,
-                  child: const Text('다시'),
-                ),
-                OutlinedButton(
-                  // design/120 — replay my last take; fail-closed if missing.
-                  onPressed: _busy ? null : _replayTake,
-                  child: const Text('다시 듣기'),
+              if (_mirrorEnabled) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.18,
+                  child: const PracticeMirrorPanel(),
                 ),
               ],
-            ),
-            const SizedBox(height: 8),
-          ],
+              const SizedBox(height: 12),
+              // Sentence ABOVE timer (design/176).
+              Expanded(
+                flex: 3,
+                child: Center(
+                  child: SingleChildScrollView(
+                    child: Text(
+                      prompt.isEmpty ? '…' : prompt,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        color: Colors.white,
+                        height: 1.35,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                blockLabel,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 56,
+                  fontWeight: FontWeight.w300,
+                  color: Colors.white,
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _focus.daySuccess
+                    ? '오늘 성공 · ${_focus.blocksCompletedToday}블록 · 다음까지 $missionLeft'
+                    : '10분 말하기 · 남은 $missionLeft',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: _focus.daySuccess
+                      ? const Color(0xFF7DCEA0)
+                      : Colors.white70,
+                ),
+              ),
+              if (_status != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _status!,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.white54,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              if (_focus.sessionActive)
+                SizedBox(
+                  height: 48,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white38),
+                    ),
+                    onPressed: _onGiveUp,
+                    child: const Text('GIVE UP'),
+                  ),
+                )
+              else
+                SizedBox(
+                  height: 48,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFE74C3C),
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: _busy ? null : _onRestartFocus,
+                    child: const Text('시작'),
+                  ),
+                ),
+              const SizedBox(height: 12),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white24),
+                    ),
+                    onPressed: _busy ? null : () => _next(skip: false),
+                    child: const Text('다음'),
+                  ),
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white24),
+                    ),
+                    onPressed: _busy ? null : () => _next(skip: true),
+                    child: const Text('건너뛰기'),
+                  ),
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white24),
+                    ),
+                    onPressed: _busy ? null : _retrySpeak,
+                    child: const Text('다시'),
+                  ),
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white24),
+                    ),
+                    onPressed: _busy ? null : _replayTake,
+                    child: const Text('다시 듣기'),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

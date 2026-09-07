@@ -25,6 +25,9 @@ class ShadowingController extends ChangeNotifier {
   String? _uid;
   ShadowingPrefs _prefs = const ShadowingPrefs();
 
+  /// design/176 — same uid scope as focus practice prefs.
+  String? get boundUid => _uid;
+
   /// Load prefs for [uid]. Call on login / account switch.
   Future<void> bindUid(String? uid) async {
     _uid = (uid ?? '').trim().isEmpty ? null : uid!.trim();

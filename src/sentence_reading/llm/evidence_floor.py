@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 
 # Live must not lose sensors introduced by 169c/d/e/g/h/i/j/k (floor through pull verdicts).
-EVIDENCE_FLOOR_VERSION = "0.3.157"
+EVIDENCE_FLOOR_VERSION = "0.3.159"
 
 FROZEN_KINDS: frozenset[str] = frozenset(
     {
@@ -75,6 +75,11 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "shadowing_gemini_call_start",
         "shadowing_gemini_call_done",
         "shadowing_ingest_stage",
+        # design/176 — focus practice speaking clock
+        "focus_session_start",
+        "focus_session_end",
+        "focus_block_done",
+        "focus_day_success",
     }
 )
 
@@ -306,6 +311,17 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "shadowing_boot_done",
             "shadowing_loop_event",
             "shadowing_gate",
+        ),
+    ),
+    (
+        "mobile/lib/state/focus_practice_controller.dart",
+        (
+            "focus_session_start",
+            "focus_session_end",
+            "focus_block_done",
+            "focus_day_success",
+            "beginSpeak",
+            "endSpeak",
         ),
     ),
 )

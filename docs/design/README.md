@@ -162,6 +162,8 @@
 | 172 | [172-access-sticky-on-timeout.md](172-access-sticky-on-timeout.md) | access/status 타임아웃 시 sticky unlock · 승인대기 튕김 방지 |
 | 173 | [173-capacity-isolation-roadmap.md](173-capacity-isolation-roadmap.md) | 용량·격리 로드맵 (access TTL → Run bump → worker) |
 | 174 | [174-worker-gcs-uid-library-list.md](174-worker-gcs-uid-library-list.md) | worker GCS uid 바인딩 · 목록 miss · papers_upload_fail (**0.3.156**) |
+| 175 | [175-papers-gcs-orphan-invariant.md](175-papers-gcs-orphan-invariant.md) | papers GCS orphan 불변식 · prefix wipe · supersede GC (**0.3.157**) |
+| 176 | [176-focus-practice-pomodoro.md](176-focus-practice-pomodoro.md) | 따라 말하기 10분 집중 시계 · 일일 성공 · tomato chrome (**0.3.159**) |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -303,3 +305,5 @@
 169 — **Agent Evidence Bus** 전역 증거 수집 · 오류 개선 전용 · 관리자/사용자 UI 없음 · `asr/evidence/` + `pull_evidence.py` (168/130과 분리). 체크리스트: [169-audit-checklist.md](169-audit-checklist.md).
 172 — access/status 타임아웃 시 sticky unlock · 승인대기 튕김 방지 (0.3.147).
 173 — 용량·격리 로드맵: access TTL(173a) → Run bump(173b) → worker(173c). **순서 강제.**
+175 — papers GCS orphan 불변식 (0.3.157).
+176 — 따라 말하기 10분 집중 시계 · 일일 성공 · tomato UI (0.3.159).

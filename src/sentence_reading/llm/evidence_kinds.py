@@ -105,5 +105,10 @@ ALLOWED_KINDS = frozenset(
         "shadowing_gemini_call_start",
         "shadowing_gemini_call_done",
         "shadowing_ingest_stage",
+        # design/176 — focus practice speaking clock
+        "focus_session_start",
+        "focus_session_end",
+        "focus_block_done",
+        "focus_day_success",
     }
 )
