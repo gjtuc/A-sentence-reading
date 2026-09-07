@@ -312,6 +312,26 @@ def figure_data_url_with_reason(
     return None, "figure_id_not_in_meta"
 
 
+def figure_png_bytes_with_reason(
+    cache_id: str, figure_id: str
+) -> tuple[bytes | None, str]:
+    """design/180 — raw PNG bytes or (None, reason). Same path rules as data-URL helper."""
+    url, reason = figure_data_url_with_reason(cache_id, figure_id)
+    if not url:
+        return None, reason
+    # Decode data URL produced by helper (avoids duplicating path logic).
+    try:
+        decoded = _decode_data_url(url)
+    except Exception:  # noqa: BLE001
+        return None, "decode_error"
+    if decoded is None:
+        return None, "decode_error"
+    raw, _ext = decoded
+    if not raw:
+        return None, "empty_bytes"
+    return raw, "ok"
+
+
 def figure_data_url(cache_id: str, figure_id: str) -> str | None:
     """design/129 — load one figure PNG from disk as data-URL (no path traversal).
 

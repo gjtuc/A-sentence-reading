@@ -214,7 +214,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.162",
+    version="0.3.163",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1499,7 +1499,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.162",
+        "version": "0.3.163",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -3775,6 +3775,60 @@ def cache_papers(fresh: int = 0) -> dict:
     )
     return {"ok": True, "papers": papers}
 
+
+
+
+@app.get("/api/cache/papers/{cache_id}/figures/{figure_id}.png")
+def cache_figure_png(request: Request, cache_id: str, figure_id: str) -> Response:
+    """design/180 — raw PNG bytes for one figure (hydrate path; no data-URL window)."""
+    import time
+
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    from sentence_reading.cache.paper_cache import figure_png_bytes_with_reason
+    from sentence_reading.llm import evidence_bus as eb
+
+    t0 = time.perf_counter()
+    cid = (cache_id or "").strip()
+    fid = (figure_id or "").strip()
+    raw, reason = figure_png_bytes_with_reason(cid, fid)
+    elapsed_ms = max(0, int((time.perf_counter() - t0) * 1000))
+    try:
+        eb.emit(
+            "figure_png_done",
+            severity="boundary" if raw else "error",
+            cache_id=cid,
+            stage="png",
+            ok=bool(raw),
+            details={
+                "elapsed_ms": elapsed_ms,
+                "bytes_n": len(raw) if raw else 0,
+                "outcome": "ok" if raw else (reason or "miss")[:64],
+            },
+            code="figure_png_done",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    if not raw:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "figure_missing",
+                "message": "그림을 찾을 수 없습니다.",
+                "reason": reason,
+            },
+        )
+    return Response(
+        content=raw,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "X-Asr-Figure-Bytes": str(len(raw)),
+            "X-Asr-Elapsed-Ms": str(elapsed_ms),
+        },
+    )
 
 @app.post("/api/cache/papers/{cache_id}/open")
 async def cache_open(request: Request, cache_id: str) -> JSONResponse:

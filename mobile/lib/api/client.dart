@@ -1749,6 +1749,113 @@ throw AsrApiException(
     return opened;
   }
 
+
+  /// design/180 — GET raw PNG for one figure (hydrate; not multi data-URL window).
+  Future<({String dataUrl, int bytesN, int elapsedMs})> fetchFigurePng({
+    required String cacheId,
+    required String figureId,
+    int index = -1,
+    String evidenceSource = 'hydrate_bg',
+  }) async {
+    final cid = cacheId.trim();
+    final fid = figureId.trim();
+    if (cid.isEmpty || fid.isEmpty) {
+      throw AsrApiException('figure id is empty', 400);
+    }
+    final src = evidenceSource.trim();
+    asrEvidenceBus?.record(
+      'figure_png_req',
+      severity: 'lifecycle',
+      cacheId: cid,
+      stage: 'req',
+      details: {
+        if (index >= 0) 'index': index,
+        if (src.isNotEmpty) 'source': src,
+      },
+    );
+    final sw = Stopwatch()..start();
+    try {
+      final res = await _http
+          .get(
+            _uri(
+              '/api/cache/papers/${Uri.encodeComponent(cid)}/figures/'
+              '${Uri.encodeComponent(fid)}.png',
+            ),
+            headers: await _headers(),
+          )
+          .timeout(const Duration(seconds: 120));
+      if (res.statusCode == 401) {
+        throw AsrApiException('로그인이 필요합니다.', 401);
+      }
+      if (res.statusCode == 404) {
+        asrEvidenceBus?.record(
+          'figure_png_done',
+          severity: 'error',
+          cacheId: cid,
+          stage: 'miss',
+          ok: false,
+          httpStatus: 404,
+          details: {
+            if (index >= 0) 'index': index,
+            'elapsed_ms': sw.elapsedMilliseconds,
+            'bytes_n': 0,
+            'outcome': 'missing',
+            if (src.isNotEmpty) 'source': src,
+          },
+        );
+        throw AsrApiException('그림을 찾을 수 없습니다.', 404);
+      }
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        throw AsrApiException('그림 다운로드 실패', res.statusCode);
+      }
+      final bytes = res.bodyBytes;
+      if (bytes.isEmpty) {
+        throw AsrApiException('그림이 비어 있습니다.', 502);
+      }
+      final b64 = base64Encode(bytes);
+      final dataUrl = 'data:image/png;base64,$b64';
+      asrEvidenceBus?.record(
+        'figure_png_done',
+        severity: 'boundary',
+        cacheId: cid,
+        stage: 'ok',
+        ok: true,
+        details: {
+          if (index >= 0) 'index': index,
+          'elapsed_ms': sw.elapsedMilliseconds,
+          'bytes_n': bytes.length,
+          'outcome': 'ok',
+          if (src.isNotEmpty) 'source': src,
+        },
+      );
+      return (
+        dataUrl: dataUrl,
+        bytesN: bytes.length,
+        elapsedMs: sw.elapsedMilliseconds,
+      );
+    } catch (e) {
+      if (e is AsrApiException) rethrow;
+      asrEvidenceBus?.record(
+        'figure_png_done',
+        severity: 'error',
+        cacheId: cid,
+        stage: 'fail',
+        ok: false,
+        details: {
+          if (index >= 0) 'index': index,
+          'elapsed_ms': sw.elapsedMilliseconds,
+          'bytes_n': 0,
+          'outcome': 'timeout',
+          if (src.isNotEmpty) 'source': src,
+        },
+        message: e.toString().length > 200
+            ? e.toString().substring(0, 200)
+            : e.toString(),
+      );
+      rethrow;
+    }
+  }
+
   /// design/129 — GET /api/session/{id}/figures/window?center=&span=
   /// Returns figure rows plus optional server-side empty reason aggregates (169l L3).
   /// [evidenceSource] distinguishes library hydrate vs reader prefetch (169n).
@@ -1789,7 +1896,7 @@ throw AsrApiException(
             ),
             headers: await _headers(),
           )
-          .timeout(const Duration(seconds: 90));
+          .timeout(const Duration(seconds: 120));
       final map = _decodeObject(res, 'figures_window');
       final raw = map['figures'];
       final reasonsRaw = map['empty_reasons'];

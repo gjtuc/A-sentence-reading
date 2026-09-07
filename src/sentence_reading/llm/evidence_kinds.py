@@ -122,5 +122,8 @@ ALLOWED_KINDS = frozenset(
         # design/179 — false worker_lost + poll/library
         "sweep_kill_decision",
         "ingest_poll_terminal",
+        # design/180 — figure hydrate reliability
+        "figure_png_req",
+        "figure_png_done",
     }
 )

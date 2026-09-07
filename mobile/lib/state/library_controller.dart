@@ -172,6 +172,10 @@ class LibraryController extends ChangeNotifier {
   final Set<String> _hydrateDismissed = {};
   bool _hydrateLoopBusy = false;
   int _hydrateGeneration = 0;
+  /// design/180 — cacheIds currently in hydrate loop (prefetch skip).
+  final Set<String> _hydrateActive = {};
+  /// design/180 — single in-flight figure network gate (hydrate + prefetch).
+  Future<void> _figureNetTail = Future<void>.value();
 
   ReadingSession? get opened => session;
 
@@ -230,6 +234,27 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  /// design/180 — serialize all figure PNG/window network fetches app-wide.
+  Future<T> _withFigureNetGate<T>(Future<T> Function() op) async {
+    final prev = _figureNetTail;
+    final done = Completer<void>();
+    _figureNetTail = done.future;
+    await prev;
+    try {
+      return await op();
+    } finally {
+      if (!done.isCompleted) done.complete();
+    }
+  }
+
+  List<int> _emptyFigureIndexes(ReadingSession hs) {
+    final out = <int>[];
+    for (var i = 0; i < hs.figures.length; i++) {
+      if (hs.figures[i].imageSrc.trim().isEmpty) out.add(i);
+    }
+    return out;
+  }
+
   /// design/171 — fill empty imageSrc from on-device PNG cache.
   Future<({int hit, int miss})> _injectFiguresFromDisk(ReadingSession hs) async {
     var hit = 0;
@@ -278,6 +303,7 @@ class LibraryController extends ChangeNotifier {
     if (cid.isEmpty) return;
     final gen = ++_hydrateGeneration;
     final attempt = (_figureHydrate[cid]?.attemptN ?? 0) + 1;
+    _hydrateActive.add(cid);
     _figureHydrate[cid] = FigureHydrateSnapshot(
       cacheId: cid,
       phase: FigureHydratePhase.arming,
@@ -288,115 +314,92 @@ class LibraryController extends ChangeNotifier {
     );
     notifyListeners();
 
-    ReadingSession? hs;
     try {
-      final wantTr = await _wantTranslate();
-      hs = await _client.openPaper(cid, translate: wantTr);
-    } catch (e) {
+      ReadingSession? hs;
+      try {
+        final wantTr = await _wantTranslate();
+        hs = await _client.openPaper(cid, translate: wantTr);
+      } catch (e) {
+        _figureHydrate[cid] = FigureHydrateSnapshot(
+          cacheId: cid,
+          phase: FigureHydratePhase.aborted,
+          total: 0,
+          filled: 0,
+          failed: 0,
+          attemptN: attempt,
+          abortReason: 'open_failed',
+        );
+        asrEvidenceBus?.record(
+          'figure_hydrate_abort',
+          severity: 'error',
+          cacheId: cid,
+          stage: 'arming',
+          ok: false,
+          details: {'abort_reason': 'open_failed', 'attempt_n': attempt},
+          message: e.toString().length > 200
+              ? e.toString().substring(0, 200)
+              : e.toString(),
+        );
+        notifyListeners();
+        return;
+      }
+      if (gen != _hydrateGeneration && _hydrateDismissed.contains(cid)) {
+        return;
+      }
+      if (hs.figureCount < 1) {
+        _figureHydrate[cid] = FigureHydrateSnapshot(
+          cacheId: cid,
+          phase: FigureHydratePhase.doneOk,
+          total: 0,
+          filled: 0,
+          failed: 0,
+          attemptN: attempt,
+        );
+        asrEvidenceBus?.record(
+          'figure_hydrate_done',
+          severity: 'boundary',
+          cacheId: cid,
+          stage: 'hydrate_bg',
+          ok: true,
+          details: {'total': 0, 'filled': 0, 'failed': 0, 'attempt_n': attempt},
+        );
+        notifyListeners();
+        return;
+      }
+
+      // Merge any prior hydrate bytes; keep side session for open() preserve.
+      final prior = _hydrateSessions[cid];
+      if (prior != null) {
+        hs.preserveClientStateFrom(prior);
+      }
+      if (session?.cacheId == cid) {
+        hs.preserveClientStateFrom(session);
+      }
+      // design/171 — disk before network (survives process kill).
+      final disk = await _injectFiguresFromDisk(hs);
+      // Persist any RAM-only bytes (prior hydrate) onto disk.
+      for (final f in hs.figures) {
+        if (f.id.isEmpty || f.imageSrc.trim().isEmpty) continue;
+        await _figureDisk.writeDataUrl(
+          cid,
+          figureId: f.id,
+          imageSrc: f.imageSrc,
+          contentHash: hs.contentHash,
+        );
+      }
+      _hydrateSessions[cid] = hs;
+
+      var filled = countFilledFromSrcList(hs.figures.map((f) => f.imageSrc));
       _figureHydrate[cid] = FigureHydrateSnapshot(
         cacheId: cid,
-        phase: FigureHydratePhase.aborted,
-        total: 0,
-        filled: 0,
-        failed: 0,
-        attemptN: attempt,
-        abortReason: 'open_failed',
-      );
-      asrEvidenceBus?.record(
-        'figure_hydrate_abort',
-        severity: 'error',
-        cacheId: cid,
-        stage: 'arming',
-        ok: false,
-        details: {'abort_reason': 'open_failed', 'attempt_n': attempt},
-        message: e.toString().length > 200
-            ? e.toString().substring(0, 200)
-            : e.toString(),
-      );
-      notifyListeners();
-      return;
-    }
-    if (gen != _hydrateGeneration && _hydrateDismissed.contains(cid)) {
-      return;
-    }
-    if (hs.figureCount < 1) {
-      _figureHydrate[cid] = FigureHydrateSnapshot(
-        cacheId: cid,
-        phase: FigureHydratePhase.doneOk,
-        total: 0,
-        filled: 0,
-        failed: 0,
-        attemptN: attempt,
-      );
-      asrEvidenceBus?.record(
-        'figure_hydrate_done',
-        severity: 'boundary',
-        cacheId: cid,
-        stage: 'hydrate_bg',
-        ok: true,
-        details: {'total': 0, 'filled': 0, 'failed': 0, 'attempt_n': attempt},
-      );
-      notifyListeners();
-      return;
-    }
-
-    // Merge any prior hydrate bytes; keep side session for open() preserve.
-    final prior = _hydrateSessions[cid];
-    if (prior != null) {
-      hs.preserveClientStateFrom(prior);
-    }
-    if (session?.cacheId == cid) {
-      hs.preserveClientStateFrom(session);
-    }
-    // design/171 — disk before network (survives process kill).
-    final disk = await _injectFiguresFromDisk(hs);
-    // Persist any RAM-only bytes (prior hydrate) onto disk.
-    for (final f in hs.figures) {
-      if (f.id.isEmpty || f.imageSrc.trim().isEmpty) continue;
-      await _figureDisk.writeDataUrl(
-        cid,
-        figureId: f.id,
-        imageSrc: f.imageSrc,
-        contentHash: hs.contentHash,
-      );
-    }
-    _hydrateSessions[cid] = hs;
-
-    var filled = countFilledFromSrcList(hs.figures.map((f) => f.imageSrc));
-    _figureHydrate[cid] = FigureHydrateSnapshot(
-      cacheId: cid,
-      phase: FigureHydratePhase.hydrating,
-      total: hs.figureCount,
-      filled: filled,
-      failed: 0,
-      attemptN: attempt,
-    );
-    asrEvidenceBus?.record(
-      'figure_hydrate_start',
-      severity: 'boundary',
-      cacheId: cid,
-      stage: 'hydrate_bg',
-      ok: true,
-      details: {
-        'total': hs.figureCount,
-        'filled': filled,
-        'failed': 0,
-        'attempt_n': attempt,
-        'source': disk.miss == 0 && filled >= hs.figureCount ? 'disk' : 'hydrate_bg',
-        'disk_hit_n': disk.hit,
-        'disk_miss_n': disk.miss,
-      },
-    );
-    notifyListeners();
-
-    if (filled >= hs.figureCount) {
-      _figureHydrate[cid] = finishHydrate(
-        _figureHydrate[cid]!,
+        phase: FigureHydratePhase.hydrating,
+        total: hs.figureCount,
         filled: filled,
         failed: 0,
+        attemptN: attempt,
       );
       asrEvidenceBus?.record(
-        'figure_hydrate_done',
+        'figure_hydrate_start',
         severity: 'boundary',
         cacheId: cid,
         stage: 'hydrate_bg',
@@ -406,172 +409,181 @@ class LibraryController extends ChangeNotifier {
           'filled': filled,
           'failed': 0,
           'attempt_n': attempt,
-          'source': 'disk',
+          'source':
+              disk.miss == 0 && filled >= hs.figureCount ? 'disk' : 'hydrate_bg',
           'disk_hit_n': disk.hit,
           'disk_miss_n': disk.miss,
+          'mode': 'per_png',
         },
       );
       notifyListeners();
-      return;
-    }
 
-    final hardFailed = <int>{};
-    final centers = hydrateCenters(total: hs.figureCount, span: 1);
-    final sw = Stopwatch()..start();
-    for (final center in centers) {
-      if (_hydrateDismissed.contains(cid)) return;
-      final live = _hydrateSessions[cid] ?? hs;
-      filled = countFilledFromSrcList(live.figures.map((f) => f.imageSrc));
-      if (filled >= live.figureCount) break;
-
-      try {
-        final window = await _client.fetchFigureWindow(
-          sessionId: live.sessionId,
-          center: center,
-          span: 1,
+      if (filled >= hs.figureCount) {
+        _figureHydrate[cid] = finishHydrate(
+          _figureHydrate[cid]!,
+          filled: filled,
+          failed: 0,
+        );
+        asrEvidenceBus?.record(
+          'figure_hydrate_done',
+          severity: 'boundary',
           cacheId: cid,
-          evidenceSource: 'hydrate_bg',
+          stage: 'hydrate_bg',
+          ok: true,
+          details: {
+            'total': hs.figureCount,
+            'filled': filled,
+            'failed': 0,
+            'attempt_n': attempt,
+            'source': 'disk',
+            'disk_hit_n': disk.hit,
+            'disk_miss_n': disk.miss,
+            'mode': 'per_png',
+          },
         );
-        final before = <int>{
-          for (var i = 0; i < live.figures.length; i++)
-            if (live.figures[i].imageSrc.trim().isNotEmpty) i,
-        };
-        live.mergeFigureWindow(window.figures);
-        if (session?.cacheId == cid) {
-          session!.mergeFigureWindow(window.figures);
-        }
-        await _persistFiguresFromWindowRows(
-          cid,
-          window.figures,
-          contentHash: live.contentHash,
-        );
-        final newly = <int>{};
-        for (final row in window.figures) {
-          final src = '${row['image_src'] ?? ''}'.trim();
-          final idxRaw = row['index'];
-          final idx = idxRaw is int
-              ? idxRaw
-              : (idxRaw is num ? idxRaw.toInt() : int.tryParse('$idxRaw'));
-          if (idx == null) continue;
-          if (src.isEmpty) {
-            if (!before.contains(idx)) hardFailed.add(idx);
-          } else {
-            newly.add(idx);
-            hardFailed.remove(idx);
+        notifyListeners();
+        return;
+      }
+
+      final hardFailed = <int>{};
+      final sw = Stopwatch()..start();
+
+      Future<void> fetchEmptyPass({required bool isRetry}) async {
+        final live0 = _hydrateSessions[cid] ?? hs!;
+        final indexes = _emptyFigureIndexes(live0);
+        for (final index in indexes) {
+          if (_hydrateDismissed.contains(cid)) return;
+          final live = _hydrateSessions[cid] ?? hs!;
+          if (index < 0 || index >= live.figures.length) continue;
+          final fig = live.figures[index];
+          if (fig.imageSrc.trim().isNotEmpty) {
+            hardFailed.remove(index);
+            continue;
           }
+          if (fig.id.isEmpty) {
+            hardFailed.add(index);
+            continue;
+          }
+          try {
+            final got = await _withFigureNetGate(
+              () => _client.fetchFigurePng(
+                cacheId: cid,
+                figureId: fig.id,
+                index: index,
+                evidenceSource: isRetry ? 'hydrate_bg_retry' : 'hydrate_bg',
+              ),
+            );
+            live.figures[index].imageSrc = got.dataUrl;
+            if (session?.cacheId == cid &&
+                index < session!.figures.length &&
+                session!.figures[index].id == fig.id) {
+              session!.figures[index].imageSrc = got.dataUrl;
+            }
+            await _figureDisk.writeDataUrl(
+              cid,
+              figureId: fig.id,
+              imageSrc: got.dataUrl,
+              contentHash: live.contentHash,
+            );
+            hardFailed.remove(index);
+            filled =
+                countFilledFromSrcList(live.figures.map((f) => f.imageSrc));
+            _figureHydrate[cid] = FigureHydrateSnapshot(
+              cacheId: cid,
+              phase: FigureHydratePhase.hydrating,
+              total: live.figureCount,
+              filled: filled,
+              failed: hardFailed.length,
+              attemptN: attempt,
+            );
+            if (filled % 2 == 0 || filled >= live.figureCount) {
+              asrEvidenceBus?.record(
+                'figure_hydrate_progress',
+                severity: 'sample',
+                cacheId: cid,
+                stage: isRetry ? 'hydrate_bg_retry' : 'hydrate_bg',
+                ok: true,
+                details: {
+                  'total': live.figureCount,
+                  'filled': filled,
+                  'failed': hardFailed.length,
+                  'index': index,
+                  'attempt_n': attempt,
+                  'elapsed_ms': sw.elapsedMilliseconds,
+                  'source': isRetry ? 'hydrate_bg_retry' : 'hydrate_bg',
+                  'mode': 'per_png',
+                  'bytes_n': got.bytesN,
+                },
+              );
+            }
+            notifyListeners();
+          } catch (_) {
+            hardFailed.add(index);
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 40));
         }
-        filled = countFilledFromSrcList(live.figures.map((f) => f.imageSrc));
-        _figureHydrate[cid] = FigureHydrateSnapshot(
+      }
+
+      // design/180 — empty indexes only, then one miss-only retry.
+      await fetchEmptyPass(isRetry: false);
+      if (!_hydrateDismissed.contains(cid)) {
+        final stillEmpty = _emptyFigureIndexes(_hydrateSessions[cid] ?? hs);
+        if (stillEmpty.isNotEmpty) {
+          await fetchEmptyPass(isRetry: true);
+        }
+      }
+
+      final liveEnd = _hydrateSessions[cid] ?? hs;
+      filled = countFilledFromSrcList(liveEnd.figures.map((f) => f.imageSrc));
+      // Any still-empty index counts as failed for honest partial.
+      hardFailed.clear();
+      final failSample = <int>[];
+      for (var i = 0; i < liveEnd.figureCount; i++) {
+        if (liveEnd.figures[i].imageSrc.trim().isEmpty) {
+          hardFailed.add(i);
+          if (failSample.length < 4) failSample.add(i);
+        }
+      }
+      final done = finishHydrate(
+        FigureHydrateSnapshot(
           cacheId: cid,
           phase: FigureHydratePhase.hydrating,
-          total: live.figureCount,
+          total: liveEnd.figureCount,
           filled: filled,
           failed: hardFailed.length,
           attemptN: attempt,
-        );
-        final emptyN = window.figures
-            .where((r) => '${r['image_src'] ?? ''}'.trim().isEmpty)
-            .length;
-        asrEvidenceBus?.record(
-          'figure_window_res',
-          severity: emptyN > 0 ? 'error' : 'sample',
-          cacheId: cid,
-          stage: 'hydrate_bg',
-          ok: emptyN == 0,
-          details: {
-            'window_n': window.figures.length,
-            'empty_n': emptyN,
-            'center': center,
-            'source': 'hydrate_bg',
-            'filled': filled,
-            'total': live.figureCount,
-          },
-        );
-        if (newly.isNotEmpty && filled % 2 == 0) {
-          asrEvidenceBus?.record(
-            'figure_hydrate_progress',
-            severity: 'sample',
-            cacheId: cid,
-            stage: 'hydrate_bg',
-            ok: true,
-            details: {
-              'total': live.figureCount,
-              'filled': filled,
-              'failed': hardFailed.length,
-              'center': center,
-              'attempt_n': attempt,
-              'elapsed_ms': sw.elapsedMilliseconds,
-              'source': 'hydrate_bg',
-            },
-          );
-        }
-        notifyListeners();
-      } catch (e) {
-        // Mark uncovered neighbors around center as soft-fail candidates.
-        for (var i = center - 1; i <= center + 1; i++) {
-          if (i < 0 || i >= live.figureCount) continue;
-          if (live.figures[i].imageSrc.trim().isEmpty) {
-            hardFailed.add(i);
-          }
-        }
-        asrEvidenceBus?.record(
-          'figure_window_res',
-          severity: 'error',
-          cacheId: cid,
-          stage: 'hydrate_bg_fail',
-          ok: false,
-          message: e.toString().length > 200
-              ? e.toString().substring(0, 200)
-              : e.toString(),
-          details: {
-            'center': center,
-            'source': 'hydrate_bg',
-            'attempt_n': attempt,
-          },
-        );
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 80));
-    }
-
-    final liveEnd = _hydrateSessions[cid] ?? hs;
-    filled = countFilledFromSrcList(liveEnd.figures.map((f) => f.imageSrc));
-    // Any still-empty index counts as failed for honest partial.
-    for (var i = 0; i < liveEnd.figureCount; i++) {
-      if (liveEnd.figures[i].imageSrc.trim().isEmpty) {
-        hardFailed.add(i);
-      }
-    }
-    final done = finishHydrate(
-      FigureHydrateSnapshot(
-        cacheId: cid,
-        phase: FigureHydratePhase.hydrating,
-        total: liveEnd.figureCount,
+        ),
         filled: filled,
         failed: hardFailed.length,
-        attemptN: attempt,
-      ),
-      filled: filled,
-      failed: hardFailed.length,
-    );
-    _figureHydrate[cid] = done;
-    asrEvidenceBus?.record(
-      done.phase == FigureHydratePhase.doneOk
-          ? 'figure_hydrate_done'
-          : 'figure_hydrate_partial',
-      severity: done.phase == FigureHydratePhase.doneOk ? 'boundary' : 'error',
-      cacheId: cid,
-      stage: 'hydrate_bg',
-      ok: done.phase == FigureHydratePhase.doneOk,
-      details: {
+      );
+      _figureHydrate[cid] = done;
+      final details = <String, dynamic>{
         'total': done.total,
         'filled': done.filled,
         'failed': done.failed,
+        'failed_n': done.failed,
         'attempt_n': attempt,
         'elapsed_ms': sw.elapsedMilliseconds,
         'source': 'hydrate_bg',
-      },
-    );
-    notifyListeners();
+        'mode': 'per_png',
+      };
+      for (var k = 0; k < failSample.length; k++) {
+        details['fail_i$k'] = failSample[k];
+      }
+      asrEvidenceBus?.record(
+        done.phase == FigureHydratePhase.doneOk
+            ? 'figure_hydrate_done'
+            : 'figure_hydrate_partial',
+        severity: done.phase == FigureHydratePhase.doneOk ? 'boundary' : 'error',
+        cacheId: cid,
+        stage: 'hydrate_bg',
+        ok: done.phase == FigureHydratePhase.doneOk,
+        details: details,
+      );
+      notifyListeners();
+    } finally {
+      _hydrateActive.remove(cid);
+    }
   }
 
   /// design/169o — library 재감수 residual banner (server-driven poll).
@@ -2283,6 +2295,8 @@ class LibraryController extends ChangeNotifier {
   Future<void> _prefetchFigureWindow() async {
     final s = session;
     if (s == null || !s.isValid || s.figureCount < 1) return;
+    // design/180 — hydrate owns bytes for this paper; skip competing prefetch.
+    if (_hydrateActive.contains(s.cacheId.trim())) return;
     // design/171 — skip network when ±1 already on session (disk/hydrate).
     final lo = (s.figureIndex - 1).clamp(0, s.figureCount - 1);
     final hi = (s.figureIndex + 1).clamp(0, s.figureCount - 1);
@@ -2295,12 +2309,14 @@ class LibraryController extends ChangeNotifier {
     }
     if (!needNet) return;
     try {
-      final window = await _client.fetchFigureWindow(
-        sessionId: s.sessionId,
-        center: s.figureIndex,
-        span: 1,
-        cacheId: s.cacheId,
-        evidenceSource: 'reader_prefetch',
+      final window = await _withFigureNetGate(
+        () => _client.fetchFigureWindow(
+          sessionId: s.sessionId,
+          center: s.figureIndex,
+          span: 1,
+          cacheId: s.cacheId,
+          evidenceSource: 'reader_prefetch',
+        ),
       );
       final rows = window.figures;
       // EDGE: session object may be replaced (translate poll) while in flight.

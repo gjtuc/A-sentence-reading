@@ -49,6 +49,11 @@ void main() {
     expect(covered.length, 14);
   });
 
+  test('hydrateCenters span=0 visits every index', () {
+    expect(hydrateCenters(total: 14, span: 0), List.generate(14, (i) => i));
+    expect(hydrateCenters(total: 0, span: 0), isEmpty);
+  });
+
   test('finishHydrate partial when gaps remain', () {
     const prev = FigureHydrateSnapshot(
       cacheId: 'abc',
