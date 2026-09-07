@@ -2,12 +2,12 @@
 library;
 
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
 import '../api/annotation_gate.dart';
 import '../api/annotation_models.dart';
+import '../api/annotation_plain.dart';
 import '../api/annotation_store.dart';
 import '../api/figure_ink_models.dart';
 import '../api/client.dart';
@@ -30,6 +30,14 @@ class AnnotationController extends ChangeNotifier {
   String figureInkColor = kDefaultFigureInkColor;
   Timer? _pushTimer;
 
+  /// design/182 — color → drag paint mode (sentence-scoped).
+  bool sentencePaintMode = false;
+  String? paintColor;
+  String? paintSentenceKey;
+  int? paintSentenceIndex;
+  int? paintPreviewStart;
+  int? paintPreviewEnd;
+
   bool get canAnnotate => _uid != null;
   int get activeCount => _paper.totalActiveCount;
 
@@ -51,6 +59,7 @@ class AnnotationController extends ChangeNotifier {
     figureInkMode = false;
     figureInkTool = FigureInkTool.pen;
     figureInkColor = kDefaultFigureInkColor;
+    clearSentencePaint(notify: false);
     _pushTimer?.cancel();
     ready = false;
     notifyListeners();
@@ -157,17 +166,23 @@ class AnnotationController extends ChangeNotifier {
     String note = '',
     String? existingId,
     Map<String, dynamic>? selector,
+    List<int>? charRange,
   }) async {
     final events = Map<String, List<AnnotationEvent>>.from(_paper.sentences);
     final list = List<AnnotationEvent>.from(events[sentenceKey] ?? const []);
     final id = existingId ?? newAnnotationId();
     final idx = list.indexWhere((e) => e.id == id);
+    final preservedRange =
+        charRange ?? (idx >= 0 ? list[idx].charRange : null);
+    final preservedSelector =
+        selector ?? (idx >= 0 ? list[idx].selector : null);
     final ev = annotationEventNow(
       id: id,
       color: color,
       note: note,
       sentenceId: sentenceId,
-      selector: selector,
+      selector: preservedSelector,
+      charRange: preservedRange,
     );
     if (idx >= 0) {
       list[idx] = ev;
@@ -180,6 +195,130 @@ class AnnotationController extends ChangeNotifier {
     schedulePush();
     notifyListeners();
   }
+
+  /// design/182 — new partial highlight (always new id, non-null range).
+  Future<bool> addPartialHighlight({
+    required String sentenceKey,
+    required String sentenceId,
+    required String color,
+    required String plain,
+    required int start,
+    required int end,
+    String note = '',
+  }) async {
+    final range = clampCharRange(start, end, plain.length);
+    if (range == null) return false;
+    final selector = textQuoteSelectorForRange(plain, range[0], range[1]);
+    final events = Map<String, List<AnnotationEvent>>.from(_paper.sentences);
+    final list = List<AnnotationEvent>.from(events[sentenceKey] ?? const []);
+    list.add(
+      annotationEventNow(
+        id: newAnnotationId(),
+        color: color,
+        note: note,
+        sentenceId: sentenceId,
+        charRange: range,
+        selector: selector,
+      ),
+    );
+    events[sentenceKey] = list.where((e) => e.isActive).toList();
+    _paper = _paper.copyWith(sentences: events);
+    await _persistPaper();
+    schedulePush();
+    notifyListeners();
+    return true;
+  }
+
+  /// Update color/note on an existing event; keep char_range.
+  Future<void> updateHighlightMeta({
+    required String sentenceKey,
+    required String existingId,
+    required String color,
+    String note = '',
+  }) async {
+    final events = Map<String, List<AnnotationEvent>>.from(_paper.sentences);
+    final list = List<AnnotationEvent>.from(events[sentenceKey] ?? const []);
+    final idx = list.indexWhere((e) => e.id == existingId);
+    if (idx < 0) return;
+    final prev = list[idx];
+    list[idx] = annotationEventNow(
+      id: prev.id,
+      color: color,
+      note: note,
+      sentenceId: prev.sentenceId,
+      charRange: prev.charRange,
+      selector: prev.selector,
+    );
+    events[sentenceKey] = list.where((e) => e.isActive).toList();
+    _paper = _paper.copyWith(sentences: events);
+    await _persistPaper();
+    schedulePush();
+    notifyListeners();
+  }
+
+  Future<void> removeAnnotationById({
+    required String sentenceKey,
+    required String id,
+  }) async {
+    final events = Map<String, List<AnnotationEvent>>.from(_paper.sentences);
+    final list = List<AnnotationEvent>.from(events[sentenceKey] ?? const []);
+    final idx = list.indexWhere((e) => e.id == id);
+    if (idx < 0) return;
+    final prev = list[idx];
+    list[idx] = annotationEventNow(
+      id: prev.id,
+      deleted: true,
+      sentenceId: prev.sentenceId,
+    );
+    events[sentenceKey] = list;
+    _paper = _paper.copyWith(sentences: events);
+    await _persistPaper();
+    schedulePush();
+    notifyListeners();
+  }
+
+  void armSentencePaint({
+    required String color,
+    required String sentenceKey,
+    required int sentenceIndex,
+  }) {
+    figureInkMode = false;
+    sentencePaintMode = true;
+    paintColor = color;
+    paintSentenceKey = sentenceKey;
+    paintSentenceIndex = sentenceIndex;
+    paintPreviewStart = null;
+    paintPreviewEnd = null;
+    notifyListeners();
+  }
+
+  void clearSentencePaint({bool notify = true}) {
+    if (!sentencePaintMode &&
+        paintColor == null &&
+        paintSentenceKey == null &&
+        paintPreviewStart == null) {
+      return;
+    }
+    sentencePaintMode = false;
+    paintColor = null;
+    paintSentenceKey = null;
+    paintSentenceIndex = null;
+    paintPreviewStart = null;
+    paintPreviewEnd = null;
+    if (notify) notifyListeners();
+  }
+
+  void setPaintPreview(int? start, int? end) {
+    paintPreviewStart = start;
+    paintPreviewEnd = end;
+    notifyListeners();
+  }
+
+  bool isPaintingSentence(String? key) =>
+      sentencePaintMode &&
+      key != null &&
+      key.isNotEmpty &&
+      paintSentenceKey == key;
 
   Future<void> removeAnnotationsForKey(String sentenceKey) async {
     final events = Map<String, List<AnnotationEvent>>.from(_paper.sentences);
@@ -272,6 +411,7 @@ class AnnotationController extends ChangeNotifier {
     figureInkMode = !figureInkMode;
     if (figureInkMode) {
       figureInkTool = FigureInkTool.pen;
+      clearSentencePaint(notify: false);
     }
     notifyListeners();
   }
@@ -294,24 +434,48 @@ class AnnotationController extends ChangeNotifier {
         if (!ev.isActive) continue;
         var next = ev;
         final sid = ev.sentenceId;
+        SentenceView? matched;
+        String status = 'ok';
         if (sid.isNotEmpty && byId.containsKey(sid)) {
-          out.add(next.copyWith(status: 'ok'));
-          continue;
-        }
-        if (nav.isValidSentenceBookmarkKey(key)) {
+          matched = byId[sid];
+          status = 'ok';
+        } else if (nav.isValidSentenceBookmarkKey(key)) {
           final newSid = keyToSid[key] ?? sid;
-          out.add(next.copyWith(sentenceId: newSid, status: 'reanchored_by_key'));
-          continue;
+          matched = byId[newSid];
+          status = 'reanchored_by_key';
+          next = next.copyWith(sentenceId: newSid);
+        } else {
+          final selectorHit = _selectorHit(ev.selector, sentences);
+          if (selectorHit != null) {
+            matched = selectorHit;
+            status = 'reanchored_by_selector';
+            next = next.copyWith(sentenceId: selectorHit.id);
+          } else {
+            out.add(next.copyWith(status: 'orphaned'));
+            continue;
+          }
         }
-        final selectorHit = _selectorHit(ev.selector, sentences);
-        if (selectorHit != null) {
-          out.add(next.copyWith(
-            sentenceId: selectorHit.id,
-            status: 'reanchored_by_selector',
-          ));
-          continue;
+        if (matched != null && next.charRange != null) {
+          final plain = annotationPlainForSentence(matched.text);
+          final rebuilt = charRangeFromSelectorExact(plain, next.selector);
+          if (rebuilt != null) {
+            next = next.copyWith(charRange: rebuilt, status: status);
+          } else {
+            final cr = clampCharRange(
+              next.charRange![0],
+              next.charRange![1],
+              plain.length,
+            );
+            if (cr == null) {
+              out.add(next.copyWith(status: 'orphaned'));
+              continue;
+            }
+            next = next.copyWith(charRange: cr, status: status);
+          }
+        } else {
+          next = next.copyWith(status: status);
         }
-        out.add(next.copyWith(status: 'orphaned'));
+        out.add(next);
       }
       if (out.isNotEmpty) updated[key] = out;
     }
@@ -351,22 +515,6 @@ class AnnotationController extends ChangeNotifier {
     }
     _store = AnnotationsStore(papers: papers);
     await saveAnnotationsStore(uid: _uid, store: _store);
-  }
-
-  static bool _textsSimilar(String a, String b) {
-    final ta = _tokens(a);
-    final tb = _tokens(b);
-    if (ta.isEmpty || tb.isEmpty) {
-      return plainFromRichHtml(a) == plainFromRichHtml(b);
-    }
-    final inter = ta.intersection(tb).length;
-    final denom = max(ta.length, tb.length);
-    return denom == 0 || inter / denom >= 0.85;
-  }
-
-  static Set<String> _tokens(String text) {
-    final plain = plainFromRichHtml(text).toLowerCase();
-    return RegExp(r'[a-z0-9]{3,}').allMatches(plain).map((m) => m.group(0)!).toSet();
   }
 
   static SentenceView? _selectorHit(

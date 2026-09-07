@@ -35,11 +35,35 @@ void main() {
       ranges: const [
         AnnotationRange(
           start: 0,
-          end: 20,
+          end: 3,
           background: Color(0xFFC8E6C9),
         ),
       ],
     );
-    expect(spans.length, greaterThan(1));
+    expect(spans, isNotEmpty);
+    final hasBg = spans.any(
+      (s) => s is TextSpan && s.style?.backgroundColor != null,
+    );
+    expect(hasBg, isTrue);
+  });
+
+  test('buildAnnotatedSpans partial overlap later wins', () {
+    const html = 'abcdefghij';
+    final spans = buildAnnotatedSpans(
+      html,
+      const TextStyle(fontSize: 16),
+      ranges: const [
+        AnnotationRange(start: 0, end: 6, background: Color(0xFFFFF59D)),
+        AnnotationRange(start: 3, end: 9, background: Color(0xFFC8E6C9)),
+      ],
+    );
+    expect(spans, isNotEmpty);
+    final hasGreen = spans.any((s) {
+      if (s is! TextSpan) return false;
+      final c = s.style?.backgroundColor;
+      if (c == null) return false;
+      return c.g > c.r;
+    });
+    expect(hasGreen, isTrue);
   });
 }

@@ -200,28 +200,41 @@ List<InlineSpan> buildAnnotatedSpans(
   if (plain.isEmpty) return buildRichSpans(raw, base);
   if (ranges.isEmpty) return buildRichSpans(raw, base);
 
-  final merged = List<AnnotationRange>.from(ranges)
-    ..sort((a, b) => a.start.compareTo(b.start));
-  final out = <InlineSpan>[];
-  var cursor = 0;
-  for (final r in merged) {
+  // Later ranges win on overlap (caller should pass in ascending `at` order).
+  final cover = List<AnnotationRange?>.filled(plain.length, null);
+  for (final r in ranges) {
     final start = r.start.clamp(0, plain.length);
     final end = r.end.clamp(start, plain.length);
-    if (start > cursor) {
-      out.addAll(buildRichSpans(plain.substring(cursor, start), base));
+    for (var i = start; i < end; i++) {
+      cover[i] = r;
     }
-    if (end > start) {
-      final slice = plain.substring(start, end);
+  }
+
+  final out = <InlineSpan>[];
+  var i = 0;
+  while (i < plain.length) {
+    final active = cover[i];
+    var j = i + 1;
+    while (j < plain.length && _sameAnnotStyle(cover[j], active)) {
+      j++;
+    }
+    final slice = plain.substring(i, j);
+    if (active == null) {
+      out.addAll(buildRichSpans(slice, base));
+    } else {
       final style = base.copyWith(
-        backgroundColor: r.background.withValues(alpha: 0.4),
-        decoration: r.underline ? TextDecoration.underline : null,
+        backgroundColor: active.background.withValues(alpha: 0.4),
+        decoration: active.underline ? TextDecoration.underline : null,
       );
       out.addAll(buildRichSpans(slice, style));
-      cursor = end;
     }
-  }
-  if (cursor < plain.length) {
-    out.addAll(buildRichSpans(plain.substring(cursor), base));
+    i = j;
   }
   return out;
+}
+
+bool _sameAnnotStyle(AnnotationRange? a, AnnotationRange? b) {
+  if (a == null && b == null) return true;
+  if (a == null || b == null) return false;
+  return a.background == b.background && a.underline == b.underline;
 }

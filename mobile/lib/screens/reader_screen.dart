@@ -13,6 +13,8 @@ import '../api/rich_sentence.dart';
 import '../state/cite_panel_controller.dart';
 import '../state/bookmark_controller.dart';
 import '../api/annotation_models.dart';
+import '../api/annotation_plain.dart';
+import '../api/ai_ask.dart';
 import '../state/annotation_controller.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
@@ -717,6 +719,7 @@ class _SentencePanel extends StatelessWidget {
                         onPressed: session.sentenceCount == 0
                             ? null
                             : () async {
+                                annotations.clearSentencePaint();
                                 await tts.stop();
                                 await library.advanceSentence(-1);
                               },
@@ -747,6 +750,7 @@ class _SentencePanel extends StatelessWidget {
                                     bookmarks: bookmarkHints,
                                   );
                                   if (idx == null) return;
+                                  annotations.clearSentencePaint();
                                   await tts.stop();
                                   await library.goToSentenceIndex(idx);
                                 }
@@ -758,6 +762,7 @@ class _SentencePanel extends StatelessWidget {
                         onPressed: session.sentenceCount == 0
                             ? null
                             : () async {
+                                annotations.clearSentencePaint();
                                 await tts.stop();
                                 await library.advanceSentence(1);
                               },
@@ -809,31 +814,39 @@ class _SentencePanel extends StatelessWidget {
           Expanded(
             child: Card(
               child: _SwipePager(
-                enabled: session.sentenceCount > 0,
+                enabled: session.sentenceCount > 0 && !annotations.sentencePaintMode,
                 // design/95+143 — swipe left → next, swipe right → prev
                 onPrevious: () async {
+                  annotations.clearSentencePaint();
                   await tts.stop();
                   await library.advanceSentence(-1);
                 },
                 onNext: () async {
+                  annotations.clearSentencePaint();
                   await tts.stop();
                   await library.advanceSentence(1);
                 },
-                onTap: onToggleChrome,
-                onDoubleTap: onDoubleTapExpand,
-                onSwipeUp: onSwipeToFigure,
+                onTap: annotations.sentencePaintMode
+                    ? () => annotations.clearSentencePaint()
+                    : onToggleChrome,
+                onDoubleTap: annotations.sentencePaintMode ? null : onDoubleTapExpand,
+                onSwipeUp: annotations.sentencePaintMode ? null : onSwipeToFigure,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: SingleChildScrollView(
+                    physics: annotations.sentencePaintMode
+                        ? const NeverScrollableScrollPhysics()
+                        : null,
                     child: cur == null || !cur.hasText
                         ? const Text('No sentence at this index.')
                         : GestureDetector(
-                            onLongPress: () => _handleSentenceAnnotateLongPress(
-                              context,
-                              annotations: annotations,
-                              session: session,
-                              library: library,
-                            ),
+                            onLongPress: annotations.sentencePaintMode
+                                ? null
+                                : () => _handleSentenceAnnotateLongPress(
+                                      context,
+                                      annotations: annotations,
+                                      session: session,
+                                    ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -850,7 +863,40 @@ class _SentencePanel extends StatelessWidget {
                                   html: cite.stripCiteMarkersForDisplay(cur.text),
                                   style: Theme.of(context).textTheme.titleMedium ??
                                       const TextStyle(fontSize: 18),
-                                  annotations: annotations.activeForSentenceKey(sentKey),
+                                  annotations:
+                                      annotations.activeForSentenceKey(sentKey),
+                                  paintMode: annotations.isPaintingSentence(sentKey),
+                                  paintColor: annotations.paintColor,
+                                  previewStart: annotations.paintPreviewStart,
+                                  previewEnd: annotations.paintPreviewEnd,
+                                  onPaintPreview: (a, b) =>
+                                      annotations.setPaintPreview(a, b),
+                                  onPaintCancel: () =>
+                                      annotations.clearSentencePaint(),
+                                  onPaintCommitted: (start, end) async {
+                                    final key = sentKey;
+                                    if (key == null) {
+                                      annotations.clearSentencePaint();
+                                      return;
+                                    }
+                                    final color =
+                                        annotations.paintColor ?? 'yellow';
+                                    final plain =
+                                        annotationPlainForSentence(cur.text);
+                                    final ok =
+                                        await annotations.addPartialHighlight(
+                                      sentenceKey: key,
+                                      sentenceId: cur.id,
+                                      color: color,
+                                      plain: plain,
+                                      start: start,
+                                      end: end,
+                                    );
+                                    annotations.clearSentencePaint();
+                                    if (ok && context.mounted) {
+                                      HapticFeedback.mediumImpact();
+                                    }
+                                  },
                                 ),
                                 if (showKo && cur.textKo.trim().isNotEmpty) ...[
                                   const SizedBox(height: 12),
@@ -2089,14 +2135,7 @@ Future<void> _handleSentenceAnnotateLongPress(
   BuildContext context, {
   required AnnotationController annotations,
   required ReadingSession session,
-  required LibraryController library,
 }) async {
-  if (!annotations.canAnnotate) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('주석을 쓰려면 로그인해 주세요.')),
-    );
-    return;
-  }
   final nav = session.sectionNav;
   final key = nav.sentenceBookmarkKeyForGlobal(session.sentenceIndex);
   if (key == null) return;
@@ -2106,28 +2145,66 @@ Future<void> _handleSentenceAnnotateLongPress(
   final result = await showAnnotationToolbarSheet(
     context: context,
     existing: existing,
+    canAnnotate: annotations.canAnnotate,
   );
-  if (result == null) return;
-  if (result.delete) {
-    await annotations.removeAnnotationsForKey(key);
-    return;
+  if (result == null || !context.mounted) return;
+
+  switch (result.action) {
+    case AnnotationSheetAction.armPaint:
+      if (!annotations.canAnnotate) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('주석을 쓰려면 로그인해 주세요.')),
+        );
+        return;
+      }
+      annotations.armSentencePaint(
+        color: result.color,
+        sentenceKey: key,
+        sentenceIndex: session.sentenceIndex,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('칠할 부분을 드래그하세요')),
+      );
+      return;
+    case AnnotationSheetAction.deleteAll:
+      if (!annotations.canAnnotate) return;
+      await annotations.removeAnnotationsForKey(key);
+      return;
+    case AnnotationSheetAction.saveMeta:
+      if (!annotations.canAnnotate) return;
+      final id = result.existingId;
+      if (id == null || id.isEmpty) return;
+      await annotations.updateHighlightMeta(
+        sentenceKey: key,
+        existingId: id,
+        color: result.color,
+        note: result.note,
+      );
+      HapticFeedback.mediumImpact();
+      return;
+    case AnnotationSheetAction.askAi:
+      final body = (result.promptBody ?? '').trim();
+      if (body.isEmpty) return;
+      final plain = annotationPlainForSentence(cur.text);
+      final launch = await runAiAsk(sentencePlain: plain, promptBody: body);
+      if (!context.mounted) return;
+      if (!launch.copied) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('프롬프트가 비어 있습니다')),
+        );
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            launch.launched
+                ? '복사됨 · Google AI에서 붙여넣기 하세요'
+                : '복사는 됐습니다. 브라우저에서 google.com/ai를 열어 붙여넣기 하세요',
+          ),
+        ),
+      );
+      return;
   }
-  final prefix = cur.text.length > 24 ? cur.text.substring(0, 12) : '';
-  final suffix = cur.text.length > 24 ? cur.text.substring(cur.text.length - 12) : '';
-  await annotations.upsertHighlight(
-    sentenceKey: key,
-    sentenceId: cur.id,
-    color: result.color,
-    note: result.note,
-    existingId: result.existingId,
-    selector: {
-      'type': 'TextQuoteSelector',
-      'exact': plainFromRichHtml(cur.text),
-      if (prefix.isNotEmpty) 'prefix': prefix,
-      if (suffix.isNotEmpty) 'suffix': suffix,
-    },
-  );
-  HapticFeedback.mediumImpact();
 }
 
 Future<void> _handleFigureBookmarkTap(

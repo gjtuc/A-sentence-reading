@@ -105,6 +105,10 @@ class AnnotationEvent {
     String? sentenceId,
     String? status,
     List<Map<String, dynamic>>? paths,
+    List<int>? charRange,
+    Map<String, dynamic>? selector,
+    bool clearCharRange = false,
+    bool clearSelector = false,
   }) {
     return AnnotationEvent(
       id: id,
@@ -116,8 +120,8 @@ class AnnotationEvent {
       motivation: motivation,
       note: note ?? this.note,
       sentenceId: sentenceId ?? this.sentenceId,
-      charRange: charRange,
-      selector: selector,
+      charRange: clearCharRange ? null : (charRange ?? this.charRange),
+      selector: clearSelector ? null : (selector ?? this.selector),
       status: status ?? this.status,
       paths: paths ?? this.paths,
     );

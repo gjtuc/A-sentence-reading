@@ -25,7 +25,8 @@
 | 하이라이트 | 4색: yellow, green, blue, pink |
 | 밑줄 | P1 (스키마·UI 자리만 P0) |
 | 메모 | 주석 이벤트 `note` 필드 (bottom sheet) |
-| 범위 | **문장 전체** (P0); 부분 char range P1 |
+| 범위 | **문장 안 부분 드래그** — [182](182-ai-ask-partial-highlight.md) lock (색→드래그; 교차 문장 없음). 레거시 `char_range=null` = 문장 전체 |
+| AI로 묻기 | [182](182-ai-ask-partial-highlight.md) — 프롬프트 템플릿 · 클립보드 · `google.com/ai` (서버 LLM 아님) |
 | 제스처 | **문장 본문 long-press** → bottom sheet |
 | 북마크 | 헤더 long-press 유지 (충돌 없음) |
 | 그림 편집 | figure long-press → FigureEdit (163) 유지 |
@@ -117,8 +118,8 @@ gs://{bucket}/{prefix}/users/{uid}/annotations/store_v1.json
 | `motivation` | | `highlighting` \| `commenting` \| `bookmarking` |
 | `note` | | 메모 텍스트 |
 | `sentence_id` | ✅ | debone id — reanchor 1차 |
-| `char_range` | P1 | `[start, end)` plain offset; **null = 문장 전체** |
-| `selector` | P1 | W3C TextQuoteSelector — reanchor 2차 |
+| `char_range` | ✅ (182) | `[start, end)` plain offset; **null = 레거시 문장 전체**; 신규 UI는 non-null ([182](182-ai-ask-partial-highlight.md)) |
+| `selector` | ✅ 권장 (182) | W3C TextQuoteSelector — reanchor 2차 |
 
 ### Map 키
 
@@ -278,7 +279,8 @@ class AnnotationRange {
 
 `AnnotatedSentenceText` wraps `Text.rich(TextSpan(children: buildAnnotatedSpans(...)))`.
 
-**P1:** `SelectableText.rich` + partial selection → `char_range` 저장.
+**P0→182:** `SelectableText` / drag within sentence → `char_range` 저장 ([182](182-ai-ask-partial-highlight.md)).  
+**P1:** underline tool mode.
 
 ---
 
@@ -382,7 +384,7 @@ Tombstone: 삭제 = `deleted: true` + new `at` (hard delete 금지).
 - [ ] `annotation_list_sheet.dart`
 - [ ] `globalIndexForBookmarkKey`
 - [ ] export API + share
-- [ ] partial `char_range` + underline
+- [x] partial `char_range` UX — locked in [182](182-ai-ask-partial-highlight.md) (underline still P1)
 - [ ] figure ink overlay
 - [ ] `annotation_reanchor.py` + client reanchor
 
