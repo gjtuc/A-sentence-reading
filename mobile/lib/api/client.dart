@@ -1375,6 +1375,36 @@ class AsrClient {
   ///
   /// design/158 — [idleTimeout] resets on each server percent/message change;
   /// [maxDuration] is an absolute safety cap (replaces fixed 20m wall clock).
+
+  void _emitIngestPollTerminal({
+    required String jobId,
+    required String outcome,
+    int? percent,
+    int? httpStatus,
+    bool hasCacheId = false,
+    bool willRefreshLibrary = false,
+    String? message,
+  }) {
+    asrEvidenceBus?.record(
+      'ingest_poll_terminal',
+      severity: outcome == 'ok' ? 'lifecycle' : 'error',
+      jobId: jobId,
+      route: 'ingest/jobs/poll',
+      httpStatus: httpStatus,
+      percent: percent,
+      ok: outcome == 'ok',
+      code: outcome,
+      message: message == null
+          ? null
+          : (message.length > 200 ? message.substring(0, 200) : message),
+      details: {
+        'outcome': outcome,
+        'has_cache_id': hasCacheId ? 1 : 0,
+        'will_refresh_library': willRefreshLibrary ? 1 : 0,
+      },
+    );
+  }
+
   Future<IngestJobResult> pollIngestJob({
     required String jobId,
     void Function(int percent, String message)? onProgress,
@@ -1398,6 +1428,13 @@ class AsrClient {
           504,
           '분석 진행이 멈춘 것 같습니다. 아래 「이어서 분석하기」를 눌러 주세요.',
         );
+        _emitIngestPollTerminal(
+          jobId: jid,
+          outcome: 'idle_timeout',
+          httpStatus: 504,
+          willRefreshLibrary: true,
+          message: '분석 진행이 멈춘 것 같습니다. 아래 「이어서 분석하기」를 눌러 주세요.',
+        );
         throw AsrApiException(
           '분석 진행이 멈춘 것 같습니다. 아래 「이어서 분석하기」를 눌러 주세요.',
           504,
@@ -1405,6 +1442,7 @@ class AsrClient {
       }
       // design/132 — stop polling after user cancel (server wipe → 404 is OK).
       if (isCancelled?.call() == true) {
+        _emitIngestPollTerminal(jobId: jid, outcome: 'cancelled');
         throw UploadCancelledException();
       }
       await Future<void>.delayed(pollInterval);
@@ -1428,10 +1466,22 @@ class AsrClient {
         }
         // EDGE: job lost even after GCS — fail-closed, no fake success.
         _breadcrumbApiFail('ingest/jobs', 404, '작업을 찾을 수 없습니다.');
+        _emitIngestPollTerminal(
+          jobId: jid,
+          outcome: 'http_error',
+          httpStatus: 404,
+          willRefreshLibrary: true,
+        );
         throw AsrApiException('작업을 찾을 수 없습니다. 다시 시도해 주세요.', 404);
       }
       if (stRes.statusCode < 200 || stRes.statusCode >= 300) {
         _breadcrumbApiFail('ingest/jobs', stRes.statusCode, '진행 상태 조회 실패');
+        _emitIngestPollTerminal(
+          jobId: jid,
+          outcome: 'http_error',
+          httpStatus: stRes.statusCode,
+          willRefreshLibrary: true,
+        );
         throw AsrApiException('진행 상태 조회 실패', stRes.statusCode);
       }
       final decoded = jsonDecode(stRes.body);
@@ -1498,6 +1548,14 @@ class AsrClient {
           code: 'ingest_failed',
           percent: pct,
         );
+        _emitIngestPollTerminal(
+          jobId: jid,
+          outcome: 'job_error',
+          percent: pct,
+          httpStatus: 422,
+          willRefreshLibrary: true,
+          message: detail,
+        );
         throw AsrApiException(
           detail,
           422,
@@ -1523,6 +1581,14 @@ class AsrClient {
           message: detail.length > 200 ? detail.substring(0, 200) : detail,
           ok: false,
         );
+        _emitIngestPollTerminal(
+          jobId: jid,
+          outcome: 'no_cache',
+          percent: pct,
+          httpStatus: 422,
+          willRefreshLibrary: true,
+          message: detail,
+        );
         throw AsrApiException(
           detail,
           422,
@@ -1534,6 +1600,13 @@ class AsrClient {
         return int.tryParse('$v') ?? 0;
       }
 
+      _emitIngestPollTerminal(
+        jobId: jid,
+        outcome: 'ok',
+        percent: pct > 0 ? pct : 100,
+        hasCacheId: true,
+        willRefreshLibrary: true,
+      );
       return IngestJobResult(
         jobId: jid,
         cacheId: cacheId,
@@ -1553,7 +1626,13 @@ class AsrClient {
       504,
       '전체 처리 시간이 너무 깁니다.',
     );
-    throw AsrApiException(
+        _emitIngestPollTerminal(
+      jobId: jid,
+      outcome: 'absolute_timeout',
+      httpStatus: 504,
+      willRefreshLibrary: true,
+    );
+throw AsrApiException(
       '전체 처리 시간이 너무 깁니다. 잠시 후 「이어서 분석하기」를 눌러 주세요.',
       504,
     );

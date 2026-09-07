@@ -1143,31 +1143,60 @@ class LibraryController extends ChangeNotifier {
     return seen;
   }
 
-  Future<void> refresh({bool fresh = false}) async {
+
+  /// design/179 — after ingest poll failure, still pull GCS library (sticky error kept).
+  Future<void> _refreshLibraryAfterIngestFail() async {
+    try {
+      await refresh(
+        fresh: true,
+        clearError: false,
+        trigger: 'after_ingest_fail',
+      );
+    } catch (_) {
+      // sticky error already set by caller
+    }
+  }
+
+  Future<void> refresh({
+    bool fresh = false,
+    bool clearError = true,
+    String trigger = 'manual',
+  }) async {
     loading = true;
-    error = null;
+    if (clearError) {
+      error = null;
+    }
     notifyListeners();
+    final trig = trigger.trim().isEmpty ? 'manual' : trigger.trim();
     try {
       final fetched = await _client.listPapers(fresh: fresh);
       papers = await _applySavedOrder(fetched);
       final n = papers.length;
       // design/169d — always on fail path; sample success 1/5 via count emit.
+      // design/179 — trigger + preserved_error for after_ingest_fail join.
       asrEvidenceBus?.record(
         'library_refresh',
         severity: 'lifecycle',
         stage: fresh ? 'ok_fresh' : 'ok',
         ok: true,
-        details: {'paper_n': n, 'fresh': fresh ? 1 : 0},
+        details: {
+          'paper_n': n,
+          'fresh': fresh ? 1 : 0,
+          'trigger': trig,
+          if (!clearError) 'preserved_error': 1,
+        },
       );
       asrEvidenceBus?.record(
         'library_count',
         severity: 'boundary',
         stage: 'refresh',
         ok: true,
-        details: {'paper_n': n},
+        details: {'paper_n': n, 'trigger': trig},
       );
     } on AsrApiException catch (e) {
-      error = e.message;
+      if (clearError) {
+        error = e.message;
+      }
       papers = const [];
       asrEvidenceBus?.record(
         'library_refresh',
@@ -1176,11 +1205,17 @@ class LibraryController extends ChangeNotifier {
         ok: false,
         httpStatus: e.statusCode,
         message: e.message.length > 200 ? e.message.substring(0, 200) : e.message,
-        details: {'paper_n': 0},
+        details: {
+          'paper_n': 0,
+          'trigger': trig,
+          if (!clearError) 'preserved_error': 1,
+        },
       );
     } on TimeoutException catch (e) {
       // design/159 — keep last good list; server may still complete after app gave up.
-      error = '서버 응답이 느립니다. 잠시 후 새로고침해 주세요.';
+      if (clearError) {
+        error = '서버 응답이 느립니다. 잠시 후 새로고침해 주세요.';
+      }
       asrEvidenceBus?.record(
         'client_api_timeout',
         severity: 'error',
@@ -1190,7 +1225,9 @@ class LibraryController extends ChangeNotifier {
         ok: false,
       );
     } catch (e) {
-      error = e.toString();
+      if (clearError) {
+        error = e.toString();
+      }
       papers = const [];
       asrEvidenceBus?.record(
         'library_refresh',
@@ -3000,6 +3037,7 @@ class LibraryController extends ChangeNotifier {
         ok: false,
       );
       await _notify.showFailed(message: error!);
+      await _refreshLibraryAfterIngestFail();
       return null;
     } on AsrApiException catch (e) {
       // design/109: terminal job (422) or lost/conflict — do not reattach forever.
@@ -3026,6 +3064,8 @@ class LibraryController extends ChangeNotifier {
         error = e.message;
       }
       await _notify.showFailed(message: error!);
+      // design/179 — GCS may still hold paper after API false worker_lost.
+      await _refreshLibraryAfterIngestFail();
       return null;
     } catch (e) {
       error = e.toString();
@@ -3159,6 +3199,7 @@ class LibraryController extends ChangeNotifier {
         ok: false,
       );
       await _notify.showFailed(message: error!);
+      await _refreshLibraryAfterIngestFail();
       return null;
     } on AsrApiException catch (e) {
       // design/109: same terminal cleanup as uploadPdf.
@@ -3184,10 +3225,12 @@ class LibraryController extends ChangeNotifier {
         error = e.message;
       }
       await _notify.showFailed(message: error!);
+      await _refreshLibraryAfterIngestFail();
       return null;
     } catch (e) {
       error = e.toString();
       await _notify.showFailed(message: error!);
+      await _refreshLibraryAfterIngestFail();
       return null;
     } finally {
       _endIngestHang();

@@ -71,6 +71,8 @@ _ALLOWED_KINDS = frozenset(
         # design/169m — lease / sweeper causality
         "lease_heartbeat",
         "sweep_decision",
+        # design/179
+        "sweep_kill_decision",
     }
 )
 

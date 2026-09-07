@@ -214,7 +214,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.161",
+    version="0.3.162",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1266,11 +1266,18 @@ async def _ingest_sweeper_loop() -> None:
                         or (job.get("_last_reclaim_reason") if isinstance(job, dict) else "")
                         or "unknown"
                     )[:64]
+                    # design/179 — will_mark false when zombie reclaim (live lease).
+                    _zombie_reasons = (
+                        "gcs_lease_alive",
+                        "lease_claim_failed",
+                        "already_local",
+                    )
                     will_mark = (
                         not ok
                         and not job2.get("_local_running")
                         and not job2.get("done")
                         and not job2.get("error")
+                        and reclaim_reason not in _zombie_reasons
                     )
                     try:
                         ilo.emit_dual(
@@ -1291,13 +1298,53 @@ async def _ingest_sweeper_loop() -> None:
                         )
                     except Exception:  # noqa: BLE001
                         pass
-                    if ok or job2.get("_local_running"):
-                        continue
-                    # Reclaim refused (no upload / claim fail) → worker_lost terminal.
-                    if job2.get("done") or job2.get("error"):
-                        continue
                     from sentence_reading.llm import ingest_worker_wake as iww
 
+                    # design/179 — closed kill decision (never infer from zombie_risk alone).
+                    _zombie_reasons = (
+                        "gcs_lease_alive",
+                        "lease_claim_failed",
+                        "already_local",
+                    )
+                    zombie_risk = reclaim_reason in _zombie_reasons
+
+                    def _emit_kill_decision(decision: str, *, will_mark: bool) -> None:
+                        try:
+                            ilo.emit_dual(
+                                "sweep_kill_decision",
+                                job_id=jid,
+                                severity="error" if decision == "marked_lost" else "boundary",
+                                percent=int(job2.get("percent") or 0),
+                                details={
+                                    "decision": str(decision)[:64],
+                                    "reclaim_reason": reclaim_reason or "unknown",
+                                    "reclaim_ok": bool(ok),
+                                    "zombie_risk": bool(zombie_risk),
+                                    "will_mark_lost": bool(will_mark),
+                                    **iww.wake_fields_from_job(job2),
+                                    **ilo.mem_snapshot(job2),
+                                    **ilo.gcs_snapshot(jid, owner),
+                                },
+                                ok=decision != "marked_lost",
+                                **ilo.job_ids(job2),
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
+
+                    if ok:
+                        _emit_kill_decision("skipped_reclaim_ok", will_mark=False)
+                        continue
+                    if job2.get("_local_running"):
+                        _emit_kill_decision("skipped_local_running", will_mark=False)
+                        continue
+                    if job2.get("done") or job2.get("error"):
+                        _emit_kill_decision("skipped_already_terminal", will_mark=False)
+                        continue
+                    # J1: live GCS lease / claim race — do NOT false-kill.
+                    if zombie_risk:
+                        _emit_kill_decision("skipped_zombie", will_mark=False)
+                        continue
+                    _emit_kill_decision("marked_lost", will_mark=True)
                     _fail_job_terminal(
                         jid,
                         "처리 worker가 응답하지 않습니다. 다시 업로드해 주세요.",
@@ -1308,8 +1355,7 @@ async def _ingest_sweeper_loop() -> None:
                             "percent": int(job2.get("percent") or 0),
                             "reclaim_reason": reclaim_reason or "unknown",
                             "will_mark_lost_path": "sweeper_after_reclaim_fail",
-                            "zombie_risk": reclaim_reason
-                            in ("gcs_lease_alive", "lease_claim_failed", "already_local"),
+                            "zombie_risk": False,
                             **iww.wake_fields_from_job(job2),
                             **ilo.mem_snapshot(job2),
                             **ilo.gcs_snapshot(jid, owner),
@@ -1453,7 +1499,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.161",
+        "version": "0.3.162",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.

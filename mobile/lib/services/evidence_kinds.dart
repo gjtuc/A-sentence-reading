@@ -115,4 +115,7 @@ const Set<String> kEvidenceAllowedKinds = {
   'worker_wake_start',
   'worker_wake_done',
   'worker_config_mismatch',
+  // design/179 — false worker_lost + poll/library
+  'sweep_kill_decision',
+  'ingest_poll_terminal',
 };
