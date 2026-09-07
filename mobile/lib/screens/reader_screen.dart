@@ -1846,29 +1846,36 @@ class _SwipePagerState extends State<_SwipePager> {
 
   @override
   Widget build(BuildContext context) {
+    // design/182 — when disabled (sentence paint mode), do NOT register
+    // horizontal/vertical drag handlers at all. Leaving them attached still
+    // wins the gesture arena and blocks in-sentence highlight drag even if
+    // onEnd is a no-op.
+    final swipesOn = widget.enabled;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: widget.onTap,
       onDoubleTap: widget.onDoubleTap,
-      onHorizontalDragStart: widget.onSwipeUp == null
-          ? (_) => _dx = 0
-          : (_) {
-              _dx = 0;
-              _dy = 0;
-            },
-      onHorizontalDragUpdate: (d) => _dx += d.delta.dx,
-      onHorizontalDragEnd: _handleHorizontalDragEnd,
-      onVerticalDragStart: widget.onSwipeUp == null
+      onHorizontalDragStart: !swipesOn
+          ? null
+          : widget.onSwipeUp == null
+              ? (_) => _dx = 0
+              : (_) {
+                  _dx = 0;
+                  _dy = 0;
+                },
+      onHorizontalDragUpdate: !swipesOn ? null : (d) => _dx += d.delta.dx,
+      onHorizontalDragEnd: !swipesOn ? null : _handleHorizontalDragEnd,
+      onVerticalDragStart: !swipesOn || widget.onSwipeUp == null
           ? null
           : (_) {
               _dx = 0;
               _dy = 0;
             },
-      onVerticalDragUpdate: widget.onSwipeUp == null
+      onVerticalDragUpdate: !swipesOn || widget.onSwipeUp == null
           ? null
           : (d) => _dy += d.delta.dy,
       onVerticalDragEnd:
-          widget.onSwipeUp == null ? null : _handleVerticalDragEnd,
+          !swipesOn || widget.onSwipeUp == null ? null : _handleVerticalDragEnd,
       child: widget.child,
     );
   }
