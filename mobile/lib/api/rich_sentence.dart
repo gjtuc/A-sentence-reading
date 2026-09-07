@@ -50,8 +50,17 @@ Widget richSentenceText(
 }
 
 /// Parse into spans (unit-testable).
-List<InlineSpan> buildRichSpans(String? raw, TextStyle base) {
-  final src = unescapeRichEntities((raw ?? '').trim());
+///
+/// [trimInput] defaults true for full-sentence display. Annotated highlight
+/// slices must pass false — otherwise leading/trailing spaces at range edges
+/// are eaten and words glue together (design/182).
+List<InlineSpan> buildRichSpans(
+  String? raw,
+  TextStyle base, {
+  bool trimInput = true,
+}) {
+  final unescaped = unescapeRichEntities(raw ?? '');
+  final src = trimInput ? unescaped.trim() : unescaped;
   if (src.isEmpty) return const [];
   if (!src.contains('<')) {
     return [TextSpan(text: src, style: base)];
@@ -220,13 +229,13 @@ List<InlineSpan> buildAnnotatedSpans(
     }
     final slice = plain.substring(i, j);
     if (active == null) {
-      out.addAll(buildRichSpans(slice, base));
+      out.addAll(buildRichSpans(slice, base, trimInput: false));
     } else {
       final style = base.copyWith(
         backgroundColor: active.background.withValues(alpha: 0.4),
         decoration: active.underline ? TextDecoration.underline : null,
       );
-      out.addAll(buildRichSpans(slice, style));
+      out.addAll(buildRichSpans(slice, style, trimInput: false));
     }
     i = j;
   }

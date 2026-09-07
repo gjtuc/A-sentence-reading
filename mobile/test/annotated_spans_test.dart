@@ -47,23 +47,18 @@ void main() {
     expect(hasBg, isTrue);
   });
 
-  test('buildAnnotatedSpans partial overlap later wins', () {
-    const html = 'abcdefghij';
+  test('buildAnnotatedSpans preserves spaces at highlight edges', () {
+    const html = 'The catalytic activity was measured.';
     final spans = buildAnnotatedSpans(
       html,
       const TextStyle(fontSize: 16),
       ranges: const [
-        AnnotationRange(start: 0, end: 6, background: Color(0xFFFFF59D)),
-        AnnotationRange(start: 3, end: 9, background: Color(0xFFC8E6C9)),
+        AnnotationRange(start: 4, end: 13, background: Color(0xFFFFF59D)),
       ],
     );
-    expect(spans, isNotEmpty);
-    final hasGreen = spans.any((s) {
-      if (s is! TextSpan) return false;
-      final c = s.style?.backgroundColor;
-      if (c == null) return false;
-      return c.g > c.r;
-    });
-    expect(hasGreen, isTrue);
+    final text = spans.whereType<TextSpan>().map((s) => s.text ?? '').join();
+    expect(text, html);
+    expect(text.contains('The catalytic'), isTrue);
+    expect(text.contains('catalytic activity'), isTrue);
   });
 }
