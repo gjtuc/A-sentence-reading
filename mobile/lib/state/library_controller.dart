@@ -2277,6 +2277,8 @@ class LibraryController extends ChangeNotifier {
   Future<void> advanceSentence(int delta) async {
     final s = session;
     if (s == null || !s.isValid) return;
+    // design/182 — latched highlight paint must not change sentence mid-drag.
+    if (_annotations?.blocksReaderNavigation == true) return;
     final beforeFig = s.figureIndex;
     s.advanceSentence(delta);
     assert(s.figureIndex == beforeFig, 'figure index must stay put');
@@ -2324,6 +2326,8 @@ class LibraryController extends ChangeNotifier {
     if (s.sentenceCount < 1) return;
     if (index < 0 || index >= s.sentenceCount) return;
     if (index == s.sentenceIndex) return;
+    // design/182 — latched highlight paint must not change sentence mid-drag.
+    if (_annotations?.blocksReaderNavigation == true) return;
     final beforeFig = s.figureIndex;
     s.sentenceIndex = index;
     assert(s.figureIndex == beforeFig, 'sentence jump must not move figure');

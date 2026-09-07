@@ -215,7 +215,7 @@ Server / deploy / evidence floor: **no change** for this feature alone.
 | Paint ON | 문장 텍스트가 포인터를 먹고 `_SwipePager` **drag 콜백을 null** (enabled만 false면 arena에 남아 칠하기 드래그 실패 — 0.3.167) |
 | Paint OFF | 기존과 동일 |
 | 세로 스크롤 vs 선택 | 슬롭(예: 8–16px)로 가로=선택 / 세로=스크롤 — 문서화 |
-| 문장 이동 | `advanceSentence` 등 진입에서 **즉시 `clearPaintMode()`** (J1) |
+| 문장 이동 | paint arm 중에는 `advanceSentence` / chevron / picker / swipe **전부 차단** (J1). 탭으로 arm 해제 후에만 이동. |
 | Figure ink | `figureInkMode`와 동시 ON 금지 — 한쪽 ON 시 다른쪽 OFF |
 | 시트 | dismiss 후 `mounted` 체크; 색 탭 후 힌트 스낵바 권장 (`칠할 부분을 드래그하세요`) |
 
@@ -304,7 +304,7 @@ APK를 올리면 기존 `session_freshness` / `pre_deploy_guard` / 버전 bump �
 | clamp `end > length` | reanalyze 후 |
 | 클립보드 `\n\n\n` | 포맷 regress |
 | seed once / delete all / no reseed | J8 |
-| paint 중 `advanceSentence` → arm clear | 교차 문장 |
+| paint 중 `advanceSentence` / chevron / picker **전부 no-op** (arm 유지, 문장 고정) | 교차 문장·하이라이트 유실 |
 | legacy null = full sentence | 기존 데이터 |
 
 수동: 긴 문장 스크롤, 첨자 많은 문장, 로그인/비로그인, 스와이프 vs 드래그.

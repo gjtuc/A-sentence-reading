@@ -41,6 +41,10 @@ class AnnotationController extends ChangeNotifier {
   bool get canAnnotate => _uid != null;
   int get activeCount => _paper.totalActiveCount;
 
+  /// design/182 — while latched highlight paint is armed, reader must not
+  /// change sentence (swipe / chevrons / picker).
+  bool get blocksReaderNavigation => sentencePaintMode;
+
   void attachClient(AsrClient client) => _client = client;
 
   Future<void> bindUid(String? uid) async {
@@ -309,9 +313,12 @@ class AnnotationController extends ChangeNotifier {
   }
 
   void setPaintPreview(int? start, int? end) {
+    if (paintPreviewStart == start && paintPreviewEnd == end) return;
     paintPreviewStart = start;
     paintPreviewEnd = end;
-    notifyListeners();
+    // design/182 — preview is owned by AnnotatedSentenceText setState during
+    // drag. Avoid notifyListeners here: rebuilding _SwipePager mid-drag can
+    // re-attach sentence swipe recognizers and steal the gesture.
   }
 
   bool isPaintingSentence(String? key) =>
@@ -319,6 +326,10 @@ class AnnotationController extends ChangeNotifier {
       key != null &&
       key.isNotEmpty &&
       paintSentenceKey == key;
+
+  /// True only while armed on the sentence currently on screen.
+  bool isPaintingAtIndex(int sentenceIndex) =>
+      sentencePaintMode && paintSentenceIndex == sentenceIndex;
 
   Future<void> removeAnnotationsForKey(String sentenceKey) async {
     final events = Map<String, List<AnnotationEvent>>.from(_paper.sentences);

@@ -45,8 +45,24 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
   int? _activePointer;
   int? _anchorWordStart;
   int? _anchorWordEnd;
+  /// Local preview so paint drag does not rebuild the whole reader.
+  int? _localPreviewStart;
+  int? _localPreviewEnd;
 
   String get _plain => annotationPlainForSentence(widget.html);
+
+  int? get _previewStart => _localPreviewStart ?? widget.previewStart;
+  int? get _previewEnd => _localPreviewEnd ?? widget.previewEnd;
+
+  @override
+  void didUpdateWidget(covariant AnnotatedSentenceText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.paintMode && oldWidget.paintMode) {
+      _clearDrag();
+      _localPreviewStart = null;
+      _localPreviewEnd = null;
+    }
+  }
 
   List<AnnotationRange> _persistedRanges() {
     final plainLen = _plain.length;
@@ -78,8 +94,8 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
 
   List<AnnotationRange> _rangesForPaint() {
     final ranges = _persistedRanges();
-    final ps = widget.previewStart;
-    final pe = widget.previewEnd;
+    final ps = _previewStart;
+    final pe = _previewEnd;
     final pc = widget.paintColor;
     if (widget.paintMode && ps != null && pe != null && pc != null) {
       final clamped = clampCharRange(ps, pe, _plain.length);
@@ -101,6 +117,11 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
     final box = ctx.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return null;
     final local = box.globalToLocal(global);
+    // Clamp into the text box so drag past the edges stays in-sentence.
+    final clampedLocal = Offset(
+      local.dx.clamp(0.0, box.size.width),
+      local.dy.clamp(0.0, box.size.height),
+    );
     final spans = buildAnnotatedSpans(
       widget.html,
       widget.style,
@@ -111,7 +132,7 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
       textAlign: widget.textAlign,
       textDirection: TextDirection.ltr,
     )..layout(maxWidth: box.size.width);
-    final pos = tp.getPositionForOffset(local);
+    final pos = tp.getPositionForOffset(clampedLocal);
     return pos.offset.clamp(0, _plain.length);
   }
 
@@ -119,6 +140,15 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
     _activePointer = null;
     _anchorWordStart = null;
     _anchorWordEnd = null;
+  }
+
+  void _setLocalPreview(int start, int end) {
+    if (_localPreviewStart == start && _localPreviewEnd == end) return;
+    setState(() {
+      _localPreviewStart = start;
+      _localPreviewEnd = end;
+    });
+    widget.onPaintPreview?.call(start, end);
   }
 
   void _onPointerDown(PointerDownEvent e) {
@@ -134,7 +164,7 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
     _activePointer = e.pointer;
     _anchorWordStart = word[0];
     _anchorWordEnd = word[1];
-    widget.onPaintPreview?.call(word[0], word[1]);
+    _setLocalPreview(word[0], word[1]);
   }
 
   void _onPointerMove(PointerMoveEvent e) {
@@ -151,13 +181,13 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
       extentIndex: idx,
     );
     if (snapped == null) return;
-    widget.onPaintPreview?.call(snapped[0], snapped[1]);
+    _setLocalPreview(snapped[0], snapped[1]);
   }
 
   void _onPointerUp(PointerUpEvent e) {
     if (!widget.paintMode || e.pointer != _activePointer) return;
-    final start = widget.previewStart ?? _anchorWordStart;
-    final end = widget.previewEnd ?? _anchorWordEnd;
+    final start = _previewStart ?? _anchorWordStart;
+    final end = _previewEnd ?? _anchorWordEnd;
     _clearDrag();
     if (start == null || end == null) {
       widget.onPaintCancel?.call();
@@ -174,6 +204,8 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
   void _onPointerCancel(PointerCancelEvent e) {
     if (e.pointer != _activePointer) return;
     _clearDrag();
+    _localPreviewStart = null;
+    _localPreviewEnd = null;
     widget.onPaintCancel?.call();
   }
 
@@ -190,8 +222,10 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
       textAlign: widget.textAlign,
     );
     if (!widget.paintMode) return text;
+    // Listener keeps raw pointers even when an ancestor absorbs the arena
+    // (sentence swipe). Clamp hit-tests so drag past edges stays in-sentence.
     return Listener(
-      behavior: HitTestBehavior.translucent,
+      behavior: HitTestBehavior.opaque,
       onPointerDown: _onPointerDown,
       onPointerMove: _onPointerMove,
       onPointerUp: _onPointerUp,

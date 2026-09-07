@@ -716,10 +716,11 @@ class _SentencePanel extends StatelessWidget {
                     children: [
                       IconButton(
                         tooltip: 'prev sentence',
-                        onPressed: session.sentenceCount == 0
+                        // design/182 — no sentence change while highlight paint armed
+                        onPressed: session.sentenceCount == 0 ||
+                                annotations.blocksReaderNavigation
                             ? null
                             : () async {
-                                annotations.clearSentencePaint();
                                 await tts.stop();
                                 await library.advanceSentence(-1);
                               },
@@ -741,7 +742,8 @@ class _SentencePanel extends StatelessWidget {
                                     bookmarks: bookmarks,
                                     session: session,
                                   ),
-                          onLongPress: canPick
+                          onLongPress: canPick &&
+                                  !annotations.blocksReaderNavigation
                               ? () async {
                                   final idx = await showSectionNavPicker(
                                     context: context,
@@ -750,7 +752,6 @@ class _SentencePanel extends StatelessWidget {
                                     bookmarks: bookmarkHints,
                                   );
                                   if (idx == null) return;
-                                  annotations.clearSentencePaint();
                                   await tts.stop();
                                   await library.goToSentenceIndex(idx);
                                 }
@@ -759,10 +760,10 @@ class _SentencePanel extends StatelessWidget {
                       ),
                       IconButton(
                         tooltip: 'next sentence',
-                        onPressed: session.sentenceCount == 0
+                        onPressed: session.sentenceCount == 0 ||
+                                annotations.blocksReaderNavigation
                             ? null
                             : () async {
-                                annotations.clearSentencePaint();
                                 await tts.stop();
                                 await library.advanceSentence(1);
                               },
@@ -814,117 +815,143 @@ class _SentencePanel extends StatelessWidget {
           Expanded(
             child: Card(
               child: _SwipePager(
-                enabled: session.sentenceCount > 0 && !annotations.sentencePaintMode,
+                enabled: session.sentenceCount > 0 &&
+                    !annotations.blocksReaderNavigation,
                 // design/95+143 — swipe left → next, swipe right → prev
-                onPrevious: () async {
-                  annotations.clearSentencePaint();
-                  await tts.stop();
-                  await library.advanceSentence(-1);
-                },
-                onNext: () async {
-                  annotations.clearSentencePaint();
-                  await tts.stop();
-                  await library.advanceSentence(1);
-                },
+                // design/182 — callbacks null while paint armed (arena + API)
+                onPrevious: annotations.blocksReaderNavigation
+                    ? null
+                    : () async {
+                        await tts.stop();
+                        await library.advanceSentence(-1);
+                      },
+                onNext: annotations.blocksReaderNavigation
+                    ? null
+                    : () async {
+                        await tts.stop();
+                        await library.advanceSentence(1);
+                      },
                 onTap: annotations.sentencePaintMode
                     ? () => annotations.clearSentencePaint()
                     : onToggleChrome,
-                onDoubleTap: annotations.sentencePaintMode ? null : onDoubleTapExpand,
-                onSwipeUp: annotations.sentencePaintMode ? null : onSwipeToFigure,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: SingleChildScrollView(
-                    physics: annotations.sentencePaintMode
-                        ? const NeverScrollableScrollPhysics()
-                        : null,
-                    child: cur == null || !cur.hasText
-                        ? const Text('No sentence at this index.')
-                        : GestureDetector(
-                            onLongPress: annotations.sentencePaintMode
-                                ? null
-                                : () => _handleSentenceAnnotateLongPress(
-                                      context,
-                                      annotations: annotations,
-                                      session: session,
+                onDoubleTap:
+                    annotations.sentencePaintMode ? null : onDoubleTapExpand,
+                onSwipeUp:
+                    annotations.sentencePaintMode ? null : onSwipeToFigure,
+                child: _PaintNavAbsorber(
+                  absorbing: annotations.blocksReaderNavigation,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: SingleChildScrollView(
+                      physics: annotations.sentencePaintMode
+                          ? const NeverScrollableScrollPhysics()
+                          : null,
+                      child: cur == null || !cur.hasText
+                          ? const Text('No sentence at this index.')
+                          : GestureDetector(
+                              onLongPress: annotations.sentencePaintMode
+                                  ? null
+                                  : () => _handleSentenceAnnotateLongPress(
+                                        context,
+                                        annotations: annotations,
+                                        session: session,
+                                      ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (cur.isUngrounded)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Chip(
+                                        label: const Text('원문 미확인'),
+                                        backgroundColor: Colors.amber.shade100,
+                                        visualDensity: VisualDensity.compact,
+                                      ),
                                     ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (cur.isUngrounded)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: Chip(
-                                      label: const Text('원문 미확인'),
-                                      backgroundColor: Colors.amber.shade100,
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                  ),
-                                AnnotatedSentenceText(
-                                  html: cite.stripCiteMarkersForDisplay(cur.text),
-                                  style: Theme.of(context).textTheme.titleMedium ??
-                                      const TextStyle(fontSize: 18),
-                                  annotations:
-                                      annotations.activeForSentenceKey(sentKey),
-                                  paintMode: annotations.isPaintingSentence(sentKey),
-                                  paintColor: annotations.paintColor,
-                                  previewStart: annotations.paintPreviewStart,
-                                  previewEnd: annotations.paintPreviewEnd,
-                                  onPaintPreview: (a, b) =>
-                                      annotations.setPaintPreview(a, b),
-                                  onPaintCancel: () =>
-                                      annotations.clearSentencePaint(),
-                                  onPaintCommitted: (start, end) async {
-                                    final key = sentKey;
-                                    if (key == null) {
-                                      annotations.clearSentencePaint();
-                                      return;
-                                    }
-                                    final color =
-                                        annotations.paintColor ?? 'yellow';
-                                    final plain =
-                                        annotationPlainForSentence(cur.text);
-                                    final ok =
-                                        await annotations.addPartialHighlight(
-                                      sentenceKey: key,
-                                      sentenceId: cur.id,
-                                      color: color,
-                                      plain: plain,
-                                      start: start,
-                                      end: end,
-                                    );
-                                    annotations.clearSentencePaint();
-                                    if (ok && context.mounted) {
-                                      HapticFeedback.mediumImpact();
-                                    }
-                                  },
-                                ),
-                                if (showKo && cur.textKo.trim().isNotEmpty) ...[
-                                  const SizedBox(height: 12),
-                                  richSentenceText(
-                                    cite.stripCiteMarkersForDisplay(cur.textKo),
-                                    style:
-                                        Theme.of(context).textTheme.bodyMedium ??
-                                            const TextStyle(fontSize: 14),
-                                  ),
-                                ] else if (showKo &&
-                                    (library.translateBackfillBusy ||
-                                        session.translatePending)) ...[
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    '번역 준비 중…',
+                                  AnnotatedSentenceText(
+                                    html: cite
+                                        .stripCiteMarkersForDisplay(cur.text),
                                     style: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant,
-                                        ),
+                                            .textTheme
+                                            .titleMedium ??
+                                        const TextStyle(fontSize: 18),
+                                    annotations: annotations
+                                        .activeForSentenceKey(sentKey),
+                                    paintMode:
+                                        annotations.isPaintingSentence(sentKey) &&
+                                            annotations.isPaintingAtIndex(
+                                              session.sentenceIndex,
+                                            ),
+                                    paintColor: annotations.paintColor,
+                                    previewStart: annotations.paintPreviewStart,
+                                    previewEnd: annotations.paintPreviewEnd,
+                                    onPaintPreview: (a, b) =>
+                                        annotations.setPaintPreview(a, b),
+                                    onPaintCancel: () =>
+                                        annotations.clearSentencePaint(),
+                                    onPaintCommitted: (start, end) async {
+                                      final key = sentKey;
+                                      if (key == null) {
+                                        annotations.clearSentencePaint();
+                                        return;
+                                      }
+                                      // Guard: never commit if reader index drifted.
+                                      if (!annotations.isPaintingAtIndex(
+                                        session.sentenceIndex,
+                                      )) {
+                                        annotations.clearSentencePaint();
+                                        return;
+                                      }
+                                      final color =
+                                          annotations.paintColor ?? 'yellow';
+                                      final plain =
+                                          annotationPlainForSentence(cur.text);
+                                      final ok =
+                                          await annotations.addPartialHighlight(
+                                        sentenceKey: key,
+                                        sentenceId: cur.id,
+                                        color: color,
+                                        plain: plain,
+                                        start: start,
+                                        end: end,
+                                      );
+                                      annotations.clearSentencePaint();
+                                      if (ok && context.mounted) {
+                                        HapticFeedback.mediumImpact();
+                                      }
+                                    },
                                   ),
+                                  if (showKo &&
+                                      cur.textKo.trim().isNotEmpty) ...[
+                                    const SizedBox(height: 12),
+                                    richSentenceText(
+                                      cite.stripCiteMarkersForDisplay(
+                                          cur.textKo),
+                                      style: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium ??
+                                          const TextStyle(fontSize: 14),
+                                    ),
+                                  ] else if (showKo &&
+                                      (library.translateBackfillBusy ||
+                                          session.translatePending)) ...[
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      '번역 준비 중…',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ],
                                 ],
-                              ],
+                              ),
                             ),
-                          ),
+                    ),
                   ),
                 ),
               ),
@@ -1782,6 +1809,34 @@ class _FigureImage extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// design/182 — while highlight paint is armed, claim horizontal/vertical
+/// drag in the arena so sentence swipe cannot fire even if a parent
+/// recognizer is briefly re-attached during rebuild.
+class _PaintNavAbsorber extends StatelessWidget {
+  const _PaintNavAbsorber({
+    required this.absorbing,
+    required this.child,
+  });
+
+  final bool absorbing;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!absorbing) return child;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragStart: (_) {},
+      onHorizontalDragUpdate: (_) {},
+      onHorizontalDragEnd: (_) {},
+      onVerticalDragStart: (_) {},
+      onVerticalDragUpdate: (_) {},
+      onVerticalDragEnd: (_) {},
+      child: child,
     );
   }
 }
