@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -1157,6 +1158,131 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+
+  /// design/185 — pull paper folder chunks, verify sha256, ACK (may wipe cloud).
+  Future<bool> _runPaperHandoff(String cacheId, {String title = ''}) async {
+    final cid = cacheId.trim();
+    if (cid.isEmpty || !_paperDisk.isBound) return false;
+    try {
+      final st = await _client.fetchStatus();
+      if (!st.paperHandoff) return false;
+    } catch (_) {
+      // Missing status → skip handoff (fail-soft); cloud library still works.
+      return false;
+    }
+    try {
+      asrEvidenceBus?.record(
+        'paper_handoff_start',
+        severity: 'lifecycle',
+        cacheId: cid,
+        stage: 'client_pull',
+        ok: true,
+      );
+      final manifest = await _client.getHandoffManifest(cid);
+      if (manifest['ok'] != true) {
+        final err = '${manifest['error'] ?? ''}';
+        if (err == 'already_acked') {
+          return await _paperDisk.hasSession(cid);
+        }
+        return false;
+      }
+      final filesRaw = manifest['files'];
+      if (filesRaw is! Map) return false;
+      final contentHash = '${manifest['content_hash'] ?? ''}'.trim().toLowerCase();
+      final artifactGen = '${manifest['artifact_gen'] ?? ''}'.trim();
+      final titleM = '${manifest['title'] ?? title}'.trim();
+      if (contentHash.isNotEmpty) {
+        await _paperDisk.ensureContentHash(cid, contentHash);
+      }
+      var okN = 0;
+      for (final e in filesRaw.entries) {
+        final rel = '${e.key}'.trim();
+        if (rel.isEmpty || e.value is! Map) continue;
+        final meta = Map<String, dynamic>.from(e.value as Map);
+        final wantSha = '${meta['sha256'] ?? ''}'.trim().toLowerCase();
+        final bytes = await _client.getHandoffFile(cid, rel);
+        if (wantSha.isNotEmpty &&
+            paperDiskSha256Hex(bytes) != wantSha) {
+          asrEvidenceBus?.record(
+            'paper_handoff_done',
+            severity: 'error',
+            cacheId: cid,
+            stage: 'sha_mismatch',
+            ok: false,
+            details: {'rel': rel.length > 40 ? rel.substring(0, 40) : rel},
+          );
+          return false;
+        }
+        final wrote = await _paperDisk.applyHandoffFile(
+          cid,
+          rel,
+          bytes,
+          contentHash: contentHash,
+        );
+        if (!wrote) return false;
+        okN += 1;
+      }
+      if (okN < 1) return false;
+      final ack = await _client.postHandoffAck(
+        cid,
+        contentHash: contentHash,
+        artifactGen: artifactGen,
+        fileCount: okN,
+      );
+      if (ack['ok'] != true) return false;
+      await _paperDisk.upsertIndex(
+        PaperDiskIndexEntry(
+          id: cid,
+          title: titleM.isEmpty ? cid : titleM,
+          updatedAt: DateTime.now().toUtc().toIso8601String(),
+          contentHash: contentHash,
+          hasSource: false,
+        ),
+      );
+      // Refresh sentence/figure counts from session if present.
+      final session = await _paperDisk.loadSessionJson(cid);
+      if (session != null) {
+        final sents = session['sentences'];
+        final figs = session['figures'];
+        await _paperDisk.upsertIndex(
+          PaperDiskIndexEntry(
+            id: cid,
+            title: titleM.isEmpty
+                ? '${session['title'] ?? cid}'.trim()
+                : titleM,
+            updatedAt: DateTime.now().toUtc().toIso8601String(),
+            sentenceCount: sents is List ? sents.length : 0,
+            figureCount: figs is List ? figs.length : 0,
+            contentHash: contentHash,
+            hasSource: true,
+          ),
+        );
+      }
+      asrEvidenceBus?.record(
+        'paper_handoff_done',
+        severity: 'lifecycle',
+        cacheId: cid,
+        stage: ack['wiped'] == true ? 'wiped' : 'acked',
+        ok: true,
+        details: {
+          'file_n': okN,
+          'wiped': ack['wiped'] == true ? 1 : 0,
+        },
+      );
+      return true;
+    } catch (e) {
+      asrEvidenceBus?.record(
+        'paper_handoff_done',
+        severity: 'error',
+        cacheId: cid,
+        stage: 'fail',
+        ok: false,
+        message: e.toString().length > 160 ? e.toString().substring(0, 160) : e.toString(),
+      );
+      return false;
+    }
+  }
+
   /// design/174 — after ingest/reanalyze: refresh, then fresh=1 once; emit on miss.
   Future<bool> _confirmCacheInLibrary(
     String cacheId, {
@@ -1167,6 +1293,11 @@ class LibraryController extends ChangeNotifier {
     if (cid.isEmpty) return false;
     await refresh();
     if (papers.any((p) => p.id == cid)) return true;
+    if (await _paperDisk.hasSession(cid)) {
+      await refresh(fresh: true);
+      if (papers.any((p) => p.id == cid)) return true;
+      return true; // local SoT after wipe — list merge may lag one frame
+    }
     await refresh(fresh: true);
     final seen = papers.any((p) => p.id == cid);
     if (!seen) {
@@ -1606,6 +1737,7 @@ class LibraryController extends ChangeNotifier {
         notifyListeners();
         return false;
       }
+      await _runPaperHandoff(result.cacheId, title: result.title);
       final seen = await _confirmCacheInLibrary(
         result.cacheId,
         jobId: result.jobId,
@@ -3175,6 +3307,7 @@ class LibraryController extends ChangeNotifier {
       await _drafts.clear();
       await _cancelWorkmanager();
       _autoResumeGate.reset();
+      await _runPaperHandoff(result.cacheId, title: result.title);
       final seen = await _confirmCacheInLibrary(
         result.cacheId,
         jobId: result.jobId,
@@ -3328,6 +3461,7 @@ class LibraryController extends ChangeNotifier {
       await _drafts.clear();
       await _cancelWorkmanager();
       _autoResumeGate.reset();
+      await _runPaperHandoff(result.cacheId, title: result.title);
       final seen = await _confirmCacheInLibrary(
         result.cacheId,
         jobId: result.jobId,

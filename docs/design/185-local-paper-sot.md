@@ -5,7 +5,7 @@ Modules (planned):
 `src/sentence_reading/llm/paper_handoff.py` · `papers_gcs.py` · `app.py`  
 Parents: [18](18-paper-library.md) · [20](20-source-backup-reanalyze.md) · [121](121-library-open-gcs-first.md) · [144](144-paper-retention-ttl.md) · [171](171-device-figure-cache.md) · [175](175-papers-gcs-orphan-invariant.md) · [184](184-ingest-artifact-ttl.md)
 
-**Status:** SHIPPING Phase 1 (0.3.178) — PaperDiskStore + shadow persist; wipe OFF  
+**Status:** SHIPPING Phase 4 (0.3.179) — handoff ACK + cloud wipe (kill ASR_PAPER_LOCAL_SOT=0)  
 **UI:** 모바일 도서관/열기 경로 전환 (웹은 v1 범위 밖)  
 **Target:** 별도 버전 칩 (0.3.178+ 단계적)
 

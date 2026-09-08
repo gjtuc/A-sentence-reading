@@ -98,6 +98,11 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         # design/184 — ingest intermediate TTL purge
         "ingest_artifact_deleted",
         "ingest_artifact_purge_tick",
+        # design/185 — local SoT handoff wipe
+        "paper_handoff_start",
+        "paper_handoff_done",
+        "paper_cloud_wipe",
+        "paper_upload_refused_acked",
     }
 )
 
@@ -366,6 +371,15 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "delete_job_artifacts",
             "purge_all_uids",
             "ingest_artifact_deleted",
+        ),
+    ),
+    (
+        "src/sentence_reading/llm/paper_handoff.py",
+        (
+            "build_handoff_manifest",
+            "apply_handoff_ack",
+            "refuse_upload_if_acked",
+            "paper_cloud_wipe",
         ),
     ),
     (

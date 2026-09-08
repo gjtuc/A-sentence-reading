@@ -17,7 +17,7 @@ import urllib.parse
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Body, FastAPI, File, Form, Request, UploadFile
+from fastapi import Body, FastAPI, File, Form, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -226,7 +226,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.178",
+    version="0.3.179",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1597,7 +1597,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.178",
+        "version": "0.3.179",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -4585,6 +4585,123 @@ def _emit_paper_delete_evidence(
     except Exception:  # noqa: BLE001
         pass
     return hid_out
+
+
+
+
+@app.get("/api/cache/papers/{cache_id}/handoff-manifest")
+def cache_handoff_manifest(request: Request, cache_id: str) -> JSONResponse:
+    """design/185 — build sha256 manifest for device handoff pull."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    try:
+        from sentence_reading.llm.paper_handoff import (
+            build_handoff_manifest,
+            handoff_enabled,
+        )
+        from sentence_reading.llm import evidence_bus as eb
+
+        if not handoff_enabled():
+            return JSONResponse(
+                status_code=404,
+                content={"ok": False, "error": "handoff_disabled"},
+            )
+        eb.emit(
+            "paper_handoff_start",
+            ok=True,
+            cache_id=str(cache_id or "").strip()[:64],
+            stage="manifest",
+        )
+        out = build_handoff_manifest(cache_id)
+        if not out.get("ok"):
+            code = str(out.get("error") or "fail")
+            status = 409 if code == "already_acked" else 404
+            return JSONResponse(status_code=status, content=out)
+        return JSONResponse(content=out)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "manifest_error", "message": str(e)[:120]},
+        )
+
+
+@app.get("/api/cache/papers/{cache_id}/handoff/file")
+def cache_handoff_file(
+    request: Request, cache_id: str, path: str = ""
+) -> Response:
+    """design/185 — download one paper artifact for handoff (auth required)."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    try:
+        from sentence_reading.llm.paper_handoff import handoff_enabled, read_handoff_file
+
+        if not handoff_enabled():
+            return JSONResponse(
+                status_code=404, content={"ok": False, "error": "handoff_disabled"}
+            )
+        raw, err = read_handoff_file(cache_id, path)
+        if err or raw is None:
+            status = 409 if err == "already_acked" else 404
+            return JSONResponse(
+                status_code=status, content={"ok": False, "error": err or "missing"}
+            )
+        ctype = "application/octet-stream"
+        rel = (path or "").replace("\\", "/").lower()
+        if rel.endswith(".json"):
+            ctype = "application/json"
+        elif rel.endswith(".png"):
+            ctype = "image/png"
+        elif rel.endswith(".pdf"):
+            ctype = "application/pdf"
+        return Response(
+            content=raw,
+            media_type=ctype,
+            headers={"Cache-Control": "private, no-store"},
+        )
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "file_error", "message": str(e)[:120]},
+        )
+
+
+@app.post("/api/cache/papers/{cache_id}/handoff-ack")
+async def cache_handoff_ack(request: Request, cache_id: str) -> JSONResponse:
+    """design/185 — client verified local copy; wipe cloud papers/ when enabled."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    try:
+        from sentence_reading.llm.paper_handoff import apply_handoff_ack, handoff_enabled
+
+        if not handoff_enabled():
+            return JSONResponse(
+                status_code=404, content={"ok": False, "error": "handoff_disabled"}
+            )
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        out = apply_handoff_ack(
+            cache_id,
+            content_hash=str(body.get("content_hash") or ""),
+            artifact_gen=str(body.get("artifact_gen") or ""),
+            file_count=int(body.get("file_count") or 0),
+            ok=body.get("ok", True) is not False,
+        )
+        if not out.get("ok"):
+            return JSONResponse(status_code=409, content=out)
+        return JSONResponse(content=out)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "ack_error", "message": str(e)[:120]},
+        )
 
 
 @app.delete("/api/cache/papers/{cache_id}")

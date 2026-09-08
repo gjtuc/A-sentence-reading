@@ -68,6 +68,7 @@ class AsrStatus {
     this.paperLocalSot = false,
     this.paperLocalSotPhase = 0,
     this.paperDiskStore = false,
+    this.paperHandoff = false,
     // design/130 — missing key → on (report); explicit false kills.
     this.cloudErrorLogs = true,
     this.mobileCloudErrorLogs = true,
@@ -165,6 +166,7 @@ class AsrStatus {
         return int.tryParse('$v') ?? 0;
       }(),
       paperDiskStore: json['paper_disk_store'] == true,
+      paperHandoff: json['paper_handoff'] == true,
       // design/130 — missing → on; explicit false kills reporting.
       cloudErrorLogs: json.containsKey('cloud_error_logs')
           ? json['cloud_error_logs'] == true
@@ -264,6 +266,7 @@ class AsrStatus {
   final bool paperLocalSot;
   final int paperLocalSotPhase;
   final bool paperDiskStore;
+  final bool paperHandoff;
   // design/130 — missing key → on; explicit false kills client reporting.
   final bool cloudErrorLogs;
   final bool mobileCloudErrorLogs;
@@ -1734,6 +1737,74 @@ throw AsrApiException(
       );
     }
     return result;
+  }
+
+
+
+  /// design/185 — GET handoff manifest (sha256 map).
+  Future<Map<String, dynamic>> getHandoffManifest(String cacheId) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) {
+      throw AsrApiException('cache id is empty', 400);
+    }
+    final res = await _http
+        .get(
+          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/handoff-manifest'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 60));
+    return _decodeObject(res, 'handoff-manifest');
+  }
+
+  /// design/185 — GET one handoff artifact bytes.
+  Future<Uint8List> getHandoffFile(String cacheId, String relPath) async {
+    final id = cacheId.trim();
+    final rel = relPath.trim();
+    if (id.isEmpty || rel.isEmpty) {
+      throw AsrApiException('handoff path empty', 400);
+    }
+    final res = await _http
+        .get(
+          _uri(
+            '/api/cache/papers/${Uri.encodeComponent(id)}/handoff/file'
+            '?path=${Uri.encodeQueryComponent(rel)}',
+          ),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 120));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw AsrApiException(
+        'handoff file ${res.statusCode}',
+        res.statusCode,
+      );
+    }
+    return Uint8List.fromList(res.bodyBytes);
+  }
+
+  /// design/185 — POST handoff ACK (may wipe cloud papers/).
+  Future<Map<String, dynamic>> postHandoffAck(
+    String cacheId, {
+    required String contentHash,
+    required String artifactGen,
+    required int fileCount,
+  }) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) {
+      throw AsrApiException('cache id is empty', 400);
+    }
+    final res = await _http
+        .post(
+          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/handoff-ack'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({
+            'ok': true,
+            'content_hash': contentHash,
+            'artifact_gen': artifactGen,
+            'file_count': fileCount,
+          }),
+        )
+        .timeout(const Duration(seconds: 60));
+    return _decodeObject(res, 'handoff-ack');
   }
 
   /// POST /api/cache/papers/{id}/open — start a reading session from cache.

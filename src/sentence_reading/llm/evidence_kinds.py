@@ -127,5 +127,9 @@ ALLOWED_KINDS = frozenset(
         "figure_png_done",
         "ingest_artifact_deleted",
         "ingest_artifact_purge_tick",
+        "paper_handoff_start",
+        "paper_handoff_done",
+        "paper_cloud_wipe",
+        "paper_upload_refused_acked",
     }
 )

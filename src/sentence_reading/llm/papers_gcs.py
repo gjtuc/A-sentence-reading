@@ -493,6 +493,27 @@ def _merge_session_meta_richer(remote: dict, local: dict) -> dict:
 
 def upload_paper_cache(cache_id: str) -> bool:
     """로컬 보관본 → GCS (session + figures + index merge)."""
+    # design/185 — refuse resurrect after handoff ACK + wipe.
+    try:
+        from sentence_reading.llm.paper_handoff import refuse_upload_if_acked
+
+        refused = refuse_upload_if_acked(cache_id)
+        if refused:
+            try:
+                from sentence_reading.llm import evidence_bus as eb
+
+                eb.emit(
+                    "paper_upload_refused_acked",
+                    ok=True,
+                    cache_id=str(cache_id or "").strip()[:64],
+                    code=refused,
+                )
+            except Exception:
+                pass
+            return False
+    except Exception:
+        pass
+
     def _fail(reason: str) -> bool:
         try:
             from sentence_reading.llm import evidence_bus as eb

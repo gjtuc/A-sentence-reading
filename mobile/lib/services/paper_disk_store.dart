@@ -554,6 +554,90 @@ class PaperDiskStore {
     await removeFromIndex(cacheId);
   }
 
+
+
+  /// Write one handoff relative path into the paper folder (session/figures/source/layout).
+  Future<bool> applyHandoffFile(
+    String cacheId,
+    String relPath,
+    Uint8List bytes, {
+    String contentHash = '',
+  }) async {
+    if (!isBound) return false;
+    final rel = relPath.trim().replaceAll('\', '/');
+    if (rel.isEmpty || bytes.isEmpty) return false;
+    if (rel == 'session.json') {
+      try {
+        final map = jsonDecode(utf8.decode(bytes));
+        if (map is! Map) return false;
+        return writeSessionJson(
+          cacheId,
+          Map<String, dynamic>.from(map),
+          contentHash: contentHash,
+        );
+      } catch (_) {
+        return false;
+      }
+    }
+    if (rel.startsWith('figures/') && rel.endsWith('.png')) {
+      final name = rel.split('/').last;
+      final fid = name.endsWith('.png') ? name.substring(0, name.length - 4) : name;
+      return writeFigureBytes(
+        cacheId,
+        figureId: fid,
+        bytes: bytes,
+        contentHash: contentHash,
+      );
+    }
+    if (rel == 'source.pdf' || rel == 'source.docx') {
+      return writeSourceBytes(
+        cacheId,
+        bytes: bytes,
+        suffix: rel == 'source.docx' ? '.docx' : '.pdf',
+        contentHash: contentHash,
+      );
+    }
+    if (rel == 'layout_map.json' || rel == 'slot_plan.json') {
+      final dir = await paperDir(cacheId);
+      if (dir == null) return false;
+      final f = File(p.join(dir.path, rel));
+      try {
+        await _atomicWriteBytes(f, bytes);
+        await _touchManifestFile(
+          cacheId,
+          rel: rel,
+          bytes: bytes,
+          contentHash: contentHash,
+        );
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /// Verify on-disk bytes match [expectedSha256] for [relPath].
+  Future<bool> verifyHandoffFileSha(
+    String cacheId,
+    String relPath,
+    String expectedSha256,
+  ) async {
+    final want = expectedSha256.trim().toLowerCase();
+    if (want.isEmpty) return false;
+    final rel = relPath.trim().replaceAll('\', '/');
+    final dir = await paperDir(cacheId);
+    if (dir == null) return false;
+    final f = File(p.join(dir.path, rel));
+    if (!await f.exists()) return false;
+    try {
+      final bytes = await f.readAsBytes();
+      return paperDiskSha256Hex(bytes) == want;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// After a successful cloud open — shadow-copy session + decoded figure PNGs.
   Future<bool> shadowPersistReadingSession(ReadingSession session) async {
     if (!isBound || !session.isValid || session.cacheId.isEmpty) return false;
