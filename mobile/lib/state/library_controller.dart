@@ -334,7 +334,11 @@ class LibraryController extends ChangeNotifier {
         final raw = await _paperDisk.loadSessionJson(cid);
         if (raw != null) {
           try {
-            final local = ReadingSession.fromOpenJson(raw, fallbackTitle: cid);
+            final local = ReadingSession.fromOpenJson(
+              raw,
+              fallbackTitle: cid,
+              fallbackCacheId: cid,
+            );
             for (var i = 0; i < local.figures.length; i++) {
               final f = local.figures[i];
               if (f.imageSrc.trim().isNotEmpty) continue;
@@ -2340,7 +2344,11 @@ class LibraryController extends ChangeNotifier {
           error = '로컬 보관본을 찾을 수 없습니다. 논문을 다시 열어 동기화해 주세요.';
           return null;
         }
-        o = ReadingSession.fromOpenJson(raw, fallbackTitle: entry.title);
+        o = ReadingSession.fromOpenJson(
+          raw,
+          fallbackTitle: entry.title,
+          fallbackCacheId: entry.id,
+        );
         // Inject figure PNGs from PaperDiskStore into imageSrc stubs.
         for (var i = 0; i < o.figures.length; i++) {
           final f = o.figures[i];

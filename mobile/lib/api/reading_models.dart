@@ -201,6 +201,7 @@ class ReadingSession {
   factory ReadingSession.fromOpenJson(
     Map<String, dynamic> json, {
     String fallbackTitle = '',
+    String fallbackCacheId = '',
   }) {
     int asInt(Object? v, [int d = 0]) {
       if (v is int) return v;
@@ -242,9 +243,16 @@ class ReadingSession {
     final iqRaw = json['ingest_quality'];
     final ingestQuality =
         iqRaw is Map ? IngestQuality.fromJson(Map<String, dynamic>.from(iqRaw)) : null;
+    // design/185 — GCS/handoff session.json has no server session_id; mint local.
+    final rawSid = '${json['session_id'] ?? ''}'.trim();
+    final rawCid = '${json['cache_id'] ?? ''}'.trim();
+    final cid = rawCid.isNotEmpty ? rawCid : fallbackCacheId.trim();
+    final sid = rawSid.isNotEmpty
+        ? rawSid
+        : (cid.isNotEmpty ? 'ses_local_$cid' : '');
     return ReadingSession(
-      sessionId: '${json['session_id'] ?? ''}'.trim(),
-      cacheId: '${json['cache_id'] ?? ''}'.trim(),
+      sessionId: sid,
+      cacheId: cid,
       title: '${json['title'] ?? fallbackTitle}'.trim(),
       sentences: sentences,
       figures: figures,

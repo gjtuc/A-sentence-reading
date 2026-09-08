@@ -123,6 +123,23 @@ void main() {
       expect(s.figures[1].imageSrc, 'data:image/png;base64,bbbb');
     });
 
+    test('fromOpenJson mints local session_id when handoff JSON omits it', () {
+      final s = ReadingSession.fromOpenJson(
+        {
+          'title': 'Paper',
+          'sentences': [
+            {'id': 'a', 'text': 'Hello'},
+          ],
+          'figures': [],
+        },
+        fallbackCacheId: 'abc123def456',
+      );
+      expect(s.isValid, isTrue);
+      expect(s.cacheId, 'abc123def456');
+      expect(s.sessionId, 'ses_local_abc123def456');
+      expect(s.sentenceCount, 1);
+    });
+
     test('fromOpenJson tolerant garbage', () {
       final s = ReadingSession.fromOpenJson({
         'session_id': 'ses_x',
