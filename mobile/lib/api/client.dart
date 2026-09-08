@@ -64,6 +64,10 @@ class AsrStatus {
     this.figRefHints = true,
     // design/183 — missing key → on; explicit false kills Intro layout auto.
     this.readerLayoutAuto = true,
+    // design/185 — Phase 1 store advertisement; wipe behind paper_local_sot.
+    this.paperLocalSot = false,
+    this.paperLocalSotPhase = 0,
+    this.paperDiskStore = false,
     // design/130 — missing key → on (report); explicit false kills.
     this.cloudErrorLogs = true,
     this.mobileCloudErrorLogs = true,
@@ -153,6 +157,14 @@ class AsrStatus {
       readerLayoutAuto: json.containsKey('reader_layout_auto')
           ? json['reader_layout_auto'] == true
           : true,
+      paperLocalSot: json['paper_local_sot'] == true,
+      paperLocalSotPhase: () {
+        final v = json['paper_local_sot_phase'];
+        if (v is int) return v;
+        if (v is num) return v.toInt();
+        return int.tryParse('$v') ?? 0;
+      }(),
+      paperDiskStore: json['paper_disk_store'] == true,
       // design/130 — missing → on; explicit false kills reporting.
       cloudErrorLogs: json.containsKey('cloud_error_logs')
           ? json['cloud_error_logs'] == true
@@ -249,6 +261,9 @@ class AsrStatus {
   final bool figRefHints;
   /// design/183 — auto sentenceOnly/split from first Fig/Table chip.
   final bool readerLayoutAuto;
+  final bool paperLocalSot;
+  final int paperLocalSotPhase;
+  final bool paperDiskStore;
   // design/130 — missing key → on; explicit false kills client reporting.
   final bool cloudErrorLogs;
   final bool mobileCloudErrorLogs;

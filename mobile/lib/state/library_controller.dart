@@ -27,6 +27,7 @@ import '../state/annotation_controller.dart';
 import '../services/error_reporter.dart';
 import '../services/evidence_bus.dart';
 import '../services/figure_disk_cache.dart';
+import '../services/paper_disk_store.dart';
 import '../services/hang_watchdog.dart';
 import '../services/paper_edit_stash.dart';
 import 'ingest_auto_resume.dart';
@@ -44,6 +45,7 @@ class LibraryController extends ChangeNotifier {
     UploadNotify? uploadNotify,
     PaperEditStash? editStash,
     FigureDiskCache? figureDiskCache,
+    PaperDiskStore? paperDiskStore,
     /// Settings toggle — preferred over prefs re-read (avoids auth blip → translate=0).
     bool Function()? translateEnabled,
   })  : _client = client,
@@ -51,6 +53,7 @@ class LibraryController extends ChangeNotifier {
         _notify = uploadNotify ?? createUploadNotify(),
         _editStash = editStash ?? PaperEditStash(),
         _figureDisk = figureDiskCache ?? FigureDiskCache(),
+        _paperDisk = paperDiskStore ?? PaperDiskStore(),
         _translateEnabled = translateEnabled;
 
   final AsrClient _client;
@@ -58,6 +61,7 @@ class LibraryController extends ChangeNotifier {
   final UploadNotify _notify;
   final PaperEditStash _editStash;
   final FigureDiskCache _figureDisk;
+  final PaperDiskStore _paperDisk;
   bool Function()? _translateEnabled;
 
   /// Wire after [TranslateController] exists (app root).
@@ -67,10 +71,12 @@ class LibraryController extends ChangeNotifier {
 
   PaperEditStash get editStash => _editStash;
   FigureDiskCache get figureDiskCache => _figureDisk;
+  PaperDiskStore get paperDiskStore => _paperDisk;
 
-  /// design/171 — bind disk cache to signed-in uid (no cross-user reads).
+  /// design/171 · 185 — bind disk caches to signed-in uid (no cross-user reads).
   void bindFigureDiskUid(String? uid) {
     _figureDisk.bindUid(uid);
+    _paperDisk.bindUid(uid);
   }
   BookmarkController? _bookmarks;
   AnnotationController? _annotations;
@@ -1204,7 +1210,9 @@ class LibraryController extends ChangeNotifier {
     final trig = trigger.trim().isEmpty ? 'manual' : trigger.trim();
     try {
       final fetched = await _client.listPapers(fresh: fresh);
-      papers = await _applySavedOrder(fetched);
+      // design/185 Phase 1 — surface local-only disk papers (no cloud wipe yet).
+      final merged = await _paperDisk.mergeRemoteWithLocal(fetched);
+      papers = await _applySavedOrder(merged);
       final n = papers.length;
       // design/169d — always on fail path; sample success 1/5 via count emit.
       // design/179 — trigger + preserved_error for after_ingest_fail join.
@@ -1403,6 +1411,7 @@ class LibraryController extends ChangeNotifier {
         );
         await _editStash.purge(id);
         await _figureDisk.purge(id);
+        await _paperDisk.purge(id);
         _hydrateSessions.remove(id);
         _figureHydrate.remove(id);
         _hydrateDismissed.remove(id);
@@ -2064,6 +2073,33 @@ class LibraryController extends ChangeNotifier {
             'hydrate_active': _hydrateActive.contains(entry.id.trim()) ? 1 : 0,
           },
         );
+      } else if (entry.ingestStatus == 'local') {
+        // design/185 Phase 1 — local-only / disk-backed open (no GCS pull).
+        final raw = await _paperDisk.loadSessionJson(entry.id);
+        if (raw == null) {
+          error = '로컬 보관본을 찾을 수 없습니다. 논문을 다시 열어 동기화해 주세요.';
+          return null;
+        }
+        o = ReadingSession.fromOpenJson(raw, fallbackTitle: entry.title);
+        // Inject figure PNGs from PaperDiskStore into imageSrc stubs.
+        for (var i = 0; i < o.figures.length; i++) {
+          final f = o.figures[i];
+          if (f.imageSrc.trim().isNotEmpty) continue;
+          final bytes = await _paperDisk.readFigureBytes(o.cacheId, f.id);
+          if (bytes == null || bytes.isEmpty) continue;
+          o.figures[i].imageSrc = figureDataUrlFromBytes(bytes);
+        }
+        asrEvidenceBus?.record(
+          'reader_open',
+          severity: 'lifecycle',
+          cacheId: entry.id,
+          stage: 'local_paper_disk',
+          ok: true,
+          details: {
+            'figure_count': o.figureCount,
+            'ingest_status': entry.ingestStatus,
+          },
+        );
       } else {
         final wantTr = await _wantTranslate();
         o = await _client.openPaper(entry.id, translate: wantTr);
@@ -2133,6 +2169,8 @@ class LibraryController extends ChangeNotifier {
       }
 
       session = o;
+      // design/185 Phase 1 — shadow-copy session + figure PNGs to PaperDiskStore.
+      unawaited(_paperDisk.shadowPersistReadingSession(o));
       // design/171 — disk inject before RAM hydrate merge.
       await _injectFiguresFromDisk(o);
       // design/169n — reuse bytes already fetched on library hydrate.
@@ -2567,6 +2605,8 @@ class LibraryController extends ChangeNotifier {
     _hydrateQueue.clear();
     _hydrateDismissed.clear();
     _figureDisk.bindUid(null);
+    // design/185 — keep paper disk for same-uid re-login.
+    _paperDisk.bindUid(null);
     await _cancelWorkmanager();
     await _editStash.purgeAll();
     await _drafts.clear();

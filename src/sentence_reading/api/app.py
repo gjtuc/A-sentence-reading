@@ -226,7 +226,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.177",
+    version="0.3.178",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -589,6 +589,21 @@ def _ingest_artifact_ttl_status_fields() -> dict:
             "ingest_artifact_ttl": False,
             "ingest_artifact_ttl_hours": 0,
             "ingest_artifact_ttl_dry_run": False,
+        }
+
+
+
+def _paper_local_sot_status_fields() -> dict:
+    """design/185 — local paper SoT rollout advertisement."""
+    try:
+        from sentence_reading.llm.paper_local_sot import status_fields
+
+        return status_fields()
+    except Exception:
+        return {
+            "paper_local_sot": False,
+            "paper_local_sot_phase": 0,
+            "paper_disk_store": False,
         }
 
 
@@ -1582,7 +1597,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.177",
+        "version": "0.3.178",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -1704,6 +1719,8 @@ def status(request: Request) -> dict:
         "reader_layout_auto": _reader_layout_auto_enabled(),
         # design/184 — intermediate ingest blob TTL purge.
         **_ingest_artifact_ttl_status_fields(),
+        # design/185 — device paper store (phase 1); wipe behind kill.
+        **_paper_local_sot_status_fields(),
         "cite_ref_open": True,
         "cite_display_clean": True,
         # design/148 — mobile References panel below Fig chips.
