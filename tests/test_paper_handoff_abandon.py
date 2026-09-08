@@ -66,6 +66,6 @@ def test_refuse_abandoned_wiped(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_status_abandon_flags() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.181"
+    assert st["version"] == "0.3.182"
     assert st.get("paper_handoff_abandon_ttl") is True
     assert int(st.get("paper_handoff_abandon_hours") or 0) == 72

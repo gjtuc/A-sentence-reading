@@ -200,9 +200,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('다른 기기로 옮기기'),
         content: Text(
-          '「${entry.title}」을(를) 7일짜리 이전 팩으로 올립니다.\n'
-          '다른 기기에서 「이전 팩 받기」로 가져오면 같은 논문이 교체됩니다.\n'
-          '클라우드에서 논문 미리보기는 없습니다.',
+          '「${entry.title}」을(를) 같은 계정·다른 기기에서 받기용 '
+          '임시 상자로 클라우드에 올립니다.\n'
+          '\n'
+          '· 약 7일 뒤 이 임시 상자는 자동 삭제됩니다 '
+          '(이 기기 보관함 논문은 그대로입니다).\n'
+          '· 받는 기기에서 「이전 팩 받기」하면 같은 논문이 교체됩니다.\n'
+          '· 클라우드에서 논문을 열어 보기는 없습니다.',
         ),
         actions: [
           TextButton(
@@ -225,7 +229,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ok
               ? (widget.library.uploadStage.isNotEmpty
                   ? widget.library.uploadStage
-                  : '이전 팩을 올렸습니다. 7일 안에 다른 기기에서 받으세요.')
+                  : '임시 상자를 올렸습니다. 같은 계정 다른 기기에서 '
+                      '7일 안에 「이전 팩 받기」로 가져오세요.')
               : (widget.library.error ?? '이전 팩 만들기에 실패했습니다.'),
         ),
       ),
@@ -532,7 +537,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 _deleting
                             ? null
                             : _showTransferPackInbox,
-                        icon: const Icon(Icons.phonelink_setup_outlined),
+                        icon: const Icon(Icons.cloud_download_outlined),
                         tooltip: '이전 팩 받기',
                       ),
                       IconButton(
@@ -648,10 +653,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   ? '중단됨 · 앱을 열면 이어갑니다'
                                   : lib.uploadStage)
                               : (
-                                  // WHY: cloud archive is part of processing — not a separate upload tap.
+                                  // design/185 — device SoT; analysis then save on this phone.
                                   '처리 중 ${lib.uploadPercent}%'
                                   '${lib.uploadStage.isEmpty ? '' : ' · ${lib.uploadStage}'}'
-                                  ' · 클라우드 보관함에 자동 저장'
+                                  ' · 끝나면 이 기기에 저장'
                                 ),
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
@@ -759,8 +764,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         children: [
                           const Text(
                             '아직 보관한 논문이 없습니다.\n'
-                            'PDF를 고르면 처리가 끝난 뒤\n'
-                            '클라우드 보관함에 자동으로 저장됩니다.',
+                            'PDF를 고르면 분석이 끝난 뒤\n'
+                            '이 기기에 보관됩니다.',
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 16),
@@ -926,7 +931,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                         lib.dismissHarmonizeResidual(e.id),
                                   ),
                                 IconButton(
-                                  icon: const Icon(Icons.ios_share, size: 22),
+                                  icon: const Icon(Icons.cloud_upload_outlined, size: 22),
                                   tooltip: '다른 기기로 옮기기',
                                   onPressed: lib.opening ||
                                           lib.uploading ||
