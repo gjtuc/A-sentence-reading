@@ -564,7 +564,7 @@ class PaperDiskStore {
     String contentHash = '',
   }) async {
     if (!isBound) return false;
-    final rel = relPath.trim().replaceAll('\', '/');
+    final rel = relPath.trim().replaceAll('\\', '/');
     if (rel.isEmpty || bytes.isEmpty) return false;
     if (rel == 'session.json') {
       try {
@@ -625,7 +625,7 @@ class PaperDiskStore {
   ) async {
     final want = expectedSha256.trim().toLowerCase();
     if (want.isEmpty) return false;
-    final rel = relPath.trim().replaceAll('\', '/');
+    final rel = relPath.trim().replaceAll('\\', '/');
     final dir = await paperDir(cacheId);
     if (dir == null) return false;
     final f = File(p.join(dir.path, rel));
