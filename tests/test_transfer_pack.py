@@ -16,9 +16,27 @@ from sentence_reading.llm import transfer_pack_ttl as ttl
 def test_safe_rel_allowlist() -> None:
     assert tpg.safe_rel_path("session.json") == "session.json"
     assert tpg.safe_rel_path("figures/a.png") == "figures/a.png"
+    assert tpg.safe_rel_path("user/bookmarks.json") == "user/bookmarks.json"
+    assert tpg.safe_rel_path("shadowing/chunks.json") == "shadowing/chunks.json"
+    assert tpg.safe_rel_path("shadowing/voice/t1.bin") == "shadowing/voice/t1.bin"
+    assert (
+        tpg.safe_rel_path("item/abcd1234efgh/session.json")
+        == "item/abcd1234efgh/session.json"
+    )
     assert tpg.safe_rel_path("../x") is None
     assert tpg.safe_rel_path("papers/x") is None
     assert tpg.safe_rel_path("notes.json") is None
+    assert tpg.safe_rel_path("item/bad/session.json") is None  # cache_id too short
+
+
+def test_manifest_has_session() -> None:
+    assert tpg.manifest_has_session({"session.json": {"size": 1, "sha256": "a"}})
+    assert tpg.manifest_has_session(
+        {"item/abcd1234efgh/session.json": {"size": 1, "sha256": "a"}}
+    )
+    assert not tpg.manifest_has_session(
+        {"item/abcd1234efgh/source.pdf": {"size": 1, "sha256": "a"}}
+    )
 
 
 def test_assert_refuses_papers_and_ingest() -> None:
@@ -93,7 +111,7 @@ def test_abandon_pending() -> None:
 
 def test_status_flags() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.185"
+    assert st["version"] == "0.3.186"
     assert st.get("transfer_pack") is True
     assert st.get("transfer_pack_ttl") is True
     assert int(st.get("transfer_pack_max_bytes") or 0) >= 200 * 1024 * 1024

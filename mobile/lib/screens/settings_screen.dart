@@ -348,6 +348,153 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+
+  Future<void> _exportLibraryBackup() async {
+    final lib = widget.library;
+    if (lib.opening || lib.uploading || lib.reanalyzing) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('다른 작업 중입니다. 잠시 후 다시 시도해 주세요.')),
+      );
+      return;
+    }
+    final n = await lib.countLocalBackupPapers();
+    if (!mounted) return;
+    if (n <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(lib.error ?? '백업할 로컬 논문이 없습니다.')),
+      );
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('다른 기기로 옮기기'),
+        content: Text(
+          '보관함 로컬 논문 $n건을 같은 계정·다른 기기에서 받기용 '
+          '임시 상자로 클라우드에 올립니다.\n'
+          '\n'
+          '· 약 7일 뒤 이 임시 상자는 자동 삭제됩니다 '
+          '(이 기기 보관함 논문은 그대로입니다).\n'
+          '· 받는 기기에서 「백업된 보관함 논문 받기」하면 같은 논문이 교체됩니다.\n'
+          '· 클라우드에서 논문을 열어 보기는 없습니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('올리기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final ok = await lib.exportLibraryTransferPack();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? (lib.uploadStage.isNotEmpty
+                  ? lib.uploadStage
+                  : '임시 상자를 올렸습니다. 같은 계정 다른 기기에서 '
+                      '7일 안에 「백업된 보관함 논문 받기」로 가져오세요.')
+              : (lib.error ?? '보관함 백업에 실패했습니다.'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showLibraryBackupInbox() async {
+    final lib = widget.library;
+    final packs = await lib.listTransferPacks();
+    if (!mounted) return;
+    if (packs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(lib.error ?? '받을 백업된 보관함 논문이 없습니다.'),
+        ),
+      );
+      return;
+    }
+    final chosen = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+                child: Text(
+                  '백업된 보관함 논문 받기',
+                  style: Theme.of(ctx).textTheme.titleMedium,
+                ),
+              ),
+              for (final row in packs)
+                ListTile(
+                  title: Text('${row['title'] ?? row['cache_id'] ?? ''}'),
+                  subtitle: Text(
+                    [
+                      '${row['status'] ?? ''}',
+                      if ('${row['expires_at'] ?? ''}'.isNotEmpty)
+                        '만료 ${row['expires_at']}',
+                      if (row['bytes'] != null) '${row['bytes']} B',
+                    ].where((s) => s.toString().trim().isNotEmpty).join(' · '),
+                  ),
+                  enabled: '${row['status'] ?? ''}' == 'ready',
+                  onTap: '${row['status'] ?? ''}' == 'ready'
+                      ? () => Navigator.pop(ctx, row)
+                      : null,
+                ),
+            ],
+          ),
+        );
+      },
+    );
+    if (chosen == null || !mounted) return;
+    final packId = '${chosen['pack_id'] ?? ''}'.trim();
+    if (packId.isEmpty) return;
+    final title = '${chosen['title'] ?? packId}';
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('로컬 교체'),
+        content: Text(
+          '「$title」을(를) 이 기기에 가져옵니다.\n'
+          '같은 논문 ID가 있으면 로컬 폴더를 교체합니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('가져오기'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    final ok = await lib.importTransferPack(packId);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? (lib.uploadStage.isNotEmpty
+                  ? lib.uploadStage
+                  : '백업된 보관함 논문을 가져왔습니다.')
+              : (lib.error ?? '가져오기에 실패했습니다.'),
+        ),
+      ),
+    );
+  }
+
   List<Widget> _accountLinkTiles(AsrUser user) {
     final st = widget.auth.lastStatus;
     final canUnlink = user.providers.length > 1;
@@ -501,23 +648,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (!logged || user == null)
               const Text('로그인이 필요합니다.')
             else ...[
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => setState(
-                  () => _accountLinksExpanded = !_accountLinksExpanded,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(user.displayLabel),
-                    if (user.providers.isNotEmpty)
-                      Text(
-                        user.providers.join(', '),
-                        style: Theme.of(context).textTheme.bodySmall,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => setState(
+                        () => _accountLinksExpanded = !_accountLinksExpanded,
                       ),
-                  ],
-                ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(user.displayLabel),
+                          if (user.providers.isNotEmpty)
+                            Text(
+                              user.providers.join(', '),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: widget.library.opening ||
+                            widget.library.uploading ||
+                            widget.library.reanalyzing
+                        ? null
+                        : _exportLibraryBackup,
+                    icon: const Icon(Icons.cloud_upload_outlined),
+                    tooltip: '보관함 백업',
+                  ),
+                  IconButton(
+                    onPressed: widget.library.opening ||
+                            widget.library.uploading ||
+                            widget.library.reanalyzing
+                        ? null
+                        : _showLibraryBackupInbox,
+                    icon: const Icon(Icons.cloud_download_outlined),
+                    tooltip: '백업된 보관함 논문 받기',
+                  ),
+                ],
               ),
+              if (widget.library.uploading) ...[
+                const SizedBox(height: 8),
+                LinearProgressIndicator(
+                  value: widget.library.uploadPercent > 0
+                      ? (widget.library.uploadPercent.clamp(0, 100) / 100.0)
+                      : null,
+                ),
+                if (widget.library.uploadStage.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.library.uploadStage,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ],
               const SizedBox(height: 12),
               FilledButton(
                 onPressed: widget.auth.busy

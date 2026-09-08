@@ -5,7 +5,7 @@ Modules:
 Parents: [185](185-local-paper-sot.md) · [184](184-ingest-artifact-ttl.md) · [144](144-paper-retention-ttl.md)
 
 **Status:** SHIPPED (0.3.180)  
-**UI:** 도서관 「다른 기기로 옮기기」 · 「이전 팩 받기」 (클라우드에서 논문 **열람 UI 없음**)
+**UI:** 설정·계정 옆 「보관함 백업」 · 「백업된 보관함 논문 받기」 (전체 로컬 보관함 1팩; 클라우드 **열람 UI 없음**)
 
 ---
 
@@ -95,4 +95,4 @@ users/{uid}/transfer_packs/{pack_id}/
 
 ## 5. Version
 
-**0.3.180**
+**0.3.180** · library bundle **0.3.186**

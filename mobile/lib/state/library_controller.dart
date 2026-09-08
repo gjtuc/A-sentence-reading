@@ -3740,37 +3740,53 @@ class LibraryController extends ChangeNotifier {
       }
     }
   }
-  /// design/186 — export local paper folder to a 7-day transfer pack.
-  Future<bool> exportTransferPack(PaperEntry entry) async {
+
+  /// design/186 — sentinel meta.cache_id for whole-library backup packs.
+  static const libraryBackupCacheId = 'libbackup01';
+
+  /// Count local papers that have a session folder (eligible for backup).
+  Future<int> countLocalBackupPapers() async {
+    var n = 0;
+    for (final e in papers) {
+      final cid = e.id.trim();
+      if (cid.isEmpty) continue;
+      if (await _paperDisk.hasSession(cid)) n += 1;
+    }
+    return n;
+  }
+
+  /// Upload every local library paper into one 7-day transfer pack (`item/{cid}/…`).
+  Future<bool> exportLibraryTransferPack() async {
     if (opening || uploading || reanalyzing) {
       error = '다른 작업 중입니다. 잠시 후 다시 시도해 주세요.';
       notifyListeners();
       return false;
     }
-    final cid = entry.id.trim();
-    if (cid.isEmpty) {
-      error = '잘못된 보관 항목입니다.';
-      notifyListeners();
-      return false;
-    }
-    if (!await _paperDisk.hasSession(cid)) {
-      error = '로컬 보관본이 없습니다. 논문을 한 번 열어 동기화한 뒤 옮겨 주세요.';
-      notifyListeners();
-      return false;
-    }
     uploading = true;
     uploadPercent = 0;
-    uploadStage = '이전 팩 만들기';
+    uploadStage = '보관함 백업 만들기';
     error = null;
     notifyListeners();
     try {
-      final extra = await _collectUserArtifactPackFiles(cid);
-      final files = await _paperDisk.collectTransferPackFiles(
-        cid,
-        extraFiles: extra,
-      );
-      if (!files.containsKey('session.json')) {
-        error = '내보낼 session.json이 없습니다.';
+      final files = <String, Uint8List>{};
+      var paperN = 0;
+      for (final entry in papers) {
+        final cid = entry.id.trim();
+        if (cid.isEmpty) continue;
+        if (!await _paperDisk.hasSession(cid)) continue;
+        final extra = await _collectUserArtifactPackFiles(cid);
+        final leaf = await _paperDisk.collectTransferPackFiles(
+          cid,
+          extraFiles: extra,
+        );
+        if (!leaf.containsKey('session.json')) continue;
+        for (final e in leaf.entries) {
+          files['item/$cid/${e.key}'] = e.value;
+        }
+        paperN += 1;
+      }
+      if (paperN == 0 || files.isEmpty) {
+        error = '백업할 로컬 논문이 없습니다.';
         return false;
       }
       var declared = 0;
@@ -3778,13 +3794,13 @@ class LibraryController extends ChangeNotifier {
         declared += b.length;
       }
       final created = await _client.createTransferPack(
-        cacheId: cid,
-        title: entry.title.trim().isEmpty ? cid : entry.title.trim(),
+        cacheId: libraryBackupCacheId,
+        title: '보관함 백업 ($paperN건)',
         declaredBytes: declared,
       );
       final packId = '${created['pack_id'] ?? ''}'.trim();
       if (packId.isEmpty) {
-        error = '이전 팩을 만들지 못했습니다.';
+        error = '보관함 백업을 만들지 못했습니다.';
         return false;
       }
       final st = await _client.fetchStatus();
@@ -3820,19 +3836,24 @@ class LibraryController extends ChangeNotifier {
         manifest[e.key] = {'size': bytes.length, 'sha256': sha};
         done += 1;
         uploadPercent = ((done / files.length) * 90).round().clamp(0, 90);
-        uploadStage = '이전 팩 업로드 $done/${files.length}';
+        uploadStage = '보관함 백업 업로드 $done/${files.length}';
         notifyListeners();
       }
-      uploadStage = '이전 팩 완료 처리';
+      uploadStage = '보관함 백업 완료 처리';
       notifyListeners();
       await _client.completeTransferPack(packId: packId, files: manifest);
       uploadPercent = 100;
-      uploadStage = '이전 팩 준비됨 (7일)';
+      uploadStage = '보관함 백업 준비됨 (7일)';
       asrEvidenceBus?.record(
         'transfer_pack_complete',
         ok: true,
-        cacheId: cid,
-        details: {'file_n': files.length, 'bytes': declared},
+        cacheId: libraryBackupCacheId,
+        details: {
+          'file_n': files.length,
+          'bytes': declared,
+          'paper_n': paperN,
+          'library_bundle': true,
+        },
       );
       return true;
     } on AsrApiException catch (e) {
@@ -3869,6 +3890,7 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// design/186 — import pack → replace same cache_id locally (no cloud papers/).
+  /// Library bundles use `item/{cache_id}/…` paths (settings whole-library backup).
   Future<bool> importTransferPack(
     String packId, {
     bool deleteAfter = true,
@@ -3882,7 +3904,7 @@ class LibraryController extends ChangeNotifier {
     if (pid.isEmpty) return false;
     uploading = true;
     uploadPercent = 0;
-    uploadStage = '이전 팩 받기';
+    uploadStage = '백업된 보관함 논문 받기';
     error = null;
     notifyListeners();
     try {
@@ -3890,13 +3912,13 @@ class LibraryController extends ChangeNotifier {
       final meta = lease['meta'];
       final filesMeta = lease['files'];
       if (meta is! Map || filesMeta is! Map) {
-        error = '이전 팩 정보가 없습니다.';
+        error = '백업 정보가 없습니다.';
         return false;
       }
       final cacheId = '${meta['cache_id'] ?? ''}'.trim();
       final title = '${meta['title'] ?? cacheId}'.trim();
       if (cacheId.isEmpty) {
-        error = '이전 팩 cache_id가 없습니다.';
+        error = '백업 cache_id가 없습니다.';
         return false;
       }
       final st = await _client.fetchStatus();
@@ -3943,34 +3965,58 @@ class LibraryController extends ChangeNotifier {
         files[rel] = Uint8List.fromList(bytes);
         i += 1;
         uploadPercent = ((i / entries.length) * 85).round().clamp(0, 85);
-        uploadStage = '이전 팩 다운로드 $i/${entries.length}';
+        uploadStage = '백업 다운로드 $i/${entries.length}';
         notifyListeners();
       }
       uploadStage = '로컬에 반영';
       notifyListeners();
-      final ok = await _paperDisk.replaceFromTransferPack(
-        cacheId: cacheId,
-        title: title,
-        files: files,
-      );
-      if (!ok) {
-        error = '로컬 반영에 실패했습니다.';
-        return false;
+      var byPaper = _groupTransferPackFiles(files);
+      if (byPaper.isEmpty) {
+        // Legacy single-paper pack (flat leaf paths + meta.cache_id).
+        if (!files.containsKey('session.json')) {
+          error = '가져올 논문 파일이 없습니다.';
+          return false;
+        }
+        byPaper = {cacheId: files};
       }
-      await _restoreUserArtifactsFromPack(cacheId, files);
+      var applied = 0;
+      for (final e in byPaper.entries) {
+        final cid = e.key;
+        final leaf = e.value;
+        final paperTitle = _titleFromPackSession(leaf) ??
+            (byPaper.length == 1 && title.isNotEmpty ? title : cid);
+        final ok = await _paperDisk.replaceFromTransferPack(
+          cacheId: cid,
+          title: paperTitle,
+          files: leaf,
+        );
+        if (!ok) {
+          error = '로컬 반영에 실패했습니다 ($cid).';
+          return false;
+        }
+        await _restoreUserArtifactsFromPack(cid, leaf);
+        applied += 1;
+      }
       if (deleteAfter) {
         try {
           await _client.deleteTransferPack(pid);
         } catch (_) {}
       }
       uploadPercent = 100;
-      uploadStage = '이전 팩 가져오기 완료';
+      uploadStage = applied > 1
+          ? '백업된 보관함 논문 $applied건 가져오기 완료'
+          : '백업된 보관함 논문 가져오기 완료';
       await refresh();
       asrEvidenceBus?.record(
         'transfer_pack_download',
         ok: true,
         cacheId: cacheId,
-        details: {'file_n': files.length},
+        details: {
+          'file_n': files.length,
+          'paper_n': applied,
+          'library_bundle': byPaper.length > 1 ||
+              cacheId == libraryBackupCacheId,
+        },
       );
       return true;
     } on AsrApiException catch (e) {
@@ -3986,6 +4032,38 @@ class LibraryController extends ChangeNotifier {
         uploadStage = '';
       }
       notifyListeners();
+    }
+  }
+
+  /// Flat pack → empty (caller uses meta.cache_id); `item/{cid}/…` → bundle.
+  Map<String, Map<String, Uint8List>> _groupTransferPackFiles(
+    Map<String, Uint8List> files,
+  ) {
+    final out = <String, Map<String, Uint8List>>{};
+    for (final e in files.entries) {
+      final rel = e.key.trim().replaceAll('\\', '/');
+      if (!rel.startsWith('item/')) continue;
+      final rest = rel.substring('item/'.length);
+      final slash = rest.indexOf('/');
+      if (slash <= 0) continue;
+      final cid = rest.substring(0, slash).trim();
+      final leaf = rest.substring(slash + 1).trim();
+      if (cid.isEmpty || leaf.isEmpty) continue;
+      out.putIfAbsent(cid, () => <String, Uint8List>{})[leaf] = e.value;
+    }
+    return out;
+  }
+
+  String? _titleFromPackSession(Map<String, Uint8List> leaf) {
+    final raw = leaf['session.json'];
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final map = jsonDecode(utf8.decode(raw));
+      if (map is! Map) return null;
+      final t = '${map['title'] ?? ''}'.trim();
+      return t.isEmpty ? null : t;
+    } catch (_) {
+      return null;
     }
   }
 

@@ -26,6 +26,17 @@ _ALLOWED_RELS = frozenset(
         "source.docx",
     }
 )
+# design/187 — user artifacts inside a pack (never under GCS papers/).
+_USER_ARTIFACT_RELS = frozenset(
+    {
+        "user/bookmarks.json",
+        "user/annotations.json",
+        "shadowing/chunks.json",
+        "shadowing/takes.json",
+    }
+)
+# Library-wide backup sentinel cache_id (meta only; papers live under item/{cid}/…).
+LIBRARY_BACKUP_CACHE_ID = "libbackup01"
 
 
 def transfer_pack_enabled() -> bool:
@@ -132,17 +143,50 @@ def new_pack_id() -> str:
     return uuid.uuid4().hex
 
 
+def _is_leaf_pack_rel(rel: str) -> bool:
+    """True for a single-paper pack leaf (no item/ prefix)."""
+    if rel in _ALLOWED_RELS or rel in _USER_ARTIFACT_RELS:
+        return True
+    if rel.startswith("figures/") and rel.endswith(".png"):
+        name = rel[len("figures/") :]
+        return bool(name) and "/" not in name
+    if rel.startswith("shadowing/voice/"):
+        name = rel[len("shadowing/voice/") :]
+        return bool(name) and "/" not in name and name.endswith(".bin")
+    return False
+
+
 def safe_rel_path(path: str) -> str | None:
     rel = (path or "").strip().replace("\\", "/")
     if not rel or rel.startswith("/") or ".." in rel.split("/"):
         return None
     if not _REL_SAFE_RE.match(rel):
         return None
-    if rel in _ALLOWED_RELS:
+    if _is_leaf_pack_rel(rel):
         return rel
-    if rel.startswith("figures/") and rel.endswith(".png"):
-        return rel
+    # Library backup: item/{cache_id}/{leaf} — avoid "papers/" (delete guard).
+    if rel.startswith("item/"):
+        parts = rel.split("/", 2)
+        if (
+            len(parts) == 3
+            and _CACHE_ID_RE.match(parts[1])
+            and _is_leaf_pack_rel(parts[2])
+        ):
+            return rel
     return None
+
+
+def manifest_has_session(files: dict[str, Any]) -> bool:
+    """Flat session.json or at least one item/{cid}/session.json."""
+    for rel in files:
+        safe = safe_rel_path(str(rel))
+        if not safe:
+            continue
+        if safe == "session.json":
+            return True
+        if safe.startswith("item/") and safe.endswith("/session.json"):
+            return True
+    return False
 
 
 def assert_deletable_pack_object(object_name: str, *, uid: str) -> str | None:
@@ -528,7 +572,7 @@ def complete_pack(pack_id: str, files: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": "not_pending"}
     if not isinstance(files, dict) or not files:
         return {"ok": False, "error": "bad_manifest"}
-    if "session.json" not in files:
+    if not manifest_has_session(files):
         return {"ok": False, "error": "no_session"}
 
     cleaned: dict[str, dict[str, Any]] = {}
