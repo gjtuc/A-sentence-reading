@@ -721,6 +721,15 @@ def serialize_job_record(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
         pref = str(cp.get("payload_ref") or "").strip()[:80]
         if pref and ".." not in pref and "/" not in pref and "\\" not in pref:
             out["checkpoint"]["payload_ref"] = pref
+    # design/184 — artifact TTL clock (intermediate blobs only).
+    aru = str(job.get("artifact_retain_until") or "").strip()
+    if aru:
+        out["artifact_retain_until"] = aru[:40]
+    arr = str(job.get("artifact_retain_reason") or "").strip()
+    if arr:
+        out["artifact_retain_reason"] = arr[:40]
+    if job.get("artifact_purge_partial"):
+        out["artifact_purge_partial"] = True
     return out
 
 
@@ -735,6 +744,13 @@ def save_ingest_job(job_id: str, job: dict[str, Any]) -> bool:
     obj = ingest_job_object(job_id, uid=owner)
     if not obj:
         return False
+    # design/184 — stamp retain_until once when terminal.
+    try:
+        from sentence_reading.llm.ingest_artifact_ttl import stamp_terminal_retention
+
+        stamp_terminal_retention(job)
+    except Exception:
+        pass
     payload = serialize_job_record(job_id, job)
     raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
         "utf-8"
@@ -848,6 +864,13 @@ def try_claim_lease_with_reason(
         return None, "job_already_done"
     if not lease_expired(current):
         return None, "gcs_lease_alive"
+    # design/184 — reclaim restarts the clock; do not keep terminal retain_until.
+    try:
+        from sentence_reading.llm.ingest_artifact_ttl import clear_retention_on_reclaim
+
+        clear_retention_on_reclaim(current)
+    except Exception:
+        pass
     token = stamp_lease(current)
     if not save_ingest_job(job_id, current):
         return None, "save_failed"

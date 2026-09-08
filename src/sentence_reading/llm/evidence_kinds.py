@@ -125,5 +125,7 @@ ALLOWED_KINDS = frozenset(
         # design/180 — figure hydrate reliability
         "figure_png_req",
         "figure_png_done",
+        "ingest_artifact_deleted",
+        "ingest_artifact_purge_tick",
     }
 )

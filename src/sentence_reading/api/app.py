@@ -197,10 +197,22 @@ async def _lifespan(_app: FastAPI):
         rotate_task = asyncio.create_task(_evidence_rotate_loop())
     except Exception:
         rotate_task = None
+    # design/184 — ingest intermediate artifact TTL purge
+    artifact_ttl_task = None
+    try:
+        from sentence_reading.llm.ingest_artifact_ttl import (
+            artifact_ttl_enabled,
+            purge_interval_sec,
+        )
+
+        if artifact_ttl_enabled() and purge_interval_sec() > 0:
+            artifact_ttl_task = asyncio.create_task(_ingest_artifact_ttl_loop())
+    except Exception:
+        artifact_ttl_task = None
     try:
         yield
     finally:
-        for task in (sweeper_task, rotate_task):
+        for task in (sweeper_task, rotate_task, artifact_ttl_task):
             if task is None:
                 continue
             task.cancel()
@@ -214,7 +226,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.176",
+    version="0.3.177",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -555,6 +567,29 @@ def _fig_ref_hints_enabled() -> bool:
     """design/139 — kill: ASR_FIG_REF_HINTS=0 hides Fig./Scheme/Table chips (app+web)."""
     v = (os.environ.get("ASR_FIG_REF_HINTS") or "1").strip().lower()
     return v not in ("0", "false", "off", "no")
+
+
+
+def _ingest_artifact_ttl_status_fields() -> dict:
+    """design/184 — status advertisement for intermediate blob TTL."""
+    try:
+        from sentence_reading.llm.ingest_artifact_ttl import (
+            artifact_ttl_dry_run,
+            artifact_ttl_enabled,
+            terminal_ttl_hours,
+        )
+
+        return {
+            "ingest_artifact_ttl": artifact_ttl_enabled(),
+            "ingest_artifact_ttl_hours": terminal_ttl_hours(),
+            "ingest_artifact_ttl_dry_run": artifact_ttl_dry_run(),
+        }
+    except Exception:
+        return {
+            "ingest_artifact_ttl": False,
+            "ingest_artifact_ttl_hours": 0,
+            "ingest_artifact_ttl_dry_run": False,
+        }
 
 
 def _reader_layout_auto_enabled() -> bool:
@@ -1395,6 +1430,48 @@ async def _evidence_rotate_loop() -> None:
             pass
 
 
+async def _ingest_artifact_ttl_loop() -> None:
+    """design/184 — purge expired ingest_uploads/jobs/payloads (never papers/)."""
+    from sentence_reading.llm.ingest_artifact_ttl import (
+        artifact_ttl_enabled,
+        purge_all_uids,
+        purge_interval_sec,
+    )
+
+    while True:
+        try:
+            await asyncio.sleep(purge_interval_sec())
+        except asyncio.CancelledError:
+            raise
+        if not artifact_ttl_enabled():
+            continue
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            summary = await asyncio.to_thread(purge_all_uids)
+            eb.emit(
+                "ingest_artifact_purge_tick",
+                ok=True,
+                details={
+                    "uid_n": summary.get("uid_n"),
+                    "purged_jobs": summary.get("purged_jobs"),
+                    "orphan_uploads": summary.get("orphan_uploads"),
+                    "refused": summary.get("refused"),
+                    "errors": summary.get("errors"),
+                    "dry_run": summary.get("dry_run"),
+                },
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            try:
+                from sentence_reading.llm import evidence_bus as eb
+
+                eb.emit("ingest_artifact_purge_tick", ok=False, code="loop_error")
+            except Exception:
+                pass
+
+
 def _progress_fail_closed_enabled() -> bool:
     """design/123 — refuse open when stored progress indices are invalid.
 
@@ -1505,7 +1582,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.176",
+        "version": "0.3.177",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -1625,6 +1702,8 @@ def status(request: Request) -> dict:
         "fig_ref_hints": _fig_ref_hints_enabled(),
         # design/183 — Intro layout auto; kill ASR_READER_LAYOUT_AUTO=0.
         "reader_layout_auto": _reader_layout_auto_enabled(),
+        # design/184 — intermediate ingest blob TTL purge.
+        **_ingest_artifact_ttl_status_fields(),
         "cite_ref_open": True,
         "cite_display_clean": True,
         # design/148 — mobile References panel below Fig chips.

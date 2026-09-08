@@ -95,6 +95,9 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         # design/180 — figure hydrate reliability
         "figure_png_req",
         "figure_png_done",
+        # design/184 — ingest intermediate TTL purge
+        "ingest_artifact_deleted",
+        "ingest_artifact_purge_tick",
     }
 )
 
@@ -330,6 +333,8 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "figure_png_lookup",
             "figure_png_done",
             "session_ensured",
+            "_ingest_artifact_ttl_loop",
+            "ingest_artifact_purge_tick",
         ),
     ),
     (
@@ -351,6 +356,17 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "scripts/rotate_evidence.py",
         ("rotate_events", "--force"),
+    ),
+    (
+        "src/sentence_reading/llm/ingest_artifact_ttl.py",
+        (
+            "stamp_terminal_retention",
+            "clear_retention_on_reclaim",
+            "assert_deletable_object",
+            "delete_job_artifacts",
+            "purge_all_uids",
+            "ingest_artifact_deleted",
+        ),
     ),
     (
         "src/sentence_reading/llm/evidence_kinds.py",
