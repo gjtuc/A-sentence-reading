@@ -1,9 +1,12 @@
-/// Reader annotation state — local cache + GCS sync (design/166).
+/// Reader annotation state — local cache + GCS sync (design/166 · 187 SoT).
 library;
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/annotation_gate.dart';
 import '../api/annotation_models.dart';
@@ -14,6 +17,7 @@ import '../api/client.dart';
 import '../api/reader_nav_labels.dart';
 import '../api/reading_models.dart';
 import '../api/rich_sentence.dart';
+import '../services/evidence_bus.dart';
 
 class AnnotationController extends ChangeNotifier {
   AnnotationController({AsrClient? client}) : _client = client;
@@ -25,6 +29,8 @@ class AnnotationController extends ChangeNotifier {
   AnnotationsStore _store = AnnotationsStore.empty();
   bool serverAvailable = false;
   bool ready = false;
+  /// design/187 — device is SoT; cloud PUT refused / push no-op.
+  bool localSot = false;
   bool figureInkMode = false;
   FigureInkTool figureInkTool = FigureInkTool.pen;
   String figureInkColor = kDefaultFigureInkColor;
@@ -40,12 +46,26 @@ class AnnotationController extends ChangeNotifier {
 
   bool get canAnnotate => _uid != null;
   int get activeCount => _paper.totalActiveCount;
+  String? get boundUid => _uid;
 
   /// design/182 — while latched highlight paint is armed, reader must not
   /// change sentence (swipe / chevrons / picker).
   bool get blocksReaderNavigation => sentencePaintMode;
 
   void attachClient(AsrClient client) => _client = client;
+
+  void setLocalSot(bool next) {
+    if (localSot == next) return;
+    localSot = next;
+    notifyListeners();
+  }
+
+  String _migratedPrefsKey() {
+    final u = (_uid ?? '').trim().replaceAll(RegExp(r'[^A-Za-z0-9_\-]'), '');
+    if (u.isEmpty) return 'asr.annotations.cloud_migrated.v1';
+    final safe = u.length > 128 ? u.substring(0, 128) : u;
+    return 'asr.annotations.cloud_migrated.v1.u.$safe';
+  }
 
   Future<void> bindUid(String? uid) async {
     _uid = (uid ?? '').trim().isEmpty ? null : uid!.trim();
@@ -60,6 +80,7 @@ class AnnotationController extends ChangeNotifier {
     _cacheId = null;
     _paper = const PaperAnnotations();
     _store = AnnotationsStore.empty();
+    localSot = false;
     figureInkMode = false;
     figureInkTool = FigureInkTool.pen;
     figureInkColor = kDefaultFigureInkColor;
@@ -105,6 +126,10 @@ class AnnotationController extends ChangeNotifier {
   }
 
   Future<void> pullFromServer() async {
+    if (localSot) {
+      await _migrateOnce();
+      return;
+    }
     final client = _client;
     if (client == null || _uid == null || !serverAvailable) return;
     try {
@@ -120,7 +145,52 @@ class AnnotationController extends ChangeNotifier {
     }
   }
 
+  /// design/187 — one-shot GET sync → merge local → ack → wipe cloud.
+  Future<void> _migrateOnce() async {
+    final client = _client;
+    if (client == null || _uid == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_migratedPrefsKey()) == true) return;
+
+      asrEvidenceBus?.record(
+        'annotations_local_migrate_start',
+        severity: 'lifecycle',
+        ok: true,
+      );
+
+      final remote = await client.fetchAnnotationsSync();
+      if (remote.available && remote.store != null) {
+        final remoteStore = AnnotationsStore.fromJson(remote.store);
+        _store = mergeAnnotationsStores(_store, remoteStore);
+        await saveAnnotationsStore(uid: _uid, store: _store);
+        _reloadPaperFromStore();
+        notifyListeners();
+      }
+
+      final paperN = _store.papers.length;
+      final acked = await client.ackAnnotationsLocalMigrate(paperN: paperN);
+      if (acked) {
+        await prefs.setBool(_migratedPrefsKey(), true);
+      }
+      asrEvidenceBus?.record(
+        'annotations_local_migrate_done',
+        severity: 'lifecycle',
+        ok: acked,
+        details: {'paper_n': paperN},
+      );
+    } catch (_) {
+      asrEvidenceBus?.record(
+        'annotations_local_migrate_done',
+        severity: 'lifecycle',
+        ok: false,
+        code: 'exception',
+      );
+    }
+  }
+
   Future<void> pushToServer() async {
+    if (localSot) return;
     final client = _client;
     if (client == null || _uid == null || !serverAvailable) return;
     try {
@@ -136,10 +206,41 @@ class AnnotationController extends ChangeNotifier {
   }
 
   void schedulePush() {
+    if (localSot) return;
     _pushTimer?.cancel();
     _pushTimer = Timer(const Duration(milliseconds: 500), () {
       unawaited(pushToServer());
     });
+  }
+
+  /// design/187 E — paper slice for transfer pack (`user/annotations.json`).
+  Uint8List? exportPaperPackBytes(String cacheId) {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return null;
+    final paper = _store.papers[annotationPaperKey(cid)];
+    if (paper == null) return null;
+    if (paper.sentences.isEmpty && paper.figures.isEmpty) return null;
+    return Uint8List.fromList(utf8.encode(jsonEncode(paper.toJson())));
+  }
+
+  /// design/187 E — restore paper slice from transfer pack.
+  Future<void> importPaperPackJson(
+    String cacheId,
+    Map<String, dynamic> json,
+  ) async {
+    final cid = cacheId.trim();
+    if (cid.isEmpty || _uid == null) return;
+    final incoming = PaperAnnotations.fromJson(json);
+    final pk = annotationPaperKey(cid);
+    final papers = Map<String, PaperAnnotations>.from(_store.papers);
+    final prev = papers[pk] ?? const PaperAnnotations();
+    papers[pk] = mergePaperAnnotations(prev, incoming);
+    _store = AnnotationsStore(papers: papers);
+    await saveAnnotationsStore(uid: _uid, store: _store);
+    if (_cacheId == cid) {
+      _reloadPaperFromStore();
+    }
+    notifyListeners();
   }
 
   List<AnnotationEvent> activeForSentenceKey(String? key) {

@@ -91,6 +91,10 @@ class AsrStatus {
     this.mobileFigureCaptionInImage = true,
     this.bookmarksSync = false,
     this.annotationsSync = false,
+    this.bookmarksLocalSot = false,
+    this.annotationsLocalSot = false,
+    this.shadowingLocalSot = false,
+    this.notesLocalSot = false,
     this.mobileApkUrl = '',
     // design/169 — missing → off (fail-closed; no client evidence spam).
     this.evidenceBus = false,
@@ -242,6 +246,10 @@ class AsrStatus {
         }
         return json['annotations_sync'] == true;
       }(),
+      bookmarksLocalSot: json['bookmarks_local_sot'] == true,
+      annotationsLocalSot: json['annotations_local_sot'] == true,
+      shadowingLocalSot: json['shadowing_local_sot'] == true,
+      notesLocalSot: json['notes_local_sot'] == true,
       mobileApkUrl: '${json['mobile_apk_url'] ?? ''}'.trim(),
       // design/169 — missing → off; explicit true enables EvidenceBus flush.
       evidenceBus: json['evidence_bus'] == true,
@@ -300,6 +308,10 @@ class AsrStatus {
   final bool mobileFigureCaptionInImage;
   final bool bookmarksSync;
   final bool annotationsSync;
+  final bool bookmarksLocalSot;
+  final bool annotationsLocalSot;
+  final bool shadowingLocalSot;
+  final bool notesLocalSot;
   /// design/161 — public GCS APK URL when configured on server.
   final String mobileApkUrl;
   /// design/169 — agent evidence bus (no UI).
@@ -324,6 +336,21 @@ class BookmarksSyncResult {
 /// `/api/annotations/sync` result (design/166).
 class AnnotationsSyncResult {
   const AnnotationsSyncResult({
+    required this.available,
+    this.store,
+    this.needsAuth = false,
+    this.message,
+  });
+
+  final bool available;
+  final Map<String, dynamic>? store;
+  final bool needsAuth;
+  final String? message;
+}
+
+/// `/api/notes/sync` result (design/187 migrate pull).
+class NotesSyncResult {
+  const NotesSyncResult({
     required this.available,
     this.store,
     this.needsAuth = false,
@@ -2893,6 +2920,110 @@ throw AsrApiException(
       needsAuth: map['needs_auth'] == true,
       message: map['message']?.toString(),
     );
+  }
+
+  /// design/187 — GET notes store for one-shot local archive migrate.
+  Future<NotesSyncResult> fetchNotesSync() async {
+    final res = await _http
+        .get(_uri('/api/notes/sync'), headers: await _headers())
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 401) {
+      return const NotesSyncResult(
+        available: false,
+        needsAuth: true,
+        message: '로그인이 필요합니다.',
+      );
+    }
+    if (res.statusCode == 409) {
+      return const NotesSyncResult(
+        available: false,
+        message: 'notes_local_sot',
+      );
+    }
+    final map = _decodeObject(res, 'notes/sync');
+    final store = map['store'];
+    return NotesSyncResult(
+      available: map['available'] == true,
+      store: store is Map<String, dynamic>
+          ? store
+          : (store is Map ? Map<String, dynamic>.from(store) : null),
+      needsAuth: map['needs_auth'] == true,
+      message: map['message']?.toString(),
+    );
+  }
+
+  /// design/187 — confirm bookmarks device SoT; server wipes GCS store.
+  Future<bool> ackBookmarksLocalMigrate({int paperN = 0}) async {
+    return _ackLocalMigrate(
+      '/api/bookmarks/local-migrate-ack',
+      body: {'paper_n': paperN < 0 ? 0 : paperN},
+    );
+  }
+
+  /// design/187 — confirm annotations device SoT.
+  Future<bool> ackAnnotationsLocalMigrate({int paperN = 0}) async {
+    return _ackLocalMigrate(
+      '/api/annotations/local-migrate-ack',
+      body: {'paper_n': paperN < 0 ? 0 : paperN},
+    );
+  }
+
+  /// design/187 — confirm notes archive on device.
+  Future<bool> ackNotesLocalMigrate() async {
+    return _ackLocalMigrate('/api/notes/local-migrate-ack');
+  }
+
+  /// design/187 — confirm shadowing/voice on device.
+  Future<bool> ackShadowingLocalMigrate() async {
+    return _ackLocalMigrate('/api/shadowing/local-migrate-ack');
+  }
+
+  Future<bool> _ackLocalMigrate(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    try {
+      final res = await _http
+          .post(
+            _uri(path),
+            headers: await _headers(jsonBody: true),
+            body: jsonEncode(body ?? const <String, dynamic>{}),
+          )
+          .timeout(const Duration(seconds: 30));
+      if (res.statusCode == 401 || res.statusCode == 409) return false;
+      if (res.statusCode < 200 || res.statusCode >= 300) return false;
+      try {
+        final decoded = jsonDecode(res.body);
+        if (decoded is Map) return decoded['ok'] == true;
+      } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// design/187 — download voice blob for one-shot shadowing migrate.
+  Future<Uint8List?> fetchVoiceBlob(String blobKey) async {
+    final key = blobKey.trim();
+    if (key.isEmpty) return null;
+    try {
+      final res = await _http
+          .get(
+            _uri('/api/voice/blobs').replace(queryParameters: {'key': key}),
+            headers: await _headers(),
+          )
+          .timeout(const Duration(seconds: 60));
+      if (res.statusCode == 401 ||
+          res.statusCode == 404 ||
+          res.statusCode == 409) {
+        return null;
+      }
+      if (res.statusCode < 200 || res.statusCode >= 300) return null;
+      if (res.bodyBytes.isEmpty) return null;
+      return Uint8List.fromList(res.bodyBytes);
+    } catch (_) {
+      return null;
+    }
   }
 
 }

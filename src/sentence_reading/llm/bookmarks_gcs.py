@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from sentence_reading.llm.gcs_sync import (
+    delete_bytes,
     download_bytes,
     gcs_client_ready,
     gcs_config,
@@ -174,8 +175,44 @@ def remove_paper_bookmarks(paper_key: str) -> bool:
 
 
 def bookmarks_gcs_status_fields() -> dict[str, Any]:
+    local = False
+    try:
+        from sentence_reading.llm.user_artifacts_local_sot import bookmarks_local_sot_enabled
+        local = bookmarks_local_sot_enabled()
+    except Exception:
+        local = False
     return {
+        # When local SoT: advertise sync for migrate GET only; push refused.
         "bookmarks_sync": True,
         "bookmarks_object": bookmarks_store_object(),
         "bookmarks_max_bytes": BOOKMARKS_STORE_MAX_BYTES,
+        "bookmarks_local_sot": local,
     }
+
+
+def wipe_bookmarks_store() -> bool:
+    """design/187 — delete GCS bookmarks store after device migrate ACK."""
+    obj = bookmarks_store_object()
+    if not obj:
+        return False
+    ready, _ = gcs_client_ready()
+    if not gcs_config().enabled or not ready:
+        return False
+    return bool(delete_bytes(obj))
+
+
+def refuse_bookmarks_push_if_local_sot() -> dict[str, object] | None:
+    """Return error payload when device SoT refuses cloud push."""
+    try:
+        from sentence_reading.llm.user_artifacts_local_sot import bookmarks_local_sot_enabled
+    except Exception:
+        return None
+    if not bookmarks_local_sot_enabled():
+        return None
+    return {
+        "ok": False,
+        "error": "bookmarks_local_sot",
+        "message": "bookmarks are device SoT; cloud push refused",
+        "available": False,
+    }
+

@@ -65,12 +65,12 @@ Parents: [18](18-paper-library.md) · [20](20-source-backup-reanalyze.md) · [12
 
 | Store | Prefix / module |
 |-------|-----------------|
-| Notes / bookmarks / annotations | `notes/` · `bookmarks/` · `annotations/` |
-| Voice blobs | `voice/` |
-| Shadowing chunks/takes | `shadowing/` (may be filled **before** wipe) |
-| Evidence / ops | `evidence/` · ops JSONL |
+| Notes / bookmarks / annotations | **Legacy until [187](187-local-user-artifacts.md)** migrate+wipe — then empty on GCS |
+| Voice blobs | **Legacy until 187** (device SoT after migrate) |
+| Shadowing chunks/takes | **Legacy until 187** (chunk *build* may still hit server; durable cache/takes/voice → device) |
+| Evidence / ops | `evidence/` · ops JSONL (**stays cloud**) |
 | Ingest staging | `ingest_*` (184 TTL) |
-| Transfer packs | `transfer_packs/` (**186**, separate) |
+| Transfer packs | `transfer_packs/` (**186**, separate; **187 E** may pack user artifacts) |
 
 ### 2.3 Device-only today → expand
 

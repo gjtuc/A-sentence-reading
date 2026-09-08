@@ -188,7 +188,7 @@ def test_status_flags() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.183"
+    assert st["version"] == "0.3.184"
     assert st.get("ingest_artifact_ttl") is True
     assert int(st.get("ingest_artifact_ttl_hours") or 0) == 168
     assert st.get("ingest_artifact_ttl_dry_run") is False

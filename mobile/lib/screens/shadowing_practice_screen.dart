@@ -16,6 +16,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/client.dart';
 import '../api/focus_practice_models.dart';
@@ -23,11 +24,13 @@ import '../api/reading_models.dart';
 import '../api/shadowing_retry_gate.dart';
 import '../api/tts_models.dart';
 import '../services/evidence_bus.dart';
+import '../services/shadowing_disk_store.dart';
 import '../state/focus_practice_controller.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/tts_controller.dart';
 import '../widgets/practice_mirror_panel.dart';
+
 
 class ShadowingPracticeScreen extends StatefulWidget {
   const ShadowingPracticeScreen({
@@ -59,10 +62,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   final _player = AudioPlayer();
   late final FocusPracticeController _focus;
   late final bool _ownsFocus;
+  final ShadowingDiskStore _disk = ShadowingDiskStore();
 
   String? _status;
   bool _busy = false;
   Map<String, dynamic>? _plan;
+  Map<String, dynamic>? _takes;
   List<String> _chunks = [];
   int _chunkIndex = 0;
   String _sentenceId = '0';
@@ -75,6 +80,17 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   bool _autoAdvance = true;
 
   ReadingSession? get _session => widget.library.session;
+
+  bool get _localSot => widget.shadowing.localSot;
+
+  String _shadowingMigratedPrefsKey() {
+    final u = (widget.shadowing.boundUid ?? '')
+        .trim()
+        .replaceAll(RegExp(r'[^A-Za-z0-9_\-]'), '');
+    if (u.isEmpty) return 'asr.shadowing.cloud_migrated.v1';
+    final safe = u.length > 128 ? u.substring(0, 128) : u;
+    return 'asr.shadowing.cloud_migrated.v1.u.$safe';
+  }
 
   @override
   void initState() {
@@ -128,6 +144,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   Future<void> _boot() async {
     await _focus.bindUid(widget.shadowing.boundUid);
+    _disk.bindUid(widget.shadowing.boundUid);
     final session = _session;
     if (session == null || !session.isValid) {
       asrEvidenceBus?.record(
@@ -194,10 +211,24 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     var errorCode = '';
     var chunkN = 0;
     try {
+      if (_localSot) {
+        await _migrateShadowingOnce(cacheId);
+      }
+      final localTakes = await _disk.loadTakesJson(cacheId);
+      if (localTakes != null) {
+        _takes = localTakes;
+      }
+      final localPlan = await _disk.loadChunkPlanJson(cacheId);
+
       // WHY: product B — chunks must succeed before practice room.
       // design/113+119 — pending slices must continue; never treat pending as done.
       var got = await widget.client.fetchShadowingChunks(cacheId);
       var plan = got['plan'];
+      if (plan is! Map || plan['status']?.toString() != 'ok') {
+        if (localPlan != null && localPlan['status']?.toString() == 'ok') {
+          plan = localPlan;
+        }
+      }
       if (plan is! Map || plan['status']?.toString() != 'ok') {
         Map<String, dynamic>? built;
         // EDGE: long papers need many budget slices; cap avoids infinite loop.
@@ -247,6 +278,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         planStatus = 'ok';
       }
       _plan = Map<String, dynamic>.from(plan as Map);
+      unawaited(_disk.writeChunkPlanJson(cacheId, _plan!));
       _bindSentence(session);
       chunkN = _chunks.length;
       if (_chunks.isEmpty) {
@@ -306,6 +338,116 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       if (mounted) setState(() => _busy = false);
       // Auto-advance is scheduled from successful speak (_scheduleAutoAdvance).
     }
+  }
+
+  /// design/187 — one-shot pull takes + voice blobs, then ack wipe.
+  Future<void> _migrateShadowingOnce(String cacheId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_shadowingMigratedPrefsKey()) == true) return;
+
+      asrEvidenceBus?.record(
+        'shadowing_local_migrate_start',
+        cacheId: cacheId,
+        severity: 'lifecycle',
+        ok: true,
+      );
+
+      final remote = await widget.client.fetchShadowingTakes(cacheId);
+      Map<String, dynamic>? takes;
+      if (remote['takes'] is Map) {
+        takes = Map<String, dynamic>.from(remote['takes'] as Map);
+      } else if (remote['sentences'] is Map) {
+        takes = Map<String, dynamic>.from(remote);
+      }
+      if (takes != null) {
+        await _disk.writeTakesJson(cacheId, takes);
+        _takes = takes;
+        final sentences = takes['sentences'];
+        if (sentences is Map) {
+          for (final sent in sentences.values) {
+            if (sent is! Map) continue;
+            final chunks = sent['chunks'];
+            if (chunks is! List) continue;
+            for (final c in chunks) {
+              if (c is! Map) continue;
+              final bk = '${c['blob_key'] ?? ''}'.trim();
+              if (bk.isEmpty) continue;
+              final bytes = await widget.client.fetchVoiceBlob(bk);
+              if (bytes != null && bytes.isNotEmpty) {
+                await _disk.writeVoiceBytes(cacheId, bk, bytes);
+              }
+            }
+          }
+        }
+      }
+
+      final acked = await widget.client.ackShadowingLocalMigrate();
+      if (acked) {
+        await prefs.setBool(_shadowingMigratedPrefsKey(), true);
+      }
+      asrEvidenceBus?.record(
+        'shadowing_local_migrate_done',
+        cacheId: cacheId,
+        severity: 'lifecycle',
+        ok: acked,
+      );
+    } catch (_) {
+      asrEvidenceBus?.record(
+        'shadowing_local_migrate_done',
+        cacheId: cacheId,
+        severity: 'lifecycle',
+        ok: false,
+        code: 'exception',
+      );
+    }
+  }
+
+  Future<void> _persistTakeLocal({
+    required String cacheId,
+    required String status,
+    String? blobKey,
+    String? mime,
+    List<int>? voiceBytes,
+  }) async {
+    if (blobKey != null && voiceBytes != null && voiceBytes.isNotEmpty) {
+      await _disk.writeVoiceBytes(cacheId, blobKey, voiceBytes);
+    }
+    final takes = Map<String, dynamic>.from(
+      _takes ??
+          {
+            'version': 1,
+            'cache_id': cacheId,
+            'sentences': <String, dynamic>{},
+          },
+    );
+    final sentences = Map<String, dynamic>.from(
+      (takes['sentences'] is Map)
+          ? Map<String, dynamic>.from(takes['sentences'] as Map)
+          : <String, dynamic>{},
+    );
+    final row = Map<String, dynamic>.from(
+      (sentences[_sentenceId] is Map)
+          ? Map<String, dynamic>.from(sentences[_sentenceId] as Map)
+          : <String, dynamic>{},
+    );
+    final chunks = List<dynamic>.from(
+      (row['chunks'] is List) ? row['chunks'] as List : const [],
+    );
+    while (chunks.length <= _chunkIndex) {
+      chunks.add({'status': 'empty', 'blob_key': null, 'mime': null});
+    }
+    chunks[_chunkIndex] = {
+      'status': status,
+      'blob_key': blobKey,
+      'mime': mime,
+    };
+    row['chunks'] = chunks;
+    sentences[_sentenceId] = row;
+    takes['sentences'] = sentences;
+    takes['cache_id'] = cacheId;
+    _takes = takes;
+    await _disk.writeTakesJson(cacheId, takes);
   }
 
   void _bindSentence(ReadingSession session) {
@@ -449,31 +591,60 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       final blobKey =
           'shadowing|$cacheId|$_sentenceId|$_chunkIndex|${DateTime.now().millisecondsSinceEpoch}';
       try {
-        await widget.client.putVoiceBlob(
-          blobKey,
-          bytes,
-          contentType: 'audio/mp4',
-        );
-        await widget.client.postShadowingTake(
-          cacheId,
-          practiceEnabled: true,
-          sentenceId: _sentenceId,
-          chunkIndex: _chunkIndex,
-          chunkCount: _chunks.length,
+        // design/187 — always write device SoT first; skip cloud when localSot.
+        await _persistTakeLocal(
+          cacheId: cacheId,
           status: 'recorded',
           blobKey: blobKey,
           mime: 'audio/mp4',
+          voiceBytes: bytes,
         );
+        if (!_localSot) {
+          await widget.client.putVoiceBlob(
+            blobKey,
+            bytes,
+            contentType: 'audio/mp4',
+          );
+          await widget.client.postShadowingTake(
+            cacheId,
+            practiceEnabled: true,
+            sentenceId: _sentenceId,
+            chunkIndex: _chunkIndex,
+            chunkCount: _chunks.length,
+            status: 'recorded',
+            blobKey: blobKey,
+            mime: 'audio/mp4',
+          );
+        }
         asrEvidenceBus?.record(
           'shadowing_loop_event',
           cacheId: cacheId,
           ok: true,
-          details: {'phase': 'take_post', 'ok': true},
+          details: {'phase': 'take_post', 'ok': true, 'local_sot': _localSot},
         );
         takeOk = true;
         setState(() => _status = _autoAdvance && _focus.sessionActive
             ? '저장됨 · 다음 구간…'
             : '저장됨. 「다시」·「다시 듣기」·「다음」·「건너뛰기」');
+      } on AsrApiException catch (e) {
+        if (e.statusCode == 409) {
+          // EDGE: server already local-SoT — local write is enough.
+          takeOk = true;
+          setState(() => _status = '저장됨 (이 기기).');
+        } else {
+          asrEvidenceBus?.record(
+            'shadowing_loop_event',
+            cacheId: cacheId,
+            ok: false,
+            code: 'take_post',
+            details: {
+              'phase': 'take_post',
+              'ok': false,
+              'exc_type': e.runtimeType.toString(),
+            },
+          );
+          rethrow;
+        }
       } catch (e) {
         asrEvidenceBus?.record(
           'shadowing_loop_event',
@@ -599,19 +770,26 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       if (session == null) return;
       final cacheId = _cacheId;
       if (skip) {
-        await widget.client.postShadowingTake(
-          cacheId,
-          practiceEnabled: true,
-          sentenceId: _sentenceId,
-          chunkIndex: _chunkIndex,
-          chunkCount: _chunks.length,
-          status: 'skipped',
-        );
+        await _persistTakeLocal(cacheId: cacheId, status: 'skipped');
+        if (!_localSot) {
+          try {
+            await widget.client.postShadowingTake(
+              cacheId,
+              practiceEnabled: true,
+              sentenceId: _sentenceId,
+              chunkIndex: _chunkIndex,
+              chunkCount: _chunks.length,
+              status: 'skipped',
+            );
+          } on AsrApiException catch (e) {
+            if (e.statusCode != 409) rethrow;
+          }
+        }
         asrEvidenceBus?.record(
           'shadowing_loop_event',
           cacheId: cacheId,
           ok: true,
-          details: {'phase': 'skip', 'ok': true},
+          details: {'phase': 'skip', 'ok': true, 'local_sot': _localSot},
         );
       }
       // WHY: leaving this chunk — clear take so replay cannot play the wrong slot.

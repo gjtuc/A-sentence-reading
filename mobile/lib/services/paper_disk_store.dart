@@ -693,10 +693,17 @@ class PaperDiskStore {
   }
 
   /// design/186 — collect packable relative paths under the paper folder.
-  Future<Map<String, Uint8List>> collectTransferPackFiles(String cacheId) async {
+  /// [extraFiles] merges design/187 user artifacts (`user/…`, `shadowing/…`).
+  Future<Map<String, Uint8List>> collectTransferPackFiles(
+    String cacheId, {
+    Map<String, Uint8List>? extraFiles,
+  }) async {
     final out = <String, Uint8List>{};
     final dir = await paperDir(cacheId);
-    if (dir == null || !await dir.exists()) return out;
+    if (dir == null || !await dir.exists()) {
+      if (extraFiles != null) out.addAll(extraFiles);
+      return out;
+    }
 
     Future<void> maybeAdd(String rel) async {
       final f = File(p.join(dir.path, rel));
@@ -726,7 +733,29 @@ class PaperDiskStore {
         } catch (_) {}
       }
     }
+    if (extraFiles != null) {
+      out.addAll(extraFiles);
+    }
     return out;
+  }
+
+  /// design/187 E — restore `user/bookmarks.json` · `user/annotations.json` bytes
+  /// (caller merges into controllers) plus write `shadowing/` via [shadowStore].
+  Future<({Uint8List? bookmarks, Uint8List? annotations, int shadowingN})>
+      restoreUserArtifactPackFiles({
+    required String cacheId,
+    required Map<String, Uint8List> files,
+    required Future<int> Function(String cacheId, Map<String, Uint8List> files)
+        applyShadowing,
+  }) async {
+    Uint8List? bm = files['user/bookmarks.json'];
+    Uint8List? ann = files['user/annotations.json'];
+    final shadow = <String, Uint8List>{
+      for (final e in files.entries)
+        if (e.key.startsWith('shadowing/')) e.key: e.value,
+    };
+    final n = shadow.isEmpty ? 0 : await applyShadowing(cacheId, shadow);
+    return (bookmarks: bm, annotations: ann, shadowingN: n);
   }
 
   /// design/186 — replace local paper folder from imported pack bytes (same cache_id).

@@ -20,6 +20,9 @@ class ShadowingController extends ChangeNotifier {
   /// Server kill from `/api/status` — false → UI must not pretend kill is on.
   bool serverAvailable = false;
 
+  /// design/187 — device is SoT for takes/voice/chunk cache; cloud PUT refused.
+  bool localSot = false;
+
   bool ready = false;
   String? error;
   String? _uid;
@@ -27,6 +30,12 @@ class ShadowingController extends ChangeNotifier {
 
   /// design/176 — same uid scope as focus practice prefs.
   String? get boundUid => _uid;
+
+  void setLocalSot(bool next) {
+    if (localSot == next) return;
+    localSot = next;
+    notifyListeners();
+  }
 
   /// Load prefs for [uid]. Call on login / account switch.
   Future<void> bindUid(String? uid) async {
@@ -53,6 +62,7 @@ class ShadowingController extends ChangeNotifier {
     _uid = null;
     _prefs = const ShadowingPrefs();
     enabled = false;
+    localSot = false;
     error = null;
     notifyListeners();
   }

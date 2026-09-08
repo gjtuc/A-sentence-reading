@@ -379,6 +379,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             auth: widget.auth,
             library: widget.library,
             bookmarks: widget.bookmarks,
+            annotations: widget.annotations,
+            shadowing: widget.shadowing,
             onOpened: _goReader,
           ),
           ReaderScreen(

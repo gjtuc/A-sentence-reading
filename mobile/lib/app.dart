@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'screens/home_shell.dart';
 import 'services/error_reporter.dart';
 import 'services/evidence_bus.dart';
+import 'services/notes_local_archive.dart';
 import 'state/auth_controller.dart';
 import 'state/library_controller.dart';
 import 'state/cite_panel_controller.dart';
@@ -62,6 +63,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       widget.bookmarks ?? BookmarkController();
   late final AnnotationController _annotations =
       widget.annotations ?? AnnotationController();
+  final NotesLocalArchive _notesArchive = NotesLocalArchive();
 
   /// design/133 — last uid that owned in-memory library; null after logout wipe.
   String? _boundLibraryUid;
@@ -99,6 +101,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       _citePanel.setThisPaperServerAvailable(false);
       _bookmarks.clearSession();
       _annotations.clearSession();
+      _notesArchive.bindUid(null);
       // design/133 — AccessWaiting-only shell never mounts LibraryScreen, so
       // screen-local clearAll never runs. Wipe at app root so the next account
       // cannot see papers / resume another user's upload draft.
@@ -113,6 +116,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     }
     _boundLibraryUid = uid;
     _library.bindFigureDiskUid(uid);
+    _notesArchive.bindUid(uid);
     await _shadowing.bindUid(uid);
     await _translate.bindUid(uid);
     await _citePanel.bindUid(uid);
@@ -121,17 +125,29 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     try {
       final st = await _auth.client.fetchStatus();
       _shadowing.setServerAvailable(st.mobileShadowingPractice);
+      _shadowing.setLocalSot(st.shadowingLocalSot);
       _citePanel.setServerAvailable(st.mobileCiteRefPanel);
       _citePanel.setThisPaperServerAvailable(st.mobileThisPaperPanel);
       _bookmarks.setServerAvailable(st.bookmarksSync);
       _annotations.setServerAvailable(st.annotationsSync);
+      _bookmarks.setLocalSot(st.bookmarksLocalSot);
+      _annotations.setLocalSot(st.annotationsLocalSot);
       asrErrorReporter?.setEnabled(
         st.cloudErrorLogs && st.mobileCloudErrorLogs,
       );
       // design/169 — evidence bus kill via status (missing → off).
       asrEvidenceBus?.setEnabled(st.evidenceBus);
+      // design/187 — pull migrates once when local SoT; else legacy sync.
       unawaited(_bookmarks.pullFromServer());
       unawaited(_annotations.pullFromServer());
+      if (st.notesLocalSot) {
+        unawaited(
+          _notesArchive.migrateFromClient(
+            _auth.client,
+            notesLocalSot: true,
+          ),
+        );
+      }
     } catch (_) {
       // EDGE: status fail → keep kill closed (no false enable).
       _shadowing.setServerAvailable(false);

@@ -6,9 +6,11 @@ import 'package:flutter/material.dart';
 import '../api/ingest_models.dart';
 import '../api/library_reorder_proxy.dart';
 import '../api/paper_models.dart';
+import '../state/annotation_controller.dart';
 import '../state/auth_controller.dart';
 import '../state/bookmark_controller.dart';
 import '../state/library_controller.dart';
+import '../state/shadowing_controller.dart';
 
 /// Authenticated paper list → open · single PDF upload (design/62 · design/70 · design/122).
 class LibraryScreen extends StatefulWidget {
@@ -17,12 +19,16 @@ class LibraryScreen extends StatefulWidget {
     required this.auth,
     required this.library,
     required this.bookmarks,
+    this.annotations,
+    this.shadowing,
     this.onOpened,
   });
 
   final AuthController auth;
   final LibraryController library;
   final BookmarkController bookmarks;
+  final AnnotationController? annotations;
+  final ShadowingController? shadowing;
 
   /// Called after a successful open (e.g. jump to Reader tab).
   final VoidCallback? onOpened;
@@ -36,6 +42,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _selecting = false;
   final Set<String> _selected = <String>{};
   bool _deleting = false;
+  bool _localSotSnackShown = false;
+
+  bool get _anyLocalSot =>
+      widget.bookmarks.localSot ||
+      (widget.annotations?.localSot ?? false) ||
+      (widget.shadowing?.localSot ?? false);
 
   /// design/168c — non-ok ingest_status chip label (null = hide).
   static String? _ingestStatusLabel(String status) {
@@ -59,6 +71,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.auth.isLoggedIn) {
         _loadAndResume();
+      }
+      if (_anyLocalSot && !_localSotSnackShown && mounted) {
+        _localSotSnackShown = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('북마크·형광펜·연습 녹음은 이 기기에 저장됩니다'),
+            duration: Duration(seconds: 3),
+          ),
+        );
       }
     });
   }
@@ -510,9 +531,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   child: Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          '보관 ${lib.papers.length}건',
-                          style: Theme.of(context).textTheme.titleMedium,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '보관 ${lib.papers.length}건',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            if (_anyLocalSot)
+                              Text(
+                                '북마크·형광펜·연습 녹음은 이 기기에 저장됩니다',
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                              ),
+                          ],
                         ),
                       ),
                       IconButton(

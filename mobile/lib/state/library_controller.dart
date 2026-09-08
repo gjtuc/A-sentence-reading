@@ -31,6 +31,7 @@ import '../services/figure_disk_cache.dart';
 import '../services/paper_disk_store.dart';
 import '../services/hang_watchdog.dart';
 import '../services/paper_edit_stash.dart';
+import '../services/shadowing_disk_store.dart';
 import 'ingest_auto_resume.dart';
 import 'figure_hydrate.dart';
 import 'harmonize_residual.dart';
@@ -76,10 +77,15 @@ class LibraryController extends ChangeNotifier {
 
   /// design/171 · 185 — bind disk caches to signed-in uid (no cross-user reads).
   void bindFigureDiskUid(String? uid) {
+    _diskUid = (uid ?? '').trim().isEmpty ? null : uid!.trim();
     _figureDisk.bindUid(uid);
     _paperDisk.bindUid(uid);
+    _shadowDisk.bindUid(uid);
     _bulkHandoffAttempted = false;
   }
+
+  String? _diskUid;
+  final ShadowingDiskStore _shadowDisk = ShadowingDiskStore();
   BookmarkController? _bookmarks;
   AnnotationController? _annotations;
 
@@ -1675,6 +1681,7 @@ class LibraryController extends ChangeNotifier {
         await _editStash.purge(id);
         await _figureDisk.purge(id);
         await _paperDisk.purge(id);
+        await _shadowDisk.purge(id);
         _hydrateSessions.remove(id);
         _figureHydrate.remove(id);
         _hydrateDismissed.remove(id);
@@ -2875,6 +2882,8 @@ class LibraryController extends ChangeNotifier {
     _figureDisk.bindUid(null);
     // design/185 — keep paper disk for same-uid re-login.
     _paperDisk.bindUid(null);
+    _shadowDisk.bindUid(null);
+    _diskUid = null;
     await _cancelWorkmanager();
     await _editStash.purgeAll();
     await _drafts.clear();
@@ -3738,7 +3747,11 @@ class LibraryController extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      final files = await _paperDisk.collectTransferPackFiles(cid);
+      final extra = await _collectUserArtifactPackFiles(cid);
+      final files = await _paperDisk.collectTransferPackFiles(
+        cid,
+        extraFiles: extra,
+      );
       if (!files.containsKey('session.json')) {
         error = '내보낼 session.json이 없습니다.';
         return false;
@@ -3927,6 +3940,7 @@ class LibraryController extends ChangeNotifier {
         error = '로컬 반영에 실패했습니다.';
         return false;
       }
+      await _restoreUserArtifactsFromPack(cacheId, files);
       if (deleteAfter) {
         try {
           await _client.deleteTransferPack(pid);
@@ -3955,6 +3969,61 @@ class LibraryController extends ChangeNotifier {
         uploadStage = '';
       }
       notifyListeners();
+    }
+  }
+
+  /// design/187 E — bookmarks/annotations paper slice + shadowing disk files.
+  Future<Map<String, Uint8List>> _collectUserArtifactPackFiles(
+    String cacheId,
+  ) async {
+    final out = <String, Uint8List>{};
+    final bm = _bookmarks?.exportPaperPackBytes(cacheId);
+    if (bm != null && bm.isNotEmpty) {
+      out['user/bookmarks.json'] = bm;
+    }
+    final ann = _annotations?.exportPaperPackBytes(cacheId);
+    if (ann != null && ann.isNotEmpty) {
+      out['user/annotations.json'] = ann;
+    }
+    if (_diskUid != null) {
+      _shadowDisk.bindUid(_diskUid);
+      out.addAll(await _shadowDisk.listPackFiles(cacheId));
+    }
+    return out;
+  }
+
+  Future<void> _restoreUserArtifactsFromPack(
+    String cacheId,
+    Map<String, Uint8List> files,
+  ) async {
+    final restored = await _paperDisk.restoreUserArtifactPackFiles(
+      cacheId: cacheId,
+      files: files,
+      applyShadowing: (cid, shadow) => _shadowDisk.applyPackFiles(cid, shadow),
+    );
+    final bm = restored.bookmarks;
+    if (bm != null && bm.isNotEmpty) {
+      try {
+        final raw = jsonDecode(utf8.decode(bm));
+        if (raw is Map) {
+          await _bookmarks?.importPaperPackJson(
+            cacheId,
+            Map<String, dynamic>.from(raw),
+          );
+        }
+      } catch (_) {}
+    }
+    final ann = restored.annotations;
+    if (ann != null && ann.isNotEmpty) {
+      try {
+        final raw = jsonDecode(utf8.decode(ann));
+        if (raw is Map) {
+          await _annotations?.importPaperPackJson(
+            cacheId,
+            Map<String, dynamic>.from(raw),
+          );
+        }
+      } catch (_) {}
     }
   }
 

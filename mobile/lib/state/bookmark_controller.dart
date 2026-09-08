@@ -1,15 +1,19 @@
-/// Reader bookmark state — local cache + GCS sync.
+/// Reader bookmark state — local cache + GCS sync / design/187 device SoT.
 library;
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/bookmark_gate.dart';
 import '../api/bookmark_models.dart';
 import '../api/bookmark_store.dart';
 import '../api/client.dart';
 import '../api/reader_nav_labels.dart';
+import '../services/evidence_bus.dart';
 
 class BookmarkController extends ChangeNotifier {
   BookmarkController({AsrClient? client}) : _client = client;
@@ -21,13 +25,29 @@ class BookmarkController extends ChangeNotifier {
   BookmarksStore _store = BookmarksStore.empty();
   bool serverAvailable = false;
   bool ready = false;
+  /// design/187 — device is SoT; cloud PUT refused / push no-op.
+  bool localSot = false;
   Timer? _pushTimer;
 
   Set<String> get activeSentenceKeys => _paper.activeSentenceKeys;
   Set<String> get activeFigureKeys => _paper.activeFigureKeys;
   bool get canBookmark => _uid != null;
+  String? get boundUid => _uid;
 
   void attachClient(AsrClient client) => _client = client;
+
+  void setLocalSot(bool next) {
+    if (localSot == next) return;
+    localSot = next;
+    notifyListeners();
+  }
+
+  String _migratedPrefsKey() {
+    final u = (_uid ?? '').trim().replaceAll(RegExp(r'[^A-Za-z0-9_\-]'), '');
+    if (u.isEmpty) return 'asr.bookmarks.cloud_migrated.v1';
+    final safe = u.length > 128 ? u.substring(0, 128) : u;
+    return 'asr.bookmarks.cloud_migrated.v1.u.$safe';
+  }
 
   Future<void> bindUid(String? uid) async {
     _uid = (uid ?? '').trim().isEmpty ? null : uid!.trim();
@@ -42,6 +62,7 @@ class BookmarkController extends ChangeNotifier {
     _cacheId = null;
     _paper = const PaperBookmarks();
     _store = BookmarksStore.empty();
+    localSot = false;
     _pushTimer?.cancel();
     ready = false;
     notifyListeners();
@@ -85,6 +106,10 @@ class BookmarkController extends ChangeNotifier {
   }
 
   Future<void> pullFromServer() async {
+    if (localSot) {
+      await _migrateOnce();
+      return;
+    }
     final client = _client;
     if (client == null || _uid == null || !serverAvailable) return;
     try {
@@ -100,7 +125,52 @@ class BookmarkController extends ChangeNotifier {
     }
   }
 
+  /// design/187 — one-shot GET sync → merge local → ack → wipe cloud.
+  Future<void> _migrateOnce() async {
+    final client = _client;
+    if (client == null || _uid == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_migratedPrefsKey()) == true) return;
+
+      asrEvidenceBus?.record(
+        'bookmarks_local_migrate_start',
+        severity: 'lifecycle',
+        ok: true,
+      );
+
+      final remote = await client.fetchBookmarksSync();
+      if (remote.available && remote.store != null) {
+        final remoteStore = BookmarksStore.fromJson(remote.store);
+        _store = mergeBookmarksStores(_store, remoteStore);
+        await saveBookmarksStore(uid: _uid, store: _store);
+        _reloadPaperFromStore();
+        notifyListeners();
+      }
+
+      final paperN = _store.papers.length;
+      final acked = await client.ackBookmarksLocalMigrate(paperN: paperN);
+      if (acked) {
+        await prefs.setBool(_migratedPrefsKey(), true);
+      }
+      asrEvidenceBus?.record(
+        'bookmarks_local_migrate_done',
+        severity: 'lifecycle',
+        ok: acked,
+        details: {'paper_n': paperN},
+      );
+    } catch (_) {
+      asrEvidenceBus?.record(
+        'bookmarks_local_migrate_done',
+        severity: 'lifecycle',
+        ok: false,
+        code: 'exception',
+      );
+    }
+  }
+
   Future<void> pushToServer() async {
+    if (localSot) return;
     final client = _client;
     if (client == null || _uid == null || !serverAvailable) return;
     try {
@@ -116,10 +186,41 @@ class BookmarkController extends ChangeNotifier {
   }
 
   void schedulePush() {
+    if (localSot) return;
     _pushTimer?.cancel();
     _pushTimer = Timer(const Duration(milliseconds: 500), () {
       unawaited(pushToServer());
     });
+  }
+
+  /// design/187 E — paper slice for transfer pack (`user/bookmarks.json`).
+  Uint8List? exportPaperPackBytes(String cacheId) {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return null;
+    final paper = _store.papers[bookmarkPaperKey(cid)];
+    if (paper == null) return null;
+    if (paper.sentences.isEmpty && paper.figures.isEmpty) return null;
+    return Uint8List.fromList(utf8.encode(jsonEncode(paper.toJson())));
+  }
+
+  /// design/187 E — restore paper slice from transfer pack.
+  Future<void> importPaperPackJson(
+    String cacheId,
+    Map<String, dynamic> json,
+  ) async {
+    final cid = cacheId.trim();
+    if (cid.isEmpty || _uid == null) return;
+    final incoming = PaperBookmarks.fromJson(json);
+    final pk = bookmarkPaperKey(cid);
+    final papers = Map<String, PaperBookmarks>.from(_store.papers);
+    final prev = papers[pk] ?? const PaperBookmarks();
+    papers[pk] = mergePaperBookmarks(prev, incoming);
+    _store = BookmarksStore(papers: papers);
+    await saveBookmarksStore(uid: _uid, store: _store);
+    if (_cacheId == cid) {
+      _reloadPaperFromStore();
+    }
+    notifyListeners();
   }
 
   bool isSentenceBookmarked(String? key) {

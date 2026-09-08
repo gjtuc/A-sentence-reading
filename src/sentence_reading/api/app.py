@@ -112,14 +112,21 @@ from sentence_reading.llm.notes_gcs import (
     download_notes_store,
     empty_notes_store,
     push_notes_store,
+
+    wipe_notes_store,
+    refuse_notes_push_if_local_sot,
 )
 from sentence_reading.llm.bookmarks_gcs import (
     download_bookmarks_store,
+    wipe_bookmarks_store,
+    refuse_bookmarks_push_if_local_sot,
     empty_bookmarks_store,
     push_bookmarks_store,
 )
 from sentence_reading.llm.annotations_gcs import (
     download_annotations_store,
+    wipe_annotations_store,
+    refuse_annotations_push_if_local_sot,
     empty_annotations_store,
     push_annotations_store,
 )
@@ -256,7 +263,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.183",
+    version="0.3.184",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -621,6 +628,21 @@ def _ingest_artifact_ttl_status_fields() -> dict:
             "ingest_artifact_ttl_dry_run": False,
         }
 
+
+
+
+def _user_artifacts_local_sot_status_fields() -> dict:
+    """design/187 — bookmarks/annotations/shadowing/notes device SoT."""
+    try:
+        from sentence_reading.llm.user_artifacts_local_sot import status_fields
+        return status_fields()
+    except Exception:
+        return {
+            "bookmarks_local_sot": False,
+            "annotations_local_sot": False,
+            "shadowing_local_sot": False,
+            "notes_local_sot": False,
+        }
 
 
 def _paper_local_sot_status_fields() -> dict:
@@ -1728,7 +1750,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.183",
+        "version": "0.3.184",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -1852,6 +1874,7 @@ def status(request: Request) -> dict:
         **_ingest_artifact_ttl_status_fields(),
         # design/185 — device paper store (phase 1); wipe behind kill.
         **_paper_local_sot_status_fields(),
+        **_user_artifacts_local_sot_status_fields(),
         # design/186 — 7-day device transfer packs (never papers/).
         **_transfer_pack_status_fields(),
         "cite_ref_open": True,
@@ -3501,6 +3524,21 @@ async def voice_blob_put(request: Request, key: str = "") -> JSONResponse:
     """
     녹음 blob → GCS. query `key` = 노트 store 의 blobKey.
     """
+    _sh_ref = None
+    try:
+        from sentence_reading.llm.shadowing_local_sot import (
+            refuse_shadowing_cloud_write_if_local_sot as _refuse_sh,
+        )
+        _sh_ref = _refuse_sh()
+    except Exception:
+        _sh_ref = None
+    if _sh_ref is not None:
+        try:
+            from sentence_reading.llm.evidence_bus import emit as _eb_emit
+            _eb_emit("shadowing_sync_refused", severity="lifecycle", ok=False, code="shadowing_local_sot")
+        except Exception:
+            pass
+        return JSONResponse(status_code=409, content=_sh_ref)
     if auth_enabled() and _request_user(request) is None:
         return JSONResponse(
             {
@@ -3633,6 +3671,14 @@ async def notes_sync_put(request: Request, payload: dict = Body(...)) -> JSONRes
             status_code=400,
             content={"ok": False, "error": "bad_store", "message": "store object required"},
         )
+    refused = refuse_notes_push_if_local_sot()
+    if refused is not None:
+        try:
+            from sentence_reading.llm.evidence_bus import emit as _eb_emit
+            _eb_emit("notes_sync_refused", severity="lifecycle", ok=False, code="notes_local_sot")
+        except Exception:
+            pass
+        return JSONResponse(status_code=409, content=refused)
     try:
         merged = push_notes_store(local)
     except Exception as exc:  # noqa: BLE001
@@ -3722,6 +3768,14 @@ async def bookmarks_sync_put(request: Request, payload: dict = Body(...)) -> JSO
             status_code=400,
             content={"ok": False, "error": "bad_store", "message": "store object required"},
         )
+    refused = refuse_bookmarks_push_if_local_sot()
+    if refused is not None:
+        try:
+            from sentence_reading.llm.evidence_bus import emit as _eb_emit
+            _eb_emit("bookmarks_sync_refused", severity="lifecycle", ok=False, code="bookmarks_local_sot")
+        except Exception:
+            pass
+        return JSONResponse(status_code=409, content=refused)
     try:
         merged = push_bookmarks_store(local)
     except Exception as exc:  # noqa: BLE001
@@ -3734,6 +3788,122 @@ async def bookmarks_sync_put(request: Request, payload: dict = Body(...)) -> JSO
             },
         )
     return JSONResponse({"ok": True, "available": True, "store": merged, "message": "ok"})
+
+
+@app.post("/api/bookmarks/local-migrate-ack")
+async def bookmarks_local_migrate_ack(request: Request, payload: dict = Body(default={})) -> JSONResponse:
+    """design/187 — client confirmed local SoT; wipe GCS bookmarks store."""
+    from sentence_reading.llm.evidence_bus import emit as eb_emit
+    from sentence_reading.llm.user_artifacts_local_sot import bookmarks_local_sot_enabled
+
+    if not bookmarks_local_sot_enabled():
+        return JSONResponse(status_code=409, content={"ok": False, "error": "local_sot_off"})
+    if auth_enabled() and _request_user(request) is None:
+        return JSONResponse(status_code=401, content={"ok": False, "error": "auth_required"})
+    paper_n = 0
+    if isinstance(payload, dict) and isinstance(payload.get("paper_n"), int):
+        paper_n = max(0, int(payload["paper_n"]))
+    eb_emit("bookmarks_local_migrate_start", severity="lifecycle", ok=True, details={"paper_n": paper_n})
+    wiped = wipe_bookmarks_store()
+    eb_emit(
+        "bookmarks_cloud_wipe",
+        severity="lifecycle",
+        ok=bool(wiped),
+        code="ok" if wiped else "wipe_failed",
+        details={"paper_n": paper_n},
+    )
+    eb_emit(
+        "bookmarks_local_migrate_done",
+        severity="lifecycle",
+        ok=bool(wiped),
+        details={"wiped": 1 if wiped else 0},
+    )
+    return JSONResponse({"ok": bool(wiped), "wiped": bool(wiped)})
+
+
+@app.post("/api/annotations/local-migrate-ack")
+async def annotations_local_migrate_ack(request: Request, payload: dict = Body(default={})) -> JSONResponse:
+    """design/187 — client confirmed local SoT; wipe GCS annotations store."""
+    from sentence_reading.llm.evidence_bus import emit as eb_emit
+    from sentence_reading.llm.user_artifacts_local_sot import annotations_local_sot_enabled
+
+    if not annotations_local_sot_enabled():
+        return JSONResponse(status_code=409, content={"ok": False, "error": "local_sot_off"})
+    if auth_enabled() and _request_user(request) is None:
+        return JSONResponse(status_code=401, content={"ok": False, "error": "auth_required"})
+    paper_n = 0
+    if isinstance(payload, dict) and isinstance(payload.get("paper_n"), int):
+        paper_n = max(0, int(payload["paper_n"]))
+    eb_emit("annotations_local_migrate_start", severity="lifecycle", ok=True, details={"paper_n": paper_n})
+    wiped = wipe_annotations_store()
+    eb_emit(
+        "annotations_cloud_wipe",
+        severity="lifecycle",
+        ok=bool(wiped),
+        code="ok" if wiped else "wipe_failed",
+        details={"paper_n": paper_n},
+    )
+    eb_emit(
+        "annotations_local_migrate_done",
+        severity="lifecycle",
+        ok=bool(wiped),
+        details={"wiped": 1 if wiped else 0},
+    )
+    return JSONResponse({"ok": bool(wiped), "wiped": bool(wiped)})
+
+
+@app.post("/api/notes/local-migrate-ack")
+async def notes_local_migrate_ack(request: Request, payload: dict = Body(default={})) -> JSONResponse:
+    """design/187 — client confirmed local notes archive; wipe GCS notes store."""
+    from sentence_reading.llm.evidence_bus import emit as eb_emit
+    from sentence_reading.llm.user_artifacts_local_sot import notes_local_sot_enabled
+
+    if not notes_local_sot_enabled():
+        return JSONResponse(status_code=409, content={"ok": False, "error": "local_sot_off"})
+    if auth_enabled() and _request_user(request) is None:
+        return JSONResponse(status_code=401, content={"ok": False, "error": "auth_required"})
+    eb_emit("notes_local_migrate_start", severity="lifecycle", ok=True)
+    wiped = wipe_notes_store()
+    eb_emit(
+        "notes_cloud_wipe",
+        severity="lifecycle",
+        ok=bool(wiped),
+        code="ok" if wiped else "wipe_failed",
+    )
+    eb_emit(
+        "notes_local_migrate_done",
+        severity="lifecycle",
+        ok=bool(wiped),
+        details={"wiped": 1 if wiped else 0},
+    )
+    return JSONResponse({"ok": bool(wiped), "wiped": bool(wiped)})
+
+
+@app.post("/api/shadowing/local-migrate-ack")
+async def shadowing_local_migrate_ack(request: Request, payload: dict = Body(default={})) -> JSONResponse:
+    """design/187 — client confirmed local shadowing/voice; wipe GCS prefixes."""
+    from sentence_reading.llm.evidence_bus import emit as eb_emit
+    from sentence_reading.llm.shadowing_local_sot import wipe_shadowing_and_voice_for_uid
+    from sentence_reading.llm.user_artifacts_local_sot import shadowing_local_sot_enabled
+
+    if not shadowing_local_sot_enabled():
+        return JSONResponse(status_code=409, content={"ok": False, "error": "local_sot_off"})
+    if auth_enabled() and _request_user(request) is None:
+        return JSONResponse(status_code=401, content={"ok": False, "error": "auth_required"})
+    eb_emit("shadowing_local_migrate_start", severity="lifecycle", ok=True)
+    stats = wipe_shadowing_and_voice_for_uid()
+    ok = bool(stats.get("ok"))
+    eb_emit(
+        "shadowing_cloud_wipe",
+        severity="lifecycle",
+        ok=ok,
+        details={
+            "shadowing_n": int(stats.get("shadowing_n") or 0),
+            "voice_n": int(stats.get("voice_n") or 0),
+        },
+    )
+    eb_emit("shadowing_local_migrate_done", severity="lifecycle", ok=ok, details=stats)
+    return JSONResponse({"ok": ok, **{k: v for k, v in stats.items() if k != "ok"}})
 
 
 def _annotations_paper_key(cache_id: str) -> str:
@@ -3848,6 +4018,14 @@ async def annotations_sync_put(request: Request, payload: dict = Body(...)) -> J
             status_code=400,
             content={"ok": False, "error": "bad_store", "message": "store object required"},
         )
+    refused = refuse_annotations_push_if_local_sot()
+    if refused is not None:
+        try:
+            from sentence_reading.llm.evidence_bus import emit as _eb_emit
+            _eb_emit("annotations_sync_refused", severity="lifecycle", ok=False, code="annotations_local_sot")
+        except Exception:
+            pass
+        return JSONResponse(status_code=409, content=refused)
     try:
         merged = push_annotations_store(local)
     except Exception as exc:  # noqa: BLE001

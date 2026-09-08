@@ -35,7 +35,7 @@ Parents: [185](185-local-paper-sot.md) · [184](184-ingest-artifact-ttl.md) · [
 | J8 | TTL module clones **184 patterns** — **not** 144; never touch 184 allowlist |
 | J9 | Incomplete → **24h** abandon; download **lease** blocks purge |
 | J10 | Depends on 185 `PaperDiskStore` |
-| J11 | **v1 pack contents = paper folder only** (session, figures, layout, source, manifest). Notes/voice **out of pack** |
+| J11 | Pack = paper folder (session, figures, layout, source, manifest) **plus** design/187 user artifacts when present: `user/bookmarks.json`, `user/annotations.json`, `shadowing/chunks.json`, `shadowing/takes.json`, `shadowing/voice/*.bin`. Full notes store still out of pack |
 | J12 | `ASR_TRANSFER_PACK_MAX_BYTES` default **209715200** (200 MiB) |
 | J13 | `ASR_TRANSFER_PACK_MAX_ACTIVE` default **3** ready+pending per uid |
 | J14 | Upload/download piece size soft target **4 MiB** (client); server per-file cap = remaining quota |

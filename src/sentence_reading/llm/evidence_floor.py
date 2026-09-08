@@ -113,6 +113,23 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "paper_handoff_abandon_purge_tick",
         "paper_bulk_handoff_start",
         "paper_bulk_handoff_done",
+        # design/187 — user artifacts device SoT
+        "bookmarks_local_migrate_start",
+        "bookmarks_local_migrate_done",
+        "bookmarks_cloud_wipe",
+        "bookmarks_sync_refused",
+        "annotations_local_migrate_start",
+        "annotations_local_migrate_done",
+        "annotations_cloud_wipe",
+        "annotations_sync_refused",
+        "shadowing_local_migrate_start",
+        "shadowing_local_migrate_done",
+        "shadowing_cloud_wipe",
+        "shadowing_sync_refused",
+        "notes_local_migrate_start",
+        "notes_local_migrate_done",
+        "notes_cloud_wipe",
+        "notes_sync_refused",
     }
 )
 
@@ -414,6 +431,29 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "purge_once",
             "should_purge_meta",
             "transfer_pack_deleted",
+        ),
+    ),
+    (
+        "src/sentence_reading/llm/user_artifacts_local_sot.py",
+        (
+            "bookmarks_local_sot_enabled",
+            "annotations_local_sot_enabled",
+            "shadowing_local_sot_enabled",
+            "notes_local_sot_enabled",
+        ),
+    ),
+    (
+        "src/sentence_reading/llm/shadowing_local_sot.py",
+        (
+            "wipe_shadowing_and_voice_for_uid",
+            "refuse_shadowing_cloud_write_if_local_sot",
+        ),
+    ),
+    (
+        "src/sentence_reading/llm/bookmarks_gcs.py",
+        (
+            "wipe_bookmarks_store",
+            "refuse_bookmarks_push_if_local_sot",
         ),
     ),
     (

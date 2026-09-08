@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from sentence_reading.llm.gcs_sync import (
+    delete_bytes,
     download_bytes,
     gcs_client_ready,
     gcs_config,
@@ -199,3 +200,30 @@ def annotations_gcs_status_fields() -> dict[str, Any]:
         "annotations_object": annotations_store_object(),
         "annotations_max_bytes": ANNOTATIONS_STORE_MAX_BYTES,
     }
+
+
+def wipe_annotations_store() -> bool:
+    """design/187 — delete GCS annotations store after device migrate ACK."""
+    obj = annotations_store_object()
+    if not obj:
+        return False
+    ready, _ = gcs_client_ready()
+    if not gcs_config().enabled or not ready:
+        return False
+    return bool(delete_bytes(obj))
+
+
+def refuse_annotations_push_if_local_sot() -> dict[str, object] | None:
+    try:
+        from sentence_reading.llm.user_artifacts_local_sot import annotations_local_sot_enabled
+    except Exception:
+        return None
+    if not annotations_local_sot_enabled():
+        return None
+    return {
+        "ok": False,
+        "error": "annotations_local_sot",
+        "message": "annotations are device SoT; cloud push refused",
+        "available": False,
+    }
+
