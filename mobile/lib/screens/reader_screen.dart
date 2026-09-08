@@ -100,6 +100,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// design/183 — Intro collapse / first Fig chip expand.
   final ReaderLayoutPolicy _layoutPolicy = ReaderLayoutPolicy();
   bool _readerLayoutAuto = true;
+  /// design/183 — user-owned; survives translate poll (new session_id).
+  bool _citeCollapsed = true;
+  String? _citePaperKey;
 
   @override
   void initState() {
@@ -194,8 +197,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _ensureLayoutForSession(ReadingSession s) {
-    final key = '${s.sessionId}|${s.cacheId}';
+    // WHY: key by cacheId only — translate poll mints a new session_id every ~8s
+    // and must not reset layout pin / cite accordion (design/183).
+    final key = s.cacheId.trim().isNotEmpty ? s.cacheId.trim() : s.sessionId;
     final t = _thresholdFor(s);
+    if (_citePaperKey != key) {
+      _citePaperKey = key;
+      _citeCollapsed = true;
+    }
     if (_layoutSessionKey == key) {
       // design/183 hazard — SI merge / reanalyze may change T mid-paper.
       if (_layoutPolicy.threshold != t) {
@@ -278,8 +287,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   void _swipeToFigureFromSentence() {
     setState(() {
-      _pinLayout();
       if (_layout != _ReaderLayoutMode.sentenceOnly) return;
+      final s = widget.library.session;
+      // design/183 — auto reveal at/after T is split (text+figure), never figureOnly.
+      if (s != null && s.isValid && _layoutPolicy.followsAuto) {
+        final desire = _layoutPolicy.desireFor(
+          sentenceIndex: s.sentenceIndex,
+          sectionIsTitle: _sectionIsTitle(s),
+          hasCover: _hasCover(s),
+        );
+        if (desire == ReaderLayoutDesire.splitDefault) {
+          _applyDesire(ReaderLayoutDesire.splitDefault);
+          return;
+        }
+      }
+      _pinLayout();
       _layout = _ReaderLayoutMode.figureOnly;
       _edgePreviewSentence = false;
       _edgePreviewFigure = false;
@@ -597,11 +619,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
                                       figRefHints: _figRefHints,
-                                      citeCollapsed: _layoutPolicy.citeCollapsed,
+                                      citeCollapsed: _citeCollapsed,
                                       onToggleCiteCollapsed: () {
                                         setState(() {
-                                          _layoutPolicy.citeCollapsed =
-                                              !_layoutPolicy.citeCollapsed;
+                                          _citeCollapsed = !_citeCollapsed;
                                         });
                                       },
                                       onFigChipPressed: _onFigChipPressed,
@@ -1425,7 +1446,16 @@ class _CiteRefPanelState extends State<_CiteRefPanel> {
           ),
         );
       }
-      return const SizedBox.shrink();
+      // design/183 — stay expanded; this sentence simply has no cite chips.
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+        child: Text(
+          '이 문장에 표시할 인용이 없습니다.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
+      );
     }
 
     final maxH = MediaQuery.sizeOf(context).height * 0.22;
@@ -2006,11 +2036,17 @@ class _SwipePagerState extends State<_SwipePager> {
 
   void _handleHorizontalDragEnd(DragEndDetails details) {
     if (!widget.enabled) return;
+    // design/183 — one gesture → one action (avoid advance+figureOnly race).
+    if (_dy.abs() > _dx.abs()) {
+      _dx = 0;
+      return;
+    }
     final v = details.primaryVelocity ?? 0;
     // design/143 — gallery convention: finger left → next, right → previous.
     final goNext = _dx < -_minDistance || v < -_minVelocity;
     final goPrev = _dx > _minDistance || v > _minVelocity;
     _dx = 0;
+    _dy = 0;
     if (goPrev && widget.onPrevious != null) {
       widget.onPrevious!();
     } else if (goNext && widget.onNext != null) {
@@ -2020,10 +2056,16 @@ class _SwipePagerState extends State<_SwipePager> {
 
   void _handleVerticalDragEnd(DragEndDetails details) {
     if (!widget.enabled || widget.onSwipeUp == null) return;
+    // design/183 — horizontal sentence turn wins over 156 figure expand.
+    if (_dx.abs() >= _dy.abs()) {
+      _dy = 0;
+      return;
+    }
     final v = details.primaryVelocity ?? 0;
-    // design/156 — finger up → reveal figure full-screen.
+    // design/156 — finger up → reveal figure (split under auto @T, else full).
     final goUp = _dy < -_minVerticalDistance || v < -_minVelocity;
     _dy = 0;
+    _dx = 0;
     if (goUp) {
       widget.onSwipeUp!();
     }

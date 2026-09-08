@@ -1,6 +1,6 @@
 # 183 — Reader layout by first Fig/Table chip (Intro collapse)
 
-**Status:** SHIPPED (mobile · 0.3.173)  
+**Status:** SHIPPING fix (mobile · 0.3.174)  
 **Parents:** [28](28-fig-ref-jump.md) · [97](97-reader-panel-expand.md) · [98](98-reader-split-drag.md) · [135](135-cover-as-figure.md) · [139](139-fig-ref-chip-formal.md) · [148](148-mobile-cite-ref-panel.md) · [156](156-reader-vertical-panel-swipe.md) · [157](157-this-paper-panel.md)
 
 **Trigger:** Intro에서 cite+figure 패널에 문장이 깔림 → Title만 cover 스플릿, 첫 matched Fig/Table 칩 문장 `T` 이전은 문장 전체화면, `T` 이상(및 그 경계 양방향)은 기본 스플릿. 수동 복귀 허용. cite 패널 로컬 접기.

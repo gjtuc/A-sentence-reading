@@ -34,7 +34,6 @@ enum ReaderLayoutDesire { sentenceOnly, splitDefault }
 class ReaderLayoutPolicy {
   ReaderLayoutAutoMode mode = ReaderLayoutAutoMode.auto;
   int? threshold;
-  bool citeCollapsed = true;
   bool autoEnabled = true;
 
   void resetForPaper({
@@ -44,7 +43,7 @@ class ReaderLayoutPolicy {
     mode = ReaderLayoutAutoMode.auto;
     this.threshold = threshold;
     this.autoEnabled = autoEnabled;
-    citeCollapsed = true;
+    // design/183 — cite expand/collapse is user-owned on ReaderScreen.
   }
 
   void pin() => mode = ReaderLayoutAutoMode.userPinned;
