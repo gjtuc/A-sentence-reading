@@ -3,7 +3,7 @@
 Modules: `ingest_artifact_ttl.py` · `ingest_jobs_gcs.py` · `app.py` lifespan  
 Parents: [107](107-ingest-job-reclaim.md) · [110](110-ingest-checkpoint-envelope.md) · [112](112-ingest-resume-skip.md) · [144](144-paper-retention-ttl.md) · [168](168-ingest-observability.md)
 
-**Status:** SHIPPING (0.3.177)  
+**Status:** SHIPPED (0.3.177)  
 **UI:** 없음 (서버 purge · evidence)
 
 ## 0. Success
