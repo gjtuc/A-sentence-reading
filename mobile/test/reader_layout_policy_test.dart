@@ -92,5 +92,21 @@ void main() {
         ..pin();
       expect(p.followsAuto, isFalse);
     });
+
+    test('unpin restores followsAuto after pin', () {
+      final p = ReaderLayoutPolicy()..threshold = 5;
+      p.pin();
+      expect(p.followsAuto, isFalse);
+      p.unpin();
+      expect(p.followsAuto, isTrue);
+      expect(
+        p.desireFor(sentenceIndex: 2, sectionIsTitle: false, hasCover: false),
+        ReaderLayoutDesire.sentenceOnly,
+      );
+      expect(
+        p.desireFor(sentenceIndex: 5, sectionIsTitle: false, hasCover: false),
+        ReaderLayoutDesire.splitDefault,
+      );
+    });
   });
 }

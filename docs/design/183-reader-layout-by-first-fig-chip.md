@@ -1,6 +1,6 @@
 # 183 — Reader layout by first Fig/Table chip (Intro collapse)
 
-**Status:** SHIPPED (mobile · 0.3.174)  
+**Status:** SHIPPING fix (mobile · 0.3.175)  
 **Parents:** [28](28-fig-ref-jump.md) · [97](97-reader-panel-expand.md) · [98](98-reader-split-drag.md) · [135](135-cover-as-figure.md) · [139](139-fig-ref-chip-formal.md) · [148](148-mobile-cite-ref-panel.md) · [156](156-reader-vertical-panel-swipe.md) · [157](157-this-paper-panel.md)
 
 **Trigger:** Intro에서 cite+figure 패널에 문장이 깔림 → Title만 cover 스플릿, 첫 matched Fig/Table 칩 문장 `T` 이전은 문장 전체화면, `T` 이상(및 그 경계 양방향)은 기본 스플릿. 수동 복귀 허용. cite 패널 로컬 접기.
@@ -30,7 +30,7 @@
 | J2 | SoT for T at runtime = **client recompute** (matches visible chips); server field is cache/open hint |
 | J3 | Auto desire: Title∧cover → `split`; else `T==null` or `i<T` → `sentenceOnly`; else `split` |
 | J4 | Auto never sets `figureOnly`; user 156/더블탭 figure = **pin** |
-| J5 | User layout gesture (더블탭·스플릿바·156) → `userPinned` until paper change |
+| J5 | User layout gesture (더블탭·스플릿바·156) → `userPinned` until **next sentence cursor move** (soft-pin; picker/±1 reclaim auto) |
 | J6 | Chip tap: `goToFigureIndex` only; if `sentenceOnly` → `split` + **pin** |
 | J7 | Cite collapse is **local** to reader session; default collapsed; not synced to T; settings `enabled` unchanged |
 | J8 | Kill `ASR_READER_LAYOUT_AUTO=0` → legacy always-split on paper open; no auto desire |

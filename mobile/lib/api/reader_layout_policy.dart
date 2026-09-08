@@ -48,6 +48,9 @@ class ReaderLayoutPolicy {
 
   void pin() => mode = ReaderLayoutAutoMode.userPinned;
 
+  /// design/183 — pin is a dwell override; sentence moves reclaim auto.
+  void unpin() => mode = ReaderLayoutAutoMode.auto;
+
   bool get followsAuto => autoEnabled && mode == ReaderLayoutAutoMode.auto;
 
   ReaderLayoutDesire desireFor({

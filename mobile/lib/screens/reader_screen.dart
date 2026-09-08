@@ -191,9 +191,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (!mounted) return;
     final s = widget.library.session;
     if (s == null || !s.isValid) return;
-    if (!_layoutPolicy.followsAuto) return;
+    if (!_layoutPolicy.autoEnabled) return;
     if (widget.annotations.sentencePaintMode) return;
-    setState(() => _applyAutoLayoutForIndex(s, to));
+    setState(() {
+      // design/183 — any real cursor move (chevron, swipe, picker jump)
+      // reclaims auto and reapplies desire for `to` vs T (not only ±1 edge).
+      _layoutPolicy.unpin();
+      _layoutPolicy.threshold = _thresholdFor(s);
+      _applyAutoLayoutForIndex(s, to);
+    });
   }
 
   void _ensureLayoutForSession(ReadingSession s) {
