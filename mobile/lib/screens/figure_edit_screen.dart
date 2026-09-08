@@ -10,6 +10,7 @@ import '../services/figure_edit_compositor.dart';
 import '../services/figure_edit_geometry.dart';
 import '../services/figure_edit_session.dart';
 import '../services/paper_edit_stash.dart';
+import '../services/paper_disk_store.dart';
 import '../services/paper_edit_stash_service.dart';
 import '../widgets/layout_overlay.dart';
 
@@ -23,6 +24,7 @@ class FigureEditScreen extends StatefulWidget {
     this.hasSource = false,
     this.contentHash = '',
     this.editStash,
+    this.paperDisk,
   });
 
   final AsrClient client;
@@ -30,6 +32,7 @@ class FigureEditScreen extends StatefulWidget {
   final bool hasSource;
   final String contentHash;
   final PaperEditStash? editStash;
+  final PaperDiskStore? paperDisk;
 
   @override
   State<FigureEditScreen> createState() => _FigureEditScreenState();
@@ -77,6 +80,7 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
       stash: _stash,
       cacheId: widget.cacheId,
       pageIndex: pageIndex,
+      paperDisk: widget.paperDisk,
     );
     _pagePngCache[pageIndex] = png;
     return png;
@@ -108,17 +112,29 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
       _error = null;
     });
     try {
-      if (widget.hasSource) {
+      final disk = widget.paperDisk;
+      var hasSource = widget.hasSource;
+      if (!hasSource && disk != null) {
+        hasSource = await disk.hasLocalSource(widget.cacheId);
+      }
+      if (hasSource) {
         await ensurePaperEditStash(
           client: widget.client,
           stash: _stash,
           cacheId: widget.cacheId,
-          hasSource: widget.hasSource,
+          hasSource: hasSource,
           contentHash: widget.contentHash,
+          paperDisk: disk,
         );
       }
-      final layout = await widget.client.fetchLayoutMap(widget.cacheId);
-      final plan = await widget.client.fetchSlotPlan(widget.cacheId);
+      Map<String, dynamic>? layout;
+      Map<String, dynamic>? plan;
+      if (disk != null) {
+        layout = await disk.loadLayoutMapJson(widget.cacheId);
+        plan = await disk.loadSlotPlanJson(widget.cacheId);
+      }
+      layout ??= await widget.client.fetchLayoutMap(widget.cacheId);
+      plan ??= await widget.client.fetchSlotPlan(widget.cacheId);
       final slots = (plan['slots'] as List?) ?? [];
       final session = FigureEditSession(
         cacheId: widget.cacheId,
@@ -126,7 +142,7 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
         slots: slots.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList(),
       );
       final boxes = _buildBoxViews(session.layoutMap, _pageIndex);
-      final png = widget.hasSource ? await _pagePngFor(_pageIndex) : null;
+      final png = hasSource ? await _pagePngFor(_pageIndex) : null;
       final pw = session.pageWidth(_pageIndex);
       final ph = session.pageHeight(_pageIndex);
       if (!mounted) return;

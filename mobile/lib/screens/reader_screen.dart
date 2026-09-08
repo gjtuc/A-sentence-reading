@@ -81,6 +81,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   static const double _kSplitBar = 16;
 
   _ReaderLayoutMode _layout = _ReaderLayoutMode.split;
+  bool _appliedSavedLayout = false;
   double _sentenceFraction = _kDefaultFraction;
   bool _dragging = false;
   bool _inMagnet = false;
@@ -437,6 +438,28 @@ class _ReaderScreenState extends State<ReaderScreen> {
         }
         _ensureLayoutForSession(s);
         final showKo = translate.enabled;
+        final _layoutName = switch (_layout) {
+          _ReaderLayoutMode.split => 'split',
+          _ReaderLayoutMode.sentenceOnly => 'sentenceOnly',
+          _ReaderLayoutMode.figureOnly => 'figureOnly',
+        };
+        if (!_appliedSavedLayout) {
+          _appliedSavedLayout = true;
+          final saved = library.readerLayoutMode;
+          final restored = switch (saved) {
+            'sentenceOnly' => _ReaderLayoutMode.sentenceOnly,
+            'figureOnly' => _ReaderLayoutMode.figureOnly,
+            _ => _ReaderLayoutMode.split,
+          };
+          if (restored != _layout) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              setState(() => _layout = restored);
+            });
+          }
+        } else if (library.readerLayoutMode != _layoutName) {
+          library.readerLayoutMode = _layoutName;
+        }
         final showSentence = _layout != _ReaderLayoutMode.figureOnly;
         final showFigure = _layout != _ReaderLayoutMode.sentenceOnly;
         return Column(
@@ -695,6 +718,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                               cacheId: cid,
                                               hasSource: hasSource,
                                               editStash: library.editStash,
+                                              paperDisk: library.paperDiskStore,
                                             ),
                                           ),
                                         );

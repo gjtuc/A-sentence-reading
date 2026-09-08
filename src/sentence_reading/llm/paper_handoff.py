@@ -67,6 +67,8 @@ def _safe_rel(path: str) -> str | None:
         return rel
     if rel.startswith("figures/") and rel.endswith(".png"):
         return rel
+    if rel.startswith("page_previews/") and rel.endswith(".png"):
+        return rel
     return None
 
 

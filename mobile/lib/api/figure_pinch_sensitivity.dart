@@ -9,7 +9,7 @@ import 'dart:math' as math;
 ///
 /// Applied as `pow(rawScale, k)` so 1.0 stays fixed and both zoom-in and
 /// zoom-out accelerate symmetrically on a log scale.
-const double kFigurePinchSensitivity = 1.85;
+const double kFigurePinchSensitivity = 1.5;
 
 /// Same product lock as pinch — zoomed pan should feel equally responsive.
 const double kFigurePanSensitivity = kFigurePinchSensitivity;

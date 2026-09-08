@@ -290,7 +290,7 @@ class ReadingSession {
   /// design/152 — merged main+SI enables bare S2 fig chips.
   final bool supplementaryMerged;
   /// design/99+129 — server is backfilling KO after /open.
-  final bool translatePending;
+  bool translatePending;
   /// design/171 — paper content hash for figure disk cache invalidation.
   final String contentHash;
   /// design/183 — first matched Fig/Table chip sentence index (open hint).
@@ -302,6 +302,18 @@ class ReadingSession {
     }
     return false;
   }
+
+  /// Sentences with EN text but empty KO (local SoT residual fill).
+  int get translationMissingCount {
+    var n = 0;
+    for (final s in sentences) {
+      if (s.hasText && s.textKo.trim().isEmpty) n += 1;
+    }
+    return n;
+  }
+
+  bool get needsTranslationBackfill =>
+      translatePending || translationMissingCount > 0;
 
   bool get isValid => sessionId.isNotEmpty;
 

@@ -51,6 +51,9 @@ ALLOWED_KINDS = frozenset(
         "open_ko_summary",
         "translate_poll_start",
         "translate_poll_ko",
+        "translate_local_backfill_start",
+        "translate_local_backfill_done",
+        "translate_local_backfill_fail",
         # design/169g — causal handoff (phase 2)
         "handoff",
         "progress_view",

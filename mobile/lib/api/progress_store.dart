@@ -12,10 +12,14 @@ class StoredProgressRaw {
   const StoredProgressRaw({
     required this.sentenceIndex,
     required this.figureIndex,
+    this.layoutMode = '',
+    this.sectionLabel = '',
   });
 
   final Object? sentenceIndex;
   final Object? figureIndex;
+  final String layoutMode;
+  final String sectionLabel;
 }
 
 String progressCacheKey(String cacheId) => 'cache:${cacheId.trim()}';
@@ -43,6 +47,8 @@ Future<StoredProgressRaw?> loadProgressRaw({
     return StoredProgressRaw(
       sentenceIndex: row['sentence_index'],
       figureIndex: row['figure_index'],
+      layoutMode: '${row['layout_mode'] ?? ''}'.trim(),
+      sectionLabel: '${row['section_label'] ?? ''}'.trim(),
     );
   } catch (_) {
     // EDGE: corrupt JSON → no progress (open at default).
@@ -56,6 +62,8 @@ Future<void> saveProgressRow({
   required String cacheId,
   required int sentenceIndex,
   required int figureIndex,
+  String layoutMode = '',
+  String sectionLabel = '',
 }) async {
   final cid = cacheId.trim();
   if (cid.isEmpty) return;
@@ -83,6 +91,8 @@ Future<void> saveProgressRow({
   papers[progressCacheKey(cid)] = {
     'sentence_index': sentenceIndex,
     'figure_index': figureIndex,
+    if (layoutMode.trim().isNotEmpty) 'layout_mode': layoutMode.trim(),
+    if (sectionLabel.trim().isNotEmpty) 'section_label': sectionLabel.trim(),
     'at': DateTime.now().toUtc().toIso8601String(),
   };
   if (papers.length > 500) {
@@ -177,6 +187,42 @@ Future<Map<String, String>> loadReadLeftAtForPapers({
     if (cid.isEmpty) continue;
     final at = await loadLastReadLeftAt(uid: uid, cacheId: cid);
     if (at != null) out[cid] = at;
+  }
+  return out;
+}
+
+
+/// Library subtitles from stored progress rows (sentence/figure/section).
+Future<Map<String, String>> loadProgressResumeLabels({
+  required String? uid,
+  required Iterable<String> cacheIds,
+}) async {
+  final out = <String, String>{};
+  final want = {for (final id in cacheIds) id.trim()}.difference({''});
+  if (want.isEmpty) return out;
+  final p = await SharedPreferences.getInstance();
+  final raw = p.getString(progressPrefsKey(uid));
+  if (raw == null || raw.isEmpty) return out;
+  try {
+    final map = jsonDecode(raw);
+    if (map is! Map) return out;
+    final papers = map['papers'];
+    if (papers is! Map) return out;
+    for (final cid in want) {
+      final row = papers[progressCacheKey(cid)];
+      if (row is! Map) continue;
+      final si = row['sentence_index'];
+      final fi = row['figure_index'];
+      if (si is! num || fi is! num) continue;
+      final section = '${row['section_label'] ?? ''}'.trim();
+      final label =
+          '문장 ${si.toInt() + 1} · 그림 ${fi.toInt() + 1}'
+          '${section.isNotEmpty ? ' · $section' : ''}'
+          ' 읽는 중';
+      out[cid] = label;
+    }
+  } catch (_) {
+    return out;
   }
   return out;
 }

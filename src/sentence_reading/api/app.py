@@ -263,7 +263,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.188",
+    version="0.3.189",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1750,7 +1750,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.188",
+        "version": "0.3.189",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -2859,6 +2859,48 @@ async def cite_resolve(payload: dict = Body(...)) -> dict:
             "source": "",
         }
     return result
+
+
+
+
+@app.post("/api/translate/batch")
+async def translate_batch(request: Request, payload: dict = Body(...)) -> dict:
+    """design/188 — EN→KO batch for local-SoT residual fill (Google NMT)."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    from sentence_reading.llm.translate_google import (
+        google_translate_available,
+        translate_batch_en_to_ko,
+    )
+
+    if not google_translate_available():
+        return {"ok": False, "error": "translate_unavailable"}
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "invalid_payload"}
+    raw = payload.get("texts")
+    if not isinstance(raw, list):
+        return {"ok": False, "error": "invalid_texts"}
+    texts: list[str] = []
+    for item in raw[:500]:
+        if isinstance(item, str):
+            texts.append(item)
+        else:
+            texts.append("" if item is None else str(item))
+    if not texts:
+        return {"ok": False, "error": "empty_texts"}
+    try:
+        out = await asyncio.to_thread(translate_batch_en_to_ko, texts)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "error": "translate_failed",
+            "message": str(exc)[:200],
+        }
+    kos = [("" if v is None else str(v)) for v in out]
+    while len(kos) < len(texts):
+        kos.append("")
+    return {"ok": True, "ko": kos[: len(texts)], "n": len(texts)}
 
 
 @app.post("/api/translate")

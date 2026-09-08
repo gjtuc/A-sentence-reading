@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/client.dart';
+import '../api/fig_refs.dart' as fig;
 import '../api/ingest_models.dart';
 import '../api/paper_models.dart';
 import '../api/progress_gate.dart';
@@ -139,6 +140,8 @@ class LibraryController extends ChangeNotifier {
   String? _dismissedQualityBannerCacheId;
 
   /// design/160 — uid-scoped read-left timestamps for library meta lines.
+  Map<String, String> progressResumeByCacheId = const {};
+  String readerLayoutMode = 'split';
   Map<String, String> readLeftAtByCacheId = const {};
 
   /// design/74 — set when notification permission blocked but upload continues.
@@ -1413,6 +1416,8 @@ class LibraryController extends ChangeNotifier {
           'wiped': ack['wiped'] == true ? 1 : 0,
         },
       );
+      // design/188 — prep practice chunks right after handoff (not only on open).
+      unawaited(ensureShadowingChunks(cid));
       return true;
     } catch (e) {
       asrEvidenceBus?.record(
@@ -1488,6 +1493,15 @@ class LibraryController extends ChangeNotifier {
       // design/185 Phase 1 — surface local-only disk papers (no cloud wipe yet).
       final merged = await _paperDisk.mergeRemoteWithLocal(fetched);
       papers = await _applySavedOrder(merged);
+      try {
+        final uid = await _authUid();
+        progressResumeByCacheId = await loadProgressResumeLabels(
+          uid: uid,
+          cacheIds: papers.map((e) => e.id),
+        );
+      } catch (_) {
+        // EDGE: resume labels optional for library list.
+      }
       final n = papers.length;
       // design/169d — always on fail path; sample success 1/5 via count emit.
       // design/179 — trigger + preserved_error for after_ingest_fail join.
@@ -2097,12 +2111,26 @@ class LibraryController extends ChangeNotifier {
     if (s == null || !s.isValid || s.cacheId.isEmpty) return;
     try {
       final uid = await _authUid();
+      final header = s.sectionNav.headerPartsFor(s.sentenceIndex);
+      final sectionLabel =
+          '${header.sectionName} ${header.rightLabel}'.trim();
       await saveProgressRow(
         uid: uid,
         cacheId: s.cacheId,
         sentenceIndex: s.sentenceIndex,
         figureIndex: s.figureIndex,
+        layoutMode: readerLayoutMode,
+        sectionLabel: sectionLabel,
       );
+      final next = Map<String, String>.from(progressResumeByCacheId);
+      final figN = s.figureCount;
+      final resume =
+          '문장 ${s.sentenceIndex + 1}'
+          '${figN > 0 ? ' · 그림 ${s.figureIndex + 1}' : ''}'
+          '${sectionLabel.isNotEmpty ? ' · $sectionLabel' : ''}'
+          ' 읽는 중';
+      next[s.cacheId] = resume;
+      progressResumeByCacheId = next;
     } catch (_) {
       // EDGE: prefs fail must not block reading UI.
     }
@@ -2168,11 +2196,20 @@ class LibraryController extends ChangeNotifier {
 
   void _maybeStartTranslatePoll(ReadingSession o) {
     _stopTranslatePoll();
-    if (!o.translatePending && o.hasAnyTranslation) return;
-    unawaited(_wantTranslate().then((wantTr) {
+    // design/188 — partial KO must still backfill (old gate used hasAnyTranslation).
+    if (!o.needsTranslationBackfill) return;
+    unawaited(_wantTranslate().then((wantTr) async {
       if (!wantTr) return;
-      if (!o.translatePending && o.hasAnyTranslation) return;
       if (session?.cacheId != o.cacheId) return;
+      if (!o.needsTranslationBackfill) return;
+
+      // Prefer device batch fill when local disk already owns the session.
+      final localOwned = await _paperDisk.hasSession(o.cacheId);
+      if (localOwned || o.translationMissingCount > 0) {
+        await _backfillLocalMissingKo(o);
+        return;
+      }
+
       translateBackfillBusy = true;
       notifyListeners();
       asrEvidenceBus?.record(
@@ -2183,17 +2220,20 @@ class LibraryController extends ChangeNotifier {
         ok: true,
         details: {
           'translate_pending': o.translatePending,
-          'ko_sentence_n': o.sentences.where((s) => s.textKo.trim().isNotEmpty).length,
+          'ko_sentence_n':
+              o.sentences.where((s) => s.textKo.trim().isNotEmpty).length,
+          'ko_missing_n': o.translationMissingCount,
         },
       );
       var attempts = 0;
       var pollErrorReported = false;
-      var lastKoN = o.sentences.where((s) => s.textKo.trim().isNotEmpty).length;
+      var lastKoN =
+          o.sentences.where((s) => s.textKo.trim().isNotEmpty).length;
       _translatePollTimer?.cancel();
-      _translatePollTimer = Timer.periodic(const Duration(seconds: 8), (t) async {
+      _translatePollTimer =
+          Timer.periodic(const Duration(seconds: 8), (t) async {
         attempts++;
         if (attempts > 24) {
-          // design/168d D1.14 — exhausted is not success; report once.
           unawaited(
             asrErrorReporter?.report(
                   kind: 'translate_poll_exhausted',
@@ -2253,17 +2293,22 @@ class LibraryController extends ChangeNotifier {
               ok: true,
               details: {
                 'ko_sentence_n': koN,
+                'ko_missing_n': refreshed.translationMissingCount,
                 'translate_pending': refreshed.translatePending,
                 'attempt': attempts,
               },
             );
           }
-          if (!refreshed.translatePending && refreshed.hasAnyTranslation) {
+          if (!refreshed.needsTranslationBackfill) {
             _stopTranslatePoll();
+          } else if (refreshed.translationMissingCount > 0 &&
+              !refreshed.translatePending) {
+            _stopTranslatePoll();
+            await _backfillLocalMissingKo(refreshed);
+            return;
           }
           notifyListeners();
         } catch (e) {
-          // design/168d D1.15 — keep polling, but report once per cycle.
           if (!pollErrorReported) {
             pollErrorReported = true;
             unawaited(
@@ -2285,9 +2330,111 @@ class LibraryController extends ChangeNotifier {
               ok: false,
             );
           }
+          if (attempts >= 2) {
+            _stopTranslatePoll();
+            final cur = session;
+            if (cur != null && cur.cacheId == cid) {
+              await _backfillLocalMissingKo(cur);
+            }
+          }
         }
       });
     }));
+  }
+
+  /// Fill empty text_ko via /api/translate/batch and persist to PaperDiskStore.
+  Future<void> _backfillLocalMissingKo(ReadingSession o) async {
+    if (session?.cacheId != o.cacheId) return;
+    final wantTr = await _wantTranslate();
+    if (!wantTr) return;
+    final missingIdx = <int>[];
+    final texts = <String>[];
+    for (var i = 0; i < o.sentences.length; i++) {
+      final s = o.sentences[i];
+      if (s.hasText && s.textKo.trim().isEmpty) {
+        missingIdx.add(i);
+        texts.add(s.text);
+      }
+    }
+    if (texts.isEmpty) return;
+    translateBackfillBusy = true;
+    notifyListeners();
+    asrEvidenceBus?.record(
+      'translate_local_backfill_start',
+      severity: 'lifecycle',
+      cacheId: o.cacheId,
+      stage: 'translate_local',
+      ok: true,
+      details: {'missing_n': texts.length},
+    );
+    try {
+      const piece = 64;
+      final filled = List<String>.filled(texts.length, '');
+      for (var off = 0; off < texts.length; off += piece) {
+        if (session?.cacheId != o.cacheId) return;
+        final end = (off + piece > texts.length) ? texts.length : off + piece;
+        final chunk = texts.sublist(off, end);
+        final kos = await _client.translateBatchEnToKo(chunk);
+        for (var j = 0; j < chunk.length; j++) {
+          filled[off + j] = j < kos.length ? kos[j].trim() : '';
+        }
+        uploadStage =
+            '번역 보충 ${end.clamp(0, texts.length)}/${texts.length}';
+        notifyListeners();
+      }
+      final cur = session;
+      if (cur == null || cur.cacheId != o.cacheId) return;
+      final next = <SentenceView>[];
+      var applied = 0;
+      for (var i = 0; i < cur.sentences.length; i++) {
+        final s = cur.sentences[i];
+        final mi = missingIdx.indexOf(i);
+        if (mi >= 0 && filled[mi].isNotEmpty) {
+          next.add(
+            SentenceView(
+              id: s.id,
+              text: s.text,
+              section: s.section,
+              textKo: filled[mi],
+              qualityFlags: s.qualityFlags,
+            ),
+          );
+          applied += 1;
+        } else {
+          next.add(s);
+        }
+      }
+      cur.sentences
+        ..clear()
+        ..addAll(next);
+      cur.translatePending = false;
+      await _paperDisk.shadowPersistReadingSession(cur);
+      asrEvidenceBus?.record(
+        'translate_local_backfill_done',
+        severity: 'lifecycle',
+        cacheId: o.cacheId,
+        stage: 'translate_local',
+        ok: true,
+        details: {'applied_n': applied, 'missing_n': texts.length},
+      );
+    } catch (e) {
+      final msg = e.toString();
+      asrEvidenceBus?.record(
+        'translate_local_backfill_fail',
+        severity: 'error',
+        cacheId: o.cacheId,
+        stage: 'translate_local',
+        message: msg.length > 200 ? msg.substring(0, 200) : msg,
+        ok: false,
+      );
+      error = '번역 보충에 실패했습니다. 잠시 후 다시 열어 주세요.';
+    } finally {
+      translateBackfillBusy = false;
+      if (uploadStage.startsWith('번역 보충')) {
+        uploadStage = '';
+      }
+      notifyListeners();
+    }
   }
 
   @override
@@ -2458,6 +2605,8 @@ class LibraryController extends ChangeNotifier {
           o.sentenceIndex = v.sentenceIndex!;
           o.figureIndex = v.figureIndex!;
         }
+        final lm = raw.layoutMode.trim();
+        if (lm.isNotEmpty) readerLayoutMode = lm;
       }
 
       session = o;
@@ -2609,6 +2758,32 @@ class LibraryController extends ChangeNotifier {
     return open(entry);
   }
 
+
+  /// When a Fig/Table chip appears on the current sentence, sync bottom figure.
+  /// Chip buttons remain for manual jumps (product backlog item 9).
+  Future<bool> _maybeAutoFollowVisibleFigChip() async {
+    final s = session;
+    if (s == null || !s.isValid || s.figureCount < 1) return false;
+    final cur = s.currentSentence;
+    if (cur == null || !cur.hasText) return false;
+    final hints = fig.hintsForSentence(
+      text: cur.text,
+      captions: s.figures.map((f) => f.caption).toList(),
+      slotKeys: s.figures.map((f) => f.slotKey).toList(),
+      supplementaryMerged: s.supplementaryMerged,
+    );
+    if (hints.isEmpty) return false;
+    final want = hints.first.figureIndex;
+    if (want < 0 || want >= s.figureCount || want == s.figureIndex) {
+      return false;
+    }
+    final beforeSent = s.sentenceIndex;
+    s.figureIndex = want;
+    assert(s.sentenceIndex == beforeSent, 'auto-follow must not move sentence');
+    unawaited(_prefetchFigureWindow());
+    return true;
+  }
+
   Future<void> advanceSentence(int delta) async {
     final s = session;
     if (s == null || !s.isValid) return;
@@ -2622,6 +2797,7 @@ class LibraryController extends ChangeNotifier {
     if (from != to) {
       onSentenceIndexChanged?.call(from, to);
     }
+    final followed = await _maybeAutoFollowVisibleFigChip();
     if (s.sentenceIndex % 20 == 0) {
       asrEvidenceBus?.record(
         'reader_cursor',
@@ -2632,7 +2808,7 @@ class LibraryController extends ChangeNotifier {
       );
     }
     notifyListeners();
-    await _syncCursor(sentence: true);
+    await _syncCursor(sentence: true, figure: followed);
     // design/123 — durable prefs on every sentence move (product 5C).
     await persistOpenedProgress();
   }
@@ -2673,8 +2849,9 @@ class LibraryController extends ChangeNotifier {
     s.sentenceIndex = index;
     assert(s.figureIndex == beforeFig, 'sentence jump must not move figure');
     onSentenceIndexChanged?.call(from, index);
+    final followed = await _maybeAutoFollowVisibleFigChip();
     notifyListeners();
-    await _syncCursor(sentence: true);
+    await _syncCursor(sentence: true, figure: followed);
     await persistOpenedProgress();
   }
 

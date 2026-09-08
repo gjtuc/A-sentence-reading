@@ -103,7 +103,7 @@ class PaperDiskIndexEntry {
         pipelineVersion: pipelineVersion,
         hasSource: hasSource,
         ingestStatus: 'local',
-        libraryTag: '로컬',
+        libraryTag: '',
       );
 }
 
@@ -407,6 +407,68 @@ class PaperDiskStore {
     }
   }
 
+  Future<Map<String, dynamic>?> _loadJsonRel(String cacheId, String rel) async {
+    final dir = await paperDir(cacheId);
+    if (dir == null) return null;
+    final f = File(p.join(dir.path, rel));
+    if (!await f.exists()) return null;
+    try {
+      final raw = jsonDecode(await f.readAsString());
+      if (raw is! Map) return null;
+      return Map<String, dynamic>.from(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Local layout_map after handoff (cloud papers/ may be wiped).
+  Future<Map<String, dynamic>?> loadLayoutMapJson(String cacheId) =>
+      _loadJsonRel(cacheId, 'layout_map.json');
+
+  Future<Map<String, dynamic>?> loadSlotPlanJson(String cacheId) =>
+      _loadJsonRel(cacheId, 'slot_plan.json');
+
+  Future<bool> hasLocalSource(String cacheId) async {
+    final dir = await paperDir(cacheId);
+    if (dir == null) return false;
+    for (final name in const ['source.pdf', 'source.docx']) {
+      if (await File(p.join(dir.path, name)).exists()) return true;
+    }
+    return false;
+  }
+
+  Future<({Uint8List bytes, String filename})?> readSourceBytes(
+    String cacheId,
+  ) async {
+    final dir = await paperDir(cacheId);
+    if (dir == null) return null;
+    for (final name in const ['source.pdf', 'source.docx']) {
+      final f = File(p.join(dir.path, name));
+      if (!await f.exists()) continue;
+      try {
+        final bytes = await f.readAsBytes();
+        if (bytes.isEmpty) continue;
+        return (bytes: Uint8List.fromList(bytes), filename: name);
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  Future<Uint8List?> readPagePreviewBytes(String cacheId, int pageIndex) async {
+    if (pageIndex < 0) return null;
+    final dir = await paperDir(cacheId);
+    if (dir == null) return null;
+    final f = File(p.join(dir.path, 'page_previews', 'p$pageIndex.png'));
+    if (!await f.exists()) return null;
+    try {
+      final bytes = await f.readAsBytes();
+      if (bytes.isEmpty) return null;
+      return Uint8List.fromList(bytes);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<bool> hasSession(String cacheId) async {
     final f = await _sessionFile(cacheId);
     return f != null && await f.exists();
@@ -614,6 +676,23 @@ class PaperDiskStore {
         return false;
       }
     }
+    if (rel.startsWith('page_previews/') && rel.endsWith('.png')) {
+      final dir = await paperDir(cacheId);
+      if (dir == null) return false;
+      final f = File(p.join(dir.path, rel));
+      try {
+        await _atomicWriteBytes(f, bytes);
+        await _touchManifestFile(
+          cacheId,
+          rel: rel,
+          bytes: bytes,
+          contentHash: contentHash,
+        );
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
     return false;
   }
 
@@ -720,6 +799,19 @@ class PaperDiskStore {
     await maybeAdd('slot_plan.json');
     await maybeAdd('source.pdf');
     await maybeAdd('source.docx');
+    final previews = Directory(p.join(dir.path, 'page_previews'));
+    if (await previews.exists()) {
+      await for (final ent in previews.list(followLinks: false)) {
+        if (ent is! File) continue;
+        final name = p.basename(ent.path);
+        if (!name.endsWith('.png')) continue;
+        try {
+          final bytes = await ent.readAsBytes();
+          if (bytes.isEmpty) continue;
+          out['page_previews/$name'] = Uint8List.fromList(bytes);
+        } catch (_) {}
+      }
+    }
     final figs = Directory(p.join(dir.path, 'figures'));
     if (await figs.exists()) {
       await for (final ent in figs.list(followLinks: false)) {

@@ -375,9 +375,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (lib.loading && lib.papers.isEmpty && !lib.uploading && !lib.reanalyzing) {
           return const Center(child: CircularProgressIndicator());
         }
-        return RefreshIndicator(
-          onRefresh: (lib.uploading || lib.reanalyzing) ? () async {} : lib.refresh,
-          child: CustomScrollView(
+        return CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(
@@ -420,17 +418,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             : _pickAndUpload,
                         icon: const Icon(Icons.upload_file),
                         tooltip: 'PDF 가져오기',
-                      ),
-                      IconButton(
-                        onPressed: lib.loading ||
-                                lib.opening ||
-                                lib.uploading ||
-                                lib.reanalyzing ||
-                                _deleting
-                            ? null
-                            : lib.refresh,
-                        icon: const Icon(Icons.refresh),
-                        tooltip: '새로고침',
                       ),
                     ],
                   ),
@@ -703,33 +690,26 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 padding: EdgeInsets.zero,
                               ),
                             ),
-                          if (e.libraryTag.isNotEmpty)
+                          if (bookmarkCount > 0)
                             Padding(
                               padding: const EdgeInsets.only(left: 8),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (bookmarkCount > 0) ...[
-                                    Badge(
-                                      label: Text('$bookmarkCount'),
-                                      child: const SizedBox(
-                                        width: 8,
-                                        height: 8,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                  ],
-                                  Chip(
-                                    label: Text(
-                                      e.libraryTag,
-                                      style: const TextStyle(fontSize: 11),
-                                    ),
-                                    visualDensity: VisualDensity.compact,
-                                    materialTapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                    padding: EdgeInsets.zero,
-                                  ),
-                                ],
+                              child: Badge(
+                                label: Text('$bookmarkCount'),
+                                child: const Icon(Icons.bookmark_border, size: 18),
+                              ),
+                            ),
+                          if (e.libraryTag.isNotEmpty && e.libraryTag != '로컬')
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: Chip(
+                                label: Text(
+                                  e.libraryTag,
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                                padding: EdgeInsets.zero,
                               ),
                             ),
                         ],
@@ -737,6 +717,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       subtitle: Text(
                         [
                           e.metaLine(),
+                          lib.progressResumeByCacheId[e.id] ?? '',
                           e.timingLine(
                             lastReadLeftAt:
                                 lib.readLeftAtByCacheId[e.id] ?? '',
@@ -861,7 +842,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   },
                 ),
             ],
-          ),
         );
       },
     );

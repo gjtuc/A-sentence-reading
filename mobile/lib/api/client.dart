@@ -1781,6 +1781,31 @@ throw AsrApiException(
 
 
 
+
+  /// design/188 — Google batch EN→KO for device-local residual fill.
+  Future<List<String>> translateBatchEnToKo(List<String> texts) async {
+    final res = await _http
+        .post(
+          _uri('/api/translate/batch'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({'texts': texts}),
+        )
+        .timeout(const Duration(minutes: 3));
+    if (res.statusCode == 401) {
+      throw AsrApiException('로그인이 필요합니다.', 401);
+    }
+    final map = _decodeObject(res, 'translate/batch');
+    if (map['ok'] != true) {
+      throw AsrApiException(
+        '${map['message'] ?? map['error'] ?? '번역 배치 실패'}',
+        res.statusCode,
+      );
+    }
+    final raw = map['ko'];
+    if (raw is! List) return const [];
+    return [for (final x in raw) '${x ?? ''}'];
+  }
+
   /// design/185 — GET handoff manifest (sha256 map).
   Future<Map<String, dynamic>> getHandoffManifest(String cacheId) async {
     final id = cacheId.trim();

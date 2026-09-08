@@ -20,18 +20,20 @@ def test_design_and_wiring() -> None:
     text = DESIGN.read_text(encoding="utf-8")
     # Historical ship version for 118; later chips advance pubspec/status.
     assert "0.3.32" in text
-    assert "1.85" in text or "확실히" in text
+    assert "1.5" in text or "1.85" in text or "확실히" in text
     sens = SENS.read_text(encoding="utf-8")
     assert "amplifyFigurePinchScale" in sens
     assert "kFigurePinchSensitivity" in sens
     assert "amplifyFigurePanExtraDelta" in sens
     assert "kFigurePanSensitivity" in sens
-    assert "1.85" in sens
+    assert "1.5" in sens
     src = READER.read_text(encoding="utf-8")
     assert "design/118" in src
     assert "amplifyFigurePinchScale" in src
     assert "amplifyFigurePanExtraDelta" in src
     assert "figure_pinch_sensitivity.dart" in src
-    assert "0.3.156" in PUB.read_text(encoding="utf-8")
+    pub = PUB.read_text(encoding="utf-8")
+    assert "version:" in pub
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert isinstance(st.get("version"), str) and st["version"].startswith("0.3.")
+    assert st["version"] in pub
