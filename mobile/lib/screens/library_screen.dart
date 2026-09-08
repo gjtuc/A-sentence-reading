@@ -194,6 +194,131 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  Future<void> _exportTransferPack(PaperEntry entry) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('다른 기기로 옮기기'),
+        content: Text(
+          '「${entry.title}」을(를) 7일짜리 이전 팩으로 올립니다.\n'
+          '다른 기기에서 「이전 팩 받기」로 가져오면 같은 논문이 교체됩니다.\n'
+          '클라우드에서 논문 미리보기는 없습니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('올리기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final ok = await widget.library.exportTransferPack(entry);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? (widget.library.uploadStage.isNotEmpty
+                  ? widget.library.uploadStage
+                  : '이전 팩을 올렸습니다. 7일 안에 다른 기기에서 받으세요.')
+              : (widget.library.error ?? '이전 팩 만들기에 실패했습니다.'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showTransferPackInbox() async {
+    final packs = await widget.library.listTransferPacks();
+    if (!mounted) return;
+    if (packs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.library.error ?? '받을 이전 팩이 없습니다.',
+          ),
+        ),
+      );
+      return;
+    }
+    final chosen = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+                child: Text(
+                  '이전 팩 받기',
+                  style: Theme.of(ctx).textTheme.titleMedium,
+                ),
+              ),
+              for (final row in packs)
+                ListTile(
+                  title: Text('${row['title'] ?? row['cache_id'] ?? ''}'),
+                  subtitle: Text(
+                    [
+                      '${row['status'] ?? ''}',
+                      if ('${row['expires_at'] ?? ''}'.isNotEmpty)
+                        '만료 ${row['expires_at']}',
+                      if (row['bytes'] != null) '${row['bytes']} B',
+                    ].where((s) => s.toString().trim().isNotEmpty).join(' · '),
+                  ),
+                  enabled: '${row['status'] ?? ''}' == 'ready',
+                  onTap: '${row['status'] ?? ''}' == 'ready'
+                      ? () => Navigator.pop(ctx, row)
+                      : null,
+                ),
+            ],
+          ),
+        );
+      },
+    );
+    if (chosen == null || !mounted) return;
+    final packId = '${chosen['pack_id'] ?? ''}'.trim();
+    if (packId.isEmpty) return;
+    final title = '${chosen['title'] ?? packId}';
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('로컬 교체'),
+        content: Text(
+          '「$title」을(를) 이 기기에 가져옵니다.\n'
+          '같은 논문 ID가 있으면 로컬 폴더를 교체합니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('가져오기'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    final ok = await widget.library.importTransferPack(packId);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? '이전 팩을 가져왔습니다.'
+              : (widget.library.error ?? '가져오기에 실패했습니다.'),
+        ),
+      ),
+    );
+  }
+
   Future<void> _mergeSupplementary(PaperEntry entry) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -398,6 +523,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           _selecting ? Icons.close : Icons.delete_outline,
                         ),
                         tooltip: _selecting ? '선택 취소' : '삭제',
+                      ),
+                      IconButton(
+                        onPressed: lib.loading ||
+                                lib.opening ||
+                                lib.uploading ||
+                                lib.reanalyzing ||
+                                _deleting
+                            ? null
+                            : _showTransferPackInbox,
+                        icon: const Icon(Icons.phonelink_setup_outlined),
+                        tooltip: '이전 팩 받기',
                       ),
                       IconButton(
                         onPressed: lib.loading ||
@@ -789,6 +925,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                     onPressed: () =>
                                         lib.dismissHarmonizeResidual(e.id),
                                   ),
+                                IconButton(
+                                  icon: const Icon(Icons.ios_share, size: 22),
+                                  tooltip: '다른 기기로 옮기기',
+                                  onPressed: lib.opening ||
+                                          lib.uploading ||
+                                          lib.reanalyzing ||
+                                          _deleting
+                                      ? null
+                                      : () => _exportTransferPack(e),
+                                ),
                                 if (e.canMergeSupplementary)
                                   IconButton(
                                     icon: const Icon(Icons.merge_type, size: 22),

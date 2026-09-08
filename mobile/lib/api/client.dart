@@ -69,6 +69,9 @@ class AsrStatus {
     this.paperLocalSotPhase = 0,
     this.paperDiskStore = false,
     this.paperHandoff = false,
+    // design/186 — missing → off until server advertises.
+    this.transferPack = false,
+    this.transferPackPieceMax = 4 * 1024 * 1024,
     // design/130 — missing key → on (report); explicit false kills.
     this.cloudErrorLogs = true,
     this.mobileCloudErrorLogs = true,
@@ -167,6 +170,14 @@ class AsrStatus {
       }(),
       paperDiskStore: json['paper_disk_store'] == true,
       paperHandoff: json['paper_handoff'] == true,
+      transferPack: json['transfer_pack'] == true,
+      transferPackPieceMax: () {
+        final v = json['transfer_pack_piece_max'];
+        if (v is int) return v.clamp(256 * 1024, 16 * 1024 * 1024);
+        if (v is num) return v.toInt().clamp(256 * 1024, 16 * 1024 * 1024);
+        return int.tryParse('$v')?.clamp(256 * 1024, 16 * 1024 * 1024) ??
+            (4 * 1024 * 1024);
+      }(),
       // design/130 — missing → on; explicit false kills reporting.
       cloudErrorLogs: json.containsKey('cloud_error_logs')
           ? json['cloud_error_logs'] == true
@@ -267,6 +278,8 @@ class AsrStatus {
   final int paperLocalSotPhase;
   final bool paperDiskStore;
   final bool paperHandoff;
+  final bool transferPack;
+  final int transferPackPieceMax;
   // design/130 — missing key → on; explicit false kills client reporting.
   final bool cloudErrorLogs;
   final bool mobileCloudErrorLogs;
@@ -1805,6 +1818,132 @@ throw AsrApiException(
         )
         .timeout(const Duration(seconds: 60));
     return _decodeObject(res, 'handoff-ack');
+  }
+
+
+  /// design/186 — list transfer packs (metadata only).
+  Future<List<Map<String, dynamic>>> listTransferPacks() async {
+    final res = await _http
+        .get(_uri('/api/transfer-packs'), headers: await _headers())
+        .timeout(const Duration(seconds: 30));
+    final map = _decodeObject(res, 'transfer-packs');
+    final packs = map['packs'];
+    if (packs is! List) return const [];
+    return [
+      for (final row in packs)
+        if (row is Map) Map<String, dynamic>.from(row),
+    ];
+  }
+
+  /// design/186 — create pending pack.
+  Future<Map<String, dynamic>> createTransferPack({
+    required String cacheId,
+    required String title,
+    required int declaredBytes,
+  }) async {
+    final res = await _http
+        .post(
+          _uri('/api/transfer-packs'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({
+            'cache_id': cacheId,
+            'title': title,
+            'declared_bytes': declaredBytes,
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
+    return _decodeObject(res, 'transfer-pack-create');
+  }
+
+  /// design/186 — put file or chunk.
+  Future<Map<String, dynamic>> putTransferPackFile({
+    required String packId,
+    required String path,
+    required Uint8List bytes,
+    int? partIndex,
+    int? partTotal,
+    String sha256 = '',
+  }) async {
+    final q = StringBuffer(
+      'path=${Uri.encodeQueryComponent(path)}',
+    );
+    if (partIndex != null && partTotal != null) {
+      q.write('&part=$partIndex&parts=$partTotal');
+      if (sha256.isNotEmpty) {
+        q.write('&sha256=${Uri.encodeQueryComponent(sha256)}');
+      }
+    }
+    final res = await _http
+        .put(
+          _uri('/api/transfer-packs/${Uri.encodeComponent(packId)}/file?$q'),
+          headers: await _headers(),
+          body: bytes,
+        )
+        .timeout(const Duration(seconds: 120));
+    return _decodeObject(res, 'transfer-pack-put');
+  }
+
+  /// design/186 — complete pack after uploads.
+  Future<Map<String, dynamic>> completeTransferPack({
+    required String packId,
+    required Map<String, Map<String, dynamic>> files,
+  }) async {
+    final res = await _http
+        .post(
+          _uri('/api/transfer-packs/${Uri.encodeComponent(packId)}/complete'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({'files': files}),
+        )
+        .timeout(const Duration(seconds: 120));
+    return _decodeObject(res, 'transfer-pack-complete');
+  }
+
+  /// design/186 — lease + manifest for download.
+  Future<Map<String, dynamic>> leaseTransferPack(String packId) async {
+    final res = await _http
+        .post(
+          _uri('/api/transfer-packs/${Uri.encodeComponent(packId)}/lease'),
+          headers: await _headers(jsonBody: true),
+          body: '{}',
+        )
+        .timeout(const Duration(seconds: 30));
+    return _decodeObject(res, 'transfer-pack-lease');
+  }
+
+  /// design/186 — download whole small file or one slice.
+  Future<Uint8List> getTransferPackFile({
+    required String packId,
+    required String path,
+    int? offset,
+    int? limit,
+  }) async {
+    final q = StringBuffer('path=${Uri.encodeQueryComponent(path)}');
+    if (offset != null) q.write('&offset=$offset');
+    if (limit != null) q.write('&limit=$limit');
+    final res = await _http
+        .get(
+          _uri('/api/transfer-packs/${Uri.encodeComponent(packId)}/file?$q'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 120));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw AsrApiException(
+        'transfer-pack file ${res.statusCode}',
+        res.statusCode,
+      );
+    }
+    return Uint8List.fromList(res.bodyBytes);
+  }
+
+  /// design/186 — delete pack after import.
+  Future<Map<String, dynamic>> deleteTransferPack(String packId) async {
+    final res = await _http
+        .delete(
+          _uri('/api/transfer-packs/${Uri.encodeComponent(packId)}'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 60));
+    return _decodeObject(res, 'transfer-pack-delete');
   }
 
   /// POST /api/cache/papers/{id}/open — start a reading session from cache.

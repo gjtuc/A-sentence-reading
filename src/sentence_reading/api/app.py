@@ -209,10 +209,27 @@ async def _lifespan(_app: FastAPI):
             artifact_ttl_task = asyncio.create_task(_ingest_artifact_ttl_loop())
     except Exception:
         artifact_ttl_task = None
+    # design/186 — transfer_packs TTL purge (independent of ASR_TRANSFER_PACK kill)
+    transfer_pack_ttl_task = None
+    try:
+        from sentence_reading.llm.transfer_pack_ttl import (
+            purge_enabled as transfer_pack_ttl_enabled,
+            purge_interval_sec as transfer_pack_purge_interval_sec,
+        )
+
+        if transfer_pack_ttl_enabled() and transfer_pack_purge_interval_sec() > 0:
+            transfer_pack_ttl_task = asyncio.create_task(_transfer_pack_ttl_loop())
+    except Exception:
+        transfer_pack_ttl_task = None
     try:
         yield
     finally:
-        for task in (sweeper_task, rotate_task, artifact_ttl_task):
+        for task in (
+            sweeper_task,
+            rotate_task,
+            artifact_ttl_task,
+            transfer_pack_ttl_task,
+        ):
             if task is None:
                 continue
             task.cancel()
@@ -226,7 +243,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.179",
+    version="0.3.180",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -604,6 +621,23 @@ def _paper_local_sot_status_fields() -> dict:
             "paper_local_sot": False,
             "paper_local_sot_phase": 0,
             "paper_disk_store": False,
+        }
+
+
+def _transfer_pack_status_fields() -> dict:
+    """design/186 — device transfer pack advertisement."""
+    try:
+        from sentence_reading.llm.transfer_pack_gcs import status_fields
+
+        return status_fields()
+    except Exception:
+        return {
+            "transfer_pack": False,
+            "transfer_pack_ttl": False,
+            "transfer_pack_ttl_hours": 0,
+            "transfer_pack_max_bytes": 0,
+            "transfer_pack_max_active": 0,
+            "transfer_pack_piece_max": 0,
         }
 
 
@@ -1487,6 +1521,47 @@ async def _ingest_artifact_ttl_loop() -> None:
                 pass
 
 
+async def _transfer_pack_ttl_loop() -> None:
+    """design/186 — purge expired/abandoned transfer_packs/ only."""
+    from sentence_reading.llm.transfer_pack_ttl import (
+        purge_enabled,
+        purge_interval_sec,
+        purge_once,
+    )
+
+    while True:
+        try:
+            await asyncio.sleep(purge_interval_sec())
+        except asyncio.CancelledError:
+            raise
+        if not purge_enabled():
+            continue
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            summary = await asyncio.to_thread(purge_once)
+            eb.emit(
+                "transfer_pack_purge_tick",
+                ok=True,
+                details={
+                    "examined": summary.get("examined"),
+                    "purged": summary.get("purged"),
+                    "skipped": summary.get("skipped"),
+                    "errors": summary.get("errors"),
+                    "dry_run": summary.get("dry_run"),
+                },
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            try:
+                from sentence_reading.llm import evidence_bus as eb
+
+                eb.emit("transfer_pack_purge_tick", ok=False, code="loop_error")
+            except Exception:
+                pass
+
+
 def _progress_fail_closed_enabled() -> bool:
     """design/123 — refuse open when stored progress indices are invalid.
 
@@ -1597,7 +1672,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.179",
+        "version": "0.3.180",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -1721,6 +1796,8 @@ def status(request: Request) -> dict:
         **_ingest_artifact_ttl_status_fields(),
         # design/185 — device paper store (phase 1); wipe behind kill.
         **_paper_local_sot_status_fields(),
+        # design/186 — 7-day device transfer packs (never papers/).
+        **_transfer_pack_status_fields(),
         "cite_ref_open": True,
         "cite_display_clean": True,
         # design/148 — mobile References panel below Fig chips.
@@ -4701,6 +4778,316 @@ async def cache_handoff_ack(request: Request, cache_id: str) -> JSONResponse:
         return JSONResponse(
             status_code=500,
             content={"ok": False, "error": "ack_error", "message": str(e)[:120]},
+        )
+
+
+@app.get("/api/transfer-packs")
+def transfer_packs_list(request: Request) -> JSONResponse:
+    """design/186 — list owner packs (metadata only; no file bodies)."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    try:
+        from sentence_reading.llm.transfer_pack_gcs import (
+            list_public_packs,
+            transfer_pack_enabled,
+        )
+
+        if not transfer_pack_enabled():
+            return JSONResponse(
+                status_code=404, content={"ok": False, "error": "disabled"}
+            )
+        return JSONResponse(content={"ok": True, "packs": list_public_packs()})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "list_error", "message": str(e)[:120]},
+        )
+
+
+@app.post("/api/transfer-packs")
+async def transfer_packs_create(request: Request) -> JSONResponse:
+    """design/186 — create pending pack crate."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    try:
+        from sentence_reading.llm.transfer_pack_gcs import create_pack, transfer_pack_enabled
+
+        if not transfer_pack_enabled():
+            return JSONResponse(
+                status_code=404, content={"ok": False, "error": "disabled"}
+            )
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        out = create_pack(
+            cache_id=str(body.get("cache_id") or ""),
+            title=str(body.get("title") or ""),
+            declared_bytes=int(body.get("declared_bytes") or 0),
+        )
+        if not out.get("ok"):
+            code = str(out.get("error") or "fail")
+            status = 409 if code in ("bytes_quota", "active_quota") else 400
+            return JSONResponse(status_code=status, content=out)
+        return JSONResponse(content=out)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "create_error", "message": str(e)[:120]},
+        )
+
+
+@app.put("/api/transfer-packs/{pack_id}/file")
+async def transfer_packs_put_file(request: Request, pack_id: str) -> JSONResponse:
+    """design/186 — put one file or one chunk (auth body; path query)."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    try:
+        from sentence_reading.llm.transfer_pack_gcs import (
+            put_file,
+            put_file_chunk,
+            transfer_pack_enabled,
+        )
+
+        if not transfer_pack_enabled():
+            return JSONResponse(
+                status_code=404, content={"ok": False, "error": "disabled"}
+            )
+        path = str(request.query_params.get("path") or "").strip()
+        data = await request.body()
+        part_raw = request.query_params.get("part")
+        parts_raw = request.query_params.get("parts")
+        if part_raw is not None or parts_raw is not None:
+            try:
+                part_i = int(part_raw if part_raw is not None else 0)
+                part_n = int(parts_raw if parts_raw is not None else 1)
+            except ValueError:
+                return JSONResponse(
+                    status_code=400, content={"ok": False, "error": "bad_part"}
+                )
+            out = put_file_chunk(
+                pack_id,
+                path,
+                data,
+                part_index=part_i,
+                part_total=part_n,
+                final_sha256=str(request.query_params.get("sha256") or ""),
+            )
+        else:
+            out = put_file(pack_id, path, data)
+        if not out.get("ok"):
+            err = str(out.get("error") or "fail")
+            status = 413 if err in ("bytes_quota", "piece_too_large", "need_chunk") else 400
+            if err == "missing":
+                status = 404
+            return JSONResponse(status_code=status, content=out)
+        return JSONResponse(content=out)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "put_error", "message": str(e)[:120]},
+        )
+
+
+@app.post("/api/transfer-packs/{pack_id}/complete")
+async def transfer_packs_complete(request: Request, pack_id: str) -> JSONResponse:
+    """design/186 — stamp ready + expires_at after sha verify."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    try:
+        from sentence_reading.llm.transfer_pack_gcs import (
+            complete_pack,
+            transfer_pack_enabled,
+        )
+
+        if not transfer_pack_enabled():
+            return JSONResponse(
+                status_code=404, content={"ok": False, "error": "disabled"}
+            )
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        files = body.get("files")
+        if not isinstance(files, dict):
+            files = {}
+        out = complete_pack(pack_id, files)
+        if not out.get("ok"):
+            return JSONResponse(status_code=409, content=out)
+        return JSONResponse(content=out)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "complete_error", "message": str(e)[:120]},
+        )
+
+
+@app.post("/api/transfer-packs/{pack_id}/lease")
+def transfer_packs_lease(request: Request, pack_id: str) -> JSONResponse:
+    """design/186 — download lease blocks TTL purge while pulling."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    try:
+        from sentence_reading.llm.transfer_pack_gcs import (
+            load_manifest,
+            load_meta,
+            public_meta,
+            touch_download_lease,
+            transfer_pack_enabled,
+        )
+        from sentence_reading.llm import evidence_bus as eb
+
+        if not transfer_pack_enabled():
+            return JSONResponse(
+                status_code=404, content={"ok": False, "error": "disabled"}
+            )
+        out = touch_download_lease(pack_id)
+        if not out.get("ok"):
+            return JSONResponse(status_code=404, content=out)
+        meta = load_meta(pack_id) or {}
+        man = load_manifest(pack_id) or {}
+        try:
+            eb.emit(
+                "transfer_pack_download",
+                ok=True,
+                cache_id=str(meta.get("cache_id") or "")[:64],
+                stage="lease",
+                details={"pack_id_hash16": str(pack_id)[:16]},
+            )
+        except Exception:
+            pass
+        return JSONResponse(
+            content={
+                "ok": True,
+                "meta": public_meta(meta),
+                "files": man.get("files") if isinstance(man.get("files"), dict) else {},
+                "download_lease_until": out.get("download_lease_until"),
+            }
+        )
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "lease_error", "message": str(e)[:120]},
+        )
+
+
+@app.get("/api/transfer-packs/{pack_id}/file")
+def transfer_packs_get_file(request: Request, pack_id: str) -> Response:
+    """design/186 — download one file or a byte slice (owner auth)."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    try:
+        from sentence_reading.llm.transfer_pack_gcs import (
+            read_file_bytes,
+            read_file_slice,
+            transfer_pack_enabled,
+        )
+
+        if not transfer_pack_enabled():
+            return JSONResponse(
+                status_code=404, content={"ok": False, "error": "disabled"}
+            )
+        path = str(request.query_params.get("path") or "").strip()
+        offset_raw = request.query_params.get("offset")
+        limit_raw = request.query_params.get("limit")
+        if offset_raw is not None or limit_raw is not None:
+            try:
+                off = int(offset_raw or 0)
+            except ValueError:
+                off = 0
+            try:
+                lim = int(limit_raw) if limit_raw is not None else None
+            except ValueError:
+                lim = None
+            out = read_file_slice(pack_id, path, offset=off, limit=lim)
+            if not out.get("ok"):
+                return JSONResponse(status_code=404, content=out)
+            data = out.get("data") or b""
+            return Response(
+                content=data,
+                media_type="application/octet-stream",
+                headers={
+                    "Cache-Control": "private, no-store",
+                    "X-Asr-Pack-Offset": str(out.get("offset") or 0),
+                    "X-Asr-Pack-Size": str(out.get("size") or 0),
+                    "X-Asr-Pack-Total": str(out.get("total") or 0),
+                    "X-Asr-Pack-Eof": "1" if out.get("eof") else "0",
+                    "X-Asr-Pack-Sha256": str(out.get("sha256") or ""),
+                },
+            )
+        raw = read_file_bytes(pack_id, path)
+        if raw is None:
+            return JSONResponse(
+                status_code=404, content={"ok": False, "error": "missing"}
+            )
+        if len(raw) > 4 * 1024 * 1024:
+            return JSONResponse(
+                status_code=413,
+                content={"ok": False, "error": "need_slice", "total": len(raw)},
+            )
+        ctype = "application/octet-stream"
+        rel = path.replace("\\", "/").lower()
+        if rel.endswith(".json"):
+            ctype = "application/json"
+        elif rel.endswith(".png"):
+            ctype = "image/png"
+        elif rel.endswith(".pdf"):
+            ctype = "application/pdf"
+        return Response(
+            content=raw,
+            media_type=ctype,
+            headers={"Cache-Control": "private, no-store"},
+        )
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "file_error", "message": str(e)[:120]},
+        )
+
+
+@app.delete("/api/transfer-packs/{pack_id}")
+def transfer_packs_delete(request: Request, pack_id: str) -> JSONResponse:
+    """design/186 — owner deletes a pack early (after successful import)."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    try:
+        from sentence_reading.llm.transfer_pack_gcs import delete_pack, transfer_pack_enabled
+        from sentence_reading.llm import evidence_bus as eb
+
+        if not transfer_pack_enabled():
+            return JSONResponse(
+                status_code=404, content={"ok": False, "error": "disabled"}
+            )
+        out = delete_pack(pack_id)
+        if not out.get("ok"):
+            return JSONResponse(status_code=404, content=out)
+        try:
+            eb.emit(
+                "transfer_pack_deleted",
+                ok=True,
+                code="owner_delete",
+                details={"pack_id_hash16": str(pack_id)[:16]},
+            )
+        except Exception:
+            pass
+        return JSONResponse(content=out)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "delete_error", "message": str(e)[:120]},
         )
 
 

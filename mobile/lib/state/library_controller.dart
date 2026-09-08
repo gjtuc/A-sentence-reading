@@ -3576,4 +3576,248 @@ class LibraryController extends ChangeNotifier {
       }
     }
   }
+  /// design/186 — export local paper folder to a 7-day transfer pack.
+  Future<bool> exportTransferPack(PaperEntry entry) async {
+    if (opening || uploading || reanalyzing) {
+      error = '다른 작업 중입니다. 잠시 후 다시 시도해 주세요.';
+      notifyListeners();
+      return false;
+    }
+    final cid = entry.id.trim();
+    if (cid.isEmpty) {
+      error = '잘못된 보관 항목입니다.';
+      notifyListeners();
+      return false;
+    }
+    if (!await _paperDisk.hasSession(cid)) {
+      error = '로컬 보관본이 없습니다. 논문을 한 번 열어 동기화한 뒤 옮겨 주세요.';
+      notifyListeners();
+      return false;
+    }
+    uploading = true;
+    uploadPercent = 0;
+    uploadStage = '이전 팩 만들기';
+    error = null;
+    notifyListeners();
+    try {
+      final files = await _paperDisk.collectTransferPackFiles(cid);
+      if (!files.containsKey('session.json')) {
+        error = '내보낼 session.json이 없습니다.';
+        return false;
+      }
+      var declared = 0;
+      for (final b in files.values) {
+        declared += b.length;
+      }
+      final created = await _client.createTransferPack(
+        cacheId: cid,
+        title: entry.title.trim().isEmpty ? cid : entry.title.trim(),
+        declaredBytes: declared,
+      );
+      final packId = '${created['pack_id'] ?? ''}'.trim();
+      if (packId.isEmpty) {
+        error = '이전 팩을 만들지 못했습니다.';
+        return false;
+      }
+      final st = await _client.fetchStatus();
+      final piece = st.transferPackPieceMax;
+      final manifest = <String, Map<String, dynamic>>{};
+      var done = 0;
+      for (final e in files.entries) {
+        final bytes = e.value;
+        final sha = paperDiskSha256Hex(bytes);
+        final parts = (bytes.length + piece - 1) ~/ piece;
+        if (parts <= 1) {
+          await _client.putTransferPackFile(
+            packId: packId,
+            path: e.key,
+            bytes: bytes,
+          );
+        } else {
+          for (var i = 0; i < parts; i++) {
+            final start = i * piece;
+            final end = (start + piece > bytes.length)
+                ? bytes.length
+                : start + piece;
+            await _client.putTransferPackFile(
+              packId: packId,
+              path: e.key,
+              bytes: Uint8List.sublistView(bytes, start, end),
+              partIndex: i,
+              partTotal: parts,
+              sha256: sha,
+            );
+          }
+        }
+        manifest[e.key] = {'size': bytes.length, 'sha256': sha};
+        done += 1;
+        uploadPercent = ((done / files.length) * 90).round().clamp(0, 90);
+        uploadStage = '이전 팩 업로드 $done/${files.length}';
+        notifyListeners();
+      }
+      uploadStage = '이전 팩 완료 처리';
+      notifyListeners();
+      await _client.completeTransferPack(packId: packId, files: manifest);
+      uploadPercent = 100;
+      uploadStage = '이전 팩 준비됨 (7일)';
+      asrEvidenceBus?.record(
+        'transfer_pack_complete',
+        ok: true,
+        cacheId: cid,
+        details: {'file_n': files.length, 'bytes': declared},
+      );
+      return true;
+    } on AsrApiException catch (e) {
+      error = e.message;
+      return false;
+    } catch (e) {
+      error = e.toString();
+      return false;
+    } finally {
+      uploading = false;
+      if (uploadPercent >= 100) {
+        // keep stage briefly for snackbar
+      } else {
+        uploadPercent = 0;
+        uploadStage = '';
+      }
+      notifyListeners();
+    }
+  }
+
+  /// design/186 — list packs for import UI.
+  Future<List<Map<String, dynamic>>> listTransferPacks() async {
+    try {
+      return await _client.listTransferPacks();
+    } on AsrApiException catch (e) {
+      error = e.message;
+      notifyListeners();
+      return const [];
+    } catch (e) {
+      error = e.toString();
+      notifyListeners();
+      return const [];
+    }
+  }
+
+  /// design/186 — import pack → replace same cache_id locally (no cloud papers/).
+  Future<bool> importTransferPack(
+    String packId, {
+    bool deleteAfter = true,
+  }) async {
+    if (opening || uploading || reanalyzing) {
+      error = '다른 작업 중입니다. 잠시 후 다시 시도해 주세요.';
+      notifyListeners();
+      return false;
+    }
+    final pid = packId.trim();
+    if (pid.isEmpty) return false;
+    uploading = true;
+    uploadPercent = 0;
+    uploadStage = '이전 팩 받기';
+    error = null;
+    notifyListeners();
+    try {
+      final lease = await _client.leaseTransferPack(pid);
+      final meta = lease['meta'];
+      final filesMeta = lease['files'];
+      if (meta is! Map || filesMeta is! Map) {
+        error = '이전 팩 정보가 없습니다.';
+        return false;
+      }
+      final cacheId = '${meta['cache_id'] ?? ''}'.trim();
+      final title = '${meta['title'] ?? cacheId}'.trim();
+      if (cacheId.isEmpty) {
+        error = '이전 팩 cache_id가 없습니다.';
+        return false;
+      }
+      final st = await _client.fetchStatus();
+      final piece = st.transferPackPieceMax;
+      final files = <String, Uint8List>{};
+      final entries = filesMeta.entries.toList();
+      var i = 0;
+      for (final ent in entries) {
+        final rel = '${ent.key}'.trim();
+        if (rel.isEmpty || ent.value is! Map) continue;
+        final row = Map<String, dynamic>.from(ent.value as Map);
+        final wantSha = '${row['sha256'] ?? ''}'.trim().toLowerCase();
+        final wantSize = () {
+          final v = row['size'];
+          if (v is int) return v;
+          if (v is num) return v.toInt();
+          return int.tryParse('$v') ?? 0;
+        }();
+        final buf = BytesBuilder(copy: false);
+        var offset = 0;
+        while (true) {
+          final chunk = await _client.getTransferPackFile(
+            packId: pid,
+            path: rel,
+            offset: offset,
+            limit: piece,
+          );
+          if (chunk.isEmpty) break;
+          buf.add(chunk);
+          offset += chunk.length;
+          if (wantSize > 0 && offset >= wantSize) break;
+          if (chunk.length < piece) break;
+        }
+        final bytes = buf.toBytes();
+        if (wantSize > 0 && bytes.length != wantSize) {
+          error = '파일 크기 불일치: $rel';
+          return false;
+        }
+        final got = paperDiskSha256Hex(bytes);
+        if (wantSha.isNotEmpty && got != wantSha) {
+          error = '파일 검증 실패: $rel';
+          return false;
+        }
+        files[rel] = Uint8List.fromList(bytes);
+        i += 1;
+        uploadPercent = ((i / entries.length) * 85).round().clamp(0, 85);
+        uploadStage = '이전 팩 다운로드 $i/${entries.length}';
+        notifyListeners();
+      }
+      uploadStage = '로컬에 반영';
+      notifyListeners();
+      final ok = await _paperDisk.replaceFromTransferPack(
+        cacheId: cacheId,
+        title: title,
+        files: files,
+      );
+      if (!ok) {
+        error = '로컬 반영에 실패했습니다.';
+        return false;
+      }
+      if (deleteAfter) {
+        try {
+          await _client.deleteTransferPack(pid);
+        } catch (_) {}
+      }
+      uploadPercent = 100;
+      uploadStage = '이전 팩 가져오기 완료';
+      await refresh();
+      asrEvidenceBus?.record(
+        'transfer_pack_download',
+        ok: true,
+        cacheId: cacheId,
+        details: {'file_n': files.length},
+      );
+      return true;
+    } on AsrApiException catch (e) {
+      error = e.message;
+      return false;
+    } catch (e) {
+      error = e.toString();
+      return false;
+    } finally {
+      uploading = false;
+      if (uploadPercent < 100) {
+        uploadPercent = 0;
+        uploadStage = '';
+      }
+      notifyListeners();
+    }
+  }
+
 }

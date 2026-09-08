@@ -103,6 +103,12 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "paper_handoff_done",
         "paper_cloud_wipe",
         "paper_upload_refused_acked",
+        # design/186 — device transfer packs
+        "transfer_pack_create",
+        "transfer_pack_complete",
+        "transfer_pack_download",
+        "transfer_pack_deleted",
+        "transfer_pack_purge_tick",
     }
 )
 
@@ -340,6 +346,8 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "session_ensured",
             "_ingest_artifact_ttl_loop",
             "ingest_artifact_purge_tick",
+            "_transfer_pack_ttl_loop",
+            "transfer_pack_purge_tick",
         ),
     ),
     (
@@ -380,6 +388,24 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "apply_handoff_ack",
             "refuse_upload_if_acked",
             "paper_cloud_wipe",
+        ),
+    ),
+    (
+        "src/sentence_reading/llm/transfer_pack_gcs.py",
+        (
+            "assert_deletable_pack_object",
+            "create_pack",
+            "complete_pack",
+            "transfer_pack_create",
+            "transfer_pack_complete",
+        ),
+    ),
+    (
+        "src/sentence_reading/llm/transfer_pack_ttl.py",
+        (
+            "purge_once",
+            "should_purge_meta",
+            "transfer_pack_deleted",
         ),
     ),
     (

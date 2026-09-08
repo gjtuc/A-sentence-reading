@@ -691,4 +691,101 @@ class PaperDiskStore {
     if (extra.isEmpty) return remote;
     return [...remote, ...extra];
   }
+
+  /// design/186 — collect packable relative paths under the paper folder.
+  Future<Map<String, Uint8List>> collectTransferPackFiles(String cacheId) async {
+    final out = <String, Uint8List>{};
+    final dir = await paperDir(cacheId);
+    if (dir == null || !await dir.exists()) return out;
+
+    Future<void> maybeAdd(String rel) async {
+      final f = File(p.join(dir.path, rel));
+      if (!await f.exists()) return;
+      try {
+        final bytes = await f.readAsBytes();
+        if (bytes.isEmpty) return;
+        out[rel] = Uint8List.fromList(bytes);
+      } catch (_) {}
+    }
+
+    await maybeAdd('session.json');
+    await maybeAdd('layout_map.json');
+    await maybeAdd('slot_plan.json');
+    await maybeAdd('source.pdf');
+    await maybeAdd('source.docx');
+    final figs = Directory(p.join(dir.path, 'figures'));
+    if (await figs.exists()) {
+      await for (final ent in figs.list(followLinks: false)) {
+        if (ent is! File) continue;
+        final name = p.basename(ent.path);
+        if (!name.endsWith('.png')) continue;
+        try {
+          final bytes = await ent.readAsBytes();
+          if (bytes.isEmpty) continue;
+          out['figures/$name'] = Uint8List.fromList(bytes);
+        } catch (_) {}
+      }
+    }
+    return out;
+  }
+
+  /// design/186 — replace local paper folder from imported pack bytes (same cache_id).
+  Future<bool> replaceFromTransferPack({
+    required String cacheId,
+    required String title,
+    required Map<String, Uint8List> files,
+    String contentHash = '',
+  }) async {
+    if (!isBound || cacheId.trim().isEmpty || !files.containsKey('session.json')) {
+      return false;
+    }
+    final cid = figureCacheSafeToken(cacheId, maxLen: 32);
+    if (cid.isEmpty) return false;
+    await purge(cid);
+    var ok = 0;
+    for (final e in files.entries) {
+      final w = await applyHandoffFile(
+        cid,
+        e.key,
+        e.value,
+        contentHash: contentHash,
+      );
+      if (w) ok += 1;
+    }
+    if (ok == 0) return false;
+    Map<String, dynamic>? session;
+    try {
+      session = await loadSessionJson(cid);
+    } catch (_) {
+      session = null;
+    }
+    final sentenceCount = (session?['sentences'] is List)
+        ? (session!['sentences'] as List).length
+        : 0;
+    final figureCount = (session?['figures'] is List)
+        ? (session!['figures'] as List).length
+        : files.keys.where((k) => k.startsWith('figures/')).length;
+    final ch = contentHash.trim().isNotEmpty
+        ? contentHash.trim().toLowerCase()
+        : '${session?['content_hash'] ?? ''}'.trim().toLowerCase();
+    await upsertIndex(
+      PaperDiskIndexEntry(
+        id: cid,
+        title: title.trim().isEmpty
+            ? ('${session?['title'] ?? ''}'.trim().isEmpty
+                ? cid
+                : '${session?['title'] ?? ''}'.trim())
+            : title.trim(),
+        source: files.containsKey('source.docx') ? 'docx' : 'pdf',
+        updatedAt: DateTime.now().toUtc().toIso8601String(),
+        sentenceCount: sentenceCount,
+        figureCount: figureCount,
+        contentHash: ch,
+        hasSource:
+            files.containsKey('source.pdf') || files.containsKey('source.docx'),
+        debone: false,
+      ),
+    );
+    return true;
+  }
 }

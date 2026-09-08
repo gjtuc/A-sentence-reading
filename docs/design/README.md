@@ -169,7 +169,7 @@
 | 183 | [183-reader-layout-by-first-fig-chip.md](183-reader-layout-by-first-fig-chip.md) | 첫 Fig/Table 칩 기준 리더 레이아웃 (**0.3.175**) |
 | 184 | [184-ingest-artifact-ttl.md](184-ingest-artifact-ttl.md) | ingest 중간물 TTL 폐기 (**0.3.177**) |
 | 185 | [185-local-paper-sot.md](185-local-paper-sot.md) | 분석 논문 로컬 SoT · handoff ACK + wipe (**0.3.179**) |
-| 186 | [186-device-transfer-pack.md](186-device-transfer-pack.md) | 7일 기기 이전 팩 · papers와 분리 (**LOCKED**, 185 이후) |
+| 186 | [186-device-transfer-pack.md](186-device-transfer-pack.md) | 7일 기기 이전 팩 · papers와 분리 (**0.3.180**) |
 
 **구현 순서 (강제):** 00 → 01 → 04/05 뼈대 → 02 → 03 → 06/07 UI 연결 → 08/09/10 보강.  
 스플리터(11)는 UI 스켈레톤과 함께 구현 가능 (PDF와 무관).  
@@ -318,4 +318,4 @@
 183 — 첫 Fig/Table 칩 기준 리더 레이아웃 auto · Intro collapse · cite 접기 (0.3.175).
 184 — ingest uploads/jobs/payloads TTL 폐기 (0.3.177).
 185 — 분석 논문 로컬 SoT · ACK 후 papers wipe (LOCKED).
-186 — 7일 device-transfer pack (LOCKED · 185 이후).
+186 — 7일 device-transfer pack (**0.3.180**).

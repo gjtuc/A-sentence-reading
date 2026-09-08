@@ -131,5 +131,10 @@ ALLOWED_KINDS = frozenset(
         "paper_handoff_done",
         "paper_cloud_wipe",
         "paper_upload_refused_acked",
+        "transfer_pack_create",
+        "transfer_pack_complete",
+        "transfer_pack_download",
+        "transfer_pack_deleted",
+        "transfer_pack_purge_tick",
     }
 )
