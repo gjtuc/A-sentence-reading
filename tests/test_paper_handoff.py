@@ -50,7 +50,7 @@ def test_refuse_upload_when_acked(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_status_flags() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.186"
+    assert st["version"] == "0.3.187"
     assert st.get("paper_handoff") is True
     assert st.get("paper_local_sot") is True
     assert int(st.get("paper_local_sot_phase") or 0) == 4

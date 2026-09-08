@@ -25,7 +25,7 @@ def test_status_advertises_local_sot(client: TestClient) -> None:
     assert st.get("annotations_local_sot") is True
     assert st.get("shadowing_local_sot") is True
     assert st.get("notes_local_sot") is True
-    assert st["version"] == "0.3.186"
+    assert st["version"] == "0.3.187"
 
 
 def test_bookmarks_put_refused(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

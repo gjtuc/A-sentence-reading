@@ -42,12 +42,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _selecting = false;
   final Set<String> _selected = <String>{};
   bool _deleting = false;
-  bool _localSotSnackShown = false;
-
-  bool get _anyLocalSot =>
-      widget.bookmarks.localSot ||
-      (widget.annotations?.localSot ?? false) ||
-      (widget.shadowing?.localSot ?? false);
 
   /// design/168c — non-ok ingest_status chip label (null = hide).
   static String? _ingestStatusLabel(String status) {
@@ -71,15 +65,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.auth.isLoggedIn) {
         _loadAndResume();
-      }
-      if (_anyLocalSot && !_localSotSnackShown && mounted) {
-        _localSotSnackShown = true;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('북마크·형광펜·연습 녹음은 이 기기에 저장됩니다'),
-            duration: Duration(seconds: 3),
-          ),
-        );
       }
     });
   }
@@ -408,15 +393,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                               '보관 ${lib.papers.length}건',
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
-                            if (_anyLocalSot)
-                              Text(
-                                '북마크·형광펜·연습 녹음은 이 기기에 저장됩니다',
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
-                                    ),
-                              ),
                           ],
                         ),
                       ),
