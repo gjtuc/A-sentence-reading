@@ -548,12 +548,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
               ),
             ),
             if (library.shadowingChunksBusy)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 child: Text(
-                  '연습 구간을 준비하는 중…',
+                  library.shadowingChunksProgress == null ||
+                          library.shadowingChunksProgress!.isEmpty
+                      ? '연습 구간을 준비하는 중…'
+                      : '연습 구간을 준비하는 중… ${library.shadowingChunksProgress}',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12),
+                  style: const TextStyle(fontSize: 12),
                 ),
               ),
             if (library.shadowingChunksError != null)

@@ -104,6 +104,8 @@ class LibraryController extends ChangeNotifier {
   /// design/80 — fail-closed banner when chunk plan missing/failed.
   String? shadowingChunksError;
   String? shadowingChunksCacheId;
+  /// design/113 · 0.3.176 — soft progress while pending (e.g. 29/301).
+  String? shadowingChunksProgress;
   bool shadowingChunksBusy = false;
 
   /// design/99 — KO backfill polling after /open (translate_pending).
@@ -2527,6 +2529,7 @@ class LibraryController extends ChangeNotifier {
 
   void clearOpened() {
     shadowingChunksError = null;
+    shadowingChunksProgress = null;
     shadowingChunksCacheId = null;
     shadowingChunksBusy = false;
     session = null;
@@ -2541,6 +2544,7 @@ class LibraryController extends ChangeNotifier {
     _uploadCancelRequested = true;
     _endIngestHang();
     shadowingChunksError = null;
+    shadowingChunksProgress = null;
     shadowingChunksCacheId = null;
     shadowingChunksBusy = false;
     papers = const [];
@@ -2620,7 +2624,8 @@ class LibraryController extends ChangeNotifier {
 
 
   /// design/80 · design/113 — backfill/retry; pending slices auto-continue.
-  /// design/169p — ensure_start/done + gate evidence (no product behavior change).
+  /// design/169p — ensure_start/done + gate evidence.
+  /// 0.3.176 — client TimeoutException on GET/build is *continue*, not hard error.
   Future<void> ensureShadowingChunks(String cacheId) async {
     final id = cacheId.trim();
     if (id.isEmpty) return;
@@ -2641,12 +2646,14 @@ class LibraryController extends ChangeNotifier {
         },
       );
       shadowingChunksError = null;
+      shadowingChunksProgress = null;
       shadowingChunksBusy = false;
       notifyListeners();
       return;
     }
     shadowingChunksBusy = true;
     shadowingChunksError = null;
+    shadowingChunksProgress = null;
     notifyListeners();
     final sw = Stopwatch()..start();
     asrEvidenceBus?.record(
@@ -2658,68 +2665,116 @@ class LibraryController extends ChangeNotifier {
     var planStatus = '';
     var errorCode = '';
     var okOut = false;
-    try {
-      final got = await _client.fetchShadowingChunks(id);
-      final plan = got['plan'];
-      final status = plan is Map ? plan['status']?.toString() : null;
-      planStatus = status ?? '';
-      if (status == 'ok') {
-        shadowingChunksError = null;
-        okOut = true;
-        return;
+    var timeoutContinues = 0;
+
+    void applyProgress(Map<String, dynamic> body) {
+      final done = body['progress_done'];
+      final total = body['progress_total'];
+      final d = done is int ? done : int.tryParse('$done');
+      final t = total is int ? total : int.tryParse('$total');
+      if (d != null && t != null && t > 0) {
+        shadowingChunksProgress = '$d/$t';
       }
-      // design/113 — several budget slices until ok/error (cap avoids infinite).
-      const maxSlices = 40;
-      for (var i = 0; i < maxSlices; i++) {
-        Map<String, dynamic> built;
-        try {
-          built = await _client.buildShadowingChunks(
-            id,
-            practiceEnabled: true,
-            round: i + 1,
-          );
-          rounds = i + 1;
-        } on AsrApiException catch (e) {
-          // EDGE: legacy gateway 504 before budget fix — retry a few times.
-          if (e.statusCode == 504 && i < 5) {
-            await Future<void>.delayed(Duration(seconds: 2 + i));
+      final plan = body['plan'];
+      if (plan is Map) {
+        final prog = plan['progress'];
+        if (prog is Map) {
+          final pd = prog['done'];
+          final pt = prog['total'];
+          final d2 = pd is int ? pd : int.tryParse('$pd');
+          final t2 = pt is int ? pt : int.tryParse('$pt');
+          if (d2 != null && t2 != null && t2 > 0) {
+            shadowingChunksProgress = '$d2/$t2';
+          }
+        }
+      }
+    }
+
+    try {
+      var needBuild = true;
+      try {
+        final got = await _client.fetchShadowingChunks(id);
+        applyProgress(got);
+        final plan = got['plan'];
+        final status = plan is Map ? plan['status']?.toString() : null;
+        planStatus = status ?? '';
+        if (status == 'ok') {
+          shadowingChunksError = null;
+          shadowingChunksProgress = null;
+          okOut = true;
+          needBuild = false;
+        }
+      } on TimeoutException {
+        // design/113 — GET stall (cold start / large plan) must not red-banner.
+        timeoutContinues++;
+        planStatus = planStatus.isEmpty ? 'pending' : planStatus;
+        needBuild = true;
+        notifyListeners();
+      }
+
+      if (needBuild) {
+        // design/113 — several budget slices until ok/error (cap avoids infinite).
+        const maxSlices = 40;
+        for (var i = 0; i < maxSlices; i++) {
+          Map<String, dynamic> built;
+          try {
+            built = await _client.buildShadowingChunks(
+              id,
+              practiceEnabled: true,
+              round: i + 1,
+            );
+            rounds = i + 1;
+          } on TimeoutException {
+            // Slice still running server-side; keep busy and resume.
+            timeoutContinues++;
+            planStatus = planStatus.isEmpty ? 'pending' : planStatus;
+            notifyListeners();
+            await Future<void>.delayed(Duration(seconds: 1 + (i % 3)));
+            continue;
+          } on AsrApiException catch (e) {
+            // EDGE: legacy gateway 504 before budget fix — retry a few times.
+            if (e.statusCode == 504 && i < 5) {
+              await Future<void>.delayed(Duration(seconds: 2 + i));
+              continue;
+            }
+            rethrow;
+          }
+          applyProgress(built);
+          final p2 = built['plan'];
+          final st2 = p2 is Map ? p2['status']?.toString() : null;
+          planStatus = st2 ?? '';
+          if (st2 == 'ok') {
+            shadowingChunksError = null;
+            shadowingChunksProgress = null;
+            okOut = true;
+            return;
+          }
+          if (st2 == 'pending' || built['continue'] == true) {
+            // Honest in-progress — keep busy banner, next slice immediately.
+            notifyListeners();
             continue;
           }
-          rethrow;
-        }
-        final p2 = built['plan'];
-        final st2 = p2 is Map ? p2['status']?.toString() : null;
-        planStatus = st2 ?? '';
-        if (st2 == 'ok') {
-          shadowingChunksError = null;
-          okOut = true;
+          if (st2 == 'error' || built['ok'] == false) {
+            final msg = built['message']?.toString();
+            errorCode =
+                built['error']?.toString() ??
+                (p2 is Map ? p2['error']?.toString() : null) ??
+                'build_failed';
+            shadowingChunksError =
+                (msg != null && msg.isNotEmpty)
+                    ? msg
+                    : '연습 구간을 만들지 못했습니다. 다시 시도해 주세요.';
+            return;
+          }
+          // Unknown shape — fail closed (no silent success).
+          errorCode = 'unknown_shape';
+          shadowingChunksError = '연습 구간을 만들지 못했습니다. 다시 시도해 주세요.';
           return;
         }
-        if (st2 == 'pending' || built['continue'] == true) {
-          // Honest in-progress — keep busy banner, next slice immediately.
-          notifyListeners();
-          continue;
-        }
-        if (st2 == 'error' || built['ok'] == false) {
-          final msg = built['message']?.toString();
-          errorCode =
-              built['error']?.toString() ??
-              (p2 is Map ? p2['error']?.toString() : null) ??
-              'build_failed';
-          shadowingChunksError =
-              (msg != null && msg.isNotEmpty)
-                  ? msg
-                  : '연습 구간을 만들지 못했습니다. 다시 시도해 주세요.';
-          return;
-        }
-        // Unknown shape — fail closed (no silent success).
-        errorCode = 'unknown_shape';
-        shadowingChunksError = '연습 구간을 만들지 못했습니다. 다시 시도해 주세요.';
-        return;
+        errorCode = timeoutContinues > 0 ? 'timeout_cap' : 'cap_hit';
+        shadowingChunksError =
+            '연습 구간 준비가 아직 끝나지 않았습니다. 다시 시도해 주세요.';
       }
-      errorCode = 'cap_hit';
-      shadowingChunksError =
-          '연습 구간 준비가 길어집니다. 다시 시도해 주세요.';
     } on AsrApiException catch (e) {
       errorCode = 'api_fail';
       shadowingChunksError = e.message;
@@ -2737,10 +2792,12 @@ class LibraryController extends ChangeNotifier {
           'plan_status': planStatus,
           'rounds': rounds,
           'elapsed_ms': sw.elapsedMilliseconds,
+          'timeout_continues': timeoutContinues,
           if (errorCode.isNotEmpty) 'error_code': errorCode,
         },
       );
       shadowingChunksBusy = false;
+      if (okOut) shadowingChunksProgress = null;
       notifyListeners();
     }
   }
