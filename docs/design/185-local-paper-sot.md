@@ -5,7 +5,7 @@ Modules (planned):
 `src/sentence_reading/llm/paper_handoff.py` · `papers_gcs.py` · `app.py`  
 Parents: [18](18-paper-library.md) · [20](20-source-backup-reanalyze.md) · [121](121-library-open-gcs-first.md) · [144](144-paper-retention-ttl.md) · [171](171-device-figure-cache.md) · [175](175-papers-gcs-orphan-invariant.md) · [184](184-ingest-artifact-ttl.md)
 
-**Status:** SHIPPING Phase 4 (0.3.179) — handoff ACK + cloud wipe (kill ASR_PAPER_LOCAL_SOT=0)  
+**Status:** SHIPPED Phase 4 (0.3.179) + leftovers **0.3.181** (abandon TTL · bulk handoff · wipe polish)  
 **UI:** 모바일 도서관/열기 경로 전환 (웹은 v1 범위 밖)  
 **Target:** 별도 버전 칩 (0.3.178+ 단계적)
 
@@ -163,3 +163,18 @@ See § implementation plan in chat/canvas. Summary:
 - **Concentrate (secret):** server pipelines (exact crop, reading order, practice/TTS prep).  
 - **Bottled product:** `session` + figures on device — **not** secret; no need to harden assembly.  
 - Cloud after ACK: **no warehouse of bottles** — only factory + evidence + optional [186](186-device-transfer-pack.md) shipping crate.
+
+---
+
+## 9. Leftovers (0.3.181) — locked
+
+| # | Judgment |
+|---|----------|
+| J19 | Abandon TTL only when handoff state `pending=True` ∧ `acked=False`, age from `manifest_built_at` (fallback `updated_at`) ≥ `ASR_PAPER_HANDOFF_ABANDON_HOURS` (default 72) |
+| J20 | Abandon wipe = `delete_paper_cache_stats` only (papers prefix + index). **Never** `delete_cached_paper` (notes/bookmarks/shadowing stay) |
+| J21 | Bulk handoff = client loops library rows lacking local session; reuse per-id handoff APIs; one-shot after refresh when `paper_handoff` |
+| J22 | Shadowing `/build` sends `sentences` from open session or `PaperDiskStore` when cloud session gone |
+| J23 | Figure hydrate arms from local disk session before `/open`; skip GCS arm when local figures suffice |
+| J24 | Kill: `ASR_PAPER_HANDOFF_ABANDON_TTL=0` disables purge loop (default on). Dry-run: `ASR_PAPER_HANDOFF_ABANDON_TTL_DRY_RUN=1` |
+
+Evidence (add-only): `paper_handoff_abandoned`, `paper_handoff_abandon_purge_tick`, `paper_bulk_handoff_start`, `paper_bulk_handoff_done`.

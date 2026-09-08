@@ -78,6 +78,7 @@ class LibraryController extends ChangeNotifier {
   void bindFigureDiskUid(String? uid) {
     _figureDisk.bindUid(uid);
     _paperDisk.bindUid(uid);
+    _bulkHandoffAttempted = false;
   }
   BookmarkController? _bookmarks;
   AnnotationController? _annotations;
@@ -328,33 +329,57 @@ class LibraryController extends ChangeNotifier {
 
     try {
       ReadingSession? hs;
-      try {
-        final wantTr = await _wantTranslate();
-        hs = await _client.openPaper(cid, translate: wantTr);
-      } catch (e) {
-        _figureHydrate[cid] = FigureHydrateSnapshot(
-          cacheId: cid,
-          phase: FigureHydratePhase.aborted,
-          total: 0,
-          filled: 0,
-          failed: 0,
-          attemptN: attempt,
-          abortReason: 'open_failed',
-        );
-        asrEvidenceBus?.record(
-          'figure_hydrate_abort',
-          severity: 'error',
-          cacheId: cid,
-          stage: 'arming',
-          ok: false,
-          details: {'abort_reason': 'open_failed', 'attempt_n': attempt},
-          message: e.toString().length > 200
-              ? e.toString().substring(0, 200)
-              : e.toString(),
-        );
-        notifyListeners();
-        return;
+      // design/185 J23 — prefer local disk session before cloud /open.
+      if (await _paperDisk.hasSession(cid)) {
+        final raw = await _paperDisk.loadSessionJson(cid);
+        if (raw != null) {
+          try {
+            final local = ReadingSession.fromOpenJson(raw, fallbackTitle: cid);
+            for (var i = 0; i < local.figures.length; i++) {
+              final f = local.figures[i];
+              if (f.imageSrc.trim().isNotEmpty) continue;
+              final bytes = await _paperDisk.readFigureBytes(cid, f.id);
+              if (bytes == null || bytes.isEmpty) continue;
+              local.figures[i].imageSrc = figureDataUrlFromBytes(bytes);
+            }
+            hs = local;
+          } catch (_) {
+            hs = null;
+          }
+        }
       }
+      try {
+        if (hs == null) {
+          final wantTr = await _wantTranslate();
+          hs = await _client.openPaper(cid, translate: wantTr);
+        }
+      } catch (e) {
+        if (hs == null) {
+          _figureHydrate[cid] = FigureHydrateSnapshot(
+            cacheId: cid,
+            phase: FigureHydratePhase.aborted,
+            total: 0,
+            filled: 0,
+            failed: 0,
+            attemptN: attempt,
+            abortReason: 'open_failed',
+          );
+          asrEvidenceBus?.record(
+            'figure_hydrate_abort',
+            severity: 'error',
+            cacheId: cid,
+            stage: 'arming',
+            ok: false,
+            details: {'abort_reason': 'open_failed', 'attempt_n': attempt},
+            message: e.toString().length > 200
+                ? e.toString().substring(0, 200)
+                : e.toString(),
+          );
+          notifyListeners();
+          return;
+        }
+      }
+      if (hs == null) return;
       if (gen != _hydrateGeneration && _hydrateDismissed.contains(cid)) {
         return;
       }
@@ -1159,6 +1184,107 @@ class LibraryController extends ChangeNotifier {
   }
 
 
+  bool _bulkHandoffRunning = false;
+  bool _bulkHandoffAttempted = false;
+
+  /// design/185 J21 — one-shot pull of cloud papers missing a local session.
+  Future<void> handoffRemoteLibraryIfNeeded({bool force = false}) async {
+    if (_bulkHandoffRunning) return;
+    if (_bulkHandoffAttempted && !force) return;
+    if (!_paperDisk.isBound || papers.isEmpty) return;
+    if (opening || uploading || reanalyzing) return;
+    try {
+      final st = await _client.fetchStatus();
+      if (!st.paperHandoff || !st.paperLocalSot) return;
+    } catch (_) {
+      return;
+    }
+    final targets = <PaperEntry>[
+      for (final e in papers)
+        if (e.id.trim().isNotEmpty &&
+            e.ingestStatus != 'local' &&
+            !(await _paperDisk.hasSession(e.id)))
+          e,
+    ];
+    if (targets.isEmpty) {
+      _bulkHandoffAttempted = true;
+      return;
+    }
+    _bulkHandoffRunning = true;
+    _bulkHandoffAttempted = true;
+    asrEvidenceBus?.record(
+      'paper_bulk_handoff_start',
+      severity: 'lifecycle',
+      stage: 'client',
+      ok: true,
+      details: {'n': targets.length},
+    );
+    var okN = 0;
+    var failN = 0;
+    try {
+      for (final e in targets) {
+        if (opening || uploading || reanalyzing) break;
+        final ok = await _runPaperHandoff(e.id, title: e.title);
+        if (ok) {
+          okN += 1;
+        } else {
+          failN += 1;
+        }
+      }
+    } finally {
+      _bulkHandoffRunning = false;
+      asrEvidenceBus?.record(
+        'paper_bulk_handoff_done',
+        severity: 'lifecycle',
+        stage: 'client',
+        ok: failN == 0,
+        details: {'ok_n': okN, 'fail_n': failN, 'target_n': targets.length},
+      );
+      if (okN > 0) {
+        await refresh();
+      }
+      notifyListeners();
+    }
+  }
+
+  Future<List<Map<String, dynamic>>?> _shadowingSentencesPayload(
+    String cacheId,
+  ) async {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return null;
+    List<dynamic>? rows;
+    if (session != null &&
+        session!.cacheId.trim() == cid &&
+        session!.sentences.isNotEmpty) {
+      rows = session!.sentences;
+    } else {
+      final raw = await _paperDisk.loadSessionJson(cid);
+      final sents = raw == null ? null : raw['sentences'];
+      if (sents is List && sents.isNotEmpty) {
+        final out = <Map<String, dynamic>>[];
+        for (final item in sents) {
+          if (item is! Map) continue;
+          final id = '${item['id'] ?? ''}'.trim();
+          final text = '${item['text'] ?? ''}'.trim();
+          if (text.isEmpty) continue;
+          out.add({
+            'id': id.isEmpty ? '${out.length}' : id,
+            'text': text,
+          });
+        }
+        return out.isEmpty ? null : out;
+      }
+      return null;
+    }
+    return [
+      for (var i = 0; i < rows.length; i++)
+        {
+          'id': rows[i].id.trim().isEmpty ? '$i' : rows[i].id,
+          'text': rows[i].text,
+        },
+    ];
+  }
+
   /// design/185 — pull paper folder chunks, verify sha256, ACK (may wipe cloud).
   Future<bool> _runPaperHandoff(String cacheId, {String title = ''}) async {
     final cid = cacheId.trim();
@@ -1366,6 +1492,8 @@ class LibraryController extends ChangeNotifier {
         ok: true,
         details: {'paper_n': n, 'trigger': trig},
       );
+      // design/185 J21 — migrate pre-existing cloud papers once per bind.
+      unawaited(handoffRemoteLibraryIfNeeded());
     } on AsrApiException catch (e) {
       if (clearError) {
         error = e.message;
@@ -2205,8 +2333,8 @@ class LibraryController extends ChangeNotifier {
             'hydrate_active': _hydrateActive.contains(entry.id.trim()) ? 1 : 0,
           },
         );
-      } else if (entry.ingestStatus == 'local') {
-        // design/185 Phase 1 — local-only / disk-backed open (no GCS pull).
+      } else if (await _paperDisk.hasSession(entry.id)) {
+        // design/185 — local SoT open whenever disk has session (post-wipe / bulk).
         final raw = await _paperDisk.loadSessionJson(entry.id);
         if (raw == null) {
           error = '로컬 보관본을 찾을 수 없습니다. 논문을 다시 열어 동기화해 주세요.';
@@ -2890,9 +3018,11 @@ class LibraryController extends ChangeNotifier {
         for (var i = 0; i < maxSlices; i++) {
           Map<String, dynamic> built;
           try {
+            final sentenceRows = await _shadowingSentencesPayload(id);
             built = await _client.buildShadowingChunks(
               id,
               practiceEnabled: true,
+              sentences: sentenceRows,
               round: i + 1,
             );
             rounds = i + 1;

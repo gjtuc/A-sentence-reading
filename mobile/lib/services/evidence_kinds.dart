@@ -132,4 +132,8 @@ const Set<String> kEvidenceAllowedKinds = {
   'transfer_pack_download',
   'transfer_pack_deleted',
   'transfer_pack_purge_tick',
+  'paper_handoff_abandoned',
+  'paper_handoff_abandon_purge_tick',
+  'paper_bulk_handoff_start',
+  'paper_bulk_handoff_done',
 };

@@ -109,6 +109,10 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "transfer_pack_download",
         "transfer_pack_deleted",
         "transfer_pack_purge_tick",
+        "paper_handoff_abandoned",
+        "paper_handoff_abandon_purge_tick",
+        "paper_bulk_handoff_start",
+        "paper_bulk_handoff_done",
     }
 )
 
@@ -348,6 +352,8 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "ingest_artifact_purge_tick",
             "_transfer_pack_ttl_loop",
             "transfer_pack_purge_tick",
+            "_paper_handoff_abandon_loop",
+            "paper_handoff_abandon_purge_tick",
         ),
     ),
     (
@@ -388,6 +394,8 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "apply_handoff_ack",
             "refuse_upload_if_acked",
             "paper_cloud_wipe",
+            "purge_abandoned_once",
+            "paper_handoff_abandoned",
         ),
     ),
     (

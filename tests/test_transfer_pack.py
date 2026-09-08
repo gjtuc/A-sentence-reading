@@ -93,7 +93,7 @@ def test_abandon_pending() -> None:
 
 def test_status_flags() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.180"
+    assert st["version"] == "0.3.181"
     assert st.get("transfer_pack") is True
     assert st.get("transfer_pack_ttl") is True
     assert int(st.get("transfer_pack_max_bytes") or 0) >= 200 * 1024 * 1024

@@ -30,9 +30,22 @@ def paper_handoff_advertised() -> bool:
 
 
 def status_fields() -> dict:
-    return {
+    out = {
         "paper_local_sot": paper_local_sot_enabled(),
         "paper_local_sot_phase": paper_local_sot_phase(),
         "paper_disk_store": paper_disk_store_advertised(),
         "paper_handoff": paper_handoff_advertised(),
     }
+    try:
+        from sentence_reading.llm.paper_handoff import abandon_status_fields
+
+        out.update(abandon_status_fields())
+    except Exception:
+        out.update(
+            {
+                "paper_handoff_abandon_ttl": False,
+                "paper_handoff_abandon_hours": 0,
+                "paper_handoff_abandon_ttl_dry_run": False,
+            }
+        )
+    return out

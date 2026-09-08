@@ -400,6 +400,209 @@ def refuse_upload_if_acked(cache_id: str) -> str | None:
     if not _CACHE_ID_RE.match(cid):
         return None
     st = load_handoff_state(cid)
-    if st and st.get("acked") and st.get("wiped"):
+    if not st:
+        return None
+    if st.get("acked") and st.get("wiped"):
         return "handoff_acked"
+    # Abandon TTL wipe — same resurrection ban until new ingest clears state.
+    if st.get("abandoned") and st.get("wiped"):
+        return "handoff_abandoned"
     return None
+
+
+
+def abandon_ttl_enabled() -> bool:
+    """design/185 J24 — purge stuck pending handoffs (default on)."""
+    v = (os.environ.get("ASR_PAPER_HANDOFF_ABANDON_TTL") or "1").strip().lower()
+    return v not in ("0", "false", "off", "no")
+
+
+def abandon_ttl_dry_run() -> bool:
+    v = (os.environ.get("ASR_PAPER_HANDOFF_ABANDON_TTL_DRY_RUN") or "0").strip().lower()
+    return v in ("1", "true", "on", "yes")
+
+
+def abandon_purge_interval_sec() -> int:
+    raw = (os.environ.get("ASR_PAPER_HANDOFF_ABANDON_PURGE_INTERVAL_S") or "3600").strip()
+    try:
+        s = int(raw)
+    except ValueError:
+        return 3600
+    return max(300, min(s, 24 * 3600))
+
+
+def abandon_purge_batch_limit() -> int:
+    raw = (os.environ.get("ASR_PAPER_HANDOFF_ABANDON_PURGE_BATCH") or "20").strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        return 20
+    return max(1, min(n, 100))
+
+
+def abandon_status_fields() -> dict[str, Any]:
+    return {
+        "paper_handoff_abandon_ttl": abandon_ttl_enabled(),
+        "paper_handoff_abandon_hours": handoff_abandon_hours(),
+        "paper_handoff_abandon_ttl_dry_run": abandon_ttl_dry_run(),
+    }
+
+
+def _parse_iso(raw: str) -> datetime | None:
+    s = (raw or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def list_handoff_state_ids() -> list[str]:
+    from sentence_reading.llm.gcs_sync import list_blobs_under, personal_object_name
+
+    prefix = personal_object_name("paper_handoff")
+    if not prefix:
+        return []
+    names = list_blobs_under(prefix + "/")
+    out: set[str] = set()
+    marker = prefix.rstrip("/") + "/"
+    for name in names:
+        n = str(name or "").replace("\\", "/")
+        if not n.startswith(marker):
+            continue
+        base = n[len(marker) :]
+        if not base.endswith(".json") or "/" in base:
+            continue
+        cid = base[:-5]
+        if _CACHE_ID_RE.match(cid):
+            out.add(cid)
+    return sorted(out)
+
+
+def should_abandon_handoff(
+    state: dict[str, Any] | None, *, now: datetime | None = None
+) -> tuple[bool, str]:
+    """J19 — pending un-acked only; age from manifest_built_at."""
+    if not isinstance(state, dict):
+        return False, "no_state"
+    if state.get("acked"):
+        return False, "acked"
+    if not state.get("pending"):
+        return False, "not_pending"
+    n = now or _utc_now()
+    base = _parse_iso(str(state.get("manifest_built_at") or state.get("updated_at") or ""))
+    if base is None:
+        return False, "no_timestamp"
+    if n >= base + timedelta(hours=handoff_abandon_hours()):
+        return True, "abandon_ttl"
+    return False, "not_yet"
+
+
+def abandon_one(cache_id: str, *, reason: str = "abandon_ttl") -> dict[str, Any]:
+    """Wipe papers prefix for stuck pending handoff; keep notes (J20)."""
+    cid = (cache_id or "").strip()
+    if not _CACHE_ID_RE.match(cid):
+        return {"ok": False, "error": "bad_cache_id"}
+    from sentence_reading.llm.papers_gcs import delete_paper_cache_stats
+
+    wipe_stats = delete_paper_cache_stats(cid)
+    wiped = bool(wipe_stats.get("ok"))
+    try:
+        from sentence_reading.cache.paper_cache import cache_root
+        import shutil
+
+        local = cache_root() / cid
+        if local.is_dir():
+            shutil.rmtree(local, ignore_errors=True)
+    except Exception:  # noqa: BLE001
+        log.debug("local paper dir abandon wipe skip", exc_info=True)
+
+    st = load_handoff_state(cid) or {}
+    save_handoff_state(
+        cid,
+        {
+            **st,
+            "acked": False,
+            "pending": False,
+            "abandoned": True,
+            "wiped": wiped,
+            "abandon_reason": reason,
+            "abandoned_at": _utc_now().isoformat(),
+            "wipe_stats": {
+                "ok": wipe_stats.get("ok"),
+                "residual_n": wipe_stats.get("residual_n"),
+                "object_n": wipe_stats.get("object_n"),
+            },
+        },
+    )
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        eb.emit(
+            "paper_handoff_abandoned",
+            ok=wiped,
+            cache_id=cid,
+            code=reason,
+            details={
+                "residual_n": wipe_stats.get("residual_n"),
+                "object_n": wipe_stats.get("object_n"),
+            },
+        )
+        if wiped:
+            eb.emit(
+                "paper_cloud_wipe",
+                ok=True,
+                cache_id=cid,
+                details={"reason": reason, "object_n": wipe_stats.get("object_n")},
+            )
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "cache_id": cid, "wiped": wiped, "stats": wipe_stats}
+
+
+def purge_abandoned_once(
+    *, limit: int | None = None, now: datetime | None = None
+) -> dict[str, Any]:
+    """Scan paper_handoff states; wipe aged pending (J19–J20)."""
+    lim = abandon_purge_batch_limit() if limit is None else max(1, min(int(limit), 100))
+    n = now or _utc_now()
+    summary: dict[str, Any] = {
+        "examined": 0,
+        "purged": 0,
+        "skipped": 0,
+        "errors": 0,
+        "dry_run": abandon_ttl_dry_run(),
+        "actions": [],
+    }
+    if not abandon_ttl_enabled() or not handoff_enabled():
+        return summary
+    for cid in list_handoff_state_ids():
+        if summary["purged"] >= lim:
+            break
+        summary["examined"] += 1
+        st = load_handoff_state(cid)
+        ok, reason = should_abandon_handoff(st, now=n)
+        if not ok:
+            summary["skipped"] += 1
+            continue
+        if abandon_ttl_dry_run():
+            summary["purged"] += 1
+            summary["actions"].append({"cache_id": cid[:8], "reason": reason, "dry_run": True})
+            continue
+        try:
+            out = abandon_one(cid, reason=reason)
+            if out.get("ok"):
+                summary["purged"] += 1
+                summary["actions"].append({"cache_id": cid[:8], "reason": reason})
+            else:
+                summary["errors"] += 1
+        except Exception:  # noqa: BLE001
+            summary["errors"] += 1
+            log.exception("abandon purge failed %s", cid[:8])
+    return summary

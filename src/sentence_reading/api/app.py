@@ -221,6 +221,18 @@ async def _lifespan(_app: FastAPI):
             transfer_pack_ttl_task = asyncio.create_task(_transfer_pack_ttl_loop())
     except Exception:
         transfer_pack_ttl_task = None
+    # design/185 leftovers — abandon un-acked pending handoffs
+    handoff_abandon_task = None
+    try:
+        from sentence_reading.llm.paper_handoff import (
+            abandon_purge_interval_sec,
+            abandon_ttl_enabled,
+        )
+
+        if abandon_ttl_enabled() and abandon_purge_interval_sec() > 0:
+            handoff_abandon_task = asyncio.create_task(_paper_handoff_abandon_loop())
+    except Exception:
+        handoff_abandon_task = None
     try:
         yield
     finally:
@@ -229,6 +241,7 @@ async def _lifespan(_app: FastAPI):
             rotate_task,
             artifact_ttl_task,
             transfer_pack_ttl_task,
+            handoff_abandon_task,
         ):
             if task is None:
                 continue
@@ -243,7 +256,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.180",
+    version="0.3.181",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1562,6 +1575,49 @@ async def _transfer_pack_ttl_loop() -> None:
                 pass
 
 
+async def _paper_handoff_abandon_loop() -> None:
+    """design/185 — purge stuck pending handoffs (papers/ only; never notes)."""
+    from sentence_reading.llm.paper_handoff import (
+        abandon_purge_interval_sec,
+        abandon_ttl_enabled,
+        purge_abandoned_once,
+    )
+
+    while True:
+        try:
+            await asyncio.sleep(abandon_purge_interval_sec())
+        except asyncio.CancelledError:
+            raise
+        if not abandon_ttl_enabled():
+            continue
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            summary = await asyncio.to_thread(purge_abandoned_once)
+            eb.emit(
+                "paper_handoff_abandon_purge_tick",
+                ok=True,
+                details={
+                    "examined": summary.get("examined"),
+                    "purged": summary.get("purged"),
+                    "skipped": summary.get("skipped"),
+                    "errors": summary.get("errors"),
+                    "dry_run": summary.get("dry_run"),
+                },
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            try:
+                from sentence_reading.llm import evidence_bus as eb
+
+                eb.emit(
+                    "paper_handoff_abandon_purge_tick", ok=False, code="loop_error"
+                )
+            except Exception:
+                pass
+
+
 def _progress_fail_closed_enabled() -> bool:
     """design/123 — refuse open when stored progress indices are invalid.
 
@@ -1672,7 +1728,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.180",
+        "version": "0.3.181",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
