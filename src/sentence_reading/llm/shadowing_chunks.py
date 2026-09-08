@@ -162,8 +162,17 @@ def save_chunk_plan(*, uid: str, cache_id: str, plan: dict[str, Any]) -> None:
     )
     if len(raw) > _MAX_STORE_BYTES:
         raise ValueError("plan_too_large")
+    # design/187 — device SoT: keep Gemini build response; do not durable-write GCS.
+    write_gcs = True
+    try:
+        from sentence_reading.llm.user_artifacts_local_sot import (
+            shadowing_local_sot_enabled,
+        )
+        write_gcs = not shadowing_local_sot_enabled()
+    except Exception:
+        write_gcs = True
     ready, _ = gcs_client_ready()
-    if ready:
+    if write_gcs and ready:
         name = chunks_object_name(cid)
         if name:
             upload_bytes(name, raw, content_type="application/json")

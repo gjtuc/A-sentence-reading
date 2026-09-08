@@ -29,6 +29,7 @@ import '../services/error_reporter.dart';
 import '../services/evidence_bus.dart';
 import '../services/figure_disk_cache.dart';
 import '../services/paper_disk_store.dart';
+import '../services/shadowing_cloud_migrate.dart';
 import '../services/hang_watchdog.dart';
 import '../services/paper_edit_stash.dart';
 import '../services/shadowing_disk_store.dart';
@@ -64,6 +65,7 @@ class LibraryController extends ChangeNotifier {
   final PaperEditStash _editStash;
   final FigureDiskCache _figureDisk;
   final PaperDiskStore _paperDisk;
+  bool _shadowingLocalSot = false;
   bool Function()? _translateEnabled;
 
   /// Wire after [TranslateController] exists (app root).
@@ -76,6 +78,12 @@ class LibraryController extends ChangeNotifier {
   PaperDiskStore get paperDiskStore => _paperDisk;
 
   /// design/171 · 185 — bind disk caches to signed-in uid (no cross-user reads).
+  
+  /// design/187 — when true, one-shot migrate shadowing/voice then wipe GCS.
+  void setShadowingLocalSot(bool next) {
+    _shadowingLocalSot = next;
+  }
+
   void bindFigureDiskUid(String? uid) {
     _diskUid = (uid ?? '').trim().isEmpty ? null : uid!.trim();
     _figureDisk.bindUid(uid);
@@ -1504,6 +1512,15 @@ class LibraryController extends ChangeNotifier {
       );
       // design/185 J21 — migrate pre-existing cloud papers once per bind.
       unawaited(handoffRemoteLibraryIfNeeded());
+      if (_shadowingLocalSot) {
+        unawaited(
+          migrateShadowingCloudOnce(
+            client: _client,
+            uid: _diskUid,
+            cacheIds: papers.map((e) => e.id).toList(growable: false),
+          ),
+        );
+      }
     } on AsrApiException catch (e) {
       if (clearError) {
         error = e.message;

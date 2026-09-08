@@ -134,8 +134,16 @@ def save_takes(*, uid: str, cache_id: str, takes: dict[str, Any]) -> None:
     )
     if len(raw) > _MAX_STORE_BYTES:
         raise ValueError("takes_too_large")
+    write_gcs = True
+    try:
+        from sentence_reading.llm.user_artifacts_local_sot import (
+            shadowing_local_sot_enabled,
+        )
+        write_gcs = not shadowing_local_sot_enabled()
+    except Exception:
+        write_gcs = True
     ready, _ = gcs_client_ready()
-    if ready:
+    if write_gcs and ready:
         name = takes_object_name(cid)
         if name:
             upload_bytes(name, raw, content_type="application/json")

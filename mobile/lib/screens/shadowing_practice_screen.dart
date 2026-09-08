@@ -25,6 +25,7 @@ import '../api/shadowing_retry_gate.dart';
 import '../api/tts_models.dart';
 import '../services/evidence_bus.dart';
 import '../services/shadowing_disk_store.dart';
+import '../services/shadowing_cloud_migrate.dart';
 import '../state/focus_practice_controller.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
@@ -342,65 +343,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   /// design/187 — one-shot pull takes + voice blobs, then ack wipe.
   Future<void> _migrateShadowingOnce(String cacheId) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(_shadowingMigratedPrefsKey()) == true) return;
-
-      asrEvidenceBus?.record(
-        'shadowing_local_migrate_start',
-        cacheId: cacheId,
-        severity: 'lifecycle',
-        ok: true,
-      );
-
-      final remote = await widget.client.fetchShadowingTakes(cacheId);
-      Map<String, dynamic>? takes;
-      if (remote['takes'] is Map) {
-        takes = Map<String, dynamic>.from(remote['takes'] as Map);
-      } else if (remote['sentences'] is Map) {
-        takes = Map<String, dynamic>.from(remote);
-      }
-      if (takes != null) {
-        await _disk.writeTakesJson(cacheId, takes);
-        _takes = takes;
-        final sentences = takes['sentences'];
-        if (sentences is Map) {
-          for (final sent in sentences.values) {
-            if (sent is! Map) continue;
-            final chunks = sent['chunks'];
-            if (chunks is! List) continue;
-            for (final c in chunks) {
-              if (c is! Map) continue;
-              final bk = '${c['blob_key'] ?? ''}'.trim();
-              if (bk.isEmpty) continue;
-              final bytes = await widget.client.fetchVoiceBlob(bk);
-              if (bytes != null && bytes.isNotEmpty) {
-                await _disk.writeVoiceBytes(cacheId, bk, bytes);
-              }
-            }
-          }
-        }
-      }
-
-      final acked = await widget.client.ackShadowingLocalMigrate();
-      if (acked) {
-        await prefs.setBool(_shadowingMigratedPrefsKey(), true);
-      }
-      asrEvidenceBus?.record(
-        'shadowing_local_migrate_done',
-        cacheId: cacheId,
-        severity: 'lifecycle',
-        ok: acked,
-      );
-    } catch (_) {
-      asrEvidenceBus?.record(
-        'shadowing_local_migrate_done',
-        cacheId: cacheId,
-        severity: 'lifecycle',
-        ok: false,
-        code: 'exception',
-      );
-    }
+    final ok = await migrateShadowingCloudOnce(
+      client: widget.client,
+      uid: widget.shadowing.boundUid,
+      cacheIds: [cacheId],
+      disk: _disk,
+    );
+    if (!ok) return;
+    final local = await _disk.loadTakesJson(cacheId);
+    if (local != null) _takes = local;
   }
 
   Future<void> _persistTakeLocal({

@@ -25,7 +25,7 @@ def test_status_advertises_local_sot(client: TestClient) -> None:
     assert st.get("annotations_local_sot") is True
     assert st.get("shadowing_local_sot") is True
     assert st.get("notes_local_sot") is True
-    assert st["version"] == "0.3.184"
+    assert st["version"] == "0.3.185"
 
 
 def test_bookmarks_put_refused(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,3 +56,57 @@ def test_version_flags_module() -> None:
 
     f = status_fields()
     assert f["bookmarks_local_sot"] is True
+
+
+def test_save_chunk_plan_skips_gcs_when_local_sot(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ASR_SHADOWING_LOCAL_SOT", "1")
+    uploaded: list[str] = []
+
+    def _upload(name: str, raw: bytes, content_type: str = "") -> bool:
+        uploaded.append(name)
+        return True
+
+    monkeypatch.setattr(
+        "sentence_reading.llm.shadowing_chunks.gcs_client_ready",
+        lambda: (True, "ok"),
+    )
+    monkeypatch.setattr(
+        "sentence_reading.llm.shadowing_chunks.upload_bytes",
+        _upload,
+    )
+    monkeypatch.setattr(
+        "sentence_reading.llm.shadowing_chunks.chunks_object_name",
+        lambda cid: f"users/u/shadowing/chunks/{cid}.json",
+    )
+    from sentence_reading.llm.shadowing_chunks import save_chunk_plan
+
+    save_chunk_plan(
+        uid="testuid123456789012345678901234",
+        cache_id="abcdef123456",
+        plan={"version": 1, "cache_id": "abcdef123456", "sentences": []},
+    )
+    assert uploaded == []
+
+
+def test_takes_post_refused_local_sot(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ASR_SHADOWING_LOCAL_SOT", "1")
+    monkeypatch.setattr("sentence_reading.api.app.auth_enabled", lambda: False)
+    monkeypatch.setattr(
+        "sentence_reading.api.app._paid_access_denied",
+        lambda _req: None,
+    )
+    monkeypatch.setattr(
+        "sentence_reading.api.app._request_user",
+        lambda _req: type("U", (), {"uid": "u1"})(),
+    )
+    monkeypatch.setattr(
+        "sentence_reading.llm.shadowing_practice.shadowing_practice_enabled",
+        lambda: True,
+    )
+    res = client.post(
+        "/api/shadowing/takes/abcdef123456",
+        json={"practice_enabled": True, "action": "cursor", "sentence_id": "s1", "chunk_index": 0},
+    )
+    assert res.status_code == 409
+    assert res.json().get("error") == "shadowing_local_sot"
+

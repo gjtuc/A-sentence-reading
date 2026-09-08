@@ -263,7 +263,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.184",
+    version="0.3.185",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1750,7 +1750,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.184",
+        "version": "0.3.185",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -8797,6 +8797,26 @@ async def shadowing_takes_post(
             status_code=400,
             content={"ok": False, "error": "invalid_cache_id", "message": "논문 id가 올바르지 않습니다."},
         )
+    try:
+        from sentence_reading.llm.shadowing_local_sot import (
+            refuse_shadowing_cloud_write_if_local_sot as _refuse_sh,
+        )
+        _sh_ref = _refuse_sh()
+    except Exception:
+        _sh_ref = None
+    if _sh_ref is not None:
+        try:
+            from sentence_reading.llm.evidence_bus import emit as _eb_emit
+            _eb_emit(
+                "shadowing_sync_refused",
+                severity="lifecycle",
+                ok=False,
+                code="shadowing_local_sot",
+                details={"route": "takes_post"},
+            )
+        except Exception:
+            pass
+        return JSONResponse(status_code=409, content=_sh_ref)
     action = str(payload.get("action") or "take").strip().lower()
     try:
         set_gcs_uid(user.uid)
