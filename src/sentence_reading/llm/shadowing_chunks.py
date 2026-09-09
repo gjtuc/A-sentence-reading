@@ -421,9 +421,13 @@ def build_chunk_plan(
 
     # Resume: keep already-built sentence chunks (cost + consistency).
     built: dict[str, Any] = {}
+    prev_status = ""
+    prev_done = 0
     if resume:
         prev = load_chunk_plan(uid=uid, cache_id=cache_id)
         prev_sents = prev.get("sentences") if isinstance(prev, dict) else None
+        if isinstance(prev, dict):
+            prev_status = str(prev.get("status") or "")
         if isinstance(prev_sents, dict):
             for sid, row in prev_sents.items():
                 if not isinstance(row, dict):
@@ -432,6 +436,23 @@ def build_chunk_plan(
                 text = _plain(str(row.get("text") or ""))
                 if isinstance(chunks, list) and chunks and text:
                     built[str(sid)] = {"text": text, "chunks": list(chunks)}
+            prev_done = len(built)
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            eb.emit(
+                "shadowing_plan_resume",
+                cache_id=str(cache_id or "")[:32],
+                owner_uid=str(uid or "")[:64],
+                ok=True,
+                details={
+                    "prev_status": prev_status,
+                    "prev_done": prev_done,
+                    "resume": 1 if resume else 0,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     plan = empty_plan(cache_id)
     plan["status"] = "pending"
@@ -484,10 +505,63 @@ def build_chunk_plan(
             }
             try:
                 save_chunk_plan(uid=uid, cache_id=cache_id, plan=plan)
+                from sentence_reading.llm import evidence_bus as eb
+
+                eb.emit(
+                    "shadowing_plan_save",
+                    cache_id=str(cache_id or "")[:32],
+                    owner_uid=str(uid or "")[:64],
+                    ok=True,
+                    details={
+                        "status": "pending",
+                        "done": len(built),
+                        "total": max(total_work, len(built)),
+                        "filled": 0,
+                        "new_this_slice": new_this_slice,
+                        "prev_done": prev_done,
+                        "checkpoint": 1,
+                        "elapsed_ms": int((time.monotonic() - started) * 1000),
+                    },
+                )
             except Exception:  # noqa: BLE001
                 pass
         if time.monotonic() - started >= limit:
             break
+
+    # Re-read GCS before save: concurrent slice may have advanced further.
+    race_other_done = -1
+    race_kind = ""
+    try:
+        latest = load_chunk_plan(uid=uid, cache_id=cache_id)
+        latest_sents = latest.get("sentences") if isinstance(latest, dict) else None
+        if isinstance(latest_sents, dict):
+            race_other_done = len(
+                [
+                    1
+                    for _sid, row in latest_sents.items()
+                    if isinstance(row, dict)
+                    and isinstance(row.get("chunks"), list)
+                    and row.get("chunks")
+                ]
+            )
+            # Merge any sentences we lack (other instance wrote them).
+            for sid, row in latest_sents.items():
+                if not isinstance(row, dict):
+                    continue
+                if sid in built:
+                    continue
+                chunks = row.get("chunks")
+                text = _plain(str(row.get("text") or ""))
+                if isinstance(chunks, list) and chunks and text:
+                    built[str(sid)] = {"text": text, "chunks": list(chunks)}
+                    race_kind = "merged_peer"
+            if race_other_done > len(built) and not race_kind:
+                race_kind = "peer_ahead"
+            elif 0 <= race_other_done < len(built) and race_other_done > prev_done:
+                # We would overwrite peer progress if we ignored merge — already merged above.
+                race_kind = race_kind or "overwrite_avoided"
+    except Exception:  # noqa: BLE001
+        race_kind = "race_check_fail"
 
     plan["sentences"] = built
     plan["progress"] = {
@@ -507,7 +581,75 @@ def build_chunk_plan(
         # Incomplete slice — honest pending (client continues).
         plan["status"] = "pending"
         plan["error"] = None
+
+    if race_kind:
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            eb.emit(
+                "shadowing_plan_race",
+                cache_id=str(cache_id or "")[:32],
+                owner_uid=str(uid or "")[:64],
+                ok=race_kind != "race_check_fail",
+                code=race_kind,
+                details={
+                    "prev_done": prev_done,
+                    "our_done": len(built),
+                    "peer_done": race_other_done,
+                    "new_this_slice": new_this_slice,
+                    "status": str(plan.get("status") or ""),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Regress: final done went backwards vs resume baseline without peer merge gain.
+    if prev_done > 0 and len(built) < prev_done:
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            eb.emit(
+                "shadowing_plan_regress",
+                cache_id=str(cache_id or "")[:32],
+                owner_uid=str(uid or "")[:64],
+                ok=False,
+                code="done_regress",
+                details={
+                    "prev_done": prev_done,
+                    "our_done": len(built),
+                    "peer_done": race_other_done,
+                    "status": str(plan.get("status") or ""),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     save_chunk_plan(uid=uid, cache_id=cache_id, plan=plan)
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        eb.emit(
+            "shadowing_plan_save",
+            cache_id=str(cache_id or "")[:32],
+            owner_uid=str(uid or "")[:64],
+            ok=str(plan.get("status") or "") == "ok",
+            details={
+                "status": str(plan.get("status") or ""),
+                "done": int(plan["progress"]["done"]),
+                "total": int(plan["progress"]["total"]),
+                "filled": 1
+                if int(plan["progress"]["done"]) >= int(plan["progress"]["total"])
+                and int(plan["progress"]["total"]) > 0
+                else 0,
+                "new_this_slice": new_this_slice,
+                "prev_done": prev_done,
+                "elapsed_ms": int((time.monotonic() - started) * 1000),
+                "budget_s": int(limit),
+                "error": str(plan.get("error") or "")[:80],
+            },
+        )
+    except Exception:  # noqa: BLE001
+        pass
     return plan
 
 

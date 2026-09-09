@@ -2632,6 +2632,8 @@ throw AsrApiException(
     required bool practiceEnabled,
     List<Map<String, dynamic>>? sentences,
     int? round,
+    String? ensureId,
+    String? trigger,
   }) async {
     final id = cacheId.trim();
     if (id.isEmpty) {
@@ -2657,6 +2659,19 @@ throw AsrApiException(
       final st = plan is Map ? plan['status']?.toString() : null;
       final err = map['error']?.toString() ??
           (plan is Map ? plan['error']?.toString() : null);
+      int progDone = -1;
+      int progTotal = -1;
+      if (plan is Map) {
+        final prog = plan['progress'];
+        if (prog is Map) {
+          final pd = prog['done'];
+          final pt = prog['total'];
+          progDone = pd is int ? pd : (int.tryParse('$pd') ?? -1);
+          progTotal = pt is int ? pt : (int.tryParse('$pt') ?? -1);
+        }
+        final sents = plan['sentences'];
+        if (progDone < 0 && sents is Map) progDone = sents.length;
+      }
       asrEvidenceBus?.record(
         'shadowing_build_round',
         cacheId: id,
@@ -2667,6 +2682,13 @@ throw AsrApiException(
           'plan_status': st ?? '',
           'continue': map['continue'] == true,
           'http_ok': true,
+          'done': progDone,
+          'total': progTotal,
+          'filled': (progDone >= 0 && progTotal > 0 && progDone >= progTotal)
+              ? 1
+              : 0,
+          if (ensureId != null && ensureId.isNotEmpty) 'ensure_id': ensureId,
+          if (trigger != null && trigger.isNotEmpty) 'trigger': trigger,
           if (err != null && err.isNotEmpty) 'error': err,
         },
       );
@@ -2683,6 +2705,8 @@ throw AsrApiException(
           'continue': false,
           'http_ok': false,
           'error': 'timeout',
+          if (ensureId != null && ensureId.isNotEmpty) 'ensure_id': ensureId,
+          if (trigger != null && trigger.isNotEmpty) 'trigger': trigger,
         },
       );
       _breadcrumbTimeout('shadowing/chunks/build', e);

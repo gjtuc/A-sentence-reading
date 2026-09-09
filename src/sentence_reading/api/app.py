@@ -263,7 +263,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.192",
+    version="0.3.193",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1750,7 +1750,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.192",
+        "version": "0.3.193",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -8712,6 +8712,12 @@ async def shadowing_chunks_build(
                 "error": str(plan.get("error") or "")[:80],
                 "elapsed_ms": elapsed_ms,
                 "budget_s": int(budget_s),
+                "done": int((plan.get("progress") or {}).get("done") or 0)
+                if isinstance(plan.get("progress"), dict)
+                else len(plan.get("sentences") or {}),
+                "total": int((plan.get("progress") or {}).get("total") or 0)
+                if isinstance(plan.get("progress"), dict)
+                else 0,
             },
         )
         return JSONResponse(
@@ -8737,6 +8743,12 @@ async def shadowing_chunks_build(
             "error": str(plan.get("error") or "")[:80],
             "elapsed_ms": elapsed_ms,
             "budget_s": int(budget_s),
+            "done": int((plan.get("progress") or {}).get("done") or 0)
+            if isinstance(plan.get("progress"), dict)
+            else len(plan.get("sentences") or {}),
+            "total": int((plan.get("progress") or {}).get("total") or 0)
+            if isinstance(plan.get("progress"), dict)
+            else 0,
         },
     )
     return JSONResponse(

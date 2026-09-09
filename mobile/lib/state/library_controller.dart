@@ -1420,7 +1420,7 @@ class LibraryController extends ChangeNotifier {
         },
       );
       // design/188 — prep practice chunks right after handoff (not only on open).
-      unawaited(ensureShadowingChunks(cid));
+      unawaited(ensureShadowingChunks(cid, trigger: 'handoff'));
       return true;
     } catch (e) {
       asrEvidenceBus?.record(
@@ -2632,7 +2632,7 @@ class LibraryController extends ChangeNotifier {
       // Keep hydrating remaining figures in background if not done.
       enqueueFigureHydrate(o.cacheId);
       // design/80 — per-user chunk backfill (opt-in); errors surface on reader.
-      unawaited(ensureShadowingChunks(entry.id));
+      unawaited(ensureShadowingChunks(entry.id, trigger: 'reader_open'));
       asrEvidenceBus?.record(
         'reader_open',
         severity: 'lifecycle',
@@ -3140,20 +3140,48 @@ class LibraryController extends ChangeNotifier {
   /// design/80 · design/113 — backfill/retry; pending slices auto-continue.
   /// design/169p — ensure_start/done + gate evidence.
   /// 0.3.176 — client TimeoutException on GET/build is *continue*, not hard error.
-  Future<void> ensureShadowingChunks(String cacheId) async {
+  Future<void> ensureShadowingChunks(
+    String cacheId, {
+    String trigger = 'unspecified',
+  }) async {
     final id = cacheId.trim();
     if (id.isEmpty) return;
+    final trig = trigger.trim().isEmpty ? 'unspecified' : trigger.trim();
     // Join in-flight ensure for same paper — do not reset progress / dual-build.
     if (_shadowingEnsureFuture != null && _shadowingEnsureCacheId == id) {
+      asrEvidenceBus?.record(
+        'shadowing_ensure_join',
+        cacheId: id,
+        severity: 'decision',
+        ok: true,
+        details: {
+          'trigger': trig,
+          'joined_cache_id': id,
+          'busy': shadowingChunksBusy ? 1 : 0,
+          'progress': shadowingChunksProgress ?? '',
+        },
+      );
       await _shadowingEnsureFuture;
       return;
     }
     if (_shadowingEnsureFuture != null) {
+      final other = _shadowingEnsureCacheId ?? '';
+      asrEvidenceBus?.record(
+        'shadowing_ensure_wait_other',
+        cacheId: id,
+        severity: 'decision',
+        ok: true,
+        details: {
+          'trigger': trig,
+          'waiting_for': other,
+          'other_progress': shadowingChunksProgress ?? '',
+        },
+      );
       try {
         await _shadowingEnsureFuture;
       } catch (_) {}
     }
-    final run = _ensureShadowingChunksBody(id);
+    final run = _ensureShadowingChunksBody(id, trigger: trig);
     _shadowingEnsureFuture = run;
     _shadowingEnsureCacheId = id;
     try {
@@ -3166,8 +3194,11 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  /// Single-flight ensure body (design/80 · 113).
-  Future<void> _ensureShadowingChunksBody(String id) async {
+  /// Single-flight ensure body (design/80 · 113) + dense evidence (0.3.193).
+  Future<void> _ensureShadowingChunksBody(
+    String id, {
+    required String trigger,
+  }) async {
     shadowingChunksCacheId = id;
     final probe = await _shadowingWantProbe();
     if (!probe.want) {
@@ -3195,36 +3226,75 @@ class LibraryController extends ChangeNotifier {
     shadowingChunksProgress = null;
     notifyListeners();
     final sw = Stopwatch()..start();
+    final ensureId =
+        'ens_${DateTime.now().millisecondsSinceEpoch.toRadixString(16)}';
     asrEvidenceBus?.record(
       'shadowing_ensure_start',
       cacheId: id,
       severity: 'lifecycle',
+      details: {
+        'trigger': trigger,
+        'ensure_id': ensureId,
+      },
     );
     var rounds = 0;
     var planStatus = '';
     var errorCode = '';
     var okOut = false;
     var timeoutContinues = 0;
+    var lastProgDone = -1;
+    var lastProgTotal = -1;
+    var progressEmitN = 0;
 
-    void applyProgress(Map<String, dynamic> body) {
-      final done = body['progress_done'];
-      final total = body['progress_total'];
-      final d = done is int ? done : int.tryParse('$done');
-      final t = total is int ? total : int.tryParse('$total');
-      if (d != null && t != null && t > 0) {
-        shadowingChunksProgress = '$d/$t';
-      }
+    ({int? done, int? total}) _readProgress(Map<String, dynamic> body) {
+      int? d;
+      int? tot;
+      final doneRaw = body['progress_done'];
+      final totalRaw = body['progress_total'];
+      d = doneRaw is int ? doneRaw : int.tryParse('$doneRaw');
+      tot = totalRaw is int ? totalRaw : int.tryParse('$totalRaw');
       final plan = body['plan'];
       if (plan is Map) {
         final prog = plan['progress'];
         if (prog is Map) {
           final pd = prog['done'];
           final pt = prog['total'];
-          final d2 = pd is int ? pd : int.tryParse('$pd');
-          final t2 = pt is int ? pt : int.tryParse('$pt');
-          if (d2 != null && t2 != null && t2 > 0) {
-            shadowingChunksProgress = '$d2/$t2';
-          }
+          d = pd is int ? pd : (int.tryParse('$pd') ?? d);
+          tot = pt is int ? pt : (int.tryParse('$pt') ?? tot);
+        }
+      }
+      return (done: d, total: tot);
+    }
+
+    void applyProgress(Map<String, dynamic> body, {String source = ''}) {
+      final p = _readProgress(body);
+      final d = p.done;
+      final tot = p.total;
+      if (d != null && tot != null && tot > 0) {
+        shadowingChunksProgress = '$d/$tot';
+        final changed = d != lastProgDone || tot != lastProgTotal;
+        final filled = d >= tot;
+        if (changed || filled) {
+          lastProgDone = d;
+          lastProgTotal = tot;
+          progressEmitN += 1;
+          asrEvidenceBus?.record(
+            'shadowing_ensure_progress',
+            cacheId: id,
+            severity: 'sample',
+            ok: filled,
+            details: {
+              'ensure_id': ensureId,
+              'trigger': trigger,
+              'source': source,
+              'done': d,
+              'total': tot,
+              'filled': filled ? 1 : 0,
+              'emit_n': progressEmitN,
+              'round': rounds,
+              'plan_status': planStatus,
+            },
+          );
         }
       }
     }
@@ -3233,11 +3303,40 @@ class LibraryController extends ChangeNotifier {
       var needBuild = true;
       try {
         final got = await _client.fetchShadowingChunks(id);
-        applyProgress(got);
+        applyProgress(got, source: 'get');
         final plan = got['plan'];
         final status = plan is Map ? plan['status']?.toString() : null;
         planStatus = status ?? '';
+        final prog = _readProgress(got);
+        asrEvidenceBus?.record(
+          'shadowing_ensure_get',
+          cacheId: id,
+          severity: 'lifecycle',
+          ok: status == 'ok',
+          details: {
+            'ensure_id': ensureId,
+            'trigger': trigger,
+            'plan_status': planStatus,
+            'done': prog.done ?? -1,
+            'total': prog.total ?? -1,
+            'sentence_n': plan is Map && plan['sentences'] is Map
+                ? (plan['sentences'] as Map).length
+                : -1,
+          },
+        );
         if (status == 'ok') {
+          asrEvidenceBus?.record(
+            'shadowing_ensure_skip_ok',
+            cacheId: id,
+            severity: 'decision',
+            ok: true,
+            details: {
+              'ensure_id': ensureId,
+              'trigger': trigger,
+              'done': prog.done ?? -1,
+              'total': prog.total ?? -1,
+            },
+          );
           shadowingChunksError = null;
           shadowingChunksProgress = null;
           okOut = true;
@@ -3248,6 +3347,19 @@ class LibraryController extends ChangeNotifier {
         timeoutContinues++;
         planStatus = planStatus.isEmpty ? 'pending' : planStatus;
         needBuild = true;
+        asrEvidenceBus?.record(
+          'shadowing_ensure_timeout_continue',
+          cacheId: id,
+          severity: 'boundary',
+          ok: true,
+          code: 'get_timeout',
+          details: {
+            'ensure_id': ensureId,
+            'trigger': trigger,
+            'timeout_continues': timeoutContinues,
+            'phase': 'get',
+          },
+        );
         notifyListeners();
       }
 
@@ -3256,19 +3368,62 @@ class LibraryController extends ChangeNotifier {
         const maxSlices = 40;
         for (var i = 0; i < maxSlices; i++) {
           Map<String, dynamic> built;
+          final sliceRound = i + 1;
+          asrEvidenceBus?.record(
+            'shadowing_ensure_slice_start',
+            cacheId: id,
+            severity: 'lifecycle',
+            details: {
+              'ensure_id': ensureId,
+              'trigger': trigger,
+              'round': sliceRound,
+              'max_slices': maxSlices,
+              'last_done': lastProgDone,
+              'last_total': lastProgTotal,
+              'phase': 'before_payload',
+            },
+          );
           try {
             final sentenceRows = await _shadowingSentencesPayload(id);
+            asrEvidenceBus?.record(
+              'shadowing_ensure_slice_start',
+              cacheId: id,
+              severity: 'sample',
+              details: {
+                'ensure_id': ensureId,
+                'trigger': trigger,
+                'round': sliceRound,
+                'sentence_payload': sentenceRows?.length ?? 0,
+                'phase': 'after_payload',
+              },
+            );
             built = await _client.buildShadowingChunks(
               id,
               practiceEnabled: true,
               sentences: sentenceRows,
-              round: i + 1,
+              round: sliceRound,
+              ensureId: ensureId,
+              trigger: trigger,
             );
-            rounds = i + 1;
+            rounds = sliceRound;
           } on TimeoutException {
             // Slice still running server-side; keep busy and resume.
             timeoutContinues++;
             planStatus = planStatus.isEmpty ? 'pending' : planStatus;
+            asrEvidenceBus?.record(
+              'shadowing_ensure_timeout_continue',
+              cacheId: id,
+              severity: 'boundary',
+              ok: true,
+              code: 'build_timeout',
+              details: {
+                'ensure_id': ensureId,
+                'trigger': trigger,
+                'round': sliceRound,
+                'timeout_continues': timeoutContinues,
+                'phase': 'build',
+              },
+            );
             notifyListeners();
             await Future<void>.delayed(Duration(seconds: 1 + (i % 3)));
             continue;
@@ -3280,10 +3435,31 @@ class LibraryController extends ChangeNotifier {
             }
             rethrow;
           }
-          applyProgress(built);
+          applyProgress(built, source: 'build');
           final p2 = built['plan'];
           final st2 = p2 is Map ? p2['status']?.toString() : null;
           planStatus = st2 ?? '';
+          final sliceProg = _readProgress(built);
+          asrEvidenceBus?.record(
+            'shadowing_ensure_slice_done',
+            cacheId: id,
+            severity: 'lifecycle',
+            ok: st2 == 'ok',
+            details: {
+              'ensure_id': ensureId,
+              'trigger': trigger,
+              'round': rounds,
+              'plan_status': planStatus,
+              'continue': built['continue'] == true ? 1 : 0,
+              'done': sliceProg.done ?? -1,
+              'total': sliceProg.total ?? -1,
+              'filled': (sliceProg.done != null &&
+                      sliceProg.total != null &&
+                      sliceProg.done! >= sliceProg.total!)
+                  ? 1
+                  : 0,
+            },
+          );
           if (st2 == 'ok') {
             shadowingChunksError = null;
             shadowingChunksProgress = null;
@@ -3330,10 +3506,20 @@ class LibraryController extends ChangeNotifier {
         ok: okOut,
         code: errorCode,
         details: {
+          'ensure_id': ensureId,
+          'trigger': trigger,
           'plan_status': planStatus,
           'rounds': rounds,
           'elapsed_ms': sw.elapsedMilliseconds,
           'timeout_continues': timeoutContinues,
+          'last_done': lastProgDone,
+          'last_total': lastProgTotal,
+          'progress_emit_n': progressEmitN,
+          'filled': (lastProgDone >= 0 &&
+                  lastProgTotal > 0 &&
+                  lastProgDone >= lastProgTotal)
+              ? 1
+              : 0,
           if (errorCode.isNotEmpty) 'error_code': errorCode,
         },
       );
@@ -3346,7 +3532,7 @@ class LibraryController extends ChangeNotifier {
   Future<void> retryShadowingChunks() async {
     final cache = shadowingChunksCacheId;
     if (cache == null || cache.isEmpty) return;
-    await ensureShadowingChunks(cache);
+    await ensureShadowingChunks(cache, trigger: 'retry');
   }
 
   Future<bool> _wantShadowingPractice() async {
