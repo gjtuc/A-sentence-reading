@@ -5,6 +5,7 @@ library;
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../api/focus_practice_models.dart';
 import '../api/focus_practice_store.dart';
@@ -106,6 +107,7 @@ class FocusPracticeController extends ChangeNotifier {
     if (sessionActive && !paused) return;
     sessionActive = true;
     paused = false;
+    unawaited(_setKeepScreenOn(true));
     asrEvidenceBus?.record(
       'focus_session_start',
       cacheId: cacheId ?? '',
@@ -133,6 +135,7 @@ class FocusPracticeController extends ChangeNotifier {
     paused = false;
     elapsedInBlock = Duration.zero;
     _cancelUiTick();
+    unawaited(_setKeepScreenOn(false));
     if (was) {
       asrEvidenceBus?.record(
         'focus_session_end',
@@ -159,18 +162,33 @@ class FocusPracticeController extends ChangeNotifier {
     }
     paused = true;
     _cancelUiTick();
+    // App background — allow normal sleep; re-enable on resume if still active.
+    unawaited(_setKeepScreenOn(false));
     notifyListeners();
   }
 
   void resume() {
     if (!sessionActive || !paused) return;
     paused = false;
+    unawaited(_setKeepScreenOn(true));
     _armUiTick();
     notifyListeners();
   }
 
   /// App lifecycle — foreground-only clock (design/176). Does **not** reset block.
   void onAppPaused({String? cacheId}) => pause(cacheId: cacheId);
+
+  Future<void> _setKeepScreenOn(bool on) async {
+    try {
+      if (on) {
+        await WakelockPlus.enable();
+      } else {
+        await WakelockPlus.disable();
+      }
+    } catch (_) {
+      // EDGE: desktop / unsupported — practice still works.
+    }
+  }
 
   void beginSpeak() {
     if (!sessionActive || paused) return;
@@ -268,6 +286,7 @@ class FocusPracticeController extends ChangeNotifier {
   @override
   void dispose() {
     _cancelUiTick();
+    unawaited(_setKeepScreenOn(false));
     super.dispose();
   }
 }
