@@ -91,6 +91,7 @@ class LibraryController extends ChangeNotifier {
     _paperDisk.bindUid(uid);
     _shadowDisk.bindUid(uid);
     _bulkHandoffAttempted = false;
+    _clearPendingEnrichState();
   }
 
   String? _diskUid;
@@ -136,6 +137,17 @@ class LibraryController extends ChangeNotifier {
 
   /// design/99 — KO backfill polling after /open (translate_pending).
   bool translateBackfillBusy = false;
+
+  /// design/195 — library-wide resume of unfinished KO + shadowing.
+  bool pendingEnrichBusy = false;
+  String? pendingEnrichCacheId;
+  String? pendingEnrichTrigger;
+  final List<String> _enrichQueue = [];
+  final Map<String, int> _enrichFailCount = {};
+  final Set<String> _enrichInQueue = {};
+  bool _enrichLoopBusy = false;
+  Timer? _enrichRetryTimer;
+  static const int kPendingEnrichMaxRetries = 3;
   Timer? _translatePollTimer;
 
   /// design/167 — show ingest quality banner once per open until dismissed.
@@ -1176,8 +1188,10 @@ class LibraryController extends ChangeNotifier {
     await _scheduleWorkmanager(immediate: true);
   }
 
-  /// design/75 — call from HomeShell on AppLifecycleState.resumed.
+  /// design/75 · 195 — call from HomeShell on AppLifecycleState.resumed.
   Future<IngestJobResult?> onAppResumed() async {
+    // design/195 — always try unfinished KO/shadowing when app returns.
+    unawaited(scanAndEnqueuePendingEnrich(trigger: 'app_resume'));
     if (_resumeInFlight) return null;
     if (!await _interruptResumeEnabled()) return null;
     final draft = await _drafts.read();
@@ -1435,44 +1449,254 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  /// design/194 — after device handoff: translate + shadowing while still on library.
+  /// design/194·195 — after handoff: enqueue KO + shadowing.
   Future<void> _postHandoffEnrich(String cacheId) async {
+    enqueuePendingEnrich(cacheId, trigger: 'handoff', force: true);
+  }
+
+  void _clearPendingEnrichState() {
+    _enrichRetryTimer?.cancel();
+    _enrichRetryTimer = null;
+    _enrichQueue.clear();
+    _enrichInQueue.clear();
+    _enrichFailCount.clear();
+    _enrichLoopBusy = false;
+    pendingEnrichBusy = false;
+    pendingEnrichCacheId = null;
+    pendingEnrichTrigger = null;
+  }
+
+  /// design/195 — queue unfinished translate/shadowing for one paper.
+  void enqueuePendingEnrich(
+    String cacheId, {
+    String trigger = 'manual',
+    bool force = false,
+  }) {
+    final cid = cacheId.trim();
+    if (cid.isEmpty || !_paperDisk.isBound) return;
+    final trig = trigger.trim().isEmpty ? 'manual' : trigger.trim();
+    if (!force && _enrichInQueue.contains(cid)) return;
+    if (!force && pendingEnrichCacheId == cid && _enrichLoopBusy) return;
+    if (!_enrichInQueue.contains(cid)) {
+      _enrichInQueue.add(cid);
+      _enrichQueue.add(cid);
+    }
+    asrEvidenceBus?.record(
+      'pending_enrich_enqueue',
+      severity: 'decision',
+      cacheId: cid,
+      stage: trig.length > 40 ? trig.substring(0, 40) : trig,
+      ok: true,
+      details: {
+        'force': force ? 1 : 0,
+        'queue_n': _enrichQueue.length,
+        'fail_n': _enrichFailCount[cid] ?? 0,
+      },
+    );
+    pendingEnrichBusy = true;
+    notifyListeners();
+    unawaited(_pumpPendingEnrichQueue(defaultTrigger: trig));
+  }
+  /// design/195 — scan local papers for unfinished KO / shadowing.
+  Future<void> scanAndEnqueuePendingEnrich({
+    String trigger = 'boot',
+  }) async {
+    if (!_paperDisk.isBound) return;
+    if (papers.isEmpty) return;
+    final trig = trigger.trim().isEmpty ? 'boot' : trigger.trim();
+    var needKo = 0;
+    var needSh = 0;
+    var scanned = 0;
+    final wantTr = await _wantTranslate();
+    final wantSh = await _wantShadowingPractice();
+    for (final p in papers) {
+      final cid = p.id.trim();
+      if (cid.isEmpty) continue;
+      if (!await _paperDisk.hasSession(cid)) continue;
+      scanned += 1;
+      final needs = await _pendingEnrichNeeds(cid, wantTr: wantTr, wantSh: wantSh);
+      if (needs.ko) needKo += 1;
+      if (needs.sh) needSh += 1;
+      if (needs.ko || needs.sh) {
+        enqueuePendingEnrich(cid, trigger: trig);
+      }
+    }
+    asrEvidenceBus?.record(
+      'pending_enrich_scan',
+      severity: 'lifecycle',
+      stage: trig.length > 40 ? trig.substring(0, 40) : trig,
+      ok: true,
+      details: {
+        'scanned_n': scanned,
+        'need_ko_n': needKo,
+        'need_shadowing_n': needSh,
+        'queue_n': _enrichQueue.length,
+      },
+    );
+  }
+
+  Future<({bool ko, bool sh})> _pendingEnrichNeeds(
+    String cacheId, {
+    required bool wantTr,
+    required bool wantSh,
+  }) async {
+    var ko = false;
+    var sh = false;
+    if (wantTr) {
+      final raw = await _paperDisk.loadSessionJson(cacheId);
+      if (raw != null) {
+        final pending = raw['translate_pending'] == true;
+        var missing = 0;
+        final sents = raw['sentences'];
+        if (sents is List) {
+          for (final item in sents) {
+            if (item is! Map) continue;
+            final text = (item['text']?.toString() ?? '').trim();
+            final koText = (item['text_ko']?.toString() ?? '').trim();
+            if (text.isNotEmpty && koText.isEmpty) missing += 1;
+          }
+        }
+        ko = pending || missing > 0;
+      }
+    }
+    if (wantSh) {
+      final plan = await _shadowDisk.loadChunkPlanJson(cacheId);
+      final st = plan == null ? '' : (plan['status']?.toString() ?? '').trim();
+      sh = st != 'ok';
+    }
+    return (ko: ko, sh: sh);
+  }
+
+  Future<void> _pumpPendingEnrichQueue({String defaultTrigger = 'boot'}) async {
+    if (_enrichLoopBusy) return;
+    _enrichLoopBusy = true;
+    pendingEnrichBusy = true;
+    notifyListeners();
+    try {
+      while (_enrichQueue.isNotEmpty) {
+        final cid = _enrichQueue.removeAt(0);
+        _enrichInQueue.remove(cid);
+        pendingEnrichCacheId = cid;
+        pendingEnrichTrigger = defaultTrigger;
+        notifyListeners();
+        await _runPendingEnrich(cid, trigger: defaultTrigger);
+      }
+    } finally {
+      _enrichLoopBusy = false;
+      pendingEnrichCacheId = null;
+      pendingEnrichTrigger = null;
+      pendingEnrichBusy = _enrichQueue.isNotEmpty || _enrichRetryTimer != null;
+      notifyListeners();
+      if (_enrichQueue.isNotEmpty) {
+        unawaited(_pumpPendingEnrichQueue(defaultTrigger: defaultTrigger));
+      }
+    }
+  }
+
+  Future<void> _runPendingEnrich(
+    String cacheId, {
+    required String trigger,
+  }) async {
     final cid = cacheId.trim();
     if (cid.isEmpty) return;
+    final wantTr = await _wantTranslate();
+    final wantSh = await _wantShadowingPractice();
+    final needs = await _pendingEnrichNeeds(cid, wantTr: wantTr, wantSh: wantSh);
+    if (!needs.ko && !needs.sh) {
+      _enrichFailCount.remove(cid);
+      asrEvidenceBus?.record(
+        'pending_enrich_done',
+        severity: 'lifecycle',
+        cacheId: cid,
+        stage: trigger,
+        ok: true,
+        details: {'skipped': 1, 'reason': 'already_ok'},
+      );
+      return;
+    }
     asrEvidenceBus?.record(
-      'post_handoff_enrich_start',
+      'pending_enrich_start',
       severity: 'lifecycle',
       cacheId: cid,
-      stage: 'post_handoff',
+      stage: trigger,
       ok: true,
+      details: {
+        'need_ko': needs.ko ? 1 : 0,
+        'need_shadowing': needs.sh ? 1 : 0,
+        'fail_n': _enrichFailCount[cid] ?? 0,
+      },
     );
-    var koOk = false;
-    var shOk = false;
+    var koOk = !needs.ko;
+    var shOk = !needs.sh;
     try {
-      await _backfillLocalMissingKoFromDisk(cid);
-      koOk = true;
+      if (needs.ko) {
+        await _backfillLocalMissingKoFromDisk(cid);
+        final after = await _pendingEnrichNeeds(cid, wantTr: wantTr, wantSh: false);
+        koOk = !after.ko;
+      }
     } catch (_) {
       koOk = false;
     }
     try {
-      await ensureShadowingChunks(cid, trigger: 'handoff');
-      shOk = shadowingChunksError == null;
+      if (needs.sh) {
+        await ensureShadowingChunks(cid, trigger: 'pending_enrich');
+        shOk = shadowingChunksError == null;
+        if (shOk) {
+          final after = await _pendingEnrichNeeds(cid, wantTr: false, wantSh: true);
+          shOk = !after.sh;
+        }
+      }
     } catch (_) {
       shOk = false;
     }
+    final ok = koOk && shOk;
     asrEvidenceBus?.record(
-      'post_handoff_enrich_done',
+      'pending_enrich_done',
       severity: 'lifecycle',
       cacheId: cid,
-      stage: 'post_handoff',
-      ok: koOk || shOk,
+      stage: trigger,
+      ok: ok,
       details: {
         'ko_ok': koOk ? 1 : 0,
         'shadowing_ok': shOk ? 1 : 0,
-        'shadowing_progress': shadowingChunksProgress ?? '',
+        'fail_n': _enrichFailCount[cid] ?? 0,
       },
     );
+    if (ok) {
+      _enrichFailCount.remove(cid);
+      return;
+    }
+    final fails = (_enrichFailCount[cid] ?? 0) + 1;
+    _enrichFailCount[cid] = fails;
+    if (fails >= kPendingEnrichMaxRetries) {
+      asrEvidenceBus?.record(
+        'pending_enrich_give_up',
+        severity: 'error',
+        cacheId: cid,
+        stage: trigger,
+        ok: false,
+        details: {'fail_n': fails},
+      );
+      return;
+    }
+    final delaySec = 5 * fails * fails;
+    asrEvidenceBus?.record(
+      'pending_enrich_retry',
+      severity: 'boundary',
+      cacheId: cid,
+      stage: trigger,
+      ok: true,
+      details: {'fail_n': fails, 'delay_s': delaySec},
+    );
+    _enrichRetryTimer?.cancel();
+    _enrichRetryTimer = Timer(Duration(seconds: delaySec), () {
+      _enrichRetryTimer = null;
+      enqueuePendingEnrich(cid, trigger: 'retry', force: true);
+    });
+    pendingEnrichBusy = true;
+    notifyListeners();
   }
+
 
   /// design/174 — after ingest/reanalyze: refresh, then fresh=1 once; emit on miss.
   Future<bool> _confirmCacheInLibrary(
@@ -1634,6 +1858,8 @@ class LibraryController extends ChangeNotifier {
           enqueueHarmonizeResidualPoll(p.id);
         }
       }
+      // design/195 — unfinished KO/shadowing resume after library is visible.
+      unawaited(scanAndEnqueuePendingEnrich(trigger: 'library_refresh'));
     }
   }
 
@@ -3154,6 +3380,7 @@ class LibraryController extends ChangeNotifier {
     _figureHydrate.clear();
     _hydrateQueue.clear();
     _hydrateDismissed.clear();
+    _clearPendingEnrichState();
     _figureDisk.bindUid(null);
     // design/185 — keep paper disk for same-uid re-login.
     _paperDisk.bindUid(null);

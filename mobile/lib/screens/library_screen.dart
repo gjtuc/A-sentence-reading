@@ -466,7 +466,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   ),
                 ),
-              if (lib.translateBackfillBusy || lib.shadowingChunksBusy)
+              if (lib.translateBackfillBusy || lib.shadowingChunksBusy || lib.pendingEnrichBusy)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
