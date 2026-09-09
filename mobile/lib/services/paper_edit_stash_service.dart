@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import '../api/client.dart';
 import 'paper_disk_store.dart';
 import 'paper_edit_stash.dart';
+import 'pdf_page_preview.dart';
 
 Future<PaperStashMeta> ensurePaperEditStash({
   required AsrClient client,
@@ -73,7 +74,26 @@ Future<Uint8List> ensurePagePreview({
       return local;
     }
   }
-  final png = await client.fetchPagePreview(cacheId, pageIndex);
-  await stash.writePagePreview(cacheId, pageIndex, png);
-  return png;
+  try {
+    final png = await client.fetchPagePreview(cacheId, pageIndex);
+    await stash.writePagePreview(cacheId, pageIndex, png);
+    return png;
+  } catch (_) {
+    // design/197 — after cloud wipe, render from local PDF on device.
+  }
+  final path =
+      await stash.sourcePath(cacheId) ??
+      (paperDisk == null ? null : await paperDisk.localSourcePath(cacheId));
+  if (path == null || path.isEmpty) {
+    throw AsrApiException("페이지 미리보기를 받지 못했습니다.", 404);
+  }
+  final rendered = await PdfPagePreview.renderPagePng(
+    path,
+    pageIndex: pageIndex,
+  );
+  if (rendered == null || rendered.isEmpty) {
+    throw AsrApiException("페이지 미리보기를 받지 못했습니다.", 404);
+  }
+  await stash.writePagePreview(cacheId, pageIndex, rendered);
+  return rendered;
 }

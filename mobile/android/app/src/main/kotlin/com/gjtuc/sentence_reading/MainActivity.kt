@@ -25,6 +25,7 @@ class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
     private var authChannel: MethodChannel? = null
     private var shadowingMicChannel: MethodChannel? = null
+    private var pdfPreviewChannel: MethodChannel? = null
     private var pendingOpenCacheId: String? = null
     /** design/77 — session from deep link before Dart handler is ready. */
     private var pendingMagicSession: String? = null
@@ -166,6 +167,33 @@ class MainActivity : FlutterActivity() {
         }
         // Deliver intent that launched / resumed this activity.
         handleOpenIntent(intent)
+
+        pdfPreviewChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            PDF_PREVIEW_CHANNEL,
+        ).also { ch ->
+            ch.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "renderPagePng" -> {
+                        val path = call.argument<String>("path") ?: ""
+                        val pageIndex = call.argument<Int>("pageIndex") ?: -1
+                        val maxSide = call.argument<Int>("maxSidePx") ?: 1400
+                        try {
+                            val bytes = PdfPagePreview.renderPng(path, pageIndex, maxSide)
+                            if (bytes == null) {
+                                result.success(null)
+                            } else {
+                                result.success(bytes)
+                            }
+                        } catch (e: Exception) {
+                            result.error("pdf_preview_fail", e.message, null)
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
+
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -309,6 +337,7 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val CHANNEL = "asr/upload_notify"
         private const val AUTH_CHANNEL = "asr/auth_deeplink"
+        private const val PDF_PREVIEW_CHANNEL = "asr/pdf_page_preview"
         private const val REQ_NOTIFY = 741
         /** Debuggable-only adb E2E: schedule immediate UploadResumeWorker. */
         const val ACTION_DEBUG_SCHEDULE_UPLOAD_RESUME =

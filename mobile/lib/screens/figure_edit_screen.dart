@@ -54,6 +54,7 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
   double _pageAspect = 612 / 792;
   final Set<String> _selectedBoxIds = {};
   final Map<int, Uint8List> _pagePngCache = {};
+  bool _resolvedHasSource = false;
   Offset? _dragStart;
   Offset? _dragEnd;
   final TransformationController _transform = TransformationController();
@@ -74,7 +75,7 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
     if (_pagePngCache.containsKey(pageIndex)) {
       return _pagePngCache[pageIndex];
     }
-    if (!widget.hasSource) return null;
+    if (!_resolvedHasSource) return null;
     final png = await ensurePagePreview(
       client: widget.client,
       stash: _stash,
@@ -117,6 +118,7 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
       if (!hasSource && disk != null) {
         hasSource = await disk.hasLocalSource(widget.cacheId);
       }
+      _resolvedHasSource = hasSource;
       if (hasSource) {
         await ensurePaperEditStash(
           client: widget.client,
@@ -186,7 +188,7 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
     });
     final session = _session;
     if (session == null) return;
-    final png = widget.hasSource ? await _pagePngFor(next) : null;
+    final png = _resolvedHasSource ? await _pagePngFor(next) : null;
     if (!mounted) return;
     setState(() {
       _boxes = _buildBoxViews(session.layoutMap, next);

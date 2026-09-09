@@ -428,6 +428,17 @@ class PaperDiskStore {
   Future<Map<String, dynamic>?> loadSlotPlanJson(String cacheId) =>
       _loadJsonRel(cacheId, 'slot_plan.json');
 
+  /// Absolute path to local source.pdf after handoff (design/197).
+  Future<String?> localSourcePath(String cacheId) async {
+    final dir = await paperDir(cacheId);
+    if (dir == null) return null;
+    for (final name in const ["source.pdf", "source.docx"]) {
+      final f = File(p.join(dir.path, name));
+      if (await f.exists()) return f.path;
+    }
+    return null;
+  }
+
   Future<bool> hasLocalSource(String cacheId) async {
     final dir = await paperDir(cacheId);
     if (dir == null) return false;

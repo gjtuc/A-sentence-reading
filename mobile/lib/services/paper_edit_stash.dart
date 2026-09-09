@@ -134,6 +134,17 @@ class PaperEditStash {
     }
   }
 
+  /// Absolute path to stashed source.pdf (design/197 local page render).
+  Future<String?> sourcePath(String cacheId) async {
+    final meta = await readMeta(cacheId);
+    if (meta == null || !meta.isValid) return null;
+    final f = await _sourceFile(cacheId, meta.sourceFilename);
+    if (!await f.exists()) return null;
+    final len = await f.length();
+    if (len <= 0 || len > maxSourceBytes) return null;
+    return f.path;
+  }
+
   Future<bool> hasSource(String cacheId) async {
     final meta = await readMeta(cacheId);
     if (meta == null || !meta.isValid) return false;
