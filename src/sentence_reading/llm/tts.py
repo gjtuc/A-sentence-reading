@@ -13,6 +13,7 @@ from pathlib import Path
 
 from sentence_reading.cache.paper_cache import project_root
 from sentence_reading.llm.env import load_asr_env
+from sentence_reading.llm.tts_speak_policy import speak_norm_version
 
 # 논문 영어 기본 — UI에서 변경 가능
 _DEFAULT_VOICE = "en-US-Neural2-D"
@@ -93,8 +94,10 @@ def tts_cache_dir() -> Path:
 
 def cache_key(text: str, voice: str, rate: float = 1.0) -> str:
     # WHY: 배속은 클라이언트 — 캐시 키는 정속(1.0) 기준
+    # design/205: speak_norm_version busts GCS when spoken rules change
     _ = rate
-    raw = f"{voice}|1.00|{text}".encode("utf-8")
+    ver = speak_norm_version()
+    raw = f"{ver}|{voice}|1.00|{text}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:24]
 
 

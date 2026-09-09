@@ -1,7 +1,7 @@
 """
 무엇을: TTS에 넘기기 전 말할 말로 정규화 (첨자·기호·구역 접두·단위).
 왜: plain_text 만 쓰면 H2O·cm−1·Title: 을 글자 그대로 읽어 어색하다.
-다음에: 더 많은 단위·반응식 관용 표현.
+다음에: design/205 약어·화학식 별칭·캐시 norm version.
 """
 
 from __future__ import annotations
@@ -11,6 +11,12 @@ import re
 from html.parser import HTMLParser
 
 from sentence_reading.cite_refs import strip_cite_markers_for_display
+from sentence_reading.llm.tts_speak_lexicon import (
+    ACRONYM_NAME_HINTS,
+    ACRONYM_SPOKEN,
+    CHEM_ALIASES,
+)
+from sentence_reading.llm.tts_speak_policy import SpeakPolicy, load_speak_policy
 
 _SECTION_PREFIX = re.compile(
     r"^\s*(Title|Abstract|Introduction|Methods|Experimental|Results|"
@@ -498,12 +504,22 @@ def _expand_unicode_scripts(text: str) -> str:
 
 def _expand_plain_chem_digits(text: str) -> str:
     """
-    태그 없이 온 H2O / CO2 / BaZr0.9 — 원소 뒤 숫자만 말로.
-    WHY: debone 실패·폴백 문장 대비.
+    Tag-free H2O / CO2 / BaZr0.9 — digits after element symbols.
+    Skip Fig.2 / Table3 / B2B / COVID19-style tokens (design/205).
     """
 
     def _repl(m: re.Match[str]) -> str:
         el, num = m.group(1), m.group(2)
+        start = m.start()
+        prefix = text[max(0, start - 12) : start].lower()
+        if re.search(
+            r"(?:fig(?:ure)?|table|eq(?:uation)?|ref|sec(?:tion)?)\.?\s*$",
+            prefix,
+        ):
+            return m.group(0)
+        window = text[max(0, start - 4) : m.end() + 4]
+        if re.search(r"\b[A-Z]{2,}\d+[A-Z0-9]*\b", window):
+            return m.group(0)
         return f"{el} {_speak_numberish(num)} "
 
     return re.sub(
@@ -531,7 +547,6 @@ def _expand_element_symbols(text: str) -> str:
         s = re.sub(pat, f" {name} ", s)
     return s
 
-
 def _expand_units(text: str) -> str:
     """SI/energy units → spoken quantities before element names (design/88+90)."""
     s = text
@@ -539,22 +554,90 @@ def _expand_units(text: str) -> str:
         s = pat.sub(spoken, s)
     return s
 
-
 def _strip_literal_tags(text: str) -> str:
     """EDGE: escaped/failed markup left as visible tags — do not speak 'sub'."""
     return _LITERAL_TAG_RE.sub(" ", text)
 
 
-def spoken_text_for_tts(raw: str) -> str:
+def _apply_chem_aliases(text: str) -> str:
+    """Exact formula graphemes to stable spoken (design/205). Longest first."""
+    s = text
+    for grapheme in sorted(CHEM_ALIASES.keys(), key=len, reverse=True):
+        spoken = CHEM_ALIASES[grapheme]
+        if grapheme in s:
+            s = s.replace(grapheme, f" {spoken} ")
+    return s
+
+
+def _collapse_full_name_abbrev(text: str) -> str:
+    """Prefer one form when full name and acronym co-occur (design/205)."""
+
+    def _name_matches(abbr: str, name: str) -> bool:
+        hints = ACRONYM_NAME_HINTS.get(abbr)
+        if not hints:
+            return False
+        low = name.lower()
+        return any(h in low for h in hints)
+
+    def _repl_name_abbr(m: re.Match[str]) -> str:
+        name, abbr = m.group(1).strip(), m.group(2)
+        if _name_matches(abbr, name):
+            return name
+        return m.group(0)
+
+    def _repl_abbr_name(m: re.Match[str]) -> str:
+        abbr, name = m.group(1), m.group(2).strip()
+        if not _name_matches(abbr, name):
+            return m.group(0)
+        return name
+
+    s = text
+    s = re.sub(
+        r"\b([A-Za-z][A-Za-z0-9\s\-/,]{2,80}?)\s*\(([A-Z][A-Z0-9\-]{1,12})\)",
+        _repl_name_abbr,
+        s,
+    )
+    s = re.sub(
+        r"\b([A-Z][A-Z0-9\-]{1,12})\s*\(([A-Za-z][^)]{2,80})\)",
+        _repl_abbr_name,
+        s,
+    )
+    return s
+
+
+def _expand_acronyms(text: str) -> str:
+    """Lexicon acronyms to spoken (longest keys first)."""
+    s = text
+    for key in sorted(ACRONYM_SPOKEN.keys(), key=len, reverse=True):
+        spoken = ACRONYM_SPOKEN[key]
+        if key.endswith("."):
+            pat = re.compile(rf"(?<![A-Za-z]){re.escape(key)}(?![A-Za-z])")
+        else:
+            pat = re.compile(rf"\b{re.escape(key)}\b")
+        s = pat.sub(f" {spoken} ", s)
+    return s
+
+
+def _apply_light_prosody(text: str) -> str:
+    """Punctuation-first pauses for Neural2 (design/205)."""
+    s = text
+    s = re.sub(r"\bgoes to\b", "goes to,", s, flags=re.IGNORECASE)
+    s = re.sub(r"\bequilibrium\b", "equilibrium,", s, flags=re.IGNORECASE)
+    s = re.sub(r",\s*,+", ", ", s)
+    return s
+
+
+def spoken_text_for_tts(
+    raw: str, *, policy: SpeakPolicy | None = None
+) -> str:
     """
-    화면용 HTML/plain → TTS용 영어 말할 말.
-    Title: 접두 제거 · sub/sup 풀어 읽기 · 흔한 기호·단위 발음화.
+    Display HTML/plain -> English spoken for TTS (design/205).
     """
+    _ = policy or load_speak_policy()
     s = (raw or "").strip()
     if not s:
         return ""
 
-    # HTML 엔티티 (한 겹) — &lt;sub&gt; → <sub>
     if "&" in s:
         s = html_lib.unescape(s)
 
@@ -567,18 +650,20 @@ def spoken_text_for_tts(raw: str) -> str:
         except Exception:  # noqa: BLE001
             s = re.sub(r"<[^>]+>", " ", s)
 
-    # WHY: before −→"minus" — ACS plain cites (.6−9) must strip first (0.3.93)
     s = strip_cite_markers_for_display(s)
 
-    # HTML 경로 후에도 남은 평문 첨자·화학식 숫자 → 기호 → 단위 → 원소 이름
-    # WHY: °C 를 원소 C보다 먼저 치환해야 degrees Celsius 가 됨
     s = _strip_literal_tags(s)
     s = _expand_unicode_scripts(s)
+    s = _apply_chem_aliases(s)
     s = _expand_plain_chem_digits(s)
     s = _SECTION_PREFIX.sub("", s)
+    s = _collapse_full_name_abbrev(s)
     s = _apply_symbols(s)
     s = _expand_units(s)
+    # Acronyms before elements so NMR is not nitrogen+MR (design/205).
+    s = _expand_acronyms(s)
     s = _expand_element_symbols(s)
+    s = _apply_light_prosody(s)
     s = re.sub(r"\s+", " ", s).strip()
     s = s.strip(" \t\"'`")
     return s
