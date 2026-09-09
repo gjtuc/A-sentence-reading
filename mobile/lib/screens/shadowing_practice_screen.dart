@@ -960,33 +960,42 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     final missionLeft = formatFocusClock(remaining);
 
     final showMirror = _practiceReady && _mirrorEnabled;
+    /// Cycle running — hide chrome, enlarge mirror for focus.
+    final immersive = _practiceReady && _focus.sessionActive;
 
     return Scaffold(
       backgroundColor: const Color(0xFF1A1A1A),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1A1A),
         foregroundColor: Colors.white,
-        title: const Text('따라 말하기'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.calendar_month_outlined, color: Colors.white70),
-            tooltip: '연습 캘린더',
-            onPressed: _openFocusCalendar,
-          ),
-          if (_practiceReady)
-            IconButton(
-              icon: Icon(
-                _mirrorEnabled ? Icons.videocam : Icons.videocam_off_outlined,
-                color: Colors.white70,
-              ),
-              tooltip: _mirrorEnabled ? '카메라 끄기' : '카메라 켜기',
-              onPressed: _busy ? null : _toggleMirror,
-            ),
-        ],
+        title: immersive ? null : const Text('따라 말하기'),
+        actions: immersive
+            ? const []
+            : [
+                IconButton(
+                  icon: const Icon(
+                    Icons.calendar_month_outlined,
+                    color: Colors.white70,
+                  ),
+                  tooltip: '연습 캘린더',
+                  onPressed: _openFocusCalendar,
+                ),
+                if (_practiceReady)
+                  IconButton(
+                    icon: Icon(
+                      _mirrorEnabled
+                          ? Icons.videocam
+                          : Icons.videocam_off_outlined,
+                      color: Colors.white70,
+                    ),
+                    tooltip: _mirrorEnabled ? '카메라 끄기' : '카메라 켜기',
+                    onPressed: _busy ? null : _toggleMirror,
+                  ),
+              ],
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+          padding: EdgeInsets.fromLTRB(20, immersive ? 4 : 8, 20, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -998,7 +1007,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                     color: Colors.white54,
                   ),
                 )
-              else ...[
+              else if (!immersive) ...[
                 Builder(
                   builder: (context) {
                     final session = _session;
@@ -1059,16 +1068,17 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                 ),
               ],
               if (showMirror) ...[
-                const SizedBox(height: 8),
+                SizedBox(height: immersive ? 4 : 8),
                 SizedBox(
-                  height: MediaQuery.sizeOf(context).height * 0.18,
+                  height: MediaQuery.sizeOf(context).height *
+                      (immersive ? 0.34 : 0.18),
                   child: const PracticeMirrorPanel(),
                 ),
               ],
-              const SizedBox(height: 12),
+              SizedBox(height: immersive ? 8 : 12),
               // Sentence ABOVE timer (design/176).
               Expanded(
-                flex: 3,
+                flex: immersive && showMirror ? 2 : 3,
                 child: Center(
                   child: SingleChildScrollView(
                     child: Text(
