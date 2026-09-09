@@ -16,7 +16,6 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/client.dart';
 import '../api/focus_practice_models.dart';
@@ -29,9 +28,11 @@ import '../services/shadowing_disk_store.dart';
 import '../services/shadowing_cloud_migrate.dart';
 import '../state/focus_practice_controller.dart';
 import '../state/library_controller.dart';
+import '../state/practice_bookmark_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/tts_controller.dart';
 import '../widgets/practice_mirror_panel.dart';
+import '../widgets/reader_nav_picker.dart';
 
 
 class ShadowingPracticeScreen extends StatefulWidget {
@@ -65,6 +66,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   late final FocusPracticeController _focus;
   late final bool _ownsFocus;
   final ShadowingDiskStore _disk = ShadowingDiskStore();
+  final PracticeBookmarkController _practiceBookmarks =
+      PracticeBookmarkController();
 
   String? _status;
   bool _busy = false;
@@ -105,6 +108,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _ownsFocus = widget.focus == null;
     _focus = widget.focus ?? FocusPracticeController();
     _focus.addListener(_onFocusTick);
+    _practiceBookmarks.addListener(_onPracticeBookmarksTick);
     unawaited(_boot());
   }
 
@@ -112,10 +116,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (mounted) setState(() {});
   }
 
+  void _onPracticeBookmarksTick() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.library.removeListener(_onLibraryPrepTick);
+    _practiceBookmarks.removeListener(_onPracticeBookmarksTick);
     _focus.removeListener(_onFocusTick);
     if (_focus.speaking) {
       _focus.endSpeak(cacheId: _cacheId);
@@ -123,6 +132,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (_ownsFocus) {
       _focus.dispose();
     }
+    _practiceBookmarks.dispose();
     unawaited(_player.dispose());
     unawaited(_mic.invokeMethod<String>('stop'));
     super.dispose();
@@ -165,6 +175,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   Future<void> _boot() async {
     await _focus.bindUid(widget.shadowing.boundUid);
     _disk.bindUid(widget.shadowing.boundUid);
+    await _practiceBookmarks.bindUid(widget.shadowing.boundUid);
     final session = _session;
     if (session == null || !session.isValid) {
       asrEvidenceBus?.record(
@@ -232,6 +243,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       _practiceReady = false;
       _status = _prepStatusLine();
     });
+    await _practiceBookmarks.loadPaper(cacheId);
     final sw = Stopwatch()..start();
     asrEvidenceBus?.record(
       'shadowing_boot_start',
@@ -379,6 +391,107 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       widget.library.removeListener(_onLibraryPrepTick);
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _goToPracticeSentence(int globalIndex) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await _player.stop();
+      try {
+        await _mic.invokeMethod<String>('stop');
+      } catch (_) {}
+      if (_focus.speaking) {
+        _focus.endSpeak(cacheId: _cacheId);
+      }
+      await widget.library.goToSentenceIndex(globalIndex);
+      final session = _session;
+      if (session == null) return;
+      _bindSentence(session);
+      _lastTakePath = null;
+      if (_chunks.isEmpty) {
+        setState(() => _status = '이 문장에 연습 구간이 없습니다.');
+        return;
+      }
+      await _runCycle();
+    } on AsrApiException catch (e) {
+      if (mounted) setState(() => _status = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _status = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _handlePracticeBookmarkTap() async {
+    final session = _session;
+    if (session == null || session.sentenceCount == 0) return;
+    if (!_practiceBookmarks.canBookmark) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('연습 북마크를 쓰려면 로그인해 주세요.')),
+      );
+      return;
+    }
+    final nav = session.sectionNav;
+    final key = nav.sentenceBookmarkKeyForGlobal(session.sentenceIndex);
+    if (_practiceBookmarks.isSentenceBookmarked(key)) {
+      await _practiceBookmarks.toggleSentenceBookmark(
+        nav,
+        session.sentenceIndex,
+      );
+      return;
+    }
+    final header = nav.headerPartsFor(session.sentenceIndex);
+    final label = header.sectionName.isEmpty
+        ? '${header.position}번 문장'
+        : '${header.sectionName} ${header.position}번';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('연습 북마크할까요?'),
+        content: Text(
+          '$label을 연습 북마크하면 연습 화면에서만 쉽게 찾을 수 있어요. 읽기 북마크와는 별개입니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('아니오'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('예'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await _practiceBookmarks.toggleSentenceBookmark(
+        nav,
+        session.sentenceIndex,
+      );
+    }
+  }
+
+  Future<void> _openPracticeSentencePicker() async {
+    final session = _session;
+    if (session == null || session.sentenceCount == 0) return;
+    final nav = session.sectionNav;
+    if (nav.sectionCount < 1) return;
+    final hints = BookmarkPickerHints(
+      leftBadgeCount: (i) =>
+          _practiceBookmarks.pickerSectionBadgeCount(nav, i),
+      rightHighlighted: (left, right) =>
+          _practiceBookmarks.pickerSentenceHighlighted(nav, left, right),
+    );
+    final idx = await showSectionNavPicker(
+      context: context,
+      nav: nav,
+      currentGlobalIndex: session.sentenceIndex,
+      bookmarks: hints,
+    );
+    if (idx == null || !mounted) return;
+    await _goToPracticeSentence(idx);
   }
 
   /// Advance reader past empty sentences until chunks exist (or end).
@@ -875,15 +988,74 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                _practiceReady
-                    ? '문장 ${_sentenceIndex + 1} · 구간 ${_chunkIndex + 1}/${_chunks.isEmpty ? 1 : _chunks.length}'
-                    : '연습 준비',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.white54,
+              if (!_practiceReady)
+                Text(
+                  '연습 준비',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.white54,
+                  ),
+                )
+              else ...[
+                Builder(
+                  builder: (context) {
+                    final session = _session;
+                    if (session == null || session.sentenceCount == 0) {
+                      return Text(
+                        '문장 없음',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.white54,
+                        ),
+                      );
+                    }
+                    final nav = session.sectionNav;
+                    final header = nav.headerPartsFor(session.sentenceIndex);
+                    final sentKey =
+                        nav.sentenceBookmarkKeyForGlobal(session.sentenceIndex);
+                    final highlighted =
+                        _practiceBookmarks.isSentenceBookmarked(sentKey);
+                    final sectionBadge = _practiceBookmarks.sectionBadgeCount(
+                      nav,
+                      session.sentenceIndex,
+                    );
+                    final canPick = nav.sectionCount > 0;
+                    return Column(
+                      children: [
+                        Theme(
+                          data: Theme.of(context).copyWith(
+                            textTheme: Theme.of(context).textTheme.apply(
+                                  bodyColor: Colors.white70,
+                                  displayColor: Colors.white70,
+                                ),
+                          ),
+                          child: ReaderNavHeaderLabel(
+                            left: header.sectionName.isEmpty
+                                ? 'Sentence'
+                                : header.sectionName,
+                            right: header.rightLabel,
+                            enabled: !_busy,
+                            highlighted: highlighted,
+                            leftBadgeCount: sectionBadge,
+                            onTap: _busy ? null : _handlePracticeBookmarkTap,
+                            onLongPress: (_busy || !canPick)
+                                ? null
+                                : _openPracticeSentencePicker,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '구간 ${_chunkIndex + 1}/${_chunks.isEmpty ? 1 : _chunks.length}',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: Colors.white38,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
-              ),
+              ],
               if (showMirror) ...[
                 const SizedBox(height: 8),
                 SizedBox(
