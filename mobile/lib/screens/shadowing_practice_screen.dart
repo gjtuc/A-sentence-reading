@@ -850,6 +850,42 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     }
   }
 
+
+  String _sectionKeyFor(ReadingSession session) {
+    final nav = session.sectionNav;
+    final (si, _) = nav.selectionForGlobal(session.sentenceIndex);
+    return nav.sectionKeyAt(si);
+  }
+
+  /// Immersive focus hides section chrome — one-shot cue on section entry only.
+  void _announceSectionIfChanged({
+    required String? previousKey,
+    required ReadingSession session,
+  }) {
+    if (!_focus.sessionActive) return;
+    final key = _sectionKeyFor(session);
+    if (key.isEmpty || key == previousKey) return;
+    final name = session.sectionNav
+        .headerPartsFor(session.sentenceIndex)
+        .sectionName;
+    if (name.isEmpty || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          name,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        ),
+        duration: const Duration(milliseconds: 1800),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xCC2A2A2A),
+        margin: const EdgeInsets.fromLTRB(48, 0, 48, 24),
+      ),
+    );
+  }
+
   Future<void> _advanceToNextChunk({required int token}) async {
     if (!mounted || token != _cycleToken) return;
     final session = _session;
@@ -859,6 +895,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (_chunkIndex + 1 < _chunks.length) {
       _chunkIndex += 1;
     } else if (_sentenceIndex + 1 < session.sentenceCount) {
+      final prevSection = _sectionKeyFor(session);
       final rows = <({String id, String text})>[
         for (final s in session.sentences) (id: s.id, text: s.text),
       ];
@@ -872,7 +909,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         return;
       }
       await widget.library.advanceSentence(1 + delta);
-      _bindSentence(session);
+      final next = _session ?? session;
+      _bindSentence(next);
+      _announceSectionIfChanged(previousKey: prevSection, session: next);
       if (_chunks.isEmpty) {
         setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
         return;
@@ -937,10 +976,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (_busy) return;
     setState(() => _busy = true);
     try {
+      final prevSection =
+          _session == null ? null : _sectionKeyFor(_session!);
       await widget.library.goToSentenceIndex(globalIndex);
       final session = _session;
       if (session == null) return;
       _bindSentence(session);
+      _announceSectionIfChanged(previousKey: prevSection, session: session);
       if (_chunks.isEmpty) {
         setState(() => _status = '이 문장에 연습 구간이 없습니다.');
         return;
