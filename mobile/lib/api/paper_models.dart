@@ -134,6 +134,18 @@ class PaperEntry {
   bool get isValid => id.isNotEmpty && title.isNotEmpty;
 
   /// design/160 — sentence + figure counts only (no library tag / stale / TTL text).
+  /// design/196 — totals + optional resume section in one line.
+  String metaResumeLine({String? resumeSection}) {
+    final meta = metaLine();
+    if (resumeSection == null) return meta;
+    final section = resumeSection.trim();
+    if (section.isEmpty) {
+      return meta.isEmpty ? "읽는 중" : "$meta 읽는 중";
+    }
+    if (meta.isEmpty) return "$section 읽는 중";
+    return "$meta · $section 읽는 중";
+  }
+
   String metaLine({int? figureCountOverride}) {
     final fc = figureCountOverride ?? figureCount;
     final bits = <String>[

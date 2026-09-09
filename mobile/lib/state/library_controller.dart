@@ -2391,13 +2391,8 @@ class LibraryController extends ChangeNotifier {
         sectionLabel: sectionLabel,
       );
       final next = Map<String, String>.from(progressResumeByCacheId);
-      final figN = s.figureCount;
-      final resume =
-          '문장 ${s.sentenceIndex + 1}'
-          '${figN > 0 ? ' · 그림 ${s.figureIndex + 1}' : ''}'
-          '${sectionLabel.isNotEmpty ? ' · $sectionLabel' : ''}'
-          ' 읽는 중';
-      next[s.cacheId] = resume;
+      // design/196 — section only; UI joins metaLine + section + reading mark.
+      next[s.cacheId] = sectionLabel;
       progressResumeByCacheId = next;
     } catch (_) {
       // EDGE: prefs fail must not block reading UI.

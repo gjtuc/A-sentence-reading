@@ -744,8 +744,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       ),
                       subtitle: Text(
                         [
-                          e.metaLine(),
-                          lib.progressResumeByCacheId[e.id] ?? '',
+                          e.metaResumeLine(
+                            resumeSection:
+                                lib.progressResumeByCacheId.containsKey(e.id)
+                                    ? (lib.progressResumeByCacheId[e.id] ?? "")
+                                    : null,
+                          ),
                           e.timingLine(
                             lastReadLeftAt:
                                 lib.readLeftAtByCacheId[e.id] ?? '',

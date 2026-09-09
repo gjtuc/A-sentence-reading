@@ -214,12 +214,9 @@ Future<Map<String, String>> loadProgressResumeLabels({
       final si = row['sentence_index'];
       final fi = row['figure_index'];
       if (si is! num || fi is! num) continue;
-      final section = '${row['section_label'] ?? ''}'.trim();
-      final label =
-          '문장 ${si.toInt() + 1} · 그림 ${fi.toInt() + 1}'
-          '${section.isNotEmpty ? ' · $section' : ''}'
-          ' 읽는 중';
-      out[cid] = label;
+      final section = (row["section_label"]?.toString() ?? "").trim();
+      // design/196 — section only; library composes totals + section + reading mark.
+      out[cid] = section;
     }
   } catch (_) {
     return out;
