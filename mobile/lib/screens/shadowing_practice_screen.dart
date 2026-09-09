@@ -1,9 +1,8 @@
 /// design/82+120+176 — shadowing practice + 10‑min speaking focus clock.
 ///
 /// Gates: login (shell) · kill · opt-in · chunks built before loop.
-/// Loop: listen → record(+2s) → auto-next while focus session active.
-/// design/120 — 「다시」(speak only) · 「다시 듣기」(my take).
-/// design/176 — tomato-like chrome · sentence above timer · mic-only clock.
+/// Loop per chunk: listen TTS → speak+TTS(reuse bytes) → my-take replay → next.
+/// Focus clock only during speak (mic open). Manual next/retry/replay removed.
 library;
 
 import 'dart:async';
@@ -21,7 +20,6 @@ import '../api/client.dart';
 import '../api/focus_practice_models.dart';
 import '../api/reading_models.dart';
 import '../api/shadowing_chunk_plan.dart';
-import '../api/shadowing_retry_gate.dart';
 import '../api/tts_models.dart';
 import '../services/evidence_bus.dart';
 import '../services/shadowing_disk_store.dart';
@@ -82,12 +80,17 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   int _chunkIndex = 0;
   String _sentenceId = '0';
   int _sentenceIndex = 0;
-  /// design/120 — last local take path for 「다시 듣기」 (per device, this session).
+  /// design/120 — last local take path for replay phase (this chunk).
   String? _lastTakePath;
+  /// Per-chunk TTS: one random voice/rate draw; bytes reused for listen+speak.
+  Uint8List? _chunkTtsBytes;
+  TtsPlaybackParams? _chunkTtsParams;
   /// design/162 — session-only self-view mirror (not persisted).
   bool _mirrorEnabled = false;
-  /// design/176 — auto-advance after successful speak while session active.
-  bool _autoAdvance = true;
+  /// design/176 — auto-advance after full listen→speak→my-take cycle.
+  final bool _autoAdvance = true;
+  /// Invalidate in-flight cycle on give-up / picker jump.
+  int _cycleToken = 0;
 
   ReadingSession? get _session => widget.library.session;
 
@@ -394,36 +397,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     }
   }
 
-  Future<void> _goToPracticeSentence(int globalIndex) async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    try {
-      await _player.stop();
-      try {
-        await _mic.invokeMethod<String>('stop');
-      } catch (_) {}
-      if (_focus.speaking) {
-        _focus.endSpeak(cacheId: _cacheId);
-      }
-      await widget.library.goToSentenceIndex(globalIndex);
-      final session = _session;
-      if (session == null) return;
-      _bindSentence(session);
-      _lastTakePath = null;
-      if (_chunks.isEmpty) {
-        setState(() => _status = '이 문장에 연습 구간이 없습니다.');
-        return;
-      }
-      await _runCycle();
-    } on AsrApiException catch (e) {
-      if (mounted) setState(() => _status = e.message);
-    } catch (e) {
-      if (mounted) setState(() => _status = e.toString());
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
   Future<void> _handlePracticeBookmarkTap() async {
     final session = _session;
     if (session == null || session.sentenceCount == 0) return;
@@ -590,15 +563,29 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     return shadowingChunksForSentence(_plan, sid, plain);
   }
 
-  Future<void> _playTts(String text) async {
-    // design/103 — same mode/voice/rate pick as reader TTS.
+  void _clearChunkTtsCache() {
+    _chunkTtsBytes = null;
+    _chunkTtsParams = null;
+  }
+
+  Future<void> _ensureChunkTts(String text) async {
+    if (_chunkTtsBytes != null && _chunkTtsParams != null) return;
     final params = widget.tts.pickPlaybackParams();
+    final bytes = await widget.client.synthesizeTts(
+      text: text,
+      voice: params.voice,
+      speakingRate: kTtsRateDefault,
+    );
+    _chunkTtsBytes = Uint8List.fromList(bytes);
+    _chunkTtsParams = params;
+  }
+
+  Future<void> _playCachedChunkTts({required String phase}) async {
+    final text = _chunks[_chunkIndex];
     try {
-      final bytes = await widget.client.synthesizeTts(
-        text: text,
-        voice: params.voice,
-        speakingRate: kTtsRateDefault,
-      );
+      await _ensureChunkTts(text);
+      final bytes = _chunkTtsBytes!;
+      final params = _chunkTtsParams!;
       await _player.stop();
       try {
         await _player.setPlaybackRate(clampSpeakingRate(params.speakingRate));
@@ -606,13 +593,17 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         // EDGE: player rate unsupported on some devices — still play.
       }
       final done = _player.onPlayerComplete.first;
-      await _player.play(BytesSource(Uint8List.fromList(bytes)));
+      await _player.play(BytesSource(bytes));
       await done;
       asrEvidenceBus?.record(
         'shadowing_loop_event',
         cacheId: _cacheId,
         ok: true,
-        details: {'phase': 'tts', 'ok': true},
+        details: {
+          'phase': phase,
+          'ok': true,
+          'tts_reuse': phase == 'tts_speak' ? 1 : 0,
+        },
       );
     } catch (e) {
       asrEvidenceBus?.record(
@@ -621,7 +612,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         ok: false,
         code: 'tts_fail',
         details: {
-          'phase': 'tts',
+          'phase': phase,
           'ok': false,
           'exc_type': e.runtimeType.toString(),
         },
@@ -630,17 +621,47 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     }
   }
 
+  /// listen TTS → speak+TTS(reuse) → my take replay → next chunk.
   Future<void> _runCycle() async {
     if (_chunks.isEmpty) return;
+    if (!_focus.sessionActive || _focus.paused) return;
+    final token = ++_cycleToken;
+    // Continuous loop must not pin _busy (bookmark / calendar stay usable).
+    if (mounted && _busy) setState(() => _busy = false);
+    _clearChunkTtsCache();
+    _lastTakePath = null;
+
+    bool alive() =>
+        mounted &&
+        token == _cycleToken &&
+        _focus.sessionActive &&
+        !_focus.paused;
+
     setState(() => _status = '듣는 중');
-    await _playTts(_chunks[_chunkIndex]);
-    await _runSpeakOnly(fromRetry: false);
+    await _playCachedChunkTts(phase: 'tts_listen');
+    if (!alive()) return;
+
+    final takeOk = await _runSpeakPhase();
+    if (!alive()) return;
+    if (!takeOk) {
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      if (!alive()) return;
+      await _advanceToNextChunk(token: token);
+      return;
+    }
+
+    await _playMyTakePhase();
+    if (!alive()) return;
+
+    if (_autoAdvance) {
+      await _advanceToNextChunk(token: token);
+    }
   }
 
-  /// design/120 — speak phase only (no leading listen TTS).
-  Future<void> _runSpeakOnly({required bool fromRetry}) async {
-    if (_chunks.isEmpty) return;
-    setState(() => _status = fromRetry ? '다시 말하는 중' : '말하는 중');
+  /// Phase 2 — mic open; focus clock runs only here. Reuses chunk TTS bytes.
+  Future<bool> _runSpeakPhase() async {
+    if (_chunks.isEmpty) return false;
+    setState(() => _status = '말하는 중');
     var okMic = await _mic.invokeMethod<bool>('hasPermission') ?? false;
     if (!okMic) {
       okMic = await _mic.invokeMethod<bool>('requestPermission') ?? false;
@@ -653,13 +674,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         code: 'mic_perm',
         details: {'phase': 'mic_start', 'ok': false, 'exc_type': 'mic_perm'},
       );
-      setState(() => _status = '마이크 권한이 없습니다. 건너뛰기를 사용할 수 있습니다.');
-      return;
+      setState(() => _status = '마이크 권한이 없습니다. 다음 구간으로 넘어갑니다.');
+      return false;
     }
     final dir = await getTemporaryDirectory();
     final path =
         '${dir.path}${Platform.pathSeparator}asr_shadow_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    final started = await _mic.invokeMethod<bool>('start', {'path': path}) ?? false;
+    final started =
+        await _mic.invokeMethod<bool>('start', {'path': path}) ?? false;
     if (!started) {
       asrEvidenceBus?.record(
         'shadowing_loop_event',
@@ -668,10 +690,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         code: 'mic_start',
         details: {'phase': 'mic_start', 'ok': false, 'exc_type': 'mic_start'},
       );
-      setState(() => _status = '녹음을 시작하지 못했습니다. 건너뛰기를 사용할 수 있습니다.');
-      return;
+      setState(() => _status = '녹음을 시작하지 못했습니다. 다음 구간으로 넘어갑니다.');
+      return false;
     }
-    // design/176 plan C — clock runs only while mic speak segment is open.
     _focus.beginSpeak();
     asrEvidenceBus?.record(
       'shadowing_loop_event',
@@ -681,7 +702,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     );
     var takeOk = false;
     try {
-      await _playTts(_chunks[_chunkIndex]);
+      await _playCachedChunkTts(phase: 'tts_speak');
       await Future<void>.delayed(_pad);
     } finally {
       _focus.endSpeak(cacheId: _cacheId);
@@ -695,161 +716,159 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       final filePath = (outPath == null || outPath.isEmpty) ? path : outPath;
       final file = File(filePath);
       if (!await file.exists()) {
-        setState(() => _status = '녹음 실패. 건너뛰기를 사용할 수 있습니다.');
-        return;
-      }
-      final bytes = await file.readAsBytes();
-      if (bytes.isEmpty) {
-        setState(() => _status = '녹음이 비었습니다. 건너뛰기를 사용할 수 있습니다.');
-        return;
-      }
-      // WHY: keep local path for unlimited 「다시 듣기」 (design/120).
-      _lastTakePath = filePath;
-      final cacheId = _cacheId;
-      final blobKey =
-          'shadowing|$cacheId|$_sentenceId|$_chunkIndex|${DateTime.now().millisecondsSinceEpoch}';
-      try {
-        // design/187 — always write device SoT first; skip cloud when localSot.
-        await _persistTakeLocal(
-          cacheId: cacheId,
-          status: 'recorded',
-          blobKey: blobKey,
-          mime: 'audio/mp4',
-          voiceBytes: bytes,
-        );
-        if (!_localSot) {
-          await widget.client.putVoiceBlob(
-            blobKey,
-            bytes,
-            contentType: 'audio/mp4',
-          );
-          await widget.client.postShadowingTake(
-            cacheId,
-            practiceEnabled: true,
-            sentenceId: _sentenceId,
-            chunkIndex: _chunkIndex,
-            chunkCount: _chunks.length,
-            status: 'recorded',
-            blobKey: blobKey,
-            mime: 'audio/mp4',
-          );
-        }
-        asrEvidenceBus?.record(
-          'shadowing_loop_event',
-          cacheId: cacheId,
-          ok: true,
-          details: {'phase': 'take_post', 'ok': true, 'local_sot': _localSot},
-        );
-        takeOk = true;
-        setState(() => _status = '저장됨');
-      } on AsrApiException catch (e) {
-        if (e.statusCode == 409) {
-          // EDGE: server already local-SoT — local write is enough.
-          takeOk = true;
-          setState(() => _status = '저장됨');
+        setState(() => _status = '녹음 실패. 다음 구간으로 넘어갑니다.');
+      } else {
+        final bytes = await file.readAsBytes();
+        if (bytes.isEmpty) {
+          setState(() => _status = '녹음이 비었습니다. 다음 구간으로 넘어갑니다.');
         } else {
-          asrEvidenceBus?.record(
-            'shadowing_loop_event',
-            cacheId: cacheId,
-            ok: false,
-            code: 'take_post',
-            details: {
-              'phase': 'take_post',
-              'ok': false,
-              'exc_type': e.runtimeType.toString(),
-            },
-          );
-          rethrow;
+          _lastTakePath = filePath;
+          final cacheId = _cacheId;
+          final blobKey =
+              'shadowing|$cacheId|$_sentenceId|$_chunkIndex|${DateTime.now().millisecondsSinceEpoch}';
+          try {
+            await _persistTakeLocal(
+              cacheId: cacheId,
+              status: 'recorded',
+              blobKey: blobKey,
+              mime: 'audio/mp4',
+              voiceBytes: bytes,
+            );
+            if (!_localSot) {
+              await widget.client.putVoiceBlob(
+                blobKey,
+                bytes,
+                contentType: 'audio/mp4',
+              );
+              await widget.client.postShadowingTake(
+                cacheId,
+                practiceEnabled: true,
+                sentenceId: _sentenceId,
+                chunkIndex: _chunkIndex,
+                chunkCount: _chunks.length,
+                status: 'recorded',
+                blobKey: blobKey,
+                mime: 'audio/mp4',
+              );
+            }
+            asrEvidenceBus?.record(
+              'shadowing_loop_event',
+              cacheId: cacheId,
+              ok: true,
+              details: {
+                'phase': 'take_post',
+                'ok': true,
+                'local_sot': _localSot,
+              },
+            );
+            takeOk = true;
+            setState(() => _status = '저장됨');
+          } on AsrApiException catch (e) {
+            if (e.statusCode == 409) {
+              takeOk = true;
+              setState(() => _status = '저장됨');
+            } else {
+              asrEvidenceBus?.record(
+                'shadowing_loop_event',
+                cacheId: cacheId,
+                ok: false,
+                code: 'take_post',
+                details: {
+                  'phase': 'take_post',
+                  'ok': false,
+                  'exc_type': e.runtimeType.toString(),
+                },
+              );
+              rethrow;
+            }
+          } catch (e) {
+            asrEvidenceBus?.record(
+              'shadowing_loop_event',
+              cacheId: cacheId,
+              ok: false,
+              code: 'take_post',
+              details: {
+                'phase': 'take_post',
+                'ok': false,
+                'exc_type': e.runtimeType.toString(),
+              },
+            );
+            rethrow;
+          }
         }
-      } catch (e) {
-        asrEvidenceBus?.record(
-          'shadowing_loop_event',
-          cacheId: cacheId,
-          ok: false,
-          code: 'take_post',
-          details: {
-            'phase': 'take_post',
-            'ok': false,
-            'exc_type': e.runtimeType.toString(),
-          },
-        );
-        rethrow;
       }
     }
-    // Retry stays put; successful first-pass speak chains while focus is on.
-    if (takeOk && !fromRetry) {
-      _scheduleAutoAdvance();
-    }
+    return takeOk;
   }
 
-  void _scheduleAutoAdvance() {
-    if (!_autoAdvance || !_focus.sessionActive || _focus.paused) return;
-    unawaited(() async {
-      // Wait for parent finally to clear _busy (boot / _next / restart).
-      for (var i = 0; i < 40; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-        if (!mounted || !_focus.sessionActive || _focus.paused) return;
-        if (!_busy) break;
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      if (!mounted || _busy || !_focus.sessionActive || _focus.paused) return;
-      await _next(skip: false);
-    }());
-  }
-
-  Future<void> _retrySpeak() async {
-    if (_busy) return;
-    if (_chunks.isEmpty) {
-      setState(() => _status = '연습 구간이 없습니다.');
-      return;
-    }
-    setState(() => _busy = true);
-    try {
-      await _runSpeakOnly(fromRetry: true);
-    } on AsrApiException catch (e) {
-      setState(() => _status = e.message);
-    } catch (e) {
-      setState(() => _status = e.toString());
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _replayTake() async {
-    if (_busy) return;
-    // Fail-closed: no recording → clear error, never silent success.
-    if (!canReplayShadowingTake(_lastTakePath)) {
-      setState(() => _status = '재생할 녹음이 없습니다. 먼저 말해 주세요.');
-      return;
-    }
-    final path = _lastTakePath!.trim();
+  /// Phase 3 — my recording only; focus clock must stay off.
+  Future<void> _playMyTakePhase() async {
+    final path = (_lastTakePath ?? '').trim();
+    if (path.isEmpty) return;
     final file = File(path);
-    if (!await file.exists()) {
-      setState(() {
-        _lastTakePath = null;
-        _status = '재생할 녹음이 없습니다. 먼저 말해 주세요.';
-      });
-      return;
-    }
-    setState(() {
-      _busy = true;
-      _status = '내 녹음 듣는 중…';
-    });
+    if (!await file.exists()) return;
+    setState(() => _status = '내 녹음 듣는 중');
     try {
       await _player.stop();
       final done = _player.onPlayerComplete.first;
       await _player.play(DeviceFileSource(path));
       await done;
-      if (mounted) {
-        setState(() => _status = '저장됨');
-      }
+      asrEvidenceBus?.record(
+        'shadowing_loop_event',
+        cacheId: _cacheId,
+        ok: true,
+        details: {'phase': 'my_take_replay', 'ok': true},
+      );
+      if (mounted) setState(() => _status = '저장됨');
     } catch (e) {
-      if (mounted) {
-        setState(() => _status = '녹음 재생에 실패했습니다.');
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      asrEvidenceBus?.record(
+        'shadowing_loop_event',
+        cacheId: _cacheId,
+        ok: false,
+        code: 'replay_fail',
+        details: {
+          'phase': 'my_take_replay',
+          'ok': false,
+          'exc_type': e.runtimeType.toString(),
+        },
+      );
+      if (mounted) setState(() => _status = '녹음 재생에 실패했습니다.');
     }
+  }
+
+  Future<void> _advanceToNextChunk({required int token}) async {
+    if (!mounted || token != _cycleToken) return;
+    final session = _session;
+    if (session == null) return;
+    _lastTakePath = null;
+    _clearChunkTtsCache();
+    if (_chunkIndex + 1 < _chunks.length) {
+      _chunkIndex += 1;
+    } else if (_sentenceIndex + 1 < session.sentenceCount) {
+      final rows = <({String id, String text})>[
+        for (final s in session.sentences) (id: s.id, text: s.text),
+      ];
+      final delta = shadowingSkipEmptyDelta(
+        plan: _plan,
+        sentences: rows,
+        fromIndex: _sentenceIndex + 1,
+      );
+      if (delta < 0) {
+        setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
+        return;
+      }
+      await widget.library.advanceSentence(1 + delta);
+      _bindSentence(session);
+      if (_chunks.isEmpty) {
+        setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
+        return;
+      }
+    } else {
+      setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
+      return;
+    }
+    if (!mounted || token != _cycleToken) return;
+    await _runCycle();
   }
 
   void _toggleMirror() {
@@ -857,7 +876,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   }
 
   void _onGiveUp() {
+    _cycleToken++;
+    unawaited(_player.stop());
+    unawaited(_mic.invokeMethod<String>('stop'));
+    if (_focus.speaking) {
+      _focus.endSpeak(cacheId: _cacheId);
+    }
     _focus.giveUp(cacheId: _cacheId);
+    _clearChunkTtsCache();
     setState(
       () => _status =
           '집중 종료 · 미완료 10분은 초기화됩니다. 「시작」으로 다시.',
@@ -879,79 +905,41 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _focus.startSession(cacheId: _cacheId);
     setState(() => _status = '집중 시작. 말할 때만 시계가 갑니다.');
     if (!_busy && _chunks.isNotEmpty) {
-      unawaited(() async {
-        setState(() => _busy = true);
-        try {
-          await _runCycle();
-        } catch (e) {
-          if (mounted) setState(() => _status = e.toString());
-        } finally {
-          if (mounted) setState(() => _busy = false);
-        }
-      }());
+      unawaited(_runCycle());
     }
   }
 
-  Future<void> _next({required bool skip}) async {
+  Future<void> _goToPracticeSentence(int globalIndex) async {
+    _cycleToken++;
+    unawaited(_player.stop());
+    try {
+      await _mic.invokeMethod<String>('stop');
+    } catch (_) {}
+    if (_focus.speaking) {
+      _focus.endSpeak(cacheId: _cacheId);
+    }
+    _clearChunkTtsCache();
+    _lastTakePath = null;
     if (_busy) return;
     setState(() => _busy = true);
     try {
+      await widget.library.goToSentenceIndex(globalIndex);
       final session = _session;
       if (session == null) return;
-      final cacheId = _cacheId;
-      if (skip) {
-        await _persistTakeLocal(cacheId: cacheId, status: 'skipped');
-        if (!_localSot) {
-          try {
-            await widget.client.postShadowingTake(
-              cacheId,
-              practiceEnabled: true,
-              sentenceId: _sentenceId,
-              chunkIndex: _chunkIndex,
-              chunkCount: _chunks.length,
-              status: 'skipped',
-            );
-          } on AsrApiException catch (e) {
-            if (e.statusCode != 409) rethrow;
-          }
-        }
-        asrEvidenceBus?.record(
-          'shadowing_loop_event',
-          cacheId: cacheId,
-          ok: true,
-          details: {'phase': 'skip', 'ok': true, 'local_sot': _localSot},
-        );
-      }
-      // WHY: leaving this chunk — clear take so replay cannot play the wrong slot.
-      _lastTakePath = null;
-      if (_chunkIndex + 1 < _chunks.length) {
-        _chunkIndex += 1;
-      } else if (_sentenceIndex + 1 < session.sentenceCount) {
-        final rows = <({String id, String text})>[
-          for (final s in session.sentences) (id: s.id, text: s.text),
-        ];
-        final delta = shadowingSkipEmptyDelta(
-          plan: _plan,
-          sentences: rows,
-          fromIndex: _sentenceIndex + 1,
-        );
-        if (delta < 0) {
-          setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
-          return;
-        }
-        await widget.library.advanceSentence(1 + delta);
-        _bindSentence(session);
-        if (_chunks.isEmpty) {
-          setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
-          return;
-        }
-      } else {
-        setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
+      _bindSentence(session);
+      if (_chunks.isEmpty) {
+        setState(() => _status = '이 문장에 연습 구간이 없습니다.');
         return;
       }
+      if (!_focus.sessionActive) {
+        _focus.startSession(cacheId: _cacheId);
+      }
+      setState(() => _busy = false);
       await _runCycle();
     } on AsrApiException catch (e) {
-      setState(() => _status = e.message);
+      if (mounted) setState(() => _status = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _status = e.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -972,7 +960,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     final missionLeft = formatFocusClock(remaining);
 
     final showMirror = _practiceReady && _mirrorEnabled;
-    final loopEnabled = _practiceReady && !_busy && !_bootFailed;
 
     return Scaffold(
       backgroundColor: const Color(0xFF1A1A1A),
@@ -1169,50 +1156,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                     child: const Text('시작'),
                   ),
                 ),
-              if (_practiceReady) ...[
-                const SizedBox(height: 12),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.white24,
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed:
-                          loopEnabled ? () => _next(skip: false) : null,
-                      child: const Text('다음'),
-                    ),
-                    OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        side: const BorderSide(color: Colors.white24),
-                      ),
-                      onPressed:
-                          loopEnabled ? () => _next(skip: true) : null,
-                      child: const Text('건너뛰기'),
-                    ),
-                    OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        side: const BorderSide(color: Colors.white24),
-                      ),
-                      onPressed: loopEnabled ? _retrySpeak : null,
-                      child: const Text('다시'),
-                    ),
-                    OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        side: const BorderSide(color: Colors.white24),
-                      ),
-                      onPressed: loopEnabled ? _replayTake : null,
-                      child: const Text('다시 듣기'),
-                    ),
-                  ],
-                ),
-              ],
             ],
           ),
         ),
