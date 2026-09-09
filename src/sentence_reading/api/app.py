@@ -70,6 +70,9 @@ from sentence_reading.llm.auth_google import (
 )
 from sentence_reading.llm.shadowing_practice import shadowing_practice_enabled
 from sentence_reading.llm.practice_grooming import practice_grooming_enabled
+from sentence_reading.llm.practice_cycle_evidence import (
+    practice_cycle_evidence_enabled,
+)
 from sentence_reading.llm.login_required import (
     is_login_public_path,
     login_required_enabled,
@@ -265,7 +268,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.208",
+    version="0.3.209",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1763,7 +1766,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.208",
+        "version": "0.3.209",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.

@@ -127,6 +127,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       final st = await _auth.client.fetchStatus();
       _shadowing.setServerAvailable(st.mobileShadowingPractice);
       _shadowing.setGroomingServerEnabled(st.mobilePracticeGrooming);
+      _shadowing.setCycleEvidenceServerEnabled(st.mobilePracticeCycleEvidence);
       _shadowing.setLocalSot(st.shadowingLocalSot);
       _library.setShadowingLocalSot(st.shadowingLocalSot);
       _citePanel.setServerAvailable(st.mobileCiteRefPanel);

@@ -23,6 +23,9 @@ class ShadowingController extends ChangeNotifier {
   /// design/208 — process grooming; missing/true → on; explicit false kills.
   bool groomingServerEnabled = true;
 
+  /// design/209 — cycle wide evidence; missing/true → on; explicit false kills.
+  bool cycleEvidenceServerEnabled = true;
+
   /// design/187 — device is SoT for takes/voice/chunk cache; cloud PUT refused.
   bool localSot = false;
 
@@ -79,6 +82,12 @@ class ShadowingController extends ChangeNotifier {
   void setGroomingServerEnabled(bool on) {
     if (groomingServerEnabled == on) return;
     groomingServerEnabled = on;
+    notifyListeners();
+  }
+
+  void setCycleEvidenceServerEnabled(bool on) {
+    if (cycleEvidenceServerEnabled == on) return;
+    cycleEvidenceServerEnabled = on;
     notifyListeners();
   }
 

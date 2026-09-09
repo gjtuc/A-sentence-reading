@@ -56,7 +56,7 @@ class PracticeGroomingController {
     return _cycleScale;
   }
 
-  void onOutcome({
+  GroomingDecision onOutcome({
     required GroomingObservation obs,
     String? cacheId,
   }) {
@@ -81,5 +81,8 @@ class PracticeGroomingController {
         'session_count': _mem.interventionsThisSession,
       },
     );
+    return decision;
   }
+
+  int get interventionsThisSession => _mem.interventionsThisSession;
 }

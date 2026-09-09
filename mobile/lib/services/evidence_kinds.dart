@@ -137,6 +137,9 @@ const Set<String> kEvidenceAllowedKinds = {
   'focus_day_success',
   // design/208
   'practice_grooming_decision',
+  // design/209
+  'practice_cycle_wide',
+  'practice_evidence_flush',
   // design/178 — worker wake causal densify
   'worker_wake_start',
   'worker_wake_done',
