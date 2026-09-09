@@ -105,34 +105,65 @@ def _save_meta(meta: dict[str, Any]) -> bool:
 
 
 def _load_meta(upload_id: str, *, owner_uid: str) -> dict[str, Any] | None:
+    """Load upload meta.
+
+    WHY (0.3.191): Cloud Run can route sequential PUTs to different instances.
+    Preferring process-local MEM alone caused stale ``received_offset`` →
+    ``offset_mismatch`` 409 mid-upload. When GCS is on, take the fresher of
+    MEM vs GCS (higher received_offset); invalidate prefix hasher if MEM loses.
+    """
     uid = (owner_uid or "").strip()
     if not uid or not valid_upload_id(upload_id):
         return None
     with _LOCK:
-        mem = _MEM_META.get(upload_id)
-        if isinstance(mem, dict) and str(mem.get("owner_uid") or "") == uid:
-            return dict(mem)
+        mem_raw = _MEM_META.get(upload_id)
+        mem = (
+            dict(mem_raw)
+            if isinstance(mem_raw, dict)
+            and str(mem_raw.get("owner_uid") or "") == uid
+            else None
+        )
     if not _gcs_on():
-        return None
+        return mem
     obj = _meta_object(upload_id, uid=uid)
-    if not obj:
+    gcs: dict[str, Any] | None = None
+    if obj:
+        raw = download_bytes(obj)
+        if raw:
+            try:
+                data = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                data = None
+            if (
+                isinstance(data, dict)
+                and str(data.get("owner_uid") or "") == uid
+                and str(data.get("upload_id") or "") == upload_id
+            ):
+                gcs = dict(data)
+    if mem is None and gcs is None:
         return None
-    raw = download_bytes(obj)
-    if not raw:
-        return None
-    try:
-        data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    if str(data.get("owner_uid") or "") != uid:
-        return None
-    if str(data.get("upload_id") or "") != upload_id:
-        return None
+    if mem is None:
+        chosen = gcs
+        mem_lost = True
+    elif gcs is None:
+        chosen = mem
+        mem_lost = False
+    else:
+        mem_off = int(mem.get("received_offset") or 0)
+        gcs_off = int(gcs.get("received_offset") or 0)
+        if gcs_off > mem_off:
+            chosen = gcs
+            mem_lost = True
+        else:
+            chosen = mem
+            mem_lost = False
+    assert chosen is not None
     with _LOCK:
-        _MEM_META[upload_id] = dict(data)
-    return dict(data)
+        _MEM_META[upload_id] = dict(chosen)
+        if mem_lost:
+            # Stale local hasher would diverge from GCS-authoritative prefix.
+            _MEM_PREFIX_HASHER.pop(upload_id, None)
+    return dict(chosen)
 
 
 def _save_part(

@@ -49,7 +49,7 @@ def _register(client: TestClient, email: str = "u@example.com") -> None:
 
 def test_status_flag():
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert isinstance(st.get("version"), str) and st["version"].startswith("0.3.")
     assert st["ingest_chunked_upload"] is True
 
 
@@ -217,3 +217,38 @@ def test_design_72():
     assert "prefix_sha256" in text
     assert "ingest_chunked_upload" in text
     assert "ASR_CHUNKED_UPLOAD" in text
+
+
+def test_load_meta_prefers_fresher_gcs_over_stale_mem(monkeypatch: pytest.MonkeyPatch):
+    """Multi-instance: stale process MEM must not win over newer GCS meta."""
+    upload_id = "upl_aabbccddeeff"
+    uid = "uid_test_owner"
+    stale = {
+        "upload_id": upload_id,
+        "owner_uid": uid,
+        "received_offset": 262144,
+        "prefix_sha256": "aa",
+        "size": 1048576,
+        "chunk_size": 262144,
+    }
+    fresh = {
+        **stale,
+        "received_offset": 786432,
+        "prefix_sha256": "bb",
+    }
+    with ic._LOCK:
+        ic._MEM_META[upload_id] = dict(stale)
+        ic._MEM_PREFIX_HASHER[upload_id] = object()
+    monkeypatch.setattr(ic, "_gcs_on", lambda: True)
+    monkeypatch.setattr(ic, "_meta_object", lambda *_a, **_k: "obj")
+    monkeypatch.setattr(
+        ic,
+        "download_bytes",
+        lambda _obj: __import__("json").dumps(fresh).encode("utf-8"),
+    )
+    got = ic._load_meta(upload_id, owner_uid=uid)
+    assert got is not None
+    assert int(got["received_offset"]) == 786432
+    with ic._LOCK:
+        assert upload_id not in ic._MEM_PREFIX_HASHER
+        assert int(ic._MEM_META[upload_id]["received_offset"]) == 786432

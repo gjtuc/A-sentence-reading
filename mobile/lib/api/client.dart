@@ -1256,7 +1256,22 @@ class AsrClient {
       throw AsrApiException('요청이 너무 많습니다.', 429);
     }
     if (res.statusCode == 409 || res.statusCode == 400) {
-      throw AsrApiException('조각 무결성 검사에 실패했습니다. 다시 올려 주세요.', res.statusCode);
+      var msg = '조각 무결성 검사에 실패했습니다. 다시 올려 주세요.';
+      try {
+        final body = jsonDecode(res.body);
+        if (body is Map) {
+          final code = '${body['error'] ?? ''}'.trim();
+          final serverMsg = '${body['message'] ?? ''}'.trim();
+          if (code == 'offset_mismatch') {
+            msg = '업로드 조각 순서가 어긋났습니다. 다시 올려 주세요.';
+          } else if (code == 'chunk_hash_mismatch') {
+            msg = '업로드 조각 해시가 맞지 않습니다. 다시 올려 주세요.';
+          } else if (serverMsg.isNotEmpty) {
+            msg = serverMsg;
+          }
+        }
+      } catch (_) {}
+      throw AsrApiException(msg, res.statusCode);
     }
     final map = _decodeObject(res, 'ingest/uploads/put');
     return map['received_offset'] is num
