@@ -268,7 +268,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.209",
+    version="0.3.210",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1766,7 +1766,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.209",
+        "version": "0.3.210",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -1884,6 +1884,9 @@ def status(request: Request) -> dict:
         # design/208 — process grooming; ASR_PRACTICE_GROOMING=0 kills.
         "practice_grooming": practice_grooming_enabled(),
         "mobile_practice_grooming": practice_grooming_enabled(),
+        # design/209 — cycle wide evidence; ASR_PRACTICE_CYCLE_EVIDENCE=0 kills.
+        "practice_cycle_evidence": practice_cycle_evidence_enabled(),
+        "mobile_practice_cycle_evidence": practice_cycle_evidence_enabled(),
         "usage_meter": True,
         # design/28 · 139 — Fig. chips; kill ASR_FIG_REF_HINTS=0.
         "fig_ref_hints": _fig_ref_hints_enabled(),
