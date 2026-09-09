@@ -130,6 +130,9 @@ class LibraryController extends ChangeNotifier {
   /// design/113 · 0.3.176 — soft progress while pending (e.g. 29/301).
   String? shadowingChunksProgress;
   bool shadowingChunksBusy = false;
+  /// Single-flight: handoff+open must not race two builds (progress reset).
+  Future<void>? _shadowingEnsureFuture;
+  String? _shadowingEnsureCacheId;
 
   /// design/99 — KO backfill polling after /open (translate_pending).
   bool translateBackfillBusy = false;
@@ -3140,6 +3143,31 @@ class LibraryController extends ChangeNotifier {
   Future<void> ensureShadowingChunks(String cacheId) async {
     final id = cacheId.trim();
     if (id.isEmpty) return;
+    // Join in-flight ensure for same paper — do not reset progress / dual-build.
+    if (_shadowingEnsureFuture != null && _shadowingEnsureCacheId == id) {
+      await _shadowingEnsureFuture;
+      return;
+    }
+    if (_shadowingEnsureFuture != null) {
+      try {
+        await _shadowingEnsureFuture;
+      } catch (_) {}
+    }
+    final run = _ensureShadowingChunksBody(id);
+    _shadowingEnsureFuture = run;
+    _shadowingEnsureCacheId = id;
+    try {
+      await run;
+    } finally {
+      if (_shadowingEnsureCacheId == id) {
+        _shadowingEnsureFuture = null;
+        _shadowingEnsureCacheId = null;
+      }
+    }
+  }
+
+  /// Single-flight ensure body (design/80 · 113).
+  Future<void> _ensureShadowingChunksBody(String id) async {
     shadowingChunksCacheId = id;
     final probe = await _shadowingWantProbe();
     if (!probe.want) {
