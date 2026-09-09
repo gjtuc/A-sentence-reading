@@ -60,6 +60,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   static const _pad = Duration(seconds: 2);
   // WHY: design/82 — Android MediaRecorder via platform channel (no pub `record` dep).
   static const _mic = MethodChannel('asr/shadowing_mic');
+  /// Speak phase only — quieter guide so mic take keeps user voice (design/206).
+  static const double _kSpeakTtsVolume = 0.5;
+  static const double _kFullTtsVolume = 1.0;
 
   final _player = AudioPlayer();
   late final FocusPracticeController _focus;
@@ -592,6 +595,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       } catch (_) {
         // EDGE: player rate unsupported on some devices — still play.
       }
+      // Speak-along: lower TTS so the take is not drowned by speaker bleed.
+      final vol = phase == 'tts_speak' ? _kSpeakTtsVolume : _kFullTtsVolume;
+      try {
+        await _player.setVolume(vol);
+      } catch (_) {
+        // EDGE: volume API missing — play at default.
+      }
       final done = _player.onPlayerComplete.first;
       await _player.play(BytesSource(bytes));
       await done;
@@ -603,6 +613,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           'phase': phase,
           'ok': true,
           'tts_reuse': phase == 'tts_speak' ? 1 : 0,
+          'tts_volume_pct': phase == 'tts_speak' ? 50 : 100,
         },
       );
     } catch (e) {
@@ -810,6 +821,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     setState(() => _status = '내 녹음 듣는 중');
     try {
       await _player.stop();
+      try {
+        await _player.setVolume(_kFullTtsVolume);
+      } catch (_) {}
       final done = _player.onPlayerComplete.first;
       await _player.play(DeviceFileSource(path));
       await done;
