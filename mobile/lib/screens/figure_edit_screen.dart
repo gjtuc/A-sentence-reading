@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../api/client.dart';
+import '../api/figure_pinch_sensitivity.dart';
 import '../services/figure_edit_compositor.dart';
 import '../services/figure_edit_geometry.dart';
 import '../services/figure_edit_session.dart';
@@ -58,6 +59,12 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
   Offset? _dragStart;
   Offset? _dragEnd;
   final TransformationController _transform = TransformationController();
+  /// design/118 — pinch amplify base (layout edit same lock as reader).
+  double _scaleAtGestureStart = 1.0;
+  Offset _lastFocalPoint = Offset.zero;
+  static const double _zoomEps = 1.02;
+  static const double _maxScale = 8.0;
+
 
   @override
   void initState() {
@@ -70,6 +77,43 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
     _transform.dispose();
     super.dispose();
   }
+
+  void _onViewerInteractionStart(ScaleStartDetails details) {
+    _scaleAtGestureStart = _transform.value.getMaxScaleOnAxis();
+    _lastFocalPoint = details.localFocalPoint;
+  }
+
+  void _onViewerInteractionUpdate(ScaleUpdateDetails details) {
+    final scaleNow = _transform.value.getMaxScaleOnAxis();
+    // Zoomed one-finger pan — amplify like reader (design/118).
+    if (details.pointerCount == 1 && scaleNow > _zoomEps) {
+      final delta = details.localFocalPoint - _lastFocalPoint;
+      _lastFocalPoint = details.localFocalPoint;
+      final extraX = amplifyFigurePanExtraDelta(delta: delta.dx);
+      final extraY = amplifyFigurePanExtraDelta(delta: delta.dy);
+      if (extraX.abs() > 1e-4 || extraY.abs() > 1e-4) {
+        _transform.value = Matrix4.copy(_transform.value)
+          ..translate(extraX, extraY);
+      }
+      return;
+    }
+    _lastFocalPoint = details.localFocalPoint;
+    if (details.pointerCount < 2) return;
+    final amplified = amplifyFigurePinchScale(rawScale: details.scale);
+    final target =
+        (_scaleAtGestureStart * amplified).clamp(1.0, _maxScale).toDouble();
+    final current = _transform.value.getMaxScaleOnAxis();
+    if (!current.isFinite || current < 1e-6) return;
+    final factor = target / current;
+    if (!factor.isFinite || (factor - 1.0).abs() < 1e-4) return;
+    final focalScene = _transform.toScene(details.localFocalPoint);
+    final next = Matrix4.copy(_transform.value)
+      ..translate(focalScene.dx, focalScene.dy)
+      ..scale(factor)
+      ..translate(-focalScene.dx, -focalScene.dy);
+    _transform.value = next;
+  }
+
 
   Future<Uint8List?> _pagePngFor(int pageIndex) async {
     if (_pagePngCache.containsKey(pageIndex)) {
@@ -583,12 +627,21 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
                                   child: stack,
                                 );
                               }
+                              // design/198 — pinch+pan in Select/Pan (1.5 sens);
+                              // Crop keeps free pan for drawing a box.
+                              final allowZoom = _mode != _EditMode.crop;
                               return InteractiveViewer(
                                 transformationController: _transform,
-                                panEnabled: _mode == _EditMode.pan,
-                                scaleEnabled: _mode == _EditMode.pan,
+                                panEnabled: allowZoom || _mode == _EditMode.pan,
+                                scaleEnabled: allowZoom,
                                 minScale: 1,
-                                maxScale: 4,
+                                maxScale: _maxScale,
+                                onInteractionStart: allowZoom
+                                    ? _onViewerInteractionStart
+                                    : null,
+                                onInteractionUpdate: allowZoom
+                                    ? _onViewerInteractionUpdate
+                                    : null,
                                 child: stack,
                               );
                             },
