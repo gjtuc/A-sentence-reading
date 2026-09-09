@@ -576,8 +576,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 child: Text(
                   library.shadowingChunksProgress == null ||
                           library.shadowingChunksProgress!.isEmpty
-                      ? '연습 구간을 준비하는 중…'
-                      : '연습 구간을 준비하는 중… ${library.shadowingChunksProgress}',
+                      ? '연습 구간 준비 중…'
+                      : '연습 구간 준비 중 · ${library.shadowingChunksProgress}',
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 12),
                 ),

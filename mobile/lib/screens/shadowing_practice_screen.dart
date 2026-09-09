@@ -21,6 +21,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/client.dart';
 import '../api/focus_practice_models.dart';
 import '../api/reading_models.dart';
+import '../api/shadowing_chunk_plan.dart';
 import '../api/shadowing_retry_gate.dart';
 import '../api/tts_models.dart';
 import '../services/evidence_bus.dart';
@@ -67,6 +68,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   String? _status;
   bool _busy = false;
+  /// Prep/boot failed — show 「다시 시도」 (not a dead-end status string).
+  bool _bootFailed = false;
+  /// Plan bound and at least one playable chunk — unlock loop chrome / mirror.
+  bool _practiceReady = false;
   Map<String, dynamic>? _plan;
   Map<String, dynamic>? _takes;
   List<String> _chunks = [];
@@ -110,6 +115,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.library.removeListener(_onLibraryPrepTick);
     _focus.removeListener(_onFocusTick);
     if (_focus.speaking) {
       _focus.endSpeak(cacheId: _cacheId);
@@ -143,6 +149,19 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     return sha256.convert(utf8.encode(t)).toString().substring(0, 16);
   }
 
+  String _prepStatusLine() {
+    final prog = widget.library.shadowingChunksProgress;
+    if (prog != null && prog.trim().isNotEmpty) {
+      return '연습 구간 준비 중 · $prog';
+    }
+    return '연습 구간 준비 중…';
+  }
+
+  void _onLibraryPrepTick() {
+    if (!mounted || !_busy || _practiceReady) return;
+    setState(() => _status = _prepStatusLine());
+  }
+
   Future<void> _boot() async {
     await _focus.bindUid(widget.shadowing.boundUid);
     _disk.bindUid(widget.shadowing.boundUid);
@@ -159,7 +178,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           'pref': widget.shadowing.enabled,
         },
       );
-      setState(() => _status = '논문을 연 뒤 연습을 시작해 주세요.');
+      setState(() {
+        _bootFailed = true;
+        _practiceReady = false;
+        _status = '논문을 연 뒤 연습을 시작해 주세요.';
+      });
       return;
     }
     if (!widget.shadowing.serverAvailable || !widget.shadowing.enabled) {
@@ -176,9 +199,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           'pref': widget.shadowing.enabled,
         },
       );
-      setState(
-        () => _status = '설정에서 쉐도잉 연습을 켠 뒤 다시 시도해 주세요.',
-      );
+      setState(() {
+        _bootFailed = true;
+        _practiceReady = false;
+        _status = '설정에서 쉐도잉 연습을 켠 뒤 다시 시도해 주세요.';
+      });
       return;
     }
     final cacheId = _cacheId;
@@ -194,12 +219,18 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           'pref': true,
         },
       );
-      setState(() => _status = '논문 id가 없습니다.');
+      setState(() {
+        _bootFailed = true;
+        _practiceReady = false;
+        _status = '논문 id가 없습니다.';
+      });
       return;
     }
     setState(() {
       _busy = true;
-      _status = '연습 구간 준비 중…';
+      _bootFailed = false;
+      _practiceReady = false;
+      _status = _prepStatusLine();
     });
     final sw = Stopwatch()..start();
     asrEvidenceBus?.record(
@@ -211,6 +242,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     var planStatus = '';
     var errorCode = '';
     var chunkN = 0;
+    var skippedEmptyN = 0;
+    widget.library.addListener(_onLibraryPrepTick);
     try {
       if (_localSot) {
         await _migrateShadowingOnce(cacheId);
@@ -219,72 +252,62 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       if (localTakes != null) {
         _takes = localTakes;
       }
-      final localPlan = await _disk.loadChunkPlanJson(cacheId);
 
-      // WHY: product B — chunks must succeed before practice room.
-      // design/113+119 — pending slices must continue; never treat pending as done.
-      var got = await widget.client.fetchShadowingChunks(cacheId);
-      var plan = got['plan'];
-      if (plan is! Map || plan['status']?.toString() != 'ok') {
-        if (localPlan != null && localPlan['status']?.toString() == 'ok') {
-          plan = localPlan;
+      // Prefer local ok plan (device SoT) before network / ensure.
+      Map<String, dynamic>? plan = await _disk.loadChunkPlanJson(cacheId);
+      if (plan == null || plan['status']?.toString() != 'ok') {
+        try {
+          final got = await widget.client.fetchShadowingChunks(cacheId);
+          final p = got['plan'];
+          if (p is Map && p['status']?.toString() == 'ok') {
+            plan = Map<String, dynamic>.from(p);
+          }
+        } catch (_) {
+          // Fall through to library ensure.
         }
       }
-      if (plan is! Map || plan['status']?.toString() != 'ok') {
-        Map<String, dynamic>? built;
-        // EDGE: long papers need many budget slices; cap avoids infinite loop.
-        const maxRounds = 40;
-        for (var round = 0; round < maxRounds; round++) {
-          if (!mounted) return;
-          setState(() {
-            _status = round == 0
-                ? '연습 구간 준비 중…'
-                : '연습 구간을 이어서 준비하는 중… (${round + 1}/$maxRounds)';
-          });
-          built = await widget.client.buildShadowingChunks(
-            cacheId,
-            practiceEnabled: true,
-            round: round + 1,
-          );
-          rounds = round + 1;
-          final p = built['plan'];
-          final st = (p is Map) ? p['status']?.toString() : null;
-          planStatus = st ?? '';
-          // Fail-closed: only status=ok enters practice (pending ≠ success).
-          if (built['ok'] == true && st == 'ok') {
-            plan = p;
-            break;
-          }
-          if (built['continue'] == true && st == 'pending') {
-            continue;
-          }
-          errorCode =
-              built['error']?.toString() ??
-              (p is Map ? p['error']?.toString() : null) ??
-              'build_failed';
+
+      // Single prep path: join LibraryController ensure (progress + 40-slice).
+      if (plan == null || plan['status']?.toString() != 'ok') {
+        if (!mounted) return;
+        setState(() => _status = _prepStatusLine());
+        await widget.library.ensureShadowingChunks(
+          cacheId,
+          trigger: 'practice_boot',
+        );
+        rounds = 1;
+        plan = await _disk.loadChunkPlanJson(cacheId);
+        if (plan == null || plan['status']?.toString() != 'ok') {
+          try {
+            final got = await widget.client.fetchShadowingChunks(cacheId);
+            final p = got['plan'];
+            if (p is Map && p['status']?.toString() == 'ok') {
+              plan = Map<String, dynamic>.from(p);
+            }
+          } catch (_) {}
+        }
+        if (plan == null || plan['status']?.toString() != 'ok') {
+          final err = widget.library.shadowingChunksError;
+          errorCode = (err != null && err.contains('끝나지 않았'))
+              ? 'cap_hit'
+              : 'build_failed';
           throw AsrApiException(
-            built['message']?.toString() ?? '연습 구간을 만들지 못했습니다.',
+            (err != null && err.trim().isNotEmpty)
+                ? err
+                : '연습 구간 준비가 끝나지 않았습니다. 다시 시도해 주세요.',
             502,
           );
         }
-        if (plan is! Map || plan['status']?.toString() != 'ok') {
-          errorCode = errorCode.isNotEmpty ? errorCode : 'cap_hit';
-          throw AsrApiException(
-            built?['message']?.toString() ??
-                '연습 구간 준비가 끝나지 않았습니다. 다시 시도해 주세요.',
-            502,
-          );
-        }
-      } else {
-        planStatus = 'ok';
       }
-      _plan = Map<String, dynamic>.from(plan as Map);
+      planStatus = 'ok';
+      _plan = Map<String, dynamic>.from(plan);
       unawaited(_disk.writeChunkPlanJson(cacheId, _plan!));
-      _bindSentence(session);
+
+      skippedEmptyN = await _skipToPlayableSentence(session);
       chunkN = _chunks.length;
       if (_chunks.isEmpty) {
         errorCode = 'chunk_empty';
-        throw AsrApiException('이 문장에 연습 구간이 없습니다.', 400);
+        throw AsrApiException('이 논문에 연습할 구간이 없습니다.', 400);
       }
       asrEvidenceBus?.record(
         'shadowing_boot_done',
@@ -297,8 +320,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           'chunk_n': chunkN,
           'sentence_id_h16': _sidH16(_sentenceId),
           'elapsed_ms': sw.elapsedMilliseconds,
+          'skipped_empty_n': skippedEmptyN,
         },
       );
+      if (mounted) {
+        setState(() {
+          _practiceReady = true;
+          _bootFailed = false;
+        });
+      }
       _focus.startSession(cacheId: cacheId);
       await _runCycle();
     } on AsrApiException catch (e) {
@@ -315,9 +345,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           'sentence_id_h16': _sidH16(_sentenceId),
           'elapsed_ms': sw.elapsedMilliseconds,
           'error_code': errorCode.isNotEmpty ? errorCode : 'api_fail',
+          'skipped_empty_n': skippedEmptyN,
         },
       );
-      setState(() => _status = e.message);
+      setState(() {
+        _bootFailed = true;
+        _practiceReady = false;
+        _status = e.message;
+      });
     } catch (e) {
       asrEvidenceBus?.record(
         'shadowing_boot_done',
@@ -332,13 +367,40 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           'sentence_id_h16': _sidH16(_sentenceId),
           'elapsed_ms': sw.elapsedMilliseconds,
           'error_code': 'boot_error',
+          'skipped_empty_n': skippedEmptyN,
         },
       );
-      setState(() => _status = e.toString());
+      setState(() {
+        _bootFailed = true;
+        _practiceReady = false;
+        _status = e.toString();
+      });
     } finally {
+      widget.library.removeListener(_onLibraryPrepTick);
       if (mounted) setState(() => _busy = false);
-      // Auto-advance is scheduled from successful speak (_scheduleAutoAdvance).
     }
+  }
+
+  /// Advance reader past empty sentences until chunks exist (or end).
+  /// Returns how many sentences were skipped.
+  Future<int> _skipToPlayableSentence(ReadingSession session) async {
+    final rows = <({String id, String text})>[
+      for (final s in session.sentences) (id: s.id, text: s.text),
+    ];
+    final delta = shadowingSkipEmptyDelta(
+      plan: _plan,
+      sentences: rows,
+      fromIndex: session.sentenceIndex,
+    );
+    if (delta < 0) {
+      _bindSentence(session);
+      return 0;
+    }
+    if (delta > 0) {
+      await widget.library.advanceSentence(delta);
+    }
+    _bindSentence(session);
+    return delta;
   }
 
   /// design/187 — one-shot pull takes + voice blobs, then ack wipe.
@@ -411,16 +473,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   }
 
   List<String> _chunksFor(String sid, String plain) {
-    final sentences = _plan?['sentences'];
-    if (sentences is Map && sentences[sid] is Map) {
-      final row = sentences[sid] as Map;
-      final ch = row['chunks'];
-      if (ch is List && ch.isNotEmpty) {
-        return ch.map((e) => e.toString()).toList();
-      }
-    }
-    final t = plain.trim();
-    return t.isEmpty ? <String>[] : <String>[t];
+    return shadowingChunksForSentence(_plan, sid, plain);
   }
 
   Future<void> _playTts(String text) async {
@@ -465,7 +518,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   Future<void> _runCycle() async {
     if (_chunks.isEmpty) return;
-    setState(() => _status = '듣는 중…');
+    setState(() => _status = '듣는 중');
     await _playTts(_chunks[_chunkIndex]);
     await _runSpeakOnly(fromRetry: false);
   }
@@ -473,7 +526,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   /// design/120 — speak phase only (no leading listen TTS).
   Future<void> _runSpeakOnly({required bool fromRetry}) async {
     if (_chunks.isEmpty) return;
-    setState(() => _status = fromRetry ? '다시 말하는 중… (+2초)' : '같이 말하는 중… (+2초)');
+    setState(() => _status = fromRetry ? '다시 말하는 중' : '말하는 중');
     var okMic = await _mic.invokeMethod<bool>('hasPermission') ?? false;
     if (!okMic) {
       okMic = await _mic.invokeMethod<bool>('requestPermission') ?? false;
@@ -574,14 +627,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           details: {'phase': 'take_post', 'ok': true, 'local_sot': _localSot},
         );
         takeOk = true;
-        setState(() => _status = _autoAdvance && _focus.sessionActive
-            ? '저장됨 · 다음 구간…'
-            : '저장됨. 「다시」·「다시 듣기」·「다음」·「건너뛰기」');
+        setState(() => _status = '저장됨');
       } on AsrApiException catch (e) {
         if (e.statusCode == 409) {
           // EDGE: server already local-SoT — local write is enough.
           takeOk = true;
-          setState(() => _status = '저장됨 (이 기기).');
+          setState(() => _status = '저장됨');
         } else {
           asrEvidenceBus?.record(
             'shadowing_loop_event',
@@ -676,7 +727,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       await _player.play(DeviceFileSource(path));
       await done;
       if (mounted) {
-        setState(() => _status = '저장됨. 「다시」·「다시 듣기」·「다음」·「건너뛰기」');
+        setState(() => _status = '저장됨');
       }
     } catch (e) {
       if (mounted) {
@@ -694,6 +745,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   void _onGiveUp() {
     _focus.giveUp(cacheId: _cacheId);
     setState(() => _status = '집중 종료. 「시작」으로 다시 말할 수 있습니다.');
+  }
+
+  Future<void> _onRetryBoot() async {
+    if (_busy) return;
+    await _boot();
   }
 
   void _onRestartFocus() {
@@ -748,10 +804,22 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       if (_chunkIndex + 1 < _chunks.length) {
         _chunkIndex += 1;
       } else if (_sentenceIndex + 1 < session.sentenceCount) {
-        await widget.library.advanceSentence(1);
+        final rows = <({String id, String text})>[
+          for (final s in session.sentences) (id: s.id, text: s.text),
+        ];
+        final delta = shadowingSkipEmptyDelta(
+          plan: _plan,
+          sentences: rows,
+          fromIndex: _sentenceIndex + 1,
+        );
+        if (delta < 0) {
+          setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
+          return;
+        }
+        await widget.library.advanceSentence(1 + delta);
         _bindSentence(session);
         if (_chunks.isEmpty) {
-          setState(() => _status = '다음 문장에 연습 구간이 없습니다.');
+          setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
           return;
         }
       } else {
@@ -780,6 +848,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     );
     final missionLeft = formatFocusClock(remaining);
 
+    final showMirror = _practiceReady && _mirrorEnabled;
+    final loopEnabled = _practiceReady && !_busy && !_bootFailed;
+
     return Scaffold(
       backgroundColor: const Color(0xFF1A1A1A),
       appBar: AppBar(
@@ -787,14 +858,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         foregroundColor: Colors.white,
         title: const Text('따라 말하기'),
         actions: [
-          IconButton(
-            icon: Icon(
-              _mirrorEnabled ? Icons.videocam : Icons.videocam_off_outlined,
-              color: Colors.white70,
+          if (_practiceReady)
+            IconButton(
+              icon: Icon(
+                _mirrorEnabled ? Icons.videocam : Icons.videocam_off_outlined,
+                color: Colors.white70,
+              ),
+              tooltip: _mirrorEnabled ? '카메라 끄기' : '카메라 켜기',
+              onPressed: _busy ? null : _toggleMirror,
             ),
-            tooltip: _mirrorEnabled ? '카메라 끄기' : '카메라 켜기',
-            onPressed: _busy ? null : _toggleMirror,
-          ),
         ],
       ),
       body: SafeArea(
@@ -804,13 +876,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                '문장 ${_sentenceIndex + 1} · 구간 ${_chunkIndex + 1}/${_chunks.isEmpty ? 1 : _chunks.length}',
+                _practiceReady
+                    ? '문장 ${_sentenceIndex + 1} · 구간 ${_chunkIndex + 1}/${_chunks.isEmpty ? 1 : _chunks.length}'
+                    : '연습 준비',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: Colors.white54,
                 ),
               ),
-              if (_mirrorEnabled) ...[
+              if (showMirror) ...[
                 const SizedBox(height: 8),
                 SizedBox(
                   height: MediaQuery.sizeOf(context).height * 0.18,
@@ -865,12 +939,26 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                   _status!,
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.white54,
+                    color: _bootFailed
+                        ? const Color(0xFFE74C3C)
+                        : Colors.white54,
                   ),
                 ),
               ],
               const SizedBox(height: 16),
-              if (_focus.sessionActive)
+              if (_bootFailed)
+                SizedBox(
+                  height: 48,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFE74C3C),
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: _busy ? null : _onRetryBoot,
+                    child: const Text('다시 시도'),
+                  ),
+                )
+              else if (_focus.sessionActive)
                 SizedBox(
                   height: 48,
                   child: OutlinedButton(
@@ -879,10 +967,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                       side: const BorderSide(color: Colors.white38),
                     ),
                     onPressed: _onGiveUp,
-                    child: const Text('GIVE UP'),
+                    child: const Text('집중 끝내기'),
                   ),
                 )
-              else
+              else if (_practiceReady)
                 SizedBox(
                   height: 48,
                   child: FilledButton(
@@ -894,46 +982,50 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                     child: const Text('시작'),
                   ),
                 ),
-              const SizedBox(height: 12),
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white70,
-                      side: const BorderSide(color: Colors.white24),
+              if (_practiceReady) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.white24,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed:
+                          loopEnabled ? () => _next(skip: false) : null,
+                      child: const Text('다음'),
                     ),
-                    onPressed: _busy ? null : () => _next(skip: false),
-                    child: const Text('다음'),
-                  ),
-                  OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white70,
-                      side: const BorderSide(color: Colors.white24),
+                    OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        side: const BorderSide(color: Colors.white24),
+                      ),
+                      onPressed:
+                          loopEnabled ? () => _next(skip: true) : null,
+                      child: const Text('건너뛰기'),
                     ),
-                    onPressed: _busy ? null : () => _next(skip: true),
-                    child: const Text('건너뛰기'),
-                  ),
-                  OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white70,
-                      side: const BorderSide(color: Colors.white24),
+                    OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        side: const BorderSide(color: Colors.white24),
+                      ),
+                      onPressed: loopEnabled ? _retrySpeak : null,
+                      child: const Text('다시'),
                     ),
-                    onPressed: _busy ? null : _retrySpeak,
-                    child: const Text('다시'),
-                  ),
-                  OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white70,
-                      side: const BorderSide(color: Colors.white24),
+                    OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        side: const BorderSide(color: Colors.white24),
+                      ),
+                      onPressed: loopEnabled ? _replayTake : null,
+                      child: const Text('다시 듣기'),
                     ),
-                    onPressed: _busy ? null : _replayTake,
-                    child: const Text('다시 듣기'),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
