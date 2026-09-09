@@ -54,6 +54,8 @@ class AsrStatus {
     this.mobileShadowingPractice = false,
     this.mobileShadowingChunks = false,
     this.mobileShadowingPracticeLoop = false,
+    // design/208 — missing key → on; explicit false kills process grooming.
+    this.mobilePracticeGrooming = true,
     // design/83 — missing key → on (fail-closed; require login).
     this.mobileLoginRequired = true,
     // design/84 — missing key → on (fail-closed; waiting shell).
@@ -142,6 +144,12 @@ class AsrStatus {
           json['shadowing_chunks'] == true,
       mobileShadowingPracticeLoop: json['mobile_shadowing_practice_loop'] == true ||
           json['shadowing_practice_loop'] == true,
+      // design/208 — missing key → on; explicit false kills.
+      mobilePracticeGrooming: json.containsKey('mobile_practice_grooming')
+          ? json['mobile_practice_grooming'] == true
+          : (json.containsKey('practice_grooming')
+              ? json['practice_grooming'] == true
+              : true),
       // design/83 — missing key → require login (fail-closed).
       mobileLoginRequired: json.containsKey('mobile_login_required')
           ? json['mobile_login_required'] == true
@@ -276,6 +284,7 @@ class AsrStatus {
   final bool mobileShadowingPractice;
   final bool mobileShadowingChunks;
   final bool mobileShadowingPracticeLoop;
+  final bool mobilePracticeGrooming;
   final bool mobileLoginRequired;
   final bool mobileAccessWaitingUx;
   final bool progressFailClosed;

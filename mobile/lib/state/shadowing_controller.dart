@@ -20,6 +20,9 @@ class ShadowingController extends ChangeNotifier {
   /// Server kill from `/api/status` — false → UI must not pretend kill is on.
   bool serverAvailable = false;
 
+  /// design/208 — process grooming; missing/true → on; explicit false kills.
+  bool groomingServerEnabled = true;
+
   /// design/187 — device is SoT for takes/voice/chunk cache; cloud PUT refused.
   bool localSot = false;
 
@@ -70,6 +73,12 @@ class ShadowingController extends ChangeNotifier {
   void setServerAvailable(bool on) {
     if (serverAvailable == on) return;
     serverAvailable = on;
+    notifyListeners();
+  }
+
+  void setGroomingServerEnabled(bool on) {
+    if (groomingServerEnabled == on) return;
+    groomingServerEnabled = on;
     notifyListeners();
   }
 

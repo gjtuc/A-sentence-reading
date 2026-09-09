@@ -139,6 +139,8 @@ ALLOWED_KINDS = frozenset(
         "focus_session_end",
         "focus_block_done",
         "focus_day_success",
+        # design/208 — practice process grooming
+        "practice_grooming_decision",
         # design/178 — worker wake causal densify
         "worker_wake_start",
         "worker_wake_done",

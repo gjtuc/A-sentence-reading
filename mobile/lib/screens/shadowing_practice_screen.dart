@@ -21,6 +21,8 @@ import '../api/focus_practice_models.dart';
 import '../api/reading_models.dart';
 import '../api/shadowing_chunk_plan.dart';
 import '../api/tts_models.dart';
+import '../practice_grooming/grooming_policy.dart';
+import '../practice_grooming/practice_grooming_controller.dart';
 import '../services/evidence_bus.dart';
 import '../services/shadowing_disk_store.dart';
 import '../services/shadowing_cloud_migrate.dart';
@@ -94,8 +96,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   final bool _autoAdvance = true;
   /// Invalidate in-flight cycle on give-up / picker jump.
   int _cycleToken = 0;
+  /// design/208 — process grooming (rate nudge); copy-free.
+  final PracticeGroomingController _grooming = PracticeGroomingController();
+  double _groomRateScale = 1.0;
 
   ReadingSession? get _session => widget.library.session;
+
+  String get _chunkKey => '$_sentenceId:$_chunkIndex';
 
   bool get _localSot => widget.shadowing.localSot;
 
@@ -116,7 +123,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _focus = widget.focus ?? FocusPracticeController();
     _focus.addListener(_onFocusTick);
     _practiceBookmarks.addListener(_onPracticeBookmarksTick);
+    _grooming.setServerEnabled(widget.shadowing.groomingServerEnabled);
     unawaited(_boot());
+  }
+
+  @override
+  void didUpdateWidget(covariant ShadowingPracticeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _grooming.setServerEnabled(widget.shadowing.groomingServerEnabled);
   }
 
   void _onFocusTick() {
@@ -591,7 +605,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       final params = _chunkTtsParams!;
       await _player.stop();
       try {
-        await _player.setPlaybackRate(clampSpeakingRate(params.speakingRate));
+        final effective = clampSpeakingRate(
+          params.speakingRate * _groomRateScale,
+        );
+        await _player.setPlaybackRate(effective);
       } catch (_) {
         // EDGE: player rate unsupported on some devices — still play.
       }
@@ -641,6 +658,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (mounted && _busy) setState(() => _busy = false);
     _clearChunkTtsCache();
     _lastTakePath = null;
+    _grooming.setServerEnabled(widget.shadowing.groomingServerEnabled);
+    _groomRateScale = _focus.sessionActive
+        ? _grooming.beginCycle(chunkKey: _chunkKey, cacheId: _cacheId)
+        : 1.0;
 
     bool alive() =>
         mounted &&
@@ -652,9 +673,17 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     await _playCachedChunkTts(phase: 'tts_listen');
     if (!alive()) return;
 
-    final takeOk = await _runSpeakPhase();
+    final speakResult = await _runSpeakPhase();
     if (!alive()) return;
-    if (!takeOk) {
+    _grooming.onOutcome(
+      obs: GroomingObservation(
+        signal: speakResult.signal,
+        chunkKey: _chunkKey,
+        code: speakResult.code,
+      ),
+      cacheId: _cacheId,
+    );
+    if (!speakResult.ok) {
       await Future<void>.delayed(const Duration(milliseconds: 800));
       if (!alive()) return;
       await _advanceToNextChunk(token: token);
@@ -670,8 +699,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   }
 
   /// Phase 2 — mic open; focus clock runs only here. Reuses chunk TTS bytes.
-  Future<bool> _runSpeakPhase() async {
-    if (_chunks.isEmpty) return false;
+  Future<_SpeakPhaseResult> _runSpeakPhase() async {
+    if (_chunks.isEmpty) {
+      return const _SpeakPhaseResult(
+        ok: false,
+        signal: GroomingSignal.takeFail,
+        code: 'no_chunks',
+      );
+    }
     setState(() => _status = '말하는 중');
     var okMic = await _mic.invokeMethod<bool>('hasPermission') ?? false;
     if (!okMic) {
@@ -686,7 +721,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         details: {'phase': 'mic_start', 'ok': false, 'exc_type': 'mic_perm'},
       );
       setState(() => _status = '마이크 권한이 없습니다. 다음 구간으로 넘어갑니다.');
-      return false;
+      return const _SpeakPhaseResult(
+        ok: false,
+        signal: GroomingSignal.micPerm,
+        code: 'mic_perm',
+      );
     }
     final dir = await getTemporaryDirectory();
     final path =
@@ -702,7 +741,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         details: {'phase': 'mic_start', 'ok': false, 'exc_type': 'mic_start'},
       );
       setState(() => _status = '녹음을 시작하지 못했습니다. 다음 구간으로 넘어갑니다.');
-      return false;
+      return const _SpeakPhaseResult(
+        ok: false,
+        signal: GroomingSignal.takeFail,
+        code: 'mic_start',
+      );
     }
     _focus.beginSpeak();
     asrEvidenceBus?.record(
@@ -712,10 +755,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       details: {'phase': 'mic_start', 'ok': true},
     );
     var takeOk = false;
+    var signal = GroomingSignal.takeFail;
+    var code = 'take_fail';
+    final wall = Stopwatch()..start();
     try {
       await _playCachedChunkTts(phase: 'tts_speak');
       await Future<void>.delayed(_pad);
     } finally {
+      wall.stop();
       _focus.endSpeak(cacheId: _cacheId);
       final outPath = await _mic.invokeMethod<String>('stop');
       asrEvidenceBus?.record(
@@ -728,10 +775,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       final file = File(filePath);
       if (!await file.exists()) {
         setState(() => _status = '녹음 실패. 다음 구간으로 넘어갑니다.');
+        signal = GroomingSignal.takeFail;
+        code = 'missing_file';
       } else {
         final bytes = await file.readAsBytes();
         if (bytes.isEmpty) {
           setState(() => _status = '녹음이 비었습니다. 다음 구간으로 넘어갑니다.');
+          signal = GroomingSignal.takeFail;
+          code = 'empty_bytes';
         } else {
           _lastTakePath = filePath;
           final cacheId = _cacheId;
@@ -774,9 +825,23 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             );
             takeOk = true;
             setState(() => _status = '저장됨');
+            final tooShort = await _takeLooksTooShort(
+              path: filePath,
+              expectedMs: wall.elapsedMilliseconds,
+              byteLen: bytes.length,
+            );
+            if (tooShort) {
+              signal = GroomingSignal.takeTooShort;
+              code = 'too_short';
+            } else {
+              signal = GroomingSignal.clean;
+              code = 'ok';
+            }
           } on AsrApiException catch (e) {
             if (e.statusCode == 409) {
               takeOk = true;
+              signal = GroomingSignal.clean;
+              code = 'ok_409';
               setState(() => _status = '저장됨');
             } else {
               asrEvidenceBus?.record(
@@ -809,7 +874,30 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         }
       }
     }
-    return takeOk;
+    return _SpeakPhaseResult(ok: takeOk, signal: signal, code: code);
+  }
+
+  /// Heuristic: tiny file or duration ≪ speak wall clock → struggle signal.
+  Future<bool> _takeLooksTooShort({
+    required String path,
+    required int expectedMs,
+    required int byteLen,
+  }) async {
+    if (byteLen > 0 && byteLen < 2500) return true;
+    if (expectedMs <= 0) return false;
+    try {
+      final probe = AudioPlayer();
+      try {
+        await probe.setSource(DeviceFileSource(path));
+        final d = await probe.getDuration();
+        if (d == null) return false;
+        return d.inMilliseconds < (expectedMs * 0.45).round();
+      } finally {
+        await probe.dispose();
+      }
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Phase 3 — my recording only; focus clock must stay off.
@@ -936,6 +1024,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       _focus.endSpeak(cacheId: _cacheId);
     }
     _focus.giveUp(cacheId: _cacheId);
+    _grooming.resetSession();
+    _groomRateScale = 1.0;
     _clearChunkTtsCache();
     setState(
       () => _status =
@@ -955,6 +1045,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   }
 
   void _onRestartFocus() {
+    _grooming.resetSession();
+    _groomRateScale = 1.0;
     _focus.startSession(cacheId: _cacheId);
     setState(() => _status = '집중 시작. 말할 때만 시계가 갑니다.');
     if (!_busy && _chunks.isNotEmpty) {
@@ -1228,4 +1320,16 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       ),
     );
   }
+}
+
+class _SpeakPhaseResult {
+  const _SpeakPhaseResult({
+    required this.ok,
+    required this.signal,
+    required this.code,
+  });
+
+  final bool ok;
+  final GroomingSignal signal;
+  final String code;
 }

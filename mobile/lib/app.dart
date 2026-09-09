@@ -95,6 +95,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     if (!_auth.isLoggedIn || _auth.user == null) {
       _shadowing.clearSession();
       _shadowing.setServerAvailable(false);
+      _shadowing.setGroomingServerEnabled(true);
       _translate.clearSession();
       _citePanel.clearSession();
       _citePanel.setServerAvailable(false);
@@ -125,6 +126,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     try {
       final st = await _auth.client.fetchStatus();
       _shadowing.setServerAvailable(st.mobileShadowingPractice);
+      _shadowing.setGroomingServerEnabled(st.mobilePracticeGrooming);
       _shadowing.setLocalSot(st.shadowingLocalSot);
       _library.setShadowingLocalSot(st.shadowingLocalSot);
       _citePanel.setServerAvailable(st.mobileCiteRefPanel);

@@ -85,6 +85,8 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "focus_session_end",
         "focus_block_done",
         "focus_day_success",
+        # design/208
+        "practice_grooming_decision",
         # design/178 — worker wake causal densify
         "worker_wake_start",
         "worker_wake_done",
@@ -513,6 +515,10 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "shadowing_loop_event",
             "shadowing_gate",
         ),
+    ),
+    (
+        "mobile/lib/practice_grooming/practice_grooming_controller.dart",
+        ("practice_grooming_decision",),
     ),
     (
         "mobile/lib/state/focus_practice_controller.dart",
