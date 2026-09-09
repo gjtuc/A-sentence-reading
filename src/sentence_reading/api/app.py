@@ -263,7 +263,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.193",
+    version="0.3.194",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -657,6 +657,16 @@ def _paper_local_sot_status_fields() -> dict:
             "paper_local_sot_phase": 0,
             "paper_disk_store": False,
         }
+
+
+def _enrich_after_handoff_enabled() -> bool:
+    """design/194 — KO + shadowing after device handoff (paper-only ingest)."""
+    try:
+        from sentence_reading.llm.paper_local_sot import paper_local_sot_enabled
+
+        return bool(paper_local_sot_enabled())
+    except Exception:
+        return False
 
 
 def _transfer_pack_status_fields() -> dict:
@@ -1750,7 +1760,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.193",
+        "version": "0.3.194",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -7626,7 +7636,19 @@ async def _run_ingest_job_body(
         # design/99 — read opt-in before early save so ingest_status is honest (168c).
         job_meta = _JOBS.get(job_id) or {}
         want_translate = bool(job_meta.get("want_translate", True))
-        _job_set(job_id, percent=88, stage="ready", message="읽기 시작 · 번역 준비")
+        # design/194 — paper local SoT: finish ingest without Gemini KO/shadowing.
+        defer_enrich = _enrich_after_handoff_enabled()
+        translate_deferred = False
+        _job_set(
+            job_id,
+            percent=88,
+            stage="ready",
+            message=(
+                "읽기 시작"
+                if (not want_translate or defer_enrich)
+                else "읽기 시작 · 번역 준비"
+            ),
+        )
         early = _pack(pending=True)
         layout_artifacts = None
         if kind == "pdf":
@@ -7636,8 +7658,10 @@ async def _run_ingest_job_body(
                 layout_artifacts = get_last_layout_artifacts()
             except Exception:  # noqa: BLE001
                 layout_artifacts = None
-        # design/168c — partial while translate pending; ok when translate opted out.
-        early_status = "partial" if want_translate else "ok"
+        # design/168c — partial while translate pending; ok when opted out or deferred.
+        early_status = (
+            "partial" if (want_translate and not defer_enrich) else "ok"
+        )
         forced_cid = _ingest_force_cache_id(job_id)
         cache_entry = await asyncio.to_thread(
             save_paper_session,
@@ -7691,7 +7715,15 @@ async def _run_ingest_job_body(
                     "cache_id": str(cache_entry.get("id") or ""),
                 }
             )
-        _job_publish_partial(job_id, early, message="읽기 가능 · 번역 중")
+        _job_publish_partial(
+            job_id,
+            early,
+            message=(
+                "읽기 가능"
+                if (not want_translate or defer_enrich)
+                else "읽기 가능 · 번역 중"
+            ),
+        )
 
         # design/99 — skip Gemini KO when client opted out (mobile Settings).
         if skip_translate and want_translate:
@@ -7711,6 +7743,60 @@ async def _run_ingest_job_body(
                 packed["cached"] = True
                 packed["has_source"] = bool(cache_entry.get("has_source"))
             _job_publish_partial(job_id, packed, message="번역 이어받음")
+        elif want_translate and defer_enrich:
+            # design/194 — device handoff owns KO backfill; do not bill ingest Gemini.
+            translate_deferred = True
+            warnings.append("translate_deferred_post_handoff")
+            early_cid = str((cache_entry or {}).get("id") or "")
+            job_trace = _job_trace_id(job_id)
+            try:
+                from sentence_reading.llm import evidence_bus as eb
+                from sentence_reading.llm.env import translate_backend
+
+                eb.emit(
+                    "translate_phase_enter",
+                    severity="boundary",
+                    trace_id=job_trace,
+                    job_id=job_id,
+                    cache_id=early_cid,
+                    owner_uid=_owner(),
+                    content_hash=str(content_hash or ""),
+                    stage="translate",
+                    percent=90,
+                    details={
+                        "want_translate": True,
+                        "deferred_post_handoff": 1,
+                        "sentence_n": len(session.sentences or []),
+                        "figure_n": len(session.figures or []),
+                        "backend": str(translate_backend() or "gemini")[:64],
+                    },
+                    ok=True,
+                    code="deferred_post_handoff",
+                )
+                eb.emit(
+                    "translate_phase_exit",
+                    severity="boundary",
+                    trace_id=job_trace,
+                    job_id=job_id,
+                    cache_id=early_cid,
+                    owner_uid=_owner(),
+                    content_hash=str(content_hash or ""),
+                    stage="translate",
+                    percent=90,
+                    details={"deferred_post_handoff": 1},
+                    ok=True,
+                    code="deferred_post_handoff",
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            packed = _pack(pending=True)
+            if cache_entry:
+                packed["cache_id"] = cache_entry.get("id")
+                packed["cached"] = True
+                packed["has_source"] = bool(cache_entry.get("has_source"))
+            _job_publish_partial(
+                job_id, packed, message="논문 준비 완료 · 번역은 기기에서"
+            )
         elif want_translate and gemini_available():
             _job_set(
                 job_id,
@@ -7973,7 +8059,12 @@ async def _run_ingest_job_body(
         job_trace = _job_trace_id(job_id)
 
         if want_translate:
-            _job_set(job_id, percent=98, stage="save", message="번역 저장 중")
+            _job_set(
+                job_id,
+                percent=98,
+                stage="save",
+                message="저장 중" if translate_deferred else "번역 저장 중",
+            )
             cache_entry = await asyncio.to_thread(
                 save_paper_session,
                 session,
@@ -8042,7 +8133,7 @@ async def _run_ingest_job_body(
             except Exception:  # noqa: BLE001
                 pass
 
-        data = _pack(pending=False)
+        data = _pack(pending=bool(translate_deferred))
         if cache_entry:
             data["cache_id"] = cache_entry.get("id")
             data["cached"] = True
@@ -8095,7 +8186,29 @@ async def _run_ingest_job_body(
             )
             from sentence_reading.llm import shadowing_chunks as sc
 
-            if shadowing_practice_enabled() and gemini_available():
+            if defer_enrich:
+                data["shadowing_chunks"] = {
+                    "status": "skipped",
+                    "error": "deferred_post_handoff",
+                    "sentence_count": 0,
+                }
+                warnings.append("shadowing_deferred_post_handoff")
+                from sentence_reading.llm import evidence_bus as eb
+
+                eb.emit(
+                    "shadowing_ingest_stage",
+                    job_id=job_id,
+                    cache_id=str(cache_id),
+                    owner_uid=owner,
+                    ok=True,
+                    code="deferred_post_handoff",
+                    details={
+                        "plan_status": "skipped",
+                        "warning": "deferred_post_handoff",
+                        "sentence_n": 0,
+                    },
+                )
+            elif shadowing_practice_enabled() and gemini_available():
                 _job_set(
                     job_id,
                     percent=99,

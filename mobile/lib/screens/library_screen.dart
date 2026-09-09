@@ -466,6 +466,34 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   ),
                 ),
+              if (lib.translateBackfillBusy || lib.shadowingChunksBusy)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const LinearProgressIndicator(),
+                        const SizedBox(height: 6),
+                        Text(
+                          (lib.shadowingChunksProgress == null ||
+                                  lib.shadowingChunksProgress!.isEmpty)
+                              ? '번역·연습 준비 중'
+                              : '번역·연습 준비 중 · ${lib.shadowingChunksProgress}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        Text(
+                          '앱을 열어 두면 계속됩니다. 화면이 오래 꼬지면 중단될 수 있어요.',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               if (lib.reanalyzing)
                 SliverToBoxAdapter(
                   child: Padding(

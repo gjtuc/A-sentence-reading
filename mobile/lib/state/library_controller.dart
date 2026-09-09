@@ -1419,8 +1419,8 @@ class LibraryController extends ChangeNotifier {
           'wiped': ack['wiped'] == true ? 1 : 0,
         },
       );
-      // design/188 — prep practice chunks right after handoff (not only on open).
-      unawaited(ensureShadowingChunks(cid, trigger: 'handoff'));
+      // design/194 — KO backfill + shadowing after handoff (library tab, not only reader).
+      unawaited(_postHandoffEnrich(cid));
       return true;
     } catch (e) {
       asrEvidenceBus?.record(
@@ -1433,6 +1433,45 @@ class LibraryController extends ChangeNotifier {
       );
       return false;
     }
+  }
+
+  /// design/194 — after device handoff: translate + shadowing while still on library.
+  Future<void> _postHandoffEnrich(String cacheId) async {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return;
+    asrEvidenceBus?.record(
+      'post_handoff_enrich_start',
+      severity: 'lifecycle',
+      cacheId: cid,
+      stage: 'post_handoff',
+      ok: true,
+    );
+    var koOk = false;
+    var shOk = false;
+    try {
+      await _backfillLocalMissingKoFromDisk(cid);
+      koOk = true;
+    } catch (_) {
+      koOk = false;
+    }
+    try {
+      await ensureShadowingChunks(cid, trigger: 'handoff');
+      shOk = shadowingChunksError == null;
+    } catch (_) {
+      shOk = false;
+    }
+    asrEvidenceBus?.record(
+      'post_handoff_enrich_done',
+      severity: 'lifecycle',
+      cacheId: cid,
+      stage: 'post_handoff',
+      ok: koOk || shOk,
+      details: {
+        'ko_ok': koOk ? 1 : 0,
+        'shadowing_ok': shOk ? 1 : 0,
+        'shadowing_progress': shadowingChunksProgress ?? '',
+      },
+    );
   }
 
   /// design/174 — after ingest/reanalyze: refresh, then fresh=1 once; emit on miss.
@@ -2345,9 +2384,24 @@ class LibraryController extends ChangeNotifier {
     }));
   }
 
+  /// design/194 — load disk session then KO backfill (no open reader required).
+  Future<void> _backfillLocalMissingKoFromDisk(String cacheId) async {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return;
+    if (!await _paperDisk.hasSession(cid)) return;
+    final raw = await _paperDisk.loadSessionJson(cid);
+    if (raw == null) return;
+    final o = ReadingSession.fromOpenJson(raw, fallbackCacheId: cid);
+    await _backfillLocalMissingKo(o, requireOpen: false);
+  }
+
   /// Fill empty text_ko via /api/translate/batch and persist to PaperDiskStore.
-  Future<void> _backfillLocalMissingKo(ReadingSession o) async {
-    if (session?.cacheId != o.cacheId) return;
+  /// [requireOpen] false = handoff/library path (persist disk; sync open session if match).
+  Future<void> _backfillLocalMissingKo(
+    ReadingSession o, {
+    bool requireOpen = true,
+  }) async {
+    if (requireOpen && session?.cacheId != o.cacheId) return;
     final wantTr = await _wantTranslate();
     if (!wantTr) return;
     final missingIdx = <int>[];
@@ -2368,13 +2422,17 @@ class LibraryController extends ChangeNotifier {
       cacheId: o.cacheId,
       stage: 'translate_local',
       ok: true,
-      details: {'missing_n': texts.length},
+      details: {
+        'missing_n': texts.length,
+        'require_open': requireOpen ? 1 : 0,
+        'trigger': requireOpen ? 'reader' : 'handoff',
+      },
     );
     try {
       const piece = 64;
       final filled = List<String>.filled(texts.length, '');
       for (var off = 0; off < texts.length; off += piece) {
-        if (session?.cacheId != o.cacheId) return;
+        if (requireOpen && session?.cacheId != o.cacheId) return;
         final end = (off + piece > texts.length) ? texts.length : off + piece;
         final chunk = texts.sublist(off, end);
         final kos = await _client.translateBatchEnToKo(chunk);
@@ -2385,12 +2443,18 @@ class LibraryController extends ChangeNotifier {
             '번역 보충 ${end.clamp(0, texts.length)}/${texts.length}';
         notifyListeners();
       }
-      final cur = session;
-      if (cur == null || cur.cacheId != o.cacheId) return;
+      final working = (requireOpen ? session : null) ?? o;
+      if (requireOpen) {
+        final cur = session;
+        if (cur == null || cur.cacheId != o.cacheId) return;
+      } else if (working.cacheId != o.cacheId) {
+        return;
+      }
+      final base = requireOpen ? session! : o;
       final next = <SentenceView>[];
       var applied = 0;
-      for (var i = 0; i < cur.sentences.length; i++) {
-        final s = cur.sentences[i];
+      for (var i = 0; i < base.sentences.length; i++) {
+        final s = base.sentences[i];
         final mi = missingIdx.indexOf(i);
         if (mi >= 0 && filled[mi].isNotEmpty) {
           next.add(
@@ -2407,18 +2471,32 @@ class LibraryController extends ChangeNotifier {
           next.add(s);
         }
       }
-      cur.sentences
+      base.sentences
         ..clear()
         ..addAll(next);
-      cur.translatePending = false;
-      await _paperDisk.shadowPersistReadingSession(cur);
+      base.translatePending = false;
+      await _paperDisk.shadowPersistReadingSession(base);
+      final live = session;
+      if (!requireOpen &&
+          live != null &&
+          live.cacheId == base.cacheId &&
+          !identical(live, base)) {
+        live.sentences
+          ..clear()
+          ..addAll(List<SentenceView>.from(base.sentences));
+        live.translatePending = false;
+      }
       asrEvidenceBus?.record(
         'translate_local_backfill_done',
         severity: 'lifecycle',
         cacheId: o.cacheId,
         stage: 'translate_local',
         ok: true,
-        details: {'applied_n': applied, 'missing_n': texts.length},
+        details: {
+          'applied_n': applied,
+          'missing_n': texts.length,
+          'require_open': requireOpen ? 1 : 0,
+        },
       );
     } catch (e) {
       final msg = e.toString();
@@ -2430,7 +2508,7 @@ class LibraryController extends ChangeNotifier {
         message: msg.length > 200 ? msg.substring(0, 200) : msg,
         ok: false,
       );
-      error = '번역 보충에 실패했습니다. 잠시 후 다시 열어 주세요.';
+      error = '번역 보충에 실패했습니다.  잠시 후 다시 열어 주세요.';
     } finally {
       translateBackfillBusy = false;
       if (uploadStage.startsWith('번역 보충')) {
@@ -3137,6 +3215,28 @@ class LibraryController extends ChangeNotifier {
 
 
 
+  Future<void> _persistShadowingPlanIfOk(
+    String cacheId,
+    Map<String, dynamic> body,
+  ) async {
+    final plan = body['plan'];
+    if (plan is! Map) return;
+    if (plan['status']?.toString() != 'ok') return;
+    final map = Map<String, dynamic>.from(plan);
+    final ok = await _shadowDisk.writeChunkPlanJson(cacheId, map);
+    asrEvidenceBus?.record(
+      'shadowing_plan_local_save',
+      cacheId: cacheId,
+      severity: 'lifecycle',
+      ok: ok,
+      details: {
+        'sentence_n': plan['sentences'] is Map
+            ? (plan['sentences'] as Map).length
+            : -1,
+      },
+    );
+  }
+
   /// design/80 · design/113 — backfill/retry; pending slices auto-continue.
   /// design/169p — ensure_start/done + gate evidence.
   /// 0.3.176 — client TimeoutException on GET/build is *continue*, not hard error.
@@ -3301,6 +3401,25 @@ class LibraryController extends ChangeNotifier {
 
     try {
       var needBuild = true;
+      final localPlan = await _shadowDisk.loadChunkPlanJson(id);
+      if (localPlan != null && localPlan['status']?.toString() == 'ok') {
+        asrEvidenceBus?.record(
+          'shadowing_ensure_skip_ok',
+          cacheId: id,
+          severity: 'decision',
+          ok: true,
+          details: {
+            'ensure_id': ensureId,
+            'trigger': trigger,
+            'source': 'local_disk',
+          },
+        );
+        shadowingChunksError = null;
+        shadowingChunksProgress = null;
+        okOut = true;
+        needBuild = false;
+      }
+      if (needBuild) {
       try {
         final got = await _client.fetchShadowingChunks(id);
         applyProgress(got, source: 'get');
@@ -3333,10 +3452,12 @@ class LibraryController extends ChangeNotifier {
             details: {
               'ensure_id': ensureId,
               'trigger': trigger,
+              'source': 'get',
               'done': prog.done ?? -1,
               'total': prog.total ?? -1,
             },
           );
+          await _persistShadowingPlanIfOk(id, got);
           shadowingChunksError = null;
           shadowingChunksProgress = null;
           okOut = true;
@@ -3362,6 +3483,7 @@ class LibraryController extends ChangeNotifier {
         );
         notifyListeners();
       }
+      } // needBuild: skip cloud GET when local chunks.json already ok
 
       if (needBuild) {
         // design/113 — several budget slices until ok/error (cap avoids infinite).
@@ -3461,6 +3583,7 @@ class LibraryController extends ChangeNotifier {
             },
           );
           if (st2 == 'ok') {
+            await _persistShadowingPlanIfOk(id, built);
             shadowingChunksError = null;
             shadowingChunksProgress = null;
             okOut = true;
