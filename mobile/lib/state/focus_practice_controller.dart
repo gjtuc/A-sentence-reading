@@ -1,4 +1,5 @@
 /// design/176 — 10‑min speaking focus clock (plan C: mic speak segments only).
+/// Calendar history + streak; give-up resets unfinished block only.
 library;
 
 import 'dart:async';
@@ -22,21 +23,33 @@ class FocusPracticeController extends ChangeNotifier {
   final DateTime Function() _clock;
 
   String? _uid;
+  FocusPracticeHistory _history = const FocusPracticeHistory();
   FocusPracticeDayState _day = FocusPracticeDayState(day: focusPracticeDayKey());
 
   bool sessionActive = false;
   bool paused = false;
   bool speaking = false;
 
-  /// Completed portion of the current block (persisted only via day counters).
+  /// Progress inside the current unfinished block (not persisted).
   Duration elapsedInBlock = Duration.zero;
 
   DateTime? _speakStartedAt;
   Timer? _uiTick;
 
+  FocusPracticeHistory get history => _history;
   FocusPracticeDayState get dayState => _day;
   bool get daySuccess => _day.success;
   int get blocksCompletedToday => _day.blocksCompleted;
+
+  int get currentStreak => computeFocusCurrentStreak(
+        _history.days,
+        todayKey: focusPracticeDayKey(_clock()),
+      );
+
+  int get bestStreak {
+    final cur = currentStreak;
+    return cur > _history.bestStreak ? cur : _history.bestStreak;
+  }
 
   /// Live display: committed elapsed + open speak segment.
   Duration get displayElapsed {
@@ -62,32 +75,34 @@ class FocusPracticeController extends ChangeNotifier {
     _uid = (uid ?? '').trim().isEmpty ? null : uid!.trim();
     try {
       final raw = await _store.readRaw(_uid);
-      _day = parseFocusPracticeDayState(raw);
+      _history = parseFocusPracticeHistory(raw);
     } catch (_) {
-      _day = FocusPracticeDayState(day: focusPracticeDayKey(_clock()));
+      _history = const FocusPracticeHistory();
     }
-    _ensureToday();
+    _syncTodayFromHistory();
     notifyListeners();
   }
 
-  void _ensureToday() {
+  void _syncTodayFromHistory() {
     final today = focusPracticeDayKey(_clock());
-    if (_day.day != today) {
-      _day = FocusPracticeDayState(day: today);
-    }
+    _day = _history.dayStateFor(today);
   }
 
   Future<void> _persist() async {
-    _ensureToday();
+    _syncTodayFromHistory();
+    final cur = currentStreak;
+    if (cur > _history.bestStreak) {
+      _history = _history.copyWith(bestStreak: cur);
+    }
     try {
-      await _store.writeRaw(_uid, serializeFocusPracticeDayState(_day));
+      await _store.writeRaw(_uid, serializeFocusPracticeHistory(_history));
     } catch (_) {
       // EDGE: prefs fail — keep memory state; next bind may miss.
     }
   }
 
   void startSession({String? cacheId}) {
-    _ensureToday();
+    _syncTodayFromHistory();
     if (sessionActive && !paused) return;
     sessionActive = true;
     paused = false;
@@ -100,20 +115,23 @@ class FocusPracticeController extends ChangeNotifier {
         'day_ymd': int.tryParse(_day.day.replaceAll('-', '')) ?? 0,
         'blocks_completed': _day.blocksCompleted,
         'day_success': _day.success,
+        'current_streak': currentStreak,
       },
     );
     _armUiTick();
     notifyListeners();
   }
 
-  /// GIVE UP — stop session; keep today's success/blocks.
+  /// 집중 끝내기 — keep earned blocks/day success; wipe unfinished block clock.
   void giveUp({String? cacheId}) {
     if (speaking) {
       endSpeak(cacheId: cacheId);
     }
     final was = sessionActive;
+    final abandonedMs = elapsedInBlock.inMilliseconds;
     sessionActive = false;
     paused = false;
+    elapsedInBlock = Duration.zero;
     _cancelUiTick();
     if (was) {
       asrEvidenceBus?.record(
@@ -126,7 +144,8 @@ class FocusPracticeController extends ChangeNotifier {
           'day_ymd': int.tryParse(_day.day.replaceAll('-', '')) ?? 0,
           'blocks_completed': _day.blocksCompleted,
           'day_success': _day.success,
-          'elapsed_in_block_ms': elapsedInBlock.inMilliseconds,
+          'elapsed_in_block_ms': abandonedMs,
+          'block_reset': 1,
         },
       );
     }
@@ -150,7 +169,7 @@ class FocusPracticeController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// App lifecycle — foreground-only clock (design/176).
+  /// App lifecycle — foreground-only clock (design/176). Does **not** reset block.
   void onAppPaused({String? cacheId}) => pause(cacheId: cacheId);
 
   void beginSpeak() {
@@ -177,7 +196,7 @@ class FocusPracticeController extends ChangeNotifier {
   }
 
   void _addElapsed(Duration delta, {String? cacheId}) {
-    _ensureToday();
+    _syncTodayFromHistory();
     var left = delta;
     while (left > Duration.zero) {
       final room = blockDuration - elapsedInBlock;
@@ -188,10 +207,17 @@ class FocusPracticeController extends ChangeNotifier {
       if (left >= room) {
         left -= room;
         elapsedInBlock = Duration.zero;
-        final first = !_day.success;
-        _day = _day.copyWith(
+        final today = focusPracticeDayKey(_clock());
+        final prevBlocks = _history.blocksFor(today);
+        final nextBlocks = prevBlocks + 1;
+        final days = Map<String, int>.from(_history.days);
+        days[today] = nextBlocks;
+        final first = prevBlocks <= 0;
+        _history = _history.copyWith(days: days);
+        _day = FocusPracticeDayState(
+          day: today,
           success: true,
-          blocksCompleted: _day.blocksCompleted + 1,
+          blocksCompleted: nextBlocks,
         );
         unawaited(_persist());
         asrEvidenceBus?.record(
@@ -200,9 +226,10 @@ class FocusPracticeController extends ChangeNotifier {
           severity: 'boundary',
           ok: true,
           details: {
-            'day_ymd': int.tryParse(_day.day.replaceAll('-', '')) ?? 0,
-            'blocks_completed': _day.blocksCompleted,
+            'day_ymd': int.tryParse(today.replaceAll('-', '')) ?? 0,
+            'blocks_completed': nextBlocks,
             'first_success_today': first,
+            'current_streak': currentStreak,
           },
         );
         if (first) {
@@ -212,8 +239,9 @@ class FocusPracticeController extends ChangeNotifier {
             severity: 'boundary',
             ok: true,
             details: {
-              'day_ymd': int.tryParse(_day.day.replaceAll('-', '')) ?? 0,
-              'blocks_completed': _day.blocksCompleted,
+              'day_ymd': int.tryParse(today.replaceAll('-', '')) ?? 0,
+              'blocks_completed': nextBlocks,
+              'current_streak': currentStreak,
             },
           );
         }

@@ -31,6 +31,7 @@ import '../state/library_controller.dart';
 import '../state/practice_bookmark_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/tts_controller.dart';
+import '../widgets/focus_practice_calendar_sheet.dart';
 import '../widgets/practice_mirror_panel.dart';
 import '../widgets/reader_nav_picker.dart';
 
@@ -857,7 +858,16 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   void _onGiveUp() {
     _focus.giveUp(cacheId: _cacheId);
-    setState(() => _status = '집중 종료. 「시작」으로 다시 말할 수 있습니다.');
+    setState(
+      () => _status =
+          '집중 종료 · 미완료 10분은 초기화됩니다. 「시작」으로 다시.',
+    );
+  }
+
+  void _openFocusCalendar() {
+    unawaited(
+      showFocusPracticeCalendarSheet(context: context, focus: _focus),
+    );
   }
 
   Future<void> _onRetryBoot() async {
@@ -971,6 +981,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         foregroundColor: Colors.white,
         title: const Text('따라 말하기'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month_outlined, color: Colors.white70),
+            tooltip: '연습 캘린더',
+            onPressed: _openFocusCalendar,
+          ),
           if (_practiceReady)
             IconButton(
               icon: Icon(
