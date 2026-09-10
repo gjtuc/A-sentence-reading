@@ -23,9 +23,6 @@ import '../api/shadowing_chunk_plan.dart';
 import '../api/tts_models.dart';
 import '../practice_grooming/grooming_policy.dart';
 import '../practice_grooming/practice_grooming_controller.dart';
-import '../practice_evidence/practice_cycle_probe.dart';
-import '../practice_evidence/practice_evidence_controller.dart';
-import '../practice_evidence/practice_evidence_encode.dart';
 import '../services/evidence_bus.dart';
 import '../services/shadowing_disk_store.dart';
 import '../services/shadowing_cloud_migrate.dart';
@@ -102,10 +99,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   /// design/208 — process grooming (rate nudge); copy-free.
   final PracticeGroomingController _grooming = PracticeGroomingController();
   double _groomRateScale = 1.0;
-  /// design/209 — cycle wide evidence (local queue; flush after focus).
-  final PracticeEvidenceController _cycleEv = PracticeEvidenceController();
-  PracticeCycleProbe? _activeProbe;
-
   ReadingSession? get _session => widget.library.session;
 
   String get _chunkKey => '$_sentenceId:$_chunkIndex';
@@ -130,9 +123,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _focus.addListener(_onFocusTick);
     _practiceBookmarks.addListener(_onPracticeBookmarksTick);
     _grooming.setServerEnabled(widget.shadowing.groomingServerEnabled);
-    _cycleEv.attachClient(widget.client);
-    _cycleEv.setServerEnabled(widget.shadowing.cycleEvidenceServerEnabled);
-    unawaited(_cycleEv.bindUid(widget.shadowing.boundUid));
     unawaited(_boot());
   }
 
@@ -140,7 +130,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   void didUpdateWidget(covariant ShadowingPracticeScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     _grooming.setServerEnabled(widget.shadowing.groomingServerEnabled);
-    _cycleEv.setServerEnabled(widget.shadowing.cycleEvidenceServerEnabled);
   }
 
   void _onFocusTick() {
@@ -166,7 +155,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _practiceBookmarks.dispose();
     unawaited(_player.dispose());
     unawaited(_mic.invokeMethod<String>('stop'));
-    unawaited(_cycleEv.flush(cacheId: _cacheId));
     super.dispose();
   }
 
@@ -175,7 +163,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
       _focus.onAppPaused(cacheId: _cacheId);
-      unawaited(_cycleEv.flush(cacheId: _cacheId));
     }
   }
 
@@ -671,21 +658,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _clearChunkTtsCache();
     _lastTakePath = null;
     _grooming.setServerEnabled(widget.shadowing.groomingServerEnabled);
-    _cycleEv.setServerEnabled(widget.shadowing.cycleEvidenceServerEnabled);
     _groomRateScale = _focus.sessionActive
         ? _grooming.beginCycle(chunkKey: _chunkKey, cacheId: _cacheId)
         : 1.0;
-    final sid = int.tryParse(_sentenceId) ?? _sentenceIndex;
-    final paramsPeek = widget.tts.pickPlaybackParams();
-    final probe = _cycleEv.beginCycle(
-      cacheId: _cacheId,
-      sentenceId: sid,
-      chunkIndex: _chunkIndex,
-      baseRate: paramsPeek.speakingRate,
-      groomScale: _groomRateScale,
-      focusElapsedMs: _focus.displayElapsed.inMilliseconds,
-    );
-    _activeProbe = probe;
 
     bool alive() =>
         mounted &&
@@ -693,50 +668,21 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         _focus.sessionActive &&
         !_focus.paused;
 
-    Future<void> commitProbe({required bool ok}) async {
-      final p = _activeProbe;
-      _activeProbe = null;
-      if (p == null) return;
-      await _cycleEv.commitProbe(p, ok: ok);
-    }
-
     setState(() => _status = '듣는 중');
-    final listenSw = Stopwatch()..start();
     try {
       await _playCachedChunkTts(phase: 'tts_listen');
-      listenSw.stop();
-      probe.markListen(
-        ms: listenSw.elapsedMilliseconds,
-        bytes: _chunkTtsBytes?.length ?? 0,
-        voiceHash: voiceHash(_chunkTtsParams?.voice ?? paramsPeek.voice),
-      );
     } catch (_) {
-      listenSw.stop();
-      probe.markTtsFail();
-      await commitProbe(ok: false);
       rethrow;
     }
     if (!alive()) {
-      await commitProbe(ok: false);
       return;
     }
 
     final speakResult = await _runSpeakPhase();
-    probe.markSpeak(
-      wallMs: speakResult.wallMs,
-      padMs: _pad.inMilliseconds,
-      micCode: speakResult.code,
-      takeOk: speakResult.ok,
-      takeBytes: speakResult.takeBytes,
-      takeDurMs: speakResult.takeDurMs,
-      persistOk: speakResult.persistOk,
-      cloudTakeOk: speakResult.cloudTakeOk,
-    );
     if (!alive()) {
-      await commitProbe(ok: speakResult.ok);
       return;
     }
-    final decision = _grooming.onOutcome(
+    _grooming.onOutcome(
       obs: GroomingObservation(
         signal: speakResult.signal,
         chunkKey: _chunkKey,
@@ -744,26 +690,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       ),
       cacheId: _cacheId,
     );
-    probe.markGrooming(
-      signal: speakResult.signal.name,
-      applied: decision.applied ? 1 : 0,
-      skip: decision.skipReason,
-      sessionN: _grooming.interventionsThisSession,
-    );
     if (!speakResult.ok) {
-      await commitProbe(ok: false);
       await Future<void>.delayed(const Duration(milliseconds: 800));
       if (!alive()) return;
       await _advanceToNextChunk(token: token);
       return;
     }
 
-    final takeSw = Stopwatch()..start();
     await _playMyTakePhase();
-    takeSw.stop();
-    probe.markMyTake(ms: takeSw.elapsedMilliseconds);
-    probe.markComplete();
-    await commitProbe(ok: true);
+    if (!alive()) return;
     if (!alive()) return;
 
     if (_autoAdvance) {
@@ -1128,8 +1063,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _focus.giveUp(cacheId: _cacheId);
     _grooming.resetSession();
     _groomRateScale = 1.0;
-    _cycleEv.resetSessionSeq();
-    unawaited(_cycleEv.flush(cacheId: _cacheId));
     _clearChunkTtsCache();
     setState(
       () => _status =
@@ -1151,7 +1084,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   void _onRestartFocus() {
     _grooming.resetSession();
     _groomRateScale = 1.0;
-    _cycleEv.resetSessionSeq();
     _focus.startSession(cacheId: _cacheId);
     setState(() => _status = '집중 시작. 말할 때만 시계가 갑니다.');
     if (!_busy && _chunks.isNotEmpty) {

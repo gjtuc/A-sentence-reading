@@ -57,7 +57,7 @@ class AsrStatus {
     // design/208 — missing key → on; explicit false kills process grooming.
     this.mobilePracticeGrooming = true,
     // design/209 — missing key → on; explicit false kills cycle wide evidence.
-    this.mobilePracticeCycleEvidence = true,
+    this.mobilePracticeCycleEvidence = false,
     // design/83 — missing key → on (fail-closed; require login).
     this.mobileLoginRequired = true,
     // design/84 — missing key → on (fail-closed; waiting shell).
@@ -152,12 +152,8 @@ class AsrStatus {
           : (json.containsKey('practice_grooming')
               ? json['practice_grooming'] == true
               : true),
-      mobilePracticeCycleEvidence:
-          json.containsKey('mobile_practice_cycle_evidence')
-              ? json['mobile_practice_cycle_evidence'] == true
-              : (json.containsKey('practice_cycle_evidence')
-                  ? json['practice_cycle_evidence'] == true
-                  : true),
+      // design/209 KILLED — always false; ignore status / env re-enable.
+      mobilePracticeCycleEvidence: false,
       // design/83 — missing key → require login (fail-closed).
       mobileLoginRequired: json.containsKey('mobile_login_required')
           ? json['mobile_login_required'] == true

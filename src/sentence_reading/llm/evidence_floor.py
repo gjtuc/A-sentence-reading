@@ -87,9 +87,7 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "focus_day_success",
         # design/208
         "practice_grooming_decision",
-        # design/209
-        "practice_cycle_wide",
-        "practice_evidence_flush",
+        # design/209 KILLED — kinds removed from floor
         # design/178 — worker wake causal densify
         "worker_wake_start",
         "worker_wake_done",
@@ -522,14 +520,6 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "mobile/lib/practice_grooming/practice_grooming_controller.dart",
         ("practice_grooming_decision",),
-    ),
-    (
-        "mobile/lib/practice_evidence/practice_evidence_controller.dart",
-        ("practice_cycle_wide",),
-    ),
-    (
-        "mobile/lib/practice_evidence/practice_evidence_uploader.dart",
-        ("practice_evidence_flush",),
     ),
     (
         "mobile/lib/state/focus_practice_controller.dart",
