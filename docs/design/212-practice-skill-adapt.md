@@ -33,12 +33,9 @@ focus calendar, and softly adapts:
    169 evidence (P5). Optional evidence: bins/enums only.
 8. **Density:** `effectiveChunks(basePlan, density)` merge/insert prefixes —
    **no Gemini rebuild**. Soft min/max relative to sentence length.
-9. **Adapt (block mean, scoredN ≥ 5):**
-   - ≤60% → density +1 (finer)
-   - ≥75% → density −1 (coarser)
-   - soft-max + still low → TTS tier −1
-   - soft-min + still high → TTS tier +1
-   - one axis per event; hysteresis/cooldown
+9. **Adapt:** see [215](215-practice-skill-epoch-adapt.md) — epoch of **5–10**
+   completed focus-block means (random N); **≤80% finer / ≥90% coarser**;
+   **no** mid-take adapt. (Old 212 mid-block ≤60/≥75 is obsolete.)
 10. **TTS UI:** `fixed` | `random_auto`. Six internal tiers (0..5). Insufficient
     samples → tier **2 (보통)**. Migrate old random_* → auto + mapped tier.
 11. **Calendar:** show 인식 일치도 orthogonal to 176 block heat. Small n → `—`.

@@ -359,6 +359,8 @@ class PracticeSkillController {
         'tier': store.state.tier,
         'block_n': store.state.blockN,
         'cooldown': store.state.cooldownBlocks,
+        'epoch_n': store.state.epochMeans.length,
+        'epoch_target': store.state.epochTargetN,
         'can_finer': canFiner(baseChunks, store.state.density) ? 1 : 0,
         'can_coarser': canCoarser(baseChunks, store.state.density) ? 1 : 0,
         'chunk_index': _chunkIndex,
@@ -369,95 +371,76 @@ class PracticeSkillController {
         'focus_elapsed_ms': _focusElapsedMs,
       },
     );
-    final decision = decideSkillAdapt(
-      state: store.state,
-      baseChunks: baseChunks,
-    );
-    if (decision.densityDelta != 0 || decision.tierDelta != 0) {
-      final newDens =
-          clampChunkDensity(store.state.density + decision.densityDelta);
-      final newTier = (store.state.tier + decision.tierDelta).clamp(0, 5);
-      await store.setTierDensity(
-        tier: newTier,
-        density: decision.densityDelta != 0 ? newDens : store.state.density,
-        cooldown: decision.tierDelta != 0 ? 1 : store.state.cooldownBlocks,
-      );
-      if (decision.densityDelta != 0 || decision.tierDelta != 0) {
-        await store.resetBlockAccum();
-      }
-      await evidence.emit(
-        kind: 'practice_skill_adapt',
-        cacheId: _cacheId,
-        ok: true,
-        code: decision.reason,
-        details: {
-          'phase': 'adapt',
-          'reason': decision.reason,
-          'density_delta': decision.densityDelta,
-          'tier_delta': decision.tierDelta,
-          'density': store.state.density,
-          'tier': store.state.tier,
-          'can_finer': canFiner(baseChunks, store.state.density) ? 1 : 0,
-          'can_coarser': canCoarser(baseChunks, store.state.density) ? 1 : 0,
-          'block_n': store.state.blockN,
-          'chunk_index': _chunkIndex,
-          'sentence_id_h16': skillSentenceIdH16(_sentenceId),
-          'focus_elapsed_ms': _focusElapsedMs,
-        },
-      );
-    } else {
-      await evidence.emit(
-        kind: 'practice_skill_adapt',
-        cacheId: _cacheId,
-        ok: true,
-        code: decision.reason,
-        details: {
-          'phase': 'adapt',
-          'reason': decision.reason,
-          'density_delta': 0,
-          'tier_delta': 0,
-          'density': store.state.density,
-          'tier': store.state.tier,
-          'block_n': store.state.blockN,
-          'can_finer': canFiner(baseChunks, store.state.density) ? 1 : 0,
-          'can_coarser': canCoarser(baseChunks, store.state.density) ? 1 : 0,
-          'chunk_index': _chunkIndex,
-        },
-      );
-    }
+    // design/215 — adapt only on focus-block epoch resolve, not per take.
     return score;
   }
 
   Future<void> onFocusBlockDone(List<String> baseChunks) async {
     if (!serverEnabled) return;
+    await store.commitFocusBlockMean();
+    await store.tickCooldown();
+
     final decision = decideSkillAdapt(
       state: store.state,
       baseChunks: baseChunks,
     );
+    final epochN = store.state.epochMeans.length;
+    final epochTarget = store.state.epochTargetN;
+    final epochAvg = epochN > 0
+        ? store.state.epochMeans.reduce((a, b) => a + b) / epochN
+        : null;
+
+    if (decision.reason == 'epoch_wait' || decision.reason == 'cooldown') {
+      await evidence.emit(
+        kind: 'practice_skill_adapt',
+        cacheId: _cacheId,
+        ok: true,
+        code: decision.reason,
+        details: {
+          'phase': 'epoch_wait',
+          'reason': decision.reason,
+          'density_delta': 0,
+          'tier_delta': 0,
+          'density': store.state.density,
+          'tier': store.state.tier,
+          'epoch_n': epochN,
+          'epoch_target': epochTarget,
+          if (epochAvg != null) 'epoch_avg': epochAvg,
+          'cooldown': store.state.cooldownBlocks,
+        },
+      );
+      return;
+    }
+
     if (decision.densityDelta != 0 || decision.tierDelta != 0) {
       await store.setTierDensity(
         tier: (store.state.tier + decision.tierDelta).clamp(0, 5),
         density: clampChunkDensity(
           store.state.density + decision.densityDelta,
         ),
-        cooldown: decision.tierDelta != 0 ? 1 : 0,
-      );
-      await evidence.emit(
-        kind: 'practice_skill_adapt',
-        cacheId: _cacheId,
-        ok: true,
-        code: decision.reason,
-        details: {
-          'phase': 'block_adapt',
-          'reason': decision.reason,
-          'density_delta': decision.densityDelta,
-          'tier_delta': decision.tierDelta,
-          'density': store.state.density,
-          'tier': store.state.tier,
-        },
+        cooldown: decision.tierDelta != 0 ? 1 : store.state.cooldownBlocks,
       );
     }
-    await store.onBlockBoundary();
+    await store.resolveEpoch(newTargetN: rollSkillEpochTarget());
+    await evidence.emit(
+      kind: 'practice_skill_adapt',
+      cacheId: _cacheId,
+      ok: true,
+      code: decision.reason,
+      details: {
+        'phase': 'epoch_adapt',
+        'reason': decision.reason,
+        'density_delta': decision.densityDelta,
+        'tier_delta': decision.tierDelta,
+        'density': store.state.density,
+        'tier': store.state.tier,
+        'epoch_n': epochN,
+        'epoch_target': epochTarget,
+        if (epochAvg != null) 'epoch_avg': epochAvg,
+        'can_finer': canFiner(baseChunks, store.state.density) ? 1 : 0,
+        'can_coarser': canCoarser(baseChunks, store.state.density) ? 1 : 0,
+      },
+    );
   }
 
   Future<void> flushEvidence({String cacheId = ''}) =>

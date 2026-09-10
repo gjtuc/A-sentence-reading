@@ -32,9 +32,11 @@ accuracy, accuracy_pct, accuracy_bin, judgment_tier, ref_n, hit_n, list_v,
 schema_v, density, tier, density_delta, tier_delta, can_finer, can_coarser,
 block_n, cooldown, take_bytes, stt_ms, spoken_ms, cache_hit,
 chunk_index, chunk_n, sentence_id_h16, speak_norm, engine, phase,
-reason, code, pending_n, accepted, dropped, focus_elapsed_ms
+reason, code, pending_n, accepted, dropped, focus_elapsed_ms,
+epoch_n, epoch_target, epoch_avg
 
 (`judgment_tier` = `good|great|perfect` — design/214; no copy string)
+(`epoch_*` — design/215 epoch adapt)
 
 ## Version
 
