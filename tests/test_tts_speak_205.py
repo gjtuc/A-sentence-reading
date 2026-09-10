@@ -55,6 +55,18 @@ def test_prosody_arrow_comma() -> None:
 
 
 def test_cache_key_includes_norm_version() -> None:
-    assert SPEAK_NORM_VERSION_DEFAULT == "v2"
+    assert SPEAK_NORM_VERSION_DEFAULT == "v3"
     k1 = tts_mod.cache_key("hello", "en-US-Neural2-D", 1.0)
     assert len(k1) == 24
+
+
+def test_cite_sup_not_spoken_as_number() -> None:
+    """design/216 — strip <sup>n</sup> before HTML spoken (no 'twelve')."""
+    out = spoken_text_for_tts("major contributors.<sup>12</sup>").lower()
+    assert "twelve" not in out
+    assert "contributors" in out
+
+
+def test_unit_sup_still_spoken() -> None:
+    out = spoken_text_for_tts("peak at 1650 cm<sup>−1</sup>").lower()
+    assert "per centimeter" in out or "centimeter" in out

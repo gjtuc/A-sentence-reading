@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_status_cite_display_clean() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert st["version"] == "0.3.216"
     assert st["cite_display_clean"] is True
     assert st["cite_ref_open"] is True
     assert "live_enable" not in st
@@ -65,6 +65,18 @@ def test_plain_trailing_acs_cite_regressions() -> None:
     assert strip_cite_markers_for_display("costs $33.00 each") == "costs $33.00 each"
     assert "−1" in strip_cite_markers_for_display("cm<sup>−1</sup> band")
 
+
+def test_plain_trailing_fig_and_year_not_stripped() -> None:
+    """design/216 — Fig./year false positives stay; ACS still strips."""
+    minus = "−"
+    assert strip_cite_markers_for_display("as shown in Fig.1") == "as shown in Fig.1"
+    assert strip_cite_markers_for_display("see Table.2") == "see Table.2"
+    assert parse_cite_numbers("as shown in Fig.1") == []
+    # year-band plain trailing (letter before .YYYY) must not strip
+    assert strip_cite_markers_for_display("since A.D.2019") == "since A.D.2019"
+    s = f"hot topic worldwide.1{minus}5"
+    assert strip_cite_markers_for_display(s) == "hot topic worldwide."
+    assert parse_cite_numbers(s) == [1, 2, 3, 4, 5]
 
 def test_glossary_skips_bracket_cite_raw() -> None:
     """Survey formulas must not replace [8, 9] with LaTeX $1 (Co–TiO₂ QA)."""
@@ -131,5 +143,5 @@ def test_ui_hides_cites_like_fig_chips() -> None:
     assert "0.2.57" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.156" in html
-    assert "styles.css?v=0.3.156" in html
+    assert "app.js?v=0.3.216" in html
+    assert "styles.css?v=0.3.216" in html

@@ -13,11 +13,24 @@
   var DOLLAR_CITE_AFTER_MARK = /([\]>])\s*\$(\d{1,3})(?!\d)/g;
   var DOLLAR_TEX_CITE =
     /\$\{\^(\d+(?:\s*[,–—−-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—−-]\s*\d+)*)\}\$/gi;
+  var FIG_LABEL_BEFORE = /(?:fig(?:ure)?|table|scheme|eq(?:uation)?|sec(?:tion)?)\.?\s*$/i;
   var PLAIN_TRAILING =
     /(?<=[a-zA-Z\)가-힣])(\.(\d+(?:\s*[-–—−,]\s*\d+)*))\s*$/;
 
   function stripTags(html) {
     return String(html || "").replace(/<[^>]+>/g, " ");
+  }
+
+  
+  function isYearBand(n) {
+    return n >= 1900 && n <= 2099;
+  }
+  function plainTrailingShouldStrip(nums, textBefore) {
+    if (!nums || !nums.length) return false;
+    if (nums.every(isYearBand)) return false;
+    var window = textBefore.length > 16 ? textBefore.slice(-16) : textBefore;
+    if (FIG_LABEL_BEFORE.test(window)) return false;
+    return true;
   }
 
   function expandToken(token) {
@@ -88,7 +101,10 @@
     }
     m = PLAIN_TRAILING.exec(plain);
     if (m) {
-      add(expandToken(m[2]));
+      var pnums = expandToken(m[2]);
+      if (plainTrailingShouldStrip(pnums, plain.slice(0, m.index))) {
+        add(pnums);
+      }
     }
     return out;
   }
@@ -152,8 +168,10 @@
     s = s.replace(BRACKET, function (full, inner) {
       return expandToken(inner).length ? "" : full;
     });
-    s = s.replace(PLAIN_TRAILING, function (full, dotPart, inner) {
-      return expandToken(inner).length ? "." : full;
+    s = s.replace(PLAIN_TRAILING, function (full, dotPart, inner, offset) {
+      var nums = expandToken(inner);
+      var before = typeof offset === "number" ? s.slice(0, offset) : "";
+      return plainTrailingShouldStrip(nums, before) ? "." : full;
     });
     // "word. " / "word ," 앞 공백 정리 · 연속 공백
     s = s.replace(/\s+([.,;:!?)])/g, "$1");

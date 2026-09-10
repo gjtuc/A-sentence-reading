@@ -39,6 +39,10 @@ _DOLLAR_TEX_CITE = re.compile(
 _PLAIN_TRAILING = re.compile(
     r"(?<=[a-zA-Z\)가-힣])(\.(\d+(?:\s*[-–—−,]\s*\d+)*))\s*$"
 )
+# design/216 — do not treat Fig.1 / Table.2 as ACS cites.
+_FIG_LABEL_BEFORE = re.compile(
+    r"(?i)(?:fig(?:ure)?|table|scheme|eq(?:uation)?|sec(?:tion)?)\.?\s*$"
+)
 # References 섹션 헤더 (ACS ■REFERENCES 등)
 _REF_HEAD = re.compile(
     r"(?im)^\s*(?:[■•*\-]+\s*)?(references|bibliography|literature cited)\s*$"
@@ -168,11 +172,30 @@ def _expand_num_token(token: str) -> list[int]:
     return out
 
 
+def _is_year_band(n: int) -> bool:
+    return 1900 <= n <= 2099
+
+
+def _plain_trailing_should_strip(nums: list[int], text_before: str) -> bool:
+    """design/216 — reject Fig./year false positives; keep ACS .1−5."""
+    if not nums:
+        return False
+    if all(_is_year_band(n) for n in nums):
+        return False
+    window = text_before[-16:] if len(text_before) > 16 else text_before
+    if _FIG_LABEL_BEFORE.search(window):
+        return False
+    return True
+
+
 def _parse_plain_trailing_cite_numbers(text: str) -> list[int]:
     m = _PLAIN_TRAILING.search(text or "")
     if not m:
         return []
-    return _expand_num_token(m.group(2))
+    nums = _expand_num_token(m.group(2))
+    if not _plain_trailing_should_strip(nums, (text or "")[: m.start()]):
+        return []
+    return nums
 
 
 def parse_cite_numbers(text: str) -> list[int]:
@@ -218,7 +241,10 @@ def strip_cite_markers_for_display(html: str) -> str:
     s = _BRACKET.sub(_br, s)
 
     def _plain_trailing(m: re.Match[str]) -> str:
-        return "." if _expand_num_token(m.group(2)) else m.group(0)
+        nums = _expand_num_token(m.group(2))
+        if _plain_trailing_should_strip(nums, s[: m.start()]):
+            return "."
+        return m.group(0)
 
     s = _PLAIN_TRAILING.sub(_plain_trailing, s)
     s = re.sub(r"\s+([.,;:!?)])", r"\1", s)

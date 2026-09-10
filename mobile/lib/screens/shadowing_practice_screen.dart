@@ -17,6 +17,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../api/cite_refs.dart' as cite;
 import '../api/client.dart';
 import '../api/focus_practice_models.dart';
 import '../api/reading_models.dart';
@@ -656,7 +657,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   Future<void> _prefetchSpoken() async {
     if (_chunks.isEmpty) return;
     final i = _chunkIndex.clamp(0, _chunks.length - 1);
-    await _skill.ensureSpoken(_chunks[i]);
+    await _skill.ensureSpoken(_displayChunk(i));
   }
 
   void _reapplyDensity({String? previousText}) {
@@ -676,6 +677,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _chunkTtsParams = null;
   }
 
+  /// design/216 — display/spoken/score share one stripped chunk string.
+  String _displayChunk([int? index]) {
+    if (_chunks.isEmpty) return '';
+    final i = (index ?? _chunkIndex).clamp(0, _chunks.length - 1);
+    return cite.stripCiteMarkersForDisplay(_chunks[i]);
+  }
+
   Future<void> _ensureChunkTts(String text) async {
     if (_chunkTtsBytes != null && _chunkTtsParams != null) return;
     unawaited(_skill.ensureSpoken(text));
@@ -690,7 +698,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   }
 
   Future<void> _playCachedChunkTts({required String phase}) async {
-    final text = _chunks[_chunkIndex];
+    final text = _displayChunk();
     try {
       await _ensureChunkTts(text);
       final bytes = _chunkTtsBytes!;
@@ -947,9 +955,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                 focusElapsedMs: _focus.displayElapsed.inMilliseconds,
               );
               final scored = await _skill.onTakeReady(
-                chunkDisplay: _chunks.isEmpty
-                    ? ''
-                    : _chunks[_chunkIndex.clamp(0, _chunks.length - 1)],
+                chunkDisplay: _displayChunk(),
                 takeBytes: bytes,
                 mime: 'audio/mp4',
                 baseChunks: _baseChunks,
@@ -1266,9 +1272,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   @override
   Widget build(BuildContext context) {
-    final prompt = _chunks.isEmpty
-        ? ''
-        : _chunks[_chunkIndex.clamp(0, _chunks.length - 1)];
+    final prompt = _displayChunk();
     final theme = Theme.of(context);
     final remaining = _focus.displayRemaining;
     final elapsed = _focus.displayElapsed;

@@ -15,6 +15,11 @@ final _dollarCiteAfterMark = RegExp(r'(\]|>)\s*\$(\d{1,3})(?!\d)');
 final _plainTrailing = RegExp(
   r'(?<=[a-zA-Z\)가-힣])(\.(\d+(?:\s*[-–—−,]\s*\d+)*))\s*$',
 );
+final _figLabelBefore = RegExp(
+  r'(?:fig(?:ure)?|table|scheme|eq(?:uation)?|sec(?:tion)?)\.?\s*$',
+  caseSensitive: false,
+);
+
 
 String stripTags(String? html) => (html ?? '').replaceAll(_tag, ' ');
 
@@ -75,10 +80,27 @@ List<int> parseCiteNumbers(String? text) {
   return out;
 }
 
+
+bool _isYearBand(int n) => n >= 1900 && n <= 2099;
+
+bool _plainTrailingShouldStrip(List<int> nums, String textBefore) {
+  if (nums.isEmpty) return false;
+  if (nums.every(_isYearBand)) return false;
+  final window = textBefore.length > 16
+      ? textBefore.substring(textBefore.length - 16)
+      : textBefore;
+  if (_figLabelBefore.hasMatch(window)) return false;
+  return true;
+}
+
 List<int> _parsePlainTrailingCiteNumbers(String plain) {
   final m = _plainTrailing.firstMatch(plain);
   if (m == null) return const [];
-  return _expandToken(m.group(2)!);
+  final nums = _expandToken(m.group(2)!);
+  if (!_plainTrailingShouldStrip(nums, plain.substring(0, m.start))) {
+    return const [];
+  }
+  return nums;
 }
 
 List<int> _parseDollarCiteNumbers(String raw) {
@@ -139,7 +161,10 @@ String stripCiteMarkersForDisplay(String? html) {
     return _expandToken(m.group(1)!).isNotEmpty ? '' : m.group(0)!;
   });
   s = s.replaceAllMapped(_plainTrailing, (m) {
-    return _expandToken(m.group(2)!).isNotEmpty ? '.' : m.group(0)!;
+    final nums = _expandToken(m.group(2)!);
+    return _plainTrailingShouldStrip(nums, s.substring(0, m.start))
+        ? '.'
+        : m.group(0)!;
   });
   s = s.replaceAllMapped(RegExp(r'\s+([.,;:!?)])'), (m) => m.group(1)!);
   s = s.replaceAll(RegExp(r'\s{2,}'), ' ');

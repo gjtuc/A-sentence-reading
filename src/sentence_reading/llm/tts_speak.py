@@ -641,6 +641,9 @@ def spoken_text_for_tts(
     if "&" in s:
         s = html_lib.unescape(s)
 
+    # design/216 — strip numeric cite <sup>n</sup> before HTML->spoken
+    s = strip_cite_markers_for_display(s)
+
     if "<" in s:
         parser = _ToSpoken()
         try:
@@ -649,8 +652,6 @@ def spoken_text_for_tts(
             s = parser.get_text()
         except Exception:  # noqa: BLE001
             s = re.sub(r"<[^>]+>", " ", s)
-
-    s = strip_cite_markers_for_display(s)
 
     s = _strip_literal_tags(s)
     s = _expand_unicode_scripts(s)

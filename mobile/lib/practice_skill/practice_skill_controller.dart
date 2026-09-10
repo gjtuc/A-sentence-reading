@@ -14,7 +14,7 @@ import 'skill_score.dart';
 import 'skill_store.dart';
 
 class SpokenCache {
-  String speakNorm = 'v2';
+  String speakNorm = 'v3';
   final Map<String, String> _map = {};
 
   void setSpeakNorm(String v) {

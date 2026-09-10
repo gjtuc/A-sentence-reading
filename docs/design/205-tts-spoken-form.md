@@ -10,7 +10,7 @@ Version: **0.3.205** · Extends design/15 · 88 · 90
 | `acronym_mode` | `lexicon` | Known initialisms → letters or expand; miss → leave |
 | `full_name_abbrev` | `prefer_one` | Drop redundant `(NMR)` / `NMR (...)` pair |
 | `pause_mode` | `punctuation` | Neural2: rewrite text, not SSML (SSML later, flag off) |
-| `speak_norm_version` | `v2` | Included in TTS cache key (GCS bust on rule change) |
+| `speak_norm_version` | `v3` | Included in TTS cache key (GCS bust on rule change; 216 cite-strip-first) |
 | `locale` | `en-US` | Matches default Neural2 |
 
 ## Non-goals (this ship)
@@ -20,11 +20,11 @@ Version: **0.3.205** · Extends design/15 · 88 · 90
 - Full SSML / SRE MathML (needs structured math)
 - Per-request LLM rewrite
 
-## Pipeline stages (order locked)
+## Pipeline stages (order locked · amended design/216)
 
 1. unescape HTML  
-2. HTML sub/sup → spoken  
-3. strip cites  
+2. **strip cites** (incl. numeric `<sup>n</sup>`; units like `cm<sup>−1</sup>` kept)  
+3. HTML sub/sup → spoken  
 4. strip literal tags  
 5. unicode sub/sup  
 6. **chem aliases** (exact graphemes, optional)  
@@ -37,6 +37,9 @@ Version: **0.3.205** · Extends design/15 · 88 · 90
 13. elements (bare-skip preserved)  
 14. **light prosody** (arrow commas)  
 15. whitespace collapse  
+
+(Prior 205 order had HTML before strip — that made cite `<sup>n</sup>` speak
+as “to the N”. Superseded by [216](216-cite-display-tts-practice-consistency.md).)
 
 ## Cache
 

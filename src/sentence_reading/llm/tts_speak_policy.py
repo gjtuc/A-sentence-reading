@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 
 # Bump when spoken rules change in a way that must bust GCS/local MP3 cache.
-SPEAK_NORM_VERSION_DEFAULT = "v2"
+SPEAK_NORM_VERSION_DEFAULT = "v3"
 
 
 @dataclass(frozen=True)
