@@ -55,6 +55,7 @@ class TtsController extends ChangeNotifier {
 
   /// fixed | random_normal | random_hard | random_very_hard
   String mode = kTtsModeFixed;
+  int skillTier = 2; // design/212
 
   /// Curated list from GET /api/tts/voices (may be empty until loaded).
   List<TtsVoiceChoice> voices = const [];
@@ -74,7 +75,16 @@ class TtsController extends ChangeNotifier {
       final p = await _readyPrefs();
       final rawRate = p.getDouble(kTtsRatePrefsKey);
       rate = clampSpeakingRate(rawRate ?? kTtsRateDefault);
-      mode = normalizeTtsMode(p.getString(kTtsModePrefsKey));
+      final migrated = migrateTtsModeAndTier(
+        p.getString(kTtsModePrefsKey),
+        tier: p.getInt('asr_tts_skill_tier_v1'),
+      );
+      mode = migrated.mode;
+      skillTier = migrated.tier;
+      if (p.getString(kTtsModePrefsKey) != mode) {
+        await p.setString(kTtsModePrefsKey, mode);
+      }
+      await p.setInt('asr_tts_skill_tier_v1', skillTier);
       voice = normalizeTtsVoice(p.getString(kTtsVoicePrefsKey));
       error = null;
     } catch (e) {
@@ -180,7 +190,21 @@ class TtsController extends ChangeNotifier {
       speakingRate: rate,
       voiceIds: voices.map((v) => v.id).toList(growable: false),
       random: _random,
+      skillTier: skillTier,
     );
+  }
+
+  void setSkillTier(int tier) {
+    final t = tier.clamp(0, 5);
+    if (skillTier == t) return;
+    skillTier = t;
+    () async {
+      try {
+        final p = await _readyPrefs();
+        await p.setInt('asr_tts_skill_tier_v1', skillTier);
+      } catch (_) {}
+    }();
+    notifyListeners();
   }
 
   /// Fetch + play English text of the current sentence.

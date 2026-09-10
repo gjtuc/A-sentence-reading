@@ -26,6 +26,10 @@ class ShadowingController extends ChangeNotifier {
   /// design/209 KILLED — always off; status may still send false.
   bool cycleEvidenceServerEnabled = false;
 
+  /// design/212 — practice skill adapt.
+  bool skillServerEnabled = true;
+  bool skillCloudSttEnabled = true;
+
   /// design/187 — device is SoT for takes/voice/chunk cache; cloud PUT refused.
   bool localSot = false;
 
@@ -90,6 +94,18 @@ class ShadowingController extends ChangeNotifier {
     // design/209 KILLED — never re-enable from status.
     if (!cycleEvidenceServerEnabled) return;
     cycleEvidenceServerEnabled = false;
+    notifyListeners();
+  }
+
+  void setSkillServerEnabled(bool on) {
+    if (skillServerEnabled == on) return;
+    skillServerEnabled = on;
+    notifyListeners();
+  }
+
+  void setSkillCloudSttEnabled(bool on) {
+    if (skillCloudSttEnabled == on) return;
+    skillCloudSttEnabled = on;
     notifyListeners();
   }
 

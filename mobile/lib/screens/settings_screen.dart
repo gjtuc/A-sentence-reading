@@ -811,6 +811,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       items: [
                         for (final m in [
                           kTtsModeFixed,
+                          kTtsModeRandomAuto,
                           kTtsModeRandomNormal,
                           kTtsModeRandomHard,
                           kTtsModeRandomVeryHard,

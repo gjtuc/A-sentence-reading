@@ -128,6 +128,10 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       _shadowing.setServerAvailable(st.mobileShadowingPractice);
       _shadowing.setGroomingServerEnabled(st.mobilePracticeGrooming);
       _shadowing.setCycleEvidenceServerEnabled(st.mobilePracticeCycleEvidence);
+      _shadowing.setSkillServerEnabled(st.mobilePracticeSkill);
+      _shadowing.setSkillCloudSttEnabled(st.mobilePracticeSttCloud);
+      _tts.setSkillTier(_tts.skillTier);
+      // speak-norm pin for skill spoken cache is applied in practice screen
       _shadowing.setLocalSot(st.shadowingLocalSot);
       _library.setShadowingLocalSot(st.shadowingLocalSot);
       _citePanel.setServerAvailable(st.mobileCiteRefPanel);

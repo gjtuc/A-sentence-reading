@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../api/focus_practice_models.dart';
 import '../state/focus_practice_controller.dart';
+import '../practice_skill/skill_store.dart';
 
 /// Single emerald palette · level 0..3 (empty → densest).
 Color focusHeatColor(int level, {required bool dark}) {
@@ -23,6 +24,7 @@ Color focusHeatColor(int level, {required bool dark}) {
 Future<void> showFocusPracticeCalendarSheet({
   required BuildContext context,
   required FocusPracticeController focus,
+  SkillStore? skill,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -32,16 +34,17 @@ Future<void> showFocusPracticeCalendarSheet({
     builder: (ctx) {
       return AnimatedBuilder(
         animation: focus,
-        builder: (context, _) => _FocusCalendarBody(focus: focus),
+        builder: (context, _) => _FocusCalendarBody(focus: focus, skill: skill),
       );
     },
   );
 }
 
 class _FocusCalendarBody extends StatefulWidget {
-  const _FocusCalendarBody({required this.focus});
+  const _FocusCalendarBody({required this.focus, this.skill});
 
   final FocusPracticeController focus;
+  final SkillStore? skill;
 
   @override
   State<_FocusCalendarBody> createState() => _FocusCalendarBodyState();
@@ -95,6 +98,17 @@ class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
                 _StatChip(label: '연속', value: '$streak일'),
                 _StatChip(label: '최장', value: '$best일'),
                 _StatChip(label: '오늘', value: '$todayBlocks블록'),
+                _StatChip(
+                  label: '인식',
+                  value: () {
+                    final sk = widget.skill;
+                    if (sk == null) return '—';
+                    final m = sk.dayMean(todayKey);
+                    final n = sk.dayN(todayKey);
+                    if (m == null || n < 3) return '—';
+                    return '${(m * 100).round()}%';
+                  }(),
+                ),
               ],
             ),
             if (milestones.isNotEmpty) ...[

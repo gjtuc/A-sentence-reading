@@ -23,6 +23,8 @@ import '../api/shadowing_chunk_plan.dart';
 import '../api/tts_models.dart';
 import '../practice_grooming/grooming_policy.dart';
 import '../practice_grooming/practice_grooming_controller.dart';
+import '../practice_skill/chunk_density.dart';
+import '../practice_skill/practice_skill_controller.dart';
 import '../services/evidence_bus.dart';
 import '../services/shadowing_disk_store.dart';
 import '../services/shadowing_cloud_migrate.dart';
@@ -99,6 +101,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   /// design/208 — process grooming (rate nudge); copy-free.
   final PracticeGroomingController _grooming = PracticeGroomingController();
   double _groomRateScale = 1.0;
+  final PracticeSkillController _skill = PracticeSkillController();
+  List<String> _baseChunks = [];
   ReadingSession? get _session => widget.library.session;
 
   String get _chunkKey => '$_sentenceId:$_chunkIndex';
@@ -123,6 +127,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _focus.addListener(_onFocusTick);
     _practiceBookmarks.addListener(_onPracticeBookmarksTick);
     _grooming.setServerEnabled(widget.shadowing.groomingServerEnabled);
+    _skill.attachClient(widget.client);
+    _skill.setServerFlags(
+      skill: widget.shadowing.skillServerEnabled,
+      cloudStt: widget.shadowing.skillCloudSttEnabled,
+    );
+    unawaited(_skill.bindUid(widget.shadowing.boundUid).then((_) {
+      widget.tts.setSkillTier(_skill.tier);
+    }));
     unawaited(_boot());
   }
 
@@ -130,6 +142,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   void didUpdateWidget(covariant ShadowingPracticeScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     _grooming.setServerEnabled(widget.shadowing.groomingServerEnabled);
+    _skill.setServerFlags(
+      skill: widget.shadowing.skillServerEnabled,
+      cloudStt: widget.shadowing.skillCloudSttEnabled,
+    );
   }
 
   void _onFocusTick() {
@@ -196,6 +212,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     await _focus.bindUid(widget.shadowing.boundUid);
     _disk.bindUid(widget.shadowing.boundUid);
     await _practiceBookmarks.bindUid(widget.shadowing.boundUid);
+    try {
+      final st = await widget.client.fetchStatus();
+      _skill.spokenCache.setSpeakNorm(st.ttsSpeakNorm);
+      _skill.setServerFlags(
+        skill: st.mobilePracticeSkill,
+        cloudStt: st.mobilePracticeSttCloud,
+      );
+    } catch (_) {}
     final session = _session;
     if (session == null || !session.isValid) {
       asrEvidenceBus?.record(
@@ -571,12 +595,32 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     final cur = session.currentSentence;
     _sentenceId =
         (cur != null && cur.id.trim().isNotEmpty) ? cur.id : '$_sentenceIndex';
-    _chunks = _chunksFor(_sentenceId, cur?.text ?? '');
+    _baseChunks = shadowingChunksForSentence(
+      _plan,
+      _sentenceId,
+      cur?.text ?? '',
+    );
+    _chunks = _skill.chunksFor(_baseChunks);
     _chunkIndex = 0;
+    unawaited(_prefetchSpoken());
   }
 
-  List<String> _chunksFor(String sid, String plain) {
-    return shadowingChunksForSentence(_plan, sid, plain);
+  Future<void> _prefetchSpoken() async {
+    if (_chunks.isEmpty) return;
+    final i = _chunkIndex.clamp(0, _chunks.length - 1);
+    await _skill.ensureSpoken(_chunks[i]);
+  }
+
+  void _reapplyDensity({String? previousText}) {
+    final prev = previousText ??
+        (_chunks.isEmpty
+            ? ''
+            : _chunks[_chunkIndex.clamp(0, _chunks.length - 1)]);
+    _chunks = _skill.chunksFor(_baseChunks);
+    _chunkIndex = rematchChunkIndex(_chunks, prev, _chunkIndex);
+    _clearChunkTtsCache();
+    widget.tts.setSkillTier(_skill.tier);
+    unawaited(_prefetchSpoken());
   }
 
   void _clearChunkTtsCache() {
@@ -586,6 +630,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   Future<void> _ensureChunkTts(String text) async {
     if (_chunkTtsBytes != null && _chunkTtsParams != null) return;
+    unawaited(_skill.ensureSpoken(text));
     final params = widget.tts.pickPlaybackParams();
     final bytes = await widget.client.synthesizeTts(
       text: text,
@@ -837,6 +882,22 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             takeByteLen = bytes.length;
             cloudOk = !_localSot;
             setState(() => _status = '저장됨');
+            final densBefore = _skill.density;
+            final tierBefore = _skill.tier;
+            unawaited((() async {
+              final scored = await _skill.onTakeReady(
+                chunkDisplay: _chunks.isEmpty
+                    ? ''
+                    : _chunks[_chunkIndex.clamp(0, _chunks.length - 1)],
+                takeBytes: bytes,
+                mime: 'audio/mp4',
+                baseChunks: _baseChunks,
+              );
+              if (!mounted || scored == null) return;
+              if (_skill.density != densBefore || _skill.tier != tierBefore) {
+                _reapplyDensity();
+              }
+            })());
             final tooShort = await _takeLooksTooShort(
               path: filePath,
               expectedMs: wall.elapsedMilliseconds,
@@ -1072,7 +1133,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   void _openFocusCalendar() {
     unawaited(
-      showFocusPracticeCalendarSheet(context: context, focus: _focus),
+      showFocusPracticeCalendarSheet(context: context, focus: _focus, skill: _skill.store),
     );
   }
 

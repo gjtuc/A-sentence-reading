@@ -12,6 +12,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import '../config.dart';
 import '../services/evidence_bus.dart';
@@ -58,6 +59,10 @@ class AsrStatus {
     this.mobilePracticeGrooming = true,
     // design/209 — missing key → on; explicit false kills cycle wide evidence.
     this.mobilePracticeCycleEvidence = false,
+    // design/212 — missing → on; explicit false kills.
+    this.mobilePracticeSkill = true,
+    this.mobilePracticeSttCloud = true,
+    this.ttsSpeakNorm = 'v2',
     // design/83 — missing key → on (fail-closed; require login).
     this.mobileLoginRequired = true,
     // design/84 — missing key → on (fail-closed; waiting shell).
@@ -154,6 +159,17 @@ class AsrStatus {
               : true),
       // design/209 KILLED — always false; ignore status / env re-enable.
       mobilePracticeCycleEvidence: false,
+      mobilePracticeSkill: json.containsKey('mobile_practice_skill')
+          ? json['mobile_practice_skill'] == true
+          : (json.containsKey('practice_skill')
+              ? json['practice_skill'] == true
+              : true),
+      mobilePracticeSttCloud: json.containsKey('mobile_practice_stt_cloud')
+          ? json['mobile_practice_stt_cloud'] == true
+          : (json.containsKey('practice_stt_cloud')
+              ? json['practice_stt_cloud'] == true
+              : true),
+      ttsSpeakNorm: '${json['tts_speak_norm'] ?? 'v2'}',
       // design/83 — missing key → require login (fail-closed).
       mobileLoginRequired: json.containsKey('mobile_login_required')
           ? json['mobile_login_required'] == true
@@ -290,6 +306,9 @@ class AsrStatus {
   final bool mobileShadowingPracticeLoop;
   final bool mobilePracticeGrooming;
   final bool mobilePracticeCycleEvidence;
+  final bool mobilePracticeSkill;
+  final bool mobilePracticeSttCloud;
+  final String ttsSpeakNorm;
   final bool mobileLoginRequired;
   final bool mobileAccessWaitingUx;
   final bool progressFailClosed;
@@ -2378,6 +2397,52 @@ throw AsrApiException(
 
 
   /// GET /api/access/status
+  /// design/212 — POST /api/tts/spoken (no audio).
+  Future<SpokenTextResult?> fetchSpokenText(String text) async {
+    if (isEmptyTtsText(text)) return null;
+    final headers = await _headers(jsonBody: true);
+    final res = await _http
+        .post(
+          _uri('/api/tts/spoken'),
+          headers: headers,
+          body: jsonEncode({'text': text.trim()}),
+        )
+        .timeout(const Duration(seconds: 30));
+    final map = _decodeObject(res, 'tts/spoken');
+    if (map['ok'] != true) return null;
+    final spoken = '${map['spoken'] ?? ''}';
+    if (spoken.trim().isEmpty) return null;
+    return SpokenTextResult(
+      spoken: spoken,
+      speakNormVersion: '${map['speak_norm_version'] ?? 'v2'}',
+    );
+  }
+
+  /// design/212 — POST /api/stt/recognize (interim cloud). Returns heard only.
+  Future<String?> recognizePracticeTake({
+    required List<int> bytes,
+    required String mime,
+  }) async {
+    if (bytes.isEmpty) return null;
+    final headers = await _headers();
+    headers.remove('Content-Type');
+    final req = http.MultipartRequest('POST', _uri('/api/stt/recognize'));
+    req.headers.addAll(headers);
+    req.files.add(http.MultipartFile.fromBytes(
+      'file',
+      bytes,
+      filename: 'take.m4a',
+      contentType: MediaType.parse(mime.isEmpty ? 'audio/mp4' : mime),
+    ));
+    final streamed = await req.send().timeout(const Duration(seconds: 90));
+    final res = await http.Response.fromStream(streamed);
+    final map = _decodeObject(res, 'stt/recognize');
+    if (map['ok'] != true) return null;
+    final heard = '${map['heard'] ?? ''}'.trim();
+    return heard.isEmpty ? null : heard;
+  }
+
+
   Future<AccessStatus> fetchAccessStatus() async {
     try {
       final res = await _http
@@ -3122,4 +3187,15 @@ class AsrApiException implements Exception {
 class UploadCancelledException implements Exception {
   @override
   String toString() => 'UploadCancelledException';
+}
+
+
+/// design/212 — spoken form from /api/tts/spoken.
+class SpokenTextResult {
+  const SpokenTextResult({
+    required this.spoken,
+    required this.speakNormVersion,
+  });
+  final String spoken;
+  final String speakNormVersion;
 }

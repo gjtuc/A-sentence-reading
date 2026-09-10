@@ -18,6 +18,7 @@ const String kTtsModeFixed = 'fixed';
 const String kTtsModeRandomNormal = 'random_normal';
 const String kTtsModeRandomHard = 'random_hard';
 const String kTtsModeRandomVeryHard = 'random_very_hard';
+const String kTtsModeRandomAuto = 'random_auto';
 
 /// Prefs keys (design/96 · design/103).
 const String kTtsRatePrefsKey = 'asr_tts_rate_v1';
@@ -27,19 +28,52 @@ const String kTtsVoicePrefsKey = 'asr_tts_voice_v1';
 /// Modes allowed in Settings / picker (web parity).
 const Set<String> kTtsModes = {
   kTtsModeFixed,
+  kTtsModeRandomAuto,
   kTtsModeRandomNormal,
   kTtsModeRandomHard,
   kTtsModeRandomVeryHard,
 };
 
 const Set<String> kTtsRandomModes = {
+  kTtsModeRandomAuto,
   kTtsModeRandomNormal,
   kTtsModeRandomHard,
   kTtsModeRandomVeryHard,
 };
 
+/// design/212 — six skill tiers (rate/locale bands). Default tier 2 = normal.
+const Map<int, (double, double)> kTtsSkillTier = {
+  0: (0.55, 0.85),
+  1: (0.65, 1.00),
+  2: (0.70, 1.30),
+  3: (0.90, 1.45),
+  4: (1.00, 1.60),
+  5: (1.30, 1.90),
+};
+
+const Map<int, Map<String, double>> kTtsSkillLocaleWeights = {
+  0: {'en-US': 1.0},
+  1: {'en-US': 0.9, 'en-GB': 0.1},
+  2: {'en-US': 0.8, 'en-GB': 0.2},
+  3: {'en-US': 0.5, 'en-GB': 0.3, 'en-AU': 0.2},
+  4: {'en-US': 0.4, 'en-GB': 0.3, 'en-AU': 0.3},
+  5: {
+    'en-US': 0.2,
+    'en-GB': 0.2,
+    'en-AU': 0.25,
+    'en-IN': 0.35,
+  },
+};
+
+const Map<String, int> kTtsLegacyModeToTier = {
+  kTtsModeRandomNormal: 2,
+  kTtsModeRandomHard: 4,
+  kTtsModeRandomVeryHard: 5,
+};
+
 /// Random mode rate bands (web `TTS_RATE_BANDS`).
 const Map<String, (double, double)> kTtsRateBands = {
+  kTtsModeRandomAuto: (0.7, 1.3),
   kTtsModeRandomNormal: (0.7, 1.3),
   kTtsModeRandomHard: (1.0, 1.6),
   kTtsModeRandomVeryHard: (1.3, 1.9),
@@ -47,6 +81,7 @@ const Map<String, (double, double)> kTtsRateBands = {
 
 /// Locale weights per random mode (web `TTS_LOCALE_WEIGHTS`).
 const Map<String, Map<String, double>> kTtsLocaleWeights = {
+  kTtsModeRandomAuto: {'en-US': 0.8, 'en-GB': 0.2},
   kTtsModeRandomNormal: {'en-US': 0.8, 'en-GB': 0.2},
   kTtsModeRandomHard: {'en-US': 0.4, 'en-GB': 0.3, 'en-AU': 0.3},
   kTtsModeRandomVeryHard: {
@@ -60,6 +95,8 @@ const Map<String, Map<String, double>> kTtsLocaleWeights = {
 /// Korean labels for Settings dropdown (web TTS dialog copy).
 String ttsModeLabelKo(String mode) {
   switch (normalizeTtsMode(mode)) {
+    case kTtsModeRandomAuto:
+      return '랜덤 (실력에 맞춤)';
     case kTtsModeRandomNormal:
       return '랜덤 · 보통';
     case kTtsModeRandomHard:
@@ -70,6 +107,40 @@ String ttsModeLabelKo(String mode) {
     default:
       return '고정 (아래 목소리·속도)';
   }
+}
+
+
+String ttsSkillTierLabelKo(int tier) {
+  switch (tier.clamp(0, 5)) {
+    case 0:
+      return '쉬움';
+    case 1:
+      return '약간 쉬움';
+    case 2:
+      return '보통';
+    case 3:
+      return '약간 어려움';
+    case 4:
+      return '어려움';
+    case 5:
+      return '많이 어려움';
+    default:
+      return '보통';
+  }
+}
+
+({String mode, int tier}) migrateTtsModeAndTier(String? mode, {int? tier}) {
+  final m = (mode ?? '').trim();
+  if (m == kTtsModeRandomAuto) {
+    return (mode: kTtsModeRandomAuto, tier: (tier ?? 2).clamp(0, 5));
+  }
+  if (kTtsLegacyModeToTier.containsKey(m)) {
+    return (mode: kTtsModeRandomAuto, tier: kTtsLegacyModeToTier[m]!);
+  }
+  if (m == kTtsModeFixed || m.isEmpty) {
+    return (mode: kTtsModeFixed, tier: (tier ?? 2).clamp(0, 5));
+  }
+  return (mode: kTtsModeFixed, tier: 2);
 }
 
 String ttsModeHintKo(String mode) {
@@ -170,12 +241,41 @@ TtsPlaybackParams pickTtsPlaybackParams({
   required double speakingRate,
   List<String> voiceIds = const [],
   Random? random,
+  int? skillTier,
 }) {
   final m = normalizeTtsMode(mode);
   if (isTtsRandomMode(m)) {
     final rng = random ?? Random();
-    final band = kTtsRateBands[m] ?? (0.7, 1.3);
-    final locale = pickWeightedLocale(m, rng);
+    late final (double, double) band;
+    Map<String, double>? weights;
+    if (m == kTtsModeRandomAuto) {
+      final ti = (skillTier ?? 2).clamp(0, 5);
+      band = kTtsSkillTier[ti] ?? (0.7, 1.3);
+      weights = kTtsSkillLocaleWeights[ti];
+    } else {
+      band = kTtsRateBands[m] ?? (0.7, 1.3);
+      weights = kTtsLocaleWeights[m];
+    }
+    late String locale;
+    if (weights == null || weights.isEmpty) {
+      locale = pickWeightedLocale(
+        m == kTtsModeRandomAuto ? kTtsModeRandomNormal : m,
+        rng,
+      );
+    } else {
+      final entries =
+          weights.entries.where((e) => e.value > 0).toList(growable: false);
+      var r = rng.nextDouble();
+      var acc = 0.0;
+      locale = entries.last.key;
+      for (final e in entries) {
+        acc += e.value;
+        if (r <= acc) {
+          locale = e.key;
+          break;
+        }
+      }
+    }
     final ids = voiceIds.isEmpty
         ? const [kTtsDefaultVoice]
         : voiceIds;
