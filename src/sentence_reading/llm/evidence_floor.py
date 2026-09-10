@@ -88,6 +88,13 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         # design/208
         "practice_grooming_decision",
         # design/209 KILLED — kinds removed from floor
+        # design/213
+        "practice_skill_spoken",
+        "practice_skill_stt",
+        "practice_skill_scored",
+        "practice_skill_unscored",
+        "practice_skill_adapt",
+        "practice_skill_flush",
         # design/178 — worker wake causal densify
         "worker_wake_start",
         "worker_wake_done",
@@ -520,6 +527,20 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "mobile/lib/practice_grooming/practice_grooming_controller.dart",
         ("practice_grooming_decision",),
+    ),
+    (
+        "mobile/lib/practice_skill/practice_skill_controller.dart",
+        (
+            "practice_skill_spoken",
+            "practice_skill_stt",
+            "practice_skill_scored",
+            "practice_skill_unscored",
+            "practice_skill_adapt",
+        ),
+    ),
+    (
+        "mobile/lib/practice_skill/skill_evidence.dart",
+        ("practice_skill_flush",),
     ),
     (
         "mobile/lib/state/focus_practice_controller.dart",

@@ -142,6 +142,13 @@ ALLOWED_KINDS = frozenset(
         # design/208 — practice process grooming
         "practice_grooming_decision",
         # design/209 — KILLED 0.3.211 (practice_cycle_wide / practice_evidence_flush removed)
+        # design/213 — practice skill dense observation
+        "practice_skill_spoken",
+        "practice_skill_stt",
+        "practice_skill_scored",
+        "practice_skill_unscored",
+        "practice_skill_adapt",
+        "practice_skill_flush",
         # design/178 — worker wake causal densify
         "worker_wake_start",
         "worker_wake_done",

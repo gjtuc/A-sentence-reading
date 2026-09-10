@@ -155,6 +155,9 @@ from sentence_reading.llm.practice_skill import (
     practice_skill_enabled,
     practice_stt_cloud_enabled,
 )
+from sentence_reading.llm.practice_skill_evidence import (
+    practice_skill_evidence_enabled,
+)
 from sentence_reading.llm.typography import PIPELINE_VERSION, normalize_scientific_glyphs
 from sentence_reading.cite_refs import repair_dollar_cite_artifacts
 from sentence_reading.llm.vision_ocr import recover_pdf_text
@@ -272,7 +275,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.212",
+    version="0.3.213",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1770,7 +1773,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.212",
+        "version": "0.3.213",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -1896,6 +1899,8 @@ def status(request: Request) -> dict:
         "mobile_practice_skill": practice_skill_enabled(),
         "practice_stt_cloud": practice_stt_cloud_enabled(),
         "mobile_practice_stt_cloud": practice_stt_cloud_enabled(),
+        "practice_skill_evidence": practice_skill_evidence_enabled(),
+        "mobile_practice_skill_evidence": practice_skill_evidence_enabled(),
         "usage_meter": True,
         # design/28 · 139 — Fig. chips; kill ASR_FIG_REF_HINTS=0.
         "fig_ref_hints": _fig_ref_hints_enabled(),

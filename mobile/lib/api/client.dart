@@ -62,6 +62,7 @@ class AsrStatus {
     // design/212 — missing → on; explicit false kills.
     this.mobilePracticeSkill = true,
     this.mobilePracticeSttCloud = true,
+    this.mobilePracticeSkillEvidence = true,
     this.ttsSpeakNorm = 'v2',
     // design/83 — missing key → on (fail-closed; require login).
     this.mobileLoginRequired = true,
@@ -168,6 +169,11 @@ class AsrStatus {
           ? json['mobile_practice_stt_cloud'] == true
           : (json.containsKey('practice_stt_cloud')
               ? json['practice_stt_cloud'] == true
+              : true),
+      mobilePracticeSkillEvidence: json.containsKey('mobile_practice_skill_evidence')
+          ? json['mobile_practice_skill_evidence'] == true
+          : (json.containsKey('practice_skill_evidence')
+              ? json['practice_skill_evidence'] == true
               : true),
       ttsSpeakNorm: '${json['tts_speak_norm'] ?? 'v2'}',
       // design/83 — missing key → require login (fail-closed).
@@ -308,6 +314,7 @@ class AsrStatus {
   final bool mobilePracticeCycleEvidence;
   final bool mobilePracticeSkill;
   final bool mobilePracticeSttCloud;
+  final bool mobilePracticeSkillEvidence;
   final String ttsSpeakNorm;
   final bool mobileLoginRequired;
   final bool mobileAccessWaitingUx;

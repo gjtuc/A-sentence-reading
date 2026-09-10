@@ -131,6 +131,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _skill.setServerFlags(
       skill: widget.shadowing.skillServerEnabled,
       cloudStt: widget.shadowing.skillCloudSttEnabled,
+      skillEvidence: true,
     );
     unawaited(_skill.bindUid(widget.shadowing.boundUid).then((_) {
       widget.tts.setSkillTier(_skill.tier);
@@ -145,6 +146,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _skill.setServerFlags(
       skill: widget.shadowing.skillServerEnabled,
       cloudStt: widget.shadowing.skillCloudSttEnabled,
+      skillEvidence: true,
     );
   }
 
@@ -171,6 +173,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _practiceBookmarks.dispose();
     unawaited(_player.dispose());
     unawaited(_mic.invokeMethod<String>('stop'));
+    unawaited(_skill.flushEvidence(cacheId: _cacheId));
     super.dispose();
   }
 
@@ -179,6 +182,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
       _focus.onAppPaused(cacheId: _cacheId);
+      unawaited(_skill.flushEvidence(cacheId: _cacheId));
     }
   }
 
@@ -218,6 +222,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       _skill.setServerFlags(
         skill: st.mobilePracticeSkill,
         cloudStt: st.mobilePracticeSttCloud,
+        skillEvidence: st.mobilePracticeSkillEvidence,
       );
     } catch (_) {}
     final session = _session;
@@ -885,6 +890,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             final densBefore = _skill.density;
             final tierBefore = _skill.tier;
             unawaited((() async {
+              _skill.setCycleContext(
+                cacheId: _cacheId,
+                sentenceId: _sentenceId,
+                chunkIndex: _chunkIndex,
+                focusElapsedMs: _focus.displayElapsed.inMilliseconds,
+              );
               final scored = await _skill.onTakeReady(
                 chunkDisplay: _chunks.isEmpty
                     ? ''
@@ -1124,6 +1135,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _focus.giveUp(cacheId: _cacheId);
     _grooming.resetSession();
     _groomRateScale = 1.0;
+    _skill.resetSessionSeq();
+    unawaited(_skill.flushEvidence(cacheId: _cacheId));
     _clearChunkTtsCache();
     setState(
       () => _status =

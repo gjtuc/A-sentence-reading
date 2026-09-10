@@ -137,6 +137,13 @@ const Set<String> kEvidenceAllowedKinds = {
   'focus_day_success',
   // design/208
   'practice_grooming_decision',
+  // design/213
+  'practice_skill_spoken',
+  'practice_skill_stt',
+  'practice_skill_scored',
+  'practice_skill_unscored',
+  'practice_skill_adapt',
+  'practice_skill_flush',
   // design/209
   // design/209 KILLED — practice_cycle_wide / practice_evidence_flush
   // design/178 — worker wake causal densify

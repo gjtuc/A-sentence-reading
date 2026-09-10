@@ -320,4 +320,5 @@
 185 — 분석 논문 로컬 SoT · ACK wipe + abandon/bulk/polish (**0.3.181**).
 186 — 7일 device-transfer pack (**0.3.180**).
 
+| 213 | [213-practice-skill-evidence.md](213-practice-skill-evidence.md) | practice skill dense evidence |
 | 212 | [212-practice-skill-adapt.md](212-practice-skill-adapt.md) | practice skill adapt |
