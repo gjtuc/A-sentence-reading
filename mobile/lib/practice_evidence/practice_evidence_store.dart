@@ -27,18 +27,18 @@ class PracticeEvidenceStore {
 
   /// No-op — feature killed; never write queue events.
   Future<void> append(Map<String, dynamic> event) async {
-    _ = event;
+    // no-op killed
   }
 
   Future<int> pendingCount() async => 0;
 
   Future<List<Map<String, dynamic>>> peek(int limit) async {
-    _ = limit;
+    // no-op
     return const [];
   }
 
   Future<void> ack(int count) async {
-    _ = count;
+    // no-op
   }
 
   /// Wipe leftover device files from pre-kill builds.

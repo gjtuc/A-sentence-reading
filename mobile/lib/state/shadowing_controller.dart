@@ -90,8 +90,10 @@ class ShadowingController extends ChangeNotifier {
   }
 
   void setCycleEvidenceServerEnabled(bool on) {
-    _ = on;
     // design/209 KILLED — never re-enable from status.
+    if (on) {
+      // ignore caller; stay off
+    }
     if (!cycleEvidenceServerEnabled) return;
     cycleEvidenceServerEnabled = false;
     notifyListeners();

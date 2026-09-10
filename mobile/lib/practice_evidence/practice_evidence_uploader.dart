@@ -18,7 +18,7 @@ class PracticeEvidenceUploader {
     required bool serverEnabled,
     String cacheId = '',
   }) async {
-    _ = (client, serverEnabled, cacheId, batchSize);
+    // no-op killed; params unused
     await store.clearAll();
   }
 }

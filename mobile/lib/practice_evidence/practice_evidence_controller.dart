@@ -22,7 +22,7 @@ class PracticeEvidenceController {
   void setServerEnabled(bool on) {
     // Ignored — feature hard-killed.
     serverEnabled = false;
-    _ = on;
+    // ignored — hard-killed
   }
 
   Future<void> bindUid(String? uid) async {
@@ -53,13 +53,13 @@ class PracticeEvidenceController {
   }
 
   Future<void> commitProbe(PracticeCycleProbe probe, {required bool ok}) async {
-    _ = (probe, ok);
+    // no-op
     // No local append.
   }
 
   Future<void> flush({String cacheId = ''}) async {
-    _ = cacheId;
-    _ = _client;
+    // no-op
+    // no-op
     await _store.clearAll();
   }
 }
