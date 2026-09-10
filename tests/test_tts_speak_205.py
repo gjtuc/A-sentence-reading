@@ -55,7 +55,7 @@ def test_prosody_arrow_comma() -> None:
 
 
 def test_cache_key_includes_norm_version() -> None:
-    assert SPEAK_NORM_VERSION_DEFAULT == "v3"
+    assert SPEAK_NORM_VERSION_DEFAULT == "v4"
     k1 = tts_mod.cache_key("hello", "en-US-Neural2-D", 1.0)
     assert len(k1) == 24
 

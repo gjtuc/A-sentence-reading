@@ -618,6 +618,90 @@ def _expand_acronyms(text: str) -> str:
     return s
 
 
+
+# design/217 — link dash vs minus (practice ear-form)
+_UMINUS_TOKEN = ""  # private-use; must not match element symbols
+_LINK_DASH_CLS = r"\-\u2010\u2011\u2013\u2014"  # hyphen / en / em (not U+2212 minus)
+_ANY_DASH_SCRUB = re.compile(rf"[{_LINK_DASH_CLS}\u2212]")
+
+
+def _dash_pass_a(text: str) -> str:
+    """Protect unary minus; silence link hyphens; narrow ranges → to."""
+    s = text or ""
+    # Unary minus / hyphen-minus before a digit (not mid-token alnum).
+    s = re.sub(r"(?<![A-Za-z0-9.])[\u2212\-](?=\d)", _UMINUS_TOKEN, s)
+    s = re.sub(r"([=:+/(])\s*[\u2212\-](?=\d)", rf"\1{_UMINUS_TOKEN}", s)
+
+    # OCR decade powers 10-3 -> spoken inverse (not a numeric range; design/217)
+    s = re.sub(r"\b10[\u2212\-]([1-6])\b", r"10 to the minus \1", s)
+
+    # Single-letter pairs: F-T, I-V, C-H, P-N
+    s = re.sub(
+        rf"\b([A-Z])[{_LINK_DASH_CLS}]([A-Z])\b",
+        r"\1 \2",
+        s,
+    )
+    # Compound / alloy / temper links: Ni-Cu, N-doped, 6061-T6, well-known
+    s = re.sub(
+        rf"(?<=[A-Za-z0-9)\]])[{_LINK_DASH_CLS}](?=[A-Za-z])",
+        " ",
+        s,
+    )
+    s = re.sub(
+        rf"(?<=\d)[{_LINK_DASH_CLS}](?=[A-Za-z])",
+        " ",
+        s,
+    )
+
+    # Narrow ranges → to (never 10-3 decade OCR; never letter alloys)
+    s = re.sub(
+        rf"(?i)(\bpH\s+)(\d+)\s*[{_LINK_DASH_CLS}\u2212]\s*(\d+)",
+        r"\1\2 to \3",
+        s,
+    )
+    s = re.sub(
+        rf"(\d+)\s*[{_LINK_DASH_CLS}\u2212]\s*(\d+)(?=\s*(?:wt\s*)?%)",
+        r"\1 to \2",
+        s,
+        flags=re.IGNORECASE,
+    )
+
+    def _yearish_range(m: re.Match[str]) -> str:
+        a, b = m.group(1), m.group(2)
+        if a == "10" and b in set("123456"):
+            return m.group(0)
+        return f"{a} to {b}"
+
+    s = re.sub(
+        rf"(\d{{2,}})\s*[{_LINK_DASH_CLS}\u2212]\s*(\d{{2,}})",
+        _yearish_range,
+        s,
+    )
+    return s
+
+
+def _dash_pass_b(text: str) -> str:
+    """Letter-speak single-letter pairs before element expand (F T → f t)."""
+
+    def _pair(m: re.Match[str]) -> str:
+        return f"{m.group(1).lower()} {m.group(2).lower()}"
+
+    return re.sub(r"\b([A-Z]) ([A-Z])\b", _pair, text or "")
+
+
+def _dash_pass_c(text: str) -> str:
+    """Scrub leftover spaced/link dashes; restore unary minus word."""
+    s = text or ""
+    s = re.sub(rf"\s+[{_LINK_DASH_CLS}\u2212]\s+", " ", s)
+    s = re.sub(
+        rf"(?<=[A-Za-z])[{_LINK_DASH_CLS}](?=[A-Za-z])",
+        " ",
+        s,
+    )
+    s = s.replace(_UMINUS_TOKEN, " minus ")
+    return s
+
+
 def _apply_light_prosody(text: str) -> str:
     """Punctuation-first pauses for Neural2 (design/205)."""
     s = text
@@ -631,7 +715,7 @@ def spoken_text_for_tts(
     raw: str, *, policy: SpeakPolicy | None = None
 ) -> str:
     """
-    Display HTML/plain -> English spoken for TTS (design/205).
+    Display HTML/plain -> English spoken for TTS (design/205 · 216 · 217).
     """
     _ = policy or load_speak_policy()
     s = (raw or "").strip()
@@ -659,12 +743,16 @@ def spoken_text_for_tts(
     s = _expand_plain_chem_digits(s)
     s = _SECTION_PREFIX.sub("", s)
     s = _collapse_full_name_abbrev(s)
-    s = _apply_symbols(s)
+    # design/217 — dash A, then units before symbols (cm−1)
+    s = _dash_pass_a(s)
     s = _expand_units(s)
+    s = _apply_symbols(s)
     # Acronyms before elements so NMR is not nitrogen+MR (design/205).
     s = _expand_acronyms(s)
+    s = _dash_pass_b(s)
     s = _expand_element_symbols(s)
+    s = _dash_pass_c(s)
     s = _apply_light_prosody(s)
     s = re.sub(r"\s+", " ", s).strip()
-    s = s.strip(" \t\"'`")
+    s = s.strip(" 	\"'`")
     return s

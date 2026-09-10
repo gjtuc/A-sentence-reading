@@ -63,7 +63,7 @@ class AsrStatus {
     this.mobilePracticeSkill = true,
     this.mobilePracticeSttCloud = true,
     this.mobilePracticeSkillEvidence = true,
-    this.ttsSpeakNorm = 'v3',
+    this.ttsSpeakNorm = 'v4',
     // design/83 — missing key → on (fail-closed; require login).
     this.mobileLoginRequired = true,
     // design/84 — missing key → on (fail-closed; waiting shell).
@@ -175,7 +175,7 @@ class AsrStatus {
           : (json.containsKey('practice_skill_evidence')
               ? json['practice_skill_evidence'] == true
               : true),
-      ttsSpeakNorm: '${json['tts_speak_norm'] ?? 'v3'}',
+      ttsSpeakNorm: '${json['tts_speak_norm'] ?? 'v4'}',
       // design/83 — missing key → require login (fail-closed).
       mobileLoginRequired: json.containsKey('mobile_login_required')
           ? json['mobile_login_required'] == true
@@ -2421,7 +2421,7 @@ throw AsrApiException(
     if (spoken.trim().isEmpty) return null;
     return SpokenTextResult(
       spoken: spoken,
-      speakNormVersion: '${map['speak_norm_version'] ?? 'v3'}',
+      speakNormVersion: '${map['speak_norm_version'] ?? 'v4'}',
     );
   }
 

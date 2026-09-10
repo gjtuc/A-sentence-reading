@@ -10,7 +10,7 @@ Version: **0.3.205** · Extends design/15 · 88 · 90
 | `acronym_mode` | `lexicon` | Known initialisms → letters or expand; miss → leave |
 | `full_name_abbrev` | `prefer_one` | Drop redundant `(NMR)` / `NMR (...)` pair |
 | `pause_mode` | `punctuation` | Neural2: rewrite text, not SSML (SSML later, flag off) |
-| `speak_norm_version` | `v3` | Included in TTS cache key (GCS bust on rule change; 216 cite-strip-first) |
+| `speak_norm_version` | `v4` | Included in TTS cache key (GCS bust; 216 cite-strip; 217 dash/hyphen) |
 | `locale` | `en-US` | Matches default Neural2 |
 
 ## Non-goals (this ship)
@@ -20,7 +20,7 @@ Version: **0.3.205** · Extends design/15 · 88 · 90
 - Full SSML / SRE MathML (needs structured math)
 - Per-request LLM rewrite
 
-## Pipeline stages (order locked · amended design/216)
+## Pipeline stages (order locked · amended design/216 · 217)
 
 1. unescape HTML  
 2. **strip cites** (incl. numeric `<sup>n</sup>`; units like `cm<sup>−1</sup>` kept)  
@@ -31,15 +31,19 @@ Version: **0.3.205** · Extends design/15 · 88 · 90
 7. plain chem digits (conservative)  
 8. strip section prefix  
 9. **collapse full-name + abbrev**  
-10. symbols  
-11. units (before elements)  
-12. **acronym lexicon** (before elements — NMR ≠ nitrogen)  
-13. elements (bare-skip preserved)  
-14. **light prosody** (arrow commas)  
-15. whitespace collapse  
+10. **dash pass A** (unary protect; link hyphens → space; narrow ranges → `to`)  
+11. **units** (before symbols — so `cm−1` not broken by minus expand)  
+12. symbols  
+13. **acronym lexicon** (before elements — NMR ≠ nitrogen)  
+14. **dash pass B** (single-letter pairs → letter-speak; design/217)  
+15. elements (bare-skip preserved)  
+16. **dash pass C** (leftover ` - ` scrub; restore unary `minus`)  
+17. **light prosody** (arrow commas)  
+18. whitespace collapse  
 
 (Prior 205 order had HTML before strip — that made cite `<sup>n</sup>` speak
-as “to the N”. Superseded by [216](216-cite-display-tts-practice-consistency.md).)
+as “to the N”. Superseded by [216](216-cite-display-tts-practice-consistency.md).
+Dash/hyphen speech: [217](217-tts-dash-hyphen-speech.md).)
 
 ## Cache
 
@@ -54,7 +58,7 @@ Bump `speak_norm_version` when rules change without changing spoken string shape
 ## Tests
 
 - `tests/test_tts_speak.py` — collisions + new acronym/collapse  
-- Cache key includes `v2`  
+- Cache key includes `v4` (217)  
 - Idempotent: `f(f(x)) == f(x)`
 
 ## Rollback
