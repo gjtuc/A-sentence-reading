@@ -9,6 +9,7 @@ import '../api/client.dart';
 import 'chunk_density.dart';
 import 'skill_adapt.dart';
 import 'skill_evidence.dart';
+import '../practice_rhythm/judgment_tier.dart';
 import 'skill_score.dart';
 import 'skill_store.dart';
 
@@ -338,6 +339,8 @@ class PracticeSkillController {
     }
     await store.addScored(score.accuracy!);
     final acc = score.accuracy!;
+    // design/214 — enum only (no cheer copy string).
+    final judgmentTier = judgmentTierKey(judgmentTierFor(acc));
     await evidence.emit(
       kind: 'practice_skill_scored',
       cacheId: _cacheId,
@@ -348,6 +351,7 @@ class PracticeSkillController {
         'accuracy': acc,
         'accuracy_pct': (acc * 100).round(),
         'accuracy_bin': accuracyBin(acc),
+        'judgment_tier': judgmentTier,
         'ref_n': score.refN,
         'hit_n': score.hitN,
         'list_v': score.listV,

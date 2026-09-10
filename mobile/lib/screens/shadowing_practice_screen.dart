@@ -1,4 +1,4 @@
-/// design/82+120+176 — shadowing practice + 10‑min speaking focus clock.
+/// design/82+120+176+214 — shadowing practice + minimal rhythm + judgment cheers.
 ///
 /// Gates: login (shell) · kill · opt-in · chunks built before loop.
 /// Loop per chunk: listen TTS → speak+TTS(reuse bytes) → my-take replay → next.
@@ -15,6 +15,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/client.dart';
 import '../api/focus_practice_models.dart';
@@ -23,6 +24,12 @@ import '../api/shadowing_chunk_plan.dart';
 import '../api/tts_models.dart';
 import '../practice_grooming/grooming_policy.dart';
 import '../practice_grooming/practice_grooming_controller.dart';
+import '../practice_rhythm/judgment_burst.dart';
+import '../practice_rhythm/judgment_copy.dart';
+import '../practice_rhythm/judgment_prefs.dart';
+import '../practice_rhythm/judgment_tier.dart';
+import '../practice_rhythm/phase_rail.dart';
+import '../practice_rhythm/rhythm_theme.dart';
 import '../practice_skill/chunk_density.dart';
 import '../practice_skill/practice_skill_controller.dart';
 import '../services/evidence_bus.dart';
@@ -36,7 +43,6 @@ import '../state/tts_controller.dart';
 import '../widgets/focus_practice_calendar_sheet.dart';
 import '../widgets/practice_mirror_panel.dart';
 import '../widgets/reader_nav_picker.dart';
-
 
 class ShadowingPracticeScreen extends StatefulWidget {
   const ShadowingPracticeScreen({
@@ -103,6 +109,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   double _groomRateScale = 1.0;
   final PracticeSkillController _skill = PracticeSkillController();
   List<String> _baseChunks = [];
+  /// design/214 — minimal rhythm phase + judgment burst.
+  RhythmPhase _rhythmPhase = RhythmPhase.idle;
+  JudgmentBurstData? _judgmentBurst;
+  int _judgmentBurstSeq = 0;
+  String? _lastJudgmentCopy;
+  bool _judgmentCheers = true;
   ReadingSession? get _session => widget.library.session;
 
   String get _chunkKey => '$_sentenceId:$_chunkIndex';
@@ -136,7 +148,36 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     unawaited(_skill.bindUid(widget.shadowing.boundUid).then((_) {
       widget.tts.setSkillTier(_skill.tier);
     }));
+    unawaited(_loadJudgmentCheersPref());
     unawaited(_boot());
+  }
+
+  Future<void> _loadJudgmentCheersPref() async {
+    final prefs = await SharedPreferences.getInstance();
+    final on = prefs.getBool(kJudgmentCheersPrefKey) ?? true;
+    if (mounted) setState(() => _judgmentCheers = on);
+  }
+
+  void _showJudgmentBurst(double accuracy) {
+    if (!_judgmentCheers || !mounted) return;
+    final tier = judgmentTierFor(accuracy);
+    final copy = pickJudgmentCopy(tier, lastCopy: _lastJudgmentCopy);
+    _lastJudgmentCopy = copy;
+    _judgmentBurstSeq += 1;
+    setState(() {
+      _judgmentBurst = JudgmentBurstData(
+        id: _judgmentBurstSeq,
+        tier: tier,
+        copy: copy,
+        accuracyPct: (accuracy * 100).round(),
+      );
+    });
+  }
+
+  void _clearJudgmentBurst(int id) {
+    if (!mounted) return;
+    if (_judgmentBurst?.id != id) return;
+    setState(() => _judgmentBurst = null);
   }
 
   @override
@@ -183,6 +224,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         state == AppLifecycleState.paused) {
       _focus.onAppPaused(cacheId: _cacheId);
       unawaited(_skill.flushEvidence(cacheId: _cacheId));
+    } else if (state == AppLifecycleState.resumed) {
+      unawaited(_loadJudgmentCheersPref());
     }
   }
 
@@ -718,7 +761,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         _focus.sessionActive &&
         !_focus.paused;
 
-    setState(() => _status = '듣는 중');
+    setState(() {
+      _status = '듣는 중';
+      _rhythmPhase = RhythmPhase.listen;
+    });
     try {
       await _playCachedChunkTts(phase: 'tts_listen');
     } catch (_) {
@@ -728,6 +774,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       return;
     }
 
+    setState(() => _rhythmPhase = RhythmPhase.speak);
     final speakResult = await _runSpeakPhase();
     if (!alive()) {
       return;
@@ -741,14 +788,17 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       cacheId: _cacheId,
     );
     if (!speakResult.ok) {
+      if (mounted) setState(() => _rhythmPhase = RhythmPhase.idle);
       await Future<void>.delayed(const Duration(milliseconds: 800));
       if (!alive()) return;
       await _advanceToNextChunk(token: token);
       return;
     }
 
+    setState(() => _rhythmPhase = RhythmPhase.replay);
     await _playMyTakePhase();
     if (!alive()) return;
+    if (mounted) setState(() => _rhythmPhase = RhythmPhase.idle);
     if (!alive()) return;
 
     if (_autoAdvance) {
@@ -905,6 +955,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                 baseChunks: _baseChunks,
               );
               if (!mounted || scored == null) return;
+              if (scored.ok && scored.accuracy != null) {
+                _showJudgmentBurst(scored.accuracy!);
+              }
               if (_skill.density != densBefore || _skill.tier != tierBefore) {
                 _reapplyDensity();
               }
@@ -1138,10 +1191,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _skill.resetSessionSeq();
     unawaited(_skill.flushEvidence(cacheId: _cacheId));
     _clearChunkTtsCache();
-    setState(
-      () => _status =
-          '집중 종료 · 미완료 10분은 초기화됩니다. 「시작」으로 다시.',
-    );
+    setState(() {
+      _status =
+          '집중 종료 · 미완료 10분은 초기화됩니다. 「시작」으로 다시.';
+      _rhythmPhase = RhythmPhase.idle;
+      _judgmentBurst = null;
+    });
   }
 
   void _openFocusCalendar() {
@@ -1158,8 +1213,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   void _onRestartFocus() {
     _grooming.resetSession();
     _groomRateScale = 1.0;
+    unawaited(_loadJudgmentCheersPref());
     _focus.startSession(cacheId: _cacheId);
-    setState(() => _status = '집중 시작. 말할 때만 시계가 갑니다.');
+    setState(() {
+      _status = '집중 시작. 말할 때만 시계가 갑니다.';
+      _rhythmPhase = RhythmPhase.idle;
+      _judgmentBurst = null;
+    });
     if (!_busy && _chunks.isNotEmpty) {
       unawaited(_runCycle());
     }
@@ -1222,11 +1282,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     /// Cycle running — hide chrome, enlarge mirror for focus.
     final immersive = _practiceReady && _focus.sessionActive;
 
+    final phaseAccent = rhythmAccentFor(_rhythmPhase);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF1A1A1A),
+      backgroundColor: kRhythmStage,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1A1A1A),
-        foregroundColor: Colors.white,
+        backgroundColor: kRhythmStage,
+        foregroundColor: kRhythmText,
+        elevation: 0,
         title: immersive ? null : const Text('따라 말하기'),
         actions: immersive
             ? const []
@@ -1234,7 +1297,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                 IconButton(
                   icon: const Icon(
                     Icons.calendar_month_outlined,
-                    color: Colors.white70,
+                    color: kRhythmTextMuted,
                   ),
                   tooltip: '연습 캘린더',
                   onPressed: _openFocusCalendar,
@@ -1245,189 +1308,234 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                       _mirrorEnabled
                           ? Icons.videocam
                           : Icons.videocam_off_outlined,
-                      color: Colors.white70,
+                      color: kRhythmTextMuted,
                     ),
                     tooltip: _mirrorEnabled ? '카메라 끄기' : '카메라 켜기',
                     onPressed: _busy ? null : _toggleMirror,
                   ),
               ],
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(20, immersive ? 4 : 8, 20, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (!_practiceReady)
-                Text(
-                  '연습 준비',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.white54,
-                  ),
-                )
-              else if (!immersive) ...[
-                Builder(
-                  builder: (context) {
-                    final session = _session;
-                    if (session == null || session.sentenceCount == 0) {
-                      return Text(
-                        '문장 없음',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: Colors.white54,
-                        ),
-                      );
-                    }
-                    final nav = session.sectionNav;
-                    final header = nav.headerPartsFor(session.sentenceIndex);
-                    final sentKey =
-                        nav.sentenceBookmarkKeyForGlobal(session.sentenceIndex);
-                    final highlighted =
-                        _practiceBookmarks.isSentenceBookmarked(sentKey);
-                    final sectionBadge = _practiceBookmarks.sectionBadgeCount(
-                      nav,
-                      session.sentenceIndex,
-                    );
-                    final canPick = nav.sectionCount > 0;
-                    return Column(
-                      children: [
-                        Theme(
-                          data: Theme.of(context).copyWith(
-                            textTheme: Theme.of(context).textTheme.apply(
-                                  bodyColor: Colors.white70,
-                                  displayColor: Colors.white70,
-                                ),
-                          ),
-                          child: ReaderNavHeaderLabel(
-                            left: header.sectionName.isEmpty
-                                ? 'Sentence'
-                                : header.sectionName,
-                            right: header.rightLabel,
-                            enabled: !_busy,
-                            highlighted: highlighted,
-                            leftBadgeCount: sectionBadge,
-                            onTap: _busy ? null : _handlePracticeBookmarkTap,
-                            onLongPress: (_busy || !canPick)
-                                ? null
-                                : _openPracticeSentencePicker,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '구간 ${_chunkIndex + 1}/${_chunks.isEmpty ? 1 : _chunks.length}',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: Colors.white38,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ],
-              if (showMirror) ...[
-                SizedBox(height: immersive ? 4 : 8),
-                SizedBox(
-                  height: MediaQuery.sizeOf(context).height *
-                      (immersive ? 0.34 : 0.18),
-                  child: const PracticeMirrorPanel(),
-                ),
-              ],
-              SizedBox(height: immersive ? 8 : 12),
-              // Sentence ABOVE timer (design/176).
-              Expanded(
-                flex: immersive && showMirror ? 2 : 3,
-                child: Center(
-                  child: SingleChildScrollView(
-                    child: Text(
-                      prompt.isEmpty ? '…' : prompt,
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        color: Colors.white,
-                        height: 1.35,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                blockLabel,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 56,
-                  fontWeight: FontWeight.w300,
-                  color: Colors.white,
-                  letterSpacing: 2,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _focus.daySuccess
-                    ? '오늘 성공 · ${_focus.blocksCompletedToday}블록 · 다음까지 $missionLeft'
-                    : '10분 말하기 · 남은 $missionLeft',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: _focus.daySuccess
-                      ? const Color(0xFF7DCEA0)
-                      : Colors.white70,
-                ),
-              ),
-              if (_status != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  _status!,
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: _bootFailed
-                        ? const Color(0xFFE74C3C)
-                        : Colors.white54,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 16),
-              if (_bootFailed)
-                SizedBox(
-                  height: 48,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFE74C3C),
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: _busy ? null : _onRetryBoot,
-                    child: const Text('다시 시도'),
-                  ),
-                )
-              else if (_focus.sessionActive)
-                SizedBox(
-                  height: 48,
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white70,
-                      side: const BorderSide(color: Colors.white38),
-                    ),
-                    onPressed: _onGiveUp,
-                    child: const Text('집중 끝내기'),
-                  ),
-                )
-              else if (_practiceReady)
-                SizedBox(
-                  height: 48,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFE74C3C),
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: _busy ? null : _onRestartFocus,
-                    child: const Text('시작'),
-                  ),
-                ),
-            ],
+      body: Column(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            height: 2,
+            width: double.infinity,
+            color: _focus.sessionActive ? phaseAccent : kRhythmRailIdle,
           ),
-        ),
+          Expanded(
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20, immersive ? 4 : 8, 20, 16),
+                child: Stack(
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (!_practiceReady)
+                          Text(
+                            '연습 준비',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: kRhythmTextMuted,
+                            ),
+                          )
+                        else if (!immersive) ...[
+                          Builder(
+                            builder: (context) {
+                              final session = _session;
+                              if (session == null ||
+                                  session.sentenceCount == 0) {
+                                return Text(
+                                  '문장 없음',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: kRhythmTextMuted,
+                                  ),
+                                );
+                              }
+                              final nav = session.sectionNav;
+                              final header =
+                                  nav.headerPartsFor(session.sentenceIndex);
+                              final sentKey = nav
+                                  .sentenceBookmarkKeyForGlobal(
+                                      session.sentenceIndex);
+                              final highlighted = _practiceBookmarks
+                                  .isSentenceBookmarked(sentKey);
+                              final sectionBadge =
+                                  _practiceBookmarks.sectionBadgeCount(
+                                nav,
+                                session.sentenceIndex,
+                              );
+                              final canPick = nav.sectionCount > 0;
+                              return Column(
+                                children: [
+                                  Theme(
+                                    data: Theme.of(context).copyWith(
+                                      textTheme:
+                                          Theme.of(context).textTheme.apply(
+                                                bodyColor: kRhythmTextMuted,
+                                                displayColor: kRhythmTextMuted,
+                                              ),
+                                    ),
+                                    child: ReaderNavHeaderLabel(
+                                      left: header.sectionName.isEmpty
+                                          ? 'Sentence'
+                                          : header.sectionName,
+                                      right: header.rightLabel,
+                                      enabled: !_busy,
+                                      highlighted: highlighted,
+                                      leftBadgeCount: sectionBadge,
+                                      onTap: _busy
+                                          ? null
+                                          : _handlePracticeBookmarkTap,
+                                      onLongPress: (_busy || !canPick)
+                                          ? null
+                                          : _openPracticeSentencePicker,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '구간 ${_chunkIndex + 1}/${_chunks.isEmpty ? 1 : _chunks.length}',
+                                    textAlign: TextAlign.center,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: kRhythmTextMuted.withValues(
+                                        alpha: 0.55,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ],
+                        if (_practiceReady && _focus.sessionActive) ...[
+                          const SizedBox(height: 8),
+                          RhythmPhaseRail(phase: _rhythmPhase),
+                        ],
+                        if (showMirror) ...[
+                          SizedBox(height: immersive ? 4 : 8),
+                          SizedBox(
+                            height: MediaQuery.sizeOf(context).height *
+                                (immersive ? 0.34 : 0.18),
+                            child: const PracticeMirrorPanel(),
+                          ),
+                        ],
+                        SizedBox(height: immersive ? 8 : 12),
+                        // Sentence ABOVE timer (design/176).
+                        Expanded(
+                          flex: immersive && showMirror ? 2 : 3,
+                          child: Center(
+                            child: SingleChildScrollView(
+                              child: Text(
+                                prompt.isEmpty ? '…' : prompt,
+                                textAlign: TextAlign.center,
+                                style:
+                                    theme.textTheme.headlineSmall?.copyWith(
+                                  color: kRhythmText,
+                                  height: 1.35,
+                                  letterSpacing: -0.2,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          blockLabel,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 56,
+                            fontWeight: FontWeight.w300,
+                            color: kRhythmText,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _focus.daySuccess
+                              ? '오늘 성공 · ${_focus.blocksCompletedToday}블록 · 다음까지 $missionLeft'
+                              : '10분 말하기 · 남은 $missionLeft',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: _focus.daySuccess
+                                ? kRhythmGreat
+                                : kRhythmTextMuted,
+                          ),
+                        ),
+                        if (_status != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            _status!,
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: _bootFailed
+                                  ? const Color(0xFFE74C3C)
+                                  : kRhythmTextMuted.withValues(alpha: 0.75),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        if (_bootFailed)
+                          SizedBox(
+                            height: 48,
+                            child: FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFFE74C3C),
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: _busy ? null : _onRetryBoot,
+                              child: const Text('다시 시도'),
+                            ),
+                          )
+                        else if (_focus.sessionActive)
+                          SizedBox(
+                            height: 48,
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: kRhythmTextMuted,
+                                side: const BorderSide(color: kRhythmRailIdle),
+                              ),
+                              onPressed: _onGiveUp,
+                              child: const Text('집중 끝내기'),
+                            ),
+                          )
+                        else if (_practiceReady)
+                          SizedBox(
+                            height: 48,
+                            child: FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: kRhythmSpeak,
+                                foregroundColor: kRhythmText,
+                              ),
+                              onPressed: _busy ? null : _onRestartFocus,
+                              child: const Text('시작'),
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (_judgmentBurst != null)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: Center(
+                            child: JudgmentBurst(
+                              key: ValueKey(_judgmentBurst!.id),
+                              data: _judgmentBurst!,
+                              onFinished: () =>
+                                  _clearJudgmentBurst(_judgmentBurst!.id),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

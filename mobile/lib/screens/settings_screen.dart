@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../api/access_models.dart';
@@ -19,6 +20,7 @@ import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
+import '../practice_rhythm/judgment_prefs.dart';
 import 'error_logs_screen.dart';
 
 /// Settings: account, theme, TTS, translate, shadowing, access (design/66-68, 79, 96, 99, 103, 104).
@@ -67,6 +69,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _remoteVersion = '';
   String _mobileApkUrl = '';
   String _localVersion = kAppVersionLabel;
+  /// design/214 — English judgment cheers in practice (default on).
+  bool _judgmentCheers = true;
 
   @override
   void initState() {
@@ -76,9 +80,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // (admin mint chrome never shows even when ASR_ADMIN_EMAILS matches).
     widget.auth.addListener(_onAuthChanged);
     _reload();
+    unawaited(_loadJudgmentCheersPref());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.shadowing.applyAutoOffIfStale();
     });
+  }
+
+  Future<void> _loadJudgmentCheersPref() async {
+    final prefs = await SharedPreferences.getInstance();
+    final on = prefs.getBool(kJudgmentCheersPrefKey) ?? true;
+    if (mounted) setState(() => _judgmentCheers = on);
+  }
+
+  Future<void> _setJudgmentCheers(bool on) async {
+    setState(() => _judgmentCheers = on);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kJudgmentCheersPrefKey, on);
   }
 
   void _onAuthChanged() {
@@ -938,6 +955,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ? null
                   : (v) => widget.shadowing.setEnabled(v),
             ),
+            if (widget.shadowing.enabled)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('연습 판정 칭찬 (영문)'),
+                subtitle: const Text('말하기 점수 나오면 Good / Great / Perfect'),
+                value: _judgmentCheers,
+                onChanged: !logged ? null : (v) => unawaited(_setJudgmentCheers(v)),
+              ),
             if (widget.shadowing.error != null)
               Text(
                 widget.shadowing.error!,
