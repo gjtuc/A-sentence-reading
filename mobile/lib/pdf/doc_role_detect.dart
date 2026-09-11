@@ -63,7 +63,7 @@ bool filenameLooksLikeSi(String? filename) {
   var base = name;
   final slash = base.lastIndexOf('/');
   if (slash >= 0) base = base.substring(slash + 1);
-  final bslash = base.lastIndexOf('\');
+  final bslash = base.lastIndexOf('\\');
   if (bslash >= 0) base = base.substring(bslash + 1);
   return _siFilename.hasMatch(base);
 }
