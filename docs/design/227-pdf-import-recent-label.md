@@ -15,6 +15,10 @@ Depends: [226](226-pdf-folder-import-browser.md) · [223](223-library-upload-pic
 - Strip still hidden when `pickerRecent` empty
 - Green on recent chips = content_hash only (223)
 
+## Amend
+
+**[232](232-pdf-import-remove-recent-strip.md)** removes the strip from `PdfImportScreen` (0.3.230). Label rule above is historical for 0.3.226–0.3.229.
+
 ## Version
 
-**0.3.226**
+**0.3.226** (screen strip removed in **0.3.230**)

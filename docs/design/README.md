@@ -320,6 +320,8 @@
 185 — 분석 논문 로컬 SoT · ACK wipe + abandon/bulk/polish (**0.3.181**).
 186 — 7일 device-transfer pack (**0.3.180**).
 
+| 233 | [233-pdf-advisory-title-chrome-skip.md](233-pdf-advisory-title-chrome-skip.md) | advisory 제목 저널 크롬 skip (0.3.230) |
+| 232 | [232-pdf-import-remove-recent-strip.md](232-pdf-import-remove-recent-strip.md) | PDF 가져오기 「최근」스트립 제거 (0.3.230) |
 | 231 | [231-pdf-advisory-head-read-limit.md](231-pdf-advisory-head-read-limit.md) | advisory head 50MB too_large fix (0.3.229) |
 | 230 | [230-pdf-advisory-evidence-densify.md](230-pdf-advisory-evidence-densify.md) | PDF folder advisory/hash evidence densify (0.3.228) |
 | 229 | [229-acs-si-badge-chrome-veto.md](229-acs-si-badge-chrome-veto.md) | ACS 메인 SI 배지 chrome veto (0.3.227) |

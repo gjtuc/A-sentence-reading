@@ -1,4 +1,4 @@
-/// design/228 · 230 — weak title heuristic from PDF Info.Title + head text.
+/// design/228 · 230 · 233 — weak title heuristic from PDF Info.Title + head text.
 library;
 
 import 'doc_role_detect.dart';
@@ -6,6 +6,36 @@ import 'doc_role_detect.dart';
 final _siLine = RegExp(
   r'^\s*(supplementary\s+(?:information|materials?|data)|supporting\s+information|electronic\s+supplementary)\b',
   caseSensitive: false,
+);
+
+/// design/233 — journal chrome / cover lines (not article titles).
+final _exactChrome = RegExp(
+  r'^(paper|review|article|research|research article|open access|'
+  r'supporting information for|contents lists available|'
+  r'available online)\b\.?$',
+  caseSensitive: false,
+);
+
+final _prefixChrome = RegExp(
+  r'^(cite this|cite this:|to cite this|doi:|https?://|www\.|'
+  r'received |accepted |published |view the article|'
+  r'this content was downloaded|citation:)',
+  caseSensitive: false,
+);
+
+final _journalChrome = RegExp(
+  r'(?i)('
+  r'^journal of\b'
+  r'|^nature catalysis\b'
+  r'|^catal\.?\s*sci\.?\s*technol'
+  r'|catalysis\s+science\s*(?:&|and)?\s*technology'
+  r'|accounts of chemical research'
+  r'|green chemical engineering'
+  r'|scientific reports'
+  r'|sustainable energy\s*(?:&|and)?\s*fuels'
+  r'|applied physics'
+  r'|chem\.?\s*eng\.?\s*j'
+  r')',
 );
 
 /// design/230 — snake enum for evidence (`info` | `head_line` | `stem`).
@@ -18,10 +48,28 @@ class AdvisoryTitleGuess {
   final String source;
 }
 
+bool isAdvisoryTitleChrome(String raw) {
+  final t = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (t.isEmpty) return true;
+  if (_exactChrome.hasMatch(t)) return true;
+  if (_prefixChrome.hasMatch(t)) return true;
+  if (_journalChrome.hasMatch(t)) return true;
+  // Split masthead fragments: "Science &", "Technology" alone are short;
+  // "Catalysis" alone (common RSC masthead) — reject single-token journal-ish.
+  if (RegExp(r'^(catalysis|technology|science\s*&?)$', caseSensitive: false)
+      .hasMatch(t)) {
+    return true;
+  }
+  // Page crumb like "14, 1712" or "389"
+  if (RegExp(r'^[\d,\s\-–—]+$').hasMatch(t)) return true;
+  return false;
+}
+
 bool looksLikePaperTitle(String raw) {
   final t = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
   if (t.length < 12 || t.length > 200) return false;
   if (_siLine.hasMatch(t)) return false;
+  if (isAdvisoryTitleChrome(t)) return false;
   if (RegExp(r'^[\d\W_]+$').hasMatch(t)) return false;
   final digits = t.replaceAll(RegExp(r'\D'), '').length;
   if (digits > t.length * 0.5) return false;
@@ -57,6 +105,7 @@ AdvisoryTitleGuess guessAdvisoryTitle({
     final t = line.trim().replaceAll(RegExp(r'\s+'), ' ');
     if (t.isEmpty) continue;
     if (_siLine.hasMatch(t)) continue;
+    if (isAdvisoryTitleChrome(t)) continue;
     if (t.length < 12) continue;
     if (looksLikePaperTitle(t)) {
       return AdvisoryTitleGuess(title: t, source: 'head_line');

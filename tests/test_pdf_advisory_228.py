@@ -73,7 +73,8 @@ def test_mobile_surface() -> None:
         / "PdfHeadExtract.kt"
     ).read_text(encoding="utf-8")
 
-    assert "'최근'" in screen or '"최근"' in screen
+    # design/232 — recent strip removed from PdfImportScreen
+    assert "_RecentStrip" not in screen
     assert "추정 · 업로드 후 확정" in screen
     assert "추정 SI" in screen
     assert "추정 메인" in screen

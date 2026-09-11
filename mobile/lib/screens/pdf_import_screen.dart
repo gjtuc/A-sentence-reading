@@ -4,7 +4,6 @@ library;
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../api/pdf_folder_grant_models.dart';
-import '../api/upload_picker_recent_models.dart';
 import '../state/library_controller.dart';
 
 class PdfImportScreen extends StatefulWidget {
@@ -286,12 +285,6 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
                                 },
                               ),
               ),
-              if (lib.pickerRecent.isNotEmpty)
-                _RecentStrip(
-                  recent: lib.pickerRecent,
-                  inLib: inLib,
-                  queued: queued,
-                ),
               SafeArea(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
@@ -520,68 +513,6 @@ class _FolderRow extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _RecentStrip extends StatelessWidget {
-  const _RecentStrip({
-    required this.recent,
-    required this.inLib,
-    required this.queued,
-  });
-
-  final List<PickerRecentItem> recent;
-  final Set<String> inLib;
-  final Set<String> queued;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 2),
-          child: Text(
-            '최근',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-          ),
-        ),
-        SizedBox(
-          height: 72,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            itemCount: recent.length.clamp(0, 12),
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (context, i) {
-              final item = recent[i];
-              final green = inLib.contains(item.contentHash);
-              return Container(
-                width: 160,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: green
-                        ? Colors.green.shade600
-                        : Theme.of(context).dividerColor,
-                    width: green ? 2 : 1,
-                  ),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  item.displayName,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              );
-            },
-          ),
-        ),
-      ],
     );
   }
 }
