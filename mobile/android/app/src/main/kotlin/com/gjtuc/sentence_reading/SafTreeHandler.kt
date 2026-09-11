@@ -232,7 +232,7 @@ class SafTreeHandler(
                 val docUri = call.argument<String>("docUri")?.trim().orEmpty()
                 val maxChars = call.argument<Int>("maxChars") ?: 8000
                 val maxPages = call.argument<Int>("maxPages") ?: 2
-                val maxReadBytes = call.argument<Int>("maxReadBytes") ?: (2 * 1024 * 1024)
+                val maxReadBytes = call.argument<Int>("maxReadBytes") ?: (50 * 1024 * 1024)
                 if (docUri.isEmpty()) {
                     result.error("bad_args", "docUri_required", null)
                     return

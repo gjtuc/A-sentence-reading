@@ -10,7 +10,8 @@ import java.io.FileOutputStream
 import kotlin.math.min
 
 /**
- * design/228 — head text + Info.Title from SAF content:// (no OCR).
+ * design/228 · 231 — head text + Info.Title from SAF content:// (no OCR).
+ * Caller passes maxReadBytes (default 50MB); abort with too_large above cap.
  * Never include URI/path in returned map values used for evidence.
  */
 object PdfHeadExtract {

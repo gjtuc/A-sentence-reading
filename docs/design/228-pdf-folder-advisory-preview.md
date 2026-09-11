@@ -13,7 +13,7 @@ Server `detect_doc_role` remains SoT after ingest. Client never gates enqueue.
 
 | Include | Exclude |
 |---------|---------|
-| PdfBox-Android head extract (≤2 pages, 8k chars, 2MB) | OCR / MediaStore / Gemini title_guess |
+| PdfBox-Android head extract (≤2 pages, 8k chars, **50MB** · [231](231-pdf-advisory-head-read-limit.md)) | OCR / MediaStore / Gemini title_guess |
 | Dart port of `detect_doc_role_detailed` | Enqueue gate on advisory role |
 | Advisory disk cache (same key as hash cache) | Replacing upload wire `displayName` with title |
 | First-40 advisory pump, concurrency 2 | Viewport scroll pump (later) |

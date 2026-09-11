@@ -176,12 +176,12 @@ class SafTreeChannel {
     }
   }
 
-  /// design/228 — PdfBox head text + Info.Title (advisory).
+  /// design/228 · 231 — PdfBox head text + Info.Title (advisory).
   Future<SafPdfHeadResult> extractPdfHead(
     String docUri, {
     int maxChars = 8000,
     int maxPages = 2,
-    int maxReadBytes = 2 * 1024 * 1024,
+    int maxReadBytes = 50 * 1024 * 1024, // design/231 — match upload/read cap
   }) async {
     final u = docUri.trim();
     if (u.isEmpty || kIsWeb) {

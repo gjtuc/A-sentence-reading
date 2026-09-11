@@ -320,6 +320,7 @@
 185 — 분석 논문 로컬 SoT · ACK wipe + abandon/bulk/polish (**0.3.181**).
 186 — 7일 device-transfer pack (**0.3.180**).
 
+| 231 | [231-pdf-advisory-head-read-limit.md](231-pdf-advisory-head-read-limit.md) | advisory head 50MB too_large fix (0.3.229) |
 | 230 | [230-pdf-advisory-evidence-densify.md](230-pdf-advisory-evidence-densify.md) | PDF folder advisory/hash evidence densify (0.3.228) |
 | 229 | [229-acs-si-badge-chrome-veto.md](229-acs-si-badge-chrome-veto.md) | ACS 메인 SI 배지 chrome veto (0.3.227) |
 | 228 | [228-pdf-folder-advisory-preview.md](228-pdf-folder-advisory-preview.md) | 폴더 목록 추정 제목·SI (0.3.226) |
