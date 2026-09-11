@@ -275,7 +275,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.220",
+    version="0.3.221",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1790,7 +1790,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.220",
+        "version": "0.3.221",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -7231,13 +7231,64 @@ async def _run_ingest_job_body(
             except Exception as exc:
                 raise RuntimeError(f"{label} 텍스트 추출 실패: {exc}") from exc
 
-        from sentence_reading.pdf.supplementary_detect import detect_doc_role, normalize_doc_role
+        from sentence_reading.pdf.supplementary_detect import (
+            detect_doc_role_detailed,
+            normalize_doc_role,
+        )
+
+        def _emit_doc_role_detect(det, *, stage: str, prior_role: str = "") -> None:
+            # design/222 — overkill role sensors (no paper text / paths in details).
+            try:
+                from sentence_reading.llm import evidence_bus as eb
+
+                if not eb.evidence_bus_enabled():
+                    return
+                eb.record(
+                    "doc_role_detect_start",
+                    severity="lifecycle",
+                    stage=stage,
+                    job_id=job_id,
+                    content_hash=str(content_hash or ""),
+                    details={
+                        "head_len": int(det.head_len),
+                        "filename_si_hint": 1 if det.filename_si_hint else 0,
+                    },
+                )
+                eb.record(
+                    "doc_role_detect_done",
+                    severity="boundary",
+                    stage=stage,
+                    job_id=job_id,
+                    content_hash=str(content_hash or ""),
+                    ok=True,
+                    details={
+                        "role": det.role,
+                        "reason": det.reason,
+                        "marker_hit": 1 if det.marker_hit else 0,
+                        "filename_si_hint": 1 if det.filename_si_hint else 0,
+                        "page_label_hit": 1 if det.page_label_hit else 0,
+                        "stripped_format": 1 if det.stripped_format else 0,
+                        "override": 1 if det.override else 0,
+                        "head_len": int(det.head_len),
+                        **(
+                            {"prior_role": prior_role, "changed": 1 if prior_role and prior_role != det.role else 0}
+                            if prior_role
+                            else {}
+                        ),
+                    },
+                )
+            except Exception:
+                pass
 
         job_doc_override = str((_JOBS.get(job_id) or {}).get("doc_role") or "").strip()
-        if job_doc_override:
-            doc_role = normalize_doc_role(job_doc_override)
-        else:
-            doc_role = detect_doc_role(text)
+        _fn_for_role = str(filename or "")
+        det0 = detect_doc_role_detailed(
+            text,
+            filename=_fn_for_role,
+            override=job_doc_override or None,
+        )
+        doc_role = det0.role
+        _emit_doc_role_detect(det0, stage="pre_vision")
 
         # WHY: 파일명 말고 논문 제목 — 원문 앞부분에 캐시 제목이 있으면 즉시 로드
         # 재분석(skip_cache) 또는 원본 백필은 히트 경로에서도 진행
@@ -7352,6 +7403,33 @@ async def _run_ingest_job_body(
             text = recovered.text
             pdf_pages = recovered.pages
             warnings.extend(recovered.warnings)
+            # design/222 — vision may surface SI cover text that pre-vision head missed.
+            if not job_doc_override:
+                prior = doc_role
+                det_v = detect_doc_role_detailed(text, filename=_fn_for_role)
+                if det_v.role != doc_role:
+                    try:
+                        from sentence_reading.llm import evidence_bus as eb
+
+                        if eb.evidence_bus_enabled():
+                            eb.record(
+                                "doc_role_redetect_after_vision",
+                                severity="lifecycle",
+                                stage="post_vision",
+                                job_id=job_id,
+                                content_hash=str(content_hash or ""),
+                                ok=True,
+                                details={
+                                    "prior_role": prior,
+                                    "role": det_v.role,
+                                    "reason": det_v.reason,
+                                    "changed": 1,
+                                },
+                            )
+                    except Exception:
+                        pass
+                doc_role = det_v.role
+                _emit_doc_role_detect(det_v, stage="post_vision", prior_role=prior)
             # design/112 — durable vision boundary for later reclaim skip.
             _save_payload(
                 {
@@ -7373,7 +7451,7 @@ async def _run_ingest_job_body(
             if recovered.vision_pages and not skip_cache:
                 # 복구 후 제목이 보이면 보관본 재사용
                 _job_set(job_id, percent=40, stage="cache", message="복구 후 보관본 확인")
-                cached = await asyncio.to_thread(_try_cache_hit, text, kind)
+                cached = await asyncio.to_thread(_try_cache_hit, text, kind, doc_role=doc_role)
                 if cached is not None:
                     session, info, hit = cached
                     await asyncio.to_thread(

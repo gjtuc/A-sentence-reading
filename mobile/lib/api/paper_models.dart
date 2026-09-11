@@ -28,6 +28,7 @@ class PaperEntry {
     this.harmonizeDone = 0,
     this.harmonizeFailed = 0,
     this.harmonizeAttemptN = 0,
+    this.contentHash = '',
   });
 
   /// Tolerant parse — never throws on partial/garbage maps.
@@ -78,6 +79,7 @@ class PaperEntry {
       harmonizeDone: asInt(json['harmonize_done']),
       harmonizeFailed: asInt(json['harmonize_failed']),
       harmonizeAttemptN: asInt(json['harmonize_attempt_n']),
+      contentHash: '${json['content_hash'] ?? ''}'.trim().toLowerCase(),
     );
   }
 
@@ -130,6 +132,9 @@ class PaperEntry {
   final int harmonizeDone;
   final int harmonizeFailed;
   final int harmonizeAttemptN;
+
+  /// design/222 — SHA-256 of source PDF when known (picker/library join).
+  final String contentHash;
 
   bool get isValid => id.isNotEmpty && title.isNotEmpty;
 

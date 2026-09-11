@@ -1418,6 +1418,12 @@ class LibraryController extends ChangeNotifier {
           updatedAt: DateTime.now().toUtc().toIso8601String(),
           contentHash: contentHash,
           hasSource: false,
+          docRole: () {
+            for (final e in papers) {
+              if (e.id == cid && e.docRole.isNotEmpty) return e.docRole;
+            }
+            return 'main';
+          }(),
         ),
       );
       // Refresh sentence/figure counts from session if present.
@@ -1425,6 +1431,20 @@ class LibraryController extends ChangeNotifier {
       if (session != null) {
         final sents = session['sentences'];
         final figs = session['figures'];
+        final roleRaw = '${session['doc_role'] ?? ''}'.trim().toLowerCase();
+        final role = (roleRaw == 'supplementary' ||
+                roleRaw == 'si' ||
+                roleRaw == 'supp')
+            ? 'supplementary'
+            : (roleRaw == 'merged' ? 'merged' : 'main');
+        // Prefer role from live library row when session omitted it.
+        final roleFinal = () {
+          if (role != 'main') return role;
+          for (final e in papers) {
+            if (e.id == cid && e.docRole.isNotEmpty) return e.docRole;
+          }
+          return role;
+        }();
         await _paperDisk.upsertIndex(
           PaperDiskIndexEntry(
             id: cid,
@@ -1436,6 +1456,7 @@ class LibraryController extends ChangeNotifier {
             figureCount: figs is List ? figs.length : 0,
             contentHash: contentHash,
             hasSource: true,
+            docRole: roleFinal,
           ),
         );
       }
@@ -1773,6 +1794,27 @@ class LibraryController extends ChangeNotifier {
     final trig = trigger.trim().isEmpty ? 'manual' : trigger.trim();
     try {
       final fetched = await _client.listPapers(fresh: fresh);
+      // design/222 — persist server doc_role/content_hash onto disk index before wipe.
+      for (final e in fetched) {
+        if (e.id.isEmpty) continue;
+        try {
+          await _paperDisk.upsertIndex(
+            PaperDiskIndexEntry(
+              id: e.id,
+              title: e.title.isEmpty ? e.id : e.title,
+              source: e.source,
+              updatedAt: e.updatedAt,
+              sentenceCount: e.sentenceCount,
+              figureCount: e.figureCount,
+              contentHash: e.contentHash,
+              pipelineVersion: e.pipelineVersion,
+              hasSource: e.hasSource,
+              debone: e.debone,
+              docRole: e.docRole,
+            ),
+          );
+        } catch (_) {}
+      }
       // design/185 Phase 1 — surface local-only disk papers (no cloud wipe yet).
       final merged = await _paperDisk.mergeRemoteWithLocal(fetched);
       papers = await _applySavedOrder(merged);

@@ -84,9 +84,42 @@ def apply_pairing_pass(entries: list[dict[str, Any]]) -> None:
                 prev.get("updated_at") or ""
             ):
                 sis[ts] = e
+    # Count all mains per pairing key (not just newest) for gap evidence.
+    main_counts: dict[tuple[str, str], int] = {}
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        title = str(e.get("title") or "")
+        key = normalize_pairing_key(title) or str(e.get("title_key") or "")
+        if not key:
+            continue
+        src = str(e.get("source") or "pdf").lower()
+        if entry_doc_role(e) == "main":
+            main_counts[(key, src)] = main_counts.get((key, src), 0) + 1
+
     for ts, main_e in mains.items():
         si_e = sis.get(ts)
         if si_e is None:
+            # design/222 — two+ mains share pairing_key but no SI → unpairable.
+            if main_counts.get(ts, 0) >= 2:
+                try:
+                    from sentence_reading.llm import evidence_bus as eb
+
+                    if eb.evidence_bus_enabled():
+                        eb.record(
+                            "doc_role_pairing_gap",
+                            severity="lifecycle",
+                            stage="apply_pairing",
+                            cache_id=str(main_e.get("id") or ""),
+                            ok=False,
+                            details={
+                                "main_n": int(main_counts.get(ts, 0)),
+                                "si_n": 0,
+                                "reason": "both_main_same_pairing_key",
+                            },
+                        )
+                except Exception:
+                    pass
             continue
         main_e["paired_cache_id"] = str(si_e.get("id") or "")
         si_e["paired_cache_id"] = str(main_e.get("id") or "")
@@ -155,6 +188,8 @@ def list_entries_for_api(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "ingest_status": enriched["ingest_status"],
             "can_merge_supplementary": enriched["can_merge_supplementary"],
             "paired_cache_id": enriched.get("paired_cache_id"),
+            # design/222/223 — hash for library join / picker green (empty if unknown).
+            "content_hash": str(enriched.get("content_hash") or "").strip().lower(),
         }
         # design/169o — library banner polls these after ingest done.
         if enriched.get("harmonize_pending") is not None:

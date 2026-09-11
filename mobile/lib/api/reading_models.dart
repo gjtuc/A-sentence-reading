@@ -193,6 +193,7 @@ class ReadingSession {
     this.supplementaryMerged = false,
     this.translatePending = false,
     this.contentHash = '',
+    this.docRole = 'main',
     this.firstFigTableChipSentenceIndex,
   }) {
     clampIndices();
@@ -265,6 +266,12 @@ class ReadingSession {
       supplementaryMerged: json['supplementary_merged'] == true,
       translatePending: json['translate_pending'] == true,
       contentHash: '${json['content_hash'] ?? ''}'.trim().toLowerCase(),
+      docRole: () {
+        final r = '${json['doc_role'] ?? 'main'}'.trim();
+        if (r == 'supplementary' || r == 'si' || r == 'supp') return 'supplementary';
+        if (r == 'merged') return 'merged';
+        return 'main';
+      }(),
       firstFigTableChipSentenceIndex: () {
         final raw = json['first_fig_table_chip_sentence_index'];
         if (raw is int) return raw;
@@ -293,6 +300,8 @@ class ReadingSession {
   bool translatePending;
   /// design/171 — paper content hash for figure disk cache invalidation.
   final String contentHash;
+  /// design/222 — main | supplementary | merged (from open/ingest).
+  final String docRole;
   /// design/183 — first matched Fig/Table chip sentence index (open hint).
   final int? firstFigTableChipSentenceIndex;
 

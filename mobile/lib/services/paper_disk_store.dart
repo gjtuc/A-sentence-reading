@@ -38,6 +38,7 @@ class PaperDiskIndexEntry {
     this.pipelineVersion = '',
     this.hasSource = false,
     this.debone = false,
+    this.docRole = 'main',
   });
 
   factory PaperDiskIndexEntry.fromJson(Map<String, dynamic>? json) {
@@ -63,7 +64,26 @@ class PaperDiskIndexEntry {
       pipelineVersion: '${json['pipeline_version'] ?? ''}'.trim(),
       hasSource: json['has_source'] == true,
       debone: json['debone'] == true,
+      docRole: _normalizeDocRole('${json['doc_role'] ?? 'main'}'),
     );
+  }
+
+  static String _normalizeDocRole(String raw) {
+    final v = raw.trim().toLowerCase();
+    if (v == 'supplementary' || v == 'si' || v == 'supp') return 'supplementary';
+    if (v == 'merged') return 'merged';
+    return 'main';
+  }
+
+  static String _tagForRole(String role) {
+    switch (role) {
+      case 'supplementary':
+        return '보충';
+      case 'merged':
+        return '메인+서플먼터리';
+      default:
+        return '메인';
+    }
   }
 
   final String id;
@@ -76,6 +96,8 @@ class PaperDiskIndexEntry {
   final String pipelineVersion;
   final bool hasSource;
   final bool debone;
+  /// design/222 — persisted so local-only rows do not lie as 메인.
+  final String docRole;
 
   bool get isValid => id.isNotEmpty && title.isNotEmpty;
 
@@ -90,9 +112,10 @@ class PaperDiskIndexEntry {
         'pipeline_version': pipelineVersion,
         'has_source': hasSource,
         'debone': debone,
+        'doc_role': docRole,
       };
 
-  /// design/218 — local-only rows still show 메인 (disk index has no doc_role yet).
+  /// design/222 — use persisted doc_role (never force 메인).
   PaperEntry toPaperEntry() => PaperEntry(
         id: id,
         title: title,
@@ -104,8 +127,9 @@ class PaperDiskIndexEntry {
         pipelineVersion: pipelineVersion,
         hasSource: hasSource,
         ingestStatus: 'local',
-        docRole: 'main',
-        libraryTag: '메인',
+        docRole: docRole,
+        libraryTag: _tagForRole(docRole),
+        contentHash: contentHash,
       );
 }
 
@@ -203,6 +227,7 @@ Map<String, dynamic> readingSessionToPaperDiskJson(ReadingSession s) {
     'cache_id': s.cacheId,
     'title': s.title,
     'content_hash': s.contentHash,
+    'doc_role': s.docRole,
     'sentence_index': s.sentenceIndex,
     'figure_index': s.figureIndex,
     'warnings': s.warnings,
@@ -766,6 +791,7 @@ class PaperDiskStore {
         contentHash: ch,
         hasSource: false,
         debone: false,
+        docRole: session.docRole,
       ),
     );
     return figOk >= 0;

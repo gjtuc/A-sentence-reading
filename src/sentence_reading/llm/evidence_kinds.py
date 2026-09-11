@@ -202,5 +202,10 @@ ALLOWED_KINDS = frozenset(
         "upload_queue_pump_start",
         "upload_queue_pump_done",
         "upload_queue_blocked",
+        # design/222 — doc_role detect densify
+        "doc_role_detect_start",
+        "doc_role_detect_done",
+        "doc_role_redetect_after_vision",
+        "doc_role_pairing_gap",
     }
 )
