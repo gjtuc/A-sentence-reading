@@ -1,4 +1,4 @@
-/// design/228 — Dart port of supplementary_detect.py (advisory only).
+/// design/228 · 229 — Dart port of supplementary_detect.py (advisory only).
 library;
 
 class DocRoleDetectResult {
@@ -33,12 +33,25 @@ final _siHead = RegExp(
 );
 
 final _siFilename = RegExp(
-  r'(?:^|[/\\_.-])si(?:[_.=-]|\d)|supporting[-_ ]?information|suppl(?:ementary)?',
+  r'(?:^|[/\_.-])si(?:[_.=-]|\d)|supporting[-_ ]?information|suppl(?:ementary)?',
   caseSensitive: false,
 );
 
 final _siPageLabel = RegExp(
   r'(?:^|\n)\s*S\s*[-–—]?\s*\d{1,3}\b',
+  caseSensitive: false,
+);
+
+// design/229 — ACS article chrome near Supporting Information badge.
+final _acsChrome = <RegExp>[
+  RegExp(r'(?:^|\n)\s*ACCESS\b', caseSensitive: false),
+  RegExp(r'Metrics\s*&\s*More', caseSensitive: false),
+  RegExp(r'Article\s+Recommendations', caseSensitive: false),
+  RegExp(r'(?:^|\n)\s*s[iı]\b', caseSensitive: false),
+];
+
+final _abstractSoon = RegExp(
+  r'(?:ABSTRACT\s*:|(?:^|\n)\s*ABSTRACT\b)',
   caseSensitive: false,
 );
 
@@ -50,7 +63,7 @@ bool filenameLooksLikeSi(String? filename) {
   var base = name;
   final slash = base.lastIndexOf('/');
   if (slash >= 0) base = base.substring(slash + 1);
-  final bslash = base.lastIndexOf('\\');
+  final bslash = base.lastIndexOf('\');
   if (bslash >= 0) base = base.substring(bslash + 1);
   return _siFilename.hasMatch(base);
 }
@@ -91,6 +104,21 @@ String normalizeDocRole(String? raw) {
   return 'main';
 }
 
+bool _isAcsMainSiBadge(String head, RegExpMatch match) {
+  final start = match.start - 400 < 0 ? 0 : match.start - 400;
+  final end = match.end + 250 > head.length ? head.length : match.end + 250;
+  final window = head.substring(start, end);
+  var chromeHits = 0;
+  for (final pat in _acsChrome) {
+    if (pat.hasMatch(window)) chromeHits++;
+  }
+  final afterEnd =
+      match.end + 300 > head.length ? head.length : match.end + 300;
+  final after = head.substring(match.end, afterEnd);
+  final abstractSoon = _abstractSoon.hasMatch(after);
+  return chromeHits >= 2 && abstractSoon;
+}
+
 DocRoleDetectResult detectDocRoleDetailed(
   String text, {
   String? filename,
@@ -108,8 +136,7 @@ DocRoleDetectResult detectDocRoleDetailed(
           head.length <= 1200 ? head : head.substring(0, 1200),
         )
       : false;
-  final marker = headLen > 0 ? _siHead.hasMatch(head) : false;
-
+  final markerMatch = headLen > 0 ? _siHead.firstMatch(head) : null;
   if (head.trim().isEmpty) {
     return DocRoleDetectResult(
       role: 'main',
@@ -121,7 +148,18 @@ DocRoleDetectResult detectDocRoleDetailed(
       strippedFormat: stripped,
     );
   }
-  if (marker) {
+  if (markerMatch != null) {
+    if (_isAcsMainSiBadge(head, markerMatch)) {
+      return DocRoleDetectResult(
+        role: 'main',
+        reason: 'head_marker_acs_chrome_veto',
+        headLen: headLen,
+        markerHit: true,
+        filenameSiHint: fnHint,
+        pageLabelHit: pageLabel,
+        strippedFormat: stripped,
+      );
+    }
     return DocRoleDetectResult(
       role: 'supplementary',
       reason: 'head_marker',

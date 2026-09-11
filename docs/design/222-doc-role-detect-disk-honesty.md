@@ -19,6 +19,7 @@ Amends [152](152-supplementary-merge.md) · [218](218-supplementary-soft-pairing
 - `detect_doc_role_detailed` → `DocRoleDetectResult{role, reason, …}`
 - Strip format chars (BOM/ZWSP) before match
 - Primary: line-start SI journal markers (unchanged intent)
+- **Amend [229](229-acs-si-badge-chrome-veto.md):** ACS main chrome + ABSTRACT near marker → `main` / `head_marker_acs_chrome_veto` (marker still recorded)
 - Secondary: `filename` looks like SI **and** head has `S-n` page label
 - Ingest: detect **pre_vision** and **post_vision** (unless job override)
 - Post-vision cache hit passes `doc_role=`

@@ -1,5 +1,5 @@
 """
-design/152 · 222 — SI vs main from document head text (+ densified detect).
+design/152 · 222 · 229 — SI vs main from document head text (+ densified detect).
 """
 
 from __future__ import annotations
@@ -26,11 +26,22 @@ _SI_HEAD = re.compile(
 
 # Filename hints (ACS …_si_001.pdf). Never sole authority without content signal.
 _SI_FILENAME = re.compile(
-    r"(?i)(?:^|[/\\_.-])si(?:[_.=-]|\d)|supporting[-_ ]?information|suppl(?:ementary)?"
+    r"(?i)(?:^|[/\_.-])si(?:[_.=-]|\d)|supporting[-_ ]?information|suppl(?:ementary)?"
 )
 
 # Page label "S-1" / "S1" near head (common SI cover).
 _SI_PAGE_LABEL = re.compile(r"(?im)(?:^|\n)\s*S\s*[-–—]?\s*\d{1,3}\b")
+
+# design/229 — ACS article chrome near a Supporting Information *badge* (not SI cover).
+_ACS_CHROME = (
+    re.compile(r"(?im)(?:^|\n)\s*ACCESS\b"),
+    re.compile(r"(?im)Metrics\s*&\s*More"),
+    re.compile(r"(?im)Article\s+Recommendations"),
+    # ACS extracts often use Latin small letter dotless i (U+0131).
+    re.compile(r"(?im)(?:^|\n)\s*s[iı]\b"),
+)
+
+_ABSTRACT_SOON = re.compile(r"(?im)(?:ABSTRACT\s*:|(?:^|\n)\s*ABSTRACT\b)")
 
 # Strip BOM / bidi / zero-width before matching (ZWSP was failing live SI heads).
 _FORMAT_CF = {"Cf", "Cc"}
@@ -72,13 +83,24 @@ def filename_looks_like_si(filename: str | None) -> bool:
     return bool(_SI_FILENAME.search(base))
 
 
+def _is_acs_main_si_badge(head: str, match: re.Match[str]) -> bool:
+    """True when SI phrase is an ACS main-article badge, not an SI cover."""
+    start = max(0, match.start() - 400)
+    end = min(len(head), match.end() + 250)
+    window = head[start:end]
+    chrome_hits = sum(1 for pat in _ACS_CHROME if pat.search(window))
+    after = head[match.end() : match.end() + 300]
+    abstract_soon = bool(_ABSTRACT_SOON.search(after))
+    return chrome_hits >= 2 and abstract_soon
+
+
 def detect_doc_role_detailed(
     text: str,
     *,
     filename: str | None = None,
     override: str | None = None,
 ) -> DocRoleDetectResult:
-    """Classify doc role with explicit reason for evidence (design/222)."""
+    """Classify doc role with explicit reason for evidence (design/222 · 229)."""
     if (override or "").strip():
         role = normalize_doc_role(override)
         return DocRoleDetectResult(
@@ -97,7 +119,7 @@ def detect_doc_role_detailed(
     head_len = len(head)
     fn_hint = filename_looks_like_si(filename)
     page_label = bool(_SI_PAGE_LABEL.search(head[:1200])) if head_len else False
-    marker = bool(_SI_HEAD.search(head)) if head_len else False
+    marker_m = _SI_HEAD.search(head) if head_len else None
 
     if not head.strip():
         # EDGE: empty extract — filename alone is too weak (main PDFs named *_si by mistake).
@@ -111,7 +133,17 @@ def detect_doc_role_detailed(
             stripped_format=stripped,
         )
 
-    if marker:
+    if marker_m is not None:
+        if _is_acs_main_si_badge(head, marker_m):
+            return DocRoleDetectResult(
+                role="main",
+                reason="head_marker_acs_chrome_veto",
+                head_len=head_len,
+                marker_hit=True,
+                filename_si_hint=fn_hint,
+                page_label_hit=page_label,
+                stripped_format=stripped,
+            )
         return DocRoleDetectResult(
             role="supplementary",
             reason="head_marker",

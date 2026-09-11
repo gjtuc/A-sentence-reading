@@ -1,4 +1,4 @@
-/// design/228 — disk cache for advisory title/role (no path/URI values).
+/// design/228 · 229 — disk cache for advisory title/role (no path/URI values).
 library;
 
 import 'dart:convert';
@@ -9,6 +9,9 @@ import 'package:path_provider/path_provider.dart';
 import 'pdf_hash_cache_store.dart';
 
 const int kPdfAdvisoryCacheMaxEntries = 2000;
+
+/// design/229 — bump wipes stale estimated-SI advisories.
+const int kPdfAdvisoryCacheSchema = 2;
 
 class PdfAdvisoryCacheEntry {
   const PdfAdvisoryCacheEntry({
@@ -69,6 +72,11 @@ class PdfAdvisoryCacheStore {
         _mem = {};
         return;
       }
+      final schema = decoded['v'];
+      if (schema is! num || schema.toInt() != kPdfAdvisoryCacheSchema) {
+        _mem = {};
+        return;
+      }
       final entries = decoded['entries'];
       if (entries is! Map) {
         _mem = {};
@@ -106,7 +114,7 @@ class PdfAdvisoryCacheStore {
       }
     }
     await f.writeAsString(
-      jsonEncode({'v': 1, 'entries': _mem}),
+      jsonEncode({'v': kPdfAdvisoryCacheSchema, 'entries': _mem}),
       flush: true,
     );
   }

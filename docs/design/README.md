@@ -320,6 +320,9 @@
 185 — 분석 논문 로컬 SoT · ACK wipe + abandon/bulk/polish (**0.3.181**).
 186 — 7일 device-transfer pack (**0.3.180**).
 
+| 229 | [229-acs-si-badge-chrome-veto.md](229-acs-si-badge-chrome-veto.md) | ACS 메인 SI 배지 chrome veto (0.3.227) |
+| 228 | [228-pdf-folder-advisory-preview.md](228-pdf-folder-advisory-preview.md) | 폴더 목록 추정 제목·SI (0.3.226) |
+| 227 | [227-pdf-import-recent-label.md](227-pdf-import-recent-label.md) | PDF 가져오기 「최근」라벨 (0.3.226) |
 | 226 | [226-pdf-folder-import-browser.md](226-pdf-folder-import-browser.md) | 논문 폴더 연결 PDF 가져오기 (0.3.225) |
 | 213 | [213-practice-skill-evidence.md](213-practice-skill-evidence.md) | practice skill dense evidence |
 | 212 | [212-practice-skill-adapt.md](212-practice-skill-adapt.md) | practice skill adapt |

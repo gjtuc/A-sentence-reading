@@ -578,7 +578,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                         Text(
-                          '앱을 열어 두면 계속됩니다. 화면이 오래 꼬지면 중단될 수 있어요.',
+                          '앱을 열어 두면 계속됩니다. 화면이 오래 꺼지면 중단될 수 있어요.',
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 color: Theme.of(context)
                                     .colorScheme
