@@ -4427,18 +4427,16 @@ class LibraryController extends ChangeNotifier {
                 : PdfAdvisoryState.ready,
           ),
         );
-        if (cached != null) {
-          asrEvidenceBus?.record(
-            'pdf_hash_cache_hit',
-            severity: 'debug',
-            stage: 'hash',
-            details: {'n': 1, 'hash8': cached.substring(0, 8)},
-          );
-        }
       }
       pdfFolderEntries = next;
       pdfFolderTruncated = listed.truncated;
       pdfFolderGrantStale = false;
+      final nHashReady =
+          next.where((e) => e.hashState == PdfHashState.ready).length;
+      final nAdvReady =
+          next.where((e) => e.advisoryState == PdfAdvisoryState.ready).length;
+      final nAdvUnknown =
+          next.where((e) => e.advisoryState == PdfAdvisoryState.unknown).length;
       asrEvidenceBus?.record(
         'pdf_folder_scan_done',
         severity: 'lifecycle',
@@ -4446,6 +4444,9 @@ class LibraryController extends ChangeNotifier {
         details: {
           'n': next.length,
           'truncated': listed.truncated,
+          'n_hash_ready': nHashReady,
+          'n_adv_ready': nAdvReady,
+          'n_adv_unknown': nAdvUnknown,
           'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
         },
       );
@@ -4471,16 +4472,59 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  /// design/226 — lazy hash unknown rows (concurrency 2).
+  /// design/226 · 230 — lazy hash unknown rows (concurrency 2).
   Future<void> ensureVisiblePdfHashes({int limit = 40}) async {
-    if (_pdfHashPumpBusy) return;
+    final unknownAll = pdfFolderEntries
+        .where((e) => e.hashState == PdfHashState.unknown)
+        .toList();
+    if (_pdfHashPumpBusy) {
+      asrEvidenceBus?.record(
+        'pdf_hash_pump_start',
+        severity: 'lifecycle',
+        stage: 'hash',
+        details: {
+          'skipped_busy': true,
+          'n_unknown': unknownAll.length,
+          'limit': limit,
+        },
+      );
+      return;
+    }
     _pdfHashPumpBusy = true;
+    final tPump = DateTime.now().millisecondsSinceEpoch;
+    var nOk = 0;
+    var nFail = 0;
     try {
-      final pending = pdfFolderEntries
-          .where((e) => e.hashState == PdfHashState.unknown)
-          .take(limit)
-          .toList();
-      if (pending.isEmpty) return;
+      final beyond = unknownAll.length > limit ? unknownAll.length - limit : 0;
+      final pending = unknownAll.take(limit).toList();
+      if (pending.isEmpty) {
+        asrEvidenceBus?.record(
+          'pdf_hash_pump_done',
+          severity: 'lifecycle',
+          stage: 'hash',
+          details: {
+            'n': 0,
+            'limit': limit,
+            'n_beyond_limit': beyond,
+            'n_ok': 0,
+            'n_fail': 0,
+            'n_unknown_left': 0,
+            'elapsed_ms': DateTime.now().millisecondsSinceEpoch - tPump,
+          },
+        );
+        return;
+      }
+      asrEvidenceBus?.record(
+        'pdf_hash_pump_start',
+        severity: 'lifecycle',
+        stage: 'hash',
+        details: {
+          'n': pending.length,
+          'limit': limit,
+          'n_unknown_total': unknownAll.length,
+          'n_beyond_limit': beyond,
+        },
+      );
       for (final e in pending) {
         e.hashState = PdfHashState.computing;
       }
@@ -4491,6 +4535,7 @@ class LibraryController extends ChangeNotifier {
           final hex = await _safTree.sha256OfUri(e.docUri);
           if (hex == null) {
             e.hashState = PdfHashState.failed;
+            nFail += 1;
             asrEvidenceBus?.record(
               'pdf_hash_cache_fail',
               severity: 'warn',
@@ -4507,17 +4552,20 @@ class LibraryController extends ChangeNotifier {
             lastModifiedMs: e.lastModifiedMs,
             contentHash: hex,
           );
+          nOk += 1;
+          final h8 = 'h_${hex.substring(0, 8)}';
           asrEvidenceBus?.record(
             'pdf_hash_cache_miss',
             severity: 'debug',
             stage: 'hash',
             details: {
               'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
-              'hash8': hex.substring(0, 8),
+              'h8': h8,
             },
           );
         } catch (_) {
           e.hashState = PdfHashState.failed;
+          nFail += 1;
           asrEvidenceBus?.record(
             'pdf_hash_cache_fail',
             severity: 'warn',
@@ -4532,6 +4580,23 @@ class LibraryController extends ChangeNotifier {
         await Future.wait(batch);
         notifyListeners();
       }
+      final nUnknownLeft = pdfFolderEntries
+          .where((e) => e.hashState == PdfHashState.unknown)
+          .length;
+      asrEvidenceBus?.record(
+        'pdf_hash_pump_done',
+        severity: 'lifecycle',
+        stage: 'hash',
+        details: {
+          'n': pending.length,
+          'limit': limit,
+          'n_beyond_limit': beyond,
+          'n_ok': nOk,
+          'n_fail': nFail,
+          'n_unknown_left': nUnknownLeft,
+          'elapsed_ms': DateTime.now().millisecondsSinceEpoch - tPump,
+        },
+      );
     } finally {
       _pdfHashPumpBusy = false;
     }
@@ -4541,25 +4606,89 @@ class LibraryController extends ChangeNotifier {
     _pdfAdvisoryPumpEpoch++;
   }
 
-  /// design/228 — lazy advisory title/role (concurrency 2, first [limit]).
+  static String _evidenceSnakeToken(String raw, {String fallback = 'other'}) {
+    var s = raw.trim().toLowerCase();
+    s = s.replaceAll(RegExp(r'[^a-z0-9_]+'), '_');
+    s = s.replaceAll(RegExp(r'_+'), '_');
+    if (s.startsWith('_')) s = s.substring(1);
+    if (s.isEmpty || !RegExp(r'^[a-z][a-z0-9_]{0,63}$').hasMatch(s)) {
+      return fallback;
+    }
+    return s;
+  }
+
+  /// design/228 · 230 — lazy advisory title/role (concurrency 2, first [limit]).
   Future<void> ensureVisiblePdfAdvisories({int limit = 40}) async {
-    if (_pdfAdvisoryPumpBusy) return;
+    final unknownAll = pdfFolderEntries
+        .where((e) => e.advisoryState == PdfAdvisoryState.unknown)
+        .toList();
+    if (_pdfAdvisoryPumpBusy) {
+      asrEvidenceBus?.record(
+        'pdf_advisory_pump_skip',
+        severity: 'lifecycle',
+        stage: 'advisory',
+        details: {
+          'reason': 'busy',
+          'n_unknown': unknownAll.length,
+          'n_entries': pdfFolderEntries.length,
+          'limit': limit,
+        },
+      );
+      return;
+    }
     _pdfAdvisoryPumpBusy = true;
     final epoch = _pdfAdvisoryPumpEpoch;
     final tPump = DateTime.now().millisecondsSinceEpoch;
     var nOk = 0;
     var nFail = 0;
+    var nHit = 0;
+    var nMiss = 0;
+    var nCancelled = 0;
+    final reasonHist = <String, int>{};
+    final codeHist = <String, int>{};
+    final titleSrcHist = <String, int>{};
+
+    void bump(Map<String, int> m, String key) {
+      m[key] = (m[key] ?? 0) + 1;
+    }
+
     try {
-      final pending = pdfFolderEntries
-          .where((e) => e.advisoryState == PdfAdvisoryState.unknown)
-          .take(limit)
-          .toList();
-      if (pending.isEmpty) return;
+      final nReadyPre = pdfFolderEntries
+          .where((e) => e.advisoryState == PdfAdvisoryState.ready)
+          .length;
+      final nFailedPre = pdfFolderEntries
+          .where((e) => e.advisoryState == PdfAdvisoryState.failed)
+          .length;
+      final beyond = unknownAll.length > limit ? unknownAll.length - limit : 0;
+      final pending = unknownAll.take(limit).toList();
+      if (pending.isEmpty) {
+        asrEvidenceBus?.record(
+          'pdf_advisory_pump_skip',
+          severity: 'lifecycle',
+          stage: 'advisory',
+          details: {
+            'reason': 'empty_pending',
+            'n_unknown': 0,
+            'n_entries': pdfFolderEntries.length,
+            'n_ready_pre': nReadyPre,
+            'n_failed_pre': nFailedPre,
+            'limit': limit,
+          },
+        );
+        return;
+      }
       asrEvidenceBus?.record(
         'pdf_advisory_pump_start',
         severity: 'lifecycle',
         stage: 'advisory',
-        details: {'n': pending.length, 'limit': limit},
+        details: {
+          'n': pending.length,
+          'limit': limit,
+          'n_unknown_total': unknownAll.length,
+          'n_beyond_limit': beyond,
+          'n_ready_pre': nReadyPre,
+          'n_failed_pre': nFailedPre,
+        },
       );
       for (final e in pending) {
         e.advisoryState = PdfAdvisoryState.computing;
@@ -4582,11 +4711,22 @@ class LibraryController extends ChangeNotifier {
             e.advisoryReason = cached.advisoryReason;
             e.advisoryState = PdfAdvisoryState.ready;
             nOk += 1;
+            nHit += 1;
+            bump(reasonHist, _evidenceSnakeToken(cached.advisoryReason));
+            final ts = cached.titleSource.isEmpty
+                ? 'unknown'
+                : _evidenceSnakeToken(cached.titleSource, fallback: 'unknown');
+            bump(titleSrcHist, ts);
             asrEvidenceBus?.record(
               'pdf_advisory_cache_hit',
               severity: 'debug',
               stage: 'advisory',
-              details: {'n': 1},
+              details: {
+                'n': 1,
+                'role': cached.advisoryRole,
+                'reason': _evidenceSnakeToken(cached.advisoryReason),
+                'title_source': ts,
+              },
             );
             return;
           }
@@ -4595,11 +4735,13 @@ class LibraryController extends ChangeNotifier {
           if (!head.ok) {
             e.advisoryState = PdfAdvisoryState.failed;
             nFail += 1;
+            final code = head.code.isEmpty ? 'extract' : head.code;
+            bump(codeHist, _evidenceSnakeToken(code));
             asrEvidenceBus?.record(
               'pdf_advisory_cache_fail',
               severity: 'warn',
               stage: 'advisory',
-              details: {'code': head.code.isEmpty ? 'extract' : head.code},
+              details: {'code': _evidenceSnakeToken(code)},
             );
             return;
           }
@@ -4607,12 +4749,12 @@ class LibraryController extends ChangeNotifier {
             head.headText,
             filename: e.displayName,
           );
-          final title = guessAdvisoryTitle(
+          final guessed = guessAdvisoryTitle(
             infoTitle: head.infoTitle,
             headText: head.headText,
             displayName: e.displayName,
           );
-          e.advisoryTitle = title;
+          e.advisoryTitle = guessed.title;
           e.advisoryRole = det.role;
           e.advisoryReason = det.reason;
           e.advisoryState = PdfAdvisoryState.ready;
@@ -4620,12 +4762,16 @@ class LibraryController extends ChangeNotifier {
             docUri: e.docUri,
             sizeBytes: e.sizeBytes,
             lastModifiedMs: e.lastModifiedMs,
-            advisoryTitle: title,
+            advisoryTitle: guessed.title,
             advisoryRole: det.role,
             advisoryReason: det.reason,
             extractOk: true,
+            titleSource: guessed.source,
           );
           nOk += 1;
+          nMiss += 1;
+          bump(reasonHist, _evidenceSnakeToken(det.reason));
+          bump(titleSrcHist, _evidenceSnakeToken(guessed.source));
           asrEvidenceBus?.record(
             'pdf_advisory_cache_miss',
             severity: 'debug',
@@ -4633,14 +4779,19 @@ class LibraryController extends ChangeNotifier {
             details: {
               'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
               'role': det.role,
-              'reason': det.reason,
+              'reason': _evidenceSnakeToken(det.reason),
               'extract_ok': true,
+              'head_len': head.headText.length,
+              'page_count': head.pageCount,
+              'truncated': head.truncated,
+              'title_source': _evidenceSnakeToken(guessed.source),
             },
           );
         } catch (_) {
           if (epoch != _pdfAdvisoryPumpEpoch) return;
           e.advisoryState = PdfAdvisoryState.failed;
           nFail += 1;
+          bump(codeHist, 'exc');
           asrEvidenceBus?.record(
             'pdf_advisory_cache_fail',
             severity: 'warn',
@@ -4652,11 +4803,12 @@ class LibraryController extends ChangeNotifier {
 
       for (var i = 0; i < pending.length; i += 2) {
         if (epoch != _pdfAdvisoryPumpEpoch) {
+          nCancelled = pending.length - i;
           asrEvidenceBus?.record(
             'pdf_advisory_cancelled',
             severity: 'lifecycle',
             stage: 'advisory',
-            details: {'n_abandoned': pending.length - i},
+            details: {'n_abandoned': nCancelled},
           );
           break;
         }
@@ -4664,15 +4816,41 @@ class LibraryController extends ChangeNotifier {
         await Future.wait(batch);
         notifyListeners();
       }
+      final nUnknownLeft = pdfFolderEntries
+          .where((e) => e.advisoryState == PdfAdvisoryState.unknown)
+          .length;
+      final nFailedLeft = pdfFolderEntries
+          .where((e) => e.advisoryState == PdfAdvisoryState.failed)
+          .length;
+      final nReadyLeft = pdfFolderEntries
+          .where((e) => e.advisoryState == PdfAdvisoryState.ready)
+          .length;
+      final doneDetails = <String, Object?>{
+        'n_ok': nOk,
+        'n_fail': nFail,
+        'n_hit': nHit,
+        'n_miss': nMiss,
+        'n_cancelled': nCancelled,
+        'n_unknown_left': nUnknownLeft,
+        'n_failed_left': nFailedLeft,
+        'n_ready_left': nReadyLeft,
+        'n_beyond_limit': beyond,
+        'elapsed_ms': DateTime.now().millisecondsSinceEpoch - tPump,
+      };
+      for (final e in reasonHist.entries) {
+        doneDetails['n_reason_${e.key}'] = e.value;
+      }
+      for (final e in codeHist.entries) {
+        doneDetails['n_code_${e.key}'] = e.value;
+      }
+      for (final e in titleSrcHist.entries) {
+        doneDetails['n_title_src_${e.key}'] = e.value;
+      }
       asrEvidenceBus?.record(
         'pdf_advisory_pump_done',
         severity: 'lifecycle',
         stage: 'advisory',
-        details: {
-          'n_ok': nOk,
-          'n_fail': nFail,
-          'elapsed_ms': DateTime.now().millisecondsSinceEpoch - tPump,
-        },
+        details: doneDetails,
       );
     } finally {
       _pdfAdvisoryPumpBusy = false;

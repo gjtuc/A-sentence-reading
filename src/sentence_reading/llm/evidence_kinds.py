@@ -218,7 +218,10 @@ ALLOWED_KINDS = frozenset(
         "pdf_hash_cache_hit",
         "pdf_hash_cache_miss",
         "pdf_hash_cache_fail",
+        "pdf_hash_pump_start",
+        "pdf_hash_pump_done",
         # design/228 — advisory title/SI
+        "pdf_advisory_pump_skip",
         "pdf_advisory_pump_start",
         "pdf_advisory_pump_done",
         "pdf_advisory_cache_hit",

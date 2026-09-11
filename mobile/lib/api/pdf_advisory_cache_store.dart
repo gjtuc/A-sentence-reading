@@ -1,4 +1,4 @@
-/// design/228 · 229 — disk cache for advisory title/role (no path/URI values).
+/// design/228 · 229 · 230 — disk cache for advisory title/role (no path/URI values).
 library;
 
 import 'dart:convert';
@@ -19,12 +19,16 @@ class PdfAdvisoryCacheEntry {
     required this.advisoryRole,
     required this.advisoryReason,
     required this.extractOk,
+    this.titleSource = '',
   });
 
   final String advisoryTitle;
   final String advisoryRole;
   final String advisoryReason;
   final bool extractOk;
+
+  /// design/230 — `info` | `head_line` | `stem` (empty if older cache row).
+  final String titleSource;
 }
 
 class PdfAdvisoryCacheStore {
@@ -136,11 +140,16 @@ class PdfAdvisoryCacheStore {
     if (role.isNotEmpty && role != 'main' && role != 'supplementary') {
       return null;
     }
+    final src = '${row['title_source'] ?? ''}'.trim().toLowerCase();
+    final titleSource = (src == 'info' || src == 'head_line' || src == 'stem')
+        ? src
+        : '';
     return PdfAdvisoryCacheEntry(
       advisoryTitle: '${row['advisory_title'] ?? ''}'.trim(),
       advisoryRole: role,
       advisoryReason: '${row['advisory_reason'] ?? ''}'.trim(),
       extractOk: row['extract_ok'] == true,
+      titleSource: titleSource,
     );
   }
 
@@ -152,6 +161,7 @@ class PdfAdvisoryCacheStore {
     required String advisoryRole,
     required String advisoryReason,
     required bool extractOk,
+    String titleSource = '',
   }) async {
     await _ensureLoaded();
     final key = pdfHashCacheKey(
@@ -160,12 +170,16 @@ class PdfAdvisoryCacheStore {
       lastModifiedMs: lastModifiedMs,
     );
     final role = advisoryRole.trim().toLowerCase();
+    final src = titleSource.trim().toLowerCase();
+    final srcOut =
+        (src == 'info' || src == 'head_line' || src == 'stem') ? src : '';
     _mem[key] = {
       'advisory_title': advisoryTitle.trim(),
       'advisory_role':
           (role == 'main' || role == 'supplementary') ? role : '',
       'advisory_reason': advisoryReason.trim(),
       'extract_ok': extractOk,
+      'title_source': srcOut,
       'size_bytes': sizeBytes,
       'last_modified_ms': lastModifiedMs,
       'computed_at_ms': DateTime.now().millisecondsSinceEpoch,
