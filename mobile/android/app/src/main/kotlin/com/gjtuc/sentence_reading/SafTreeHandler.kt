@@ -10,6 +10,7 @@ import androidx.documentfile.provider.DocumentFile
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
+import java.text.Normalizer
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 import kotlin.math.min
@@ -164,6 +165,19 @@ class SafTreeHandler(
                     result.success(true)
                 } catch (_: Exception) {
                     result.success(false)
+                }
+            }
+            "normalizeNfkc" -> {
+                val text = call.argument<String>("text") ?: ""
+                io.execute {
+                    val out = try {
+                        Normalizer.normalize(text, Normalizer.Form.NFKC)
+                    } catch (_: Exception) {
+                        text
+                    }
+                    activity.runOnUiThread {
+                        result.success(mapOf("text" to out))
+                    }
                 }
             }
             "probeTreeWritable" -> {

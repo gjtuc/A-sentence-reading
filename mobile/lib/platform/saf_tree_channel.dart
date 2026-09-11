@@ -130,7 +130,26 @@ class SafTreeChannel {
     }
   }
 
+  /// design/239 — Android Normalizer.NFKC when available; else null.
+  Future<String?> normalizeNfkc(String text) async {
+    if (kIsWeb) return null;
+    try {
+      final raw = await _channel.invokeMethod<dynamic>('normalizeNfkc', {
+        'text': text,
+      });
+      if (raw is Map) {
+        final out = '${raw['text'] ?? ''}';
+        return out;
+      }
+      if (raw is String) return raw;
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// design/241 — stream-copy PDF into connected tree (collision rename).
+
   Future<SafTreePdfItem?> copyUriIntoTree({
     required String srcDocUri,
     required String treeUri,

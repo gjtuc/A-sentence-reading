@@ -320,12 +320,13 @@
 185 — 분석 논문 로컬 SoT · ACK wipe + abandon/bulk/polish (**0.3.181**).
 186 — 7일 device-transfer pack (**0.3.180**).
 
-| 242 | [242-pdf-import-find-watch.md](242-pdf-import-find-watch.md) | 찾아보기 후 tree watch (0.3.234) |
-| 241 | [241-saf-tree-write-copy.md](241-saf-tree-write-copy.md) | SAF tree createFile/copy (0.3.234) |
-| 240 | [240-library-paired-set-row.md](240-library-paired-set-row.md) | 보관함 짝 행·합치기 유도 (0.3.234) |
-| 239 | [239-pdf-import-advisory-set-pairing.md](239-pdf-import-advisory-set-pairing.md) | PDF 가져오기 메인+SI 세트 1행 (0.3.234) |
-| 238 | [238-pdf-import-open-document-pick.md](238-pdf-import-open-document-pick.md) | 받은 PDF 고르기 + resume 재스캔 (0.3.234) |
-| 237 | [237-pdf-import-doi-find-cta.md](237-pdf-import-doi-find-cta.md) | SI/메인 찾아보기 DOI CTA (0.3.234) |
+| 243 | [243-pdf-import-remaining-polish.md](243-pdf-import-remaining-polish.md) | PDF import post-234 polish (0.3.235) |
+| 242 | [242-pdf-import-find-watch.md](242-pdf-import-find-watch.md) | 찾아보기 후 tree watch (0.3.235 polish) |
+| 241 | [241-saf-tree-write-copy.md](241-saf-tree-write-copy.md) | SAF tree createFile/copy (0.3.235 polish) |
+| 240 | [240-library-paired-set-row.md](240-library-paired-set-row.md) | 보관함 짝 행·합치기 유도 (0.3.235 polish) |
+| 239 | [239-pdf-import-advisory-set-pairing.md](239-pdf-import-advisory-set-pairing.md) | PDF 가져오기 메인+SI 세트 1행 (0.3.235 polish) |
+| 238 | [238-pdf-import-open-document-pick.md](238-pdf-import-open-document-pick.md) | 받은 PDF 고르기 + resume 재스캔 (0.3.235 polish) |
+| 237 | [237-pdf-import-doi-find-cta.md](237-pdf-import-doi-find-cta.md) | SI/메인 찾아보기 DOI CTA (0.3.235 polish) |
 | 236 | [236-pdf-advisory-title-rsc-li-chrome.md](236-pdf-advisory-title-rsc-li-chrome.md) | advisory 제목 rsc.li/ 숏링크 skip (0.3.233) |
 | 235 | [235-doc-role-conspectus-esi-footnote-veto.md](235-doc-role-conspectus-esi-footnote-veto.md) | CONSPECTUS + RSC ESI footnote SI FP 수정 (0.3.232) |
 | 234 | [234-advisory-title-dart-regexp-fix.md](234-advisory-title-dart-regexp-fix.md) | Dart RegExp `(?i)` crash → 제목/SI 소실 수정 (0.3.231) |

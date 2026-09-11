@@ -39,6 +39,8 @@ class PaperDiskIndexEntry {
     this.hasSource = false,
     this.debone = false,
     this.docRole = 'main',
+    this.pairedCacheId = '',
+    this.canMergeSupplementary = false,
   });
 
   factory PaperDiskIndexEntry.fromJson(Map<String, dynamic>? json) {
@@ -65,6 +67,8 @@ class PaperDiskIndexEntry {
       hasSource: json['has_source'] == true,
       debone: json['debone'] == true,
       docRole: _normalizeDocRole('${json['doc_role'] ?? 'main'}'),
+      pairedCacheId: '${json['paired_cache_id'] ?? ''}'.trim(),
+      canMergeSupplementary: json['can_merge_supplementary'] == true,
     );
   }
 
@@ -99,6 +103,12 @@ class PaperDiskIndexEntry {
   /// design/222 — persisted so local-only rows do not lie as 메인.
   final String docRole;
 
+  /// design/240 — soft-pair mate id (no auto-merge).
+  final String pairedCacheId;
+
+  /// design/240 — merge nudge chip when true.
+  final bool canMergeSupplementary;
+
   bool get isValid => id.isNotEmpty && title.isNotEmpty;
 
   Map<String, dynamic> toJson() => {
@@ -113,9 +123,12 @@ class PaperDiskIndexEntry {
         'has_source': hasSource,
         'debone': debone,
         'doc_role': docRole,
+        'paired_cache_id': pairedCacheId,
+        'can_merge_supplementary': canMergeSupplementary,
       };
 
   /// design/222 — use persisted doc_role (never force 메인).
+  /// design/240 — keep pairedCacheId + canMergeSupplementary.
   PaperEntry toPaperEntry() => PaperEntry(
         id: id,
         title: title,
@@ -130,7 +143,29 @@ class PaperDiskIndexEntry {
         docRole: docRole,
         libraryTag: _tagForRole(docRole),
         contentHash: contentHash,
+        pairedCacheId: pairedCacheId,
+        canMergeSupplementary: canMergeSupplementary,
       );
+}
+
+/// design/240 — place soft-paired mates adjacent; keep two rows (no merge).
+List<PaperEntry> pairAdjacentPapers(List<PaperEntry> papers) {
+  if (papers.length < 2) return List<PaperEntry>.from(papers);
+  final byId = {for (final e in papers) e.id: e};
+  final used = <String>{};
+  final out = <PaperEntry>[];
+  for (final e in papers) {
+    if (used.contains(e.id)) continue;
+    out.add(e);
+    used.add(e.id);
+    final pairId = e.pairedCacheId.trim();
+    if (pairId.isEmpty || used.contains(pairId)) continue;
+    final mate = byId[pairId];
+    if (mate == null) continue;
+    out.add(mate);
+    used.add(pairId);
+  }
+  return out;
 }
 
 /// Handoff-style manifest (sha256 per relative path).
@@ -380,10 +415,37 @@ class PaperDiskStore {
       await root.create(recursive: true);
     }
     final cur = await listIndex();
+    // design/240 — preserve pair fields when caller omits them.
+    var toWrite = entry;
+    for (final e in cur) {
+      if (e.id != entry.id) continue;
+      final keepPair = entry.pairedCacheId.trim().isEmpty &&
+          e.pairedCacheId.trim().isNotEmpty;
+      final keepMerge = !entry.canMergeSupplementary && e.canMergeSupplementary;
+      if (keepPair || keepMerge) {
+        toWrite = PaperDiskIndexEntry(
+          id: entry.id,
+          title: entry.title,
+          source: entry.source,
+          updatedAt: entry.updatedAt,
+          sentenceCount: entry.sentenceCount,
+          figureCount: entry.figureCount,
+          contentHash: entry.contentHash,
+          pipelineVersion: entry.pipelineVersion,
+          hasSource: entry.hasSource,
+          debone: entry.debone,
+          docRole: entry.docRole,
+          pairedCacheId: keepPair ? e.pairedCacheId : entry.pairedCacheId,
+          canMergeSupplementary:
+              keepMerge ? e.canMergeSupplementary : entry.canMergeSupplementary,
+        );
+      }
+      break;
+    }
     final next = <PaperDiskIndexEntry>[
       for (final e in cur)
-        if (e.id != entry.id) e,
-      entry,
+        if (e.id != toWrite.id) e,
+      toWrite,
     ];
     final payload = {
       'version': 1,

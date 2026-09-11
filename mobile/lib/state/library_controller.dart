@@ -25,6 +25,7 @@ import '../api/upload_reserve_store.dart';
 import '../api/upload_picker_recent_models.dart';
 import '../api/upload_picker_recent_store.dart';
 import '../api/pdf_folder_grant_models.dart';
+import '../pdf/normalize_pairing_key.dart';
 import '../api/pdf_folder_grant_store.dart';
 import '../api/pdf_hash_cache_store.dart';
 import '../api/pdf_advisory_cache_store.dart';
@@ -153,12 +154,11 @@ class LibraryController extends ChangeNotifier {
   /// design/224 — filter soft-hidden ids before publishing list.
   void _publishPapers(List<PaperEntry> next) {
     final hidden = _softDelete.hiddenIds;
-    if (hidden.isEmpty) {
-      papers = next;
-      return;
-    }
-    papers =
-        next.where((e) => !hidden.contains(e.id)).toList(growable: false);
+    final filtered = hidden.isEmpty
+        ? next
+        : next.where((e) => !hidden.contains(e.id)).toList(growable: false);
+    // design/240 — adjacent mates; still two openable rows (no auto-merge).
+    papers = pairAdjacentPapers(filtered);
   }
 
   void _scheduleSoftPurgeWorker() {
@@ -353,12 +353,16 @@ class LibraryController extends ChangeNotifier {
   int _pdfAdvisoryPumpEpoch = 0;
   int _pdfFolderRescanDebounceMs = 0;
 
+  /// design/241 — proactive tree writable probe (null = unknown / no grant).
+  bool? pdfFolderWritable;
+
   /// design/242 — tree-only find-watch after DOI CTA (no MES).
   bool pdfFindWatchArmed = false;
   int pdfFindWatchUntilMs = 0;
   int pdfFindWatchBaselineMs = 0;
   String? pdfFindWatchHitDocUri;
   bool _pdfFindWatchHandled = false;
+  final Set<String> _pdfFindWatchIgnoreUris = {};
 
   void consumePendingAutoOpen() {
     pendingAutoOpenCacheId = null;
@@ -1986,6 +1990,8 @@ class LibraryController extends ChangeNotifier {
               hasSource: e.hasSource,
               debone: e.debone,
               docRole: e.docRole,
+              pairedCacheId: e.pairedCacheId,
+              canMergeSupplementary: e.canMergeSupplementary,
             ),
           );
         } catch (_) {}
@@ -4342,10 +4348,31 @@ class LibraryController extends ChangeNotifier {
     if (grant == null) {
       pdfFolderEntries = const [];
       pdfFolderTruncated = false;
+      pdfFolderWritable = null;
       notifyListeners();
       return;
     }
     await _scanPdfFolder(grant.treeUri, trigger: trigger);
+    await refreshPdfFolderWritable();
+  }
+
+  /// design/241 — proactive writable probe for READ-only banner.
+  Future<void> refreshPdfFolderWritable() async {
+    final grant = pdfFolderGrant;
+    if (grant == null) {
+      pdfFolderWritable = null;
+      notifyListeners();
+      return;
+    }
+    final probe = await _safTree.probeTreeWritable(grant.treeUri);
+    pdfFolderWritable = probe.writable;
+    asrEvidenceBus?.record(
+      'pdf_tree_write_probe',
+      severity: 'lifecycle',
+      stage: 'write',
+      details: {'ok': probe.writable, 'writable': probe.writable},
+    );
+    notifyListeners();
   }
 
   /// design/238 — debounced rescan of connected tree (resume / after pick).
@@ -4402,6 +4429,7 @@ class LibraryController extends ChangeNotifier {
         details: {'ok': true, 'elapsed_ms': elapsed},
       );
       await _scanPdfFolder(grant.treeUri, trigger: 'connect');
+      await refreshPdfFolderWritable();
       return true;
     } catch (_) {
       asrEvidenceBus?.record(
@@ -4454,6 +4482,11 @@ class LibraryController extends ChangeNotifier {
                 ? PdfAdvisoryState.unknown
                 : PdfAdvisoryState.ready,
             advisoryDoi: adv?.advisoryDoi ?? '',
+            pairingKey: (adv?.pairingKey ?? '').isNotEmpty
+                ? adv!.pairingKey
+                : (adv != null && adv.advisoryTitle.trim().isNotEmpty
+                    ? normalizePairingKey(adv.advisoryTitle)
+                    : ''),
           ),
         );
       }
@@ -4751,6 +4784,9 @@ class LibraryController extends ChangeNotifier {
             e.advisoryRole = cached.advisoryRole;
             e.advisoryReason = cached.advisoryReason;
             e.advisoryDoi = cached.advisoryDoi;
+            e.pairingKey = cached.pairingKey.isNotEmpty
+                ? cached.pairingKey
+                : await _pairingKeyForTitle(cached.advisoryTitle);
             e.advisoryState = PdfAdvisoryState.ready;
             nOk += 1;
             nHit += 1;
@@ -4811,6 +4847,7 @@ class LibraryController extends ChangeNotifier {
           e.advisoryRole = det.role;
           e.advisoryReason = det.reason;
           e.advisoryDoi = doi;
+          e.pairingKey = await _pairingKeyForTitle(guessed.title);
           e.advisoryState = PdfAdvisoryState.ready;
           await _pdfAdvisoryCache.put(
             docUri: e.docUri,
@@ -4823,6 +4860,7 @@ class LibraryController extends ChangeNotifier {
             titleSource: guessed.source,
             advisoryDoi: doi,
             doiSource: doiSource,
+            pairingKey: e.pairingKey,
           );
           nOk += 1;
           nMiss += 1;
@@ -4951,6 +4989,19 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// design/237 · 242 — after DOI find CTA opens browser.
+  /// design/239 — prefer Android NFKC then Dart normalizePairingKey.
+  Future<String> _pairingKeyForTitle(String title) async {
+    final raw = title.trim();
+    if (raw.isEmpty) return '';
+    try {
+      final nfkc = await _safTree.normalizeNfkc(raw);
+      if (nfkc != null && nfkc.isNotEmpty) {
+        return normalizePairingKey(nfkc);
+      }
+    } catch (_) {}
+    return normalizePairingKey(raw);
+  }
+
   void armFindWatch({int windowMs = 120000}) {
     var baseline = 0;
     for (final e in pdfFolderEntries) {
@@ -4962,6 +5013,7 @@ class LibraryController extends ChangeNotifier {
     pdfFindWatchBaselineMs = baseline;
     pdfFindWatchHitDocUri = null;
     _pdfFindWatchHandled = false;
+    _pdfFindWatchIgnoreUris.clear();
     asrEvidenceBus?.record(
       'pdf_find_watch_arm',
       severity: 'lifecycle',
@@ -4971,13 +5023,35 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void noteFindWatchIgnore(String docUri) {
+    final u = docUri.trim();
+    if (u.isNotEmpty) _pdfFindWatchIgnoreUris.add(u);
+  }
+
+  void _bumpFindWatchBaselineFromEntries() {
+    var baseline = pdfFindWatchBaselineMs;
+    for (final e in pdfFolderEntries) {
+      if (e.lastModifiedMs > baseline) baseline = e.lastModifiedMs;
+    }
+    pdfFindWatchBaselineMs = baseline;
+  }
+
   void disarmFindWatch({String reason = 'cancel'}) {
     if (!pdfFindWatchArmed && pdfFindWatchHitDocUri == null) return;
+    final wasArmed = pdfFindWatchArmed;
     pdfFindWatchArmed = false;
     pdfFindWatchUntilMs = 0;
     pdfFindWatchBaselineMs = 0;
     pdfFindWatchHitDocUri = null;
     _pdfFindWatchHandled = false;
+    if (wasArmed) {
+      asrEvidenceBus?.record(
+        'pdf_find_watch_disarm',
+        severity: 'lifecycle',
+        stage: 'find',
+        details: {'reason': _evidenceSnakeToken(reason, fallback: 'cancel')},
+      );
+    }
     notifyListeners();
   }
 
@@ -5013,6 +5087,7 @@ class LibraryController extends ChangeNotifier {
     }
     ScannedPdfEntry? newest;
     for (final e in pdfFolderEntries) {
+      if (_pdfFindWatchIgnoreUris.contains(e.docUri)) continue;
       if (e.lastModifiedMs <= pdfFindWatchBaselineMs) continue;
       if (newest == null || e.lastModifiedMs > newest.lastModifiedMs) {
         newest = e;
@@ -5231,14 +5306,20 @@ class LibraryController extends ChangeNotifier {
       );
       return (copied: 0, enqueued: 0, message: null, mode: 'cancel');
     }
+    // design/242 - non-cancel pick disarms find-watch.
+    if (pdfFindWatchArmed) {
+      disarmFindWatch(reason: 'pick');
+    }
     final grant = pdfFolderGrant;
     var mode = 'enqueue';
     var copied = 0;
     var enqueued = 0;
     String? message;
+    final failedPick = <({String docUri, String displayName})>[];
 
     if (grant != null) {
       final probe = await _safTree.probeTreeWritable(grant.treeUri);
+      pdfFolderWritable = probe.writable;
       asrEvidenceBus?.record(
         'pdf_tree_write_probe',
         severity: 'lifecycle',
@@ -5263,6 +5344,7 @@ class LibraryController extends ChangeNotifier {
             );
             if (created != null) {
               copied += 1;
+              noteFindWatchIgnore(created.docUri);
               asrEvidenceBus?.record(
                 'pdf_tree_copy_done',
                 severity: 'lifecycle',
@@ -5274,6 +5356,7 @@ class LibraryController extends ChangeNotifier {
                 },
               );
             } else {
+              failedPick.add((docUri: it.docUri, displayName: it.displayName));
               asrEvidenceBus?.record(
                 'pdf_tree_copy_fail',
                 severity: 'warn',
@@ -5282,6 +5365,7 @@ class LibraryController extends ChangeNotifier {
               );
             }
           } on PlatformException catch (ex) {
+            failedPick.add((docUri: it.docUri, displayName: it.displayName));
             asrEvidenceBus?.record(
               'pdf_tree_copy_fail',
               severity: 'warn',
@@ -5294,6 +5378,7 @@ class LibraryController extends ChangeNotifier {
                     ? '이 폴더는 앱에서 쓰기가 안 됩니다. 폴더를 다시 연결하거나, 받은 PDF를 대기열에만 추가할 수 있습니다.'
                     : '폴더로 복사하지 못했습니다.');
           } catch (_) {
+            failedPick.add((docUri: it.docUri, displayName: it.displayName));
             asrEvidenceBus?.record(
               'pdf_tree_copy_fail',
               severity: 'warn',
@@ -5305,8 +5390,30 @@ class LibraryController extends ChangeNotifier {
         }
         if (copied > 0) {
           await _scanPdfFolder(grant.treeUri, trigger: 'after_copy');
+          _bumpFindWatchBaselineFromEntries();
           unawaited(ensureVisiblePdfHashes());
           unawaited(ensureVisiblePdfAdvisories());
+        }
+        // design/238 - partial multi-pick: enqueue failed copies only.
+        if (copied > 0 && failedPick.isNotEmpty) {
+          mode = 'copy_partial';
+          final batch = <({String name, Uint8List bytes})>[];
+          for (final it in failedPick) {
+            try {
+              final bytes = await _safTree.readPdfBytes(it.docUri);
+              if (bytes == null || bytes.isEmpty) continue;
+              batch.add((name: it.displayName, bytes: bytes));
+            } on PlatformException catch (ex) {
+              if (ex.code == 'too_large') {
+                message = '파일이 너무 큽니다 (최대 50MB).';
+              }
+            } catch (_) {}
+          }
+          if (batch.isNotEmpty) {
+            final outcome = await enqueuePickedPdfs(batch);
+            enqueued = outcome.added;
+          }
+          message = "폴더에 $copied건 복사 · 실패 ${failedPick.length}건 중 대기열 $enqueued건";
         }
       }
     }

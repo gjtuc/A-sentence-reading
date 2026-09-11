@@ -52,6 +52,7 @@ KINDS = [
     "pdf_find_watch_hit",
     "pdf_find_watch_timeout",
     "pdf_find_watch_confirm",
+    "pdf_find_watch_disarm",
 ]
 
 
@@ -65,21 +66,21 @@ def test_designs_237_242_locked() -> None:
         (242, "242-pdf-import-find-watch.md"),
     ]:
         text = (DESIGNS / stem).read_text(encoding="utf-8")
-        assert "0.3.234" in text
+        assert "0.3.235" in text
         assert "locked" in text.lower()
 
 
-def test_versions_0_3_234() -> None:
+def test_versions_0_3_235() -> None:
     app = APP.read_text(encoding="utf-8")
-    assert app.count('version="0.3.234"') >= 1
-    assert '"version": "0.3.234"' in app
-    assert "0.3.234" in PUBSPEC.read_text(encoding="utf-8")
-    assert "0.3.234" in CONFIG.read_text(encoding="utf-8")
+    assert app.count('version="0.3.235"') >= 1
+    assert '"version": "0.3.235"' in app
+    assert "0.3.235" in PUBSPEC.read_text(encoding="utf-8")
+    assert "0.3.235" in CONFIG.read_text(encoding="utf-8")
 
 
-def test_cache_schema_v6() -> None:
+def test_cache_schema_v7() -> None:
     cache = CACHE.read_text(encoding="utf-8")
-    assert "kPdfAdvisoryCacheSchema = 6" in cache
+    assert "kPdfAdvisoryCacheSchema = 7" in cache
     assert "advisory_doi" in cache
     assert "doi_source" in cache
 
@@ -99,7 +100,7 @@ def test_surface_strings() -> None:
     assert "LaunchMode.externalApplication" in screen
     assert "armFindWatch" in screen
     lib = LIB_UI.read_text(encoding="utf-8")
-    assert "짝 합치기" in lib
+    assert "짝과 합치기" in lib or "짝 합치기" in lib
 
 
 def test_pairing_dart_exists() -> None:
@@ -156,3 +157,36 @@ def test_no_manage_external_storage() -> None:
         MOBILE / "android" / "app" / "src" / "main" / "AndroidManifest.xml"
     ).read_text(encoding="utf-8")
     assert "MANAGE_EXTERNAL_STORAGE" not in manifest
+
+
+def test_polish_235_contracts() -> None:
+    ctrl = CTRL.read_text(encoding="utf-8")
+    assert "_pdfFindWatchIgnoreUris" in ctrl
+    assert "noteFindWatchIgnore" in ctrl
+    assert "copy_partial" in ctrl
+    assert "refreshPdfFolderWritable" in ctrl
+    assert "pdfFolderWritable" in ctrl
+    assert "pairAdjacentPapers" in ctrl or "pairAdjacent" in (
+        Path("mobile/lib/services/paper_disk_store.dart").read_text(encoding="utf-8")
+    )
+    models = MODELS.read_text(encoding="utf-8")
+    assert "pairingKey" in models
+    assert "matePresentForEntry" in models
+    assert "effectivePairingKey" in models
+    screen = SCREEN.read_text(encoding="utf-8")
+    assert "onFindMain: null" in screen
+    assert "matePresentForEntry" in screen
+    assert "pdfFolderWritable == false" in screen
+    cache = CACHE.read_text(encoding="utf-8")
+    assert "pairing_key" in cache
+    disk = (MOBILE / "lib" / "services" / "paper_disk_store.dart").read_text(
+        encoding="utf-8"
+    )
+    assert "pairedCacheId" in disk
+    assert "canMergeSupplementary" in disk
+    assert "pairAdjacentPapers" in disk
+    saf = SAF_DART.read_text(encoding="utf-8")
+    assert "normalizeNfkc" in saf
+    kt = SAF_KT.read_text(encoding="utf-8")
+    assert "normalizeNfkc" in kt
+    assert "Normalizer" in kt

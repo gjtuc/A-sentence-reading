@@ -247,4 +247,5 @@ const Set<String> kEvidenceAllowedKinds = {
   'pdf_find_watch_hit',
   'pdf_find_watch_timeout',
   'pdf_find_watch_confirm',
+  'pdf_find_watch_disarm',
 };

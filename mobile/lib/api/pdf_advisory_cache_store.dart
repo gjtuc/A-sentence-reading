@@ -1,4 +1,4 @@
-/// design/228 · 229 · 230 · 237 — disk cache for advisory title/role/doi (no path/URI).
+/// design/228 · 229 · 230 · 237 · 239 — disk cache title/role/doi/pairing_key (no path/URI).
 library;
 
 import 'dart:convert';
@@ -10,8 +10,8 @@ import 'pdf_hash_cache_store.dart';
 
 const int kPdfAdvisoryCacheMaxEntries = 2000;
 
-/// design/229 · 233 · 235 · 236 · 237 — bump wipes stale rows (DOI field).
-const int kPdfAdvisoryCacheSchema = 6;
+/// design/229 · 233 · 235 · 236 · 237 · 239 — bump wipes stale rows (pairing_key).
+const int kPdfAdvisoryCacheSchema = 7;
 
 class PdfAdvisoryCacheEntry {
   const PdfAdvisoryCacheEntry({
@@ -22,6 +22,7 @@ class PdfAdvisoryCacheEntry {
     this.titleSource = '',
     this.advisoryDoi = '',
     this.doiSource = '',
+    this.pairingKey = '',
   });
 
   final String advisoryTitle;
@@ -37,6 +38,9 @@ class PdfAdvisoryCacheEntry {
 
   /// `head` | `info` | ''
   final String doiSource;
+
+  /// design/239 — optional precomputed pairing key.
+  final String pairingKey;
 }
 
 class PdfAdvisoryCacheStore {
@@ -162,6 +166,7 @@ class PdfAdvisoryCacheStore {
       titleSource: titleSource,
       advisoryDoi: '${row['advisory_doi'] ?? ''}'.trim(),
       doiSource: doiSource,
+      pairingKey: '${row['pairing_key'] ?? ''}'.trim(),
     );
   }
 
@@ -176,6 +181,7 @@ class PdfAdvisoryCacheStore {
     String titleSource = '',
     String advisoryDoi = '',
     String doiSource = '',
+    String pairingKey = '',
   }) async {
     await _ensureLoaded();
     final key = pdfHashCacheKey(
@@ -198,6 +204,7 @@ class PdfAdvisoryCacheStore {
       'title_source': srcOut,
       'advisory_doi': advisoryDoi.trim(),
       'doi_source': dsrcOut,
+      'pairing_key': pairingKey.trim(),
       'size_bytes': sizeBytes,
       'last_modified_ms': lastModifiedMs,
       'computed_at_ms': DateTime.now().millisecondsSinceEpoch,

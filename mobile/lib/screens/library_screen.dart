@@ -752,7 +752,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   ? null
                                   : (_) => _toggleSelected(e.id),
                             )
-                          : null,
+                          : (e.pairedCacheId.trim().isNotEmpty
+                              ? Container(
+                                  width: 10,
+                                  alignment: Alignment.center,
+                                  child: Container(
+                                    width: 3,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primary
+                                          .withValues(alpha: 0.55),
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                )
+                              : null),
                       title: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -804,7 +820,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       ),
                       subtitle: Text(
                         [
-                          if (e.pairedCacheId.trim().isNotEmpty) '짝 논문 있음',
+                          if (e.pairedCacheId.trim().isNotEmpty) '⇄ 짝 논문 (별도 행 · 자동 합치지 않음)',
                           e.metaResumeLine(
                             resumeSection:
                                 lib.progressResumeByCacheId.containsKey(e.id)
@@ -877,7 +893,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 if (e.canMergeSupplementary)
                                   TextButton.icon(
                                     icon: const Icon(Icons.merge_type, size: 18),
-                                    label: const Text('짝 합치기'),
+                                    label: const Text('짝과 합치기'),
                                     style: TextButton.styleFrom(
                                       visualDensity: VisualDensity.compact,
                                       padding: const EdgeInsets.symmetric(

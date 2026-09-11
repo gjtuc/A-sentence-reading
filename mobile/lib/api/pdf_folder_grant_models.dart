@@ -1,5 +1,5 @@
 /// design/226 — uid-scoped folder grant prefs (tree URI only).
-/// design/237 — advisoryDoi · design/239 — set pairing list items.
+/// design/237 — advisoryDoi · design/239 — set pairing list items · pairingKey (0.3.235).
 library;
 
 import 'dart:convert';
@@ -79,6 +79,7 @@ class ScannedPdfEntry {
     this.advisoryReason = '',
     this.advisoryState = PdfAdvisoryState.unknown,
     this.advisoryDoi = '',
+    this.pairingKey = '',
   });
 
   final String docUri;
@@ -97,6 +98,16 @@ class ScannedPdfEntry {
   /// design/237 — DOI from head/info (local only; never in evidence plaintext).
   String advisoryDoi;
 
+  /// design/239 — precomputed pairing key (prefer over re-normalize when set).
+  String pairingKey;
+
+  /// Resolved pairing key for set/mate logic.
+  String get effectivePairingKey {
+    final k = pairingKey.trim();
+    if (k.isNotEmpty) return k;
+    return normalizePairingKey(advisoryTitle);
+  }
+
   ScannedPdfEntry copyWith({
     String? contentHash,
     PdfHashState? hashState,
@@ -105,6 +116,7 @@ class ScannedPdfEntry {
     String? advisoryReason,
     PdfAdvisoryState? advisoryState,
     String? advisoryDoi,
+    String? pairingKey,
   }) {
     return ScannedPdfEntry(
       docUri: docUri,
@@ -118,6 +130,7 @@ class ScannedPdfEntry {
       advisoryReason: advisoryReason ?? this.advisoryReason,
       advisoryState: advisoryState ?? this.advisoryState,
       advisoryDoi: advisoryDoi ?? this.advisoryDoi,
+      pairingKey: pairingKey ?? this.pairingKey,
     );
   }
 }
@@ -164,7 +177,7 @@ class PdfImportSetItem extends PdfImportListItem {
 
   final byKey = <String, List<ScannedPdfEntry>>{};
   for (final e in ready) {
-    final key = normalizePairingKey(e.advisoryTitle);
+    final key = e.effectivePairingKey;
     if (key.isEmpty) {
       pending.add(e);
       continue;
@@ -207,13 +220,8 @@ class PdfImportSetItem extends PdfImportListItem {
 
   for (final e in ready) {
     if (used.contains(e.docUri)) continue;
-    final key = normalizePairingKey(e.advisoryTitle);
-    if (key.isEmpty || !used.contains(e.docUri)) {
-      if (!used.contains(e.docUri)) {
-        items.add(PdfImportSingleItem(e));
-        used.add(e.docUri);
-      }
-    }
+    items.add(PdfImportSingleItem(e));
+    used.add(e.docUri);
   }
   for (final e in pending) {
     if (used.contains(e.docUri)) continue;
@@ -236,4 +244,20 @@ class PdfImportSetItem extends PdfImportListItem {
 
   final nSingles = items.whereType<PdfImportSingleItem>().length;
   return (items: items, nSets: nSets, nSingles: nSingles, nGap: nGap);
+}
+
+/// design/237 — opposite-role ready mate already in folder (same pairing key).
+bool matePresentForEntry(ScannedPdfEntry e, List<ScannedPdfEntry> all) {
+  final key = e.effectivePairingKey;
+  if (key.isEmpty) return false;
+  final role = e.advisoryRole.trim().toLowerCase();
+  final want = role == 'supplementary' ? 'main' : 'supplementary';
+  if (role != 'main' && role != 'supplementary') return false;
+  for (final o in all) {
+    if (o.docUri == e.docUri) continue;
+    if (o.advisoryState != PdfAdvisoryState.ready) continue;
+    if (o.advisoryRole.trim().toLowerCase() != want) continue;
+    if (o.effectivePairingKey == key) return true;
+  }
+  return false;
 }

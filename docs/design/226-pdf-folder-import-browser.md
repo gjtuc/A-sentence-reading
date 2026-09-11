@@ -2,6 +2,7 @@
 
 Version: **0.3.225** · Status: **locked**  
 Depends: [70](70-mobile-upload.md) · [221](221-upload-reservation-queue.md) · [223](223-library-upload-picker-investigation.md) · [225](225-library-density-followups.md)
+Polish: [237](237-pdf-import-doi-find-cta.md)–[243](243-pdf-import-remaining-polish.md) (0.3.235 find/pick/set/pair/write/watch).
 
 ## Product claim (locked)
 

@@ -314,6 +314,26 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                         ),
                   ),
                 ),
+              if (grant != null && lib.pdfFolderWritable == false)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '이 폴더는 읽기 전용입니다. PDF를 폴더로 복사하려면 쓰기 권한으로 다시 연결해 주세요.',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _busy ? null : _connectFolder,
+                        child: const Text('다시 연결'),
+                      ),
+                    ],
+                  ),
+                ),
               if (_banner != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -454,20 +474,9 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                           queued.contains(e.contentHash)),
                                       onToggle: () =>
                                           _toggleUris(item.docUris),
-                                      onFindMain: item.main.advisoryDoi
-                                              .trim()
-                                              .isEmpty
-                                          ? null
-                                          : () => unawaited(
-                                                _openFind(item.main),
-                                              ),
-                                      onFindSi: item.si.advisoryDoi
-                                              .trim()
-                                              .isEmpty
-                                          ? null
-                                          : () => unawaited(
-                                                _openFind(item.si),
-                                              ),
+                                      // design/237 - set row already has mate; hide find CTA.
+                                      onFindMain: null,
+                                      onFindSi: null,
                                     );
                                   }
                                   final e =
@@ -483,7 +492,8 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                     inLibrary: green,
                                     inQueue: inQ,
                                     onToggle: () => _toggleUris([e.docUri]),
-                                    onFind: e.advisoryDoi.trim().isEmpty
+                                    onFind: (e.advisoryDoi.trim().isEmpty ||
+                                            matePresentForEntry(e, entries))
                                         ? null
                                         : () => unawaited(_openFind(e)),
                                   );
