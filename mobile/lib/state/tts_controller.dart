@@ -188,7 +188,7 @@ class TtsController extends ChangeNotifier {
     } on AsrApiException catch (e) {
       // EDGE: offline / 503 — keep last list or empty; fixed mode still works.
       error = e.toString();
-      httpStatus = e.statusCode;
+      httpStatus = e.statusCode ?? 0;
       code = e.statusCode == 401 ? 'auth_required' : 'other';
     } catch (e) {
       error = e.toString();
