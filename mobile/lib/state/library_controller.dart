@@ -21,6 +21,8 @@ import '../api/upload_draft_models.dart';
 import '../api/upload_draft_store.dart';
 import '../api/upload_reserve_models.dart';
 import '../api/upload_reserve_store.dart';
+import '../api/upload_picker_recent_models.dart';
+import '../api/upload_picker_recent_store.dart';
 import '../api/upload_notify.dart';
 import '../api/shadowing_models.dart';
 import '../api/translate_models.dart';
@@ -49,6 +51,7 @@ class LibraryController extends ChangeNotifier {
     required AsrClient client,
     UploadDraftStore? draftStore,
     UploadReserveStore? reserveStore,
+    UploadPickerRecentStore? pickerRecentStore,
     UploadNotify? uploadNotify,
     PaperEditStash? editStash,
     FigureDiskCache? figureDiskCache,
@@ -58,6 +61,7 @@ class LibraryController extends ChangeNotifier {
   })  : _client = client,
         _drafts = draftStore ?? PrefsUploadDraftStore(),
         _reserve = reserveStore ?? PrefsUploadReserveStore(),
+        _pickerRecent = pickerRecentStore ?? PrefsUploadPickerRecentStore(),
         _notify = uploadNotify ?? createUploadNotify(),
         _editStash = editStash ?? PaperEditStash(),
         _figureDisk = figureDiskCache ?? FigureDiskCache(),
@@ -67,6 +71,7 @@ class LibraryController extends ChangeNotifier {
   final AsrClient _client;
   final UploadDraftStore _drafts;
   final UploadReserveStore _reserve;
+  final UploadPickerRecentStore _pickerRecent;
   final UploadNotify _notify;
   final PaperEditStash _editStash;
   final FigureDiskCache _figureDisk;
@@ -95,6 +100,8 @@ class LibraryController extends ChangeNotifier {
     _figureDisk.bindUid(uid);
     _paperDisk.bindUid(uid);
     _shadowDisk.bindUid(uid);
+    unawaited(_pickerRecent.bindUid(_diskUid));
+    unawaited(_reloadPickerRecent());
     _bulkHandoffAttempted = false;
     _clearPendingEnrichState();
   }
@@ -1818,6 +1825,8 @@ class LibraryController extends ChangeNotifier {
       // design/185 Phase 1 — surface local-only disk papers (no cloud wipe yet).
       final merged = await _paperDisk.mergeRemoteWithLocal(fetched);
       papers = await _applySavedOrder(merged);
+      await _rebuildLibraryHashSet();
+      await _reloadPickerRecent();
       try {
         final uid = await _authUid();
         progressResumeByCacheId = await loadProgressResumeLabels(
@@ -3450,7 +3459,10 @@ class LibraryController extends ChangeNotifier {
     await _editStash.purgeAll();
     await _drafts.clear();
     await _reserve.clear();
+    await _pickerRecent.clearBound();
     uploadQueue = const [];
+    pickerRecent = const [];
+    libraryContentHashes = const {};
     pendingAutoOpenCacheId = null;
     _uploadQueueAutoOpened = false;
     _uploadPumpBusy = false;
@@ -4136,6 +4148,48 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+
+  /// design/223 — sheet open breadcrumb.
+  void notePickerSheetOpened() {
+    asrEvidenceBus?.record(
+      'picker_sheet_open',
+      severity: 'lifecycle',
+      stage: 'sheet',
+      details: {
+        'recent_n': pickerRecent.length,
+        'queue_n': uploadQueue.length,
+        'lib_hash_n': libraryContentHashes.length,
+      },
+    );
+  }
+
+  Future<void> _reloadPickerRecent() async {
+    final list = await _pickerRecent.read();
+    pickerRecent = list.items;
+    notifyListeners();
+  }
+
+  Future<void> _rebuildLibraryHashSet() async {
+    final out = <String>{};
+    for (final e in papers) {
+      final h = e.contentHash.trim().toLowerCase();
+      if (h.length == 64 && RegExp(r'^[a-f0-9]{64}$').hasMatch(h)) {
+        // EDGE: failed rows still have hash — only skip explicit error status.
+        if (e.ingestStatus.trim().toLowerCase() == 'error') continue;
+        out.add(h);
+      }
+    }
+    try {
+      for (final e in await _paperDisk.listIndex()) {
+        final h = e.contentHash.trim().toLowerCase();
+        if (h.length == 64 && RegExp(r'^[a-f0-9]{64}$').hasMatch(h)) {
+          out.add(h);
+        }
+      }
+    } catch (_) {}
+    libraryContentHashes = Set<String>.unmodifiable(out);
+  }
+
   /// design/221 — enqueue one or more PDFs; serial pump starts if idle.
   Future<({int added, int skipped, String? message})> enqueuePickedPdfs(
     List<({String name, Uint8List bytes})> files,
@@ -4184,6 +4238,11 @@ class LibraryController extends ChangeNotifier {
       );
       q = UploadReserveQueue(items: [...q.items, item]);
       added += 1;
+      await _pickerRecent.remember(
+        contentHash: hash,
+        displayName: name,
+        source: 'saf',
+      );
       asrEvidenceBus?.record(
         'upload_queue_enqueue',
         severity: 'lifecycle',
@@ -4198,6 +4257,15 @@ class LibraryController extends ChangeNotifier {
     }
     await _reserve.write(q);
     uploadQueue = q.items;
+    if (added > 0) {
+      await _reloadPickerRecent();
+      asrEvidenceBus?.record(
+        'picker_recent_save',
+        severity: 'lifecycle',
+        stage: 'enqueue',
+        details: {'n': added},
+      );
+    }
     notifyListeners();
     unawaited(_pumpUploadQueue());
     return (added: added, skipped: skipped, message: message);

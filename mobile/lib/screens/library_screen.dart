@@ -13,6 +13,7 @@ import '../state/bookmark_controller.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../widgets/upload_queue_sheet.dart';
+import '../widgets/upload_picker_sheet.dart';
 
 /// Authenticated paper list → open · PDF upload queue (design/62 · 70 · 221).
 class LibraryScreen extends StatefulWidget {
@@ -313,6 +314,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
     await _open(entry);
   }
 
+  Future<void> _openUploadPicker() async {
+    final lib = widget.library;
+    if (lib.reanalyzing || lib.opening) return;
+    await showUploadPickerSheet(
+      context: context,
+      library: lib,
+      onPickFromFiles: _pickAndUpload,
+    );
+  }
+
   Future<void> _pickAndUpload() async {
     final lib = widget.library;
     // design/221 — allow enqueue while an analysis is already running.
@@ -448,7 +459,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 lib.reanalyzing ||
                                 _deleting
                             ? null
-                            : _pickAndUpload,
+                            : _openUploadPicker,
                         icon: const Icon(Icons.upload_file),
                         tooltip: 'PDF 가져오기',
                       ),
@@ -691,7 +702,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           FilledButton.tonalIcon(
                             onPressed: lib.loading || lib.reanalyzing || lib.opening
                                 ? null
-                                : _pickAndUpload,
+                                : _openUploadPicker,
                             icon: const Icon(Icons.upload_file),
                             label: const Text('PDF 가져오기'),
                           ),

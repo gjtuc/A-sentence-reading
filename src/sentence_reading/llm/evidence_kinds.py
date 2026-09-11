@@ -207,5 +207,8 @@ ALLOWED_KINDS = frozenset(
         "doc_role_detect_done",
         "doc_role_redetect_after_vision",
         "doc_role_pairing_gap",
+        # design/223 — upload picker recent
+        "picker_sheet_open",
+        "picker_recent_save",
     }
 )
