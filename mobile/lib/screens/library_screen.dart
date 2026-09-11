@@ -15,7 +15,7 @@ import '../state/shadowing_controller.dart';
 import '../widgets/upload_queue_sheet.dart';
 import '../widgets/upload_picker_sheet.dart';
 
-/// Authenticated paper list → open · PDF upload queue (design/62 · 70 · 221).
+/// Authenticated paper list → open · PDF upload queue (design/62 · 70 · 221 · 224).
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
     super.key,
@@ -25,6 +25,7 @@ class LibraryScreen extends StatefulWidget {
     this.annotations,
     this.shadowing,
     this.onOpened,
+    this.onOpenSettings,
   });
 
   final AuthController auth;
@@ -33,15 +34,18 @@ class LibraryScreen extends StatefulWidget {
   final AnnotationController? annotations;
   final ShadowingController? shadowing;
 
-  /// Called after a successful open (e.g. jump to Reader tab).
+  /// Called after a successful open (e.g. show reader surface).
   final VoidCallback? onOpened;
+
+  /// design/224 — gear opens Settings (no bottom tab).
+  final VoidCallback? onOpenSettings;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
-  /// design/102 — trash toggles multi-select delete mode.
+  /// design/224 — long-press enters edit; trash only while editing.
   bool _selecting = false;
   final Set<String> _selected = <String>{};
   bool _deleting = false;
@@ -91,10 +95,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
-  void _toggleSelecting() {
+  void _enterEdit(String id) {
     setState(() {
-      _selecting = !_selecting;
-      if (!_selecting) _selected.clear();
+      _selecting = true;
+      _selected
+        ..clear()
+        ..add(id);
+    });
+  }
+
+  void _exitEdit() {
+    setState(() {
+      _selecting = false;
+      _selected.clear();
     });
   }
 
@@ -108,45 +121,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
     });
   }
 
+  /// design/224 — soft-hide + SnackBar undo; hard DELETE after grace.
   Future<void> _confirmDelete() async {
     if (_deleting || _selected.isEmpty) return;
-    final count = _selected.length;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('보관본 삭제'),
-        content: Text(
-          '선택한 $count건을 삭제할까요?\n'
-          '클라우드(GCS) 문서와 노트·북마크·연습 기록도 함께 지워집니다.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('삭제'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
     setState(() => _deleting = true);
     final ids = _selected.toList(growable: false);
-    final deleted = await widget.library.deletePapers(ids);
+    final hidden = await widget.library.softHidePapers(ids);
     if (!mounted) return;
     setState(() {
       _deleting = false;
       _selecting = false;
       _selected.clear();
     });
-    final msg = deleted == 0
-        ? (widget.library.error ?? '삭제에 실패했습니다.')
-        : deleted == ids.length
-            ? '$deleted건을 삭제했습니다.'
-            : '$deleted/${ids.length}건을 삭제했습니다.';
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    if (hidden == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(widget.library.error ?? '숨기기에 실패했습니다.'),
+        ),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 60),
+        content: Text('$hidden건을 숨겼습니다. 1분 후 영구 삭제됩니다.'),
+        action: SnackBarAction(
+          label: '실행 취소',
+          onPressed: () {
+            unawaited(widget.library.undoSoftHide(ids));
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _showRetentionSheet(PaperEntry entry) async {
@@ -397,7 +404,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             child: Padding(
               padding: EdgeInsets.all(24),
               child: Text(
-                '보관 목록을 보려면 먼저 로그인하세요.\n(이메일 로그인 · 하단 계정 탭)',
+                '보관 목록을 보려면 먼저 로그인하세요.',
                 textAlign: TextAlign.center,
               ),
             ),
@@ -407,7 +414,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (lib.loading && lib.papers.isEmpty && !lib.uploading && !lib.reanalyzing) {
           return const Center(child: CircularProgressIndicator());
         }
-        return CustomScrollView(
+        return PopScope(
+          canPop: !_selecting,
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) return;
+            if (_selecting) _exitEdit();
+          },
+          child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(
@@ -420,26 +433,38 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '보관 ${lib.papers.length}건',
+                              _selecting
+                                  ? (_selected.isEmpty
+                                      ? '편집'
+                                      : '${_selected.length}건 선택')
+                                  : '보관 ${lib.papers.length}건',
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
                           ],
                         ),
                       ),
-                      IconButton(
-                        onPressed: lib.loading ||
-                                lib.opening ||
-                                lib.uploading ||
-                                lib.reanalyzing ||
-                                _deleting ||
-                                lib.papers.isEmpty
-                            ? null
-                            : _toggleSelecting,
-                        icon: Icon(
-                          _selecting ? Icons.close : Icons.delete_outline,
+                      if (_selecting) ...[
+                        IconButton(
+                          onPressed: _deleting ? null : _exitEdit,
+                          icon: const Icon(Icons.close),
+                          tooltip: '편집 종료',
                         ),
-                        tooltip: _selecting ? '선택 취소' : '삭제',
-                      ),
+                        IconButton(
+                          onPressed: _deleting || _selected.isEmpty
+                              ? null
+                              : _confirmDelete,
+                          icon: _deleting
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.delete_outline),
+                          tooltip: '숨기기',
+                        ),
+                      ],
                       if (lib.uploadQueue.isNotEmpty)
                         IconButton(
                           onPressed: () => showUploadQueueSheet(
@@ -463,6 +488,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         icon: const Icon(Icons.upload_file),
                         tooltip: 'PDF 가져오기',
                       ),
+                      IconButton(
+                        onPressed: widget.onOpenSettings,
+                        icon: const Icon(Icons.settings_outlined),
+                        tooltip: '설정',
+                      ),
                     ],
                   ),
                 ),
@@ -471,32 +501,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _selected.isEmpty
-                                ? '삭제할 문서를 선택하세요.'
-                                : '${_selected.length}건 선택됨',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ),
-                        FilledButton.tonalIcon(
-                          onPressed: _deleting || _selected.isEmpty
-                              ? null
-                              : _confirmDelete,
-                          icon: _deleting
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.delete),
-                          label: const Text('삭제'),
-                        ),
-                      ],
+                    child: Text(
+                      '체크 후 휴지통으로 숨깁니다. 1분 안 실행 취소 가능.',
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
                 )
@@ -505,7 +512,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                     child: Text(
-                      '이름을 길게 누른 뒤 끌어 순서를 바꿀 수 있습니다.',
+                      '길게 눌러 편집 · 편집 중 끌어 순서 변경.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
@@ -725,14 +732,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     );
                   },
                   onReorder: (oldIndex, newIndex) {
-                    if (_selecting ||
+                    // design/224 — reorder only in edit mode.
+                    if (!_selecting ||
                         lib.opening ||
                         lib.uploading ||
                         lib.reanalyzing ||
                         _deleting) {
                       return;
                     }
-                    // WHY: save path unchanged this chip (product 4A).
                     unawaited(lib.reorderPapers(oldIndex, newIndex));
                   },
                   itemBuilder: (context, i) {
@@ -910,8 +917,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 _open(e);
                               }
                             },
+                      onLongPress: lib.opening ||
+                              lib.uploading ||
+                              lib.reanalyzing ||
+                              _deleting
+                          ? null
+                          : () {
+                              if (_selecting) {
+                                _toggleSelected(e.id);
+                              } else {
+                                _enterEdit(e.id);
+                              }
+                            },
                     );
-                    if (_selecting) {
+                    if (!_selecting) {
                       return KeyedSubtree(
                         key: ValueKey<String>(e.id),
                         child: tile,
@@ -929,6 +948,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   },
                 ),
             ],
+          ),
         );
       },
     );

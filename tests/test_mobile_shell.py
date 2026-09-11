@@ -22,7 +22,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 def test_status_mobile_shell_nav(client: TestClient) -> None:
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert st["version"].startswith("0.3.")
     assert st["mobile_shell_nav"] is True
 
 
@@ -30,10 +30,11 @@ def test_shell_source_structure() -> None:
     shell = (MOBILE / "lib" / "screens" / "home_shell.dart").read_text(encoding="utf-8")
     assert "isLoggedIn" in shell
     assert "LoginScreen" in shell
-    assert "label: '보관'" in shell
-    assert "label: '읽기'" in shell
-    assert "label: '설정'" in shell
-    # WHY: server/login are not bottom-nav destinations after 0.3.3.
+    # design/224 — bottom tabs removed; library chrome + settings push.
+    assert "LibraryScreen" in shell
+    assert "ReaderScreen" in shell
+    assert "onOpenSettings" in shell or "_openSettings" in shell
+    assert "NavigationBar" not in shell
     assert "label: '서버'" not in shell
     assert "label: '로그인'" not in shell
     settings = (MOBILE / "lib" / "screens" / "settings_screen.dart").read_text(

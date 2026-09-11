@@ -23,6 +23,7 @@ import '../api/upload_reserve_models.dart';
 import '../api/upload_reserve_store.dart';
 import '../api/upload_picker_recent_models.dart';
 import '../api/upload_picker_recent_store.dart';
+import '../api/library_soft_delete_store.dart';
 import '../api/upload_notify.dart';
 import '../api/shadowing_models.dart';
 import '../api/translate_models.dart';
@@ -52,6 +53,7 @@ class LibraryController extends ChangeNotifier {
     UploadDraftStore? draftStore,
     UploadReserveStore? reserveStore,
     UploadPickerRecentStore? pickerRecentStore,
+    LibrarySoftDeleteStore? softDeleteStore,
     UploadNotify? uploadNotify,
     PaperEditStash? editStash,
     FigureDiskCache? figureDiskCache,
@@ -62,6 +64,7 @@ class LibraryController extends ChangeNotifier {
         _drafts = draftStore ?? PrefsUploadDraftStore(),
         _reserve = reserveStore ?? PrefsUploadReserveStore(),
         _pickerRecent = pickerRecentStore ?? PrefsUploadPickerRecentStore(),
+        _softDelete = softDeleteStore ?? PrefsLibrarySoftDeleteStore(),
         _notify = uploadNotify ?? createUploadNotify(),
         _editStash = editStash ?? PaperEditStash(),
         _figureDisk = figureDiskCache ?? FigureDiskCache(),
@@ -72,6 +75,7 @@ class LibraryController extends ChangeNotifier {
   final UploadDraftStore _drafts;
   final UploadReserveStore _reserve;
   final UploadPickerRecentStore _pickerRecent;
+  final LibrarySoftDeleteStore _softDelete;
   final UploadNotify _notify;
   final PaperEditStash _editStash;
   final FigureDiskCache _figureDisk;
@@ -101,15 +105,125 @@ class LibraryController extends ChangeNotifier {
     _paperDisk.bindUid(uid);
     _shadowDisk.bindUid(uid);
     unawaited(_pickerRecent.bindUid(_diskUid));
-    unawaited(_reloadPickerRecent());
+    unawaited(_pickerRecentThenSoftDelete());
     _bulkHandoffAttempted = false;
     _clearPendingEnrichState();
+  }
+
+  Future<void> _pickerRecentThenSoftDelete() async {
+    await _reloadPickerRecent();
+    await _softDelete.bindUid(_diskUid);
+    // design/224 — drop due soft-hides, then refilter list.
+    await purgeDueSoftDeletes();
+    _publishPapers(papers);
+    notifyListeners();
+    _scheduleSoftPurgeWorker();
   }
 
   String? _diskUid;
   final ShadowingDiskStore _shadowDisk = ShadowingDiskStore();
   BookmarkController? _bookmarks;
   AnnotationController? _annotations;
+  Timer? _softPurgeTimer;
+
+  /// design/224 — filter soft-hidden ids before publishing list.
+  void _publishPapers(List<PaperEntry> next) {
+    final hidden = _softDelete.hiddenIds;
+    if (hidden.isEmpty) {
+      papers = next;
+      return;
+    }
+    papers =
+        next.where((e) => !hidden.contains(e.id)).toList(growable: false);
+  }
+
+  void _scheduleSoftPurgeWorker() {
+    _softPurgeTimer?.cancel();
+    final earliest = _softDelete.snapshot.earliestPurgeAtMs;
+    if (earliest == null) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final delayMs = earliest <= now ? 0 : earliest - now;
+    _softPurgeTimer = Timer(Duration(milliseconds: delayMs), () {
+      unawaited(() async {
+        await purgeDueSoftDeletes();
+        _scheduleSoftPurgeWorker();
+      }());
+    });
+  }
+
+  /// design/224 — hide locally; hard DELETE after purge_at (wall clock).
+  Future<int> softHidePapers(Iterable<String> cacheIds) async {
+    final ids = cacheIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (ids.isEmpty) return 0;
+    final list = await _softDelete.hide(ids);
+    final purgeAt = list.entries
+        .where((e) => ids.contains(e.cacheId))
+        .map((e) => e.purgeAtMs)
+        .fold<int?>(null, (a, b) => a == null ? b : (a < b ? a : b));
+    asrEvidenceBus?.record(
+      'paper_soft_hide',
+      severity: 'lifecycle',
+      stage: 'hide',
+      ok: true,
+      details: {
+        'n': ids.length,
+        if (purgeAt != null) 'purge_at_ms': purgeAt,
+      },
+    );
+    final openId = session?.cacheId;
+    if (openId != null && ids.contains(openId)) {
+      clearOpened();
+    }
+    _publishPapers(papers.where((p) => !ids.contains(p.id)).toList());
+    error = null;
+    notifyListeners();
+    _scheduleSoftPurgeWorker();
+    return ids.length;
+  }
+
+  /// design/224 — restore soft-hidden rows via refresh (server/disk still hold them).
+  Future<int> undoSoftHide(Iterable<String> cacheIds) async {
+    final ids = cacheIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (ids.isEmpty) return 0;
+    await _softDelete.undo(ids);
+    asrEvidenceBus?.record(
+      'paper_soft_undo',
+      severity: 'lifecycle',
+      stage: 'undo',
+      ok: true,
+      details: {'n': ids.length},
+    );
+    await refresh(fresh: false, clearError: false, trigger: 'soft_undo');
+    _scheduleSoftPurgeWorker();
+    return ids.length;
+  }
+
+  /// design/224 — hard-delete entries whose purge_at has passed.
+  Future<int> purgeDueSoftDeletes({int? nowMs}) async {
+    await _softDelete.read();
+    final now = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+    final due = _softDelete.snapshot.dueAt(now);
+    if (due.isEmpty) return 0;
+    var purged = 0;
+    for (final e in due) {
+      // Per-id so soft-store removal tracks HTTP honesty (design/177 + 224).
+      final n = await deletePapers([e.cacheId]);
+      if (n > 0) {
+        await _softDelete.remove([e.cacheId]);
+        purged += 1;
+      }
+    }
+    _scheduleSoftPurgeWorker();
+    return purged;
+  }
 
   void attachBookmarks(BookmarkController bookmarks) {
     _bookmarks = bookmarks;
@@ -797,7 +911,7 @@ class LibraryController extends ChangeNotifier {
   Future<void> _tickHarmonizeResidualPoll(String cid) async {
     try {
       final fetched = await _client.listPapers();
-      papers = await _applySavedOrder(fetched);
+      _publishPapers(await _applySavedOrder(fetched));
     } catch (_) {
       // fail-soft; keep prior snapshot
     }
@@ -1830,7 +1944,7 @@ class LibraryController extends ChangeNotifier {
       }
       // design/185 Phase 1 — surface local-only disk papers (no cloud wipe yet).
       final merged = await _paperDisk.mergeRemoteWithLocal(fetched);
-      papers = await _applySavedOrder(merged);
+      _publishPapers(await _applySavedOrder(merged));
       await _rebuildLibraryHashSet();
       await _reloadPickerRecent();
       try {
@@ -1987,9 +2101,9 @@ class LibraryController extends ChangeNotifier {
     final next = List<PaperEntry>.from(papers);
     final item = next.removeAt(oldIndex);
     next.insert(dest, item);
-    papers = next;
+    _publishPapers(next);
     notifyListeners();
-    await _persistOrder(next.map((e) => e.id).toList(growable: false));
+    await _persistOrder(papers.map((e) => e.id).toList(growable: false));
   }
 
   /// design/102 + design/177 — delete selected papers (GCS + user records via API).
@@ -2152,7 +2266,9 @@ class LibraryController extends ChangeNotifier {
     }
     // design/177 J6 — only drop rows that actually deleted on the server.
     if (okIds.isNotEmpty) {
-      papers = papers.where((p) => !okIds.contains(p.id)).toList(growable: false);
+      _publishPapers(
+        papers.where((p) => !okIds.contains(p.id)).toList(growable: false),
+      );
       await _persistOrder(papers.map((e) => e.id).toList(growable: false));
     }
     error = okCount == ids.length
@@ -3436,6 +3552,8 @@ class LibraryController extends ChangeNotifier {
     shadowingChunksProgress = null;
     shadowingChunksCacheId = null;
     shadowingChunksBusy = false;
+    _softPurgeTimer?.cancel();
+    _softPurgeTimer = null;
     papers = const [];
     session = null;
     error = null;
@@ -3466,6 +3584,7 @@ class LibraryController extends ChangeNotifier {
     await _drafts.clear();
     await _reserve.clear();
     await _pickerRecent.clearBound();
+    await _softDelete.clearBound();
     uploadQueue = const [];
     pickerRecent = const [];
     libraryContentHashes = const {};

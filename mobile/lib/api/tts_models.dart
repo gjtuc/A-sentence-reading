@@ -25,7 +25,7 @@ const String kTtsRatePrefsKey = 'asr_tts_rate_v1';
 const String kTtsModePrefsKey = 'asr_tts_mode_v1';
 const String kTtsVoicePrefsKey = 'asr_tts_voice_v1';
 
-/// Modes allowed in Settings / picker (web parity).
+/// Modes understood by playback helpers (includes legacy bands).
 const Set<String> kTtsModes = {
   kTtsModeFixed,
   kTtsModeRandomAuto,
@@ -33,6 +33,18 @@ const Set<String> kTtsModes = {
   kTtsModeRandomHard,
   kTtsModeRandomVeryHard,
 };
+
+/// design/224 — Settings UI modes only (migrate legacy → random_auto first).
+const Set<String> kTtsModesUi = {
+  kTtsModeFixed,
+  kTtsModeRandomAuto,
+};
+
+/// Ordered Settings dropdown values (design/224).
+const List<String> kTtsModesUiOrdered = [
+  kTtsModeFixed,
+  kTtsModeRandomAuto,
+];
 
 const Set<String> kTtsRandomModes = {
   kTtsModeRandomAuto,
@@ -92,20 +104,14 @@ const Map<String, Map<String, double>> kTtsLocaleWeights = {
   },
 };
 
-/// Korean labels for Settings dropdown (web TTS dialog copy).
+/// Korean labels for Settings dropdown (design/224 · legacy labels kept for tests).
 String ttsModeLabelKo(String mode) {
-  switch (normalizeTtsMode(mode)) {
+  switch (normalizeTtsModeUi(mode)) {
     case kTtsModeRandomAuto:
-      return '랜덤 (실력에 맞춤)';
-    case kTtsModeRandomNormal:
-      return '랜덤 · 보통';
-    case kTtsModeRandomHard:
-      return '랜덤 · 어려움';
-    case kTtsModeRandomVeryHard:
-      return '랜덤 · 많이 어려움';
+      return '랜덤';
     case kTtsModeFixed:
     default:
-      return '고정 (아래 목소리·속도)';
+      return '사용자 선택';
   }
 }
 
@@ -174,6 +180,13 @@ bool isTtsRandomMode(String? mode) =>
 String normalizeTtsMode(String? raw) {
   final m = (raw ?? '').trim();
   if (kTtsModes.contains(m)) return m;
+  return kTtsModeFixed;
+}
+
+/// design/224 — UI/prefs surface after migrateTtsModeAndTier.
+String normalizeTtsModeUi(String? raw) {
+  final migrated = migrateTtsModeAndTier(raw);
+  if (kTtsModesUi.contains(migrated.mode)) return migrated.mode;
   return kTtsModeFixed;
 }
 

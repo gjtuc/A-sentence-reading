@@ -649,16 +649,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ]),
       builder: (context, _) {
         if (!widget.theme.ready) {
-          return const Center(child: CircularProgressIndicator());
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
         }
         final logged = widget.auth.isLoggedIn;
         final access = _access;
         final user = widget.auth.user;
-        return ListView(
+        // design/224 — pushed route (no settings tab); AppBar provides back.
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('설정'),
+          ),
+          body: ListView(
           padding: const EdgeInsets.all(24),
           children: [
-            Text('설정', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 16),
             // WHY: account tab removed — login identity + logout live here (design/68).
             Text('계정', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
@@ -824,15 +829,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         labelText: '모드',
                         border: OutlineInputBorder(),
                       ),
-                      value: normalizeTtsMode(tts.mode),
+                      value: normalizeTtsModeUi(tts.mode),
                       items: [
-                        for (final m in [
-                          kTtsModeFixed,
-                          kTtsModeRandomAuto,
-                          kTtsModeRandomNormal,
-                          kTtsModeRandomHard,
-                          kTtsModeRandomVeryHard,
-                        ])
+                        for (final m in kTtsModesUiOrdered)
                           DropdownMenuItem(
                             value: m,
                             child: Text(ttsModeLabelKo(m)),
@@ -840,7 +839,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                       onChanged: (v) {
                         if (v == null) return;
-                        tts.setMode(v);
+                        tts.setMode(normalizeTtsModeUi(v));
                       },
                     ),
                     const SizedBox(height: 6),
@@ -1096,6 +1095,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
             // design/138 — no localhost hang-simulate tile (Live-only product path).
           ],
+        ),
         );
       },
     );

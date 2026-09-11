@@ -269,7 +269,8 @@ class TtsController extends ChangeNotifier {
   }
 
   Future<void> setMode(String value) async {
-    mode = normalizeTtsMode(value);
+    // design/224 — persist UI modes only (legacy → migrate on bootstrap).
+    mode = normalizeTtsModeUi(value);
     try {
       final p = await _readyPrefs();
       await p.setString(kTtsModePrefsKey, mode);

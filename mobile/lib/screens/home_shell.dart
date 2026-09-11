@@ -22,9 +22,9 @@ import 'settings_screen.dart';
 
 /// Auth-gated shell (design/68) + access waiting (design/84) + sticky (172).
 ///
-/// Logged out → login only (no bottom nav).
+/// Logged out → login only.
 /// Logged in · invite pending/denied → waiting only.
-/// Allowed / gate off → 보관 · 읽기 · 설정.
+/// Allowed / gate off → library home + reader surface + settings push (design/224).
 class HomeShell extends StatefulWidget {
   const HomeShell({
     super.key,
@@ -56,7 +56,9 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
-  int _index = 0;
+  /// design/224 — library is home; reader is an overlay surface (no bottom tabs).
+  bool _readerSurface = false;
+  bool _readerMounted = false;
   /// null = not checked yet; true = may enter main tabs.
   bool? _accessUnlocked;
   /// design/172 — status timeout with no sticky → reconnect, not waiting shell.
@@ -70,16 +72,52 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   void _goReader() {
     final hid = widget.library.takeOpenHandoffId();
     asrEvidenceBus?.record(
-      'nav_tab',
+      'nav_surface',
       severity: 'lifecycle',
-      stage: 'tab',
+      stage: 'surface',
       details: {
-        'tab_index': 1,
-        'to_tab': 'reader',
+        'surface': 'reader',
         if (hid != null && hid.isNotEmpty) 'handoff_id': hid,
       },
     );
-    setState(() => _index = 1);
+    setState(() {
+      _readerMounted = true;
+      _readerSurface = true;
+    });
+  }
+
+  void _goLibrary({bool recordLeft = true}) {
+    if (_readerSurface && recordLeft) {
+      unawaited(widget.library.recordReadLeft());
+    }
+    asrEvidenceBus?.record(
+      'nav_surface',
+      severity: 'lifecycle',
+      stage: 'surface',
+      details: {'surface': 'library'},
+    );
+    setState(() => _readerSurface = false);
+  }
+
+  void _openSettings() {
+    asrEvidenceBus?.record(
+      'nav_settings_open',
+      severity: 'lifecycle',
+      stage: 'settings',
+    );
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettingsScreen(
+          theme: widget.theme,
+          auth: widget.auth,
+          shadowing: widget.shadowing,
+          tts: widget.tts,
+          translate: widget.translate,
+          citePanel: widget.citePanel,
+          library: widget.library,
+        ),
+      ),
+    );
   }
 
   @override
@@ -222,6 +260,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       unawaited(widget.shadowing.applyAutoOffIfStale());
       // design/84 — Allow may have happened while backgrounded.
       unawaited(_refreshAccessGate());
+      // design/224 — wall-clock soft-delete purge after resume.
+      unawaited(widget.library.purgeDueSoftDeletes());
     }
   }
 
@@ -374,74 +414,57 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           }
         }
 
-        final pages = <Widget>[
-          LibraryScreen(
-            auth: widget.auth,
-            library: widget.library,
-            bookmarks: widget.bookmarks,
-            annotations: widget.annotations,
-            shadowing: widget.shadowing,
-            onOpened: _goReader,
-          ),
-          ReaderScreen(
-            library: widget.library,
-            tts: widget.tts,
-            client: widget.auth.client,
-            shadowing: widget.shadowing,
-            translate: widget.translate,
-            citePanel: widget.citePanel,
-            bookmarks: widget.bookmarks,
-            annotations: widget.annotations,
-          ),
-          SettingsScreen(
-            theme: widget.theme,
-            auth: widget.auth,
-            shadowing: widget.shadowing,
-            tts: widget.tts,
-            translate: widget.translate,
-            citePanel: widget.citePanel,
-            library: widget.library,
-          ),
-        ];
+        final libraryPage = LibraryScreen(
+          auth: widget.auth,
+          library: widget.library,
+          bookmarks: widget.bookmarks,
+          annotations: widget.annotations,
+          shadowing: widget.shadowing,
+          onOpened: _goReader,
+          onOpenSettings: _openSettings,
+        );
+        final readerPage = ReaderScreen(
+          library: widget.library,
+          tts: widget.tts,
+          client: widget.auth.client,
+          shadowing: widget.shadowing,
+          translate: widget.translate,
+          citePanel: widget.citePanel,
+          bookmarks: widget.bookmarks,
+          annotations: widget.annotations,
+        );
 
-        return Scaffold(
-          body: _padded(IndexedStack(index: _index, children: pages)),
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: _index,
-            onDestinationSelected: (i) {
-              if (_index == 1 && i != 1) {
-                unawaited(widget.library.recordReadLeft());
-              }
-              final details = <String, Object?>{'tab_index': i};
-              if (i == 1) {
-                final hid = widget.library.takeOpenHandoffId();
-                if (hid != null && hid.isNotEmpty) {
-                  details['handoff_id'] = hid;
-                }
-                details['to_tab'] = 'reader';
-              }
-              asrEvidenceBus?.record(
-                'nav_tab',
-                severity: 'lifecycle',
-                stage: 'tab',
-                details: details,
-              );
-              setState(() => _index = i);
-            },
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.library_books_outlined),
-                label: '보관',
+        // design/224 — no bottom tabs; reader Offstage keep-alive (P1).
+        return PopScope(
+          canPop: !_readerSurface,
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) return;
+            if (_readerSurface) {
+              _goLibrary();
+            }
+          },
+          child: Scaffold(
+            body: _padded(
+              Stack(
+                children: [
+                  Offstage(
+                    offstage: _readerSurface,
+                    child: TickerMode(
+                      enabled: !_readerSurface,
+                      child: libraryPage,
+                    ),
+                  ),
+                  if (_readerMounted)
+                    Offstage(
+                      offstage: !_readerSurface,
+                      child: TickerMode(
+                        enabled: _readerSurface,
+                        child: readerPage,
+                      ),
+                    ),
+                ],
               ),
-              NavigationDestination(
-                icon: Icon(Icons.menu_book_outlined),
-                label: '읽기',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.settings_outlined),
-                label: '설정',
-              ),
-            ],
+            ),
           ),
         );
       },
