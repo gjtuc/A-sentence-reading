@@ -14,6 +14,7 @@ import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../widgets/upload_queue_sheet.dart';
 import '../widgets/upload_picker_sheet.dart';
+import '../widgets/upload_status_bar.dart';
 
 /// Authenticated paper list → open · PDF upload queue (design/62 · 70 · 221 · 224).
 class LibraryScreen extends StatefulWidget {
@@ -49,6 +50,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _selecting = false;
   final Set<String> _selected = <String>{};
   bool _deleting = false;
+
+  /// design/225-F — magnetic trash while reordering.
+  final GlobalKey _trashKey = GlobalKey();
+  String? _dragCacheId;
+  bool _dragOverTrash = false;
+  static const double _magnetPad = 28;
 
   /// design/168c — non-ok ingest_status chip label (null = hide).
   static String? _ingestStatusLabel(String status) {
@@ -121,17 +128,22 @@ class _LibraryScreenState extends State<LibraryScreen> {
     });
   }
 
-  /// design/224 — soft-hide + SnackBar undo; hard DELETE after grace.
-  Future<void> _confirmDelete() async {
-    if (_deleting || _selected.isEmpty) return;
+  /// design/224 · 225 — soft-hide + SnackBar undo; hard DELETE after grace.
+  Future<void> _softHideWithUndo(List<String> ids) async {
+    if (_deleting || ids.isEmpty) return;
     setState(() => _deleting = true);
-    final ids = _selected.toList(growable: false);
     final hidden = await widget.library.softHidePapers(ids);
     if (!mounted) return;
     setState(() {
       _deleting = false;
-      _selecting = false;
-      _selected.clear();
+      for (final id in ids) {
+        _selected.remove(id);
+      }
+      if (_selected.isEmpty) {
+        _selecting = false;
+      }
+      _dragCacheId = null;
+      _dragOverTrash = false;
     });
     if (hidden == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -154,6 +166,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDelete() async {
+    if (_deleting || _selected.isEmpty) return;
+    await _softHideWithUndo(_selected.toList(growable: false));
+  }
+
+  void _updateTrashHover(Offset globalPos) {
+    final ctx = _trashKey.currentContext;
+    if (ctx == null) return;
+    final box = ctx.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    final origin = box.localToGlobal(Offset.zero);
+    final rect = (origin & box.size).inflate(_magnetPad);
+    final hit = rect.contains(globalPos);
+    if (hit != _dragOverTrash) {
+      setState(() => _dragOverTrash = hit);
+    }
   }
 
   Future<void> _showRetentionSheet(PaperEntry entry) async {
@@ -450,6 +480,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           tooltip: '편집 종료',
                         ),
                         IconButton(
+                          key: _trashKey,
                           onPressed: _deleting || _selected.isEmpty
                               ? null
                               : _confirmDelete,
@@ -461,7 +492,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                     strokeWidth: 2,
                                   ),
                                 )
-                              : const Icon(Icons.delete_outline),
+                              : AnimatedScale(
+                                  scale: _dragOverTrash ? 1.25 : 1.0,
+                                  duration: const Duration(milliseconds: 120),
+                                  child: Icon(
+                                    Icons.delete_outline,
+                                    color: _dragOverTrash
+                                        ? Theme.of(context).colorScheme.error
+                                        : null,
+                                  ),
+                                ),
                           tooltip: '숨기기',
                         ),
                       ],
@@ -545,102 +585,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   ),
                 ),
-              if (lib.reanalyzing)
+              if (lib.reanalyzing || lib.uploading || lib.uploadQueue.isNotEmpty)
                 SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        LinearProgressIndicator(
-                          value: lib.uploadPercent > 0
-                              ? (lib.uploadPercent.clamp(0, 100) / 100.0)
-                              : null,
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          '재분석 중 ${lib.uploadPercent}%'
-                          '${lib.uploadStage.isEmpty ? '' : ' · ${lib.uploadStage}'}',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              else if (lib.uploading)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        LinearProgressIndicator(
-                          // EDGE (design/75): stalled → do not animate fake progress.
-                          value: lib.uploadStalled
-                              ? 0
-                              : (lib.uploadPercent > 0
-                                  ? (lib.uploadPercent.clamp(0, 100) / 100.0)
-                                  : null),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          lib.uploadStalled
-                              ? (lib.uploadStage.isEmpty
-                                  ? '중단됨 · 앱을 열면 이어갑니다'
-                                  : lib.uploadStage)
-                              : (
-                                  // design/185 — device SoT; analysis then save on this phone.
-                                  '처리 중 ${lib.uploadPercent}%'
-                                  '${lib.uploadStage.isEmpty ? '' : ' · ${lib.uploadStage}'}'
-                                  ' · 끝나면 이 기기에 저장'
-                                  '${lib.uploadQueue.length > 1 ? ' · 대기 ${lib.uploadQueue.length - 1}' : ''}'
-                                ),
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                        const SizedBox(height: 8),
-                        if (lib.uploadStalled)
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextButton(
-                              onPressed: lib.opening || lib.reanalyzing
-                                  ? null
-                                  : () => _resumeInterrupted(),
-                              child: const Text('지금 이어가기'),
-                            ),
-                          ),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton(
-                            // design/132 — early cancel; late stage may refuse on server.
-                            onPressed: () => lib.cancelUpload(),
-                            child: const Text('취소'),
-                          ),
-                        ),
-                        if (lib.uploadBatteryHint != null) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            lib.uploadBatteryHint!,
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                          const SizedBox(height: 4),
-                          Wrap(
-                            spacing: 8,
-                            children: [
-                              TextButton(
-                                onPressed: () async {
-                                  await lib.openBatterySettings();
-                                },
-                                child: const Text('배터리 제한 해제'),
-                              ),
-                              TextButton(
-                                onPressed: () => lib.dismissBatteryHint(),
-                                child: const Text('나중에'),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ],
-                    ),
+                  child: UploadStatusBar(
+                    library: lib,
+                    onResume: _resumeInterrupted,
                   ),
                 ),
               if (lib.error != null)
@@ -722,14 +671,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 SliverReorderableList(
                   itemCount: lib.papers.length,
                   // design/122 — custom proxy: no M3 white flash; keep lifted row.
+                  // design/225-F — Listener for magnetic trash hit-test.
                   proxyDecorator: (child, index, animation) {
                     final scheme = Theme.of(context).colorScheme;
-                    return libraryReorderProxyDecorator(
+                    final base = libraryReorderProxyDecorator(
                       child,
                       index,
                       animation,
                       colorScheme: scheme,
                     );
+                    return Listener(
+                      onPointerMove: (e) => _updateTrashHover(e.position),
+                      child: base,
+                    );
+                  },
+                  onReorderStart: (index) {
+                    if (index < 0 || index >= lib.papers.length) return;
+                    setState(() {
+                      _dragCacheId = lib.papers[index].id;
+                      _dragOverTrash = false;
+                    });
+                  },
+                  onReorderEnd: (_) {
+                    if (_dragOverTrash) {
+                      // Drop handled in onReorder; clear leftover flags.
+                    }
+                    if (mounted && !_deleting) {
+                      setState(() {
+                        if (!_dragOverTrash) {
+                          _dragCacheId = null;
+                          _dragOverTrash = false;
+                        }
+                      });
+                    }
                   },
                   onReorder: (oldIndex, newIndex) {
                     // design/224 — reorder only in edit mode.
@@ -738,9 +712,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         lib.uploading ||
                         lib.reanalyzing ||
                         _deleting) {
+                      setState(() {
+                        _dragCacheId = null;
+                        _dragOverTrash = false;
+                      });
+                      return;
+                    }
+                    // design/225-F — trash magnet: soft-hide, no order persist.
+                    if (_dragOverTrash) {
+                      final id = _dragCacheId;
+                      setState(() {
+                        _dragOverTrash = false;
+                        _dragCacheId = null;
+                      });
+                      if (id != null && id.isNotEmpty) {
+                        unawaited(_softHideWithUndo([id]));
+                      }
                       return;
                     }
                     unawaited(lib.reorderPapers(oldIndex, newIndex));
+                    setState(() {
+                      _dragCacheId = null;
+                      _dragOverTrash = false;
+                    });
                   },
                   itemBuilder: (context, i) {
                     final e = lib.papers[i];

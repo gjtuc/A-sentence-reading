@@ -125,6 +125,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     widget.auth.addListener(_onAuthChanged);
+    // design/225 224b — soft-hide of open paper leaves reader surface.
+    widget.library.onSoftHideOpened = () {
+      if (!mounted) return;
+      if (_readerSurface) {
+        _goLibrary(recordLeft: false);
+      }
+    };
     // design/74 — FG notification tap → open that paper in reader.
     unawaited(widget.library.initUploadNotify());
     widget.library.uploadNotify.setOpenCacheIdHandler(_onNotifyOpenCacheId);
@@ -137,6 +144,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     _accessRetry?.cancel();
     widget.auth.removeListener(_onAuthChanged);
     WidgetsBinding.instance.removeObserver(this);
+    widget.library.onSoftHideOpened = null;
     widget.library.uploadNotify.setOpenCacheIdHandler(null);
     super.dispose();
   }

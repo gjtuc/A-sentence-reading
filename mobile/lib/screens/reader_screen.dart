@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -28,6 +30,7 @@ import '../widgets/annotation_toolbar_sheet.dart';
 import '../api/figure_ink_models.dart';
 import '../widgets/figure_ink_toolbar.dart';
 import '../widgets/annotated_sentence_text.dart';
+import '../widgets/upload_status_bar.dart';
 import 'figure_edit_screen.dart';
 
 /// Split reader: sentence panel + figure panel (design/63) + TTS (design/64).
@@ -425,15 +428,28 @@ class _ReaderScreenState extends State<ReaderScreen> {
       builder: (context, _) {
         final s = library.session;
         if (s == null || !s.isValid) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text(
-                'No paper open. Open one from Library\n'
-                '(sentence + figure + TTS).',
-                textAlign: TextAlign.center,
+          // design/225-U — still show upload chrome when auto-open / empty reader.
+          return Column(
+            children: [
+              UploadStatusBar(
+                library: library,
+                dense: true,
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                onResume: () => unawaited(library.onAppResumed()),
               ),
-            ),
+              const Expanded(
+                child: Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'No paper open. Open one from Library\n'
+                      '(sentence + figure + TTS).',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           );
         }
         _ensureLayoutForSession(s);
@@ -464,6 +480,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
         final showFigure = _layout != _ReaderLayoutMode.sentenceOnly;
         return Column(
           children: [
+            UploadStatusBar(
+              library: library,
+              dense: true,
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+              onResume: () => unawaited(library.onAppResumed()),
+            ),
             if ((library.lastIngestFailure ?? '').trim().isNotEmpty)
               MaterialBanner(
                 content: Text(library.lastIngestFailure!),

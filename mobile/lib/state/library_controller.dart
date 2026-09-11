@@ -177,6 +177,8 @@ class LibraryController extends ChangeNotifier {
     final openId = session?.cacheId;
     if (openId != null && ids.contains(openId)) {
       clearOpened();
+      // design/225 224b — leave reader surface (Offstage keep-alive).
+      onSoftHideOpened?.call();
     }
     _publishPapers(papers.where((p) => !ids.contains(p.id)).toList());
     error = null;
@@ -237,6 +239,9 @@ class LibraryController extends ChangeNotifier {
 
   /// design/183 — fired after a real sentence_index change (advance / jump).
   void Function(int from, int to)? onSentenceIndexChanged;
+
+  /// design/225 — soft-hide cleared the open session; shell should leave reader.
+  VoidCallback? onSoftHideOpened;
 
   List<PaperEntry> papers = const [];
   ReadingSession? session;
