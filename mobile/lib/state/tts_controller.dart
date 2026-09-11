@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/cite_refs.dart' as cite;
 import '../api/client.dart';
 import '../api/tts_models.dart';
+import '../services/evidence_bus.dart';
 import 'library_controller.dart';
 
 class TtsController extends ChangeNotifier {
@@ -65,8 +66,30 @@ class TtsController extends ChangeNotifier {
   int? _lastSentenceIndex;
   String? _lastSessionId;
 
+  /// design/219 — emit tts_auth_sticky at most once per sticky episode.
+  bool _authStickyEmitted = false;
+
   Future<SharedPreferences> _readyPrefs() async {
     return _prefs ??= await SharedPreferences.getInstance();
+  }
+
+  /// design/219 — red UI under reader chrome is this sticky auth fail string.
+  bool get hasStickyAuthError {
+    final e = (error ?? '').toLowerCase();
+    if (e.isEmpty) return false;
+    return e.contains('401') ||
+        e.contains('auth_required') ||
+        e.contains('login') ||
+        e.contains('로그인');
+  }
+
+  Future<int> _hasSessionTokenFlag() async {
+    try {
+      final t = await _client.sessionStore.readToken();
+      return (t != null && t.trim().isNotEmpty) ? 1 : 0;
+    } catch (_) {
+      return 0;
+    }
   }
 
   /// Load persisted mode / voice / rate once at cold start.
@@ -97,13 +120,54 @@ class TtsController extends ChangeNotifier {
       notifyListeners();
     }
     // Best-effort voice catalog for Settings + random locale pools.
-    await ensureVoicesLoaded();
+    await ensureVoicesLoaded(stage: 'bootstrap');
   }
 
-  Future<void> ensureVoicesLoaded({bool force = false}) async {
+  /// design/219 — after login, re-fetch so sticky 401 from cold start clears.
+  Future<void> retryVoicesAfterAuth() async {
+    if (hasStickyAuthError) {
+      asrEvidenceBus?.record(
+        'tts_auth_sticky',
+        severity: 'consistency',
+        stage: 'pre_login_retry',
+        route: 'tts/voices',
+        ok: false,
+        code: 'auth_required',
+        httpStatus: 401,
+        details: {
+          'has_token': await _hasSessionTokenFlag(),
+          'sticky': 1,
+          'voice_n': voices.length,
+        },
+      );
+      _authStickyEmitted = true;
+    }
+    await ensureVoicesLoaded(force: true, stage: 'login_retry');
+  }
+
+  Future<void> ensureVoicesLoaded({
+    bool force = false,
+    String stage = 'force',
+  }) async {
     if (!force && voices.isNotEmpty) return;
+    final st = stage.trim().isEmpty ? 'force' : stage.trim();
+    final hasToken = await _hasSessionTokenFlag();
+    asrEvidenceBus?.record(
+      'tts_voices_call_start',
+      severity: 'lifecycle',
+      stage: st,
+      route: 'tts/voices',
+      ok: true,
+      details: {
+        'has_token': hasToken,
+        'force': force ? 1 : 0,
+        'voice_n': voices.length,
+      },
+    );
     voicesLoading = true;
     notifyListeners();
+    var httpStatus = 0;
+    var code = 'ok';
     try {
       final info = await _client.fetchTtsVoices();
       if (info.voices.isNotEmpty) {
@@ -118,10 +182,56 @@ class TtsController extends ChangeNotifier {
         voice = normalizeTtsVoice(info.defaultVoice);
       }
       error = null;
-    } catch (e) {
+      _authStickyEmitted = false;
+      httpStatus = 200;
+      code = 'ok';
+    } on AsrApiException catch (e) {
       // EDGE: offline / 503 — keep last list or empty; fixed mode still works.
       error = e.toString();
+      httpStatus = e.statusCode;
+      code = e.statusCode == 401 ? 'auth_required' : 'other';
+    } catch (e) {
+      error = e.toString();
+      httpStatus = 0;
+      code = 'other';
     } finally {
+      final sticky = hasStickyAuthError ? 1 : 0;
+      asrEvidenceBus?.record(
+        'tts_voices_call_done',
+        severity: code == 'ok' ? 'boundary' : 'error',
+        stage: st,
+        route: 'tts/voices',
+        ok: code == 'ok',
+        code: code,
+        httpStatus: httpStatus > 0 ? httpStatus : null,
+        message: (error ?? '').length > 200
+            ? (error ?? '').substring(0, 200)
+            : (error ?? ''),
+        details: {
+          'has_token': hasToken,
+          'sticky': sticky,
+          'voice_n': voices.length,
+        },
+      );
+      // design/219 — separate consistency kind so agents can pull without
+      // filtering every voices done; once per sticky episode.
+      if (sticky == 1 && !_authStickyEmitted) {
+        _authStickyEmitted = true;
+        asrEvidenceBus?.record(
+          'tts_auth_sticky',
+          severity: 'consistency',
+          stage: st,
+          route: 'tts/voices',
+          ok: false,
+          code: code,
+          httpStatus: httpStatus > 0 ? httpStatus : null,
+          details: {
+            'has_token': hasToken,
+            'sticky': 1,
+            'voice_n': voices.length,
+          },
+        );
+      }
       voicesLoading = false;
       notifyListeners();
     }
@@ -246,6 +356,21 @@ class TtsController extends ChangeNotifier {
     } on AsrApiException catch (e) {
       error = e.message;
       playing = false;
+      // design/219 — synthesize path must leave a joinable auth fail (not only UI).
+      asrEvidenceBus?.record(
+        'client_api_fail',
+        severity: 'error',
+        stage: 'play',
+        route: 'tts',
+        ok: false,
+        code: e.statusCode == 401 ? 'auth_required' : 'other',
+        httpStatus: e.statusCode,
+        message: e.message.length > 200 ? e.message.substring(0, 200) : e.message,
+        details: {
+          'has_token': await _hasSessionTokenFlag(),
+          'voice_n': voices.length,
+        },
+      );
     } catch (e) {
       error = e.toString();
       playing = false;

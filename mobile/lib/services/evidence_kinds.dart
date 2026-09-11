@@ -188,4 +188,15 @@ const Set<String> kEvidenceAllowedKinds = {
   'notes_local_migrate_done',
   'notes_cloud_wipe',
   'notes_sync_refused',
+  // design/219 — TTS voices auth sticky densify
+  'tts_voices_call_start',
+  'tts_voices_call_done',
+  'tts_auth_sticky',
+  'login_gate_deny',
+  // design/221 — upload reservation queue
+  'upload_queue_enqueue',
+  'upload_queue_remove',
+  'upload_queue_pump_start',
+  'upload_queue_pump_done',
+  'upload_queue_blocked',
 };

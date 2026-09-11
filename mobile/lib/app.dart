@@ -131,6 +131,8 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       _shadowing.setSkillServerEnabled(st.mobilePracticeSkill);
       _shadowing.setSkillCloudSttEnabled(st.mobilePracticeSttCloud);
       _tts.setSkillTier(_tts.skillTier);
+      // design/219 — clear sticky voices 401 from cold-start race after login.
+      unawaited(_tts.retryVoicesAfterAuth());
       // speak-norm pin for skill spoken cache is applied in practice screen
       _shadowing.setLocalSot(st.shadowingLocalSot);
       _library.setShadowingLocalSot(st.shadowingLocalSot);

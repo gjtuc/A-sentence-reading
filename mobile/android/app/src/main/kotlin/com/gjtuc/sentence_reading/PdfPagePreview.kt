@@ -28,7 +28,10 @@ object PdfPagePreview {
             val scale = maxSidePx.toFloat() / max(srcW, srcH).toFloat()
             val w = (srcW * scale).toInt().coerceAtLeast(1)
             val h = (srcH * scale).toInt().coerceAtLeast(1)
+            // WHY: ARGB bitmap starts transparent; PdfRenderer blends onto it so
+            // the page looks black and black PDF ink disappears (layout edit dark mode).
             bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            bitmap.eraseColor(android.graphics.Color.WHITE)
             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             val out = ByteArrayOutputStream()
             if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) return null

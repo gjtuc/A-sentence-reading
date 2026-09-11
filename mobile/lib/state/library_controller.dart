@@ -19,6 +19,8 @@ import '../api/progress_store.dart';
 import '../api/reading_models.dart';
 import '../api/upload_draft_models.dart';
 import '../api/upload_draft_store.dart';
+import '../api/upload_reserve_models.dart';
+import '../api/upload_reserve_store.dart';
 import '../api/upload_notify.dart';
 import '../api/shadowing_models.dart';
 import '../api/translate_models.dart';
@@ -46,6 +48,7 @@ class LibraryController extends ChangeNotifier {
   LibraryController({
     required AsrClient client,
     UploadDraftStore? draftStore,
+    UploadReserveStore? reserveStore,
     UploadNotify? uploadNotify,
     PaperEditStash? editStash,
     FigureDiskCache? figureDiskCache,
@@ -54,6 +57,7 @@ class LibraryController extends ChangeNotifier {
     bool Function()? translateEnabled,
   })  : _client = client,
         _drafts = draftStore ?? PrefsUploadDraftStore(),
+        _reserve = reserveStore ?? PrefsUploadReserveStore(),
         _notify = uploadNotify ?? createUploadNotify(),
         _editStash = editStash ?? PaperEditStash(),
         _figureDisk = figureDiskCache ?? FigureDiskCache(),
@@ -62,6 +66,7 @@ class LibraryController extends ChangeNotifier {
 
   final AsrClient _client;
   final UploadDraftStore _drafts;
+  final UploadReserveStore _reserve;
   final UploadNotify _notify;
   final PaperEditStash _editStash;
   final FigureDiskCache _figureDisk;
@@ -173,6 +178,18 @@ class LibraryController extends ChangeNotifier {
 
   /// design/158 — show 「이어서 분석하기」 when a resumable draft exists.
   bool resumeOfferVisible = false;
+
+  /// design/221 — durable FIFO reservation queue (serial pump → uploadPdf).
+  List<UploadReserveItem> uploadQueue = const [];
+  bool _uploadPumpBusy = false;
+  bool _uploadQueueAutoOpened = false;
+
+  /// design/221 — first_only auto-open; library screen consumes then clears.
+  String? pendingAutoOpenCacheId;
+
+  void consumePendingAutoOpen() {
+    pendingAutoOpenCacheId = null;
+  }
 
   /// design/132 — user asked to cancel the in-flight upload/ingest.
   bool _uploadCancelRequested = false;
@@ -1848,6 +1865,7 @@ class LibraryController extends ChangeNotifier {
       loading = false;
       notifyListeners();
       unawaited(_refreshResumeOffer());
+      unawaited(hydrateUploadQueue(pump: true));
       unawaited(refreshReadLeftTimes());
       unawaited(
         _editStash.purgeOrphans(papers.map((p) => p.id).toSet()),
@@ -3327,13 +3345,18 @@ class LibraryController extends ChangeNotifier {
 
   /// design/158 — discard local upload draft (user opts out of resume).
   Future<void> discardResumeDraft() async {
+    final draft = await _drafts.read();
     await _drafts.clear();
     await _cancelWorkmanager();
     resumeOfferVisible = false;
     _autoResumeGate.reset();
     _pendingAutoResume = false;
     error = null;
+    if (draft != null) {
+      await removeUploadQueueItem(draft.contentHash);
+    }
     notifyListeners();
+    unawaited(_pumpUploadQueue());
   }
 
   void clearOpened() {
@@ -3384,6 +3407,11 @@ class LibraryController extends ChangeNotifier {
     await _cancelWorkmanager();
     await _editStash.purgeAll();
     await _drafts.clear();
+    await _reserve.clear();
+    uploadQueue = const [];
+    pendingAutoOpenCacheId = null;
+    _uploadQueueAutoOpened = false;
+    _uploadPumpBusy = false;
     await _notify.stop();
     _stopStallWatch();
     notifyListeners();
@@ -4017,6 +4045,293 @@ class LibraryController extends ChangeNotifier {
     await _drafts.clear();
     await _cancelWorkmanager();
     await _notify.showFailed(message: '업로드를 취소했습니다.');
+    // design/221 — cancel active only; pending reserved stay; pump continues.
+    final activeHash = (_activeContentHash ?? '').trim();
+    if (activeHash.isNotEmpty) {
+      await removeUploadQueueItem(activeHash);
+    }
+    unawaited(_pumpUploadQueue());
+  }
+
+  /// design/221 — load prefs queue (+ migrate singleton draft into list for UI).
+  Future<void> hydrateUploadQueue({bool pump = false}) async {
+    var q = await _reserve.read();
+    final draft = await _drafts.read();
+    if (draft != null &&
+        draft.purpose != 'reanalyze' &&
+        !q.items.any((e) => e.contentHash == draft.contentHash)) {
+      // WHY: reserve reader only allows ingest_reserve/; copy from draft tree.
+      var reservePath = '';
+      if (draft.localPath.contains('ingest_reserve')) {
+        reservePath = draft.localPath;
+      } else if (draft.localPath.isNotEmpty) {
+        final raw = await _drafts.readLocalPdf(draft.localPath);
+        if (raw != null && raw.isNotEmpty) {
+          reservePath = await _reserve.saveLocalPdf(draft.contentHash, raw) ?? '';
+        }
+      }
+      final migrated = UploadReserveItem(
+        contentHash: draft.contentHash,
+        filename: draft.filename,
+        localPath: reservePath,
+        bytesLen: draft.bytesLen,
+        status: 'active',
+        enqueuedAtMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      q = UploadReserveQueue(items: [migrated, ...q.items]);
+      await _reserve.write(q);
+      asrEvidenceBus?.record(
+        'upload_queue_enqueue',
+        severity: 'lifecycle',
+        stage: 'migrate_draft',
+        details: {'n': 1, 'hash8': draft.contentHash.substring(0, 8)},
+      );
+    }
+    uploadQueue = q.items;
+    notifyListeners();
+    if (pump) {
+      unawaited(_pumpUploadQueue());
+    }
+  }
+
+  /// design/221 — enqueue one or more PDFs; serial pump starts if idle.
+  Future<({int added, int skipped, String? message})> enqueuePickedPdfs(
+    List<({String name, Uint8List bytes})> files,
+  ) async {
+    if (files.isEmpty) {
+      return (added: 0, skipped: 0, message: null);
+    }
+    if (uploadQueue.isEmpty && !uploading) {
+      _uploadQueueAutoOpened = false;
+    }
+    var q = await _reserve.read();
+    var added = 0;
+    var skipped = 0;
+    String? message;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final f in files) {
+      final name = f.name.trim();
+      final bytes = f.bytes;
+      if (name.isEmpty || bytes.isEmpty) {
+        skipped += 1;
+        continue;
+      }
+      if (q.length >= kUploadReserveMaxItems) {
+        skipped += 1;
+        message = '대기 목록이 가득 찼습니다 (최대 $kUploadReserveMaxItems건).';
+        break;
+      }
+      final hash = sha256Hex(bytes);
+      if (q.items.any((e) => e.contentHash == hash)) {
+        skipped += 1;
+        continue;
+      }
+      final path = await _reserve.saveLocalPdf(hash, bytes);
+      if (path == null || path.isEmpty) {
+        skipped += 1;
+        message = '파일을 저장하지 못했습니다.';
+        continue;
+      }
+      final item = UploadReserveItem(
+        contentHash: hash,
+        filename: name,
+        localPath: path,
+        bytesLen: bytes.length,
+        status: 'reserved',
+        enqueuedAtMs: now + added,
+      );
+      q = UploadReserveQueue(items: [...q.items, item]);
+      added += 1;
+      asrEvidenceBus?.record(
+        'upload_queue_enqueue',
+        severity: 'lifecycle',
+        stage: 'pick',
+        details: {
+          'n': 1,
+          'hash8': hash.substring(0, 8),
+          'bytes': bytes.length,
+          'queue_len': q.length,
+        },
+      );
+    }
+    await _reserve.write(q);
+    uploadQueue = q.items;
+    notifyListeners();
+    unawaited(_pumpUploadQueue());
+    return (added: added, skipped: skipped, message: message);
+  }
+
+  /// design/221 — remove a reserved (or orphan) item; never clears active singleton draft.
+  Future<void> removeUploadQueueItem(String contentHash) async {
+    final hash = contentHash.trim().toLowerCase();
+    if (hash.length != 64) return;
+    final q = await _reserve.read();
+    UploadReserveItem? removed;
+    final next = <UploadReserveItem>[];
+    for (final it in q.items) {
+      if (it.contentHash == hash) {
+        removed = it;
+        continue;
+      }
+      next.add(it);
+    }
+    if (removed == null) {
+      uploadQueue = q.items;
+      return;
+    }
+    await _reserve.deleteLocalPdf(removed.localPath);
+    await _reserve.write(UploadReserveQueue(items: next));
+    uploadQueue = next;
+    asrEvidenceBus?.record(
+      'upload_queue_remove',
+      severity: 'lifecycle',
+      stage: removed.isActive ? 'active_or_done' : 'reserved',
+      details: {'hash8': hash.substring(0, 8)},
+    );
+    notifyListeners();
+  }
+
+  Future<void> _markQueueItemActive(String contentHash) async {
+    final hash = contentHash.trim().toLowerCase();
+    final q = await _reserve.read();
+    final next = q.items
+        .map(
+          (e) => e.contentHash == hash
+              ? e.copyWith(status: 'active')
+              : (e.isActive ? e.copyWith(status: 'reserved') : e),
+        )
+        .toList();
+    await _reserve.write(UploadReserveQueue(items: next));
+    uploadQueue = next;
+    notifyListeners();
+  }
+
+  Future<void> _pumpUploadQueue() async {
+    if (_uploadPumpBusy) return;
+    if (uploading || reanalyzing) return;
+    _uploadPumpBusy = true;
+    try {
+      while (true) {
+        if (uploading || reanalyzing) break;
+        final draft = await _drafts.read();
+        if (draft != null && draft.isReanalyze) {
+          asrEvidenceBus?.record(
+            'upload_queue_blocked',
+            severity: 'lifecycle',
+            stage: 'reanalyze_draft',
+            ok: true,
+          );
+          break;
+        }
+        if (draft != null &&
+            (draft.canReattach || draft.canResumeChunks)) {
+          asrEvidenceBus?.record(
+            'upload_queue_blocked',
+            severity: 'lifecycle',
+            stage: 'resumable_draft',
+            details: {'hash8': draft.contentHash.substring(0, 8)},
+            ok: true,
+          );
+          break;
+        }
+
+        final q = await _reserve.read();
+        uploadQueue = q.items;
+        final head = q.items.isEmpty
+            ? null
+            : q.items.firstWhere(
+                (e) => e.isReserved || e.isActive,
+                orElse: () => q.items.first,
+              );
+        if (head == null || q.isEmpty) break;
+
+        final bytes = await _reserve.readLocalPdf(head.localPath);
+        if (bytes == null || bytes.isEmpty) {
+          final d = await _drafts.read();
+          if (d != null &&
+              d.contentHash == head.contentHash &&
+              (d.canReattach || d.canResumeChunks)) {
+            // EDGE: migrated active without reserve bytes — resume UI owns it.
+            break;
+          }
+          await removeUploadQueueItem(head.contentHash);
+          continue;
+        }
+
+        await _markQueueItemActive(head.contentHash);
+        asrEvidenceBus?.record(
+          'upload_queue_pump_start',
+          severity: 'lifecycle',
+          stage: 'head',
+          details: {
+            'hash8': head.contentHash.substring(0, 8),
+            'queue_len': q.length,
+          },
+        );
+
+        final result = await uploadPdf(
+          filename: head.filename,
+          bytes: Uint8List.fromList(bytes),
+          knownHash: head.contentHash,
+        );
+
+        final still = await _drafts.read();
+        if (result != null) {
+          await removeUploadQueueItem(head.contentHash);
+          asrEvidenceBus?.record(
+            'upload_queue_pump_done',
+            severity: 'lifecycle',
+            stage: 'ok',
+            cacheId: result.cacheId,
+            ok: true,
+            details: {'hash8': head.contentHash.substring(0, 8)},
+          );
+          if (!_uploadQueueAutoOpened && result.cacheId.trim().isNotEmpty) {
+            pendingAutoOpenCacheId = result.cacheId.trim();
+            _uploadQueueAutoOpened = true;
+            notifyListeners();
+          }
+          continue;
+        }
+
+        if (still != null &&
+            still.contentHash == head.contentHash &&
+            (still.canReattach || still.canResumeChunks)) {
+          asrEvidenceBus?.record(
+            'upload_queue_pump_done',
+            severity: 'lifecycle',
+            stage: 'keep_resume',
+            ok: false,
+            details: {'hash8': head.contentHash.substring(0, 8)},
+          );
+          break;
+        }
+
+        await removeUploadQueueItem(head.contentHash);
+        asrEvidenceBus?.record(
+          'upload_queue_pump_done',
+          severity: 'lifecycle',
+          stage: 'fail_or_cancel',
+          ok: false,
+          details: {'hash8': head.contentHash.substring(0, 8)},
+        );
+      }
+    } finally {
+      _uploadPumpBusy = false;
+      final q = await _reserve.read();
+      uploadQueue = q.items;
+      notifyListeners();
+      if (q.items.any((e) => e.isReserved) && !uploading && !reanalyzing) {
+        final draft = await _drafts.read();
+        final blocked = draft != null &&
+            (draft.isReanalyze ||
+                draft.canReattach ||
+                draft.canResumeChunks);
+        if (!blocked) {
+          unawaited(_pumpUploadQueue());
+        }
+      }
+    }
   }
 
   Future<IngestJobResult?> uploadPdf({
@@ -4207,6 +4522,8 @@ class LibraryController extends ChangeNotifier {
       await _drafts.clear();
       await _cancelWorkmanager();
       _autoResumeGate.reset();
+      // design/221 — drop finished head so a later pump cannot re-ingest.
+      await removeUploadQueueItem(hash);
       await _runPaperHandoff(result.cacheId, title: result.title);
       final seen = await _confirmCacheInLibrary(
         result.cacheId,
@@ -4312,6 +4629,10 @@ class LibraryController extends ChangeNotifier {
       } else {
         unawaited(_refreshResumeOffer());
       }
+      // design/221 — resume/direct uploadPdf path; pump is no-op while already pumping.
+      if (!_uploadPumpBusy) {
+        unawaited(_pumpUploadQueue());
+      }
     }
   }
 
@@ -4361,6 +4682,7 @@ class LibraryController extends ChangeNotifier {
       await _drafts.clear();
       await _cancelWorkmanager();
       _autoResumeGate.reset();
+      await removeUploadQueueItem(draft.contentHash);
       await _runPaperHandoff(result.cacheId, title: result.title);
       final seen = await _confirmCacheInLibrary(
         result.cacheId,
@@ -4473,6 +4795,9 @@ class LibraryController extends ChangeNotifier {
         _schedulePendingAutoResume();
       } else {
         unawaited(_refreshResumeOffer());
+      }
+      if (!_uploadPumpBusy) {
+        unawaited(_pumpUploadQueue());
       }
     }
   }

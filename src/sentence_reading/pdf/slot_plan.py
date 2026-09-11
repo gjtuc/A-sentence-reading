@@ -15,6 +15,10 @@ from sentence_reading.pdf.layout_map import LayoutBox, LayoutMap
 
 _SLOT_PLAN_NAME = "slot_plan.json"
 
+# design/220 — Azure table_body often overlaps its caption by >8pt.
+FIG_CAPTION_OVERLAP_PT = 8.0
+TABLE_CAPTION_OVERLAP_PT = 40.0
+
 
 @dataclass
 class Slot:
@@ -306,18 +310,20 @@ def initial_body_assignments(
 
 
 def _nearest_caption_for_body(layout: LayoutMap, body: LayoutBox, *, fig: bool) -> str:
+    # design/220 — table overlap allowance (Azure caption/body bleed).
     want_kind = "figure_caption" if fig else "table_caption"
+    overlap = FIG_CAPTION_OVERLAP_PT if fig else TABLE_CAPTION_OVERLAP_PT
     best: tuple[str, float] = ("", 1e9)
     for box in layout.boxes_on_page(body.page_index):
         if box.kind != want_kind or not box.text:
             continue
         if fig:
             gap = float(box.rect["y0"]) - float(body.rect["y1"])
-            if gap < -8 or gap > 200:
+            if gap < -overlap or gap > 200:
                 continue
         else:
             gap = float(body.rect["y0"]) - float(box.rect["y1"])
-            if gap < -8 or gap > 200:
+            if gap < -overlap or gap > 200:
                 continue
         mid_cap = (float(box.rect["x0"]) + float(box.rect["x1"])) / 2.0
         mid_body = (float(body.rect["x0"]) + float(body.rect["x1"])) / 2.0

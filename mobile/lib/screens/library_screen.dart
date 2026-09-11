@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -11,8 +12,9 @@ import '../state/auth_controller.dart';
 import '../state/bookmark_controller.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
+import '../widgets/upload_queue_sheet.dart';
 
-/// Authenticated paper list → open · single PDF upload (design/62 · design/70 · design/122).
+/// Authenticated paper list → open · PDF upload queue (design/62 · 70 · 221).
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
     super.key,
@@ -295,16 +297,31 @@ class _LibraryScreenState extends State<LibraryScreen> {
     widget.onOpened?.call();
   }
 
+  Future<void> _maybeAutoOpenFromQueue() async {
+    final lib = widget.library;
+    final cid = (lib.pendingAutoOpenCacheId ?? '').trim();
+    if (cid.isEmpty) return;
+    lib.consumePendingAutoOpen();
+    PaperEntry? entry;
+    for (final p in lib.papers) {
+      if (p.id == cid) {
+        entry = p;
+        break;
+      }
+    }
+    if (entry == null) return;
+    await _open(entry);
+  }
+
   Future<void> _pickAndUpload() async {
     final lib = widget.library;
-    if (lib.uploading || lib.reanalyzing || lib.opening) return;
+    // design/221 — allow enqueue while an analysis is already running.
+    if (lib.reanalyzing || lib.opening) return;
 
-    // WHY: single-file chip — multi-select deferred (design/70).
-    // design/71: same content_hash re-pick auto-reattaches inside uploadPdf.
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: const ['pdf'],
-      allowMultiple: false,
+      allowMultiple: true,
       withData: true,
     );
     if (!mounted) return;
@@ -312,47 +329,44 @@ class _LibraryScreenState extends State<LibraryScreen> {
       // EDGE: user cancelled — stay silent (not a failure snackbar).
       return;
     }
-    final f = picked.files.first;
-    final name = f.name.trim();
-    final bytes = f.bytes;
-    if (name.isEmpty || bytes == null || bytes.isEmpty) {
-      // EDGE: some SAF providers omit bytes — fail-closed, no fake success.
+    final batch = <({String name, Uint8List bytes})>[];
+    for (final f in picked.files) {
+      final name = f.name.trim();
+      final bytes = f.bytes;
+      if (name.isEmpty || bytes == null || bytes.isEmpty) {
+        continue;
+      }
+      batch.add((name: name, bytes: bytes));
+    }
+    if (batch.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('파일을 읽지 못했습니다. 다른 PDF를 골라 주세요.')),
       );
       return;
     }
 
-    // WHY: ingest already writes user GCS papers — cloud library is mandatory, not a
-    // second "PDF 올리기" step after processing (design/70).
-    final result = await lib.uploadPdf(filename: name, bytes: bytes);
+    final outcome = await lib.enqueuePickedPdfs(batch);
     if (!mounted) return;
-    // design/74 · product 3A: permission denied → upload still ran; warn once.
     final hint = lib.uploadBackgroundHint;
     if (hint != null && hint.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(hint)));
     }
-    if (result == null) {
-      final msg = lib.error ?? '처리에 실패했습니다.';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-      return;
-    }
-    PaperEntry? entry;
-    for (final p in lib.papers) {
-      if (p.id == result.cacheId) {
-        entry = p;
-        break;
-      }
-    }
-    if (entry == null) {
-      // EDGE: should be unreachable after uploadPdf list check — fail-closed.
+    if (outcome.message != null && outcome.message!.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('보관함에서 논문을 찾지 못했습니다.')),
+        SnackBar(content: Text(outcome.message!)),
       );
-      return;
+    } else if (outcome.added > 0) {
+      final extra = outcome.skipped > 0 ? ' · 건너뜀 ${outcome.skipped}' : '';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('대기열에 ${outcome.added}건 추가$extra')),
+      );
+    } else if (outcome.skipped > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('이미 대기열이거나 추가하지 못했습니다.')),
+      );
     }
-    // Auto-open: user must not tap the paper (or PDF 올리기 again) to finish.
-    await _open(entry);
+    // design/221 first_only — open when pump sets pendingAutoOpenCacheId.
+    await _maybeAutoOpenFromQueue();
   }
 
   @override
@@ -360,6 +374,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return AnimatedBuilder(
       animation: Listenable.merge([widget.auth, widget.library, widget.bookmarks]),
       builder: (context, _) {
+        final pendingOpen = widget.library.pendingAutoOpenCacheId;
+        if (pendingOpen != null && pendingOpen.trim().isNotEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            unawaited(_maybeAutoOpenFromQueue());
+          });
+        }
         if (!widget.auth.isLoggedIn) {
           return const Center(
             child: Padding(
@@ -408,10 +429,22 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ),
                         tooltip: _selecting ? '선택 취소' : '삭제',
                       ),
+                      if (lib.uploadQueue.isNotEmpty)
+                        IconButton(
+                          onPressed: () => showUploadQueueSheet(
+                            context: context,
+                            library: lib,
+                          ),
+                          icon: Badge(
+                            label: Text('${lib.uploadQueue.length}'),
+                            child: const Icon(Icons.queue),
+                          ),
+                          tooltip: '업로드 대기열',
+                        ),
                       IconButton(
+                        // design/221 — enqueue allowed while analyzing.
                         onPressed: lib.loading ||
                                 lib.opening ||
-                                lib.uploading ||
                                 lib.reanalyzing ||
                                 _deleting
                             ? null
@@ -542,6 +575,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   '처리 중 ${lib.uploadPercent}%'
                                   '${lib.uploadStage.isEmpty ? '' : ' · ${lib.uploadStage}'}'
                                   ' · 끝나면 이 기기에 저장'
+                                  '${lib.uploadQueue.length > 1 ? ' · 대기 ${lib.uploadQueue.length - 1}' : ''}'
                                 ),
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
@@ -655,7 +689,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           ),
                           const SizedBox(height: 16),
                           FilledButton.tonalIcon(
-                            onPressed: lib.loading ? null : _pickAndUpload,
+                            onPressed: lib.loading || lib.reanalyzing || lib.opening
+                                ? null
+                                : _pickAndUpload,
                             icon: const Icon(Icons.upload_file),
                             label: const Text('PDF 가져오기'),
                           ),

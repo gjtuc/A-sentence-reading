@@ -582,10 +582,15 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
                                 child: _pagePng != null
                                     ? AspectRatio(
                                         aspectRatio: _pageAspect,
-                                        child: Image.memory(
-                                          _pagePng!,
-                                          fit: BoxFit.contain,
-                                          gaplessPlayback: true,
+                                        // Light paper surface: PDF ink is black
+                                        // pixels; keep readable under dark Theme.
+                                        child: ColoredBox(
+                                          color: Colors.white,
+                                          child: Image.memory(
+                                            _pagePng!,
+                                            fit: BoxFit.contain,
+                                            gaplessPlayback: true,
+                                          ),
                                         ),
                                       )
                                     : ColoredBox(

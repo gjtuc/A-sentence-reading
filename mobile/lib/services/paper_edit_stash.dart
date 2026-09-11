@@ -119,7 +119,7 @@ class PaperEditStash {
 
   Future<File> pagePreviewFile(String cacheId, int pageIndex) async {
     return File(
-      p.join((await pagePreviewDir(cacheId)).path, 'p$pageIndex.png'),
+      p.join((await pagePreviewDir(cacheId)).path, 'p${pageIndex}_wb.png'),
     );
   }
 

@@ -275,7 +275,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.218",
+    version="0.3.220",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -349,6 +349,23 @@ class _GcsUidMiddleware(BaseHTTPMiddleware):
             ):
                 path = request.url.path or "/"
                 if path.startswith("/api/"):
+                    # design/219 — always breadcrumb TTS gate denials (overkill OK).
+                    try:
+                        from sentence_reading.llm import evidence_bus as eb
+
+                        p = path if len(path) <= 120 else path[:120]
+                        if p.startswith("/api/tts"):
+                            eb.emit(
+                                "login_gate_deny",
+                                severity="error",
+                                route=p,
+                                ok=False,
+                                code="auth_required",
+                                message="login_required_tts",
+                                details={"gate": "login_required"},
+                            )
+                    except Exception:  # noqa: BLE001
+                        pass
                     # FAIL-CLOSED: never return a fake-ok body for protected APIs.
                     return JSONResponse(
                         status_code=401,
@@ -1773,7 +1790,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.218",
+        "version": "0.3.220",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.

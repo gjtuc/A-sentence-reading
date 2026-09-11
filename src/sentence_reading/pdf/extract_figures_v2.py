@@ -5,6 +5,7 @@ design/151 — slot-ordered figure extraction orchestrator (rich-v20).
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,11 @@ log = logging.getLogger(__name__)
 
 _last_artifacts: dict[str, Any] | None = None
 
+_TABLE_CAPTION_LINE = re.compile(
+    r"^\s*Table\.?\s*S?\d+[a-z]?\b",
+    re.IGNORECASE,
+)
+
 
 def get_last_layout_artifacts() -> dict[str, Any] | None:
     return _last_artifacts
@@ -48,6 +54,41 @@ def _set_artifacts(layout: LayoutMap, plan: SlotPlan) -> None:
         "layout_map": layout.to_dict(),
         "slot_plan": plan.to_dict(),
     }
+
+
+def _orphan_table_png_until_next_caption(page, cap_rect) -> bytes | None:
+    """design/220 — caption-only table: clip below until next Table caption."""
+    import fitz
+
+    from sentence_reading.pdf.extract import _column_x_range, _render_page_clip
+
+    page_rect = page.rect
+    x0, x1 = _column_x_range(page_rect, cap_rect, bleed_frac=0.10)
+    y0 = max(float(page_rect.y0), float(cap_rect.y0) - 4)
+    y1 = min(float(page_rect.y1), float(cap_rect.y1) + 260)
+    # Stop before the next table caption under this one.
+    try:
+        for block in page.get_text("dict").get("blocks") or []:
+            if block.get("type") != 0:
+                continue
+            text = "".join(
+                span.get("text") or ""
+                for line in block.get("lines") or []
+                for span in line.get("spans") or []
+            )
+            if not _TABLE_CAPTION_LINE.match(text.strip()):
+                continue
+            bbox = block.get("bbox") or (0, 0, 0, 0)
+            by0 = float(bbox[1])
+            if by0 <= float(cap_rect.y1) + 2:
+                continue
+            y1 = min(y1, by0 - 2)
+    except Exception:  # noqa: BLE001
+        pass
+    if y1 <= y0 + 12:
+        return None
+    clip = fitz.Rect(x0, y0, x1, y1)
+    return _render_page_clip(page, clip)
 
 
 def _render_slot_png(
@@ -77,6 +118,16 @@ def _render_slot_png(
     png = b""
     if slot.kind == "table":
         png = composite_table_png(page, body_rect, cap_rect) or b""
+        # design/220 — if body missing / caption-only strip, expand below caption
+        # but stop before the next table caption on the page.
+        if (
+            cap_rect is not None
+            and body_rect is None
+            and (not png or is_caption_only_figure_png(png))
+        ):
+            orphan = _orphan_table_png_until_next_caption(page, cap_rect)
+            if orphan:
+                png = orphan
     else:
         png = composite_figure_png(page, body_rect, cap_rect) or b""
         if (

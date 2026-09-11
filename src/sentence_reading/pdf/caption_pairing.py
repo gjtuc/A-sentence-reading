@@ -10,6 +10,8 @@ from sentence_reading.fig_refs import caption_key
 from sentence_reading.llm.caption_classify import classify_caption_candidates
 from sentence_reading.pdf.layout_map import LayoutBox, LayoutMap
 from sentence_reading.pdf.slot_plan import (
+    FIG_CAPTION_OVERLAP_PT,
+    TABLE_CAPTION_OVERLAP_PT,
     SlotPlan,
     assign_caption_to_slot,
     refresh_slot_statuses,
@@ -65,13 +67,13 @@ def _strip_candidates(
             if box.kind not in ("figure_caption", "paragraph"):
                 continue
             gap = float(box.rect["y0"]) - float(body.rect["y1"])
-            if gap < -8 or gap > _STRIP_BELOW_PT:
+            if gap < -FIG_CAPTION_OVERLAP_PT or gap > _STRIP_BELOW_PT:
                 continue
         else:
             if box.kind not in ("table_caption", "paragraph"):
                 continue
             gap = float(body.rect["y0"]) - float(box.rect["y1"])
-            if gap < -8 or gap > _STRIP_ABOVE_PT:
+            if gap < -TABLE_CAPTION_OVERLAP_PT or gap > _STRIP_ABOVE_PT:
                 continue
         if not box.text.strip():
             continue

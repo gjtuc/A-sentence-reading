@@ -92,6 +92,7 @@ class PaperDiskIndexEntry {
         'debone': debone,
       };
 
+  /// design/218 — local-only rows still show 메인 (disk index has no doc_role yet).
   PaperEntry toPaperEntry() => PaperEntry(
         id: id,
         title: title,
@@ -103,7 +104,8 @@ class PaperDiskIndexEntry {
         pipelineVersion: pipelineVersion,
         hasSource: hasSource,
         ingestStatus: 'local',
-        libraryTag: '',
+        docRole: 'main',
+        libraryTag: '메인',
       );
 }
 
@@ -469,7 +471,8 @@ class PaperDiskStore {
     if (pageIndex < 0) return null;
     final dir = await paperDir(cacheId);
     if (dir == null) return null;
-    final f = File(p.join(dir.path, 'page_previews', 'p$pageIndex.png'));
+    // design/197 — `_wb` = white-bg native render (transparent PdfRenderer cache bust).
+    final f = File(p.join(dir.path, 'page_previews', 'p${pageIndex}_wb.png'));
     if (!await f.exists()) return null;
     try {
       final bytes = await f.readAsBytes();

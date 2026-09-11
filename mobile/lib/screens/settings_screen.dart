@@ -903,7 +903,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     if (tts.voices.isEmpty && !tts.voicesLoading)
                       TextButton(
-                        onPressed: () => tts.ensureVoicesLoaded(force: true),
+                        onPressed: () => tts.ensureVoicesLoaded(
+                          force: true,
+                          stage: 'manual_reload',
+                        ),
                         child: const Text('목소리 목록 다시 불러오기'),
                       ),
                   ],

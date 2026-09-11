@@ -2399,6 +2399,7 @@ throw AsrApiException(
     } catch (_) {
       // EDGE: non-JSON error page
     }
+    _breadcrumbApiFail('tts', res.statusCode, detail);
     throw AsrApiException(detail, res.statusCode);
   }
 
