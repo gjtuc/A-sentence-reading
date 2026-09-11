@@ -1,4 +1,4 @@
-/// design/228 · 230 · 233 — weak title heuristic from PDF Info.Title + head text.
+/// design/228 · 230 · 233 · 236 — weak title heuristic from PDF Info.Title + head text.
 library;
 
 import 'doc_role_detect.dart';
@@ -18,6 +18,8 @@ final _exactChrome = RegExp(
 
 final _prefixChrome = RegExp(
   r'^(cite this|cite this:|to cite this|doi:|https?://|www\.|'
+  // design/236 — RSC / bare journal short-links (e.g. rsc.li/catalysis)
+  r'rsc\.li/|[a-z0-9][\w.-]*\.[a-z]{2,}/|'
   r'received |accepted |published |view the article|'
   r'this content was downloaded|citation:)',
   caseSensitive: false,

@@ -32,7 +32,7 @@ def test_cache_schema_v3() -> None:
     cache = (
         MOBILE / "lib" / "api" / "pdf_advisory_cache_store.dart"
     ).read_text(encoding="utf-8")
-    assert "kPdfAdvisoryCacheSchema = 4" in cache
+    assert "kPdfAdvisoryCacheSchema = 5" in cache
 
 
 def test_dart_chrome_helpers_present() -> None:
@@ -43,6 +43,7 @@ def test_dart_chrome_helpers_present() -> None:
     assert "Cite this" in title or "cite this" in title.lower()
     assert "PAPER" in title or "paper" in title
     assert "REVIEW" in title or "review" in title
+    assert "rsc.li" in title.lower() or r"rsc\.li" in title
 
 
 def _port_guess(info: str, head: str, name: str) -> tuple[str, str]:
@@ -61,6 +62,7 @@ def _port_guess(info: str, head: str, name: str) -> tuple[str, str]:
     )
     prefix = re.compile(
         r"^(cite this|cite this:|to cite this|doi:|https?://|www\.|"
+        r"rsc\.li/|[a-z0-9][\w.-]*\.[a-z]{2,}/|"
         r"received |accepted |published |view the article|"
         r"this content was downloaded|citation:)",
         re.I,
@@ -124,4 +126,5 @@ def test_iop_and_rsc_fixtures_skip_journal_chrome() -> None:
     assert src2 == "head_line"
     assert "Cite this" not in title2
     assert "Catal. Sci" not in title2
+    assert "rsc.li" not in title2.lower()
     assert "Recent advances" in title2

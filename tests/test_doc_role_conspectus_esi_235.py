@@ -62,4 +62,4 @@ def test_dart_and_cache_v4() -> None:
     assert "CONSPECTUS" in dart
     assert "head_marker_esi_footnote_veto" in dart
     cache = CACHE.read_text(encoding="utf-8")
-    assert "kPdfAdvisoryCacheSchema = 4" in cache
+    assert "kPdfAdvisoryCacheSchema = 5" in cache
