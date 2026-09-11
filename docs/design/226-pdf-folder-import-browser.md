@@ -21,7 +21,7 @@ Footer (always when browsing): 목록은 **연결한 폴더(및 하위)** 기준
 |---------|------------------------|
 | Full-screen `PdfImportScreen` | MediaStore / READ_MEDIA / MANAGE_EXTERNAL |
 | `OPEN_DOCUMENT_TREE` + persistable **tree** URI only | Persistable single-file URI reopen |
-| Folder PDF list (cap 500, `truncated`) | Client title / main·SI preview (F3) |
+| Folder PDF list (cap 500, `truncated`) | Client title / main·SI preview → **[228](228-pdf-folder-advisory-preview.md)** |
 | Multi-select → stream/read → `enqueuePickedPdfs` (221) | Parallel `uploadPdf` |
 | Lazy SHA-256 + disk cache → green via `libraryContentHashes` | Claiming 「전수」 |
 | Keep 「파일에서 추가」 SAF escape | Path/folder name in evidence |
@@ -69,7 +69,7 @@ app_documents/pdf_hash_cache/u_$safeUid/index.json
 ## Non-goals (this version)
 
 - MediaStore scanner
-- Title / SI advisory preview
+- Title / SI advisory preview → shipped in [228](228-pdf-folder-advisory-preview.md)
 - `created_at` / analyzed_at UI polish
 - Raising queue max above 20
 

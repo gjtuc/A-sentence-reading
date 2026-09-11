@@ -61,6 +61,8 @@ class PdfFolderGrant {
 
 enum PdfHashState { unknown, computing, ready, failed }
 
+enum PdfAdvisoryState { unknown, computing, ready, failed }
+
 class ScannedPdfEntry {
   ScannedPdfEntry({
     required this.docUri,
@@ -69,6 +71,10 @@ class ScannedPdfEntry {
     required this.lastModifiedMs,
     this.contentHash = '',
     this.hashState = PdfHashState.unknown,
+    this.advisoryTitle = '',
+    this.advisoryRole = '',
+    this.advisoryReason = '',
+    this.advisoryState = PdfAdvisoryState.unknown,
   });
 
   final String docUri;
@@ -77,10 +83,20 @@ class ScannedPdfEntry {
   final int lastModifiedMs;
   String contentHash;
   PdfHashState hashState;
+  /// design/228 — estimated title (never used as upload wire name).
+  String advisoryTitle;
+  /// `main` | `supplementary` | ''
+  String advisoryRole;
+  String advisoryReason;
+  PdfAdvisoryState advisoryState;
 
   ScannedPdfEntry copyWith({
     String? contentHash,
     PdfHashState? hashState,
+    String? advisoryTitle,
+    String? advisoryRole,
+    String? advisoryReason,
+    PdfAdvisoryState? advisoryState,
   }) {
     return ScannedPdfEntry(
       docUri: docUri,
@@ -89,6 +105,10 @@ class ScannedPdfEntry {
       lastModifiedMs: lastModifiedMs,
       contentHash: contentHash ?? this.contentHash,
       hashState: hashState ?? this.hashState,
+      advisoryTitle: advisoryTitle ?? this.advisoryTitle,
+      advisoryRole: advisoryRole ?? this.advisoryRole,
+      advisoryReason: advisoryReason ?? this.advisoryReason,
+      advisoryState: advisoryState ?? this.advisoryState,
     );
   }
 }

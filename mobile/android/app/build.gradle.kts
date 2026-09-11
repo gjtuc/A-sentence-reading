@@ -55,4 +55,6 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     // WHY (design/226): DocumentFile tree listing for 논문 폴더 연결.
     implementation("androidx.documentfile:documentfile:1.0.1")
+    // WHY (design/228): PDF head text + Info.Title for advisory title/SI (no OCR).
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 }

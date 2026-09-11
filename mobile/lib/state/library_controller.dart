@@ -27,6 +27,9 @@ import '../api/upload_picker_recent_store.dart';
 import '../api/pdf_folder_grant_models.dart';
 import '../api/pdf_folder_grant_store.dart';
 import '../api/pdf_hash_cache_store.dart';
+import '../api/pdf_advisory_cache_store.dart';
+import '../pdf/doc_role_detect.dart';
+import '../pdf/advisory_title.dart';
 import '../api/library_soft_delete_store.dart';
 import '../platform/saf_tree_channel.dart';
 import '../api/upload_notify.dart';
@@ -60,6 +63,7 @@ class LibraryController extends ChangeNotifier {
     UploadPickerRecentStore? pickerRecentStore,
     PdfFolderGrantStore? pdfFolderGrantStore,
     PdfHashCacheStore? pdfHashCacheStore,
+    PdfAdvisoryCacheStore? pdfAdvisoryCacheStore,
     SafTreeChannel? safTreeChannel,
     LibrarySoftDeleteStore? softDeleteStore,
     UploadNotify? uploadNotify,
@@ -74,6 +78,7 @@ class LibraryController extends ChangeNotifier {
         _pickerRecent = pickerRecentStore ?? PrefsUploadPickerRecentStore(),
         _pdfFolderGrant = pdfFolderGrantStore ?? PrefsPdfFolderGrantStore(),
         _pdfHashCache = pdfHashCacheStore ?? PdfHashCacheStore(),
+        _pdfAdvisoryCache = pdfAdvisoryCacheStore ?? PdfAdvisoryCacheStore(),
         _safTree = safTreeChannel ?? SafTreeChannel(),
         _softDelete = softDeleteStore ?? PrefsLibrarySoftDeleteStore(),
         _notify = uploadNotify ?? createUploadNotify(),
@@ -88,6 +93,7 @@ class LibraryController extends ChangeNotifier {
   final UploadPickerRecentStore _pickerRecent;
   final PdfFolderGrantStore _pdfFolderGrant;
   final PdfHashCacheStore _pdfHashCache;
+  final PdfAdvisoryCacheStore _pdfAdvisoryCache;
   final SafTreeChannel _safTree;
   final LibrarySoftDeleteStore _softDelete;
   final UploadNotify _notify;
@@ -121,6 +127,7 @@ class LibraryController extends ChangeNotifier {
     unawaited(_pickerRecent.bindUid(_diskUid));
     unawaited(_pdfFolderGrant.bindUid(_diskUid));
     unawaited(_pdfHashCache.bindUid(_diskUid));
+    unawaited(_pdfAdvisoryCache.bindUid(_diskUid));
     unawaited(_pickerRecentThenSoftDelete());
     _bulkHandoffAttempted = false;
     _clearPendingEnrichState();
@@ -341,6 +348,8 @@ class LibraryController extends ChangeNotifier {
   bool pdfFolderTruncated = false;
   bool pdfFolderGrantStale = false;
   bool _pdfHashPumpBusy = false;
+  bool _pdfAdvisoryPumpBusy = false;
+  int _pdfAdvisoryPumpEpoch = 0;
 
   void consumePendingAutoOpen() {
     pendingAutoOpenCacheId = null;
@@ -3615,6 +3624,8 @@ class LibraryController extends ChangeNotifier {
     final oldGrant = pdfFolderGrant;
     await _pdfFolderGrant.clearBound();
     await _pdfHashCache.clearBound();
+    await _pdfAdvisoryCache.clearBound();
+    _pdfAdvisoryPumpEpoch++;
     if (oldGrant != null) {
       unawaited(_safTree.releaseTree(oldGrant.treeUri));
     }
@@ -4380,6 +4391,7 @@ class LibraryController extends ChangeNotifier {
   }
 
   Future<void> _scanPdfFolder(String treeUri) async {
+    _pdfAdvisoryPumpEpoch++;
     final t0 = DateTime.now().millisecondsSinceEpoch;
     try {
       final listed = await _safTree.listPdfs(
@@ -4393,6 +4405,11 @@ class LibraryController extends ChangeNotifier {
           sizeBytes: it.sizeBytes,
           lastModifiedMs: it.lastModifiedMs,
         );
+        final adv = await _pdfAdvisoryCache.lookup(
+          docUri: it.docUri,
+          sizeBytes: it.sizeBytes,
+          lastModifiedMs: it.lastModifiedMs,
+        );
         next.add(
           ScannedPdfEntry(
             docUri: it.docUri,
@@ -4402,6 +4419,12 @@ class LibraryController extends ChangeNotifier {
             contentHash: cached ?? '',
             hashState:
                 cached == null ? PdfHashState.unknown : PdfHashState.ready,
+            advisoryTitle: adv?.advisoryTitle ?? '',
+            advisoryRole: adv?.advisoryRole ?? '',
+            advisoryReason: adv?.advisoryReason ?? '',
+            advisoryState: adv == null
+                ? PdfAdvisoryState.unknown
+                : PdfAdvisoryState.ready,
           ),
         );
         if (cached != null) {
@@ -4511,6 +4534,148 @@ class LibraryController extends ChangeNotifier {
       }
     } finally {
       _pdfHashPumpBusy = false;
+    }
+  }
+
+  void cancelPdfAdvisoryPump() {
+    _pdfAdvisoryPumpEpoch++;
+  }
+
+  /// design/228 — lazy advisory title/role (concurrency 2, first [limit]).
+  Future<void> ensureVisiblePdfAdvisories({int limit = 40}) async {
+    if (_pdfAdvisoryPumpBusy) return;
+    _pdfAdvisoryPumpBusy = true;
+    final epoch = _pdfAdvisoryPumpEpoch;
+    final tPump = DateTime.now().millisecondsSinceEpoch;
+    var nOk = 0;
+    var nFail = 0;
+    try {
+      final pending = pdfFolderEntries
+          .where((e) => e.advisoryState == PdfAdvisoryState.unknown)
+          .take(limit)
+          .toList();
+      if (pending.isEmpty) return;
+      asrEvidenceBus?.record(
+        'pdf_advisory_pump_start',
+        severity: 'lifecycle',
+        stage: 'advisory',
+        details: {'n': pending.length, 'limit': limit},
+      );
+      for (final e in pending) {
+        e.advisoryState = PdfAdvisoryState.computing;
+      }
+      notifyListeners();
+
+      Future<void> one(ScannedPdfEntry e) async {
+        if (epoch != _pdfAdvisoryPumpEpoch) return;
+        final t0 = DateTime.now().millisecondsSinceEpoch;
+        try {
+          final cached = await _pdfAdvisoryCache.lookup(
+            docUri: e.docUri,
+            sizeBytes: e.sizeBytes,
+            lastModifiedMs: e.lastModifiedMs,
+          );
+          if (epoch != _pdfAdvisoryPumpEpoch) return;
+          if (cached != null) {
+            e.advisoryTitle = cached.advisoryTitle;
+            e.advisoryRole = cached.advisoryRole;
+            e.advisoryReason = cached.advisoryReason;
+            e.advisoryState = PdfAdvisoryState.ready;
+            nOk += 1;
+            asrEvidenceBus?.record(
+              'pdf_advisory_cache_hit',
+              severity: 'debug',
+              stage: 'advisory',
+              details: {'n': 1},
+            );
+            return;
+          }
+          final head = await _safTree.extractPdfHead(e.docUri);
+          if (epoch != _pdfAdvisoryPumpEpoch) return;
+          if (!head.ok) {
+            e.advisoryState = PdfAdvisoryState.failed;
+            nFail += 1;
+            asrEvidenceBus?.record(
+              'pdf_advisory_cache_fail',
+              severity: 'warn',
+              stage: 'advisory',
+              details: {'code': head.code.isEmpty ? 'extract' : head.code},
+            );
+            return;
+          }
+          final det = detectDocRoleDetailed(
+            head.headText,
+            filename: e.displayName,
+          );
+          final title = guessAdvisoryTitle(
+            infoTitle: head.infoTitle,
+            headText: head.headText,
+            displayName: e.displayName,
+          );
+          e.advisoryTitle = title;
+          e.advisoryRole = det.role;
+          e.advisoryReason = det.reason;
+          e.advisoryState = PdfAdvisoryState.ready;
+          await _pdfAdvisoryCache.put(
+            docUri: e.docUri,
+            sizeBytes: e.sizeBytes,
+            lastModifiedMs: e.lastModifiedMs,
+            advisoryTitle: title,
+            advisoryRole: det.role,
+            advisoryReason: det.reason,
+            extractOk: true,
+          );
+          nOk += 1;
+          asrEvidenceBus?.record(
+            'pdf_advisory_cache_miss',
+            severity: 'debug',
+            stage: 'advisory',
+            details: {
+              'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+              'role': det.role,
+              'reason': det.reason,
+              'extract_ok': true,
+            },
+          );
+        } catch (_) {
+          if (epoch != _pdfAdvisoryPumpEpoch) return;
+          e.advisoryState = PdfAdvisoryState.failed;
+          nFail += 1;
+          asrEvidenceBus?.record(
+            'pdf_advisory_cache_fail',
+            severity: 'warn',
+            stage: 'advisory',
+            details: {'code': 'exc'},
+          );
+        }
+      }
+
+      for (var i = 0; i < pending.length; i += 2) {
+        if (epoch != _pdfAdvisoryPumpEpoch) {
+          asrEvidenceBus?.record(
+            'pdf_advisory_cancelled',
+            severity: 'lifecycle',
+            stage: 'advisory',
+            details: {'n_abandoned': pending.length - i},
+          );
+          break;
+        }
+        final batch = pending.skip(i).take(2).map(one);
+        await Future.wait(batch);
+        notifyListeners();
+      }
+      asrEvidenceBus?.record(
+        'pdf_advisory_pump_done',
+        severity: 'lifecycle',
+        stage: 'advisory',
+        details: {
+          'n_ok': nOk,
+          'n_fail': nFail,
+          'elapsed_ms': DateTime.now().millisecondsSinceEpoch - tPump,
+        },
+      );
+    } finally {
+      _pdfAdvisoryPumpBusy = false;
     }
   }
 

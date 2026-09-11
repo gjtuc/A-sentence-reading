@@ -22,6 +22,8 @@ class SafTreeHandler(
 ) : MethodChannel.MethodCallHandler {
     private var pendingPick: MethodChannel.Result? = null
     private val io = Executors.newFixedThreadPool(2)
+    /** design/228 — separate pool so hash pump is not starved by PdfBox. */
+    private val headIo = Executors.newFixedThreadPool(2)
 
     fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
         if (requestCode != REQ_TREE) return false
@@ -221,6 +223,37 @@ class SafTreeHandler(
                     } catch (e: Exception) {
                         activity.runOnUiThread {
                             result.error("read_fail", e.message, null)
+                        }
+                    }
+                }
+            }
+            // design/228 — advisory head extract (title / SI markers).
+            "extractPdfHead" -> {
+                val docUri = call.argument<String>("docUri")?.trim().orEmpty()
+                val maxChars = call.argument<Int>("maxChars") ?: 8000
+                val maxPages = call.argument<Int>("maxPages") ?: 2
+                val maxReadBytes = call.argument<Int>("maxReadBytes") ?: (2 * 1024 * 1024)
+                if (docUri.isEmpty()) {
+                    result.error("bad_args", "docUri_required", null)
+                    return
+                }
+                headIo.execute {
+                    try {
+                        val map = PdfHeadExtract.extract(
+                            activity,
+                            Uri.parse(docUri),
+                            maxChars,
+                            maxPages,
+                            maxReadBytes,
+                        )
+                        activity.runOnUiThread { result.success(map) }
+                    } catch (e: SecurityException) {
+                        activity.runOnUiThread {
+                            result.error("stale", e.message, null)
+                        }
+                    } catch (e: Exception) {
+                        activity.runOnUiThread {
+                            result.error("extract_fail", e.message, null)
                         }
                     }
                 }

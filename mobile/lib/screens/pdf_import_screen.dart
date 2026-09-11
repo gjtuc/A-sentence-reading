@@ -36,6 +36,12 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
     unawaited(_bootstrap());
   }
 
+  @override
+  void dispose() {
+    lib.cancelPdfAdvisoryPump();
+    super.dispose();
+  }
+
   Future<void> _bootstrap() async {
     setState(() => _busy = true);
     try {
@@ -45,6 +51,7 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
         _banner = '이전에 연결한 폴더를 열 수 없습니다. 다시 연결해 주세요.';
       }
       unawaited(lib.ensureVisiblePdfHashes());
+      unawaited(lib.ensureVisiblePdfAdvisories());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -61,6 +68,7 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
         // cancel → silent
       }
       unawaited(lib.ensureVisiblePdfHashes());
+      unawaited(lib.ensureVisiblePdfAdvisories());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -392,10 +400,27 @@ class _FolderRow extends StatelessWidget {
           DateTime.fromMillisecondsSinceEpoch(entry.lastModifiedMs).toLocal();
       when = '${d.month}/${d.day}';
     }
+    final role = entry.advisoryRole.trim().toLowerCase();
+    final showAdvisory = entry.advisoryState == PdfAdvisoryState.ready &&
+        (entry.advisoryTitle.isNotEmpty ||
+            role == 'main' ||
+            role == 'supplementary');
+    final titleLine = showAdvisory && entry.advisoryTitle.isNotEmpty
+        ? entry.advisoryTitle
+        : entry.displayName;
+    final showFilenameSub = showAdvisory &&
+        entry.advisoryTitle.isNotEmpty &&
+        entry.advisoryTitle != entry.displayName;
+    final roleChip = !showAdvisory
+        ? null
+        : (role == 'supplementary'
+            ? '추정 SI'
+            : (role == 'main' ? '추정 메인' : null));
     final meta = [
       if (inLibrary) '이미 보관',
       if (inQueue) '대기열',
       if (entry.hashState == PdfHashState.computing) '확인 중',
+      if (entry.advisoryState == PdfAdvisoryState.computing) '제목 확인 중',
       '${sizeMb}MB',
       if (when.isNotEmpty) when,
     ].join(' · ');
@@ -422,20 +447,72 @@ class _FolderRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      entry.displayName,
+                      titleLine,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
+                    if (showFilenameSub) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        entry.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
                     const SizedBox(height: 4),
-                    Text(
-                      meta,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: inLibrary
-                                ? Colors.green.shade700
-                                : scheme.onSurfaceVariant,
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        if (roleChip != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: role == 'supplementary'
+                                  ? scheme.tertiaryContainer
+                                  : scheme.secondaryContainer,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              roleChip,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                    color: role == 'supplementary'
+                                        ? scheme.onTertiaryContainer
+                                        : scheme.onSecondaryContainer,
+                                  ),
+                            ),
                           ),
+                        Text(
+                          meta,
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: inLibrary
+                                        ? Colors.green.shade700
+                                        : scheme.onSurfaceVariant,
+                                  ),
+                        ),
+                      ],
                     ),
+                    if (showAdvisory) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        '추정 · 업로드 후 확정',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -460,35 +537,51 @@ class _RecentStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 72,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        itemCount: recent.length.clamp(0, 12),
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (context, i) {
-          final item = recent[i];
-          final green = inLib.contains(item.contentHash);
-          return Container(
-            width: 160,
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: green ? Colors.green.shade600 : Theme.of(context).dividerColor,
-                width: green ? 2 : 1,
-              ),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              item.displayName,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          );
-        },
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 2),
+          child: Text(
+            '최근',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+        ),
+        SizedBox(
+          height: 72,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: recent.length.clamp(0, 12),
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, i) {
+              final item = recent[i];
+              final green = inLib.contains(item.contentHash);
+              return Container(
+                width: 160,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: green
+                        ? Colors.green.shade600
+                        : Theme.of(context).dividerColor,
+                    width: green ? 2 : 1,
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  item.displayName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

@@ -6,6 +6,26 @@ import 'package:flutter/services.dart';
 
 const MethodChannel kSafTreeChannel = MethodChannel('asr/saf_tree');
 
+class SafPdfHeadResult {
+  const SafPdfHeadResult({
+    required this.ok,
+    required this.headText,
+    required this.infoTitle,
+    required this.pageCount,
+    required this.truncated,
+    required this.elapsedMs,
+    required this.code,
+  });
+
+  final bool ok;
+  final String headText;
+  final String infoTitle;
+  final int pageCount;
+  final bool truncated;
+  final int elapsedMs;
+  final String code;
+}
+
 class SafTreePickResult {
   const SafTreePickResult({
     required this.treeUri,
@@ -153,6 +173,76 @@ class SafTreeChannel {
     } on PlatformException catch (e) {
       if (e.code == 'too_large' || e.code == 'stale') rethrow;
       return null;
+    }
+  }
+
+  /// design/228 — PdfBox head text + Info.Title (advisory).
+  Future<SafPdfHeadResult> extractPdfHead(
+    String docUri, {
+    int maxChars = 8000,
+    int maxPages = 2,
+    int maxReadBytes = 2 * 1024 * 1024,
+  }) async {
+    final u = docUri.trim();
+    if (u.isEmpty || kIsWeb) {
+      return const SafPdfHeadResult(
+        ok: false,
+        headText: '',
+        infoTitle: '',
+        pageCount: 0,
+        truncated: false,
+        elapsedMs: 0,
+        code: 'unsupported',
+      );
+    }
+    try {
+      final raw = await _channel.invokeMethod<dynamic>('extractPdfHead', {
+        'docUri': u,
+        'maxChars': maxChars,
+        'maxPages': maxPages,
+        'maxReadBytes': maxReadBytes,
+      });
+      if (raw is! Map) {
+        return const SafPdfHeadResult(
+          ok: false,
+          headText: '',
+          infoTitle: '',
+          pageCount: 0,
+          truncated: false,
+          elapsedMs: 0,
+          code: 'bad_map',
+        );
+      }
+      return SafPdfHeadResult(
+        ok: raw['ok'] == true,
+        headText: '${raw['headText'] ?? ''}',
+        infoTitle: '${raw['infoTitle'] ?? ''}'.trim(),
+        pageCount: raw['pageCount'] is num ? (raw['pageCount'] as num).toInt() : 0,
+        truncated: raw['truncated'] == true,
+        elapsedMs:
+            raw['elapsedMs'] is num ? (raw['elapsedMs'] as num).toInt() : 0,
+        code: '${raw['code'] ?? ''}'.trim(),
+      );
+    } on PlatformException catch (e) {
+      return SafPdfHeadResult(
+        ok: false,
+        headText: '',
+        infoTitle: '',
+        pageCount: 0,
+        truncated: false,
+        elapsedMs: 0,
+        code: e.code,
+      );
+    } catch (_) {
+      return const SafPdfHeadResult(
+        ok: false,
+        headText: '',
+        infoTitle: '',
+        pageCount: 0,
+        truncated: false,
+        elapsedMs: 0,
+        code: 'exc',
+      );
     }
   }
 }
