@@ -8,6 +8,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/client.dart';
@@ -23,7 +24,11 @@ import '../api/upload_reserve_models.dart';
 import '../api/upload_reserve_store.dart';
 import '../api/upload_picker_recent_models.dart';
 import '../api/upload_picker_recent_store.dart';
+import '../api/pdf_folder_grant_models.dart';
+import '../api/pdf_folder_grant_store.dart';
+import '../api/pdf_hash_cache_store.dart';
 import '../api/library_soft_delete_store.dart';
+import '../platform/saf_tree_channel.dart';
 import '../api/upload_notify.dart';
 import '../api/shadowing_models.dart';
 import '../api/translate_models.dart';
@@ -53,6 +58,9 @@ class LibraryController extends ChangeNotifier {
     UploadDraftStore? draftStore,
     UploadReserveStore? reserveStore,
     UploadPickerRecentStore? pickerRecentStore,
+    PdfFolderGrantStore? pdfFolderGrantStore,
+    PdfHashCacheStore? pdfHashCacheStore,
+    SafTreeChannel? safTreeChannel,
     LibrarySoftDeleteStore? softDeleteStore,
     UploadNotify? uploadNotify,
     PaperEditStash? editStash,
@@ -64,6 +72,9 @@ class LibraryController extends ChangeNotifier {
         _drafts = draftStore ?? PrefsUploadDraftStore(),
         _reserve = reserveStore ?? PrefsUploadReserveStore(),
         _pickerRecent = pickerRecentStore ?? PrefsUploadPickerRecentStore(),
+        _pdfFolderGrant = pdfFolderGrantStore ?? PrefsPdfFolderGrantStore(),
+        _pdfHashCache = pdfHashCacheStore ?? PdfHashCacheStore(),
+        _safTree = safTreeChannel ?? SafTreeChannel(),
         _softDelete = softDeleteStore ?? PrefsLibrarySoftDeleteStore(),
         _notify = uploadNotify ?? createUploadNotify(),
         _editStash = editStash ?? PaperEditStash(),
@@ -75,6 +86,9 @@ class LibraryController extends ChangeNotifier {
   final UploadDraftStore _drafts;
   final UploadReserveStore _reserve;
   final UploadPickerRecentStore _pickerRecent;
+  final PdfFolderGrantStore _pdfFolderGrant;
+  final PdfHashCacheStore _pdfHashCache;
+  final SafTreeChannel _safTree;
   final LibrarySoftDeleteStore _softDelete;
   final UploadNotify _notify;
   final PaperEditStash _editStash;
@@ -105,6 +119,8 @@ class LibraryController extends ChangeNotifier {
     _paperDisk.bindUid(uid);
     _shadowDisk.bindUid(uid);
     unawaited(_pickerRecent.bindUid(_diskUid));
+    unawaited(_pdfFolderGrant.bindUid(_diskUid));
+    unawaited(_pdfHashCache.bindUid(_diskUid));
     unawaited(_pickerRecentThenSoftDelete());
     _bulkHandoffAttempted = false;
     _clearPendingEnrichState();
@@ -318,6 +334,13 @@ class LibraryController extends ChangeNotifier {
 
   /// design/223 — library content hashes for green border (list ∪ disk).
   Set<String> libraryContentHashes = const {};
+
+  /// design/226 — connected folder grant + scanned PDF rows.
+  PdfFolderGrant? pdfFolderGrant;
+  List<ScannedPdfEntry> pdfFolderEntries = const [];
+  bool pdfFolderTruncated = false;
+  bool pdfFolderGrantStale = false;
+  bool _pdfHashPumpBusy = false;
 
   void consumePendingAutoOpen() {
     pendingAutoOpenCacheId = null;
@@ -3589,6 +3612,16 @@ class LibraryController extends ChangeNotifier {
     await _drafts.clear();
     await _reserve.clear();
     await _pickerRecent.clearBound();
+    final oldGrant = pdfFolderGrant;
+    await _pdfFolderGrant.clearBound();
+    await _pdfHashCache.clearBound();
+    if (oldGrant != null) {
+      unawaited(_safTree.releaseTree(oldGrant.treeUri));
+    }
+    pdfFolderGrant = null;
+    pdfFolderEntries = const [];
+    pdfFolderTruncated = false;
+    pdfFolderGrantStale = false;
     await _softDelete.clearBound();
     uploadQueue = const [];
     pickerRecent = const [];
@@ -4278,6 +4311,256 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+
+  /// design/226 — load grant + scan folder PDFs.
+  Future<void> loadPdfFolderGrantAndScan() async {
+    pdfFolderGrantStale = false;
+    final grant = await _pdfFolderGrant.read();
+    pdfFolderGrant = grant;
+    if (grant == null) {
+      pdfFolderEntries = const [];
+      pdfFolderTruncated = false;
+      notifyListeners();
+      return;
+    }
+    await _scanPdfFolder(grant.treeUri);
+  }
+
+  Future<bool> connectPdfFolder() async {
+    final t0 = DateTime.now().millisecondsSinceEpoch;
+    asrEvidenceBus?.record(
+      'pdf_folder_grant_start',
+      severity: 'lifecycle',
+      stage: 'pick',
+    );
+    try {
+      final picked = await _safTree.pickTree();
+      final elapsed = DateTime.now().millisecondsSinceEpoch - t0;
+      if (picked == null) {
+        asrEvidenceBus?.record(
+          'pdf_folder_grant_done',
+          severity: 'lifecycle',
+          stage: 'pick',
+          details: {'ok': false, 'elapsed_ms': elapsed},
+        );
+        return false;
+      }
+      final prev = pdfFolderGrant;
+      if (prev != null && prev.treeUri != picked.treeUri) {
+        unawaited(_safTree.releaseTree(prev.treeUri));
+      }
+      final grant = PdfFolderGrant(
+        treeUri: picked.treeUri,
+        displayLabel: picked.displayLabel,
+        grantedAtMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await _pdfFolderGrant.write(grant);
+      pdfFolderGrant = grant;
+      pdfFolderGrantStale = false;
+      asrEvidenceBus?.record(
+        'pdf_folder_grant_done',
+        severity: 'lifecycle',
+        stage: 'pick',
+        details: {'ok': true, 'elapsed_ms': elapsed},
+      );
+      await _scanPdfFolder(grant.treeUri);
+      return true;
+    } catch (_) {
+      asrEvidenceBus?.record(
+        'pdf_folder_grant_done',
+        severity: 'error',
+        stage: 'pick',
+        details: {
+          'ok': false,
+          'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+        },
+      );
+      return false;
+    }
+  }
+
+  Future<void> _scanPdfFolder(String treeUri) async {
+    final t0 = DateTime.now().millisecondsSinceEpoch;
+    try {
+      final listed = await _safTree.listPdfs(
+        treeUri,
+        maxItems: kPdfFolderScanMaxItems,
+      );
+      final next = <ScannedPdfEntry>[];
+      for (final it in listed.items) {
+        final cached = await _pdfHashCache.lookup(
+          docUri: it.docUri,
+          sizeBytes: it.sizeBytes,
+          lastModifiedMs: it.lastModifiedMs,
+        );
+        next.add(
+          ScannedPdfEntry(
+            docUri: it.docUri,
+            displayName: it.displayName,
+            sizeBytes: it.sizeBytes,
+            lastModifiedMs: it.lastModifiedMs,
+            contentHash: cached ?? '',
+            hashState:
+                cached == null ? PdfHashState.unknown : PdfHashState.ready,
+          ),
+        );
+        if (cached != null) {
+          asrEvidenceBus?.record(
+            'pdf_hash_cache_hit',
+            severity: 'debug',
+            stage: 'hash',
+            details: {'n': 1, 'hash8': cached.substring(0, 8)},
+          );
+        }
+      }
+      pdfFolderEntries = next;
+      pdfFolderTruncated = listed.truncated;
+      pdfFolderGrantStale = false;
+      asrEvidenceBus?.record(
+        'pdf_folder_scan_done',
+        severity: 'lifecycle',
+        stage: 'scan',
+        details: {
+          'n': next.length,
+          'truncated': listed.truncated,
+          'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+        },
+      );
+      notifyListeners();
+    } on PlatformException catch (e) {
+      if (e.code == 'stale') {
+        pdfFolderGrantStale = true;
+        pdfFolderEntries = const [];
+        asrEvidenceBus?.record(
+          'pdf_folder_grant_stale',
+          severity: 'warn',
+          stage: 'scan',
+          details: {'ok': false},
+        );
+        notifyListeners();
+        return;
+      }
+      pdfFolderEntries = const [];
+      notifyListeners();
+    } catch (_) {
+      pdfFolderEntries = const [];
+      notifyListeners();
+    }
+  }
+
+  /// design/226 — lazy hash unknown rows (concurrency 2).
+  Future<void> ensureVisiblePdfHashes({int limit = 40}) async {
+    if (_pdfHashPumpBusy) return;
+    _pdfHashPumpBusy = true;
+    try {
+      final pending = pdfFolderEntries
+          .where((e) => e.hashState == PdfHashState.unknown)
+          .take(limit)
+          .toList();
+      if (pending.isEmpty) return;
+      for (final e in pending) {
+        e.hashState = PdfHashState.computing;
+      }
+      notifyListeners();
+      Future<void> one(ScannedPdfEntry e) async {
+        final t0 = DateTime.now().millisecondsSinceEpoch;
+        try {
+          final hex = await _safTree.sha256OfUri(e.docUri);
+          if (hex == null) {
+            e.hashState = PdfHashState.failed;
+            asrEvidenceBus?.record(
+              'pdf_hash_cache_fail',
+              severity: 'warn',
+              stage: 'hash',
+              details: {'code': 'null'},
+            );
+            return;
+          }
+          e.contentHash = hex;
+          e.hashState = PdfHashState.ready;
+          await _pdfHashCache.put(
+            docUri: e.docUri,
+            sizeBytes: e.sizeBytes,
+            lastModifiedMs: e.lastModifiedMs,
+            contentHash: hex,
+          );
+          asrEvidenceBus?.record(
+            'pdf_hash_cache_miss',
+            severity: 'debug',
+            stage: 'hash',
+            details: {
+              'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+              'hash8': hex.substring(0, 8),
+            },
+          );
+        } catch (_) {
+          e.hashState = PdfHashState.failed;
+          asrEvidenceBus?.record(
+            'pdf_hash_cache_fail',
+            severity: 'warn',
+            stage: 'hash',
+            details: {'code': 'exc'},
+          );
+        }
+      }
+
+      for (var i = 0; i < pending.length; i += 2) {
+        final batch = pending.skip(i).take(2).map(one);
+        await Future.wait(batch);
+        notifyListeners();
+      }
+    } finally {
+      _pdfHashPumpBusy = false;
+    }
+  }
+
+  /// design/226 — read selected folder URIs then enqueue via 221.
+  Future<({int added, int skipped, String? message})> enqueueFolderPdfs(
+    List<String> docUris,
+  ) async {
+    final batch = <({String name, Uint8List bytes})>[];
+    var skipped = 0;
+    String? message;
+    final byUri = {for (final e in pdfFolderEntries) e.docUri: e};
+    for (final uri in docUris) {
+      final e = byUri[uri];
+      if (e == null) {
+        skipped += 1;
+        continue;
+      }
+      try {
+        final bytes = await _safTree.readPdfBytes(uri);
+        if (bytes == null || bytes.isEmpty) {
+          skipped += 1;
+          message = '파일을 읽지 못했습니다.';
+          continue;
+        }
+        batch.add((name: e.displayName, bytes: bytes));
+      } on PlatformException catch (ex) {
+        skipped += 1;
+        if (ex.code == 'too_large') {
+          message = '파일이 너무 큽니다 (최대 50MB).';
+        } else if (ex.code == 'stale') {
+          pdfFolderGrantStale = true;
+          message = '폴더 접근이 만료되었습니다. 다시 연결해 주세요.';
+        } else {
+          message = '파일을 읽지 못했습니다.';
+        }
+      } catch (_) {
+        skipped += 1;
+        message = '파일을 읽지 못했습니다.';
+      }
+    }
+    if (batch.isEmpty) {
+      return (added: 0, skipped: skipped, message: message);
+    }
+    final outcome = await enqueuePickedPdfs(batch);
+    return (
+      added: outcome.added,
+      skipped: outcome.skipped + skipped,
+      message: outcome.message ?? message,
+    );
+  }
 
   /// design/223 — sheet open breadcrumb.
   void notePickerSheetOpened() {

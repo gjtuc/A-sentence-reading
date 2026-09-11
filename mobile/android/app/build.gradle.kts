@@ -53,4 +53,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     // WHY (design/76): process-death resume without a new Flutter pub package.
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    // WHY (design/226): DocumentFile tree listing for 논문 폴더 연결.
+    implementation("androidx.documentfile:documentfile:1.0.1")
 }

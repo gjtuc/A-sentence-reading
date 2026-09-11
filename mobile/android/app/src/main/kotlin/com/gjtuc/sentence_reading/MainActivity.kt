@@ -26,6 +26,8 @@ class MainActivity : FlutterActivity() {
     private var authChannel: MethodChannel? = null
     private var shadowingMicChannel: MethodChannel? = null
     private var pdfPreviewChannel: MethodChannel? = null
+    private var safTreeHandler: SafTreeHandler? = null
+    private var safTreeChannel: MethodChannel? = null
     private var pendingOpenCacheId: String? = null
     /** design/77 — session from deep link before Dart handler is ready. */
     private var pendingMagicSession: String? = null
@@ -194,6 +196,23 @@ class MainActivity : FlutterActivity() {
             }
         }
 
+        // design/226 — OPEN_DOCUMENT_TREE folder browser (no READ_MEDIA).
+        safTreeHandler = SafTreeHandler(this)
+        safTreeChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            SafTreeHandler.CHANNEL,
+        ).also { ch ->
+            ch.setMethodCallHandler(safTreeHandler)
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (safTreeHandler?.onActivityResult(requestCode, resultCode, data) == true) {
+            return
+        }
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     override fun onNewIntent(intent: Intent) {

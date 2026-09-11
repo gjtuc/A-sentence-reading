@@ -13,7 +13,7 @@ import '../state/bookmark_controller.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../widgets/upload_queue_sheet.dart';
-import '../widgets/upload_picker_sheet.dart';
+import 'pdf_import_screen.dart';
 import '../widgets/upload_status_bar.dart';
 
 /// Authenticated paper list → open · PDF upload queue (design/62 · 70 · 221 · 224).
@@ -354,10 +354,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void> _openUploadPicker() async {
     final lib = widget.library;
     if (lib.reanalyzing || lib.opening) return;
-    await showUploadPickerSheet(
-      context: context,
-      library: lib,
-      onPickFromFiles: _pickAndUpload,
+    // design/226 — full-screen folder browser (SAF escape still inside).
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => PdfImportScreen(
+          library: lib,
+          onPickFromFiles: _pickAndUpload,
+        ),
+      ),
     );
   }
 

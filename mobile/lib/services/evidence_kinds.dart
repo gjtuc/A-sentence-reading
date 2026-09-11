@@ -207,4 +207,12 @@ const Set<String> kEvidenceAllowedKinds = {
   // design/223 — upload picker recent
   'picker_sheet_open',
   'picker_recent_save',
+  // design/226 — folder import browser
+  'pdf_folder_grant_start',
+  'pdf_folder_grant_done',
+  'pdf_folder_scan_done',
+  'pdf_folder_grant_stale',
+  'pdf_hash_cache_hit',
+  'pdf_hash_cache_miss',
+  'pdf_hash_cache_fail',
 };
