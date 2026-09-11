@@ -804,6 +804,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       ),
                       subtitle: Text(
                         [
+                          if (e.pairedCacheId.trim().isNotEmpty) '짝 논문 있음',
                           e.metaResumeLine(
                             resumeSection:
                                 lib.progressResumeByCacheId.containsKey(e.id)
@@ -874,9 +875,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                         lib.dismissHarmonizeResidual(e.id),
                                   ),
                                 if (e.canMergeSupplementary)
-                                  IconButton(
-                                    icon: const Icon(Icons.merge_type, size: 22),
-                                    tooltip: '보충자료 합치기',
+                                  TextButton.icon(
+                                    icon: const Icon(Icons.merge_type, size: 18),
+                                    label: const Text('짝 합치기'),
+                                    style: TextButton.styleFrom(
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                      ),
+                                    ),
                                     onPressed: lib.opening ||
                                             lib.uploading ||
                                             lib.reanalyzing ||

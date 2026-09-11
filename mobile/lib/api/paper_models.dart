@@ -23,6 +23,7 @@ class PaperEntry {
     this.libraryTag = '',
     this.ingestStatus = 'ok',
     this.canMergeSupplementary = false,
+    this.pairedCacheId = '',
     this.harmonizePending = false,
     this.harmonizeTotal = 0,
     this.harmonizeDone = 0,
@@ -74,6 +75,7 @@ class PaperEntry {
           ? 'ok'
           : '${json['ingest_status'] ?? 'ok'}'.trim(),
       canMergeSupplementary: json['can_merge_supplementary'] == true,
+      pairedCacheId: '${json['paired_cache_id'] ?? ''}'.trim(),
       harmonizePending: json['harmonize_pending'] == true,
       harmonizeTotal: asInt(json['harmonize_total']),
       harmonizeDone: asInt(json['harmonize_done']),
@@ -126,6 +128,10 @@ class PaperEntry {
   final String libraryTag;
   final String ingestStatus;
   final bool canMergeSupplementary;
+
+  /// design/240 — mate cache id from soft pairing (empty if none).
+  final String pairedCacheId;
+
   /// design/169o — server residual 재감수 still running after ingest done.
   final bool harmonizePending;
   final int harmonizeTotal;

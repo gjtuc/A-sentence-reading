@@ -1,8 +1,10 @@
 /// design/226 — full-screen PDF folder import (not thin sheet).
+/// design/237 find CTA · 238 pick · 239 set row · 242 find-watch.
 library;
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../api/pdf_folder_grant_models.dart';
 import '../state/library_controller.dart';
 
@@ -20,25 +22,39 @@ class PdfImportScreen extends StatefulWidget {
   State<PdfImportScreen> createState() => _PdfImportScreenState();
 }
 
-class _PdfImportScreenState extends State<PdfImportScreen> {
+class _PdfImportScreenState extends State<PdfImportScreen>
+    with WidgetsBindingObserver {
   final Set<String> _selected = {};
   bool _busy = false;
   bool _unkeptOnly = false;
   String? _banner;
+  bool _findWatchDialogOpen = false;
+  Timer? _findWatchTimer;
+  int _lastSetBuiltSig = -1;
 
   LibraryController get lib => widget.library;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     lib.notePickerSheetOpened();
     unawaited(_bootstrap());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _findWatchTimer?.cancel();
     lib.cancelPdfAdvisoryPump();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(lib.rescanPdfFolderDebounced(trigger: 'import_resume'));
+    }
   }
 
   Future<void> _bootstrap() async {
@@ -73,30 +89,146 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
     }
   }
 
-  Future<void> _enqueueSelected() async {
+  void _syncFindWatchTimer() {
+    final armed = lib.pdfFindWatchArmed && lib.pdfFindWatchHitDocUri == null;
+    if (armed && _findWatchTimer == null) {
+      _findWatchTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+        unawaited(
+          lib.rescanPdfFolderDebounced(
+            trigger: 'find_watch',
+            debounceMs: 500,
+          ),
+        );
+      });
+    } else if (!armed && _findWatchTimer != null) {
+      _findWatchTimer?.cancel();
+      _findWatchTimer = null;
+    }
+  }
+
+  Future<void> _maybeShowFindWatchDialog() async {
+    final hit = lib.pdfFindWatchHitDocUri;
+    if (hit == null || _findWatchDialogOpen || !mounted) return;
+    _findWatchDialogOpen = true;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('새 PDF가 폴더에 생겼습니다'),
+        content: const Text(
+          '찾아보기 후 연결된 폴더에 새 PDF가 감지되었습니다. 선택에 넣을까요?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('무시'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('선택에 넣기'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    lib.confirmFindWatchHit(accepted: accepted == true);
+    if (accepted == true) {
+      setState(() => _selected.add(hit));
+    }
+    _findWatchDialogOpen = false;
+  }
+
+  Future<void> _openFind(ScannedPdfEntry e) async {
+    final doi = e.advisoryDoi.trim();
+    if (doi.isEmpty) return;
+    final uri = Uri.parse('https://doi.org/$doi');
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      lib.recordFindOpen(role: e.advisoryRole, ok: ok);
+      if (ok) {
+        lib.armFindWatch();
+        _findWatchDialogOpen = false;
+        _syncFindWatchTimer();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                '브라우저에서 받은 뒤 「받은 PDF 고르기」로 가져오거나, '
+                '연결 폴더에 저장되면 알려 드립니다.',
+              ),
+            ),
+          );
+        }
+      }
+    } catch (_) {
+      lib.recordFindOpen(role: e.advisoryRole, ok: false, code: 'exc');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('링크를 열 수 없습니다.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickReceived() async {
+    if (_busy || lib.reanalyzing || lib.opening) return;
+    setState(() => _busy = true);
+    try {
+      final r = await lib.pickReceivedPdfsIntoFolder();
+      if (!mounted) return;
+      if (r.mode == 'cancel') return;
+      final parts = <String>[];
+      if (r.copied > 0) parts.add('폴더에 ${r.copied}건 복사');
+      if (r.enqueued > 0) parts.add('대기열 ${r.enqueued}건');
+      final msg = r.message ??
+          (parts.isEmpty ? '처리하지 못했습니다.' : parts.join(' · '));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _enqueueSelected(List<PdfImportListItem> listItems) async {
     if (_selected.isEmpty || lib.reanalyzing || lib.opening) return;
     setState(() => _busy = true);
     try {
-      final uris = _selected.toList();
-      final outcome = await lib.enqueueFolderPdfs(uris);
+      final remaining = Set<String>.from(_selected);
+      var added = 0;
+      var skipped = 0;
+      String? message;
+
+      for (final item in listItems) {
+        if (item is! PdfImportSetItem) continue;
+        if (!item.docUris.every(remaining.contains)) continue;
+        remaining.removeAll(item.docUris);
+        final outcome = await lib.enqueueFolderPdfSet(item.docUris);
+        added += outcome.added;
+        skipped += outcome.skipped;
+        message ??= outcome.message;
+      }
+      if (remaining.isNotEmpty) {
+        final outcome = await lib.enqueueFolderPdfs(remaining.toList());
+        added += outcome.added;
+        skipped += outcome.skipped;
+        message ??= outcome.message;
+      }
+
       if (!mounted) return;
       _selected.clear();
       final hint = lib.uploadBackgroundHint;
       if (hint != null && hint.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(hint)));
       }
-      if (outcome.message != null && outcome.message!.isNotEmpty) {
+      if (message != null && message.isNotEmpty && added == 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(outcome.message!)),
+          SnackBar(content: Text(message)),
         );
-      } else if (outcome.added > 0) {
-        final extra =
-            outcome.skipped > 0 ? ' · 건너뜀 ${outcome.skipped}' : '';
+      } else if (added > 0) {
+        final extra = skipped > 0 ? ' · 건너뜀 $skipped' : '';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('대기열에 ${outcome.added}건 추가$extra')),
+          SnackBar(content: Text('대기열에 $added건 추가$extra')),
         );
         Navigator.of(context).pop();
-      } else if (outcome.skipped > 0) {
+      } else if (skipped > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('이미 대기열이거나 추가하지 못했습니다.')),
         );
@@ -106,11 +238,27 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
     }
   }
 
+  void _toggleUris(List<String> uris) {
+    setState(() {
+      final allOn = uris.every(_selected.contains);
+      if (allOn) {
+        _selected.removeAll(uris);
+      } else {
+        _selected.addAll(uris);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: lib,
       builder: (context, _) {
+        _syncFindWatchTimer();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          unawaited(_maybeShowFindWatchDialog());
+        });
+
         final grant = lib.pdfFolderGrant;
         final entries = lib.pdfFolderEntries;
         final inLib = lib.libraryContentHashes;
@@ -118,9 +266,22 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
         final filtered = entries.where((e) {
           if (!_unkeptOnly) return true;
           final h = e.contentHash;
-          if (h.length != 64) return true; // unknown → keep visible
+          if (h.length != 64) return true;
           return !inLib.contains(h);
         }).toList();
+
+        final built = buildPdfImportListItems(filtered);
+        final sig =
+            built.nSets * 100000 + built.nSingles * 100 + built.nGap;
+        if (sig != _lastSetBuiltSig && filtered.isNotEmpty) {
+          _lastSetBuiltSig = sig;
+          lib.recordImportSetBuilt(
+            nSets: built.nSets,
+            nSingles: built.nSingles,
+            nGap: built.nGap,
+          );
+        }
+        final listItems = built.items;
 
         return Scaffold(
           appBar: AppBar(
@@ -143,6 +304,16 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
+              if (lib.pdfFindWatchArmed && lib.pdfFindWatchHitDocUri == null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Text(
+                    '찾아보기 후 연결 폴더의 새 PDF를 잠시 지켜보는 중…',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                  ),
+                ),
               if (_banner != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -213,8 +384,9 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
                                     await widget.onPickFromFiles();
                                     if (mounted) Navigator.of(context).pop();
                                   },
+                            onPickReceived: _busy ? null : _pickReceived,
                           )
-                        : filtered.isEmpty
+                        : listItems.isEmpty
                             ? Center(
                                 child: Text(
                                   _busy ? '목록 불러오는 중…' : '이 폴더에 PDF가 없습니다.',
@@ -223,14 +395,14 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
                               )
                             : ListView.separated(
                                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                                itemCount: filtered.length +
+                                itemCount: listItems.length +
                                     (lib.pdfFolderTruncated ? 1 : 0) +
                                     1,
                                 separatorBuilder: (_, __) =>
                                     const SizedBox(height: 6),
                                 itemBuilder: (context, i) {
                                   if (lib.pdfFolderTruncated &&
-                                      i == filtered.length) {
+                                      i == listItems.length) {
                                     return Padding(
                                       padding: const EdgeInsets.all(8),
                                       child: Text(
@@ -242,7 +414,7 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
                                       ),
                                     );
                                   }
-                                  final footerIndex = filtered.length +
+                                  final footerIndex = listItems.length +
                                       (lib.pdfFolderTruncated ? 1 : 0);
                                   if (i == footerIndex) {
                                     return Padding(
@@ -261,7 +433,45 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
                                       ),
                                     );
                                   }
-                                  final e = filtered[i];
+                                  final item = listItems[i];
+                                  if (item is PdfImportSetItem) {
+                                    final sel =
+                                        item.docUris.every(_selected.contains);
+                                    return _SetRow(
+                                      item: item,
+                                      selected: sel,
+                                      inLibrary: [
+                                        item.main,
+                                        item.si,
+                                      ].every((e) =>
+                                          e.contentHash.length == 64 &&
+                                          inLib.contains(e.contentHash)),
+                                      inQueue: [
+                                        item.main,
+                                        item.si,
+                                      ].any((e) =>
+                                          e.contentHash.length == 64 &&
+                                          queued.contains(e.contentHash)),
+                                      onToggle: () =>
+                                          _toggleUris(item.docUris),
+                                      onFindMain: item.main.advisoryDoi
+                                              .trim()
+                                              .isEmpty
+                                          ? null
+                                          : () => unawaited(
+                                                _openFind(item.main),
+                                              ),
+                                      onFindSi: item.si.advisoryDoi
+                                              .trim()
+                                              .isEmpty
+                                          ? null
+                                          : () => unawaited(
+                                                _openFind(item.si),
+                                              ),
+                                    );
+                                  }
+                                  final e =
+                                      (item as PdfImportSingleItem).entry;
                                   final green = e.contentHash.length == 64 &&
                                       inLib.contains(e.contentHash);
                                   final inQ = e.contentHash.length == 64 &&
@@ -272,15 +482,10 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
                                     selected: sel,
                                     inLibrary: green,
                                     inQueue: inQ,
-                                    onToggle: () {
-                                      setState(() {
-                                        if (sel) {
-                                          _selected.remove(e.docUri);
-                                        } else {
-                                          _selected.add(e.docUri);
-                                        }
-                                      });
-                                    },
+                                    onToggle: () => _toggleUris([e.docUri]),
+                                    onFind: e.advisoryDoi.trim().isEmpty
+                                        ? null
+                                        : () => unawaited(_openFind(e)),
                                   );
                                 },
                               ),
@@ -288,31 +493,55 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
               SafeArea(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _busy || lib.reanalyzing || lib.opening
-                              ? null
-                              : () async {
-                                  await widget.onPickFromFiles();
-                                  if (mounted) Navigator.of(context).pop();
-                                },
-                          icon: const Icon(Icons.folder_open),
-                          label: const Text('파일에서 추가'),
+                      if (grant != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: OutlinedButton.icon(
+                            onPressed: _busy ||
+                                    lib.reanalyzing ||
+                                    lib.opening
+                                ? null
+                                : _pickReceived,
+                            icon: const Icon(Icons.download_done_outlined),
+                            label: const Text('받은 PDF 고르기'),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: _busy ||
-                                  _selected.isEmpty ||
-                                  lib.reanalyzing ||
-                                  lib.opening
-                              ? null
-                              : _enqueueSelected,
-                          child: Text('대기열에 추가 (${_selected.length})'),
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _busy ||
+                                      lib.reanalyzing ||
+                                      lib.opening
+                                  ? null
+                                  : () async {
+                                      await widget.onPickFromFiles();
+                                      if (mounted) {
+                                        Navigator.of(context).pop();
+                                      }
+                                    },
+                              icon: const Icon(Icons.folder_open),
+                              label: const Text('파일에서 추가'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: _busy ||
+                                      _selected.isEmpty ||
+                                      lib.reanalyzing ||
+                                      lib.opening
+                                  ? null
+                                  : () => _enqueueSelected(listItems),
+                              child: Text(
+                                '대기열에 추가 (${_selected.length})',
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -326,11 +555,17 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
   }
 }
 
+
 class _EmptyConnect extends StatelessWidget {
-  const _EmptyConnect({required this.onConnect, required this.onSaf});
+  const _EmptyConnect({
+    required this.onConnect,
+    required this.onSaf,
+    required this.onPickReceived,
+  });
 
   final VoidCallback? onConnect;
   final VoidCallback? onSaf;
+  final VoidCallback? onPickReceived;
 
   @override
   Widget build(BuildContext context) {
@@ -353,6 +588,10 @@ class _EmptyConnect extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             TextButton(
+              onPressed: onPickReceived,
+              child: const Text('받은 PDF 고르기'),
+            ),
+            TextButton(
               onPressed: onSaf,
               child: const Text('또는 파일에서 추가'),
             ),
@@ -370,6 +609,7 @@ class _FolderRow extends StatelessWidget {
     required this.inLibrary,
     required this.inQueue,
     required this.onToggle,
+    this.onFind,
   });
 
   final ScannedPdfEntry entry;
@@ -377,6 +617,7 @@ class _FolderRow extends StatelessWidget {
   final bool inLibrary;
   final bool inQueue;
   final VoidCallback onToggle;
+  final VoidCallback? onFind;
 
   @override
   Widget build(BuildContext context) {
@@ -409,6 +650,7 @@ class _FolderRow extends StatelessWidget {
         : (role == 'supplementary'
             ? '추정 SI'
             : (role == 'main' ? '추정 메인' : null));
+    final findLabel = role == 'supplementary' ? 'SI 찾아보기' : '메인 찾아보기';
     final meta = [
       if (inLibrary) '이미 보관',
       if (inQueue) '대기열',
@@ -486,6 +728,19 @@ class _FolderRow extends StatelessWidget {
                                   ),
                             ),
                           ),
+                        if (onFind != null)
+                          TextButton(
+                            onPressed: onFind,
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 0,
+                              ),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: Text(findLabel),
+                          ),
                         Text(
                           meta,
                           style:
@@ -516,3 +771,148 @@ class _FolderRow extends StatelessWidget {
     );
   }
 }
+
+class _SetRow extends StatelessWidget {
+  const _SetRow({
+    required this.item,
+    required this.selected,
+    required this.inLibrary,
+    required this.inQueue,
+    required this.onToggle,
+    this.onFindMain,
+    this.onFindSi,
+  });
+
+  final PdfImportSetItem item;
+  final bool selected;
+  final bool inLibrary;
+  final bool inQueue;
+  final VoidCallback onToggle;
+  final VoidCallback? onFindMain;
+  final VoidCallback? onFindSi;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final border = inLibrary
+        ? Border.all(color: Colors.green.shade600, width: 2)
+        : Border.all(color: scheme.primary, width: 1.5);
+    final title = item.main.advisoryTitle.isNotEmpty
+        ? item.main.advisoryTitle
+        : item.main.displayName;
+    final meta = [
+      '세트 · 메인+SI',
+      if (inLibrary) '이미 보관',
+      if (inQueue) '대기열',
+      '대기열 2칸',
+    ].join(' · ');
+
+    return Material(
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+      child: InkWell(
+        onTap: onToggle,
+        child: Container(
+          decoration: BoxDecoration(
+            border: border,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Checkbox(
+                value: selected,
+                onChanged: (_) => onToggle(),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${item.main.displayName} + ${item.si.displayName}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: scheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            '메인+SI 세트',
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(color: scheme.onPrimaryContainer),
+                          ),
+                        ),
+                        if (onFindMain != null)
+                          TextButton(
+                            onPressed: onFindMain,
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 0,
+                              ),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text('메인 찾아보기'),
+                          ),
+                        if (onFindSi != null)
+                          TextButton(
+                            onPressed: onFindSi,
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 0,
+                              ),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text('SI 찾아보기'),
+                          ),
+                        Text(
+                          meta,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '추정 · 업로드 후 확정 · 자동 합치기 없음',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+

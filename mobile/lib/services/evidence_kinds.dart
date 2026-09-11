@@ -225,4 +225,26 @@ const Set<String> kEvidenceAllowedKinds = {
   'pdf_advisory_cache_miss',
   'pdf_advisory_cache_fail',
   'pdf_advisory_cancelled',
+  // design/237 — DOI find CTA
+  'pdf_advisory_doi_hit',
+  'pdf_advisory_doi_miss',
+  'pdf_import_find_open',
+  'pdf_import_find_fail',
+  // design/238 — OPEN_DOCUMENT pick + rescan
+  'pdf_import_pick_start',
+  'pdf_import_pick_done',
+  'pdf_folder_rescan_done',
+  // design/239 — advisory set row
+  'pdf_import_set_built',
+  'pdf_import_set_enqueue',
+  // design/241 — SAF tree write
+  'pdf_tree_write_probe',
+  'pdf_tree_copy_start',
+  'pdf_tree_copy_done',
+  'pdf_tree_copy_fail',
+  // design/242 — find watch
+  'pdf_find_watch_arm',
+  'pdf_find_watch_hit',
+  'pdf_find_watch_timeout',
+  'pdf_find_watch_confirm',
 };

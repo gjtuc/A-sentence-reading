@@ -76,3 +76,9 @@ app_documents/pdf_hash_cache/u_$safeUid/index.json
 ## Version
 
 **0.3.225**
+
+## Later chips (locked elsewhere)
+
+- [238](238-pdf-import-open-document-pick.md) — temp OPEN_DOCUMENT pick + resume rescan (not persistable single-file reopen).
+- [241](241-saf-tree-write-copy.md) — write/copy into granted tree.
+- [242](242-pdf-import-find-watch.md) — tree-only find-watch (MES still excluded).

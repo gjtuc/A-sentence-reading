@@ -1,7 +1,10 @@
 /// design/226 — uid-scoped folder grant prefs (tree URI only).
+/// design/237 — advisoryDoi · design/239 — set pairing list items.
 library;
 
 import 'dart:convert';
+
+import '../pdf/normalize_pairing_key.dart';
 
 const String kPdfFolderGrantPrefsPrefix = 'asr.pdf_folder_grant.v1.u.';
 const int kPdfFolderScanMaxItems = 500;
@@ -75,6 +78,7 @@ class ScannedPdfEntry {
     this.advisoryRole = '',
     this.advisoryReason = '',
     this.advisoryState = PdfAdvisoryState.unknown,
+    this.advisoryDoi = '',
   });
 
   final String docUri;
@@ -90,6 +94,9 @@ class ScannedPdfEntry {
   String advisoryReason;
   PdfAdvisoryState advisoryState;
 
+  /// design/237 — DOI from head/info (local only; never in evidence plaintext).
+  String advisoryDoi;
+
   ScannedPdfEntry copyWith({
     String? contentHash,
     PdfHashState? hashState,
@@ -97,6 +104,7 @@ class ScannedPdfEntry {
     String? advisoryRole,
     String? advisoryReason,
     PdfAdvisoryState? advisoryState,
+    String? advisoryDoi,
   }) {
     return ScannedPdfEntry(
       docUri: docUri,
@@ -109,6 +117,123 @@ class ScannedPdfEntry {
       advisoryRole: advisoryRole ?? this.advisoryRole,
       advisoryReason: advisoryReason ?? this.advisoryReason,
       advisoryState: advisoryState ?? this.advisoryState,
+      advisoryDoi: advisoryDoi ?? this.advisoryDoi,
     );
   }
+}
+
+/// design/239 — visible import list: singleton or exact 1 main + 1 SI set.
+sealed class PdfImportListItem {
+  const PdfImportListItem();
+  List<String> get docUris;
+}
+
+class PdfImportSingleItem extends PdfImportListItem {
+  const PdfImportSingleItem(this.entry);
+  final ScannedPdfEntry entry;
+  @override
+  List<String> get docUris => [entry.docUri];
+}
+
+class PdfImportSetItem extends PdfImportListItem {
+  const PdfImportSetItem({
+    required this.main,
+    required this.si,
+    required this.pairingKey,
+  });
+  final ScannedPdfEntry main;
+  final ScannedPdfEntry si;
+  final String pairingKey;
+  @override
+  List<String> get docUris => [main.docUri, si.docUri];
+}
+
+/// Group ready advisories: exactly one main + one SI sharing pairing key → set.
+({List<PdfImportListItem> items, int nSets, int nSingles, int nGap})
+    buildPdfImportListItems(List<ScannedPdfEntry> entries) {
+  final ready = <ScannedPdfEntry>[];
+  final pending = <ScannedPdfEntry>[];
+  for (final e in entries) {
+    if (e.advisoryState == PdfAdvisoryState.ready &&
+        e.advisoryTitle.trim().isNotEmpty) {
+      ready.add(e);
+    } else {
+      pending.add(e);
+    }
+  }
+
+  final byKey = <String, List<ScannedPdfEntry>>{};
+  for (final e in ready) {
+    final key = normalizePairingKey(e.advisoryTitle);
+    if (key.isEmpty) {
+      pending.add(e);
+      continue;
+    }
+    byKey.putIfAbsent(key, () => []).add(e);
+  }
+
+  final items = <PdfImportListItem>[];
+  var nSets = 0;
+  var nGap = 0;
+  final used = <String>{};
+
+  for (final entry in byKey.entries) {
+    final group = entry.value;
+    ScannedPdfEntry? main;
+    ScannedPdfEntry? si;
+    var mains = 0;
+    var sis = 0;
+    for (final e in group) {
+      final role = e.advisoryRole.trim().toLowerCase();
+      if (role == 'supplementary') {
+        sis += 1;
+        si ??= e;
+      } else if (role == 'main') {
+        mains += 1;
+        main ??= e;
+      }
+    }
+    if (mains == 1 && sis == 1 && main != null && si != null) {
+      items.add(
+        PdfImportSetItem(main: main, si: si, pairingKey: entry.key),
+      );
+      used.add(main.docUri);
+      used.add(si.docUri);
+      nSets += 1;
+    } else if (group.length >= 2 && (mains > 0 || sis > 0)) {
+      nGap += 1;
+    }
+  }
+
+  for (final e in ready) {
+    if (used.contains(e.docUri)) continue;
+    final key = normalizePairingKey(e.advisoryTitle);
+    if (key.isEmpty || !used.contains(e.docUri)) {
+      if (!used.contains(e.docUri)) {
+        items.add(PdfImportSingleItem(e));
+        used.add(e.docUri);
+      }
+    }
+  }
+  for (final e in pending) {
+    if (used.contains(e.docUri)) continue;
+    items.add(PdfImportSingleItem(e));
+  }
+
+  // Stable-ish: sets first then singles by displayName
+  items.sort((a, b) {
+    final aSet = a is PdfImportSetItem;
+    final bSet = b is PdfImportSetItem;
+    if (aSet != bSet) return aSet ? -1 : 1;
+    String name(PdfImportListItem x) {
+      if (x is PdfImportSetItem) return x.main.displayName.toLowerCase();
+      if (x is PdfImportSingleItem) return x.entry.displayName.toLowerCase();
+      return '';
+    }
+
+    return name(a).compareTo(name(b));
+  });
+
+  final nSingles = items.whereType<PdfImportSingleItem>().length;
+  return (items: items, nSets: nSets, nSingles: nSingles, nGap: nGap);
 }

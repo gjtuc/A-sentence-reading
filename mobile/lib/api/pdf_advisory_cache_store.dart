@@ -1,4 +1,4 @@
-/// design/228 · 229 · 230 — disk cache for advisory title/role (no path/URI values).
+/// design/228 · 229 · 230 · 237 — disk cache for advisory title/role/doi (no path/URI).
 library;
 
 import 'dart:convert';
@@ -10,8 +10,8 @@ import 'pdf_hash_cache_store.dart';
 
 const int kPdfAdvisoryCacheMaxEntries = 2000;
 
-/// design/229 · 233 · 235 · 236 — bump wipes stale SI / journal-as-title advisories.
-const int kPdfAdvisoryCacheSchema = 5;
+/// design/229 · 233 · 235 · 236 · 237 — bump wipes stale rows (DOI field).
+const int kPdfAdvisoryCacheSchema = 6;
 
 class PdfAdvisoryCacheEntry {
   const PdfAdvisoryCacheEntry({
@@ -20,6 +20,8 @@ class PdfAdvisoryCacheEntry {
     required this.advisoryReason,
     required this.extractOk,
     this.titleSource = '',
+    this.advisoryDoi = '',
+    this.doiSource = '',
   });
 
   final String advisoryTitle;
@@ -29,6 +31,12 @@ class PdfAdvisoryCacheEntry {
 
   /// design/230 — `info` | `head_line` | `stem` (empty if older cache row).
   final String titleSource;
+
+  /// design/237 — DOI token only (never logged as evidence plaintext).
+  final String advisoryDoi;
+
+  /// `head` | `info` | ''
+  final String doiSource;
 }
 
 class PdfAdvisoryCacheStore {
@@ -144,12 +152,16 @@ class PdfAdvisoryCacheStore {
     final titleSource = (src == 'info' || src == 'head_line' || src == 'stem')
         ? src
         : '';
+    final doiSrc = '${row['doi_source'] ?? ''}'.trim().toLowerCase();
+    final doiSource = (doiSrc == 'head' || doiSrc == 'info') ? doiSrc : '';
     return PdfAdvisoryCacheEntry(
       advisoryTitle: '${row['advisory_title'] ?? ''}'.trim(),
       advisoryRole: role,
       advisoryReason: '${row['advisory_reason'] ?? ''}'.trim(),
       extractOk: row['extract_ok'] == true,
       titleSource: titleSource,
+      advisoryDoi: '${row['advisory_doi'] ?? ''}'.trim(),
+      doiSource: doiSource,
     );
   }
 
@@ -162,6 +174,8 @@ class PdfAdvisoryCacheStore {
     required String advisoryReason,
     required bool extractOk,
     String titleSource = '',
+    String advisoryDoi = '',
+    String doiSource = '',
   }) async {
     await _ensureLoaded();
     final key = pdfHashCacheKey(
@@ -173,6 +187,8 @@ class PdfAdvisoryCacheStore {
     final src = titleSource.trim().toLowerCase();
     final srcOut =
         (src == 'info' || src == 'head_line' || src == 'stem') ? src : '';
+    final dsrc = doiSource.trim().toLowerCase();
+    final dsrcOut = (dsrc == 'head' || dsrc == 'info') ? dsrc : '';
     _mem[key] = {
       'advisory_title': advisoryTitle.trim(),
       'advisory_role':
@@ -180,6 +196,8 @@ class PdfAdvisoryCacheStore {
       'advisory_reason': advisoryReason.trim(),
       'extract_ok': extractOk,
       'title_source': srcOut,
+      'advisory_doi': advisoryDoi.trim(),
+      'doi_source': dsrcOut,
       'size_bytes': sizeBytes,
       'last_modified_ms': lastModifiedMs,
       'computed_at_ms': DateTime.now().millisecondsSinceEpoch,

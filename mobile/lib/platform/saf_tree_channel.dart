@@ -83,6 +83,91 @@ class SafTreeChannel {
     }
   }
 
+  /// design/238 — ACTION_OPEN_DOCUMENT (temp READ; optional multi PDF).
+  Future<List<SafTreePdfItem>?> pickDocuments({
+    bool multiple = true,
+  }) async {
+    if (kIsWeb) return null;
+    try {
+      final raw = await _channel.invokeMethod<dynamic>('pickDocuments', {
+        'multiple': multiple,
+      });
+      if (raw == null) return null;
+      if (raw is! List) return const [];
+      final out = <SafTreePdfItem>[];
+      for (final row in raw) {
+        if (row is! Map) continue;
+        final item = _pdfItemFromMap(row);
+        if (item != null) out.add(item);
+      }
+      return out;
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  /// design/241 — tree write capability probe.
+  Future<({bool writable, String code})> probeTreeWritable(String treeUri) async {
+    final u = treeUri.trim();
+    if (u.isEmpty || kIsWeb) {
+      return (writable: false, code: 'unsupported');
+    }
+    try {
+      final raw = await _channel.invokeMethod<dynamic>('probeTreeWritable', {
+        'treeUri': u,
+      });
+      if (raw is! Map) return (writable: false, code: 'bad_map');
+      return (
+        writable: raw['writable'] == true,
+        code: '${raw['code'] ?? ''}'.trim().isEmpty
+            ? (raw['writable'] == true ? 'ok' : 'not_writable')
+            : '${raw['code']}'.trim(),
+      );
+    } on PlatformException catch (e) {
+      return (writable: false, code: e.code);
+    } catch (_) {
+      return (writable: false, code: 'exc');
+    }
+  }
+
+  /// design/241 — stream-copy PDF into connected tree (collision rename).
+  Future<SafTreePdfItem?> copyUriIntoTree({
+    required String srcDocUri,
+    required String treeUri,
+    String? displayName,
+  }) async {
+    final src = srcDocUri.trim();
+    final tree = treeUri.trim();
+    if (src.isEmpty || tree.isEmpty || kIsWeb) return null;
+    try {
+      final raw = await _channel.invokeMethod<dynamic>('copyUriIntoTree', {
+        'srcDocUri': src,
+        'treeUri': tree,
+        if (displayName != null && displayName.trim().isNotEmpty)
+          'displayName': displayName.trim(),
+      });
+      if (raw is! Map) return null;
+      return _pdfItemFromMap(raw);
+    } on PlatformException {
+      rethrow;
+    }
+  }
+
+  SafTreePdfItem? _pdfItemFromMap(Map raw) {
+    final docUri = '${raw['docUri'] ?? ''}'.trim();
+    final name = '${raw['displayName'] ?? ''}'.trim();
+    if (docUri.isEmpty || name.isEmpty) return null;
+    final size = raw['sizeBytes'] is num ? (raw['sizeBytes'] as num).toInt() : 0;
+    final mtime =
+        raw['lastModifiedMs'] is num ? (raw['lastModifiedMs'] as num).toInt() : 0;
+    return SafTreePdfItem(
+      docUri: docUri,
+      displayName: name,
+      sizeBytes: size < 0 ? 0 : size,
+      lastModifiedMs: mtime < 0 ? 0 : mtime,
+    );
+  }
+
   Future<bool> releaseTree(String treeUri) async {
     final u = treeUri.trim();
     if (u.isEmpty || kIsWeb) return false;
@@ -117,23 +202,8 @@ class SafTreeChannel {
     if (list is List) {
       for (final row in list) {
         if (row is! Map) continue;
-        final docUri = '${row['docUri'] ?? ''}'.trim();
-        final name = '${row['displayName'] ?? ''}'.trim();
-        if (docUri.isEmpty || name.isEmpty) continue;
-        final size = row['sizeBytes'] is num
-            ? (row['sizeBytes'] as num).toInt()
-            : 0;
-        final mtime = row['lastModifiedMs'] is num
-            ? (row['lastModifiedMs'] as num).toInt()
-            : 0;
-        out.add(
-          SafTreePdfItem(
-            docUri: docUri,
-            displayName: name,
-            sizeBytes: size < 0 ? 0 : size,
-            lastModifiedMs: mtime < 0 ? 0 : mtime,
-          ),
-        );
+        final item = _pdfItemFromMap(row);
+        if (item != null) out.add(item);
       }
     }
     return SafTreeListResult(items: out, truncated: truncated);
