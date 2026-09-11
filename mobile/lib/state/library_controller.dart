@@ -4787,7 +4787,7 @@ class LibraryController extends ChangeNotifier {
               'title_source': _evidenceSnakeToken(guessed.source),
             },
           );
-        } catch (_) {
+        } catch (err) {
           if (epoch != _pdfAdvisoryPumpEpoch) return;
           e.advisoryState = PdfAdvisoryState.failed;
           nFail += 1;
@@ -4796,7 +4796,13 @@ class LibraryController extends ChangeNotifier {
             'pdf_advisory_cache_fail',
             severity: 'warn',
             stage: 'advisory',
-            details: {'code': 'exc'},
+            details: {
+              'code': 'exc',
+              'exc_type': _evidenceSnakeToken(
+                err.runtimeType.toString(),
+                fallback: 'unknown',
+              ),
+            },
           );
         }
       }

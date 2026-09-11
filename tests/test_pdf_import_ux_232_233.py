@@ -65,12 +65,14 @@ def _port_guess(info: str, head: str, name: str) -> tuple[str, str]:
         r"this content was downloaded|citation:)",
         re.I,
     )
+    # Mirror Dart: case-insensitive flag (Dart must use caseSensitive:false, not (?i)).
     journal = re.compile(
-        r"(?i)(^journal of\b|^nature catalysis\b|^catal\.?\s*sci\.?\s*technol|"
+        r"(^journal of\b|^nature catalysis\b|^catal\.?\s*sci\.?\s*technol|"
         r"catalysis\s+science\s*(?:&|and)?\s*technology|"
         r"accounts of chemical research|green chemical engineering|"
         r"scientific reports|sustainable energy\s*(?:&|and)?\s*fuels|"
-        r"applied physics|chem\.?\s*eng\.?\s*j)"
+        r"applied physics|chem\.?\s*eng\.?\s*j)",
+        re.I,
     )
     frag = re.compile(r"^(catalysis|technology|science\s*&?)$", re.I)
 

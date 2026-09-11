@@ -23,8 +23,9 @@ final _prefixChrome = RegExp(
   caseSensitive: false,
 );
 
+// WHY: Dart RegExp rejects inline (?i) ("Invalid group") — use caseSensitive:false.
 final _journalChrome = RegExp(
-  r'(?i)('
+  r'(?:'
   r'^journal of\b'
   r'|^nature catalysis\b'
   r'|^catal\.?\s*sci\.?\s*technol'
@@ -36,6 +37,7 @@ final _journalChrome = RegExp(
   r'|applied physics'
   r'|chem\.?\s*eng\.?\s*j'
   r')',
+  caseSensitive: false,
 );
 
 /// design/230 — snake enum for evidence (`info` | `head_line` | `stem`).

@@ -29,4 +29,4 @@ Bump advisory cache schema **v=3** so stale journal-as-title rows recompute.
 
 ## Version
 
-**0.3.230**
+**0.3.230** (regexp crash fixed in [234](234-advisory-title-dart-regexp-fix.md) / **0.3.231**)
