@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from sentence_reading.cache.paper_cache import normalize_pairing_key
+
 DocRole = str  # main | supplementary | merged
 
 _LIBRARY_TAGS = {
@@ -49,13 +51,22 @@ def _by_title_role(entries: list[dict[str, Any]]) -> dict[tuple[str, str, str], 
 
 
 def apply_pairing_pass(entries: list[dict[str, Any]]) -> None:
-    """Mutual paired_cache_id for same title_key main↔supplementary (1:1)."""
+    """Mutual paired_cache_id for same pairing_key main↔supplementary (1:1).
+
+    design/218 — pairing uses normalize_pairing_key (articles/SI prefix soft match).
+    Dedup remains exact title_key + source + doc_role.
+    """
+    for e in entries:
+        if isinstance(e, dict):
+            e.pop("paired_cache_id", None)
+
     mains: dict[tuple[str, str], dict[str, Any]] = {}
     sis: dict[tuple[str, str], dict[str, Any]] = {}
     for e in entries:
         if not isinstance(e, dict):
             continue
-        key = str(e.get("title_key") or "")
+        title = str(e.get("title") or "")
+        key = normalize_pairing_key(title) or str(e.get("title_key") or "")
         if not key:
             continue
         src = str(e.get("source") or "pdf").lower()
@@ -76,7 +87,6 @@ def apply_pairing_pass(entries: list[dict[str, Any]]) -> None:
     for ts, main_e in mains.items():
         si_e = sis.get(ts)
         if si_e is None:
-            main_e.pop("paired_cache_id", None)
             continue
         main_e["paired_cache_id"] = str(si_e.get("id") or "")
         si_e["paired_cache_id"] = str(main_e.get("id") or "")

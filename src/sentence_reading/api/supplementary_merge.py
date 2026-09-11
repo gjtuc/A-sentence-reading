@@ -116,6 +116,8 @@ def merge_supplementary(main_id: str) -> dict:
     if not src_path.is_file():
         src_path = None
 
+    # design/218/152 — role flips main→merged; without force_cache_id save
+    # allocates a new id and the patched main row keeps the pre-merge session.
     entry = save_paper_session(
         merged_session,
         debone=bool(main_entry.get("debone")),
@@ -126,6 +128,7 @@ def merge_supplementary(main_id: str) -> dict:
         supplementary_merged=True,
         supplementary_cache_id=si_id,
         merge_revision=rev,
+        force_cache_id=cid,
     )
     if entry is None:
         return {

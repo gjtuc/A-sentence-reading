@@ -701,34 +701,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   : (_) => _toggleSelected(e.id),
                             )
                           : null,
-                      title: Row(
+                      title: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(child: Text(e.title)),
-                          if (_ingestStatusLabel(e.ingestStatus) != null)
-                            Padding(
-                              padding: const EdgeInsets.only(left: 8),
-                              child: Chip(
-                                label: Text(
-                                  _ingestStatusLabel(e.ingestStatus)!,
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                                visualDensity: VisualDensity.compact,
-                                materialTapTargetSize:
-                                    MaterialTapTargetSize.shrinkWrap,
-                                padding: EdgeInsets.zero,
-                              ),
-                            ),
-                          if (bookmarkCount > 0)
-                            Padding(
-                              padding: const EdgeInsets.only(left: 8),
-                              child: Badge(
-                                label: Text('$bookmarkCount'),
-                                child: const Icon(Icons.bookmark_border, size: 18),
-                              ),
-                            ),
                           if (e.libraryTag.isNotEmpty && e.libraryTag != '로컬')
                             Padding(
-                              padding: const EdgeInsets.only(left: 8),
+                              padding: const EdgeInsets.only(bottom: 4),
                               child: Chip(
                                 label: Text(
                                   e.libraryTag,
@@ -740,6 +718,36 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 padding: EdgeInsets.zero,
                               ),
                             ),
+                          Row(
+                            children: [
+                              Expanded(child: Text(e.title)),
+                              if (_ingestStatusLabel(e.ingestStatus) != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 8),
+                                  child: Chip(
+                                    label: Text(
+                                      _ingestStatusLabel(e.ingestStatus)!,
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                    visualDensity: VisualDensity.compact,
+                                    materialTapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                    padding: EdgeInsets.zero,
+                                  ),
+                                ),
+                              if (bookmarkCount > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 8),
+                                  child: Badge(
+                                    label: Text('$bookmarkCount'),
+                                    child: const Icon(
+                                      Icons.bookmark_border,
+                                      size: 18,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ],
                       ),
                       subtitle: Text(

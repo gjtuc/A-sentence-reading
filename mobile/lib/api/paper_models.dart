@@ -135,15 +135,27 @@ class PaperEntry {
 
   /// design/160 — sentence + figure counts only (no library tag / stale / TTL text).
   /// design/196 — totals + optional resume section in one line.
+  /// design/218 — prefix libraryTag so main/SI role is visible in subtitle too.
   String metaResumeLine({String? resumeSection}) {
     final meta = metaLine();
-    if (resumeSection == null) return meta;
-    final section = resumeSection.trim();
-    if (section.isEmpty) {
-      return meta.isEmpty ? "읽는 중" : "$meta 읽는 중";
+    String body;
+    if (resumeSection == null) {
+      body = meta;
+    } else {
+      final section = resumeSection.trim();
+      if (section.isEmpty) {
+        body = meta.isEmpty ? "읽는 중" : "$meta 읽는 중";
+      } else if (meta.isEmpty) {
+        body = "$section 읽는 중";
+      } else {
+        body = "$meta · $section 읽는 중";
+      }
     }
-    if (meta.isEmpty) return "$section 읽는 중";
-    return "$meta · $section 읽는 중";
+    final tag = libraryTag.trim();
+    if (tag.isNotEmpty && tag != '로컬') {
+      return body.isEmpty ? tag : "$tag · $body";
+    }
+    return body;
   }
 
   String metaLine({int? figureCountOverride}) {

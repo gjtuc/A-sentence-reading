@@ -49,6 +49,21 @@ def normalize_title_key(title: str) -> str:
     t = re.sub(r"\s+", " ", t).strip()
     return t
 
+def normalize_pairing_key(title: str) -> str:
+    """design/218 — pairing-only key: title_key + strip SI prefix + drop a/an/the."""
+    t = normalize_title_key(title)
+    if not t:
+        return ""
+    t = re.sub(
+        r"^(?:supporting|supplementary)\s+(?:information|materials?|data)\s*",
+        "",
+        t,
+    )
+    t = re.sub(r"\b(a|an|the)\b", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
 
 def _index_path() -> Path:
     return cache_root() / _INDEX_NAME

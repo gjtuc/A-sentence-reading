@@ -15,7 +15,7 @@ Main PDF and Supplementary Information (SI) share the same paper title but must 
 | Auto role | SI head: `Supplementary Information`, `Supporting Information`, etc. → `doc_role=supplementary` |
 | Library tags | `메인` · `보충` · `메인+서플먼터리` (merged) |
 | Dedup key | `title_key + source + doc_role` |
-| Merge button | Main entry only; both main+SI `ingest_status=ok`; same `title_key` |
+| Merge button | Main entry only; both main+SI `ingest_status=ok`; same pairing key ([218](218-supplementary-soft-pairing.md)) |
 | Merge effect | SI sentences + figures **append** to main session; SI hidden in library |
 | Sentence section | SI → `section=supplementary` → Picker **Supplementary N / M** |
 | Figure slots | SI → `fig:s1`, `table:s1` (S prefix in slot_key) |
@@ -30,7 +30,7 @@ Upload PDF/DOCX
   → detect_doc_role(head) → main | supplementary
   → ingest (debone, figures, slot_plan with S slots if SI)
   → save_paper_session(doc_role=…)
-  → library list (pair by title_key, tags)
+  → library list (pair by pairing_key · design/218, tags)
 
 User: Merge on main
   → POST …/merge-supplementary
