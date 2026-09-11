@@ -10,8 +10,8 @@ import 'pdf_hash_cache_store.dart';
 
 const int kPdfAdvisoryCacheMaxEntries = 2000;
 
-/// design/229 · 233 — bump wipes stale SI / journal-as-title advisories.
-const int kPdfAdvisoryCacheSchema = 3;
+/// design/229 · 233 · 235 — bump wipes stale SI / journal-as-title advisories.
+const int kPdfAdvisoryCacheSchema = 4;
 
 class PdfAdvisoryCacheEntry {
   const PdfAdvisoryCacheEntry({

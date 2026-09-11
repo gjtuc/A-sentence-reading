@@ -54,4 +54,4 @@ Reuse `doc_role_detect_*` — new `reason` value only; no new kinds.
 
 ## Version
 
-**0.3.227**
+**0.3.227** (CONSPECTUS + ESI footnote: [235](235-doc-role-conspectus-esi-footnote-veto.md) / **0.3.232**)

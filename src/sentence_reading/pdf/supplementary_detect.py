@@ -1,5 +1,5 @@
 """
-design/152 · 222 · 229 — SI vs main from document head text (+ densified detect).
+design/152 · 222 · 229 · 235 — SI vs main from document head text (+ densified detect).
 """
 
 from __future__ import annotations
@@ -41,7 +41,16 @@ _ACS_CHROME = (
     re.compile(r"(?im)(?:^|\n)\s*s[iı]\b"),
 )
 
-_ABSTRACT_SOON = re.compile(r"(?im)(?:ABSTRACT\s*:|(?:^|\n)\s*ABSTRACT\b)")
+# design/229 · 235 — ABSTRACT (articles) or CONSPECTUS (Accounts).
+_ABSTRACT_SOON = re.compile(
+    r"(?im)(?:ABSTRACT\s*:|(?:^|\n)\s*ABSTRACT\b|CONSPECTUS\s*:|(?:^|\n)\s*CONSPECTUS\b)"
+)
+
+# design/235 — RSC main-article ESI availability footnote (not ESI cover title).
+_ESI_AVAILABLE_FOOTNOTE = re.compile(
+    r"(?is)(?:[†*‡]\s*)?Electronic\s+supplementary\s+information"
+    r"(?:\s*\(\s*ESI\s*\))?\s+available\b"
+)
 
 # Strip BOM / bidi / zero-width before matching (ZWSP was failing live SI heads).
 _FORMAT_CF = {"Cf", "Cc"}
@@ -94,6 +103,13 @@ def _is_acs_main_si_badge(head: str, match: re.Match[str]) -> bool:
     return chrome_hits >= 2 and abstract_soon
 
 
+def _is_esi_availability_footnote(head: str, match: re.Match[str]) -> bool:
+    """True when marker sits inside RSC 'ESI available' author footnote."""
+    start = max(0, match.start() - 80)
+    end = min(len(head), match.end() + 160)
+    return bool(_ESI_AVAILABLE_FOOTNOTE.search(head[start:end]))
+
+
 def detect_doc_role_detailed(
     text: str,
     *,
@@ -138,6 +154,16 @@ def detect_doc_role_detailed(
             return DocRoleDetectResult(
                 role="main",
                 reason="head_marker_acs_chrome_veto",
+                head_len=head_len,
+                marker_hit=True,
+                filename_si_hint=fn_hint,
+                page_label_hit=page_label,
+                stripped_format=stripped,
+            )
+        if _is_esi_availability_footnote(head, marker_m):
+            return DocRoleDetectResult(
+                role="main",
+                reason="head_marker_esi_footnote_veto",
                 head_len=head_len,
                 marker_hit=True,
                 filename_si_hint=fn_hint,

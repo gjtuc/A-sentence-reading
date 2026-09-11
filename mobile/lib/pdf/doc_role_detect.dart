@@ -1,4 +1,4 @@
-/// design/228 · 229 — Dart port of supplementary_detect.py (advisory only).
+/// design/228 · 229 · 235 — Dart port of supplementary_detect.py (advisory only).
 library;
 
 class DocRoleDetectResult {
@@ -50,8 +50,16 @@ final _acsChrome = <RegExp>[
   RegExp(r'(?:^|\n)\s*s[iı]\b', caseSensitive: false),
 ];
 
+// design/229 · 235 — ABSTRACT or CONSPECTUS soon after SI badge.
 final _abstractSoon = RegExp(
-  r'(?:ABSTRACT\s*:|(?:^|\n)\s*ABSTRACT\b)',
+  r'(?:ABSTRACT\s*:|(?:^|\n)\s*ABSTRACT\b|CONSPECTUS\s*:|(?:^|\n)\s*CONSPECTUS\b)',
+  caseSensitive: false,
+);
+
+// design/235 — RSC ESI availability footnote (not ESI cover).
+final _esiAvailableFootnote = RegExp(
+  r'(?:[†*‡]\s*)?Electronic\s+supplementary\s+information'
+  r'(?:\s*\(\s*ESI\s*\))?\s+available\b',
   caseSensitive: false,
 );
 
@@ -119,6 +127,12 @@ bool _isAcsMainSiBadge(String head, RegExpMatch match) {
   return chromeHits >= 2 && abstractSoon;
 }
 
+bool _isEsiAvailabilityFootnote(String head, RegExpMatch match) {
+  final start = match.start - 80 < 0 ? 0 : match.start - 80;
+  final end = match.end + 160 > head.length ? head.length : match.end + 160;
+  return _esiAvailableFootnote.hasMatch(head.substring(start, end));
+}
+
 DocRoleDetectResult detectDocRoleDetailed(
   String text, {
   String? filename,
@@ -153,6 +167,17 @@ DocRoleDetectResult detectDocRoleDetailed(
       return DocRoleDetectResult(
         role: 'main',
         reason: 'head_marker_acs_chrome_veto',
+        headLen: headLen,
+        markerHit: true,
+        filenameSiHint: fnHint,
+        pageLabelHit: pageLabel,
+        strippedFormat: stripped,
+      );
+    }
+    if (_isEsiAvailabilityFootnote(head, markerMatch)) {
+      return DocRoleDetectResult(
+        role: 'main',
+        reason: 'head_marker_esi_footnote_veto',
         headLen: headLen,
         markerHit: true,
         filenameSiHint: fnHint,
