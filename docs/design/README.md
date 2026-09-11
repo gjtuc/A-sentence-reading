@@ -320,6 +320,7 @@
 185 — 분석 논문 로컬 SoT · ACK wipe + abandon/bulk/polish (**0.3.181**).
 186 — 7일 device-transfer pack (**0.3.180**).
 
+| 244 | [244-practice-skill-ladder-calendar.md](244-practice-skill-ladder-calendar.md) | 연습 캘린더 난이도 사다리 n/30 (0.3.236) |
 | 243 | [243-pdf-import-remaining-polish.md](243-pdf-import-remaining-polish.md) | PDF import post-234 polish (0.3.235) |
 | 242 | [242-pdf-import-find-watch.md](242-pdf-import-find-watch.md) | 찾아보기 후 tree watch (0.3.235 polish) |
 | 241 | [241-saf-tree-write-copy.md](241-saf-tree-write-copy.md) | SAF tree createFile/copy (0.3.235 polish) |

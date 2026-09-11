@@ -1207,7 +1207,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   void _openFocusCalendar() {
     unawaited(
-      showFocusPracticeCalendarSheet(context: context, focus: _focus, skill: _skill.store),
+      showFocusPracticeCalendarSheet(
+        context: context,
+        focus: _focus,
+        skill: _skill.store,
+        skillFeatureOn: widget.shadowing.skillServerEnabled,
+      ),
     );
   }
 

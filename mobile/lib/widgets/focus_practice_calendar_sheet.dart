@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../api/focus_practice_models.dart';
 import '../state/focus_practice_controller.dart';
+import '../practice_skill/skill_ladder.dart';
 import '../practice_skill/skill_store.dart';
 
 /// Single emerald palette · level 0..3 (empty → densest).
@@ -25,6 +26,7 @@ Future<void> showFocusPracticeCalendarSheet({
   required BuildContext context,
   required FocusPracticeController focus,
   SkillStore? skill,
+  bool skillFeatureOn = true,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -34,17 +36,26 @@ Future<void> showFocusPracticeCalendarSheet({
     builder: (ctx) {
       return AnimatedBuilder(
         animation: focus,
-        builder: (context, _) => _FocusCalendarBody(focus: focus, skill: skill),
+        builder: (context, _) => _FocusCalendarBody(
+          focus: focus,
+          skill: skill,
+          skillFeatureOn: skillFeatureOn,
+        ),
       );
     },
   );
 }
 
 class _FocusCalendarBody extends StatefulWidget {
-  const _FocusCalendarBody({required this.focus, this.skill});
+  const _FocusCalendarBody({
+    required this.focus,
+    this.skill,
+    this.skillFeatureOn = true,
+  });
 
   final FocusPracticeController focus;
   final SkillStore? skill;
+  final bool skillFeatureOn;
 
   @override
   State<_FocusCalendarBody> createState() => _FocusCalendarBodyState();
@@ -192,35 +203,60 @@ class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
                 ),
               ),
             const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text(
-                  '적음',
-                  style: TextStyle(color: Colors.white38, fontSize: 11),
-                ),
-                const SizedBox(width: 6),
-                for (var lv = 0; lv <= 3; lv++) ...[
-                  Container(
-                    width: 12,
-                    height: 12,
-                    margin: const EdgeInsets.symmetric(horizontal: 2),
-                    decoration: BoxDecoration(
-                      color: focusHeatColor(lv, dark: true),
-                      borderRadius: BorderRadius.circular(2),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    '적음',
+                    style: TextStyle(color: Colors.white38, fontSize: 11),
+                  ),
+                  const SizedBox(width: 6),
+                  for (var lv = 0; lv <= 3; lv++) ...[
+                    Container(
+                      width: 12,
+                      height: 12,
+                      margin: const EdgeInsets.symmetric(horizontal: 2),
+                      decoration: BoxDecoration(
+                        color: focusHeatColor(lv, dark: true),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(width: 6),
+                  const Text(
+                    '많음',
+                    style: TextStyle(color: Colors.white38, fontSize: 11),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    '·',
+                    style: TextStyle(color: Colors.white38, fontSize: 11),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    () {
+                      final sk = widget.skill;
+                      if (sk == null || !widget.skillFeatureOn) {
+                        return '난이도 —';
+                      }
+                      return skillLadderLabelKo(
+                        tier: sk.state.tier,
+                        density: sk.state.density,
+                      );
+                    }(),
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
                     ),
                   ),
                 ],
-                const SizedBox(width: 6),
-                const Text(
-                  '많음',
-                  style: TextStyle(color: Colors.white38, fontSize: 11),
-                ),
-              ],
+              ),
             ),
             const SizedBox(height: 8),
             const Text(
-              '색은 그날 완료한 10분 블록 수 · 연속은 하루 1블록 이상이면 이어집니다.',
+              '색은 그날 완료한 10분 블록 수 · 난이도는 연습 사다리 위치(1–30) · 연속은 하루 1블록 이상이면 이어집니다.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white38, fontSize: 11),
             ),
