@@ -194,6 +194,12 @@ class LibraryController extends ChangeNotifier {
   /// design/221 — first_only auto-open; library screen consumes then clears.
   String? pendingAutoOpenCacheId;
 
+  /// design/223 — recent pick metadata (uid-scoped).
+  List<PickerRecentItem> pickerRecent = const [];
+
+  /// design/223 — library content hashes for green border (list ∪ disk).
+  Set<String> libraryContentHashes = const {};
+
   void consumePendingAutoOpen() {
     pendingAutoOpenCacheId = null;
   }
