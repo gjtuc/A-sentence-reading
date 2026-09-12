@@ -320,6 +320,7 @@
 185 — 분석 논문 로컬 SoT · ACK wipe + abandon/bulk/polish (**0.3.181**).
 186 — 7일 device-transfer pack (**0.3.180**).
 
+| 254 | [254-import-screen-tab-cta-separation.md](254-import-screen-tab-cta-separation.md) | Import screen tab CTA separation (0.3.247) |
 | 253 | [253-downloads-open-document-direct.md](253-downloads-open-document-direct.md) | Resume Downloads via OPEN_DOCUMENT (0.3.246) |
 | 252 | [252-find-return-causal-evidence.md](252-find-return-causal-evidence.md) | Find→browser→resume causal evidence (0.3.245) |
 | 251 | [251-mate-direct-fetch.md](251-mate-direct-fetch.md) | Mate direct fetch device orchestrator (0.3.243+) |

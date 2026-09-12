@@ -610,6 +610,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                     ? const Center(child: CircularProgressIndicator())
                     : grant == null
                         ? _EmptyConnect(
+                            isDownloads: browseDownloads,
                             onConnect: _busy ? null : _connectFolder,
                             onSaf: _busy
                                 ? null
@@ -723,73 +724,58 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                 },
                               ),
               ),
-              SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (grant != null)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: OutlinedButton.icon(
+              if (grant != null)
+                SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    child: browseDownloads
+                        ? FilledButton(
                             onPressed: _busy ||
+                                    _selected.isEmpty ||
                                     lib.reanalyzing ||
                                     lib.opening
                                 ? null
-                                : (browseDownloads
-                                    ? _connectFolder
-                                    : _pickReceived),
-                            icon: Icon(browseDownloads
-                                ? Icons.create_new_folder_outlined
-                                : Icons.download_done_outlined),
-                            label: Text(browseDownloads
-                                ? '다운로드 폴더 연결'
-                                : '다운로드에서 가져오기'),
-                          ),
-                        ),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _busy ||
-                                      lib.reanalyzing ||
-                                      lib.opening
-                                  ? null
-                                  : () async {
-                                      await widget.onPickFromFiles();
-                                      if (mounted) {
-                                        Navigator.of(context).pop();
-                                      }
-                                    },
-                              icon: const Icon(Icons.folder_open),
-                              label: const Text('파일에서 추가'),
+                                : () => _importDownloadsSelection(),
+                            child: Text(
+                              '논문 폴더로 가져오기 (${_selected.length})',
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: _busy ||
-                                      _selected.isEmpty ||
-                                      lib.reanalyzing ||
-                                      lib.opening
-                                  ? null
-                                  : () => browseDownloads
-                                      ? _importDownloadsSelection()
-                                      : _enqueueSelected(listItems),
-                              child: Text(
-                                browseDownloads
-                                    ? '논문 폴더로 가져오기 (${_selected.length})'
-                                    : '대기열에 추가 (${_selected.length})',
+                          )
+                        : Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _busy ||
+                                          lib.reanalyzing ||
+                                          lib.opening
+                                      ? null
+                                      : () async {
+                                          await widget.onPickFromFiles();
+                                          if (mounted) {
+                                            Navigator.of(context).pop();
+                                          }
+                                        },
+                                  icon: const Icon(Icons.folder_open),
+                                  label: const Text('파일에서 추가'),
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: FilledButton(
+                                  onPressed: _busy ||
+                                          _selected.isEmpty ||
+                                          lib.reanalyzing ||
+                                          lib.opening
+                                      ? null
+                                      : () => _enqueueSelected(listItems),
+                                  child: Text(
+                                    '대기열에 추가 (${_selected.length})',
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ],
                   ),
                 ),
-              ),
             ],
           ),
         );
@@ -798,20 +784,44 @@ class _PdfImportScreenState extends State<PdfImportScreen>
   }
 }
 
-
 class _EmptyConnect extends StatelessWidget {
   const _EmptyConnect({
     required this.onConnect,
     required this.onSaf,
     required this.onPickReceived,
+    this.isDownloads = false,
   });
 
   final VoidCallback? onConnect;
   final VoidCallback? onSaf;
   final VoidCallback? onPickReceived;
+  final bool isDownloads;
 
   @override
   Widget build(BuildContext context) {
+    if (isDownloads) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '다운로드 폴더에 있는\nPDF·Word 파일을 가져옵니다.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: onPickReceived,
+                icon: const Icon(Icons.download_done_outlined),
+                label: const Text('다운로드에서 가져오기'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -830,10 +840,6 @@ class _EmptyConnect extends StatelessWidget {
               label: const Text('논문 폴더 연결'),
             ),
             const SizedBox(height: 8),
-            TextButton(
-              onPressed: onPickReceived,
-              child: const Text('다운로드에서 가져오기'),
-            ),
             TextButton(
               onPressed: onSaf,
               child: const Text('또는 파일에서 추가'),
