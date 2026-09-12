@@ -567,7 +567,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                     child: Text(
-                      '길게 눌러 편집 · 편집 중 끌어 순서 변경.',
+                      '누르고 끌어 순서 변경 · 길게 눌러 편집.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
