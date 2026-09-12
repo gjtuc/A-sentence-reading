@@ -5365,6 +5365,22 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// design/249 — display-name stem for docx advisory title.
+  String _docxAdvisoryTitle(String displayName) {
+    var base = displayName.trim();
+    if (base.isEmpty) return 'document';
+    final slash = base.replaceAll('\\', '/').lastIndexOf('/');
+    if (slash >= 0) base = base.substring(slash + 1);
+    final lower = base.toLowerCase();
+    if (lower.endsWith('.docx')) {
+      base = base.substring(0, base.length - 5);
+    } else if (lower.endsWith('.pdf')) {
+      base = base.substring(0, base.length - 4);
+    }
+    base = base.trim();
+    return base.isEmpty ? displayName.trim() : base;
+  }
+
   /// design/237 — evidence for find CTA open/fail (never DOI plaintext).
   void recordFindOpen({required String role, required bool ok, String code = ''}) {
     final roleTok = role.trim().toLowerCase() == 'supplementary' ? 'si' : 'main';
