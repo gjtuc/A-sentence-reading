@@ -57,7 +57,7 @@ def test_route_and_status_wired() -> None:
     assert "/api/mate/resolve" in app
     assert "mate_direct_fetch" in app
     assert "mobile_mate_direct_fetch" in app
-    assert 'version="0.3.245"' in app
+    assert 'version="0.3.246"' in app
 
 
 def test_evidence_kinds() -> None:

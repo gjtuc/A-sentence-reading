@@ -33,3 +33,6 @@ MES · MediaStore scan · replacing papers grant with Downloads. (docx: 249)
 
 Downloads 상시 탭·중복 CTA는 mate-fetch(T1+)가 늘면 **축소/제거 가능**. Fallback은 T4·「방금 파일 고르기」. See [251](251-mate-direct-fetch.md).
 
+## Amend (design/253)
+
+No-grant path on Downloads CTAs: `OPEN_DOCUMENT` pick (PDF+DOCX) instead of forcing tree connect. In-app list only after grant exists. See [253](253-downloads-open-document-direct.md).

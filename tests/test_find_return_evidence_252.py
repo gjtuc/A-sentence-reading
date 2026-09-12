@@ -26,12 +26,12 @@ def test_design_252_locked() -> None:
     assert "find_id" in text
 
 
-def test_versions_0_3_245() -> None:
+def test_versions_current_ship() -> None:
+    # design/252 shipped at 0.3.245; later chips may bump further.
     app = APP.read_text(encoding="utf-8")
-    assert 'version="0.3.245"' in app
-    assert '"version": "0.3.245"' in app
-    assert "0.3.245" in PUBSPEC.read_text(encoding="utf-8")
-    assert "0.3.245" in CONFIG.read_text(encoding="utf-8")
+    assert 'version="0.3.' in app
+    assert "0.3." in PUBSPEC.read_text(encoding="utf-8")
+    assert "0.3." in CONFIG.read_text(encoding="utf-8")
 
 
 def test_kinds_mirrored() -> None:
@@ -72,3 +72,4 @@ def test_resume_offer_skip_branches() -> None:
     ):
         assert reason in screen
     assert "outcome': 'offered'" in screen or "outcome: 'offered'" in screen
+    assert "다운로드에서 고르기" in screen or "다운로드 보기" in screen

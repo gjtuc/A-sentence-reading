@@ -32,3 +32,7 @@ Auto-ingest without SAF pick · docx SI · MES.
 ## Amend (design/252)
 
 Resume offer path emits `pdf_find_watch_resume_offer` with `outcome`/`skip_reason` (proves silent return). See [252](252-find-return-causal-evidence.md).
+
+## Amend (design/253)
+
+Resume / 「다운로드 보기」without Downloads grant uses `OPEN_DOCUMENT` at `primary:Download` (not tree). Tree connect keeps document-URI INITIAL_URI. See [253](253-downloads-open-document-direct.md).

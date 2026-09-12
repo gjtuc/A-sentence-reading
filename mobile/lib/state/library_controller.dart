@@ -4577,8 +4577,11 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  /// design/248 — switch to Downloads in-app browse; connect if needed.
-  Future<bool> openDownloadsBrowse({bool connectIfMissing = true}) async {
+  /// design/248 — switch to Downloads in-app browse when grant exists.
+  /// design/253 — no grant: OPEN_DOCUMENT at Downloads (not tree picker).
+  Future<({bool ok, String mode, String? message})> openDownloadsBrowse({
+    bool connectIfMissing = true,
+  }) async {
     pdfImportBrowseMode = PdfImportBrowseMode.downloads;
     notifyListeners();
     if (pdfDownloadsGrant == null) {
@@ -4590,20 +4593,65 @@ class LibraryController extends ChangeNotifier {
         target: PdfImportBrowseMode.downloads,
       );
     }
-    if (pdfDownloadsGrant == null && connectIfMissing) {
-      final ok = await connectPdfDownloadsFolder();
-      if (!ok) {
-        notifyListeners();
-        return false;
+    if (pdfDownloadsGrant != null) {
+      if (pdfFindWatchArmed) {
+        disarmFindWatch(reason: 'pick');
       }
+      unawaited(ensureVisiblePdfHashes());
+      unawaited(ensureVisiblePdfAdvisories());
+      notifyListeners();
+      return (ok: true, mode: 'browse', message: null);
     }
-    if (pdfFindWatchArmed) {
-      disarmFindWatch(reason: 'pick');
+    if (!connectIfMissing) {
+      notifyListeners();
+      return (ok: false, mode: 'no_grant', message: null);
     }
-    unawaited(ensureVisiblePdfHashes());
-    unawaited(ensureVisiblePdfAdvisories());
+    // No tree grant — pick files from Downloads via OPEN_DOCUMENT.
+    final t0 = DateTime.now().millisecondsSinceEpoch;
+    final findId = (pdfFindWatchFindId ?? '').trim();
+    asrEvidenceBus?.record(
+      'pdf_import_pick_start',
+      severity: 'lifecycle',
+      stage: 'pick',
+      details: {
+        'ok': true,
+        'browse': 'downloads_docs',
+        if (findId.isNotEmpty) 'find_id': findId,
+      },
+    );
+    final items = await _safTree.pickDocuments(multiple: true);
+    if (items == null || items.isEmpty) {
+      asrEvidenceBus?.record(
+        'pdf_import_pick_done',
+        severity: 'lifecycle',
+        stage: 'pick',
+        details: {
+          'ok': false,
+          'n': 0,
+          'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+          'mode': 'cancel',
+          'browse': 'downloads_docs',
+          if (findId.isNotEmpty) 'find_id': findId,
+        },
+      );
+      notifyListeners();
+      return (ok: false, mode: 'cancel', message: null);
+    }
+    final picked = <({String docUri, String displayName})>[
+      for (final it in items)
+        (docUri: it.docUri, displayName: it.displayName),
+    ];
+    final r = await _importPickedDocs(
+      picked,
+      browse: 'downloads_docs',
+      startedMs: t0,
+    );
     notifyListeners();
-    return pdfDownloadsGrant != null;
+    return (
+      ok: r.copied > 0 || r.enqueued > 0,
+      mode: r.mode,
+      message: r.message,
+    );
   }
 
 
@@ -5956,7 +6004,7 @@ class LibraryController extends ChangeNotifier {
     return outcome;
   }
 
-  /// design/248 - import selected Downloads URIs into papers tree or enqueue.
+  /// design/248 — import selected Downloads URIs into papers tree or enqueue.
   Future<({int copied, int enqueued, String? message, String mode})>
       importSelectedFromDownloads(List<String> docUris) async {
     final t0 = DateTime.now().millisecondsSinceEpoch;
@@ -5977,12 +6025,10 @@ class LibraryController extends ChangeNotifier {
           'n': 0,
           'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
           'mode': 'cancel',
+          'browse': 'downloads',
         },
       );
       return (copied: 0, enqueued: 0, message: null, mode: 'cancel');
-    }
-    if (pdfFindWatchArmed) {
-      disarmFindWatch(reason: 'pick');
     }
     final byUri = {for (final e in pdfDownloadsEntries) e.docUri: e};
     final picked = <({String docUri, String displayName})>[];
@@ -5998,6 +6044,20 @@ class LibraryController extends ChangeNotifier {
         message: 'selected_missing',
         mode: 'cancel',
       );
+    }
+    return _importPickedDocs(picked, browse: 'downloads', startedMs: t0);
+  }
+
+  /// design/248 · 253 — shared sink for Downloads list selection or OPEN_DOCUMENT picks.
+  Future<({int copied, int enqueued, String? message, String mode})>
+      _importPickedDocs(
+    List<({String docUri, String displayName})> picked, {
+    required String browse,
+    required int startedMs,
+  }) async {
+    final t0 = startedMs;
+    if (pdfFindWatchArmed) {
+      disarmFindWatch(reason: 'pick');
     }
     final grant = pdfFolderGrant;
     var mode = 'enqueue';
@@ -6134,7 +6194,9 @@ class LibraryController extends ChangeNotifier {
         'n': copied + enqueued,
         'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
         'mode': mode,
-        'browse': 'downloads',
+        'browse': browse,
+        if ((pdfFindWatchFindId ?? '').trim().isNotEmpty)
+          'find_id': pdfFindWatchFindId!.trim(),
       },
     );
     return (

@@ -1,5 +1,5 @@
 /// design/226 — full-screen PDF folder import (not thin sheet).
-/// design/237 find CTA · 238/248 Downloads in-app · 239 set · 242 watch · 247 hint · 252 evidence.
+/// design/237 find CTA · 238/248 Downloads · 239 set · 242 watch · 247/253 · 252 evidence.
 library;
 
 import 'dart:async';
@@ -127,7 +127,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
         title: const Text('다운로드에서 가져올까요?'),
         content: const Text(
           '브라우저에서 받은 파일은 보통 다운로드 폴더에 있습니다. '
-          '앱 목록에서 고를까요? (PDF/DOCX)',
+          '다운로드에서 PDF/DOCX를 고를까요?',
         ),
         actions: [
           TextButton(
@@ -136,7 +136,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('다운로드 보기'),
+            child: const Text('다운로드에서 고르기'),
           ),
         ],
       ),
@@ -191,9 +191,21 @@ class _PdfImportScreenState extends State<PdfImportScreen>
       _selected.clear();
     });
     try {
-      await lib.openDownloadsBrowse(connectIfMissing: true);
-      if (lib.pdfDownloadsGrantStale && mounted) {
+      final r = await lib.openDownloadsBrowse(connectIfMissing: true);
+      if (!mounted) return;
+      if (lib.pdfDownloadsGrantStale) {
         _banner = '이전에 연결한 다운로드 폴더를 열 수 없습니다. 다시 연결해 주세요.';
+      }
+      // design/253 — OPEN_DOCUMENT path returns copy/enqueue message.
+      if (r.mode != 'browse' && r.mode != 'cancel' && r.mode != 'no_grant') {
+        final msg = (r.message ?? '').trim();
+        if (msg.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        } else if (r.ok) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('다운로드에서 가져왔습니다.')),
+          );
+        }
       }
     } finally {
       if (mounted) setState(() => _busy = false);

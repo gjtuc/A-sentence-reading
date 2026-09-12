@@ -77,6 +77,9 @@ class SafTreeHandler(
                     val doc = DocumentFile.fromSingleUri(activity, uri) ?: return
                     val name = doc.name?.trim().orEmpty()
                     if (name.isEmpty()) return
+                    val lower = name.lowercase()
+                    // design/253 — PDF + DOCX only (name filter; MIME may be octet-stream).
+                    if (!lower.endsWith(".pdf") && !lower.endsWith(".docx")) return
                     out.add(
                         mapOf(
                             "docUri" to uri.toString(),
@@ -114,11 +117,11 @@ class SafTreeHandler(
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                     addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-                    // design/247 — hint Downloads (DocumentsContract tree), not MediaStore.
+                    // design/247 · 253 — document URI hint (tree URI often ignored on OEM).
                     if (Build.VERSION.SDK_INT >= 26) {
                         putExtra(
                             DocumentsContract.EXTRA_INITIAL_URI,
-                            downloadsTreeUri(),
+                            downloadsDocumentUri(),
                         )
                     }
                 }
@@ -138,7 +141,15 @@ class SafTreeHandler(
                 val multiple = call.argument<Boolean>("multiple") ?: true
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "application/pdf"
+                    // design/253 — PDF + DOCX from Downloads.
+                    type = "*/*"
+                    putExtra(
+                        Intent.EXTRA_MIME_TYPES,
+                        arrayOf(
+                            "application/pdf",
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        ),
+                    )
                     putExtra(Intent.EXTRA_ALLOW_MULTIPLE, multiple)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     // design/247 — DocumentsContract document URI (MediaStore is ignored).
