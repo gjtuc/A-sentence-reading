@@ -144,6 +144,9 @@ const Set<String> kEvidenceAllowedKinds = {
   'practice_skill_unscored',
   'practice_skill_adapt',
   'practice_skill_flush',
+  // design/250 — practice focus/skill cloud sync
+  'practice_focus_sync',
+  'practice_skill_sync',
   // design/209
   // design/209 KILLED — practice_cycle_wide / practice_evidence_flush
   // design/178 — worker wake causal densify

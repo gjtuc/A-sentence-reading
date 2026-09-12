@@ -64,3 +64,7 @@ focus calendar, and softly adapts:
 ## Version
 
 **0.3.212**
+
+## Amend (design/250)
+
+Skill tier/density/day % (`asr.practice_skill.v1`) syncs to GCS `users/{uid}/practice/skill_v1.json` via `GET|PUT /api/practice/skill/sync`. Cloud is SoT; local prefs are cache. See [250](250-practice-cloud-sync.md).

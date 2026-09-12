@@ -127,6 +127,14 @@ from sentence_reading.llm.bookmarks_gcs import (
     empty_bookmarks_store,
     push_bookmarks_store,
 )
+from sentence_reading.llm.practice_gcs import (
+    download_focus_store,
+    download_skill_store,
+    empty_focus_store,
+    empty_skill_store,
+    push_focus_store,
+    push_skill_store,
+)
 from sentence_reading.llm.annotations_gcs import (
     download_annotations_store,
     wipe_annotations_store,
@@ -275,7 +283,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.240",
+    version="0.3.241",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1790,7 +1798,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.240",
+        "version": "0.3.241",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -3879,6 +3887,167 @@ async def bookmarks_sync_put(request: Request, payload: dict = Body(...)) -> JSO
             content={
                 "ok": False,
                 "error": "bookmarks_sync_failed",
+                "message": str(exc)[:300],
+            },
+        )
+    return JSONResponse({"ok": True, "available": True, "store": merged, "message": "ok"})
+
+
+def _practice_sync_unavailable(
+    *,
+    needs_auth: bool = False,
+    store=None,
+    message: str | None = None,
+) -> dict:
+    out: dict = {
+        "ok": True,
+        "available": False,
+        "store": store,
+        "message": message or "practice sync unavailable",
+    }
+    if needs_auth:
+        out["needs_auth"] = True
+    return out
+
+
+@app.get("/api/practice/focus/sync")
+def practice_focus_sync_get(request: Request) -> dict:
+    """design/250 — pull focus calendar history from GCS."""
+    if auth_enabled() and _request_user(request) is None:
+        return _practice_sync_unavailable(
+            needs_auth=True,
+            message="로그인 후 집중 이력을 동기화합니다.",
+        )
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready"):
+        return _practice_sync_unavailable(message=st.get("message"))
+    if st.get("practice_focus_object") is None:
+        return _practice_sync_unavailable(
+            needs_auth=True,
+            message="로그인된 사용자 칸이 없습니다.",
+        )
+    store = download_focus_store()
+    return {
+        "ok": True,
+        "available": True,
+        "store": store if store is not None else empty_focus_store(),
+        "message": "ok",
+    }
+
+
+@app.put("/api/practice/focus/sync")
+async def practice_focus_sync_put(request: Request, payload: dict = Body(...)) -> JSONResponse:
+    """design/250 — push+merge focus calendar history."""
+    if auth_enabled() and _request_user(request) is None:
+        return JSONResponse(
+            _practice_sync_unavailable(
+                needs_auth=True,
+                store=payload.get("store") if isinstance(payload, dict) else None,
+                message="로그인 후 집중 이력을 동기화합니다.",
+            )
+        )
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready"):
+        return JSONResponse(
+            _practice_sync_unavailable(
+                store=payload.get("store") if isinstance(payload, dict) else None,
+                message=st.get("message"),
+            )
+        )
+    if st.get("practice_focus_object") is None:
+        return JSONResponse(
+            _practice_sync_unavailable(
+                needs_auth=True,
+                store=payload.get("store") if isinstance(payload, dict) else None,
+                message="로그인된 사용자 칸이 없습니다.",
+            )
+        )
+    local = payload.get("store") if isinstance(payload, dict) else None
+    if not isinstance(local, dict):
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "bad_store", "message": "store object required"},
+        )
+    try:
+        merged = push_focus_store(local)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "error": "practice_focus_sync_failed",
+                "message": str(exc)[:300],
+            },
+        )
+    return JSONResponse({"ok": True, "available": True, "store": merged, "message": "ok"})
+
+
+@app.get("/api/practice/skill/sync")
+def practice_skill_sync_get(request: Request) -> dict:
+    """design/250 — pull practice skill state from GCS."""
+    if auth_enabled() and _request_user(request) is None:
+        return _practice_sync_unavailable(
+            needs_auth=True,
+            message="로그인 후 연습 난이도를 동기화합니다.",
+        )
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready"):
+        return _practice_sync_unavailable(message=st.get("message"))
+    if st.get("practice_skill_object") is None:
+        return _practice_sync_unavailable(
+            needs_auth=True,
+            message="로그인된 사용자 칸이 없습니다.",
+        )
+    store = download_skill_store()
+    return {
+        "ok": True,
+        "available": True,
+        "store": store if store is not None else empty_skill_store(),
+        "message": "ok",
+    }
+
+
+@app.put("/api/practice/skill/sync")
+async def practice_skill_sync_put(request: Request, payload: dict = Body(...)) -> JSONResponse:
+    """design/250 — push+merge practice skill state."""
+    if auth_enabled() and _request_user(request) is None:
+        return JSONResponse(
+            _practice_sync_unavailable(
+                needs_auth=True,
+                store=payload.get("store") if isinstance(payload, dict) else None,
+                message="로그인 후 연습 난이도를 동기화합니다.",
+            )
+        )
+    st = gcs_status()
+    if not st.get("enabled") or not st.get("ready"):
+        return JSONResponse(
+            _practice_sync_unavailable(
+                store=payload.get("store") if isinstance(payload, dict) else None,
+                message=st.get("message"),
+            )
+        )
+    if st.get("practice_skill_object") is None:
+        return JSONResponse(
+            _practice_sync_unavailable(
+                needs_auth=True,
+                store=payload.get("store") if isinstance(payload, dict) else None,
+                message="로그인된 사용자 칸이 없습니다.",
+            )
+        )
+    local = payload.get("store") if isinstance(payload, dict) else None
+    if not isinstance(local, dict):
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "bad_store", "message": "store object required"},
+        )
+    try:
+        merged = push_skill_store(local)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "error": "practice_skill_sync_failed",
                 "message": str(exc)[:300],
             },
         )

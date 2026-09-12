@@ -149,6 +149,9 @@ ALLOWED_KINDS = frozenset(
         "practice_skill_unscored",
         "practice_skill_adapt",
         "practice_skill_flush",
+        # design/250 — practice focus/skill cloud sync
+        "practice_focus_sync",
+        "practice_skill_sync",
         # design/178 — worker wake causal densify
         "worker_wake_start",
         "worker_wake_done",

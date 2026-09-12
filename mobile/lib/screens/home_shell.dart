@@ -13,6 +13,7 @@ import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
+import '../api/practice_cloud_sync.dart';
 import '../services/evidence_bus.dart';
 import 'access_waiting_screen.dart';
 import 'library_screen.dart';
@@ -270,6 +271,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       unawaited(_refreshAccessGate());
       // design/224 — wall-clock soft-delete purge after resume.
       unawaited(widget.library.purgeDueSoftDeletes());
+      // design/250 — refresh focus/skill cloud cache.
+      if (widget.auth.isLoggedIn) {
+        unawaited(asrPracticeCloudSync?.ensurePulled(force: true));
+      }
     }
   }
 

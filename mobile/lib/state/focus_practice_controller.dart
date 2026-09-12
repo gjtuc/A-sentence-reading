@@ -9,6 +9,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../api/focus_practice_models.dart';
 import '../api/focus_practice_store.dart';
+import '../api/practice_cloud_hooks.dart';
 import '../services/evidence_bus.dart';
 
 class FocusPracticeController extends ChangeNotifier {
@@ -74,6 +75,7 @@ class FocusPracticeController extends ChangeNotifier {
 
   Future<void> bindUid(String? uid) async {
     _uid = (uid ?? '').trim().isEmpty ? null : uid!.trim();
+    await asrPracticeEnsurePulled?.call();
     try {
       final raw = await _store.readRaw(_uid);
       _history = parseFocusPracticeHistory(raw);
@@ -95,8 +97,21 @@ class FocusPracticeController extends ChangeNotifier {
     if (cur > _history.bestStreak) {
       _history = _history.copyWith(bestStreak: cur);
     }
+    _history = _history.copyWith(
+      updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+    );
     try {
-      await _store.writeRaw(_uid, serializeFocusPracticeHistory(_history));
+      final raw = serializeFocusPracticeHistory(_history);
+      await _store.writeRaw(_uid, raw);
+      asrSchedulePushFocus?.call({
+        'version': _history.version,
+        'days': {
+          for (final e in _history.days.entries)
+            if (e.value > 0) e.key: e.value,
+        },
+        'best_streak': _history.bestStreak < 0 ? 0 : _history.bestStreak,
+        'updated_at_ms': _history.updatedAtMs < 0 ? 0 : _history.updatedAtMs,
+      });
     } catch (_) {
       // EDGE: prefs fail — keep memory state; next bind may miss.
     }

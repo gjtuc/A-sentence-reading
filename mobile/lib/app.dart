@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'screens/home_shell.dart';
 import 'services/error_reporter.dart';
+import 'api/practice_cloud_sync.dart';
 import 'services/evidence_bus.dart';
 import 'services/notes_local_archive.dart';
 import 'state/auth_controller.dart';
@@ -77,6 +78,8 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     asrErrorReporter ??= ErrorReporter(client: _auth.client)..install();
     asrEvidenceBus ??= EvidenceBus(client: _auth.client);
     asrEvidenceBus?.attachClient(_auth.client);
+    asrPracticeCloudSync ??= PracticeCloudSync();
+    asrPracticeCloudSync?.attachClient(_auth.client);
     _auth.bootstrap();
     _theme.bootstrap();
     _tts.bootstrap();
@@ -102,6 +105,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       _citePanel.setThisPaperServerAvailable(false);
       _bookmarks.clearSession();
       _annotations.clearSession();
+      asrPracticeCloudSync?.clearSession();
       _notesArchive.bindUid(null);
       // design/133 — AccessWaiting-only shell never mounts LibraryScreen, so
       // screen-local clearAll never runs. Wipe at app root so the next account
@@ -123,6 +127,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     await _citePanel.bindUid(uid);
     await _bookmarks.bindUid(uid);
     await _annotations.bindUid(uid);
+    await asrPracticeCloudSync?.bindUid(uid);
     try {
       final st = await _auth.client.fetchStatus();
       _shadowing.setServerAvailable(st.mobileShadowingPractice);
@@ -139,6 +144,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       _citePanel.setServerAvailable(st.mobileCiteRefPanel);
       _citePanel.setThisPaperServerAvailable(st.mobileThisPaperPanel);
       _bookmarks.setServerAvailable(st.bookmarksSync);
+      asrPracticeCloudSync?.setServerAvailable(st.practiceCloudSync);
       _annotations.setServerAvailable(st.annotationsSync);
       _bookmarks.setLocalSot(st.bookmarksLocalSot);
       _annotations.setLocalSot(st.annotationsLocalSot);
@@ -150,6 +156,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       // design/187 — pull migrates once when local SoT; else legacy sync.
       unawaited(_bookmarks.pullFromServer());
       unawaited(_annotations.pullFromServer());
+      unawaited(asrPracticeCloudSync?.ensurePulled(force: true));
       if (st.notesLocalSot) {
         unawaited(
           _notesArchive.migrateFromClient(

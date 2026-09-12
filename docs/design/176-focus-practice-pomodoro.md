@@ -50,3 +50,7 @@ Floor version **0.3.159**.
 ## Ship
 
 App / pubspec / config **0.3.159**. Commit / deploy when asked.
+
+## Amend (design/250)
+
+Focus calendar history (`asr.focus_practice.v1`) syncs to GCS `users/{uid}/practice/focus_v1.json` via `GET|PUT /api/practice/focus/sync`. Cloud is SoT; local prefs are cache. See [250](250-practice-cloud-sync.md).

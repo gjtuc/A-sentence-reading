@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/focus_practice_models.dart';
+import '../api/practice_cloud_hooks.dart';
 import 'skill_adapt.dart';
 
 const String kSkillPrefsKeyBase = 'asr.practice_skill.v1';
@@ -36,6 +37,7 @@ class SkillState {
     this.cooldownBlocks = 0,
     this.epochMeans = const [],
     this.epochTargetN = kSkillEpochMinN,
+    this.updatedAtMs = 0,
   });
 
   final int version;
@@ -48,6 +50,8 @@ class SkillState {
   /// Completed focus-block means awaiting epoch resolve (design/215).
   final List<double> epochMeans;
   final int epochTargetN;
+  /// design/250 — LWW stamp for live fields.
+  final int updatedAtMs;
 
   SkillState copyWith({
     int? version,
@@ -59,6 +63,7 @@ class SkillState {
     int? cooldownBlocks,
     List<double>? epochMeans,
     int? epochTargetN,
+    int? updatedAtMs,
   }) {
     return SkillState(
       version: version ?? this.version,
@@ -70,6 +75,7 @@ class SkillState {
       cooldownBlocks: cooldownBlocks ?? this.cooldownBlocks,
       epochMeans: epochMeans ?? this.epochMeans,
       epochTargetN: epochTargetN ?? this.epochTargetN,
+      updatedAtMs: updatedAtMs ?? this.updatedAtMs,
     );
   }
 
@@ -82,6 +88,7 @@ class SkillState {
         'cooldown_blocks': cooldownBlocks,
         'epoch_means': epochMeans,
         'epoch_target_n': epochTargetN,
+        'updated_at_ms': updatedAtMs < 0 ? 0 : updatedAtMs,
         'days': {
           for (final e in days.entries)
             e.key: {'sum': e.value.sum, 'n': e.value.n},
@@ -124,6 +131,10 @@ class SkillState {
       cooldownBlocks: (m['cooldown_blocks'] as num?)?.toInt() ?? 0,
       epochMeans: means,
       epochTargetN: target,
+      updatedAtMs: (() {
+        final u = (m['updated_at_ms'] as num?)?.toInt() ?? 0;
+        return u < 0 ? 0 : u;
+      })(),
     );
   }
 }
@@ -134,11 +145,13 @@ class SkillStore {
 
   Future<void> bindUid(String? uid) async {
     _uid = uid;
+    await asrPracticeEnsurePulled?.call();
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(skillPrefsKey(_uid));
     if (raw == null || raw.isEmpty) {
       state = SkillState(epochTargetN: rollSkillEpochTarget());
-      await _persist();
+      // Cache empty local without cloud push (avoid LWW clobber of remote).
+      await prefs.setString(skillPrefsKey(_uid), jsonEncode(state.toJson()));
       return;
     }
     try {
@@ -163,8 +176,12 @@ class SkillStore {
   }
 
   Future<void> _persist() async {
+    state = state.copyWith(
+      updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+    );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(skillPrefsKey(_uid), jsonEncode(state.toJson()));
+    asrSchedulePushSkill?.call(state.toJson());
   }
 
   Future<void> addScored(double accuracy, {String? dayKey}) async {

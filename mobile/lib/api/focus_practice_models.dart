@@ -76,21 +76,26 @@ class FocusPracticeHistory {
     this.version = 2,
     this.days = const {},
     this.bestStreak = 0,
+    this.updatedAtMs = 0,
   });
 
   final int version;
   /// day key → blocks completed that day.
   final Map<String, int> days;
   final int bestStreak;
+  /// design/250 — sync stamp (ms epoch).
+  final int updatedAtMs;
 
   FocusPracticeHistory copyWith({
     Map<String, int>? days,
     int? bestStreak,
+    int? updatedAtMs,
   }) {
     return FocusPracticeHistory(
       version: version,
       days: days ?? this.days,
       bestStreak: bestStreak ?? this.bestStreak,
+      updatedAtMs: updatedAtMs ?? this.updatedAtMs,
     );
   }
 
@@ -137,7 +142,15 @@ FocusPracticeHistory parseFocusPracticeHistory(String? raw) {
       if (best < 0) best = 0;
       final computed = computeFocusBestStreak(days);
       if (computed > best) best = computed;
-      return FocusPracticeHistory(days: days, bestStreak: best);
+      final updatedRaw = decoded['updated_at_ms'];
+      final updated = updatedRaw is int
+          ? updatedRaw
+          : int.tryParse('$updatedRaw') ?? 0;
+      return FocusPracticeHistory(
+        days: days,
+        bestStreak: best,
+        updatedAtMs: updated < 0 ? 0 : updated,
+      );
     }
 
     // v1 migrate: single { day, success, blocks_completed }
@@ -166,6 +179,7 @@ String serializeFocusPracticeHistory(FocusPracticeHistory h) {
     'version': 2,
     'days': days,
     'best_streak': h.bestStreak < 0 ? 0 : h.bestStreak,
+    'updated_at_ms': h.updatedAtMs < 0 ? 0 : h.updatedAtMs,
   });
 }
 

@@ -453,6 +453,7 @@ def gcs_status() -> dict[str, Any]:
     from sentence_reading.llm.bookmarks_gcs import bookmarks_gcs_status_fields
     from sentence_reading.llm.annotations_gcs import annotations_gcs_status_fields
     from sentence_reading.llm.voice_gcs import voice_gcs_status_fields
+    from sentence_reading.llm.practice_gcs import practice_gcs_status_fields
 
     out: dict[str, Any] = {
         "enabled": cfg.enabled,
@@ -472,6 +473,7 @@ def gcs_status() -> dict[str, Any]:
     out.update(bookmarks_gcs_status_fields())
     out.update(annotations_gcs_status_fields())
     out.update(voice_gcs_status_fields())
+    out.update(practice_gcs_status_fields())
     from sentence_reading.llm.papers_gcs import papers_gcs_status_fields
 
     out.update(papers_gcs_status_fields())

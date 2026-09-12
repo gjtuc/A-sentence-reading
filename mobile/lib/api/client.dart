@@ -100,6 +100,7 @@ class AsrStatus {
     this.figureCaptionInImage = true,
     this.mobileFigureCaptionInImage = true,
     this.bookmarksSync = false,
+    this.practiceCloudSync = false,
     this.annotationsSync = false,
     this.bookmarksLocalSot = false,
     this.annotationsLocalSot = false,
@@ -273,6 +274,13 @@ class AsrStatus {
         }
         return json['bookmarks_sync'] == true;
       }(),
+      practiceCloudSync: () {
+        final gcs = json['gcs'];
+        if (gcs is Map && gcs.containsKey('practice_cloud_sync')) {
+          return gcs['practice_cloud_sync'] == true;
+        }
+        return json['practice_cloud_sync'] == true;
+      }(),
       annotationsSync: () {
         final gcs = json['gcs'];
         if (gcs is Map && gcs.containsKey('annotations_sync')) {
@@ -347,6 +355,7 @@ class AsrStatus {
   final bool figureCaptionInImage;
   final bool mobileFigureCaptionInImage;
   final bool bookmarksSync;
+  final bool practiceCloudSync;
   final bool annotationsSync;
   final bool bookmarksLocalSot;
   final bool annotationsLocalSot;
@@ -356,6 +365,21 @@ class AsrStatus {
   final String mobileApkUrl;
   /// design/169 — agent evidence bus (no UI).
   final bool evidenceBus;
+}
+
+/// `/api/practice/*/sync` result (design/250).
+class PracticeSyncResult {
+  const PracticeSyncResult({
+    required this.available,
+    this.store,
+    this.needsAuth = false,
+    this.message,
+  });
+
+  final bool available;
+  final Map<String, dynamic>? store;
+  final bool needsAuth;
+  final String? message;
 }
 
 /// `/api/bookmarks/sync` result.
@@ -2984,6 +3008,107 @@ throw AsrApiException(
       throw AsrApiException('지금은 취소를 사용할 수 없습니다.', 503);
     }
     _decodeObject(res, 'ingest/uploads/cancel');
+  }
+
+
+  Future<PracticeSyncResult> fetchPracticeFocusSync() async {
+    final res = await _http
+        .get(_uri('/api/practice/focus/sync'), headers: await _headers())
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 401) {
+      return const PracticeSyncResult(
+        available: false,
+        needsAuth: true,
+        message: '로그인이 필요합니다.',
+      );
+    }
+    final map = _decodeObject(res, 'practice/focus/sync');
+    final store = map['store'];
+    return PracticeSyncResult(
+      available: map['available'] == true,
+      store: store is Map<String, dynamic>
+          ? store
+          : (store is Map ? Map<String, dynamic>.from(store) : null),
+      needsAuth: map['needs_auth'] == true,
+      message: map['message']?.toString(),
+    );
+  }
+
+  Future<PracticeSyncResult> pushPracticeFocusSync(Map<String, dynamic> store) async {
+    final res = await _http
+        .put(
+          _uri('/api/practice/focus/sync'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({'store': store}),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 401) {
+      return const PracticeSyncResult(
+        available: false,
+        needsAuth: true,
+        message: '로그인이 필요합니다.',
+      );
+    }
+    final map = _decodeObject(res, 'practice/focus/sync');
+    final merged = map['store'];
+    return PracticeSyncResult(
+      available: map['available'] == true,
+      store: merged is Map<String, dynamic>
+          ? merged
+          : (merged is Map ? Map<String, dynamic>.from(merged) : null),
+      needsAuth: map['needs_auth'] == true,
+      message: map['message']?.toString(),
+    );
+  }
+
+  Future<PracticeSyncResult> fetchPracticeSkillSync() async {
+    final res = await _http
+        .get(_uri('/api/practice/skill/sync'), headers: await _headers())
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 401) {
+      return const PracticeSyncResult(
+        available: false,
+        needsAuth: true,
+        message: '로그인이 필요합니다.',
+      );
+    }
+    final map = _decodeObject(res, 'practice/skill/sync');
+    final store = map['store'];
+    return PracticeSyncResult(
+      available: map['available'] == true,
+      store: store is Map<String, dynamic>
+          ? store
+          : (store is Map ? Map<String, dynamic>.from(store) : null),
+      needsAuth: map['needs_auth'] == true,
+      message: map['message']?.toString(),
+    );
+  }
+
+  Future<PracticeSyncResult> pushPracticeSkillSync(Map<String, dynamic> store) async {
+    final res = await _http
+        .put(
+          _uri('/api/practice/skill/sync'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({'store': store}),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 401) {
+      return const PracticeSyncResult(
+        available: false,
+        needsAuth: true,
+        message: '로그인이 필요합니다.',
+      );
+    }
+    final map = _decodeObject(res, 'practice/skill/sync');
+    final merged = map['store'];
+    return PracticeSyncResult(
+      available: map['available'] == true,
+      store: merged is Map<String, dynamic>
+          ? merged
+          : (merged is Map ? Map<String, dynamic>.from(merged) : null),
+      needsAuth: map['needs_auth'] == true,
+      message: map['message']?.toString(),
+    );
   }
 
   Future<BookmarksSyncResult> fetchBookmarksSync() async {
