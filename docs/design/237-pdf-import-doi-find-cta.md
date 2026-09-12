@@ -22,3 +22,9 @@ Publisher SI deep-links · Crossref-by-title as default.
 ## Version
 
 **0.3.235**
+
+## Amend (design/251)
+
+「찾아보기」는 장기적으로 **기기 mate-fetch 오케스트레이션**(OA → 공식 API → 안전 패턴 → 기존 doi.org 브라우저)으로 확장한다.  
+바이트는 Cloud Run이 출판사 PDF를 대신 받지 않는다. 상세·phase·non-goals: [251](251-mate-direct-fetch.md).
+
