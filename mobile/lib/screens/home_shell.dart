@@ -91,6 +91,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (_readerSurface && recordLeft) {
       unawaited(widget.library.recordReadLeft());
     }
+    unawaited(widget.library.reloadResumeLabels());
     asrEvidenceBus?.record(
       'nav_surface',
       severity: 'lifecycle',

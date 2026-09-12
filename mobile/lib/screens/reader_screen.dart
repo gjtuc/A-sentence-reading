@@ -576,7 +576,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                           : () async {
                               await shadowing.recordPracticePressed();
                               if (!context.mounted) return;
-                              Navigator.of(context).push(
+                              await Navigator.of(context).push(
                                 MaterialPageRoute<void>(
                                   builder: (_) => ShadowingPracticeScreen(
                                     client: client,
@@ -586,6 +586,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                   ),
                                 ),
                               );
+                              unawaited(library.reloadResumeLabels());
                             },
                       child: const Text('연습'),
                     ),

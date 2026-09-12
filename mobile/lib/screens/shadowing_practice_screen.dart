@@ -683,8 +683,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         final header = s.sectionNav.headerPartsFor(_sentenceIndex);
         sectionLabel = '${header.sectionName} ${header.rightLabel}'.trim();
       }
-      await savePracticeProgress(
-        uid: widget.shadowing.boundUid,
+      await widget.library.recordPracticeProgress(
         cacheId: cid,
         sentenceIndex: _sentenceIndex,
         chunkIndex: _chunkIndex,
@@ -694,10 +693,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   }
 
   Future<void> _restorePracticeCursor(ReadingSession session) async {
-    final stored = await loadPracticeProgress(
-      uid: widget.shadowing.boundUid,
-      cacheId: _cacheId,
-    );
+    final stored = await widget.library.loadPracticeProgressRow(_cacheId);
     // First visit: seed from reading position; later opens use practice SoT.
     final seeded = stored ??
         PracticeProgressRow(sentenceIndex: session.sentenceIndex);

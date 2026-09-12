@@ -2669,6 +2669,59 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  /// Persist practice cursor and immediately update in-memory practiceResumeByCacheId.
+  Future<void> recordPracticeProgress({
+    required String cacheId,
+    required int sentenceIndex,
+    int chunkIndex = 0,
+    required String sectionLabel,
+  }) async {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return;
+    try {
+      final uid = await _authUid();
+      await savePracticeProgress(
+        uid: uid,
+        cacheId: cid,
+        sentenceIndex: sentenceIndex,
+        chunkIndex: chunkIndex,
+        sectionLabel: sectionLabel,
+      );
+      if (sectionLabel.isNotEmpty) {
+        final next = Map<String, String>.from(practiceResumeByCacheId);
+        next[cid] = sectionLabel;
+        practiceResumeByCacheId = next;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<PracticeProgressRow?> loadPracticeProgressRow(String cacheId) async {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return null;
+    try {
+      final uid = await _authUid();
+      return await loadPracticeProgress(uid: uid, cacheId: cid);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Reloads both reading & practice resume labels from disk (e.g. when returning to library).
+  Future<void> reloadResumeLabels() async {
+    try {
+      final uid = await _authUid();
+      final cids = papers.map((e) => e.id);
+      final results = await Future.wait([
+        loadProgressResumeLabels(uid: uid, cacheIds: cids),
+        loadPracticeResumeLabels(uid: uid, cacheIds: cids),
+      ]);
+      progressResumeByCacheId = results[0];
+      practiceResumeByCacheId = results[1];
+      notifyListeners();
+    } catch (_) {}
+  }
+
   Future<void> _syncBookmarksForSession(ReadingSession o) async {
     final bm = _bookmarks;
     if (bm == null) return;

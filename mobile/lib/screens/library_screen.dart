@@ -81,6 +81,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       if (widget.auth.isLoggedIn) {
         _loadAndResume();
       }
+      unawaited(widget.library.reloadResumeLabels());
     });
   }
 
@@ -509,16 +510,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 ),
                           tooltip: '숨기기',
                         ),
-                      ] else ...[
-                        if (lib.papers.isNotEmpty)
-                          TextButton.icon(
-                            onPressed: () => setState(() => _selecting = true),
-                            icon: const Icon(Icons.checklist, size: 18),
-                            label: const Text('선택'),
-                            style: TextButton.styleFrom(
-                              visualDensity: VisualDensity.compact,
-                            ),
-                          ),
                       ],
                       if (lib.uploadQueue.isNotEmpty)
                         IconButton(
@@ -946,18 +937,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 _open(e);
                               }
                             },
-                      onLongPress: lib.opening ||
-                              lib.uploading ||
-                              lib.reanalyzing ||
-                              _deleting
-                          ? null
-                          : () {
-                              if (_selecting) {
-                                _toggleSelected(e.id);
-                              } else {
-                                _enterEdit(e.id);
-                              }
-                            },
+                      // design/250 — normal hold (2s) is handled by _LibraryCardTouchWrapper.
+                      // ListTile onLongPress is ONLY active while in edit/select mode.
+                      onLongPress: (_selecting &&
+                              !lib.opening &&
+                              !lib.uploading &&
+                              !lib.reanalyzing &&
+                              !_deleting)
+                          ? () => _toggleSelected(e.id)
+                          : null,
                     );
                     return ReorderableDelayedDragStartListener(
                       key: ValueKey<String>(e.id),
@@ -1028,6 +1016,7 @@ class _LibraryCardTouchWrapperState extends State<_LibraryCardTouchWrapper> {
         _downPos = e.position;
         _holdTimer = Timer(const Duration(milliseconds: 2000), () {
           if (!mounted) return;
+          _cancelTimer();
           HapticFeedback.heavyImpact();
           widget.onLongHold();
         });
@@ -1035,7 +1024,7 @@ class _LibraryCardTouchWrapperState extends State<_LibraryCardTouchWrapper> {
       onPointerMove: (e) {
         if (_downPos != null) {
           final delta = (e.position - _downPos!).distance;
-          if (delta > 15) {
+          if (delta > 10) {
             // Cancel when user starts scrolling or dragging
             _cancelTimer();
           }
