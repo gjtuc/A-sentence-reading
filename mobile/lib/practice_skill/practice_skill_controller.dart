@@ -414,7 +414,7 @@ class PracticeSkillController {
 
     if (decision.densityDelta != 0 || decision.tierDelta != 0) {
       await store.setTierDensity(
-        tier: (store.state.tier + decision.tierDelta).clamp(0, 5),
+        tier: (store.state.tier + decision.tierDelta).clamp(0, 9),
         density: clampChunkDensity(
           store.state.density + decision.densityDelta,
         ),

@@ -81,8 +81,7 @@ def test_mobile_surface() -> None:
     assert "bindUid" in store
     assert "asr/saf_tree" in channel
     assert "논문 폴더 연결" in screen
-    assert "이미 보관" in screen
-    assert "기기 전역 전수가 아닙니다" in screen
+    assert "초록 테두리 = 이미 보관함." in screen
     assert "loadPdfFolderGrantAndScan" in ctrl
     assert "enqueueFolderPdfs" in ctrl
     assert "PdfImportScreen" in lib

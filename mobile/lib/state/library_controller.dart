@@ -18,6 +18,7 @@ import '../api/paper_models.dart';
 import '../api/progress_gate.dart';
 import '../api/progress_store.dart';
 import '../api/reading_models.dart';
+import '../api/practice_progress_store.dart';
 import '../api/upload_draft_models.dart';
 import '../api/upload_draft_store.dart';
 import '../api/upload_reserve_models.dart';
@@ -319,6 +320,7 @@ class LibraryController extends ChangeNotifier {
 
   /// design/160 — uid-scoped read-left timestamps for library meta lines.
   Map<String, String> progressResumeByCacheId = const {};
+  Map<String, String> practiceResumeByCacheId = const {};
   String readerLayoutMode = 'split';
   Map<String, String> readLeftAtByCacheId = const {};
 
@@ -2023,10 +2025,13 @@ class LibraryController extends ChangeNotifier {
       await _reloadPickerRecent();
       try {
         final uid = await _authUid();
-        progressResumeByCacheId = await loadProgressResumeLabels(
-          uid: uid,
-          cacheIds: papers.map((e) => e.id),
-        );
+        final cids = papers.map((e) => e.id);
+        final results = await Future.wait([
+          loadProgressResumeLabels(uid: uid, cacheIds: cids),
+          loadPracticeResumeLabels(uid: uid, cacheIds: cids),
+        ]);
+        progressResumeByCacheId = results[0];
+        practiceResumeByCacheId = results[1];
       } catch (_) {
         // EDGE: resume labels optional for library list.
       }

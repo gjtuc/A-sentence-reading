@@ -123,7 +123,7 @@ class SkillState {
     target = target.clamp(kSkillEpochMinN, kSkillEpochMaxN);
     return SkillState(
       version: (m['version'] as num?)?.toInt() ?? 2,
-      tier: ((m['tier'] as num?)?.toInt() ?? 2).clamp(0, 5),
+      tier: ((m['tier'] as num?)?.toInt() ?? 2).clamp(0, 9),
       density: ((m['density'] as num?)?.toInt() ?? 0).clamp(-2, 2),
       days: days,
       blockSum: (m['block_sum'] as num?)?.toDouble() ?? 0,

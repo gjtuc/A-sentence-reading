@@ -53,25 +53,33 @@ const Set<String> kTtsRandomModes = {
   kTtsModeRandomVeryHard,
 };
 
-/// design/212 — six skill tiers (rate/locale bands). Default tier 2 = normal.
+/// design/212 — ten skill tiers (rate/locale bands). Default tier 2 = normal.
 const Map<int, (double, double)> kTtsSkillTier = {
-  0: (0.55, 0.85),
-  1: (0.65, 1.00),
-  2: (0.70, 1.30),
-  3: (0.90, 1.45),
-  4: (1.00, 1.60),
-  5: (1.30, 1.90),
+  0: (0.50, 0.75),
+  1: (0.55, 0.85),
+  2: (0.65, 0.95),
+  3: (0.70, 1.10),
+  4: (0.80, 1.25),
+  5: (0.90, 1.40),
+  6: (1.00, 1.55),
+  7: (1.15, 1.70),
+  8: (1.30, 1.85),
+  9: (1.45, 2.00),
 };
 
 const Map<int, Map<String, double>> kTtsSkillLocaleWeights = {
   0: {'en-US': 1.0},
-  1: {'en-US': 0.9, 'en-GB': 0.1},
-  2: {'en-US': 0.8, 'en-GB': 0.2},
-  3: {'en-US': 0.5, 'en-GB': 0.3, 'en-AU': 0.2},
-  4: {'en-US': 0.4, 'en-GB': 0.3, 'en-AU': 0.3},
-  5: {
-    'en-US': 0.2,
-    'en-GB': 0.2,
+  1: {'en-US': 0.95, 'en-GB': 0.05},
+  2: {'en-US': 0.85, 'en-GB': 0.15},
+  3: {'en-US': 0.75, 'en-GB': 0.20, 'en-AU': 0.05},
+  4: {'en-US': 0.65, 'en-GB': 0.25, 'en-AU': 0.10},
+  5: {'en-US': 0.50, 'en-GB': 0.30, 'en-AU': 0.20},
+  6: {'en-US': 0.40, 'en-GB': 0.30, 'en-AU': 0.20, 'en-IN': 0.10},
+  7: {'en-US': 0.30, 'en-GB': 0.30, 'en-AU': 0.25, 'en-IN': 0.15},
+  8: {'en-US': 0.25, 'en-GB': 0.25, 'en-AU': 0.25, 'en-IN': 0.25},
+  9: {
+    'en-US': 0.20,
+    'en-GB': 0.20,
     'en-AU': 0.25,
     'en-IN': 0.35,
   },
@@ -117,19 +125,27 @@ String ttsModeLabelKo(String mode) {
 
 
 String ttsSkillTierLabelKo(int tier) {
-  switch (tier.clamp(0, 5)) {
+  switch (tier.clamp(0, 9)) {
     case 0:
-      return '쉬움';
+      return '입문';
     case 1:
-      return '약간 쉬움';
+      return '매우 쉬움';
     case 2:
-      return '보통';
+      return '쉬움';
     case 3:
-      return '약간 어려움';
+      return '약간 쉬움';
     case 4:
-      return '어려움';
+      return '보통';
     case 5:
+      return '약간 어려움';
+    case 6:
+      return '어려움';
+    case 7:
+      return '꽤 어려움';
+    case 8:
       return '많이 어려움';
+    case 9:
+      return '최고 난도';
     default:
       return '보통';
   }
@@ -138,13 +154,13 @@ String ttsSkillTierLabelKo(int tier) {
 ({String mode, int tier}) migrateTtsModeAndTier(String? mode, {int? tier}) {
   final m = (mode ?? '').trim();
   if (m == kTtsModeRandomAuto) {
-    return (mode: kTtsModeRandomAuto, tier: (tier ?? 2).clamp(0, 5));
+    return (mode: kTtsModeRandomAuto, tier: (tier ?? 2).clamp(0, 9));
   }
   if (kTtsLegacyModeToTier.containsKey(m)) {
     return (mode: kTtsModeRandomAuto, tier: kTtsLegacyModeToTier[m]!);
   }
   if (m == kTtsModeFixed || m.isEmpty) {
-    return (mode: kTtsModeFixed, tier: (tier ?? 2).clamp(0, 5));
+    return (mode: kTtsModeFixed, tier: (tier ?? 2).clamp(0, 9));
   }
   return (mode: kTtsModeFixed, tier: 2);
 }
@@ -262,7 +278,7 @@ TtsPlaybackParams pickTtsPlaybackParams({
     late final (double, double) band;
     Map<String, double>? weights;
     if (m == kTtsModeRandomAuto) {
-      final ti = (skillTier ?? 2).clamp(0, 5);
+      final ti = (skillTier ?? 2).clamp(0, 9);
       band = kTtsSkillTier[ti] ?? (0.7, 1.3);
       weights = kTtsSkillLocaleWeights[ti];
     } else {

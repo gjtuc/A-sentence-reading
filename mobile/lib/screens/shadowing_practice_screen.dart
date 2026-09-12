@@ -677,11 +677,18 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     final cid = _cacheId;
     if (cid.isEmpty) return;
     try {
+      String sectionLabel = '';
+      final s = _session;
+      if (s != null && s.isValid) {
+        final header = s.sectionNav.headerPartsFor(_sentenceIndex);
+        sectionLabel = '${header.sectionName} ${header.rightLabel}'.trim();
+      }
       await savePracticeProgress(
         uid: widget.shadowing.boundUid,
         cacheId: cid,
         sentenceIndex: _sentenceIndex,
         chunkIndex: _chunkIndex,
+        sectionLabel: sectionLabel,
       );
     } catch (_) {}
   }

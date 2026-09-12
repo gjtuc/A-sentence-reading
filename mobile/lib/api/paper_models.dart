@@ -169,6 +169,20 @@ class PaperEntry {
     return body;
   }
 
+  /// Formats reading and practice progress on a dedicated line.
+  /// e.g. "Introduction 22 / 28 읽는 중 · Introduction 3 / 28 연습 중"
+  String progressResumeLine({
+    String? readSection,
+    String? practiceSection,
+  }) {
+    final bits = <String>[];
+    final r = (readSection ?? '').trim();
+    if (r.isNotEmpty) bits.add('$r 읽는 중');
+    final p = (practiceSection ?? '').trim();
+    if (p.isNotEmpty) bits.add('$p 연습 중');
+    return bits.join(' · ');
+  }
+
   String metaLine({int? figureCountOverride}) {
     final fc = figureCountOverride ?? figureCount;
     final bits = <String>[

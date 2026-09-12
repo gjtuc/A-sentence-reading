@@ -19,11 +19,16 @@ void main() {
 
   test('clamp keeps valid sentence and caps chunk', () {
     final r = clampPracticeProgress(
-      raw: const PracticeProgressRow(sentenceIndex: 3, chunkIndex: 9),
+      raw: const PracticeProgressRow(
+        sentenceIndex: 3,
+        chunkIndex: 9,
+        sectionLabel: 'Intro 1/5',
+      ),
       sentenceCount: 10,
       chunkCount: 2,
     );
     expect(r!.sentenceIndex, 3);
     expect(r.chunkIndex, 1);
+    expect(r.sectionLabel, 'Intro 1/5');
   });
 }

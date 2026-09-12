@@ -43,7 +43,7 @@ void main() {
         'rate_max': 50,
       });
       expect(b.available, isTrue);
-      expect(b.voices, ['en-US-Neural2-D', 'en-GB-Neural2-A']);
+      expect(b.voices.map((v) => v.id).toList(), ['en-US-Neural2-D', 'en-GB-Neural2-A']);
       expect(b.rateMin, kTtsRateMin);
       expect(b.rateMax, kTtsRateMax);
     });

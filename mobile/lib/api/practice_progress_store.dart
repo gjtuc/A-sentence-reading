@@ -20,10 +20,12 @@ class PracticeProgressRow {
   const PracticeProgressRow({
     required this.sentenceIndex,
     this.chunkIndex = 0,
+    this.sectionLabel = '',
   });
 
   final int sentenceIndex;
   final int chunkIndex;
+  final String sectionLabel;
 }
 
 Future<PracticeProgressRow?> loadPracticeProgress({
@@ -49,6 +51,7 @@ Future<PracticeProgressRow?> loadPracticeProgress({
     return PracticeProgressRow(
       sentenceIndex: si.toInt(),
       chunkIndex: chunk < 0 ? 0 : chunk,
+      sectionLabel: '${row['section_label'] ?? ''}'.trim(),
     );
   } catch (_) {
     return null;
@@ -60,6 +63,7 @@ Future<void> savePracticeProgress({
   required String cacheId,
   required int sentenceIndex,
   int chunkIndex = 0,
+  String sectionLabel = '',
 }) async {
   final cid = cacheId.trim();
   if (cid.isEmpty) return;
@@ -86,6 +90,7 @@ Future<void> savePracticeProgress({
   papers[practiceProgressCacheKey(cid)] = {
     'sentence_index': sentenceIndex,
     'chunk_index': chunkIndex < 0 ? 0 : chunkIndex,
+    if (sectionLabel.trim().isNotEmpty) 'section_label': sectionLabel.trim(),
     'at': DateTime.now().toUtc().toIso8601String(),
   };
   if (papers.length > 500) {
@@ -116,5 +121,39 @@ PracticeProgressRow? clampPracticeProgress({
   if (si < 0 || si >= sentenceCount) return null;
   final maxChunk = chunkCount < 1 ? 0 : chunkCount - 1;
   final ci = raw.chunkIndex.clamp(0, maxChunk);
-  return PracticeProgressRow(sentenceIndex: si, chunkIndex: ci);
+  return PracticeProgressRow(
+    sentenceIndex: si,
+    chunkIndex: ci,
+    sectionLabel: raw.sectionLabel,
+  );
+}
+
+/// Batch load practice resume labels for library rows (section only).
+Future<Map<String, String>> loadPracticeResumeLabels({
+  required String? uid,
+  required Iterable<String> cacheIds,
+}) async {
+  final out = <String, String>{};
+  final want = {for (final id in cacheIds) id.trim()}.difference({''});
+  if (want.isEmpty) return out;
+  final p = await SharedPreferences.getInstance();
+  final raw = p.getString(practiceProgressPrefsKey(uid));
+  if (raw == null || raw.isEmpty) return out;
+  try {
+    final map = jsonDecode(raw);
+    if (map is! Map) return out;
+    final papers = map['papers'];
+    if (papers is! Map) return out;
+    for (final cid in want) {
+      final row = papers[practiceProgressCacheKey(cid)];
+      if (row is! Map) continue;
+      final si = row['sentence_index'];
+      if (si is! num) continue;
+      final section = (row['section_label']?.toString() ?? '').trim();
+      if (section.isNotEmpty) {
+        out[cid] = section;
+      }
+    }
+  } catch (_) {}
+  return out;
 }

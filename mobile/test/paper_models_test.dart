@@ -30,6 +30,22 @@ void main() {
       expect(e.metaLine(), '문장 93 · 그림 10');
       expect(e.metaLine(figureCountOverride: 8), '문장 93 · 그림 8');
       expect(
+        e.progressResumeLine(readSection: 'Intro 1/5', practiceSection: 'Intro 2/5'),
+        'Intro 1/5 읽는 중 · Intro 2/5 연습 중',
+      );
+      expect(
+        e.progressResumeLine(readSection: 'Intro 1/5'),
+        'Intro 1/5 읽는 중',
+      );
+      expect(
+        e.progressResumeLine(practiceSection: 'Intro 2/5'),
+        'Intro 2/5 연습 중',
+      );
+      expect(
+        e.progressResumeLine(),
+        '',
+      );
+      expect(
         formatPaperMetaDateTime('2026-08-30T15:10:06.145733Z'),
         isNotEmpty,
       );

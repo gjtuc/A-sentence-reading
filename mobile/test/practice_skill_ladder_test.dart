@@ -2,14 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/practice_skill/skill_ladder.dart';
 
 void main() {
-  test('default tier2 density0 → 13/30', () {
+  test('default tier2 density0 → 13/50', () {
     expect(skillLadderDisplayN(tier: 2, density: 0), 13);
-    expect(skillLadderLabelKo(tier: 2, density: 0), '난이도 13/30');
+    expect(skillLadderLabelKo(tier: 2, density: 0), '난이도 13/50');
   });
 
   test('easiest and hardest corners', () {
     expect(skillLadderDisplayN(tier: 0, density: 2), 1);
-    expect(skillLadderDisplayN(tier: 5, density: -2), 30);
+    expect(skillLadderDisplayN(tier: 9, density: -2), 50);
   });
 
   test('higher density is easier (lower n) within same tier', () {
@@ -21,7 +21,7 @@ void main() {
   });
 
   test('clamp out-of-range inputs', () {
-    expect(skillLadderDisplayN(tier: 99, density: -9), 30);
+    expect(skillLadderDisplayN(tier: 99, density: -9), 50);
     expect(skillLadderDisplayN(tier: -3, density: 9), 1);
   });
 

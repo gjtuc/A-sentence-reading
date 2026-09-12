@@ -55,6 +55,10 @@ def test_normalize_missing_updated_at():
     assert f["updated_at_ms"] == 0
     s = normalize_skill_store({"tier": 2, "days": {}})
     assert s["updated_at_ms"] == 0
+    s9 = normalize_skill_store({"tier": 9, "days": {}})
+    assert s9["tier"] == 9
+    s_over = normalize_skill_store({"tier": 99, "days": {}})
+    assert s_over["tier"] == 9
     assert empty_focus_store()["version"] == 2
     assert empty_skill_store()["tier"] == 2
 

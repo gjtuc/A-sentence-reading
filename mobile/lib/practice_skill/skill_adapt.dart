@@ -57,7 +57,7 @@ SkillAdaptDecision decideSkillAdapt({
     if (canCoarser(baseChunks, dens)) {
       return const SkillAdaptDecision(densityDelta: -1, reason: 'coarser');
     }
-    if (tier < 5) {
+    if (tier < 9) {
       return const SkillAdaptDecision(tierDelta: 1, reason: 'tier_up');
     }
     return const SkillAdaptDecision(reason: 'ceiling');

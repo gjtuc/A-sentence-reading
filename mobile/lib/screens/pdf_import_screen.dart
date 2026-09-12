@@ -554,7 +554,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: Text(
-                  '초록 테두리 = 이미 보관함(내용 기준). 연결/병합과는 다릅니다.',
+                  '초록 테두리 = 이미 보관함.',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
@@ -699,8 +699,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                             : ListView.separated(
                                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
                                 itemCount: listItems.length +
-                                    (truncated ? 1 : 0) +
-                                    1,
+                                    (truncated ? 1 : 0),
                                 separatorBuilder: (_, __) =>
                                     const SizedBox(height: 6),
                                 itemBuilder: (context, i) {
@@ -714,25 +713,6 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                         style: Theme.of(context)
                                             .textTheme
                                             .bodySmall,
-                                      ),
-                                    );
-                                  }
-                                  final footerIndex = listItems.length +
-                                      (truncated ? 1 : 0);
-                                  if (i == footerIndex) {
-                                    return Padding(
-                                      padding: const EdgeInsets.all(8),
-                                      child: Text(
-                                        '이 목록은 연결한 폴더(및 하위) 기준입니다. '
-                                        '기기 전역 전수가 아닙니다.',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurfaceVariant,
-                                            ),
                                       ),
                                     );
                                   }

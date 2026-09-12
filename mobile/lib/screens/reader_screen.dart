@@ -105,7 +105,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   final ReaderLayoutPolicy _layoutPolicy = ReaderLayoutPolicy();
   bool _readerLayoutAuto = true;
   /// design/183 — user-owned; survives translate poll (new session_id).
-  bool _citeCollapsed = true;
+  bool _citeCollapsed = false;
   String? _citePaperKey;
 
   @override
@@ -213,7 +213,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final t = _thresholdFor(s);
     if (_citePaperKey != key) {
       _citePaperKey = key;
-      _citeCollapsed = true;
+      _citeCollapsed = false;
     }
     if (_layoutSessionKey == key) {
       // design/183 hazard — SI merge / reanalyze may change T mid-paper.

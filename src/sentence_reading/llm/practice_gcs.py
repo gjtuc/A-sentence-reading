@@ -127,7 +127,7 @@ def normalize_skill_store(raw: Any) -> dict[str, Any]:
                 means.append(float(x))
     target = _as_int(raw.get("epoch_target_n"), 5)
     target = max(5, min(10, target))
-    tier = max(0, min(5, _as_int(raw.get("tier"), 2)))
+    tier = max(0, min(9, _as_int(raw.get("tier"), 2)))
     density = max(-2, min(2, _as_int(raw.get("density"), 0)))
     return {
         "version": 2,

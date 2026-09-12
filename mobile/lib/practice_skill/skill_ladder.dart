@@ -1,13 +1,13 @@
-/// design/244 — practice skill ladder position (tier × density → n/30).
+/// design/244 — practice skill ladder position (tier × density → n/50).
 library;
 
 import 'chunk_density.dart';
 
 const int kSkillLadderTierMin = 0;
-const int kSkillLadderTierMax = 5;
-const int kSkillLadderTierCount = 6; // 0..5
+const int kSkillLadderTierMax = 9;
+const int kSkillLadderTierCount = 10; // 0..9
 const int kSkillLadderDensityCount = 5; // -2..2
-const int kSkillLadderTotal = 30; // 6 * 5
+const int kSkillLadderTotal = 50; // 10 * 5
 
 int clampSkillTier(int tier) {
   if (tier < kSkillLadderTierMin) return kSkillLadderTierMin;

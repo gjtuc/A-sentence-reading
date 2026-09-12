@@ -306,7 +306,7 @@ class TtsController extends ChangeNotifier {
   }
 
   void setSkillTier(int tier) {
-    final t = tier.clamp(0, 5);
+    final t = tier.clamp(0, 9);
     if (skillTier == t) return;
     skillTier = t;
     () async {
