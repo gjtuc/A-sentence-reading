@@ -33,13 +33,18 @@ final _siHead = RegExp(
 );
 
 final _siFilename = RegExp(
-  r'(?:^|[/\_.-])si(?:[_.=-]|\d)|supporting[-_ ]?information|suppl(?:ementary)?'
-  r'|(?:^|[/\_.-])mmc\d*',
+  r'(?:^|[/\_.-])(?:si(?:[_.=-]|\d|$)|mmc\d*|moesm\d*|esm\d*|sup(?:p)?(?:mat|-?\d+)?)|supporting[-_ ]?information|suppl(?:ementary)?',
   caseSensitive: false,
 );
 
 final _siPageLabel = RegExp(
   r'(?:^|\n)\s*S\s*[-–—]?\s*\d{1,3}\b',
+  caseSensitive: false,
+);
+
+// design/255 — Table S1, Figure S1, Scheme S1 in SI head
+final _siTableFig = RegExp(
+  r'\b(?:Table|Fig(?:ure)?|Scheme)\s*S\d+\b',
   caseSensitive: false,
 );
 
@@ -196,6 +201,9 @@ DocRoleDetectResult detectDocRoleDetailed(
       strippedFormat: stripped,
     );
   }
+  final isDocx = (filename ?? '').trim().toLowerCase().endsWith('.docx');
+  final tableFigHit = headLen > 0 && _siTableFig.hasMatch(head);
+
   if (fnHint && pageLabel) {
     return DocRoleDetectResult(
       role: 'supplementary',
@@ -203,6 +211,39 @@ DocRoleDetectResult detectDocRoleDetailed(
       headLen: headLen,
       markerHit: false,
       filenameSiHint: true,
+      pageLabelHit: true,
+      strippedFormat: stripped,
+    );
+  }
+  if (fnHint && isDocx) {
+    return DocRoleDetectResult(
+      role: 'supplementary',
+      reason: 'filename_si_and_docx',
+      headLen: headLen,
+      markerHit: false,
+      filenameSiHint: true,
+      pageLabelHit: pageLabel,
+      strippedFormat: stripped,
+    );
+  }
+  if (fnHint && tableFigHit) {
+    return DocRoleDetectResult(
+      role: 'supplementary',
+      reason: 'filename_si_and_table_fig',
+      headLen: headLen,
+      markerHit: false,
+      filenameSiHint: true,
+      pageLabelHit: pageLabel,
+      strippedFormat: stripped,
+    );
+  }
+  if (tableFigHit && pageLabel) {
+    return DocRoleDetectResult(
+      role: 'supplementary',
+      reason: 'table_fig_and_page_label',
+      headLen: headLen,
+      markerHit: false,
+      filenameSiHint: fnHint,
       pageLabelHit: true,
       strippedFormat: stripped,
     );

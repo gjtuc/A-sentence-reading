@@ -252,3 +252,54 @@ def test_load_meta_prefers_fresher_gcs_over_stale_mem(monkeypatch: pytest.Monkey
     with ic._LOCK:
         assert upload_id not in ic._MEM_PREFIX_HASHER
         assert int(ic._MEM_META[upload_id]["received_offset"]) == 786432
+
+
+def test_chunked_upload_docx(monkeypatch: pytest.MonkeyPatch):
+    """design/255 — Support Word (.docx) chunked uploads."""
+    from sentence_reading.api import app as app_mod
+
+    called_kind = []
+
+    def fake_begin(
+        raw,
+        filename,
+        kind,
+        *,
+        owner_uid,
+        want_shadowing_chunks=False,
+        want_translate=True,
+    ):
+        called_kind.append(kind)
+        return {
+            "ok": True,
+            "job_id": "job_docx12345678",
+            "percent": 1,
+            "message": "업로드 완료, 읽기 시작",
+            "content_hash": hashlib.sha256(raw).hexdigest(),
+        }
+
+    monkeypatch.setattr(app_mod, "_begin_ingest_from_bytes", fake_begin)
+
+    client = TestClient(app)
+    _register(client, "docx_user@example.com")
+    raw = b"PK\x03\x04" + (b"d" * 500)
+    digest = hashlib.sha256(raw).hexdigest()
+
+    created = client.post(
+        "/api/ingest/uploads",
+        json={"filename": "paper_si.docx", "content_hash": digest, "size": len(raw)},
+    )
+    assert created.status_code == 200, created.text
+    upl = created.json()["upload_id"]
+
+    r0 = client.put(
+        f"/api/ingest/uploads/{upl}?offset=0",
+        content=raw,
+        headers={"X-Chunk-Sha256": digest},
+    )
+    assert r0.status_code == 200, r0.text
+
+    done = client.post(f"/api/ingest/uploads/{upl}/complete")
+    assert done.status_code == 200, done.text
+    assert done.json()["job_id"] == "job_docx12345678"
+    assert called_kind == ["docx"]

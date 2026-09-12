@@ -283,7 +283,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.248",
+    version="0.3.249",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1806,7 +1806,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.248",
+        "version": "0.3.249",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -9469,13 +9469,13 @@ async def ingest_upload_create(
     body = payload if isinstance(payload, dict) else {}
     filename = str(body.get("filename") or "document.pdf")
     kind = _source_kind(filename)
-    if kind != "pdf":
+    if kind not in ("pdf", "docx"):
         return JSONResponse(
             status_code=400,
             content={
                 "ok": False,
                 "error": "unsupported_type",
-                "message": "조각 업로드는 PDF만 지원합니다.",
+                "message": "조각 업로드는 PDF 또는 Word(.docx)만 지원합니다.",
             },
         )
     try:
@@ -9663,13 +9663,14 @@ async def ingest_upload_complete(
             },
         )
     filename = str(meta.get("filename") or "document.pdf")
+    kind = _source_kind(filename) or "pdf"
     limited = _ingest_rate_limited(request, "ingest_start")
     if limited is not None:
         return limited
     out = _begin_ingest_from_bytes(
         raw,
         filename,
-        "pdf",
+        kind,
         owner_uid=user.uid,
         want_shadowing_chunks=_want_shadowing_chunks(request),
         want_translate=_want_translate(request),

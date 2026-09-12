@@ -21,6 +21,7 @@ final _prefixChrome = RegExp(
   // design/236 — RSC / bare journal short-links (e.g. rsc.li/catalysis)
   r'rsc\.li/|[a-z0-9][\w.-]*\.[a-z]{2,}/|'
   r'received |accepted |published |view the article|'
+  r'available online|'
   r'this content was downloaded|citation:)',
   caseSensitive: false,
 );
@@ -33,6 +34,7 @@ final _journalChrome = RegExp(
   r'|^catal\.?\s*sci\.?\s*technol'
   r'|catalysis\s+science\s*(?:&|and)?\s*technology'
   r'|accounts of chemical research'
+  r'|chemical engineering journal'
   r'|green chemical engineering'
   r'|scientific reports'
   r'|sustainable energy\s*(?:&|and)?\s*fuels'
@@ -122,7 +124,7 @@ String decodeHtmlEntities(String raw, {bool preserveNewlines = false}) {
 
 bool looksLikePaperTitle(String raw) {
   final t = decodeHtmlEntities(raw);
-  if (t.length < 12 || t.length > 200) return false;
+  if (t.length < 12 || t.length > 350) return false;
   if (_siLine.hasMatch(t)) return false;
   if (isAdvisoryTitleChrome(t)) return false;
   if (RegExp(r'^[\d\W_]+$').hasMatch(t)) return false;

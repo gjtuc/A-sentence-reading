@@ -403,8 +403,14 @@ def assemble_and_verify(
     if digest != str(meta.get("content_hash") or "").lower():
         # EDGE: fail-closed — never start ingest on tampered/concat mismatch.
         raise ValueError("content_hash_mismatch")
-    if size >= 5 and not raw.startswith(b"%PDF"):
-        raise ValueError("invalid_pdf")
+    filename = str(meta.get("filename") or "").lower()
+    is_docx = filename.endswith(".docx")
+    if is_docx:
+        if size < 4 or raw[:2] != b"PK":
+            raise ValueError("invalid_docx")
+    else:
+        if size >= 5 and not raw.startswith(b"%PDF"):
+            raise ValueError("invalid_pdf")
     return raw, meta
 
 

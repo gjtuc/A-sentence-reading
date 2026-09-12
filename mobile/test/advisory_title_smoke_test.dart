@@ -55,5 +55,51 @@ void main() {
       'Metal–support interactions in metal oxide-supported atomic, cluster, and nanoparticle catalysis',
     );
     expect(gMetal.title, isNot(contains('&#x')));
+
+    // design/255 — Chemical Engineering Journal chrome + 209-char title
+    expect(
+      isAdvisoryTitleChrome('Chemical Engineering Journal 510 (2025) 161545'),
+      isTrue,
+    );
+    expect(isAdvisoryTitleChrome('Available online 12 March 2025'), isTrue);
+
+    final longTitle =
+        'Homogeneous formation of a disordered NiAl2O4 structure in three-dimensional '
+        'macroporous Ni/Al2O3 catalysts for dry reforming of methane and '
+        'coke-resistant catalytic behavior on its Ni-oxygen vacancy interface';
+    expect(looksLikePaperTitle(longTitle), isTrue);
+
+    final gCej = guessAdvisoryTitle(
+      infoTitle: longTitle,
+      headText:
+          'Chemical Engineering Journal 510 (2025) 161545\n'
+          'Available online 12 March 2025\n'
+          '$longTitle\n',
+      displayName: '1-s2.0-S1385894725023678-main.pdf',
+    );
+    expect(gCej.source, 'info');
+    expect(gCej.title, longTitle);
+
+    // design/255 — Docx SI role classification
+    final detDocxMmc = detectDocRoleDetailed(
+      'Experimental methods and characterization details.',
+      filename: '차완_논문__1-s2.0-S1385894724017960-mmc1 (2).docx',
+    );
+    expect(detDocxMmc.role, 'supplementary');
+    expect(detDocxMmc.reason, 'filename_si_and_docx');
+
+    final detDocxSupp = detectDocRoleDetailed(
+      'Experimental methods and characterization details.',
+      filename: '차완_논문__smll71948-sup-0001-suppmat.docx',
+    );
+    expect(detDocxSupp.role, 'supplementary');
+    expect(detDocxSupp.reason, 'filename_si_and_docx');
+
+    final detTableFig = detectDocRoleDetailed(
+      'Overview.\nTable S1: Catalyst textural properties.\nFigure S1: XRD spectra.',
+      filename: '1-s2.0-S1385894724017960-mmc1.pdf',
+    );
+    expect(detTableFig.role, 'supplementary');
+    expect(detTableFig.reason, 'filename_si_and_table_fig');
   });
 }

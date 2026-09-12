@@ -24,13 +24,17 @@ _SI_HEAD = re.compile(
     r")"
 )
 
-# Filename hints (ACS …_si_001.pdf). Never sole authority without content signal.
+# Filename hints (ACS …_si_001.pdf, Elsevier mmc1, Wiley suppmat).
 _SI_FILENAME = re.compile(
-    r"(?i)(?:^|[/\_.-])si(?:[_.=-]|\d)|supporting[-_ ]?information|suppl(?:ementary)?"
+    r"(?i)(?:^|[/\_.-])(?:si(?:[_.=-]|\d|$)|mmc\d*|moesm\d*|esm\d*|sup(?:p)?(?:mat|-?\d+)?)"
+    r"|supporting[-_ ]?information|suppl(?:ementary)?"
 )
 
 # Page label "S-1" / "S1" near head (common SI cover).
 _SI_PAGE_LABEL = re.compile(r"(?im)(?:^|\n)\s*S\s*[-–—]?\s*\d{1,3}\b")
+
+# design/255 — Table S1, Figure S1, Scheme S1 in SI head
+_SI_TABLE_FIG = re.compile(r"(?im)\b(?:Table|Fig(?:ure)?|Scheme)\s*S\d+\b")
 
 # design/229 — ACS article chrome near a Supporting Information *badge* (not SI cover).
 _ACS_CHROME = (
@@ -180,6 +184,9 @@ def detect_doc_role_detailed(
             stripped_format=stripped,
         )
 
+    is_docx = (filename or "").strip().lower().endswith(".docx")
+    table_fig = bool(_SI_TABLE_FIG.search(head)) if head_len else False
+
     # Secondary: ACS-style filename + S-n page label near cover (no journal SI phrase).
     if fn_hint and page_label:
         return DocRoleDetectResult(
@@ -188,6 +195,42 @@ def detect_doc_role_detailed(
             head_len=head_len,
             marker_hit=False,
             filename_si_hint=True,
+            page_label_hit=True,
+            stripped_format=stripped,
+        )
+
+    # design/255 — Docx files with SI filename hint (authors submit SI as Word, main as PDF)
+    if fn_hint and is_docx:
+        return DocRoleDetectResult(
+            role="supplementary",
+            reason="filename_si_and_docx",
+            head_len=head_len,
+            marker_hit=False,
+            filename_si_hint=True,
+            page_label_hit=page_label,
+            stripped_format=stripped,
+        )
+
+    # design/255 — Filename SI hint + Table S1 / Figure S1 in head
+    if fn_hint and table_fig:
+        return DocRoleDetectResult(
+            role="supplementary",
+            reason="filename_si_and_table_fig",
+            head_len=head_len,
+            marker_hit=False,
+            filename_si_hint=True,
+            page_label_hit=page_label,
+            stripped_format=stripped,
+        )
+
+    # design/255 — Content has both Table/Figure S1 and S-1 page label
+    if table_fig and page_label:
+        return DocRoleDetectResult(
+            role="supplementary",
+            reason="table_fig_and_page_label",
+            head_len=head_len,
+            marker_hit=False,
+            filename_si_hint=fn_hint,
             page_label_hit=True,
             stripped_format=stripped,
         )

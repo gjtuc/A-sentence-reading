@@ -10,8 +10,8 @@ import 'pdf_hash_cache_store.dart';
 
 const int kPdfAdvisoryCacheMaxEntries = 2000;
 
-/// design/229 · 233 · 235 · 236 · 237 · 239 · 254 — bump wipes stale rows (DOCX extract, HTML entities).
-const int kPdfAdvisoryCacheSchema = 9;
+/// design/229 · 233 · 235 · 236 · 237 · 239 · 254 · 255 — bump wipes stale rows (DOCX SI classification, CEJ chrome).
+const int kPdfAdvisoryCacheSchema = 10;
 
 class PdfAdvisoryCacheEntry {
   const PdfAdvisoryCacheEntry({
