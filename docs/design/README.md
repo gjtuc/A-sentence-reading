@@ -352,3 +352,4 @@
 | 226 | [226-pdf-folder-import-browser.md](226-pdf-folder-import-browser.md) | 논문 폴더 연결 PDF 가져오기 (0.3.225) |
 | 213 | [213-practice-skill-evidence.md](213-practice-skill-evidence.md) | practice skill dense evidence |
 | 212 | [212-practice-skill-adapt.md](212-practice-skill-adapt.md) | practice skill adapt |
+| 206 | [206-practice-speak-tts-volume.md](206-practice-speak-tts-volume.md) | 연습 speak 단계 TTS 볼륨 5% (0.3.255) |

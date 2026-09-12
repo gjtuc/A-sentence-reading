@@ -74,8 +74,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   static const _speakMicReadyBeat = Duration(milliseconds: 350);
   // WHY: design/82 — Android MediaRecorder via platform channel (no pub `record` dep).
   static const _mic = MethodChannel('asr/shadowing_mic');
-  /// Speak phase only — quieter guide so mic take keeps user voice (design/206+215).
-  static const double _kSpeakTtsVolume = 0.2;
+  /// Speak phase only — quieter guide so mic take keeps user voice (design/206+215+255).
+  static const double _kSpeakTtsVolume = 0.05;
   static const double _kFullTtsVolume = 1.0;
 
   final _player = AudioPlayer();
@@ -785,7 +785,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           'phase': phase,
           'ok': true,
           'tts_reuse': phase == 'tts_speak' ? 1 : 0,
-          'tts_volume_pct': phase == 'tts_speak' ? 20 : 100,
+          'tts_volume_pct': phase == 'tts_speak' ? 5 : 100,
         },
       );
     } catch (e) {
