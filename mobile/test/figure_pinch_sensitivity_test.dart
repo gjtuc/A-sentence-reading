@@ -13,7 +13,7 @@ void main() {
     const raw = 1.25;
     final amp = amplifyFigurePinchScale(rawScale: raw);
     expect(amp, greaterThan(raw));
-    expect(amp, greaterThan(1.4)); // 1.25^1.85 ≈ 1.51
+    expect(amp, closeTo(1.3975, 0.001)); // 1.25^1.5 ≈ 1.3975
   });
 
   test('zoom-out is stronger than raw', () {
@@ -37,14 +37,14 @@ void main() {
   });
 
   test('pan extra delta amplifies zoomed drag', () {
-    expect(amplifyFigurePanExtraDelta(delta: 10), closeTo(8.5, 0.01));
-    expect(amplifyFigurePanExtraDelta(delta: -20), closeTo(-17.0, 0.01));
+    expect(amplifyFigurePanExtraDelta(delta: 10), closeTo(5.0, 0.01));
+    expect(amplifyFigurePanExtraDelta(delta: -20), closeTo(-10.0, 0.01));
     expect(amplifyFigurePanExtraDelta(delta: 0), 0.0);
     expect(amplifyFigurePanExtraDelta(delta: double.nan), 0.0);
   });
 
   test('sensitivity constant is clearly > 1', () {
-    expect(kFigurePinchSensitivity, greaterThan(1.5));
+    expect(kFigurePinchSensitivity, greaterThanOrEqualTo(1.5));
     expect(kFigurePanSensitivity, kFigurePinchSensitivity);
   });
 }

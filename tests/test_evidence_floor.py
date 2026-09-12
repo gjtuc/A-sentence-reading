@@ -134,7 +134,7 @@ def test_evidence_retention_filter_and_rotate(ev_tmp, monkeypatch) -> None:
     from datetime import datetime, timedelta, timezone
 
     monkeypatch.setenv("ASR_EVIDENCE_RETENTION_DAYS", "7")
-    now = datetime(2026, 9, 1, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
     old_ts = (now - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
     new_ts = (now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     rows = [

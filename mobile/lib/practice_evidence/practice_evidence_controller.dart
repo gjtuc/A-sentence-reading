@@ -8,7 +8,7 @@ import 'practice_evidence_store.dart';
 class PracticeEvidenceController {
   PracticeEvidenceController({
     PracticeEvidenceStore? store,
-  }) : _store = store ?? practiceEvidenceStore;
+  }) : _store = store ?? PracticeEvidenceStore();
 
   final PracticeEvidenceStore _store;
 

@@ -19,7 +19,7 @@ void main() {
     );
     expect(
       shouldAutoOffShadowing(
-        const ShadowingPrefs(enabled: false, lastPracticePressedAt: iso),
+        ShadowingPrefs(enabled: false, lastPracticePressedAt: iso),
       ),
       isFalse,
     );
