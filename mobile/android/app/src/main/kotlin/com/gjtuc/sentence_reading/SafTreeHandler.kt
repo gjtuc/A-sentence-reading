@@ -19,6 +19,7 @@ import kotlin.math.min
  * design/238 — OPEN_DOCUMENT pick (temp read).
  * design/241 — probeTreeWritable + copyUriIntoTree (createFile + 64KiB stream).
  * design/247 — Downloads DocumentsContract INITIAL_URI (not MediaStore).
+ * design/249 — list/copy PDF + DOCX.
  * Evidence/Dart must never log full URIs or folder paths from here as product copy.
  */
 class SafTreeHandler(
@@ -247,8 +248,9 @@ class SafTreeHandler(
                             src?.name?.trim()?.isNotEmpty() == true -> src!!.name!!.trim()
                             else -> "document.pdf"
                         }
-                        val unique = uniquePdfName(root, baseName)
-                        val created = root.createFile("application/pdf", unique.stripPdfExt())
+                        val unique = uniqueDocName(root, baseName)
+                        val mime = mimeForDocName(unique)
+                        val created = root.createFile(mime, unique.stripDocExt())
                         if (created == null || created.uri == null) {
                             activity.runOnUiThread {
                                 result.error("create_fail", "createFile_null", null)
@@ -352,7 +354,12 @@ class SafTreeHandler(
                                 val mime = f.type?.trim().orEmpty()
                                 val isPdf = name.endsWith(".pdf", ignoreCase = true) ||
                                     mime.equals("application/pdf", ignoreCase = true)
-                                if (!isPdf) continue
+                                val isDocx = name.endsWith(".docx", ignoreCase = true) ||
+                                    mime.equals(
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                        ignoreCase = true,
+                                    )
+                                if (!isPdf && !isDocx) continue
                                 val uri = f.uri?.toString()?.trim().orEmpty()
                                 if (uri.isEmpty() || name.isEmpty()) continue
                                 out.add(
@@ -491,29 +498,55 @@ class SafTreeHandler(
         )
     }
 
-    private fun uniquePdfName(root: DocumentFile, desired: String): String {
+    private fun mimeForDocName(name: String): String {
+        return if (name.lowercase().endsWith(".docx")) {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        } else {
+            "application/pdf"
+        }
+    }
+
+    /** design/249 — unique name preserving .pdf / .docx. */
+    private fun uniqueDocName(root: DocumentFile, desired: String): String {
         var base = desired.trim().ifEmpty { "document.pdf" }
-        if (!base.lowercase().endsWith(".pdf")) {
+        val lower = base.lowercase()
+        val isDocx = lower.endsWith(".docx")
+        val isPdf = lower.endsWith(".pdf")
+        if (!isDocx && !isPdf) {
             base = "$base.pdf"
         }
+        val ext = if (base.lowercase().endsWith(".docx")) ".docx" else ".pdf"
         val existing = try {
             root.listFiles().mapNotNull { it.name?.trim()?.lowercase() }.toSet()
         } catch (_: Exception) {
             emptySet()
         }
         if (base.lowercase() !in existing) return base
-        val stem = base.substring(0, base.length - 4)
+        val stem = base.substring(0, base.length - ext.length)
         var i = 1
         while (i < 1000) {
-            val candidate = "$stem ($i).pdf"
+            val candidate = "$stem ($i)$ext"
             if (candidate.lowercase() !in existing) return candidate
             i += 1
         }
-        return "$stem (${System.currentTimeMillis()}).pdf"
+        return "$stem (${System.currentTimeMillis()})$ext"
+    }
+
+    private fun String.stripDocExt(): String {
+        val lower = lowercase()
+        return when {
+            lower.endsWith(".docx") -> substring(0, length - 5)
+            lower.endsWith(".pdf") -> substring(0, length - 4)
+            else -> this
+        }
+    }
+
+    private fun uniquePdfName(root: DocumentFile, desired: String): String {
+        return uniqueDocName(root, desired)
     }
 
     private fun String.stripPdfExt(): String {
-        return if (lowercase().endsWith(".pdf")) substring(0, length - 4) else this
+        return stripDocExt()
     }
 
     private fun streamCopy(src: Uri, dest: Uri, maxBytes: Int) {

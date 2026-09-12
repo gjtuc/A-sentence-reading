@@ -378,7 +378,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('PDF 가져오기'),
+            title: const Text('논문 가져오기'),
             actions: [
               if (grant != null)
                 TextButton(
@@ -721,7 +721,7 @@ class _EmptyConnect extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '자주 쓰는 논문 폴더를 연결하면\n파일 앱처럼 PDF 목록을 볼 수 있습니다.',
+              '자주 쓰는 논문 폴더를 연결하면\n파일 앱처럼 PDF·Word 목록을 볼 수 있습니다.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyLarge,
             ),
@@ -795,6 +795,7 @@ class _FolderRow extends StatelessWidget {
         : (role == 'supplementary'
             ? '추정 SI'
             : (role == 'main' ? '추정 메인' : null));
+    final isDocx = entry.displayName.toLowerCase().endsWith('.docx');
     // Have SI → find main; have main (or unknown) → find SI.
     final findLabel =
         role == 'supplementary' ? '메인 찾아보기' : 'SI 찾아보기';
@@ -872,6 +873,26 @@ class _FolderRow extends StatelessWidget {
                                     color: role == 'supplementary'
                                         ? scheme.onTertiaryContainer
                                         : scheme.onSecondaryContainer,
+                                  ),
+                            ),
+                          ),
+                        if (isDocx)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: scheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'DOCX',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                    color: scheme.onPrimaryContainer,
                                   ),
                             ),
                           ),

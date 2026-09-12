@@ -5024,6 +5024,55 @@ class LibraryController extends ChangeNotifier {
             );
             return;
           }
+          // design/249 — docx: filename advisory only (no PdfBox).
+          final isDocx =
+              e.displayName.toLowerCase().endsWith('.docx');
+          if (isDocx) {
+            final title = _docxAdvisoryTitle(e.displayName);
+            final role = filenameLooksLikeSi(e.displayName)
+                ? 'supplementary'
+                : 'main';
+            final reason =
+                role == 'supplementary' ? 'filename_si' : 'filename_main';
+            e.advisoryTitle = title;
+            e.advisoryRole = role;
+            e.advisoryReason = reason;
+            e.advisoryDoi = '';
+            e.pairingKey = await _pairingKeyForTitle(title);
+            e.advisoryState = PdfAdvisoryState.ready;
+            await _pdfAdvisoryCache.put(
+              docUri: e.docUri,
+              sizeBytes: e.sizeBytes,
+              lastModifiedMs: e.lastModifiedMs,
+              advisoryTitle: title,
+              advisoryRole: role,
+              advisoryReason: reason,
+              extractOk: true,
+              titleSource: 'filename',
+              advisoryDoi: '',
+              doiSource: '',
+              pairingKey: e.pairingKey,
+            );
+            nOk += 1;
+            nMiss += 1;
+            bump(reasonHist, _evidenceSnakeToken(reason));
+            bump(titleSrcHist, 'filename');
+            asrEvidenceBus?.record(
+              'pdf_advisory_cache_miss',
+              severity: 'debug',
+              stage: 'advisory',
+              details: {
+                'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+                'role': role,
+                'reason': _evidenceSnakeToken(reason),
+                'extract_ok': true,
+                'head_len': 0,
+                'kind': 'docx',
+              },
+            );
+            _emitDoiEvidence(doi: '', source: '', role: role);
+            return;
+          }
           final head = await _safTree.extractPdfHead(e.docUri);
           if (epoch != _pdfAdvisoryPumpEpoch) return;
           if (!head.ok) {
@@ -5787,7 +5836,7 @@ class LibraryController extends ChangeNotifier {
         skipped += 1;
         continue;
       }
-      final path = await _reserve.saveLocalPdf(hash, bytes);
+      final path = await _reserve.saveLocalPdf(hash, bytes, filename: name);
       if (path == null || path.isEmpty) {
         skipped += 1;
         message = '파일을 저장하지 못했습니다.';

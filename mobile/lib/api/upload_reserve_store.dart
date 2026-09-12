@@ -15,7 +15,7 @@ abstract class UploadReserveStore {
 
   Future<void> clear();
 
-  Future<String?> saveLocalPdf(String contentHash, List<int> bytes);
+  Future<String?> saveLocalPdf(String contentHash, List<int> bytes, {String? filename});
 
   Future<List<int>?> readLocalPdf(String path);
 
@@ -58,7 +58,11 @@ class PrefsUploadReserveStore implements UploadReserveStore {
   }
 
   @override
-  Future<String?> saveLocalPdf(String contentHash, List<int> bytes) async {
+  Future<String?> saveLocalPdf(
+    String contentHash,
+    List<int> bytes, {
+    String? filename,
+  }) async {
     final hash = contentHash.trim().toLowerCase();
     if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(hash) || bytes.isEmpty) {
       return null;
@@ -69,7 +73,10 @@ class PrefsUploadReserveStore implements UploadReserveStore {
       if (!await dir.exists()) {
         await dir.create(recursive: true);
       }
-      final path = '${dir.path}/$hash.pdf';
+      // design/249 — preserve .docx when enqueueing Word SI.
+      final name = (filename ?? '').trim().toLowerCase();
+      final ext = name.endsWith('.docx') ? '.docx' : '.pdf';
+      final path = '${dir.path}/$hash$ext';
       await File(path).writeAsBytes(bytes, flush: true);
       return path;
     } catch (_) {
@@ -123,9 +130,15 @@ class MemoryUploadReserveStore implements UploadReserveStore {
   }
 
   @override
-  Future<String?> saveLocalPdf(String contentHash, List<int> bytes) async {
+  Future<String?> saveLocalPdf(
+    String contentHash,
+    List<int> bytes, {
+    String? filename,
+  }) async {
     final hash = contentHash.trim().toLowerCase();
-    final path = 'memory/ingest_reserve/$hash.pdf';
+    final name = (filename ?? '').trim().toLowerCase();
+    final ext = name.endsWith('.docx') ? '.docx' : '.pdf';
+    final path = 'memory/ingest_reserve/$hash$ext';
     _files[path] = List<int>.from(bytes);
     return path;
   }

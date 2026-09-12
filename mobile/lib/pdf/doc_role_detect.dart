@@ -33,7 +33,8 @@ final _siHead = RegExp(
 );
 
 final _siFilename = RegExp(
-  r'(?:^|[/\_.-])si(?:[_.=-]|\d)|supporting[-_ ]?information|suppl(?:ementary)?',
+  r'(?:^|[/\_.-])si(?:[_.=-]|\d)|supporting[-_ ]?information|suppl(?:ementary)?'
+  r'|(?:^|[/\_.-])mmc\d*',
   caseSensitive: false,
 );
 

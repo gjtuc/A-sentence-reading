@@ -12,7 +12,7 @@ Android 앱 **보관**에서 PDF **한 파일**을 골라 Cloud Run ingest → �
 |------|----------------|
 | `file_picker` 단일 PDF | 여러 파일 선택 |
 | multipart `file` → `/api/ingest` + job poll | 이어올리기 → [71](71-mobile-upload-resume.md) |
-| 진행률 UI · 실패 시 에러만 (빈 성공 금지) | docx 앱 업로드 |
+| 진행률 UI · 실패 시 에러만 (빈 성공 금지) | file_picker 단일 docx (폴더 docx는 [249](249-mobile-folder-docx.md)) |
 | status `mobile_upload` | Play 릴리스 키스토어 |
 | 목록 격리 보강 (auth+no UID → empty; personal GCS만 merge) | |
 
@@ -60,3 +60,8 @@ Do not paste paper titles that identify people, emails, or session cookies into 
 ## Version pin
 
 Web/mobile **0.3.3** · `mobile_upload: true` · pubspec `0.3.3+1`
+
+
+## Polish
+
+- [249](249-mobile-folder-docx.md) — folder/downloads list + enqueue docx (0.3.240).

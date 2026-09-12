@@ -15,11 +15,11 @@ Amends [226](226-pdf-folder-import-browser.md) · [238](238-pdf-import-open-docu
 - 「받은 PDF 고르기」/ find-resume dialog → switch to downloads mode (+ connect if needed). **No** `pickDocuments` on these CTAs.
 - Selection in downloads mode: if papers tree writable → `copyUriIntoTree` into papers grant → switch to papers + rescan; else enqueue bytes (238 fallback).
 - Find-watch still observes **papers** tree only (242).
-- **PDF only** — docx SI not listed (70 / 247 non-goal).
+- PDF + **docx** list/upload: [249](249-mobile-folder-docx.md) (was PDF-only at 248 ship).
 
 ## Non-goals
 
-MES · MediaStore scan · docx upload · replacing papers grant with Downloads.
+MES · MediaStore scan · replacing papers grant with Downloads. (docx: 249)
 
 ## Tests
 

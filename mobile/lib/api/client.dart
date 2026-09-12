@@ -1161,17 +1161,25 @@ class AsrClient {
   }
 
   static final _pdfNameRe = RegExp(r'\.pdf$', caseSensitive: false);
+  static final _docxNameRe = RegExp(r'\.docx$', caseSensitive: false);
   static const _maxUploadBytes = 50 * 1024 * 1024;
 
   /// POST /api/ingest (multipart `file`) then poll `/api/ingest/jobs/{id}`.
   ///
+  /// design/249 — PDF (`%PDF`) or DOCX (ZIP `PK`).
   void _validatePdfBytes(String filename, Uint8List bytes) {
+    _validateIngestBytes(filename, bytes);
+  }
+
+  void _validateIngestBytes(String filename, Uint8List bytes) {
     final name = filename.trim();
     if (name.isEmpty) {
       throw AsrApiException('파일 이름이 비어 있습니다.', 400);
     }
-    if (!_pdfNameRe.hasMatch(name)) {
-      throw AsrApiException('PDF만 업로드할 수 있습니다.', 400);
+    final isPdf = _pdfNameRe.hasMatch(name);
+    final isDocx = _docxNameRe.hasMatch(name);
+    if (!isPdf && !isDocx) {
+      throw AsrApiException('PDF 또는 Word(.docx)만 업로드할 수 있습니다.', 400);
     }
     if (bytes.isEmpty) {
       throw AsrApiException('빈 파일입니다.', 400);
@@ -1179,12 +1187,19 @@ class AsrClient {
     if (bytes.length > _maxUploadBytes) {
       throw AsrApiException('파일이 너무 큽니다 (최대 50MB).', 413);
     }
-    if (bytes.length < 5 ||
-        bytes[0] != 0x25 ||
-        bytes[1] != 0x50 ||
-        bytes[2] != 0x44 ||
-        bytes[3] != 0x46) {
-      throw AsrApiException('유효한 PDF가 아닙니다.', 400);
+    if (isPdf) {
+      if (bytes.length < 5 ||
+          bytes[0] != 0x25 ||
+          bytes[1] != 0x50 ||
+          bytes[2] != 0x44 ||
+          bytes[3] != 0x46) {
+        throw AsrApiException('유효한 PDF가 아닙니다.', 400);
+      }
+      return;
+    }
+    // docx = ZIP (PK)
+    if (bytes.length < 4 || bytes[0] != 0x50 || bytes[1] != 0x4b) {
+      throw AsrApiException('유효한 Word(.docx)가 아닙니다.', 400);
     }
   }
 

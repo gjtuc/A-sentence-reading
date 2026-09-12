@@ -320,6 +320,7 @@
 185 — 분석 논문 로컬 SoT · ACK wipe + abandon/bulk/polish (**0.3.181**).
 186 — 7일 device-transfer pack (**0.3.180**).
 
+| 249 | [249-mobile-folder-docx.md](249-mobile-folder-docx.md) | Folder/downloads docx list + upload (0.3.240) |
 | 248 | [248-pdf-import-downloads-inapp-browser.md](248-pdf-import-downloads-inapp-browser.md) | Downloads in-app list (reuse import UI) (0.3.239) |
 | 247 | [247-pdf-import-downloads-bridge.md](247-pdf-import-downloads-bridge.md) | Downloads SAF hint + resume pick (0.3.238) |
 | 246 | [246-practice-sentence-cursor.md](246-practice-sentence-cursor.md) | 연습 문장 위치 읽기와 분리 저장 (0.3.237) |

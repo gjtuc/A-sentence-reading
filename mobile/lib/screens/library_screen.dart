@@ -530,7 +530,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             ? null
                             : _openUploadPicker,
                         icon: const Icon(Icons.upload_file),
-                        tooltip: 'PDF 가져오기',
+                        tooltip: '논문 가져오기',
                       ),
                       IconButton(
                         onPressed: widget.onOpenSettings,
@@ -664,7 +664,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 ? null
                                 : _openUploadPicker,
                             icon: const Icon(Icons.upload_file),
-                            label: const Text('PDF 가져오기'),
+                            label: const Text('논문 가져오기'),
                           ),
                         ],
                       ),
