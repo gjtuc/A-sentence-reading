@@ -1,8 +1,8 @@
-/// design/82+120+176+214 — shadowing practice + minimal rhythm + judgment cheers.
+/// design/82+120+176+214+245 — shadowing practice + minimal rhythm + judgment cheers.
 ///
 /// Gates: login (shell) · kill · opt-in · chunks built before loop.
 /// Loop per chunk: listen TTS → speak+TTS(reuse bytes) → my-take replay → next.
-/// Focus clock only during speak (mic open). Manual next/retry/replay removed.
+/// Focus clock only during speak after mic ready-beat (design/245). Manual next/retry/replay removed.
 library;
 
 import 'dart:async';
@@ -20,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/cite_refs.dart' as cite;
 import '../api/client.dart';
 import '../api/focus_practice_models.dart';
+import '../api/practice_progress_store.dart';
 import '../api/reading_models.dart';
 import '../api/shadowing_chunk_plan.dart';
 import '../api/tts_models.dart';
@@ -69,6 +70,8 @@ class ShadowingPracticeScreen extends StatefulWidget {
 class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     with WidgetsBindingObserver {
   static const _pad = Duration(seconds: 2);
+  /// design/245 — after mic start, brief beat before speak-guide TTS / user speech.
+  static const _speakMicReadyBeat = Duration(milliseconds: 350);
   // WHY: design/82 — Android MediaRecorder via platform channel (no pub `record` dep).
   static const _mic = MethodChannel('asr/shadowing_mic');
   /// Speak phase only — quieter guide so mic take keeps user voice (design/206+215).
@@ -96,6 +99,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   int _sentenceIndex = 0;
   /// design/120 — last local take path for replay phase (this chunk).
   String? _lastTakePath;
+  /// design/245 — MediaRecorder prepared during listen for this take path.
+  String? _primedMicPath;
   /// Per-chunk TTS: one random voice/rate draw; bytes reused for listen+speak.
   Uint8List? _chunkTtsBytes;
   TtsPlaybackParams? _chunkTtsParams;
@@ -215,6 +220,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _practiceBookmarks.dispose();
     unawaited(_player.dispose());
     unawaited(_mic.invokeMethod<String>('stop'));
+    unawaited(_persistPracticeCursor());
     unawaited(_skill.flushEvidence(cacheId: _cacheId));
     super.dispose();
   }
@@ -224,6 +230,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
       _focus.onAppPaused(cacheId: _cacheId);
+      unawaited(_persistPracticeCursor());
       unawaited(_skill.flushEvidence(cacheId: _cacheId));
     } else if (state == AppLifecycleState.resumed) {
       unawaited(_loadJudgmentCheersPref());
@@ -408,6 +415,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       _plan = Map<String, dynamic>.from(plan);
       unawaited(_disk.writeChunkPlanJson(cacheId, _plan!));
 
+      // design/246 — practice cursor SoT (orthogonal to reading sentenceIndex).
+      await _restorePracticeCursor(session);
       skippedEmptyN = await _skipToPlayableSentence(session);
       chunkN = _chunks.length;
       if (_chunks.isEmpty) {
@@ -497,15 +506,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       return;
     }
     final nav = session.sectionNav;
-    final key = nav.sentenceBookmarkKeyForGlobal(session.sentenceIndex);
+    final key = nav.sentenceBookmarkKeyForGlobal(_sentenceIndex);
     if (_practiceBookmarks.isSentenceBookmarked(key)) {
       await _practiceBookmarks.toggleSentenceBookmark(
         nav,
-        session.sentenceIndex,
+        _sentenceIndex,
       );
       return;
     }
-    final header = nav.headerPartsFor(session.sentenceIndex);
+    final header = nav.headerPartsFor(_sentenceIndex);
     final label = header.sectionName.isEmpty
         ? '${header.position}번 문장'
         : '${header.sectionName} ${header.position}번';
@@ -531,7 +540,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (ok == true) {
       await _practiceBookmarks.toggleSentenceBookmark(
         nav,
-        session.sentenceIndex,
+        _sentenceIndex,
       );
     }
   }
@@ -550,14 +559,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     final idx = await showSectionNavPicker(
       context: context,
       nav: nav,
-      currentGlobalIndex: session.sentenceIndex,
+      currentGlobalIndex: _sentenceIndex,
       bookmarks: hints,
     );
     if (idx == null || !mounted) return;
     await _goToPracticeSentence(idx);
   }
 
-  /// Advance reader past empty sentences until chunks exist (or end).
+  /// Skip empty-chunk sentences using local practice cursor (does not move reading).
   /// Returns how many sentences were skipped.
   Future<int> _skipToPlayableSentence(ReadingSession session) async {
     final rows = <({String id, String text})>[
@@ -566,16 +575,17 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     final delta = shadowingSkipEmptyDelta(
       plan: _plan,
       sentences: rows,
-      fromIndex: session.sentenceIndex,
+      fromIndex: _sentenceIndex,
     );
     if (delta < 0) {
-      _bindSentence(session);
+      _bindSentenceAt(session, _sentenceIndex);
       return 0;
     }
     if (delta > 0) {
-      await widget.library.advanceSentence(delta);
+      _bindSentenceAt(session, _sentenceIndex + delta);
+    } else {
+      _bindSentenceAt(session, _sentenceIndex);
     }
-    _bindSentence(session);
     return delta;
   }
 
@@ -639,19 +649,65 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     await _disk.writeTakesJson(cacheId, takes);
   }
 
-  void _bindSentence(ReadingSession session) {
-    _sentenceIndex = session.sentenceIndex;
-    final cur = session.currentSentence;
+  void _bindSentenceAt(
+    ReadingSession session,
+    int globalIndex, {
+    int chunkIndex = 0,
+  }) {
+    final n = session.sentenceCount;
+    if (n <= 0) return;
+    final i = globalIndex.clamp(0, n - 1);
+    _sentenceIndex = i;
+    final cur = session.sentences[i];
     _sentenceId =
-        (cur != null && cur.id.trim().isNotEmpty) ? cur.id : '$_sentenceIndex';
+        (cur.id.trim().isNotEmpty) ? cur.id : '$_sentenceIndex';
     _baseChunks = shadowingChunksForSentence(
       _plan,
       _sentenceId,
-      cur?.text ?? '',
+      cur.text,
     );
     _chunks = _skill.chunksFor(_baseChunks);
-    _chunkIndex = 0;
+    final maxChunk = _chunks.isEmpty ? 0 : _chunks.length - 1;
+    _chunkIndex = chunkIndex.clamp(0, maxChunk);
     unawaited(_prefetchSpoken());
+    unawaited(_persistPracticeCursor());
+  }
+
+  Future<void> _persistPracticeCursor() async {
+    final cid = _cacheId;
+    if (cid.isEmpty) return;
+    try {
+      await savePracticeProgress(
+        uid: widget.shadowing.boundUid,
+        cacheId: cid,
+        sentenceIndex: _sentenceIndex,
+        chunkIndex: _chunkIndex,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _restorePracticeCursor(ReadingSession session) async {
+    final stored = await loadPracticeProgress(
+      uid: widget.shadowing.boundUid,
+      cacheId: _cacheId,
+    );
+    // First visit: seed from reading position; later opens use practice SoT.
+    final seeded = stored ??
+        PracticeProgressRow(sentenceIndex: session.sentenceIndex);
+    final clamped = clampPracticeProgress(
+      raw: seeded,
+      sentenceCount: session.sentenceCount,
+      chunkCount: 1,
+    );
+    final startSi =
+        clamped?.sentenceIndex ?? session.sentenceIndex.clamp(0, session.sentenceCount - 1);
+    final wantChunk = stored?.chunkIndex ?? 0;
+    _bindSentenceAt(session, startSi, chunkIndex: wantChunk);
+  }
+
+  void _clearChunkTtsCache() {
+    _chunkTtsBytes = null;
+    _chunkTtsParams = null;
   }
 
   Future<void> _prefetchSpoken() async {
@@ -670,11 +726,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _clearChunkTtsCache();
     widget.tts.setSkillTier(_skill.tier);
     unawaited(_prefetchSpoken());
-  }
-
-  void _clearChunkTtsCache() {
-    _chunkTtsBytes = null;
-    _chunkTtsParams = null;
+    unawaited(_persistPracticeCursor());
   }
 
   /// design/216 — display/spoken/score share one stripped chunk string.
@@ -773,6 +825,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       _status = '듣는 중';
       _rhythmPhase = RhythmPhase.listen;
     });
+    // design/245 — prepare MediaRecorder while listen TTS plays (no start yet).
+    unawaited(_primeMicForUpcomingSpeak());
     try {
       await _playCachedChunkTts(phase: 'tts_listen');
     } catch (_) {
@@ -814,7 +868,29 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     }
   }
 
-  /// Phase 2 — mic open; focus clock runs only here. Reuses chunk TTS bytes.
+  /// design/245 — build+prepare recorder during listen so Speak start is cheap.
+  Future<void> _primeMicForUpcomingSpeak() async {
+    try {
+      var okMic = await _mic.invokeMethod<bool>('hasPermission') ?? false;
+      if (!okMic) {
+        okMic = await _mic.invokeMethod<bool>('requestPermission') ?? false;
+      }
+      if (!okMic) {
+        _primedMicPath = null;
+        return;
+      }
+      final dir = await getTemporaryDirectory();
+      final path =
+          '${dir.path}${Platform.pathSeparator}asr_shadow_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final primed =
+          await _mic.invokeMethod<bool>('prepare', {'path': path}) ?? false;
+      _primedMicPath = primed ? path : null;
+    } catch (_) {
+      _primedMicPath = null;
+    }
+  }
+
+  /// Phase 2 — mic open; focus clock runs only after ready-beat. Reuses chunk TTS.
   Future<_SpeakPhaseResult> _runSpeakPhase() async {
     if (_chunks.isEmpty) {
       return const _SpeakPhaseResult(
@@ -823,7 +899,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         code: 'no_chunks',
       );
     }
-    setState(() => _status = '말하는 중');
+    setState(() => _status = '말할 준비');
     var okMic = await _mic.invokeMethod<bool>('hasPermission') ?? false;
     if (!okMic) {
       okMic = await _mic.invokeMethod<bool>('requestPermission') ?? false;
@@ -837,17 +913,22 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         details: {'phase': 'mic_start', 'ok': false, 'exc_type': 'mic_perm'},
       );
       setState(() => _status = '마이크 권한이 없습니다. 다음 구간으로 넘어갑니다.');
+      _primedMicPath = null;
       return const _SpeakPhaseResult(
         ok: false,
         signal: GroomingSignal.micPerm,
         code: 'mic_perm',
       );
     }
-    final dir = await getTemporaryDirectory();
-    final path =
-        '${dir.path}${Platform.pathSeparator}asr_shadow_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    var path = _primedMicPath;
+    if (path == null || path.isEmpty) {
+      final dir = await getTemporaryDirectory();
+      path =
+          '${dir.path}${Platform.pathSeparator}asr_shadow_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    }
     final started =
         await _mic.invokeMethod<bool>('start', {'path': path}) ?? false;
+    _primedMicPath = null;
     if (!started) {
       asrEvidenceBus?.record(
         'shadowing_loop_event',
@@ -863,12 +944,27 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         code: 'mic_start',
       );
     }
+    // design/245 — let the recorder settle; user should not speak yet.
+    await Future<void>.delayed(_speakMicReadyBeat);
+    if (!mounted) {
+      unawaited(_mic.invokeMethod<String>('stop'));
+      return const _SpeakPhaseResult(
+        ok: false,
+        signal: GroomingSignal.takeFail,
+        code: 'unmounted',
+      );
+    }
+    setState(() => _status = '말하는 중');
     _focus.beginSpeak();
     asrEvidenceBus?.record(
       'shadowing_loop_event',
       cacheId: _cacheId,
       ok: true,
-      details: {'phase': 'mic_start', 'ok': true},
+      details: {
+        'phase': 'mic_start',
+        'ok': true,
+        'mic_ready_ms': _speakMicReadyBeat.inMilliseconds,
+      },
     );
     var takeOk = false;
     var signal = GroomingSignal.takeFail;
@@ -1109,7 +1205,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   String _sectionKeyFor(ReadingSession session) {
     final nav = session.sectionNav;
-    final (si, _) = nav.selectionForGlobal(session.sentenceIndex);
+    final (si, _) = nav.selectionForGlobal(_sentenceIndex);
     return nav.sectionKeyAt(si);
   }
 
@@ -1122,7 +1218,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     final key = _sectionKeyFor(session);
     if (key.isEmpty || key == previousKey) return;
     final name = session.sectionNav
-        .headerPartsFor(session.sentenceIndex)
+        .headerPartsFor(_sentenceIndex)
         .sectionName;
     if (name.isEmpty || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -1150,6 +1246,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _clearChunkTtsCache();
     if (_chunkIndex + 1 < _chunks.length) {
       _chunkIndex += 1;
+      unawaited(_persistPracticeCursor());
     } else if (_sentenceIndex + 1 < session.sentenceCount) {
       final prevSection = _sectionKeyFor(session);
       final rows = <({String id, String text})>[
@@ -1164,9 +1261,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
         return;
       }
-      await widget.library.advanceSentence(1 + delta);
+      _bindSentenceAt(session, _sentenceIndex + 1 + delta);
       final next = _session ?? session;
-      _bindSentence(next);
       _announceSectionIfChanged(previousKey: prevSection, session: next);
       if (_chunks.isEmpty) {
         setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
@@ -1188,6 +1284,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _cycleToken++;
     unawaited(_player.stop());
     unawaited(_mic.invokeMethod<String>('stop'));
+    _primedMicPath = null;
+    unawaited(_persistPracticeCursor());
     if (_focus.speaking) {
       _focus.endSpeak(cacheId: _cacheId);
     }
@@ -1250,12 +1348,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final prevSection =
-          _session == null ? null : _sectionKeyFor(_session!);
-      await widget.library.goToSentenceIndex(globalIndex);
       final session = _session;
       if (session == null) return;
-      _bindSentence(session);
+      final prevSection = _sectionKeyFor(session);
+      // design/246 — do not mutate reading sentenceIndex.
+      _bindSentenceAt(session, globalIndex);
       _announceSectionIfChanged(previousKey: prevSection, session: session);
       if (_chunks.isEmpty) {
         setState(() => _status = '이 문장에 연습 구간이 없습니다.');
@@ -1366,16 +1463,16 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                               }
                               final nav = session.sectionNav;
                               final header =
-                                  nav.headerPartsFor(session.sentenceIndex);
+                                  nav.headerPartsFor(_sentenceIndex);
                               final sentKey = nav
                                   .sentenceBookmarkKeyForGlobal(
-                                      session.sentenceIndex);
+                                      _sentenceIndex);
                               final highlighted = _practiceBookmarks
                                   .isSentenceBookmarked(sentKey);
                               final sectionBadge =
                                   _practiceBookmarks.sectionBadgeCount(
                                 nav,
-                                session.sentenceIndex,
+                                _sentenceIndex,
                               );
                               final canPick = nav.sectionCount > 0;
                               return Column(
