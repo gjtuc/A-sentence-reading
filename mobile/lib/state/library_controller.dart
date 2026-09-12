@@ -30,6 +30,9 @@ import '../api/pdf_folder_grant_store.dart';
 import '../api/pdf_hash_cache_store.dart';
 import '../api/pdf_advisory_cache_store.dart';
 import '../api/document_citation.dart';
+import '../mate_fetch/fetch.dart';
+import '../mate_fetch/orchestrator.dart';
+import '../mate_fetch/validate.dart';
 import '../pdf/doc_role_detect.dart';
 import '../pdf/advisory_title.dart';
 import '../api/library_soft_delete_store.dart';
@@ -4676,6 +4679,8 @@ class LibraryController extends ChangeNotifier {
                 : (adv != null && adv.advisoryTitle.trim().isNotEmpty
                     ? normalizePairingKey(adv.advisoryTitle)
                     : ''),
+            siStatus: adv?.siStatus ?? '',
+            siStem: adv?.siStem ?? '',
           ),
         );
       }
@@ -4998,6 +5003,8 @@ class LibraryController extends ChangeNotifier {
             e.pairingKey = cached.pairingKey.isNotEmpty
                 ? cached.pairingKey
                 : await _pairingKeyForTitle(cached.advisoryTitle);
+            e.siStatus = cached.siStatus;
+            e.siStem = cached.siStem;
             e.advisoryState = PdfAdvisoryState.ready;
             nOk += 1;
             nHit += 1;
@@ -5103,10 +5110,14 @@ class LibraryController extends ChangeNotifier {
             doi = extractDoiFromText(head.infoTitle) ?? '';
             if (doi.isNotEmpty) doiSource = 'info';
           }
+          final siStem = extractAcsSiStemFromText(head.headText) ??
+              extractAcsSiStemFromText(head.infoTitle) ??
+              '';
           e.advisoryTitle = guessed.title;
           e.advisoryRole = det.role;
           e.advisoryReason = det.reason;
           e.advisoryDoi = doi;
+          e.siStem = siStem;
           e.pairingKey = await _pairingKeyForTitle(guessed.title);
           e.advisoryState = PdfAdvisoryState.ready;
           await _pdfAdvisoryCache.put(
@@ -5121,6 +5132,8 @@ class LibraryController extends ChangeNotifier {
             advisoryDoi: doi,
             doiSource: doiSource,
             pairingKey: e.pairingKey,
+            siStem: siStem,
+            siStatus: e.siStatus,
           );
           nOk += 1;
           nMiss += 1;
@@ -5379,6 +5392,306 @@ class LibraryController extends ChangeNotifier {
     }
     base = base.trim();
     return base.isEmpty ? displayName.trim() : base;
+  }
+
+
+  /// design/251 — mate direct fetch for find CTA (OA/pattern → sink → browser).
+  Future<
+      ({
+        String mode,
+        String message,
+        String? browserUrl,
+        String siStatus,
+        String want,
+      })> fetchMateForEntry(ScannedPdfEntry e) async {
+    final doi = e.advisoryDoi.trim();
+    final role = e.advisoryRole.trim().toLowerCase();
+    final want = role == 'supplementary' ? 'main' : 'si';
+    final t0 = DateTime.now().millisecondsSinceEpoch;
+    asrEvidenceBus?.record(
+      'mate_fetch_start',
+      severity: 'lifecycle',
+      stage: 'mate',
+      details: {
+        'ok': true,
+        'want': want,
+        'has_stem': e.siStem.trim().isNotEmpty,
+      },
+    );
+    if (doi.isEmpty) {
+      return (
+        mode: 'failed',
+        message: 'DOI가 없습니다.',
+        browserUrl: null,
+        siStatus: e.siStatus,
+        want: want,
+      );
+    }
+    if (matePresentForEntry(e, pdfFolderEntries)) {
+      return (
+        mode: 'failed',
+        message: '이미 짝 파일이 있습니다.',
+        browserUrl: null,
+        siStatus: e.siStatus,
+        want: want,
+      );
+    }
+
+    var enabled = true;
+    try {
+      final st = await _client.fetchStatus();
+      enabled = st.mobileMateDirectFetch;
+    } catch (_) {
+      enabled = true;
+    }
+
+    MateResolveMeta meta;
+    if (!enabled) {
+      meta = MateResolveMeta(
+        ok: true,
+        enabled: false,
+        fallbackBrowser: 'https://doi.org/$doi',
+        siStatus: e.siStatus.isEmpty ? 'unknown' : e.siStatus,
+      );
+    } else {
+      try {
+        final raw = await _client.resolveMate(
+          doi: doi,
+          want: want,
+          siStem: e.siStem,
+        );
+        meta = MateResolveMeta.fromJson({
+          'ok': raw.ok,
+          'enabled': raw.enabled,
+          'candidates': raw.candidates,
+          'fallback_browser': raw.fallbackBrowser,
+          'si_status': raw.siStatus,
+          'error': raw.error,
+        });
+      } catch (_) {
+        meta = MateResolveMeta(
+          ok: false,
+          enabled: true,
+          fallbackBrowser: 'https://doi.org/$doi',
+          error: 'resolve_exc',
+        );
+      }
+    }
+
+    if (want == 'si' && meta.siStatus.isNotEmpty) {
+      e.siStatus = meta.siStatus;
+      asrEvidenceBus?.record(
+        'mate_si_status',
+        severity: 'lifecycle',
+        stage: 'mate',
+        details: {'status': meta.siStatus},
+      );
+      try {
+        await _pdfAdvisoryCache.put(
+          docUri: e.docUri,
+          sizeBytes: e.sizeBytes,
+          lastModifiedMs: e.lastModifiedMs,
+          advisoryTitle: e.advisoryTitle,
+          advisoryRole: e.advisoryRole,
+          advisoryReason: e.advisoryReason,
+          extractOk: true,
+          advisoryDoi: e.advisoryDoi,
+          pairingKey: e.pairingKey,
+          siStatus: e.siStatus,
+          siStem: e.siStem,
+        );
+      } catch (_) {}
+      notifyListeners();
+    }
+
+    for (final c in meta.candidates) {
+      if (c.kind != 'pdf') continue;
+      asrEvidenceBus?.record(
+        'mate_fetch_candidate',
+        severity: 'debug',
+        stage: 'mate',
+        details: {
+          'tier': _evidenceSnakeToken(c.tier, fallback: 'unk'),
+          'source': _evidenceSnakeToken(c.source, fallback: 'unk'),
+          'kind': c.kind,
+        },
+      );
+    }
+
+    final orch = await orchestrateMateFetch(
+      meta: meta,
+      doi: doi,
+      want: want,
+      matePresent: false,
+      fetchBytes: (url) => fetchMatePdfBytes(url),
+    );
+
+    if (orch.mode == MateOrchestrateMode.absent) {
+      asrEvidenceBus?.record(
+        'mate_fetch_done',
+        severity: 'lifecycle',
+        stage: 'mate',
+        details: {
+          'ok': true,
+          'mode': 'absent',
+          'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+        },
+      );
+      return (
+        mode: 'absent',
+        message: '이 논문에는 SI가 없습니다.',
+        browserUrl: null,
+        siStatus: 'absent',
+        want: want,
+      );
+    }
+
+    if (orch.mode == MateOrchestrateMode.fetched && orch.bytes != null) {
+      final v = validateMateBytes(orch.bytes!);
+      asrEvidenceBus?.record(
+        'mate_fetch_validate',
+        severity: 'lifecycle',
+        stage: 'mate',
+        details: {
+          'ok': v.ok,
+          'code': v.code.name,
+          'size_bucket': sizeBucket(orch.bytes!.length),
+        },
+      );
+      if (!v.ok) {
+        asrEvidenceBus?.record(
+          'mate_fetch_fallback_browser',
+          severity: 'warn',
+          stage: 'mate',
+          details: {'ok': true, 'reason': 'validate_fail'},
+        );
+        return (
+          mode: 'fallback',
+          message: '받은 파일이 PDF가 아닙니다. 브라우저로 엽니다.',
+          browserUrl: orch.browserUrl.isNotEmpty
+              ? orch.browserUrl
+              : 'https://doi.org/$doi',
+          siStatus: orch.siStatus,
+          want: want,
+        );
+      }
+      final name = orch.filename.isNotEmpty
+          ? orch.filename
+          : mateFilenameFor(doi: doi, want: want);
+      final sink = await _sinkMateBytes(name: name, bytes: orch.bytes!);
+      asrEvidenceBus?.record(
+        'mate_fetch_done',
+        severity: 'lifecycle',
+        stage: 'mate',
+        details: {
+          'ok': sink.ok,
+          'mode': sink.mode,
+          'tier': _evidenceSnakeToken(orch.tier, fallback: 'unk'),
+          'source': _evidenceSnakeToken(orch.source, fallback: 'unk'),
+          'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+          'size_bucket': sizeBucket(orch.bytes!.length),
+        },
+      );
+      if (sink.ok) {
+        return (
+          mode: 'fetched',
+          message: sink.message,
+          browserUrl: null,
+          siStatus: orch.siStatus,
+          want: want,
+        );
+      }
+      return (
+        mode: 'fallback',
+        message: sink.message,
+        browserUrl: 'https://doi.org/$doi',
+        siStatus: orch.siStatus,
+        want: want,
+      );
+    }
+
+    final fb = orch.browserUrl.isNotEmpty
+        ? orch.browserUrl
+        : 'https://doi.org/$doi';
+    asrEvidenceBus?.record(
+      'mate_fetch_fallback_browser',
+      severity: 'lifecycle',
+      stage: 'mate',
+      details: {
+        'ok': true,
+        'mode': orch.mode.name,
+        'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+      },
+    );
+    return (
+      mode: 'fallback',
+      message: orch.mode == MateOrchestrateMode.killed
+          ? '직접 가져오기가 꺼져 있어 브라우저로 엽니다.'
+          : '직접 받을 수 없어 브라우저로 엽니다.',
+      browserUrl: fb,
+      siStatus: orch.siStatus,
+      want: want,
+    );
+  }
+
+  Future<({bool ok, String mode, String message})> _sinkMateBytes({
+    required String name,
+    required Uint8List bytes,
+  }) async {
+    final grant = pdfFolderGrant;
+    if (grant != null) {
+      try {
+        final probe = await _safTree.probeTreeWritable(grant.treeUri);
+        pdfFolderWritable = probe.writable;
+        if (probe.writable) {
+          asrEvidenceBus?.record(
+            'pdf_tree_copy_start',
+            severity: 'lifecycle',
+            stage: 'mate',
+            details: {'ok': true, 'n': 1, 'via': 'bytes'},
+          );
+          final created = await _safTree.writeBytesIntoTree(
+            treeUri: grant.treeUri,
+            displayName: name,
+            bytes: bytes,
+          );
+          if (created != null) {
+            asrEvidenceBus?.record(
+              'pdf_tree_copy_done',
+              severity: 'lifecycle',
+              stage: 'mate',
+              details: {'ok': true, 'n': 1},
+            );
+            await _scanPdfFolder(grant.treeUri, trigger: "after_mate");
+            return (
+              ok: true,
+              mode: 'tree',
+              message: '논문 폴더에 저장했습니다: ${created.displayName}',
+            );
+          }
+        }
+      } on PlatformException catch (ex) {
+        asrEvidenceBus?.record(
+          'pdf_tree_copy_fail',
+          severity: 'warn',
+          stage: 'mate',
+          details: {'ok': false, 'code': _evidenceSnakeToken(ex.code)},
+        );
+      } catch (_) {}
+    }
+    final outcome = await enqueuePickedPdfs([(name: name, bytes: bytes)]);
+    if (outcome.added > 0) {
+      return (
+        ok: true,
+        mode: 'enqueue',
+        message: '대기열에 ${outcome.added}건 넣었습니다.',
+      );
+    }
+    return (
+      ok: false,
+      mode: 'fail',
+      message: outcome.message ?? '저장하지 못했습니다.',
+    );
   }
 
   /// design/237 — evidence for find CTA open/fail (never DOI plaintext).

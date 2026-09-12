@@ -49,6 +49,6 @@ def test_doi_evidence_no_plaintext() -> None:
 
 def test_cache_schema_has_doi_and_pairing() -> None:
     cache = CACHE.read_text(encoding="utf-8")
-    assert "kPdfAdvisoryCacheSchema = 7" in cache
+    assert "kPdfAdvisoryCacheSchema = 8" in cache
     assert "advisory_doi" in cache
     assert "pairing_key" in cache

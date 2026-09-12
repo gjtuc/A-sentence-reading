@@ -11,7 +11,7 @@ import 'pdf_hash_cache_store.dart';
 const int kPdfAdvisoryCacheMaxEntries = 2000;
 
 /// design/229 · 233 · 235 · 236 · 237 · 239 — bump wipes stale rows (pairing_key).
-const int kPdfAdvisoryCacheSchema = 7;
+const int kPdfAdvisoryCacheSchema = 8;
 
 class PdfAdvisoryCacheEntry {
   const PdfAdvisoryCacheEntry({
@@ -23,6 +23,8 @@ class PdfAdvisoryCacheEntry {
     this.advisoryDoi = '',
     this.doiSource = '',
     this.pairingKey = '',
+    this.siStatus = '',
+    this.siStem = '',
   });
 
   final String advisoryTitle;
@@ -41,6 +43,12 @@ class PdfAdvisoryCacheEntry {
 
   /// design/239 — optional precomputed pairing key.
   final String pairingKey;
+
+  /// design/251 — absent | available | unknown | ''
+  final String siStatus;
+
+  /// design/251 — ACS SI filename stem hint.
+  final String siStem;
 }
 
 class PdfAdvisoryCacheStore {
@@ -158,6 +166,10 @@ class PdfAdvisoryCacheStore {
         : '';
     final doiSrc = '${row['doi_source'] ?? ''}'.trim().toLowerCase();
     final doiSource = (doiSrc == 'head' || doiSrc == 'info') ? doiSrc : '';
+    final si = '${row['si_status'] ?? ''}'.trim().toLowerCase();
+    final siStatus = (si == 'absent' || si == 'available' || si == 'unknown')
+        ? si
+        : '';
     return PdfAdvisoryCacheEntry(
       advisoryTitle: '${row['advisory_title'] ?? ''}'.trim(),
       advisoryRole: role,
@@ -167,6 +179,8 @@ class PdfAdvisoryCacheStore {
       advisoryDoi: '${row['advisory_doi'] ?? ''}'.trim(),
       doiSource: doiSource,
       pairingKey: '${row['pairing_key'] ?? ''}'.trim(),
+      siStatus: siStatus,
+      siStem: '${row['si_stem'] ?? ''}'.trim(),
     );
   }
 
@@ -182,6 +196,8 @@ class PdfAdvisoryCacheStore {
     String advisoryDoi = '',
     String doiSource = '',
     String pairingKey = '',
+    String siStatus = '',
+    String siStem = '',
   }) async {
     await _ensureLoaded();
     final key = pdfHashCacheKey(
@@ -205,6 +221,11 @@ class PdfAdvisoryCacheStore {
       'advisory_doi': advisoryDoi.trim(),
       'doi_source': dsrcOut,
       'pairing_key': pairingKey.trim(),
+      'si_status': () {
+        final s = siStatus.trim().toLowerCase();
+        return (s == 'absent' || s == 'available' || s == 'unknown') ? s : '';
+      }(),
+      'si_stem': siStem.trim(),
       'size_bytes': sizeBytes,
       'last_modified_ms': lastModifiedMs,
       'computed_at_ms': DateTime.now().millisecondsSinceEpoch,

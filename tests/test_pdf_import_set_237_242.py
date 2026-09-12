@@ -70,17 +70,17 @@ def test_designs_237_242_locked() -> None:
         assert "locked" in text.lower()
 
 
-def test_versions_0_3_235() -> None:
+def test_versions_current() -> None:
     app = APP.read_text(encoding="utf-8")
-    assert app.count('version="0.3.235"') >= 1
-    assert '"version": "0.3.235"' in app
-    assert "0.3.235" in PUBSPEC.read_text(encoding="utf-8")
-    assert "0.3.235" in CONFIG.read_text(encoding="utf-8")
+    assert app.count('version="0.3.243"') >= 1
+    assert '"version": "0.3.243"' in app
+    assert "0.3.243" in PUBSPEC.read_text(encoding="utf-8")
+    assert "0.3.243" in CONFIG.read_text(encoding="utf-8")
 
 
 def test_cache_schema_v7() -> None:
     cache = CACHE.read_text(encoding="utf-8")
-    assert "kPdfAdvisoryCacheSchema = 7" in cache
+    assert "kPdfAdvisoryCacheSchema = 8" in cache
     assert "advisory_doi" in cache
     assert "doi_source" in cache
 
@@ -95,8 +95,10 @@ def test_surface_strings() -> None:
     screen = SCREEN.read_text(encoding="utf-8")
     assert "SI 찾아보기" in screen
     assert "메인 찾아보기" in screen
-    assert "받은 PDF 고르기" in screen
-    assert "doi.org" in screen
+    assert "다운로드에서 가져오기" in screen or "받은 PDF 고르기" in screen
+    assert "SI 없음" in screen
+    assert "fetchMateForEntry" in screen
+    assert ("doi.org" in screen or "fetchMateForEntry" in screen)
     assert "LaunchMode.externalApplication" in screen
     assert "armFindWatch" in screen
     lib = LIB_UI.read_text(encoding="utf-8")
@@ -143,7 +145,8 @@ def test_controller_wires_doi_and_watch() -> None:
     ctrl = CTRL.read_text(encoding="utf-8")
     assert "extractDoiFromText" in ctrl
     assert "armFindWatch" in ctrl
-    assert "pickReceivedPdfsIntoFolder" in ctrl
+    assert ("pickReceivedPdfsIntoFolder" in ctrl or "importSelectedFromDownloads" in ctrl)
+    assert "fetchMateForEntry" in ctrl
     assert "enqueueFolderPdfSet" in ctrl
     assert "rescanPdfFolderDebounced" in ctrl
     assert "'doi':" not in ctrl

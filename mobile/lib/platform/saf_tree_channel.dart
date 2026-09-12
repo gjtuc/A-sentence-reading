@@ -150,6 +150,28 @@ class SafTreeChannel {
 
   /// design/241 — stream-copy PDF into connected tree (collision rename).
 
+  /// design/251 — write in-memory PDF bytes into connected tree.
+  Future<SafTreePdfItem?> writeBytesIntoTree({
+    required String treeUri,
+    required String displayName,
+    required List<int> bytes,
+  }) async {
+    final tree = treeUri.trim();
+    final name = displayName.trim();
+    if (tree.isEmpty || name.isEmpty || bytes.isEmpty || kIsWeb) return null;
+    try {
+      final raw = await _channel.invokeMethod<dynamic>('writeBytesIntoTree', {
+        'treeUri': tree,
+        'displayName': name,
+        'bytes': bytes,
+      });
+      if (raw is! Map) return null;
+      return _pdfItemFromMap(raw);
+    } on PlatformException {
+      rethrow;
+    }
+  }
+
   Future<SafTreePdfItem?> copyUriIntoTree({
     required String srcDocUri,
     required String treeUri,

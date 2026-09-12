@@ -95,6 +95,8 @@ class AsrStatus {
     // design/148 — missing key → on; explicit false kills mobile cite panel.
     this.mobileCiteRefPanel = true,
     this.mobileThisPaperPanel = true,
+    // design/251 — missing key → on; explicit false kills mate fetch.
+    this.mobileMateDirectFetch = true,
     this.citeRefOpen = true,
     // design/149 — missing key → on; caption in composite PNG, hide under-image Text.
     this.figureCaptionInImage = true,
@@ -256,6 +258,11 @@ class AsrStatus {
       mobileThisPaperPanel: json.containsKey('mobile_this_paper_panel')
           ? json['mobile_this_paper_panel'] == true
           : true,
+      mobileMateDirectFetch: json.containsKey('mobile_mate_direct_fetch')
+          ? json['mobile_mate_direct_fetch'] == true
+          : (json.containsKey('mate_direct_fetch')
+              ? json['mate_direct_fetch'] == true
+              : true),
       citeRefOpen: json.containsKey('cite_ref_open')
           ? json['cite_ref_open'] == true
           : true,
@@ -350,6 +357,8 @@ class AsrStatus {
   final bool mobileCiteRefPanel;
   // design/157 — Title section this-paper row kill switch.
   final bool mobileThisPaperPanel;
+  // design/251 — mate direct fetch kill switch.
+  final bool mobileMateDirectFetch;
   final bool citeRefOpen;
   // design/149 — composite PNG; hide under-image caption when true.
   final bool figureCaptionInImage;
@@ -425,6 +434,50 @@ class NotesSyncResult {
   final Map<String, dynamic>? store;
   final bool needsAuth;
   final String? message;
+}
+
+
+/// design/251 — `/api/mate/resolve` candidate meta (no PDF bytes).
+class MateResolveResult {
+  MateResolveResult({
+    required this.ok,
+    this.enabled = true,
+    this.candidates = const [],
+    this.fallbackBrowser = '',
+    this.siStatus = 'unknown',
+    this.error = '',
+    this.message = '',
+  });
+
+  factory MateResolveResult.fromJson(Map<String, dynamic> json) {
+    final raw = json['candidates'];
+    final list = <Map<String, dynamic>>[];
+    if (raw is List) {
+      for (final e in raw) {
+        if (e is Map) list.add(Map<String, dynamic>.from(e));
+      }
+    }
+    final si = '${json['si_status'] ?? 'unknown'}'.trim().toLowerCase();
+    return MateResolveResult(
+      ok: json['ok'] == true,
+      enabled: json.containsKey('enabled') ? json['enabled'] == true : true,
+      candidates: list,
+      fallbackBrowser: '${json['fallback_browser'] ?? ''}'.trim(),
+      siStatus: (si == 'absent' || si == 'available' || si == 'unknown')
+          ? si
+          : 'unknown',
+      error: '${json['error'] ?? ''}'.trim(),
+      message: '${json['message'] ?? ''}'.trim(),
+    );
+  }
+
+  final bool ok;
+  final bool enabled;
+  final List<Map<String, dynamic>> candidates;
+  final String fallbackBrowser;
+  final String siStatus;
+  final String error;
+  final String message;
 }
 
 /// `/api/cite/resolve` result (design/41 · 148).
@@ -2617,6 +2670,29 @@ throw AsrApiException(
     } finally {
       await _sessions.clear();
     }
+  }
+
+
+  /// design/251 — DOI → OA/SI candidate URLs (device fetches bytes).
+  Future<MateResolveResult> resolveMate({
+    required String doi,
+    required String want,
+    String siStem = '',
+  }) async {
+    final body = <String, dynamic>{
+      'doi': doi.trim(),
+      'want': want.trim().isEmpty ? 'main' : want.trim(),
+      if (siStem.trim().isNotEmpty) 'si_stem': siStem.trim(),
+    };
+    final res = await _http
+        .post(
+          _uri('/api/mate/resolve'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 30));
+    final map = _decodeObject(res, 'mate/resolve');
+    return MateResolveResult.fromJson(map);
   }
 
   /// design/41 · 148 — bibliography row → publisher / Crossref / Scholar URL.

@@ -283,7 +283,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.242",
+    version="0.3.243",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1727,6 +1727,14 @@ def _mobile_upload_workmanager_enabled() -> bool:
     return v not in ("0", "false", "off", "no")
 
 
+
+def _mate_direct_fetch_enabled() -> bool:
+    """design/251 — kill switch for mate resolve / device direct fetch."""
+    from sentence_reading.llm.mate_resolve import mate_direct_fetch_enabled
+
+    return mate_direct_fetch_enabled()
+
+
 def _mobile_email_magic_link_enabled() -> bool:
     """design/77 — kill switch for email magic-link login."""
     from sentence_reading.llm.auth_magic_link import magic_link_enabled
@@ -1798,7 +1806,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.242",
+        "version": "0.3.243",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -2008,6 +2016,9 @@ def status(request: Request) -> dict:
         "stt_browser": True,
         "stt_server": gemini_available(),
         "tab_close": True,
+        # design/251 — mate direct fetch (device GET); ASR_MATE_DIRECT_FETCH=0 kills.
+        "mate_direct_fetch": _mate_direct_fetch_enabled(),
+        "mobile_mate_direct_fetch": _mate_direct_fetch_enabled(),
         # design/161 — settings APK download; Cloud Run proxy when bucket is private.
         "mobile_apk_url": _mobile_apk_url(request=request),
     }
@@ -2897,6 +2908,36 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
         out["compare"] = cmp
     assert "score" not in out
     return out
+
+
+
+@app.post("/api/mate/resolve")
+async def mate_resolve(payload: dict = Body(...)) -> dict:
+    """design/251 — OA/SI candidate URLs only (no publisher PDF bytes)."""
+    from sentence_reading.llm.mate_resolve import resolve_mate
+
+    if not isinstance(payload, dict):
+        return {
+            "ok": False,
+            "error": "invalid_payload",
+            "candidates": [],
+            "fallback_browser": "",
+            "si_status": "unknown",
+        }
+    doi = payload.get("doi") if isinstance(payload.get("doi"), str) else ""
+    want = payload.get("want") if isinstance(payload.get("want"), str) else "main"
+    si_stem = payload.get("si_stem") if isinstance(payload.get("si_stem"), str) else None
+    try:
+        return await asyncio.to_thread(resolve_mate, doi, want, si_stem=si_stem)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "error": "resolve_failed",
+            "message": str(exc)[:200],
+            "candidates": [],
+            "fallback_browser": "",
+            "si_status": "unknown",
+        }
 
 
 @app.post("/api/cite/resolve")

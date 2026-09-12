@@ -91,6 +91,8 @@ class ScannedPdfEntry {
     this.advisoryState = PdfAdvisoryState.unknown,
     this.advisoryDoi = '',
     this.pairingKey = '',
+    this.siStatus = '',
+    this.siStem = '',
   });
 
   final String docUri;
@@ -112,6 +114,12 @@ class ScannedPdfEntry {
   /// design/239 — precomputed pairing key (prefer over re-normalize when set).
   String pairingKey;
 
+  /// design/251 — absent | available | unknown | ''
+  String siStatus;
+
+  /// design/251 — ACS SI stem hint from head.
+  String siStem;
+
   /// Resolved pairing key for set/mate logic.
   String get effectivePairingKey {
     final k = pairingKey.trim();
@@ -128,6 +136,8 @@ class ScannedPdfEntry {
     PdfAdvisoryState? advisoryState,
     String? advisoryDoi,
     String? pairingKey,
+    String? siStatus,
+    String? siStem,
   }) {
     return ScannedPdfEntry(
       docUri: docUri,
@@ -142,6 +152,8 @@ class ScannedPdfEntry {
       advisoryState: advisoryState ?? this.advisoryState,
       advisoryDoi: advisoryDoi ?? this.advisoryDoi,
       pairingKey: pairingKey ?? this.pairingKey,
+      siStatus: siStatus ?? this.siStatus,
+      siStem: siStem ?? this.siStem,
     );
   }
 }

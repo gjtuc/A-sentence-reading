@@ -219,6 +219,98 @@ class SafTreeHandler(
                     }
                 }
             }
+            "writeBytesIntoTree" -> {
+                val treeUri = call.argument<String>("treeUri")?.trim().orEmpty()
+                val displayNameArg = call.argument<String>("displayName")?.trim().orEmpty()
+                val bytes = call.argument<ByteArray>("bytes")
+                if (treeUri.isEmpty() || displayNameArg.isEmpty() || bytes == null || bytes.isEmpty()) {
+                    result.error("bad_args", "tree_name_bytes_required", null)
+                    return
+                }
+                if (bytes.size.toLong() > MAX_BYTES) {
+                    result.error("too_large", "max_$MAX_BYTES", null)
+                    return
+                }
+                io.execute {
+                    try {
+                        val root = DocumentFile.fromTreeUri(activity, Uri.parse(treeUri))
+                        if (root == null || !root.canRead()) {
+                            activity.runOnUiThread {
+                                result.error("stale", "cannot_read_tree", null)
+                            }
+                            return@execute
+                        }
+                        if (!root.canWrite()) {
+                            activity.runOnUiThread {
+                                result.error("not_writable", "tree_not_writable", null)
+                            }
+                            return@execute
+                        }
+                        val unique = uniqueDocName(root, displayNameArg)
+                        val mime = mimeForDocName(unique)
+                        val created = root.createFile(mime, unique.stripDocExt())
+                        if (created == null || created.uri == null) {
+                            activity.runOnUiThread {
+                                result.error("create_fail", "createFile_null", null)
+                            }
+                            return@execute
+                        }
+                        try {
+                            activity.contentResolver.openOutputStream(created.uri!!)?.use { out ->
+                                out.write(bytes)
+                                out.flush()
+                            } ?: run {
+                                try {
+                                    created.delete()
+                                } catch (_: Exception) {
+                                }
+                                activity.runOnUiThread {
+                                    result.error("write_fail", "openOutputStream_null", null)
+                                }
+                                return@execute
+                            }
+                        } catch (e: SecurityException) {
+                            try {
+                                created.delete()
+                            } catch (_: Exception) {
+                            }
+                            activity.runOnUiThread {
+                                result.error("stale", e.message, null)
+                            }
+                            return@execute
+                        } catch (e: Exception) {
+                            try {
+                                created.delete()
+                            } catch (_: Exception) {
+                            }
+                            activity.runOnUiThread {
+                                result.error("write_fail", e.message, null)
+                            }
+                            return@execute
+                        }
+                        val name = created.name?.trim().orEmpty().ifEmpty { unique }
+                        activity.runOnUiThread {
+                            result.success(
+                                mapOf(
+                                    "docUri" to created.uri!!.toString(),
+                                    "displayName" to name,
+                                    "sizeBytes" to created.length(),
+                                    "lastModifiedMs" to created.lastModified(),
+                                ),
+                            )
+                        }
+                    } catch (e: SecurityException) {
+                        activity.runOnUiThread {
+                            result.error("stale", e.message, null)
+                        }
+                    } catch (e: Exception) {
+                        activity.runOnUiThread {
+                            result.error("write_fail", e.message, null)
+                        }
+                    }
+                }
+            }
+
             "copyUriIntoTree" -> {
                 val srcDocUri = call.argument<String>("srcDocUri")?.trim().orEmpty()
                 val treeUri = call.argument<String>("treeUri")?.trim().orEmpty()

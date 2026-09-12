@@ -251,4 +251,11 @@ const Set<String> kEvidenceAllowedKinds = {
   'pdf_find_watch_timeout',
   'pdf_find_watch_confirm',
   'pdf_find_watch_disarm',
+  // design/251 — mate direct fetch
+  'mate_fetch_start',
+  'mate_fetch_candidate',
+  'mate_fetch_validate',
+  'mate_fetch_done',
+  'mate_fetch_fallback_browser',
+  'mate_si_status',
 };

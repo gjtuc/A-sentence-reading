@@ -40,7 +40,22 @@ DocumentCitation parseDocumentCitation(Object? raw) {
 String? extractDoiFromText(String? text) {
   final m = _doi.firstMatch(text ?? '');
   if (m == null) return null;
-  return m.group(1)!.replaceAll(RegExp(r'[).,;]+$'), '');
+  var doi = m.group(1)!.replaceAll(RegExp(r'[).,;]+$'), '');
+  final low = doi.toLowerCase();
+  final cut = low.indexOf('/suppl_file/');
+  if (cut > 0) doi = doi.substring(0, cut);
+  return doi;
+}
+
+final _acsSiStem = RegExp(
+  r'/suppl_file/([A-Za-z0-9._-]+)_si_00\d+\.pdf',
+  caseSensitive: false,
+);
+
+/// design/251 — ACS SI filename stem from PDF head / DOI blob.
+String? extractAcsSiStemFromText(String? text) {
+  final m = _acsSiStem.firstMatch(text ?? '');
+  return m?.group(1);
 }
 
 DocumentCitation effectiveCitation(ReadingSession session) {

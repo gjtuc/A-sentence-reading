@@ -224,33 +224,66 @@ class _PdfImportScreenState extends State<PdfImportScreen>
   Future<void> _openFind(ScannedPdfEntry e) async {
     final doi = e.advisoryDoi.trim();
     if (doi.isEmpty) return;
-    final uri = Uri.parse('https://doi.org/$doi');
+    if (_busy) return;
+    setState(() => _busy = true);
     try {
-      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      lib.recordFindOpen(role: e.advisoryRole, ok: ok);
-      if (ok) {
-        lib.armFindWatch();
-        _findWatchDialogOpen = false;
-        _findWatchPickOffered = false;
-        _syncFindWatchTimer();
+      final r = await lib.fetchMateForEntry(e);
+      if (!mounted) return;
+      if (r.mode == 'absent') {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(r.message)),
+        );
+        return;
+      }
+      if (r.mode == 'fetched') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(r.message)),
+        );
+        return;
+      }
+      // fallback / killed / failed → browser when URL present
+      final url = (r.browserUrl ?? '').trim();
+      if (url.isEmpty) {
+        lib.recordFindOpen(role: e.advisoryRole, ok: false, code: 'no_url');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(r.message.isEmpty ? '가져오지 못했습니다.' : r.message)),
+        );
+        return;
+      }
+      try {
+        final uri = Uri.parse(url);
+        final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+        lib.recordFindOpen(role: e.advisoryRole, ok: ok);
+        if (ok) {
+          lib.armFindWatch();
+          _findWatchDialogOpen = false;
+          _findWatchPickOffered = false;
+          _syncFindWatchTimer();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  r.message.isNotEmpty
+                      ? '${r.message} 받은 뒤 이 화면으로 돌아오면 '
+                          '다운로드에서 고를 수 있습니다.'
+                      : '브라우저에서 PDF를 받은 뒤 이 화면으로 돌아오면 '
+                          '다운로드에서 고를 수 있습니다. 연결 폴더에 바로 저장해도 됩니다.',
+                ),
+              ),
+            );
+          }
+        }
+      } catch (_) {
+        lib.recordFindOpen(role: e.advisoryRole, ok: false, code: 'exc');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                '브라우저에서 PDF를 받은 뒤 이 화면으로 돌아오면 '
-                '다운로드에서 고를 수 있습니다. 연결 폴더에 바로 저장해도 됩니다.',
-              ),
-            ),
+            const SnackBar(content: Text('링크를 열 수 없습니다.')),
           );
         }
       }
-    } catch (_) {
-      lib.recordFindOpen(role: e.advisoryRole, ok: false, code: 'exc');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('링크를 열 수 없습니다.')),
-        );
-      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -607,18 +640,24 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                   final inQ = e.contentHash.length == 64 &&
                                       queued.contains(e.contentHash);
                                   final sel = _selected.contains(e.docUri);
+                                  final siAbsent = e.siStatus.trim().toLowerCase() ==
+                                          'absent' &&
+                                      e.advisoryRole.trim().toLowerCase() !=
+                                          'supplementary';
                                   return _FolderRow(
                                     entry: e,
                                     selected: sel,
                                     inLibrary: green,
                                     inQueue: inQ,
                                     onToggle: () => _toggleUris([e.docUri]),
+                                    siAbsent: siAbsent,
                                     onFind: browseDownloads ||
                                             e.advisoryDoi.trim().isEmpty ||
                                             matePresentForEntry(
                                               e,
                                               lib.pdfFolderEntries,
-                                            )
+                                            ) ||
+                                            siAbsent
                                         ? null
                                         : () => unawaited(_openFind(e)),
                                   );
@@ -755,6 +794,7 @@ class _FolderRow extends StatelessWidget {
     required this.inQueue,
     required this.onToggle,
     this.onFind,
+    this.siAbsent = false,
   });
 
   final ScannedPdfEntry entry;
@@ -763,6 +803,8 @@ class _FolderRow extends StatelessWidget {
   final bool inQueue;
   final VoidCallback onToggle;
   final VoidCallback? onFind;
+  /// design/251 — show non-action label instead of SI find CTA.
+  final bool siAbsent;
 
   @override
   Widget build(BuildContext context) {
@@ -896,7 +938,27 @@ class _FolderRow extends StatelessWidget {
                                   ),
                             ),
                           ),
-                        if (onFind != null)
+                        if (siAbsent)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: scheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'SI 없음',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                            ),
+                          )
+                        else if (onFind != null)
                           TextButton(
                             onPressed: onFind,
                             style: TextButton.styleFrom(
