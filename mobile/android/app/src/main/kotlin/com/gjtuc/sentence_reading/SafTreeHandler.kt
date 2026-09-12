@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
-import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -19,6 +18,7 @@ import kotlin.math.min
  * design/226 — OPEN_DOCUMENT_TREE list + stream hash/read (no broad storage perms).
  * design/238 — OPEN_DOCUMENT pick (temp read).
  * design/241 — probeTreeWritable + copyUriIntoTree (createFile + 64KiB stream).
+ * design/247 — Downloads DocumentsContract INITIAL_URI (not MediaStore).
  * Evidence/Dart must never log full URIs or folder paths from here as product copy.
  */
 class SafTreeHandler(
@@ -113,8 +113,12 @@ class SafTreeHandler(
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                     addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                    // design/247 — hint Downloads (DocumentsContract tree), not MediaStore.
                     if (Build.VERSION.SDK_INT >= 26) {
-                        putExtra(DocumentsContract.EXTRA_INITIAL_URI, null as Uri?)
+                        putExtra(
+                            DocumentsContract.EXTRA_INITIAL_URI,
+                            downloadsTreeUri(),
+                        )
                     }
                 }
                 try {
@@ -136,11 +140,12 @@ class SafTreeHandler(
                     type = "application/pdf"
                     putExtra(Intent.EXTRA_ALLOW_MULTIPLE, multiple)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    // design/247 — DocumentsContract document URI (MediaStore is ignored).
                     if (Build.VERSION.SDK_INT >= 26) {
-                        val hint = downloadsInitialUri()
-                        if (hint != null) {
-                            putExtra(DocumentsContract.EXTRA_INITIAL_URI, hint)
-                        }
+                        putExtra(
+                            DocumentsContract.EXTRA_INITIAL_URI,
+                            downloadsDocumentUri(),
+                        )
                     }
                 }
                 try {
@@ -470,18 +475,20 @@ class SafTreeHandler(
         }
     }
 
-    private fun downloadsInitialUri(): Uri? {
-        return try {
-            if (Build.VERSION.SDK_INT >= 29) {
-                MediaStore.Downloads.EXTERNAL_CONTENT_URI
-            } else {
-                Uri.parse(
-                    "content://com.android.externalstorage.documents/document/primary%3ADownload",
-                )
-            }
-        } catch (_: Exception) {
-            null
-        }
+    /** design/247 — OPEN_DOCUMENT hint: primary Download as DocumentsProvider document. */
+    private fun downloadsDocumentUri(): Uri {
+        return DocumentsContract.buildDocumentUri(
+            EXTERNAL_STORAGE_PROVIDER,
+            "primary:Download",
+        )
+    }
+
+    /** design/247 — OPEN_DOCUMENT_TREE hint: primary Download as tree root. */
+    private fun downloadsTreeUri(): Uri {
+        return DocumentsContract.buildTreeDocumentUri(
+            EXTERNAL_STORAGE_PROVIDER,
+            "primary:Download",
+        )
     }
 
     private fun uniquePdfName(root: DocumentFile, desired: String): String {
@@ -564,5 +571,7 @@ class SafTreeHandler(
         private const val REQ_DOCS = 9262
         private const val MAX_LIST = 500
         private const val MAX_BYTES = 50 * 1024 * 1024
+        private const val EXTERNAL_STORAGE_PROVIDER =
+            "com.android.externalstorage.documents"
     }
 }

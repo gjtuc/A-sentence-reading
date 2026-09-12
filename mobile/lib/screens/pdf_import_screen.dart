@@ -1,5 +1,5 @@
 /// design/226 — full-screen PDF folder import (not thin sheet).
-/// design/237 find CTA · 238 pick · 239 set row · 242 find-watch.
+/// design/237 find CTA · 238 pick · 239 set row · 242 find-watch · 247 Downloads hint.
 library;
 
 import 'dart:async';
@@ -31,6 +31,8 @@ class _PdfImportScreenState extends State<PdfImportScreen>
   bool _findWatchDialogOpen = false;
   Timer? _findWatchTimer;
   int _lastSetBuiltSig = -1;
+  /// design/247 — offer Downloads pick once per find-watch arm after resume.
+  bool _findWatchPickOffered = false;
 
   LibraryController get lib => widget.library;
 
@@ -53,7 +55,46 @@ class _PdfImportScreenState extends State<PdfImportScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(lib.rescanPdfFolderDebounced(trigger: 'import_resume'));
+      unawaited(_onImportResume());
+    }
+  }
+
+  Future<void> _onImportResume() async {
+    await lib.rescanPdfFolderDebounced(trigger: 'import_resume');
+    if (!mounted) return;
+    await _maybeOfferDownloadsPickAfterFind();
+  }
+
+  /// design/247 — after 찾아보기, SI/main often lands in Downloads (outside tree).
+  Future<void> _maybeOfferDownloadsPickAfterFind() async {
+    if (!mounted) return;
+    if (!lib.pdfFindWatchArmed || lib.pdfFindWatchHitDocUri != null) return;
+    if (_findWatchPickOffered || _findWatchDialogOpen || _busy) return;
+    if (lib.reanalyzing || lib.opening) return;
+    _findWatchPickOffered = true;
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('다운로드에서 가져올까요?'),
+        content: const Text(
+          '브라우저에서 받은 PDF는 보통 다운로드 폴더에 있습니다. '
+          '「받은 PDF 고르기」로 연결 폴더에 넣을까요?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('나중에'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('받은 PDF 고르기'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (go == true) {
+      await _pickReceived();
     }
   }
 
@@ -147,13 +188,14 @@ class _PdfImportScreenState extends State<PdfImportScreen>
       if (ok) {
         lib.armFindWatch();
         _findWatchDialogOpen = false;
+        _findWatchPickOffered = false;
         _syncFindWatchTimer();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                '브라우저에서 받은 뒤 「받은 PDF 고르기」로 가져오거나, '
-                '연결 폴더에 저장되면 알려 드립니다.',
+                '브라우저에서 PDF를 받은 뒤 이 화면으로 돌아오면 '
+                '다운로드에서 고를 수 있습니다. 연결 폴더에 바로 저장해도 됩니다.',
               ),
             ),
           );
@@ -660,7 +702,9 @@ class _FolderRow extends StatelessWidget {
         : (role == 'supplementary'
             ? '추정 SI'
             : (role == 'main' ? '추정 메인' : null));
-    final findLabel = role == 'supplementary' ? 'SI 찾아보기' : '메인 찾아보기';
+    // Have SI → find main; have main (or unknown) → find SI.
+    final findLabel =
+        role == 'supplementary' ? '메인 찾아보기' : 'SI 찾아보기';
     final meta = [
       if (inLibrary) '이미 보관',
       if (inQueue) '대기열',

@@ -6,7 +6,7 @@ Amends [157](157-this-paper-panel.md) · [228](228-pdf-folder-advisory-preview.m
 ## Locked
 
 - After advisory head extract, `extractDoiFromText` → cache `advisory_doi` (schema **v=7** with optional `pairing_key`).
-- CTA on ready **single** rows with DOI: supplementary → 「SI 찾아보기」; main → 「메인 찾아보기」.
+- CTA on ready **single** rows with DOI: **missing mate** label — supplementary → 「메인 찾아보기」; main → 「SI 찾아보기」.
 - Tap → `https://doi.org/{doi}` external (157). No enqueue gate. Evidence: `has_doi` only, never DOI plaintext.
 - Opens browser only — does not claim file lands in folder (238/241).
 - **Hide 찾아보기** when mate already in folder: set row (`PdfImportSetItem` → `onFindMain`/`onFindSi` = null), or single with opposite-role ready entry sharing the same pairing key (`matePresent`).

@@ -320,6 +320,7 @@
 185 — 분석 논문 로컬 SoT · ACK wipe + abandon/bulk/polish (**0.3.181**).
 186 — 7일 device-transfer pack (**0.3.180**).
 
+| 247 | [247-pdf-import-downloads-bridge.md](247-pdf-import-downloads-bridge.md) | Downloads SAF hint + resume pick (0.3.238) |
 | 246 | [246-practice-sentence-cursor.md](246-practice-sentence-cursor.md) | 연습 문장 위치 읽기와 분리 저장 (0.3.237) |
 | 245 | [245-practice-speak-mic-prime.md](245-practice-speak-mic-prime.md) | Speak 마이크 prepare + 350ms 준비 비트 (0.3.237) |
 | 244 | [244-practice-skill-ladder-calendar.md](244-practice-skill-ladder-calendar.md) | 연습 캘린더 난이도 사다리 n/30 (0.3.236) |
