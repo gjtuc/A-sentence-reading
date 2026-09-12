@@ -1,0 +1,12 @@
+---
+description: Cursor 내장 브라우저 자동화로 IDE force-quit 나지 않게
+alwaysApply: true
+---
+
+# Cursor browser crash guard — HARD
+
+전역 규칙과 동일 SoT: `%USERPROFILE%\.cursor\rules\cursor-browser-crash-guard.mdc`
+
+「커서 브라우저로 봐줘」→ 내장 Browser MCP/CDP 폭주는 Cursor Desktop force-quit known path.
+기본은 외부 브라우저·API. 쓸 때는 도킹 필수, CDP 금지 기본, 요청당 최소 조작, 즉시 unlock.
+제품(ASR) 코드 충돌로 오해하지 말 것.
