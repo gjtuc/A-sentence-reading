@@ -69,8 +69,59 @@ bool isAdvisoryTitleChrome(String raw) {
   return false;
 }
 
+/// Decodes XML / HTML numeric entities (&#x2013;, &#8211;) and named entities.
+/// Also strips inline XML/HTML formatting tags (e.g. <i>, <sub>).
+String decodeHtmlEntities(String raw, {bool preserveNewlines = false}) {
+  var s = raw;
+  if (!s.contains('&') && !s.contains('<')) {
+    if (preserveNewlines) {
+      return s.replaceAll(RegExp(r'[^\S\r\n]+'), ' ').trim();
+    }
+    return s.trim().replaceAll(RegExp(r'\s+'), ' ');
+  }
+  // Hex numeric entities: &#x2013; or &#X2013; (optional semicolon)
+  s = s.replaceAllMapped(RegExp(r'&#x([0-9a-fA-F]+);?', caseSensitive: false), (m) {
+    try {
+      final code = int.parse(m.group(1)!, radix: 16);
+      return String.fromCharCode(code);
+    } catch (_) {
+      return m.group(0)!;
+    }
+  });
+  // Decimal numeric entities: &#8211; (optional semicolon)
+  s = s.replaceAllMapped(RegExp(r'&#([0-9]+);?'), (m) {
+    try {
+      final code = int.parse(m.group(1)!);
+      return String.fromCharCode(code);
+    } catch (_) {
+      return m.group(0)!;
+    }
+  });
+  // Common named entities
+  s = s
+      .replaceAll('&amp;', '&')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&apos;', "'")
+      .replaceAll('&nbsp;', ' ')
+      .replaceAll('&ndash;', '–')
+      .replaceAll('&mdash;', '—')
+      .replaceAll('&minus;', '−')
+      .replaceAll('&times;', '×')
+      .replaceAll('&plusmn;', '±');
+  // Strip formatting tags like <i>, </i>, <sub>, <sup>
+  if (s.contains('<')) {
+    s = s.replaceAll(RegExp(r'</?[a-zA-Z0-9]+(?:\s[^>]*)?>'), '');
+  }
+  if (preserveNewlines) {
+    return s.replaceAll(RegExp(r'[^\S\r\n]+'), ' ').trim();
+  }
+  return s.trim().replaceAll(RegExp(r'\s+'), ' ');
+}
+
 bool looksLikePaperTitle(String raw) {
-  final t = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
+  final t = decodeHtmlEntities(raw);
   if (t.length < 12 || t.length > 200) return false;
   if (_siLine.hasMatch(t)) return false;
   if (isAdvisoryTitleChrome(t)) return false;
@@ -84,11 +135,13 @@ String stemFromDisplayName(String displayName) {
   var n = displayName.trim();
   if (n.toLowerCase().endsWith('.pdf')) {
     n = n.substring(0, n.length - 4);
+  } else if (n.toLowerCase().endsWith('.docx')) {
+    n = n.substring(0, n.length - 5);
   }
   try {
     n = Uri.decodeComponent(n);
   } catch (_) {}
-  return n.trim();
+  return decodeHtmlEntities(n);
 }
 
 AdvisoryTitleGuess guessAdvisoryTitle({
@@ -96,17 +149,17 @@ AdvisoryTitleGuess guessAdvisoryTitle({
   required String headText,
   required String displayName,
 }) {
-  final info = infoTitle.trim();
+  final info = decodeHtmlEntities(infoTitle);
   if (looksLikePaperTitle(info)) {
     return AdvisoryTitleGuess(
-      title: info.replaceAll(RegExp(r'\s+'), ' '),
+      title: info,
       source: 'info',
     );
   }
 
-  final cleaned = stripFormatChars(headText).text;
-  for (final line in cleaned.split(RegExp(r'[\r\n]+'))) {
-    final t = line.trim().replaceAll(RegExp(r'\s+'), ' ');
+  final rawHead = stripFormatChars(headText).text;
+  for (final line in rawHead.split(RegExp(r'[\r\n]+'))) {
+    final t = decodeHtmlEntities(line);
     if (t.isEmpty) continue;
     if (_siLine.hasMatch(t)) continue;
     if (isAdvisoryTitleChrome(t)) continue;

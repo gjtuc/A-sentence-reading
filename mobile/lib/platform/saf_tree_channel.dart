@@ -66,10 +66,15 @@ class SafTreeChannel {
 
   final MethodChannel _channel;
 
-  Future<SafTreePickResult?> pickTree() async {
+  Future<SafTreePickResult?> pickTree({String? initialUri}) async {
     if (kIsWeb) return null;
     try {
-      final raw = await _channel.invokeMethod<dynamic>('pickTree');
+      final raw = await _channel.invokeMethod<dynamic>(
+        'pickTree',
+        initialUri != null && initialUri.trim().isNotEmpty
+            ? {'initialUri': initialUri.trim()}
+            : null,
+      );
       if (raw is! Map) return null;
       final uri = '${raw['treeUri'] ?? ''}'.trim();
       final label = '${raw['displayLabel'] ?? ''}'.trim();
@@ -354,6 +359,88 @@ class SafTreeChannel {
         elapsedMs: 0,
         code: 'exc',
       );
+    }
+  }
+
+  /// design/254 — DOCX head extract (word/document.xml + docProps/core.xml).
+  Future<SafPdfHeadResult> extractDocxHead(
+    String docUri, {
+    int maxChars = 8000,
+    int maxReadBytes = 50 * 1024 * 1024,
+  }) async {
+    final u = docUri.trim();
+    if (u.isEmpty || kIsWeb) {
+      return const SafPdfHeadResult(
+        ok: false,
+        headText: '',
+        infoTitle: '',
+        pageCount: 0,
+        truncated: false,
+        elapsedMs: 0,
+        code: 'unsupported',
+      );
+    }
+    try {
+      final raw = await _channel.invokeMethod<dynamic>('extractDocxHead', {
+        'docUri': u,
+        'maxChars': maxChars,
+        'maxReadBytes': maxReadBytes,
+      });
+      if (raw is! Map) {
+        return const SafPdfHeadResult(
+          ok: false,
+          headText: '',
+          infoTitle: '',
+          pageCount: 0,
+          truncated: false,
+          elapsedMs: 0,
+          code: 'bad_map',
+        );
+      }
+      return SafPdfHeadResult(
+        ok: raw['ok'] == true,
+        headText: '${raw['headText'] ?? ''}',
+        infoTitle: '${raw['infoTitle'] ?? ''}'.trim(),
+        pageCount: raw['pageCount'] is num ? (raw['pageCount'] as num).toInt() : 1,
+        truncated: raw['truncated'] == true,
+        elapsedMs:
+            raw['elapsedMs'] is num ? (raw['elapsedMs'] as num).toInt() : 0,
+        code: '${raw['code'] ?? ''}'.trim(),
+      );
+    } on PlatformException catch (e) {
+      return SafPdfHeadResult(
+        ok: false,
+        headText: '',
+        infoTitle: '',
+        pageCount: 0,
+        truncated: false,
+        elapsedMs: 0,
+        code: e.code,
+      );
+    } catch (_) {
+      return const SafPdfHeadResult(
+        ok: false,
+        headText: '',
+        infoTitle: '',
+        pageCount: 0,
+        truncated: false,
+        elapsedMs: 0,
+        code: 'exc',
+      );
+    }
+  }
+
+  /// design/254 — delete document from SAF tree or downloads.
+  Future<bool> deleteDocument(String docUri) async {
+    final u = docUri.trim();
+    if (u.isEmpty || kIsWeb) return false;
+    try {
+      final ok = await _channel.invokeMethod<dynamic>('deleteDocument', {
+        'docUri': u,
+      });
+      return ok == true;
+    } catch (_) {
+      return false;
     }
   }
 }

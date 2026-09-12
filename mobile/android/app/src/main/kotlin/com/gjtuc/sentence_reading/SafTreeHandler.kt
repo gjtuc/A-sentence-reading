@@ -113,15 +113,25 @@ class SafTreeHandler(
                     return
                 }
                 pendingPick = result
+                val initialUriArg = call.argument<String>("initialUri")?.trim().orEmpty()
+                val targetUri = if (initialUriArg.isNotEmpty()) {
+                    try {
+                        Uri.parse(initialUriArg)
+                    } catch (_: Exception) {
+                        downloadsDocumentUri()
+                    }
+                } else {
+                    downloadsDocumentUri()
+                }
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                     addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-                    // design/247 · 253 — document URI hint (tree URI often ignored on OEM).
+                    // design/247 · 253 · 254 — prefer caller-provided initialUri (e.g. current tree), fallback to Downloads.
                     if (Build.VERSION.SDK_INT >= 26) {
                         putExtra(
                             DocumentsContract.EXTRA_INITIAL_URI,
-                            downloadsDocumentUri(),
+                            targetUri,
                         )
                     }
                 }
@@ -577,6 +587,60 @@ class SafTreeHandler(
                     } catch (e: Exception) {
                         activity.runOnUiThread {
                             result.error("extract_fail", e.message, null)
+                        }
+                    }
+                }
+            }
+            // design/254 — DOCX head extract (word/document.xml + docProps/core.xml).
+            "extractDocxHead" -> {
+                val docUri = call.argument<String>("docUri")?.trim().orEmpty()
+                val maxChars = call.argument<Int>("maxChars") ?: 8000
+                val maxReadBytes = call.argument<Int>("maxReadBytes") ?: (50 * 1024 * 1024)
+                if (docUri.isEmpty()) {
+                    result.error("bad_args", "docUri_required", null)
+                    return
+                }
+                headIo.execute {
+                    try {
+                        val map = DocxHeadExtract.extract(
+                            activity,
+                            Uri.parse(docUri),
+                            maxChars = maxChars,
+                            maxReadBytes = maxReadBytes,
+                        )
+                        activity.runOnUiThread { result.success(map) }
+                    } catch (e: SecurityException) {
+                        activity.runOnUiThread {
+                            result.error("stale", e.message, null)
+                        }
+                    } catch (e: Exception) {
+                        activity.runOnUiThread {
+                            result.error("extract_fail", e.message, null)
+                        }
+                    }
+                }
+            }
+            // design/254 — delete document from SAF tree or downloads.
+            "deleteDocument" -> {
+                val docUri = call.argument<String>("docUri")?.trim().orEmpty()
+                if (docUri.isEmpty()) {
+                    result.error("bad_args", "docUri_required", null)
+                    return
+                }
+                io.execute {
+                    try {
+                        val uri = Uri.parse(docUri)
+                        val ok = DocumentsContract.deleteDocument(activity.contentResolver, uri)
+                        activity.runOnUiThread {
+                            result.success(ok)
+                        }
+                    } catch (e: SecurityException) {
+                        activity.runOnUiThread {
+                            result.error("security_error", e.message, null)
+                        }
+                    } catch (e: Exception) {
+                        activity.runOnUiThread {
+                            result.error("delete_fail", e.message, null)
                         }
                     }
                 }

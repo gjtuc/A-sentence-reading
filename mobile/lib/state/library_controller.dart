@@ -358,6 +358,7 @@ class LibraryController extends ChangeNotifier {
   bool pdfFolderGrantStale = false;
   bool _pdfHashPumpBusy = false;
   bool _pdfAdvisoryPumpBusy = false;
+  bool _pdfAdvisoryRerunRequested = false;
   int _pdfAdvisoryPumpEpoch = 0;
   int _pdfFolderRescanDebounceMs = 0;
 
@@ -4429,7 +4430,7 @@ class LibraryController extends ChangeNotifier {
       stage: 'pick',
     );
     try {
-      final picked = await _safTree.pickTree();
+      final picked = await _safTree.pickTree(initialUri: pdfFolderGrant?.treeUri);
       final elapsed = DateTime.now().millisecondsSinceEpoch - t0;
       if (picked == null) {
         asrEvidenceBus?.record(
@@ -4460,6 +4461,8 @@ class LibraryController extends ChangeNotifier {
       );
       await _scanPdfFolder(grant.treeUri, trigger: 'connect');
       await refreshPdfFolderWritable();
+      unawaited(ensureVisiblePdfHashes());
+      unawaited(ensureVisiblePdfAdvisories());
       return true;
     } catch (_) {
       asrEvidenceBus?.record(
@@ -4524,7 +4527,7 @@ class LibraryController extends ChangeNotifier {
       details: {'browse': 'downloads'},
     );
     try {
-      final picked = await _safTree.pickTree();
+      final picked = await _safTree.pickTree(initialUri: pdfDownloadsGrant?.treeUri);
       final elapsed = DateTime.now().millisecondsSinceEpoch - t0;
       if (picked == null) {
         asrEvidenceBus?.record(
@@ -4561,6 +4564,8 @@ class LibraryController extends ChangeNotifier {
         trigger: 'connect',
         target: PdfImportBrowseMode.downloads,
       );
+      unawaited(ensureVisiblePdfHashes());
+      unawaited(ensureVisiblePdfAdvisories());
       return true;
     } catch (_) {
       asrEvidenceBus?.record(
@@ -4697,18 +4702,53 @@ class LibraryController extends ChangeNotifier {
         treeUri,
         maxItems: kPdfFolderScanMaxItems,
       );
+      final prevMap = {for (final e in prev) e.docUri: e};
       final next = <ScannedPdfEntry>[];
       for (final it in listed.items) {
-        final cached = await _pdfHashCache.lookup(
+        final prevEntry = prevMap[it.docUri];
+        final isSameFile = prevEntry != null &&
+            prevEntry.sizeBytes == it.sizeBytes &&
+            prevEntry.lastModifiedMs == it.lastModifiedMs;
+
+        var cached = await _pdfHashCache.lookup(
           docUri: it.docUri,
           sizeBytes: it.sizeBytes,
           lastModifiedMs: it.lastModifiedMs,
         );
+        if (cached == null && isSameFile && prevEntry.contentHash.isNotEmpty) {
+          cached = prevEntry.contentHash;
+        }
+
         final adv = await _pdfAdvisoryCache.lookup(
           docUri: it.docUri,
           sizeBytes: it.sizeBytes,
           lastModifiedMs: it.lastModifiedMs,
         );
+        final inheritAdv = adv == null &&
+            isSameFile &&
+            prevEntry.advisoryState == PdfAdvisoryState.ready;
+        final advTitle =
+            inheritAdv ? prevEntry.advisoryTitle : (adv?.advisoryTitle ?? '');
+        final advRole =
+            inheritAdv ? prevEntry.advisoryRole : (adv?.advisoryRole ?? '');
+        final advReason =
+            inheritAdv ? prevEntry.advisoryReason : (adv?.advisoryReason ?? '');
+        final advDoi =
+            inheritAdv ? prevEntry.advisoryDoi : (adv?.advisoryDoi ?? '');
+        final advState = (adv != null || inheritAdv)
+            ? PdfAdvisoryState.ready
+            : PdfAdvisoryState.unknown;
+        final advPairingKey = inheritAdv
+            ? prevEntry.pairingKey
+            : ((adv?.pairingKey ?? '').isNotEmpty
+                ? adv!.pairingKey
+                : (adv != null && adv.advisoryTitle.trim().isNotEmpty
+                    ? normalizePairingKey(adv.advisoryTitle)
+                    : ''));
+        final advSiStatus =
+            inheritAdv ? prevEntry.siStatus : (adv?.siStatus ?? '');
+        final advSiStem = inheritAdv ? prevEntry.siStem : (adv?.siStem ?? '');
+
         next.add(
           ScannedPdfEntry(
             docUri: it.docUri,
@@ -4718,20 +4758,14 @@ class LibraryController extends ChangeNotifier {
             contentHash: cached ?? '',
             hashState:
                 cached == null ? PdfHashState.unknown : PdfHashState.ready,
-            advisoryTitle: adv?.advisoryTitle ?? '',
-            advisoryRole: adv?.advisoryRole ?? '',
-            advisoryReason: adv?.advisoryReason ?? '',
-            advisoryState: adv == null
-                ? PdfAdvisoryState.unknown
-                : PdfAdvisoryState.ready,
-            advisoryDoi: adv?.advisoryDoi ?? '',
-            pairingKey: (adv?.pairingKey ?? '').isNotEmpty
-                ? adv!.pairingKey
-                : (adv != null && adv.advisoryTitle.trim().isNotEmpty
-                    ? normalizePairingKey(adv.advisoryTitle)
-                    : ''),
-            siStatus: adv?.siStatus ?? '',
-            siStem: adv?.siStem ?? '',
+            advisoryTitle: advTitle,
+            advisoryRole: advRole,
+            advisoryReason: advReason,
+            advisoryState: advState,
+            advisoryDoi: advDoi,
+            pairingKey: advPairingKey,
+            siStatus: advSiStatus,
+            siStem: advSiStem,
           ),
         );
       }
@@ -4958,18 +4992,19 @@ class LibraryController extends ChangeNotifier {
     return s;
   }
 
-  /// design/228 · 230 — lazy advisory title/role (concurrency 2, first [limit]).
+  /// design/228 · 230 · 254 — lazy advisory title/role (concurrency 2, first [limit]).
   Future<void> ensureVisiblePdfAdvisories({int limit = 40}) async {
     final unknownAll = pdfImportActiveEntries
         .where((e) => e.advisoryState == PdfAdvisoryState.unknown)
         .toList();
     if (_pdfAdvisoryPumpBusy) {
+      _pdfAdvisoryRerunRequested = true;
       asrEvidenceBus?.record(
         'pdf_advisory_pump_skip',
         severity: 'lifecycle',
         stage: 'advisory',
         details: {
-          'reason': 'busy',
+          'reason': 'busy_queued',
           'n_unknown': unknownAll.length,
           'n_entries': pdfImportActiveEntries.length,
           'limit': limit,
@@ -5082,10 +5117,78 @@ class LibraryController extends ChangeNotifier {
             );
             return;
           }
-          // design/249 — docx: filename advisory only (no PdfBox).
+          // design/249 · 254 — docx: extract head text + infoTitle via DocxHeadExtract.
           final isDocx =
               e.displayName.toLowerCase().endsWith('.docx');
           if (isDocx) {
+            final head = await _safTree.extractDocxHead(e.docUri);
+            if (epoch != _pdfAdvisoryPumpEpoch) return;
+            if (head.ok &&
+                (head.headText.isNotEmpty || head.infoTitle.isNotEmpty)) {
+              final det = detectDocRoleDetailed(
+                head.headText,
+                filename: e.displayName,
+              );
+              final guessed = guessAdvisoryTitle(
+                infoTitle: head.infoTitle,
+                headText: head.headText,
+                displayName: e.displayName,
+              );
+              var doi = extractDoiFromText(head.headText) ?? '';
+              var doiSource = doi.isNotEmpty ? 'head' : '';
+              if (doi.isEmpty) {
+                doi = extractDoiFromText(head.infoTitle) ?? '';
+                if (doi.isNotEmpty) doiSource = 'info';
+              }
+              final siStem = extractAcsSiStemFromText(head.headText) ??
+                  extractAcsSiStemFromText(head.infoTitle) ??
+                  '';
+              e.advisoryTitle = guessed.title;
+              e.advisoryRole = det.role;
+              e.advisoryReason = det.reason;
+              e.advisoryDoi = doi;
+              e.siStem = siStem;
+              e.pairingKey = await _pairingKeyForTitle(guessed.title);
+              e.advisoryState = PdfAdvisoryState.ready;
+              await _pdfAdvisoryCache.put(
+                docUri: e.docUri,
+                sizeBytes: e.sizeBytes,
+                lastModifiedMs: e.lastModifiedMs,
+                advisoryTitle: guessed.title,
+                advisoryRole: det.role,
+                advisoryReason: det.reason,
+                extractOk: true,
+                titleSource: guessed.source,
+                advisoryDoi: doi,
+                doiSource: doiSource,
+                pairingKey: e.pairingKey,
+                siStem: siStem,
+                siStatus: e.siStatus,
+              );
+              nOk += 1;
+              nMiss += 1;
+              bump(reasonHist, _evidenceSnakeToken(det.reason));
+              bump(titleSrcHist, _evidenceSnakeToken(guessed.source));
+              asrEvidenceBus?.record(
+                'pdf_advisory_cache_miss',
+                severity: 'debug',
+                stage: 'advisory',
+                details: {
+                  'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+                  'role': det.role,
+                  'reason': _evidenceSnakeToken(det.reason),
+                  'extract_ok': true,
+                  'head_len': head.headText.length,
+                  'page_count': 1,
+                  'truncated': head.truncated,
+                  'title_source': _evidenceSnakeToken(guessed.source),
+                  'kind': 'docx',
+                },
+              );
+              _emitDoiEvidence(doi: doi, source: doiSource, role: det.role);
+              return;
+            }
+            // Fallback for empty or corrupt docx: filename advisory.
             final title = _docxAdvisoryTitle(e.displayName);
             final role = filenameLooksLikeSi(e.displayName)
                 ? 'supplementary'
@@ -5123,9 +5226,9 @@ class LibraryController extends ChangeNotifier {
                 'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
                 'role': role,
                 'reason': _evidenceSnakeToken(reason),
-                'extract_ok': true,
+                'extract_ok': false,
                 'head_len': 0,
-                'kind': 'docx',
+                'kind': 'docx_fallback',
               },
             );
             _emitDoiEvidence(doi: '', source: '', role: role);
@@ -5279,6 +5382,10 @@ class LibraryController extends ChangeNotifier {
       );
     } finally {
       _pdfAdvisoryPumpBusy = false;
+      if (_pdfAdvisoryRerunRequested) {
+        _pdfAdvisoryRerunRequested = false;
+        unawaited(ensureVisiblePdfAdvisories(limit: limit));
+      }
     }
   }
 
@@ -5471,6 +5578,52 @@ class LibraryController extends ChangeNotifier {
     }
     base = base.trim();
     return base.isEmpty ? displayName.trim() : base;
+  }
+
+  /// design/254 — delete document from SAF tree or downloads.
+  Future<bool> deleteScannedPdf(ScannedPdfEntry entry) async {
+    final ok = await _safTree.deleteDocument(entry.docUri);
+    if (ok) {
+      pdfFolderEntries =
+          pdfFolderEntries.where((e) => e.docUri != entry.docUri).toList();
+      pdfDownloadsEntries =
+          pdfDownloadsEntries.where((e) => e.docUri != entry.docUri).toList();
+      notifyListeners();
+      asrEvidenceBus?.record(
+        'scanned_pdf_delete_done',
+        severity: 'lifecycle',
+        stage: 'delete',
+        details: {'ok': true},
+      );
+    }
+    return ok;
+  }
+
+  /// design/254 — batch delete documents from SAF tree or downloads.
+  Future<int> deleteSelectedScannedPdfs(Iterable<ScannedPdfEntry> entries) async {
+    var deleted = 0;
+    final toRemove = <String>{};
+    for (final e in entries) {
+      final ok = await _safTree.deleteDocument(e.docUri);
+      if (ok) {
+        deleted++;
+        toRemove.add(e.docUri);
+      }
+    }
+    if (toRemove.isNotEmpty) {
+      pdfFolderEntries =
+          pdfFolderEntries.where((e) => !toRemove.contains(e.docUri)).toList();
+      pdfDownloadsEntries =
+          pdfDownloadsEntries.where((e) => !toRemove.contains(e.docUri)).toList();
+      notifyListeners();
+      asrEvidenceBus?.record(
+        'scanned_pdf_batch_delete_done',
+        severity: 'lifecycle',
+        stage: 'delete',
+        details: {'n_deleted': deleted, 'n_total': entries.length},
+      );
+    }
+    return deleted;
   }
 
 

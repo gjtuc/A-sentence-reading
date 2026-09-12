@@ -431,6 +431,62 @@ class _PdfImportScreenState extends State<PdfImportScreen>
     });
   }
 
+  /// design/254 — delete scanned files from device storage.
+  Future<void> _deleteEntries(List<ScannedPdfEntry> entries) async {
+    if (entries.isEmpty || _busy) return;
+    final count = entries.length;
+    final names = entries.take(3).map((e) => e.displayName).join('\n');
+    final more = count > 3 ? '\n외 ${count - 3}개' : '';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(count == 1 ? '파일 삭제' : '$count개 파일 삭제'),
+        content: Text(
+          '$names$more\n\n'
+          '선택한 파일을 기기 저장소에서 영구 삭제합니다.\n'
+          '이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      final n = await lib.deleteSelectedScannedPdfs(entries);
+      if (!mounted) return;
+      setState(() {
+        for (final e in entries) {
+          _selected.remove(e.docUri);
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$n개 파일이 삭제되었습니다.')),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('파일 삭제 중 오류가 발생했습니다.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -472,6 +528,19 @@ class _PdfImportScreenState extends State<PdfImportScreen>
           appBar: AppBar(
             title: const Text('논문 가져오기'),
             actions: [
+              if (_selected.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: '선택 파일 삭제',
+                  onPressed: _busy
+                      ? null
+                      : () {
+                          final selectedEntries = entries
+                              .where((e) => _selected.contains(e.docUri))
+                              .toList();
+                          _deleteEntries(selectedEntries);
+                        },
+                ),
               if (grant != null)
                 TextButton(
                   onPressed: _busy ? null : _connectFolder,
@@ -688,6 +757,8 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                           queued.contains(e.contentHash)),
                                       onToggle: () =>
                                           _toggleUris(item.docUris),
+                                      onDelete: () =>
+                                          _deleteEntries([item.main, item.si]),
                                       // design/237 - set row already has mate; hide find CTA.
                                       onFindMain: null,
                                       onFindSi: null,
@@ -710,6 +781,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                     inLibrary: green,
                                     inQueue: inQ,
                                     onToggle: () => _toggleUris([e.docUri]),
+                                    onDelete: () => _deleteEntries([e]),
                                     siAbsent: siAbsent,
                                     onFind: browseDownloads ||
                                             e.advisoryDoi.trim().isEmpty ||
@@ -858,6 +930,7 @@ class _FolderRow extends StatelessWidget {
     required this.inLibrary,
     required this.inQueue,
     required this.onToggle,
+    this.onDelete,
     this.onFind,
     this.siAbsent = false,
   });
@@ -867,6 +940,7 @@ class _FolderRow extends StatelessWidget {
   final bool inLibrary;
   final bool inQueue;
   final VoidCallback onToggle;
+  final VoidCallback? onDelete;
   final VoidCallback? onFind;
   /// design/251 — show non-action label instead of SI find CTA.
   final bool siAbsent;
@@ -1059,6 +1133,13 @@ class _FolderRow extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onDelete != null)
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, size: 20),
+                  tooltip: '파일 삭제',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onDelete,
+                ),
             ],
           ),
         ),
@@ -1074,6 +1155,7 @@ class _SetRow extends StatelessWidget {
     required this.inLibrary,
     required this.inQueue,
     required this.onToggle,
+    this.onDelete,
     this.onFindMain,
     this.onFindSi,
   });
@@ -1083,6 +1165,7 @@ class _SetRow extends StatelessWidget {
   final bool inLibrary;
   final bool inQueue;
   final VoidCallback onToggle;
+  final VoidCallback? onDelete;
   final VoidCallback? onFindMain;
   final VoidCallback? onFindSi;
 
@@ -1203,6 +1286,13 @@ class _SetRow extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onDelete != null)
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, size: 20),
+                  tooltip: '세트 파일 삭제',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onDelete,
+                ),
             ],
           ),
         ),

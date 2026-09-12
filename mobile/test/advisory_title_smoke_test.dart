@@ -41,5 +41,19 @@ void main() {
       filename: 'an1c00673_si_001.pdf',
     );
     expect(det.role, anyOf('supplementary', 'main'));
+
+    // design/254 — HTML / XML entity decoding in advisory title
+    final gMetal = guessAdvisoryTitle(
+      infoTitle:
+          'Metal&#x2013;support interactions in metal oxide-supported atomic, cluster, and nanoparticle catalysis',
+      headText: '',
+      displayName: 'd4cs00527a.pdf',
+    );
+    expect(gMetal.source, 'info');
+    expect(
+      gMetal.title,
+      'Metal–support interactions in metal oxide-supported atomic, cluster, and nanoparticle catalysis',
+    );
+    expect(gMetal.title, isNot(contains('&#x')));
   });
 }
