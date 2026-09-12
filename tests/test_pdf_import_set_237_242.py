@@ -72,10 +72,10 @@ def test_designs_237_242_locked() -> None:
 
 def test_versions_current() -> None:
     app = APP.read_text(encoding="utf-8")
-    assert app.count('version="0.3.243"') >= 1
-    assert '"version": "0.3.243"' in app
-    assert "0.3.243" in PUBSPEC.read_text(encoding="utf-8")
-    assert "0.3.243" in CONFIG.read_text(encoding="utf-8")
+    assert app.count('version="0.3.244"') >= 1
+    assert '"version": "0.3.244"' in app
+    assert "0.3.244" in PUBSPEC.read_text(encoding="utf-8")
+    assert "0.3.244" in CONFIG.read_text(encoding="utf-8")
 
 
 def test_cache_schema_v7() -> None:

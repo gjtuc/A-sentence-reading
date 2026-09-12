@@ -71,6 +71,11 @@ _ACS_SI_PREFIX: dict[str, str] = {
     "accounts": "ar",
     "nanolett": "nl",
     "chemrev": "cr",
+    "acsenergylett": "nz",
+    "acsomega": "ao",
+    "inorgchem": "ic",
+    "organomet": "om",
+    "langmuir": "la",
 }
 
 
@@ -224,25 +229,91 @@ def _acs_si_candidates(doi: str, *, si_stem: str | None = None) -> list[str]:
 
 
 def _rsc_si_candidates(doi: str) -> list[str]:
-    # 10.1039/d4se00467a → often .../suppdata/d4/se/d4se00467a/d4se00467a1.pdf
+    """RSC ESI path forms (corpus + known RSC publishing paths).
+
+    Example: c5cs00520e → /suppdata/c5/cs/c5cs00520e/c5cs00520e1.pdf
+    """
     last = doi.split("/")[-1].lower()
-    urls = [
-        f"https://www.rsc.org/suppdata/{last[:2]}/{last[2:4]}/{last}/{last}1.pdf",
-        f"https://www.rsc.org/suppdata/{last[:2]}/{last[2:4]}/{last}/{last}_si.pdf",
-        f"https://pubs.rsc.org/en/content/articlelanding/{doi}",
-    ]
+    urls: list[str] = []
     if len(last) >= 4:
+        a, b = last[:2], last[2:4]
+        for host in ("https://www.rsc.org", "http://www.rsc.org"):
+            urls.append(f"{host}/suppdata/{a}/{b}/{last}/{last}1.pdf")
+            urls.append(f"{host}/suppdata/{a}/{b}/{last}/{last}1_suppl.pdf")
+            urls.append(f"{host}/suppdata/{b}/{a}/{last}/{last}1.pdf")
+        # journal / c{year digit} / id  (cs/c4/d4cs... from d4cs...)
+        if last[0].isalpha() and last[1].isdigit():
+            j = last[2:4]
+            cy = "c" + last[1]
+            for host in ("https://www.rsc.org", "http://www.rsc.org"):
+                urls.append(f"{host}/suppdata/{j}/{cy}/{last}/{last}1.pdf")
+    urls.append(f"https://pubs.rsc.org/en/content/articlelanding/{doi}")
+    if last.startswith("d4") and len(last) >= 4:
         urls.append(
-            f"https://www.rsc.org/suppdata/{last[0:2]}/{last[2:4]}/{last}/{last}1.pdf"
+            f"https://pubs.rsc.org/en/content/articlelanding/2024/{last[2:4]}/{last}"
         )
-    return urls
+    if last.startswith("d3") and len(last) >= 4:
+        urls.append(
+            f"https://pubs.rsc.org/en/content/articlelanding/2023/{last[2:4]}/{last}"
+        )
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in urls:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out[:16]
 
 
 def _nature_si_hint(doi: str) -> list[str]:
-    # Nature supporting often behind article page; no stable anonymous URL — landing only
+    """Nature/Springer ESM PDF + landing.
+
+    Corpus: 41929_2026_1513_MOESM1_ESM.pdf ↔ 10.1038/s41929-026-01513-y
+    """
     last = doi.split("/")[-1]
+    urls: list[str] = []
+    m = re.match(r"^s?(\d+)-(\d+)-(\d+)(?:-[a-z]+)?$", last, re.I)
+    if m:
+        years = [m.group(2)]
+        y = m.group(2)
+        if len(y) == 3 and y.startswith("0"):
+            years.append("2" + y)  # 026 → 2026 (corpus MOESM naming)
+        elif len(y) == 2:
+            years.append("20" + y)
+        enc = urllib.parse.quote(f"art:{doi}", safe="")
+        arts = [m.group(3)]
+        if m.group(3).startswith("0") and m.group(3).lstrip("0"):
+            arts.append(m.group(3).lstrip("0"))  # 01513 → 1513 (corpus MOESM)
+        for year in years:
+            for art in arts:
+                stem = f"{m.group(1)}_{year}_{art}_MOESM1_ESM.pdf"
+                urls.append(
+                    f"https://static-content.springer.com/esm/{enc}/MediaObjects/{stem}"
+                )
+    urls.extend(
+        [
+            f"https://www.nature.com/articles/{last}",
+            f"https://doi.org/{doi}",
+        ]
+    )
+    return urls
+
+
+def _wiley_si_candidates(doi: str) -> list[str]:
     return [
-        f"https://www.nature.com/articles/{last}",
+        f"https://onlinelibrary.wiley.com/doi/suppl/{doi}",
+        (
+            "https://onlinelibrary.wiley.com/action/downloadSupplement?doi="
+            + urllib.parse.quote(doi)
+            + "&file=supinfo"
+        ),
+        f"https://doi.org/{doi}",
+    ]
+
+
+def _iop_si_candidates(doi: str) -> list[str]:
+    return [
+        f"https://iopscience.iop.org/article/{doi}",
         f"https://doi.org/{doi}",
     ]
 
@@ -251,46 +322,32 @@ def pattern_si_candidates(
     doi: str, *, si_stem: str | None = None
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    if doi.startswith("10.1021/"):
-        for u in _acs_si_candidates(doi, si_stem=si_stem):
+
+    def add(source: str, urls: list[str]) -> None:
+        for u in urls:
             host = urllib.parse.urlparse(u).hostname or ""
+            kind = "pdf" if u.lower().endswith((".pdf", ".zip")) else "landing"
             out.append(
                 {
                     "tier": "pattern",
-                    "source": "acs_si_001",
-                    "url": u,
-                    "kind": "pdf",
-                    "license": "",
-                    "host": host,
-                }
-            )
-    elif doi.startswith("10.1039/"):
-        for u in _rsc_si_candidates(doi):
-            host = urllib.parse.urlparse(u).hostname or ""
-            kind = "pdf" if u.endswith(".pdf") else "landing"
-            out.append(
-                {
-                    "tier": "pattern",
-                    "source": "rsc_suppdata",
+                    "source": source,
                     "url": u,
                     "kind": kind,
                     "license": "",
                     "host": host,
                 }
             )
+
+    if doi.startswith("10.1021/"):
+        add("acs_si_001", _acs_si_candidates(doi, si_stem=si_stem))
+    elif doi.startswith("10.1039/"):
+        add("rsc_suppdata", _rsc_si_candidates(doi))
     elif doi.startswith("10.1038/"):
-        for u in _nature_si_hint(doi):
-            host = urllib.parse.urlparse(u).hostname or ""
-            out.append(
-                {
-                    "tier": "pattern",
-                    "source": "nature_landing",
-                    "url": u,
-                    "kind": "landing",
-                    "license": "",
-                    "host": host,
-                }
-            )
+        add("nature_esm", _nature_si_hint(doi))
+    elif doi.startswith("10.1002/"):
+        add("wiley_suppl", _wiley_si_candidates(doi))
+    elif doi.startswith("10.1088/"):
+        add("iop_landing", _iop_si_candidates(doi))
     return out
 
 
@@ -329,8 +386,11 @@ def _fetch_text(url: str, *, timeout: float = 12.0, max_bytes: int = 400_000) ->
 
 def probe_si_status(doi: str, *, si_stem: str | None = None) -> dict[str, Any]:
     """
-    Returns si_status: absent | available | unknown, plus pdf candidates when available.
-    Uses allowlisted pattern HEAD checks + light landing HTML markers (no Cloudflare bypass).
+    Returns si_status + candidates for *device* fetch.
+
+    Server HEAD often hits Cloudflare 403 from Cloud Run/PC — that must NOT
+    empty candidates. Always return PDF pattern URLs for the phone to try;
+    only mark absent when HTML markers say so.
     """
     d = normalize_doi(doi)
     if not d:
@@ -338,16 +398,25 @@ def probe_si_status(doi: str, *, si_stem: str | None = None) -> dict[str, Any]:
 
     stem = (si_stem or "").strip() or extract_acs_si_stem(doi)
     candidates = pattern_si_candidates(d, si_stem=stem or None)
+    pdf_cands = [c for c in candidates if c.get("kind") == "pdf"]
+    device_cands = pdf_cands[:8] or [
+        c for c in candidates if c.get("kind") == "landing"
+    ][:2]
+
     pdf_hits: list[dict[str, Any]] = []
-    for c in candidates:
-        if c.get("kind") != "pdf":
-            continue
+    saw_cf = False
+    saw_404 = 0
+    for c in pdf_cands[:6]:
         ok, ctype = _http_head_or_get_ok(str(c["url"]))
         if ok:
-            c = dict(c)
-            c["content_type"] = ctype
-            pdf_hits.append(c)
-            break  # one is enough for available
+            c2 = dict(c)
+            c2["content_type"] = ctype
+            pdf_hits.append(c2)
+            break
+        if ctype in ("http_403",) or "html" in (ctype or ""):
+            saw_cf = True
+        if ctype in ("http_404", "http_410"):
+            saw_404 += 1
 
     if pdf_hits:
         return {
@@ -355,46 +424,64 @@ def probe_si_status(doi: str, *, si_stem: str | None = None) -> dict[str, Any]:
             "si_status": "available",
             "candidates": pdf_hits,
             "doi_ok": True,
+            "server_verified": True,
         }
 
-    # Landing HTML heuristics (doi.org redirect)
     html = _fetch_text(f"https://doi.org/{d}")
-    if not html:
-        return {"ok": True, "si_status": "unknown", "candidates": [], "doi_ok": True}
-
-    if any(m in html for m in _ABSENT_MARKERS):
-        return {"ok": True, "si_status": "absent", "candidates": [], "doi_ok": True}
-
-    # ACS often lists "Supporting Information" with PDF link text
-    if d.startswith("10.1021/") and "supporting information" in html:
-        if "si_001" in html or "suppl_file" in html or ".pdf" in html:
-            return {
-                "ok": True,
-                "si_status": "available",
-                "candidates": candidates[:3],
-                "doi_ok": True,
-            }
-
-    if any(m in html for m in _PRESENT_MARKERS) and (
-        "download" in html or ".pdf" in html or "suppl" in html
-    ):
+    if html and any(m in html for m in _ABSENT_MARKERS):
         return {
             "ok": True,
-            "si_status": "available",
-            "candidates": [c for c in candidates if c.get("kind") == "landing"][:2],
+            "si_status": "absent",
+            "candidates": [],
             "doi_ok": True,
         }
 
-    # Explicit empty SI section patterns (weak → unknown rather than false absent)
-    if "supporting information" not in html and "supplementary" not in html:
-        # Many paywalled pages omit SI section when none — still unknown if paywall shell
-        if "captcha" in html or "cloudflare" in html or "challenge-platform" in html:
-            return {"ok": True, "si_status": "unknown", "candidates": [], "doi_ok": True}
-        # Soft absent only for ACS article pages that clearly lack SI wording
-        if d.startswith("10.1021/") and "pubs.acs.org" in html:
-            return {"ok": True, "si_status": "absent", "candidates": [], "doi_ok": True}
+    if html:
+        if any(
+            m in html
+            for m in ("captcha", "cloudflare", "challenge-platform", "just a moment")
+        ):
+            saw_cf = True
+        if d.startswith("10.1021/") and "supporting information" in html:
+            if "si_001" in html or "suppl_file" in html or ".pdf" in html:
+                return {
+                    "ok": True,
+                    "si_status": "available",
+                    "candidates": device_cands,
+                    "doi_ok": True,
+                }
+        if (
+            "supporting information" not in html
+            and "supplementary" not in html
+            and not saw_cf
+            and d.startswith("10.1021/")
+            and "pubs.acs.org" in html
+        ):
+            return {
+                "ok": True,
+                "si_status": "absent",
+                "candidates": [],
+                "doi_ok": True,
+            }
 
-    return {"ok": True, "si_status": "unknown", "candidates": [], "doi_ok": True}
+    # Elsevier: no safe anonymous SI PDF template (mmc often docx) → browser.
+    if d.startswith("10.1016/") and not pdf_cands:
+        return {
+            "ok": True,
+            "si_status": "unknown",
+            "candidates": [],
+            "doi_ok": True,
+        }
+
+    _ = saw_404  # retained for future absent heuristics
+    return {
+        "ok": True,
+        "si_status": "unknown",
+        "candidates": device_cands,
+        "doi_ok": True,
+        "server_verified": False,
+        "server_cf_blocked": saw_cf,
+    }
 
 
 def resolve_mate(

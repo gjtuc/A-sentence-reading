@@ -1,6 +1,6 @@
 # 251 — Mate direct fetch (찾아보기 → 기기에서 합법 사본 가져오기)
 
-Version: **0.3.243** · Status: **locked** (Phase A+ SI-absent shipped)  
+Version: **0.3.244** · Status: **locked** (Phase A+ SI-absent shipped)  
 Amends [237](237-pdf-import-doi-find-cta.md) · [241](241-saf-tree-write-copy.md) · [242](242-pdf-import-find-watch.md) · [247](247-pdf-import-downloads-bridge.md) · [248](248-pdf-import-downloads-inapp-browser.md)
 
 ## Intent
@@ -64,5 +64,7 @@ Hook: `_openFind` → `LibraryController` mate fetch → 기존 copy/enqueue.
 - Phase A code: `mate_resolve.py` · `mobile/lib/mate_fetch/*` · `_openFind` → `fetchMateForEntry` · kill `ASR_MATE_DIRECT_FETCH=0`.
 
 ## Version
+
+**0.3.244** (CF-safe pattern candidates to device; RSC/Nature/Wiley SI templates)
 
 **0.3.243** (Phase A + ACS/RSC SI patterns seed + SI-absent CTA)

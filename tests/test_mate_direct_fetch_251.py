@@ -57,7 +57,7 @@ def test_route_and_status_wired() -> None:
     assert "/api/mate/resolve" in app
     assert "mate_direct_fetch" in app
     assert "mobile_mate_direct_fetch" in app
-    assert 'version="0.3.243"' in app
+    assert 'version="0.3.244"' in app
 
 
 def test_evidence_kinds() -> None:
@@ -84,3 +84,22 @@ def test_mobile_wire() -> None:
     assert "writeBytesIntoTree" in ctrl
     assert "kMateFetchMaxBytes" in validate
     assert "mateHostAllowed" in validate
+
+
+def test_si_returns_acs_candidates_even_if_unverified() -> None:
+    """Cloudflare on server must not wipe device candidates (0.3.244)."""
+    from sentence_reading.llm.mate_resolve import resolve_mate
+
+    r = resolve_mate("10.1021/acscatal.2c02045", "si", si_stem="cs2c02045")
+    assert r["ok"] is True
+    urls = [c.get("url", "") for c in (r.get("candidates") or [])]
+    assert any("cs2c02045_si_001.pdf" in u for u in urls)
+
+
+def test_rsc_and_nature_pattern_urls() -> None:
+    from sentence_reading.llm.mate_resolve import pattern_si_candidates
+
+    rsc = pattern_si_candidates("10.1039/d4se00467a")
+    assert any("suppdata" in (c.get("url") or "") for c in rsc)
+    nat = pattern_si_candidates("10.1038/s41929-026-01513-y")
+    assert any("MOESM1_ESM.pdf" in (c.get("url") or "") and "2026" in (c.get("url") or "") for c in nat)
