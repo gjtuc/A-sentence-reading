@@ -1,4 +1,5 @@
 /// design/226 — persist folder grant (uid-scoped).
+/// design/248 — Downloads tree grant uses the same store shape, different prefs key.
 library;
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,10 +17,15 @@ abstract class PdfFolderGrantStore {
 }
 
 class PrefsPdfFolderGrantStore implements PdfFolderGrantStore {
-  PrefsPdfFolderGrantStore({SharedPreferences? prefs}) : _prefs = prefs;
+  PrefsPdfFolderGrantStore({
+    SharedPreferences? prefs,
+    String Function(String uid)? keyForUid,
+  })  : _prefs = prefs,
+        _keyForUid = keyForUid ?? pdfFolderGrantPrefsKey;
 
   SharedPreferences? _prefs;
   String? _uid;
+  final String Function(String uid) _keyForUid;
 
   Future<SharedPreferences> _ready() async {
     return _prefs ??= await SharedPreferences.getInstance();
@@ -30,7 +36,7 @@ class PrefsPdfFolderGrantStore implements PdfFolderGrantStore {
     _uid = (uid ?? '').trim().isEmpty ? null : uid!.trim();
   }
 
-  String get _key => pdfFolderGrantPrefsKey(_uid ?? '');
+  String get _key => _keyForUid(_uid ?? '');
 
   @override
   Future<PdfFolderGrant?> read() async {
@@ -56,6 +62,15 @@ class PrefsPdfFolderGrantStore implements PdfFolderGrantStore {
     _uid = null;
   }
 }
+
+/// design/248 — Downloads tree grant prefs.
+PrefsPdfFolderGrantStore prefsPdfDownloadsGrantStore({
+  SharedPreferences? prefs,
+}) =>
+    PrefsPdfFolderGrantStore(
+      prefs: prefs,
+      keyForUid: pdfDownloadsGrantPrefsKey,
+    );
 
 class MemoryPdfFolderGrantStore implements PdfFolderGrantStore {
   String? _uid;

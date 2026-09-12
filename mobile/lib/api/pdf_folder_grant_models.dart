@@ -7,6 +7,8 @@ import 'dart:convert';
 import '../pdf/normalize_pairing_key.dart';
 
 const String kPdfFolderGrantPrefsPrefix = 'asr.pdf_folder_grant.v1.u.';
+/// design/248 — separate Downloads tree grant (user-picked; not auto).
+const String kPdfDownloadsGrantPrefsPrefix = 'asr.pdf_downloads_grant.v1.u.';
 const int kPdfFolderScanMaxItems = 500;
 
 String pdfFolderGrantPrefsKey(String uid) {
@@ -14,6 +16,15 @@ String pdfFolderGrantPrefsKey(String uid) {
   if (safe.isEmpty) return '${kPdfFolderGrantPrefsPrefix}anon';
   return '$kPdfFolderGrantPrefsPrefix$safe';
 }
+
+String pdfDownloadsGrantPrefsKey(String uid) {
+  final safe = uid.trim().replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+  if (safe.isEmpty) return '${kPdfDownloadsGrantPrefsPrefix}anon';
+  return '$kPdfDownloadsGrantPrefsPrefix$safe';
+}
+
+/// design/248 — PDF import list browse target.
+enum PdfImportBrowseMode { papers, downloads }
 
 class PdfFolderGrant {
   PdfFolderGrant({

@@ -13,7 +13,8 @@ Amends [238](238-pdf-import-open-document-pick.md) · [242](242-pdf-import-find-
 - Kotlin `downloadsDocumentUri` / `downloadsTreeUri` via `DocumentsContract` `primary:Download` (never MediaStore for INITIAL_URI).
 - `pickDocuments` → document URI hint; `pickTree` → tree URI hint (user may still pick another folder).
 - Still **no** MES / MediaStore scan / auto Downloads tree grant (226 / 238).
-- After 「찾아보기」 arm: on import screen **resume**, if watch still armed and no tree hit → one dialog 「다운로드에서 가져올까요?」→「받은 PDF 고르기」(once per arm).
+- After 「찾아보기」 arm: on import screen **resume**, if watch still armed and no tree hit → one dialog → open **downloads in-app browse** ([248](248-pdf-import-downloads-inapp-browser.md); once per arm).
+- Polish: [248](248-pdf-import-downloads-inapp-browser.md) replaces DocumentsUI pick with in-app Downloads list.
 - CTA labels (237 amend): have SI → 「메인 찾아보기」; have main → 「SI 찾아보기」.
 
 ## Non-goals

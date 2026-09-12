@@ -64,6 +64,7 @@ class LibraryController extends ChangeNotifier {
     UploadReserveStore? reserveStore,
     UploadPickerRecentStore? pickerRecentStore,
     PdfFolderGrantStore? pdfFolderGrantStore,
+    PdfFolderGrantStore? pdfDownloadsGrantStore,
     PdfHashCacheStore? pdfHashCacheStore,
     PdfAdvisoryCacheStore? pdfAdvisoryCacheStore,
     SafTreeChannel? safTreeChannel,
@@ -79,6 +80,8 @@ class LibraryController extends ChangeNotifier {
         _reserve = reserveStore ?? PrefsUploadReserveStore(),
         _pickerRecent = pickerRecentStore ?? PrefsUploadPickerRecentStore(),
         _pdfFolderGrant = pdfFolderGrantStore ?? PrefsPdfFolderGrantStore(),
+        _pdfDownloadsGrant =
+            pdfDownloadsGrantStore ?? prefsPdfDownloadsGrantStore(),
         _pdfHashCache = pdfHashCacheStore ?? PdfHashCacheStore(),
         _pdfAdvisoryCache = pdfAdvisoryCacheStore ?? PdfAdvisoryCacheStore(),
         _safTree = safTreeChannel ?? SafTreeChannel(),
@@ -94,6 +97,7 @@ class LibraryController extends ChangeNotifier {
   final UploadReserveStore _reserve;
   final UploadPickerRecentStore _pickerRecent;
   final PdfFolderGrantStore _pdfFolderGrant;
+  final PdfFolderGrantStore _pdfDownloadsGrant;
   final PdfHashCacheStore _pdfHashCache;
   final PdfAdvisoryCacheStore _pdfAdvisoryCache;
   final SafTreeChannel _safTree;
@@ -128,6 +132,7 @@ class LibraryController extends ChangeNotifier {
     _shadowDisk.bindUid(uid);
     unawaited(_pickerRecent.bindUid(_diskUid));
     unawaited(_pdfFolderGrant.bindUid(_diskUid));
+    unawaited(_pdfDownloadsGrant.bindUid(_diskUid));
     unawaited(_pdfHashCache.bindUid(_diskUid));
     unawaited(_pdfAdvisoryCache.bindUid(_diskUid));
     unawaited(_pickerRecentThenSoftDelete());
@@ -355,6 +360,14 @@ class LibraryController extends ChangeNotifier {
 
   /// design/241 — proactive tree writable probe (null = unknown / no grant).
   bool? pdfFolderWritable;
+
+  /// design/248 — Downloads tree browse (separate grant; PDF-only list).
+  PdfImportBrowseMode pdfImportBrowseMode = PdfImportBrowseMode.papers;
+  PdfFolderGrant? pdfDownloadsGrant;
+  List<ScannedPdfEntry> pdfDownloadsEntries = const [];
+  bool pdfDownloadsTruncated = false;
+  bool pdfDownloadsGrantStale = false;
+  int _pdfDownloadsRescanDebounceMs = 0;
 
   /// design/242 — tree-only find-watch after DOI CTA (no MES).
   bool pdfFindWatchArmed = false;
@@ -3639,17 +3652,28 @@ class LibraryController extends ChangeNotifier {
     await _reserve.clear();
     await _pickerRecent.clearBound();
     final oldGrant = pdfFolderGrant;
+    final oldDl = pdfDownloadsGrant;
     await _pdfFolderGrant.clearBound();
+    await _pdfDownloadsGrant.clearBound();
     await _pdfHashCache.clearBound();
     await _pdfAdvisoryCache.clearBound();
     _pdfAdvisoryPumpEpoch++;
     if (oldGrant != null) {
       unawaited(_safTree.releaseTree(oldGrant.treeUri));
     }
+    if (oldDl != null &&
+        (oldGrant == null || oldDl.treeUri != oldGrant.treeUri)) {
+      unawaited(_safTree.releaseTree(oldDl.treeUri));
+    }
     pdfFolderGrant = null;
     pdfFolderEntries = const [];
     pdfFolderTruncated = false;
     pdfFolderGrantStale = false;
+    pdfDownloadsGrant = null;
+    pdfDownloadsEntries = const [];
+    pdfDownloadsTruncated = false;
+    pdfDownloadsGrantStale = false;
+    pdfImportBrowseMode = PdfImportBrowseMode.papers;
     await _softDelete.clearBound();
     uploadQueue = const [];
     pickerRecent = const [];
@@ -4445,10 +4469,175 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  Future<void> _scanPdfFolder(String treeUri, {String trigger = 'scan'}) async {
+
+  /// design/248 — load Downloads tree grant + scan.
+  Future<void> loadPdfDownloadsGrantAndScan({String trigger = 'load'}) async {
+    pdfDownloadsGrantStale = false;
+    final grant = await _pdfDownloadsGrant.read();
+    pdfDownloadsGrant = grant;
+    if (grant == null) {
+      pdfDownloadsEntries = const [];
+      pdfDownloadsTruncated = false;
+      notifyListeners();
+      return;
+    }
+    await _scanPdfFolder(
+      grant.treeUri,
+      trigger: trigger,
+      target: PdfImportBrowseMode.downloads,
+    );
+  }
+
+  Future<void> rescanPdfDownloadsDebounced({
+    String trigger = 'resume',
+    int debounceMs = 1000,
+  }) async {
+    final grant = pdfDownloadsGrant;
+    if (grant == null) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _pdfDownloadsRescanDebounceMs < debounceMs) return;
+    _pdfDownloadsRescanDebounceMs = now;
+    await _scanPdfFolder(
+      grant.treeUri,
+      trigger: trigger,
+      target: PdfImportBrowseMode.downloads,
+    );
+    if (pdfImportBrowseMode == PdfImportBrowseMode.downloads) {
+      unawaited(ensureVisiblePdfHashes());
+      unawaited(ensureVisiblePdfAdvisories());
+    }
+  }
+
+  /// design/248 — connect Downloads via OPEN_DOCUMENT_TREE (hinted).
+  Future<bool> connectPdfDownloadsFolder() async {
+    final t0 = DateTime.now().millisecondsSinceEpoch;
+    asrEvidenceBus?.record(
+      'pdf_folder_grant_start',
+      severity: 'lifecycle',
+      stage: 'pick',
+      details: {'browse': 'downloads'},
+    );
+    try {
+      final picked = await _safTree.pickTree();
+      final elapsed = DateTime.now().millisecondsSinceEpoch - t0;
+      if (picked == null) {
+        asrEvidenceBus?.record(
+          'pdf_folder_grant_done',
+          severity: 'lifecycle',
+          stage: 'pick',
+          details: {'ok': false, 'elapsed_ms': elapsed, 'browse': 'downloads'},
+        );
+        return false;
+      }
+      final prev = pdfDownloadsGrant;
+      if (prev != null && prev.treeUri != picked.treeUri) {
+        final papersUri = pdfFolderGrant?.treeUri;
+        if (papersUri == null || prev.treeUri != papersUri) {
+          unawaited(_safTree.releaseTree(prev.treeUri));
+        }
+      }
+      final grant = PdfFolderGrant(
+        treeUri: picked.treeUri,
+        displayLabel: picked.displayLabel,
+        grantedAtMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await _pdfDownloadsGrant.write(grant);
+      pdfDownloadsGrant = grant;
+      pdfDownloadsGrantStale = false;
+      asrEvidenceBus?.record(
+        'pdf_folder_grant_done',
+        severity: 'lifecycle',
+        stage: 'pick',
+        details: {'ok': true, 'elapsed_ms': elapsed, 'browse': 'downloads'},
+      );
+      await _scanPdfFolder(
+        grant.treeUri,
+        trigger: 'connect',
+        target: PdfImportBrowseMode.downloads,
+      );
+      return true;
+    } catch (_) {
+      asrEvidenceBus?.record(
+        'pdf_folder_grant_done',
+        severity: 'error',
+        stage: 'pick',
+        details: {
+          'ok': false,
+          'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+          'browse': 'downloads',
+        },
+      );
+      return false;
+    }
+  }
+
+  /// design/248 — switch to Downloads in-app browse; connect if needed.
+  Future<bool> openDownloadsBrowse({bool connectIfMissing = true}) async {
+    pdfImportBrowseMode = PdfImportBrowseMode.downloads;
+    notifyListeners();
+    if (pdfDownloadsGrant == null) {
+      await loadPdfDownloadsGrantAndScan(trigger: 'open_downloads');
+    } else if (pdfDownloadsEntries.isEmpty && !pdfDownloadsGrantStale) {
+      await _scanPdfFolder(
+        pdfDownloadsGrant!.treeUri,
+        trigger: 'open_downloads',
+        target: PdfImportBrowseMode.downloads,
+      );
+    }
+    if (pdfDownloadsGrant == null && connectIfMissing) {
+      final ok = await connectPdfDownloadsFolder();
+      if (!ok) {
+        notifyListeners();
+        return false;
+      }
+    }
+    if (pdfFindWatchArmed) {
+      disarmFindWatch(reason: 'pick');
+    }
+    unawaited(ensureVisiblePdfHashes());
+    unawaited(ensureVisiblePdfAdvisories());
+    notifyListeners();
+    return pdfDownloadsGrant != null;
+  }
+
+
+  List<ScannedPdfEntry> get pdfImportActiveEntries =>
+      pdfImportBrowseMode == PdfImportBrowseMode.downloads
+          ? pdfDownloadsEntries
+          : pdfFolderEntries;
+
+  bool get pdfImportActiveTruncated =>
+      pdfImportBrowseMode == PdfImportBrowseMode.downloads
+          ? pdfDownloadsTruncated
+          : pdfFolderTruncated;
+
+  PdfFolderGrant? get pdfImportActiveGrant =>
+      pdfImportBrowseMode == PdfImportBrowseMode.downloads
+          ? pdfDownloadsGrant
+          : pdfFolderGrant;
+
+  bool get pdfImportActiveGrantStale =>
+      pdfImportBrowseMode == PdfImportBrowseMode.downloads
+          ? pdfDownloadsGrantStale
+          : pdfFolderGrantStale;
+
+  void setPdfImportBrowseMode(PdfImportBrowseMode mode) {
+    if (pdfImportBrowseMode == mode) return;
+    pdfImportBrowseMode = mode;
+    notifyListeners();
+  }
+
+  Future<void> _scanPdfFolder(
+    String treeUri, {
+    String trigger = 'scan',
+    PdfImportBrowseMode target = PdfImportBrowseMode.papers,
+  }) async {
     _pdfAdvisoryPumpEpoch++;
     final t0 = DateTime.now().millisecondsSinceEpoch;
-    final prevUris = {for (final e in pdfFolderEntries) e.docUri};
+    final prev = target == PdfImportBrowseMode.downloads
+        ? pdfDownloadsEntries
+        : pdfFolderEntries;
+    final prevUris = {for (final e in prev) e.docUri};
     try {
       final listed = await _safTree.listPdfs(
         treeUri,
@@ -4490,9 +4679,15 @@ class LibraryController extends ChangeNotifier {
           ),
         );
       }
-      pdfFolderEntries = next;
-      pdfFolderTruncated = listed.truncated;
-      pdfFolderGrantStale = false;
+      if (target == PdfImportBrowseMode.downloads) {
+        pdfDownloadsEntries = next;
+        pdfDownloadsTruncated = listed.truncated;
+        pdfDownloadsGrantStale = false;
+      } else {
+        pdfFolderEntries = next;
+        pdfFolderTruncated = listed.truncated;
+        pdfFolderGrantStale = false;
+      }
       final nHashReady =
           next.where((e) => e.hashState == PdfHashState.ready).length;
       final nAdvReady =
@@ -4511,6 +4706,8 @@ class LibraryController extends ChangeNotifier {
           'n_adv_ready': nAdvReady,
           'n_adv_unknown': nAdvUnknown,
           'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+          'browse':
+              target == PdfImportBrowseMode.downloads ? 'downloads' : 'papers',
         },
       );
       asrEvidenceBus?.record(
@@ -4527,8 +4724,13 @@ class LibraryController extends ChangeNotifier {
       notifyListeners();
     } on PlatformException catch (e) {
       if (e.code == 'stale') {
-        pdfFolderGrantStale = true;
-        pdfFolderEntries = const [];
+        if (target == PdfImportBrowseMode.downloads) {
+          pdfDownloadsGrantStale = true;
+          pdfDownloadsEntries = const [];
+        } else {
+          pdfFolderGrantStale = true;
+          pdfFolderEntries = const [];
+        }
         asrEvidenceBus?.record(
           'pdf_folder_grant_stale',
           severity: 'warn',
@@ -4538,17 +4740,26 @@ class LibraryController extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      pdfFolderEntries = const [];
+      if (target == PdfImportBrowseMode.downloads) {
+        pdfDownloadsEntries = const [];
+      } else {
+        pdfFolderEntries = const [];
+      }
       notifyListeners();
     } catch (_) {
-      pdfFolderEntries = const [];
+      if (target == PdfImportBrowseMode.downloads) {
+        pdfDownloadsEntries = const [];
+      } else {
+        pdfFolderEntries = const [];
+      }
       notifyListeners();
     }
   }
 
   /// design/226 · 230 — lazy hash unknown rows (concurrency 2).
   Future<void> ensureVisiblePdfHashes({int limit = 40}) async {
-    final unknownAll = pdfFolderEntries
+    final active = pdfImportActiveEntries;
+    final unknownAll = active
         .where((e) => e.hashState == PdfHashState.unknown)
         .toList();
     if (_pdfHashPumpBusy) {
@@ -4654,7 +4865,7 @@ class LibraryController extends ChangeNotifier {
         await Future.wait(batch);
         notifyListeners();
       }
-      final nUnknownLeft = pdfFolderEntries
+      final nUnknownLeft = pdfImportActiveEntries
           .where((e) => e.hashState == PdfHashState.unknown)
           .length;
       asrEvidenceBus?.record(
@@ -4693,7 +4904,7 @@ class LibraryController extends ChangeNotifier {
 
   /// design/228 · 230 — lazy advisory title/role (concurrency 2, first [limit]).
   Future<void> ensureVisiblePdfAdvisories({int limit = 40}) async {
-    final unknownAll = pdfFolderEntries
+    final unknownAll = pdfImportActiveEntries
         .where((e) => e.advisoryState == PdfAdvisoryState.unknown)
         .toList();
     if (_pdfAdvisoryPumpBusy) {
@@ -4704,7 +4915,7 @@ class LibraryController extends ChangeNotifier {
         details: {
           'reason': 'busy',
           'n_unknown': unknownAll.length,
-          'n_entries': pdfFolderEntries.length,
+          'n_entries': pdfImportActiveEntries.length,
           'limit': limit,
         },
       );
@@ -4727,10 +4938,10 @@ class LibraryController extends ChangeNotifier {
     }
 
     try {
-      final nReadyPre = pdfFolderEntries
+      final nReadyPre = pdfImportActiveEntries
           .where((e) => e.advisoryState == PdfAdvisoryState.ready)
           .length;
-      final nFailedPre = pdfFolderEntries
+      final nFailedPre = pdfImportActiveEntries
           .where((e) => e.advisoryState == PdfAdvisoryState.failed)
           .length;
       final beyond = unknownAll.length > limit ? unknownAll.length - limit : 0;
@@ -4743,7 +4954,7 @@ class LibraryController extends ChangeNotifier {
           details: {
             'reason': 'empty_pending',
             'n_unknown': 0,
-            'n_entries': pdfFolderEntries.length,
+            'n_entries': pdfImportActiveEntries.length,
             'n_ready_pre': nReadyPre,
             'n_failed_pre': nFailedPre,
             'limit': limit,
@@ -4917,13 +5128,13 @@ class LibraryController extends ChangeNotifier {
         await Future.wait(batch);
         notifyListeners();
       }
-      final nUnknownLeft = pdfFolderEntries
+      final nUnknownLeft = pdfImportActiveEntries
           .where((e) => e.advisoryState == PdfAdvisoryState.unknown)
           .length;
-      final nFailedLeft = pdfFolderEntries
+      final nFailedLeft = pdfImportActiveEntries
           .where((e) => e.advisoryState == PdfAdvisoryState.failed)
           .length;
-      final nReadyLeft = pdfFolderEntries
+      final nReadyLeft = pdfImportActiveEntries
           .where((e) => e.advisoryState == PdfAdvisoryState.ready)
           .length;
       final doneDetails = <String, Object?>{
@@ -5154,7 +5365,10 @@ class LibraryController extends ChangeNotifier {
     final batch = <({String name, Uint8List bytes})>[];
     var skipped = 0;
     String? message;
-    final byUri = {for (final e in pdfFolderEntries) e.docUri: e};
+    final byUri = {
+      for (final e in pdfFolderEntries) e.docUri: e,
+      for (final e in pdfDownloadsEntries) e.docUri: e,
+    };
     for (final uri in docUris) {
       final e = byUri[uri];
       if (e == null) {
@@ -5218,7 +5432,10 @@ class LibraryController extends ChangeNotifier {
         message: '세트로 추가하려면 대기열 자리가 2칸 필요합니다',
       );
     }
-    final byUri = {for (final e in pdfFolderEntries) e.docUri: e};
+    final byUri = {
+      for (final e in pdfFolderEntries) e.docUri: e,
+      for (final e in pdfDownloadsEntries) e.docUri: e,
+    };
     final batch = <({String name, Uint8List bytes})>[];
     for (final uri in uris.take(2)) {
       final e = byUri[uri];
@@ -5281,18 +5498,18 @@ class LibraryController extends ChangeNotifier {
     return outcome;
   }
 
-  /// design/238 · 241 — 「받은 PDF 고르기」: copy into tree if writable else enqueue bytes.
+  /// design/248 - import selected Downloads URIs into papers tree or enqueue.
   Future<({int copied, int enqueued, String? message, String mode})>
-      pickReceivedPdfsIntoFolder() async {
+      importSelectedFromDownloads(List<String> docUris) async {
     final t0 = DateTime.now().millisecondsSinceEpoch;
+    final uris = [for (final u in docUris) if (u.trim().isNotEmpty) u.trim()];
     asrEvidenceBus?.record(
       'pdf_import_pick_start',
       severity: 'lifecycle',
       stage: 'pick',
-      details: {'ok': true},
+      details: {'ok': true, 'browse': 'downloads'},
     );
-    final picked = await _safTree.pickDocuments(multiple: true);
-    if (picked == null || picked.isEmpty) {
+    if (uris.isEmpty) {
       asrEvidenceBus?.record(
         'pdf_import_pick_done',
         severity: 'lifecycle',
@@ -5306,9 +5523,23 @@ class LibraryController extends ChangeNotifier {
       );
       return (copied: 0, enqueued: 0, message: null, mode: 'cancel');
     }
-    // design/242 - non-cancel pick disarms find-watch.
     if (pdfFindWatchArmed) {
       disarmFindWatch(reason: 'pick');
+    }
+    final byUri = {for (final e in pdfDownloadsEntries) e.docUri: e};
+    final picked = <({String docUri, String displayName})>[];
+    for (final uri in uris) {
+      final e = byUri[uri];
+      if (e == null) continue;
+      picked.add((docUri: e.docUri, displayName: e.displayName));
+    }
+    if (picked.isEmpty) {
+      return (
+        copied: 0,
+        enqueued: 0,
+        message: 'selected_missing',
+        mode: 'cancel',
+      );
     }
     final grant = pdfFolderGrant;
     var mode = 'enqueue';
@@ -5316,7 +5547,6 @@ class LibraryController extends ChangeNotifier {
     var enqueued = 0;
     String? message;
     final failedPick = <({String docUri, String displayName})>[];
-
     if (grant != null) {
       final probe = await _safTree.probeTreeWritable(grant.treeUri);
       pdfFolderWritable = probe.writable;
@@ -5351,12 +5581,11 @@ class LibraryController extends ChangeNotifier {
                 stage: 'write',
                 details: {
                   'ok': true,
-                  'elapsed_ms':
-                      DateTime.now().millisecondsSinceEpoch - tc0,
+                  'elapsed_ms': DateTime.now().millisecondsSinceEpoch - tc0,
                 },
               );
             } else {
-              failedPick.add((docUri: it.docUri, displayName: it.displayName));
+              failedPick.add(it);
               asrEvidenceBus?.record(
                 'pdf_tree_copy_fail',
                 severity: 'warn',
@@ -5365,36 +5594,32 @@ class LibraryController extends ChangeNotifier {
               );
             }
           } on PlatformException catch (ex) {
-            failedPick.add((docUri: it.docUri, displayName: it.displayName));
+            failedPick.add(it);
             asrEvidenceBus?.record(
               'pdf_tree_copy_fail',
               severity: 'warn',
               stage: 'write',
               details: {'code': _evidenceSnakeToken(ex.code)},
             );
-            message = ex.code == 'too_large'
-                ? '파일이 너무 큽니다 (최대 50MB).'
-                : (ex.code == 'not_writable'
-                    ? '이 폴더는 앱에서 쓰기가 안 됩니다. 폴더를 다시 연결하거나, 받은 PDF를 대기열에만 추가할 수 있습니다.'
-                    : '폴더로 복사하지 못했습니다.');
+            message = ex.code == 'too_large' ? 'too_large' : 'copy_fail';
           } catch (_) {
-            failedPick.add((docUri: it.docUri, displayName: it.displayName));
+            failedPick.add(it);
             asrEvidenceBus?.record(
               'pdf_tree_copy_fail',
               severity: 'warn',
               stage: 'write',
               details: {'code': 'exc'},
             );
-            message = '폴더로 복사하지 못했습니다.';
+            message = 'copy_fail';
           }
         }
         if (copied > 0) {
+          pdfImportBrowseMode = PdfImportBrowseMode.papers;
           await _scanPdfFolder(grant.treeUri, trigger: 'after_copy');
           _bumpFindWatchBaselineFromEntries();
           unawaited(ensureVisiblePdfHashes());
           unawaited(ensureVisiblePdfAdvisories());
         }
-        // design/238 - partial multi-pick: enqueue failed copies only.
         if (copied > 0 && failedPick.isNotEmpty) {
           mode = 'copy_partial';
           final batch = <({String name, Uint8List bytes})>[];
@@ -5404,20 +5629,17 @@ class LibraryController extends ChangeNotifier {
               if (bytes == null || bytes.isEmpty) continue;
               batch.add((name: it.displayName, bytes: bytes));
             } on PlatformException catch (ex) {
-              if (ex.code == 'too_large') {
-                message = '파일이 너무 큽니다 (최대 50MB).';
-              }
+              if (ex.code == 'too_large') message = 'too_large';
             } catch (_) {}
           }
           if (batch.isNotEmpty) {
             final outcome = await enqueuePickedPdfs(batch);
             enqueued = outcome.added;
           }
-          message = "폴더에 $copied건 복사 · 실패 ${failedPick.length}건 중 대기열 $enqueued건";
+          message = 'copy_partial';
         }
       }
     }
-
     if (copied == 0) {
       mode = 'enqueue';
       final batch = <({String name, Uint8List bytes})>[];
@@ -5427,23 +5649,24 @@ class LibraryController extends ChangeNotifier {
           if (bytes == null || bytes.isEmpty) continue;
           batch.add((name: it.displayName, bytes: bytes));
         } on PlatformException catch (ex) {
-          if (ex.code == 'too_large') {
-            message = '파일이 너무 큽니다 (최대 50MB).';
-          }
+          if (ex.code == 'too_large') message = 'too_large';
         } catch (_) {}
       }
       if (batch.isNotEmpty) {
         final outcome = await enqueuePickedPdfs(batch);
         enqueued = outcome.added;
         message ??= outcome.message ??
-            (grant == null
-                ? '폴더 미연결 — 대기열에만 추가했습니다.'
-                : '폴더에 복사할 수 없어 대기열에만 추가했습니다.');
+            (grant == null ? 'enqueue_no_folder' : 'enqueue_nw');
       } else if (message == null) {
-        message = '파일을 읽지 못했습니다.';
+        message = 'read_failed';
       }
     }
-
+    final uiMessage = _pdfImportUserMessage(
+      message,
+      copied: copied,
+      failed: failedPick.length,
+      enqueued: enqueued,
+    );
     asrEvidenceBus?.record(
       'pdf_import_pick_done',
       severity: 'lifecycle',
@@ -5453,14 +5676,42 @@ class LibraryController extends ChangeNotifier {
         'n': copied + enqueued,
         'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
         'mode': mode,
+        'browse': 'downloads',
       },
     );
     return (
       copied: copied,
       enqueued: enqueued,
-      message: message,
+      message: uiMessage,
       mode: mode,
     );
+  }
+
+  String? _pdfImportUserMessage(
+    String? code, {
+    required int copied,
+    required int failed,
+    required int enqueued,
+  }) {
+    if (code == null) return null;
+    switch (code) {
+      case 'selected_missing':
+        return '선택한 파일을 찾지 못했습니다.';
+      case 'too_large':
+        return '파일이 너무 큽니다 (최대 50MB).';
+      case 'copy_fail':
+        return '폴더로 복사하지 못했습니다.';
+      case 'enqueue_no_folder':
+        return '폴더 미연결 — 대기열에만 추가했습니다.';
+      case 'enqueue_nw':
+        return '폴더에 복사할 수 없어 대기열에만 추가했습니다.';
+      case 'read_failed':
+        return '파일을 읽지 못했습니다.';
+      case 'copy_partial':
+        return '폴더에 $copied건 복사 · 실패 $failed건 중 대기열 $enqueued건';
+      default:
+        return code;
+    }
   }
 
   /// design/223 — sheet open breadcrumb.

@@ -1,5 +1,5 @@
 /// design/226 — full-screen PDF folder import (not thin sheet).
-/// design/237 find CTA · 238 pick · 239 set row · 242 find-watch · 247 Downloads hint.
+/// design/237 find CTA · 238/248 Downloads in-app · 239 set · 242 watch · 247 hint.
 library;
 
 import 'dart:async';
@@ -61,6 +61,9 @@ class _PdfImportScreenState extends State<PdfImportScreen>
 
   Future<void> _onImportResume() async {
     await lib.rescanPdfFolderDebounced(trigger: 'import_resume');
+    if (lib.pdfImportBrowseMode == PdfImportBrowseMode.downloads) {
+      await lib.rescanPdfDownloadsDebounced(trigger: 'import_resume');
+    }
     if (!mounted) return;
     await _maybeOfferDownloadsPickAfterFind();
   }
@@ -78,7 +81,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
         title: const Text('다운로드에서 가져올까요?'),
         content: const Text(
           '브라우저에서 받은 PDF는 보통 다운로드 폴더에 있습니다. '
-          '「받은 PDF 고르기」로 연결 폴더에 넣을까요?',
+          '앱 목록에서 고를까요? (PDF만)',
         ),
         actions: [
           TextButton(
@@ -87,14 +90,14 @@ class _PdfImportScreenState extends State<PdfImportScreen>
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('받은 PDF 고르기'),
+            child: const Text('다운로드 보기'),
           ),
         ],
       ),
     );
     if (!mounted) return;
     if (go == true) {
-      await _pickReceived();
+      await _openDownloadsBrowse();
     }
   }
 
@@ -102,7 +105,8 @@ class _PdfImportScreenState extends State<PdfImportScreen>
     setState(() => _busy = true);
     try {
       await lib.loadPdfFolderGrantAndScan();
-      final stale = lib.pdfFolderGrantStale;
+      await lib.loadPdfDownloadsGrantAndScan(trigger: 'bootstrap');
+      final stale = lib.pdfImportActiveGrantStale;
       if (stale) {
         _banner = '이전에 연결한 폴더를 열 수 없습니다. 다시 연결해 주세요.';
       }
@@ -119,7 +123,9 @@ class _PdfImportScreenState extends State<PdfImportScreen>
       _banner = null;
     });
     try {
-      final ok = await lib.connectPdfFolder();
+      final ok = lib.pdfImportBrowseMode == PdfImportBrowseMode.downloads
+          ? await lib.connectPdfDownloadsFolder()
+          : await lib.connectPdfFolder();
       if (!ok && mounted) {
         // cancel → silent
       }
@@ -128,6 +134,43 @@ class _PdfImportScreenState extends State<PdfImportScreen>
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _openDownloadsBrowse() async {
+    if (_busy || lib.reanalyzing || lib.opening) return;
+    setState(() {
+      _busy = true;
+      _banner = null;
+      _selected.clear();
+    });
+    try {
+      await lib.openDownloadsBrowse(connectIfMissing: true);
+      if (lib.pdfDownloadsGrantStale && mounted) {
+        _banner = '이전에 연결한 다운로드 폴더를 열 수 없습니다. 다시 연결해 주세요.';
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _switchBrowseMode(PdfImportBrowseMode mode) async {
+    if (lib.pdfImportBrowseMode == mode) return;
+    setState(() {
+      _selected.clear();
+      _banner = null;
+    });
+    lib.setPdfImportBrowseMode(mode);
+    if (mode == PdfImportBrowseMode.downloads) {
+      if (lib.pdfDownloadsGrant == null) {
+        await lib.loadPdfDownloadsGrantAndScan(trigger: 'mode_switch');
+      }
+      unawaited(lib.ensureVisiblePdfHashes());
+      unawaited(lib.ensureVisiblePdfAdvisories());
+    } else {
+      unawaited(lib.ensureVisiblePdfHashes());
+      unawaited(lib.ensureVisiblePdfAdvisories());
+    }
+    if (mounted) setState(() {});
   }
 
   void _syncFindWatchTimer() {
@@ -212,12 +255,17 @@ class _PdfImportScreenState extends State<PdfImportScreen>
   }
 
   Future<void> _pickReceived() async {
-    if (_busy || lib.reanalyzing || lib.opening) return;
+    await _openDownloadsBrowse();
+  }
+
+  Future<void> _importDownloadsSelection() async {
+    if (_busy || lib.reanalyzing || lib.opening || _selected.isEmpty) return;
     setState(() => _busy = true);
     try {
-      final r = await lib.pickReceivedPdfsIntoFolder();
+      final r = await lib.importSelectedFromDownloads(_selected.toList());
       if (!mounted) return;
       if (r.mode == 'cancel') return;
+      _selected.clear();
       final parts = <String>[];
       if (r.copied > 0) parts.add('폴더에 ${r.copied}건 복사');
       if (r.enqueued > 0) parts.add('대기열 ${r.enqueued}건');
@@ -301,8 +349,11 @@ class _PdfImportScreenState extends State<PdfImportScreen>
           unawaited(_maybeShowFindWatchDialog());
         });
 
-        final grant = lib.pdfFolderGrant;
-        final entries = lib.pdfFolderEntries;
+        final browseDownloads =
+            lib.pdfImportBrowseMode == PdfImportBrowseMode.downloads;
+        final grant = lib.pdfImportActiveGrant;
+        final entries = lib.pdfImportActiveEntries;
+        final truncated = lib.pdfImportActiveTruncated;
         final inLib = lib.libraryContentHashes;
         final queued = {for (final q in lib.uploadQueue) q.contentHash};
         final filtered = entries.where((e) {
@@ -332,7 +383,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
               if (grant != null)
                 TextButton(
                   onPressed: _busy ? null : _connectFolder,
-                  child: const Text('폴더 변경'),
+                  child: Text(browseDownloads ? '다운로드 변경' : '폴더 변경'),
                 ),
             ],
           ),
@@ -346,7 +397,31 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
-              if (lib.pdfFindWatchArmed && lib.pdfFindWatchHitDocUri == null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: SegmentedButton<PdfImportBrowseMode>(
+                  segments: const [
+                    ButtonSegment(
+                      value: PdfImportBrowseMode.papers,
+                      label: Text('논문 폴더'),
+                    ),
+                    ButtonSegment(
+                      value: PdfImportBrowseMode.downloads,
+                      label: Text('다운로드'),
+                    ),
+                  ],
+                  selected: {lib.pdfImportBrowseMode},
+                  onSelectionChanged: _busy
+                      ? null
+                      : (s) {
+                          if (s.isEmpty) return;
+                          unawaited(_switchBrowseMode(s.first));
+                        },
+                ),
+              ),
+              if (!browseDownloads &&
+                  lib.pdfFindWatchArmed &&
+                  lib.pdfFindWatchHitDocUri == null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                   child: Text(
@@ -356,7 +431,9 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                         ),
                   ),
                 ),
-              if (grant != null && lib.pdfFolderWritable == false)
+              if (!browseDownloads &&
+                  grant != null &&
+                  lib.pdfFolderWritable == false)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                   child: Row(
@@ -401,8 +478,10 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                     Expanded(
                       child: Text(
                         grant == null
-                            ? '폴더 미연결'
-                            : '폴더: ${grant.displayLabel}',
+                            ? (browseDownloads ? '다운로드 미연결' : '폴더 미연결')
+                            : (browseDownloads
+                                ? '다운로드: ${grant.displayLabel}'
+                                : '폴더: ${grant.displayLabel}'),
                         style: Theme.of(context).textTheme.titleSmall,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -458,12 +537,12 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                             : ListView.separated(
                                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
                                 itemCount: listItems.length +
-                                    (lib.pdfFolderTruncated ? 1 : 0) +
+                                    (truncated ? 1 : 0) +
                                     1,
                                 separatorBuilder: (_, __) =>
                                     const SizedBox(height: 6),
                                 itemBuilder: (context, i) {
-                                  if (lib.pdfFolderTruncated &&
+                                  if (truncated &&
                                       i == listItems.length) {
                                     return Padding(
                                       padding: const EdgeInsets.all(8),
@@ -477,7 +556,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                     );
                                   }
                                   final footerIndex = listItems.length +
-                                      (lib.pdfFolderTruncated ? 1 : 0);
+                                      (truncated ? 1 : 0);
                                   if (i == footerIndex) {
                                     return Padding(
                                       padding: const EdgeInsets.all(8),
@@ -534,8 +613,12 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                     inLibrary: green,
                                     inQueue: inQ,
                                     onToggle: () => _toggleUris([e.docUri]),
-                                    onFind: (e.advisoryDoi.trim().isEmpty ||
-                                            matePresentForEntry(e, entries))
+                                    onFind: browseDownloads ||
+                                            e.advisoryDoi.trim().isEmpty ||
+                                            matePresentForEntry(
+                                              e,
+                                              lib.pdfFolderEntries,
+                                            )
                                         ? null
                                         : () => unawaited(_openFind(e)),
                                   );
@@ -556,9 +639,15 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                     lib.reanalyzing ||
                                     lib.opening
                                 ? null
-                                : _pickReceived,
-                            icon: const Icon(Icons.download_done_outlined),
-                            label: const Text('받은 PDF 고르기'),
+                                : (browseDownloads
+                                    ? _connectFolder
+                                    : _pickReceived),
+                            icon: Icon(browseDownloads
+                                ? Icons.create_new_folder_outlined
+                                : Icons.download_done_outlined),
+                            label: Text(browseDownloads
+                                ? '다운로드 폴더 연결'
+                                : '다운로드에서 가져오기'),
                           ),
                         ),
                       Row(
@@ -587,9 +676,13 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                       lib.reanalyzing ||
                                       lib.opening
                                   ? null
-                                  : () => _enqueueSelected(listItems),
+                                  : () => browseDownloads
+                                      ? _importDownloadsSelection()
+                                      : _enqueueSelected(listItems),
                               child: Text(
-                                '대기열에 추가 (${_selected.length})',
+                                browseDownloads
+                                    ? '논문 폴더로 가져오기 (${_selected.length})'
+                                    : '대기열에 추가 (${_selected.length})',
                               ),
                             ),
                           ),
@@ -641,7 +734,7 @@ class _EmptyConnect extends StatelessWidget {
             const SizedBox(height: 8),
             TextButton(
               onPressed: onPickReceived,
-              child: const Text('받은 PDF 고르기'),
+              child: const Text('다운로드에서 가져오기'),
             ),
             TextButton(
               onPressed: onSaf,
