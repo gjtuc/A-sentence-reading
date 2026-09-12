@@ -54,9 +54,37 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   /// design/225-F — magnetic trash while reordering.
   final GlobalKey _trashKey = GlobalKey();
+  final GlobalKey<SliverReorderableListState> _reorderListKey =
+      GlobalKey<SliverReorderableListState>();
   String? _dragCacheId;
   bool _dragOverTrash = false;
   static const double _magnetPad = 28;
+
+  /// 2-second hold-without-move timer to enter selection/edit mode.
+  Timer? _editHoldTimer;
+  Offset? _editHoldDownPos;
+  String? _editHoldCardId;
+
+  void _cancelEditHold() {
+    _editHoldTimer?.cancel();
+    _editHoldTimer = null;
+    _editHoldDownPos = null;
+    _editHoldCardId = null;
+  }
+
+  void _handleLongHoldEdit() {
+    final cardId = _editHoldCardId;
+    _cancelEditHold();
+    if (cardId == null || !mounted || _selecting) return;
+
+    HapticFeedback.heavyImpact();
+    _reorderListKey.currentState?.cancelReorder();
+    setState(() {
+      _dragCacheId = null;
+      _dragOverTrash = false;
+      _enterEdit(cardId);
+    });
+  }
 
   /// design/168c — non-ok ingest_status chip label (null = hide).
   static String? _ingestStatusLabel(String status) {
@@ -87,6 +115,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   void dispose() {
+    _cancelEditHold();
     widget.auth.removeListener(_onAuth);
     super.dispose();
   }
@@ -675,6 +704,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 )
               else if (lib.papers.isNotEmpty)
                 SliverReorderableList(
+                  key: _reorderListKey,
                   itemCount: lib.papers.length,
                   // design/122 — custom proxy: no M3 white flash; keep lifted row.
                   // design/225-F — Listener for magnetic trash hit-test.
@@ -687,7 +717,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       colorScheme: scheme,
                     );
                     return Listener(
-                      onPointerMove: (e) => _updateTrashHover(e.position),
+                      onPointerMove: (e) {
+                        _updateTrashHover(e.position);
+                        if (_editHoldDownPos != null &&
+                            (e.position - _editHoldDownPos!).distance > 20) {
+                          _cancelEditHold();
+                        }
+                      },
+                      onPointerUp: (_) => _cancelEditHold(),
+                      onPointerCancel: (_) => _cancelEditHold(),
                       child: base,
                     );
                   },
@@ -699,6 +737,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     });
                   },
                   onReorderEnd: (_) {
+                    _cancelEditHold();
                     if (_dragOverTrash) {
                       // Drop handled in onReorder; clear leftover flags.
                     }
@@ -712,6 +751,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     }
                   },
                   onReorder: (oldIndex, newIndex) {
+                    _cancelEditHold();
                     if (lib.opening ||
                         lib.uploading ||
                         lib.reanalyzing ||
@@ -954,13 +994,31 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           !lib.uploading &&
                           !lib.reanalyzing &&
                           !_deleting,
-                      child: _LibraryCardTouchWrapper(
-                        enabled: !_selecting &&
-                            !lib.opening &&
-                            !lib.uploading &&
-                            !lib.reanalyzing &&
-                            !_deleting,
-                        onLongHold: () => _enterEdit(e.id),
+                      child: Listener(
+                        behavior: HitTestBehavior.translucent,
+                        onPointerDown: (event) {
+                          if (_selecting ||
+                              lib.opening ||
+                              lib.uploading ||
+                              lib.reanalyzing ||
+                              _deleting) {
+                            return;
+                          }
+                          _editHoldDownPos = event.position;
+                          _editHoldCardId = e.id;
+                          _editHoldTimer?.cancel();
+                          _editHoldTimer = Timer(
+                            const Duration(milliseconds: 2000),
+                            _handleLongHoldEdit,
+                          );
+                        },
+                        onPointerMove: (event) {
+                          if (_editHoldDownPos != null &&
+                              (event.position - _editHoldDownPos!).distance > 20) {
+                            _cancelEditHold();
+                          }
+                        },
+                        onPointerUp: (_) => _cancelEditHold(),
                         child: tile,
                       ),
                     );
@@ -970,69 +1028,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
         );
       },
-    );
-  }
-}
-
-/// 2-second hold-without-move detector to transition into selection/edit mode.
-class _LibraryCardTouchWrapper extends StatefulWidget {
-  const _LibraryCardTouchWrapper({
-    required this.child,
-    required this.onLongHold,
-    required this.enabled,
-  });
-
-  final Widget child;
-  final VoidCallback onLongHold;
-  final bool enabled;
-
-  @override
-  State<_LibraryCardTouchWrapper> createState() =>
-      _LibraryCardTouchWrapperState();
-}
-
-class _LibraryCardTouchWrapperState extends State<_LibraryCardTouchWrapper> {
-  Timer? _holdTimer;
-  Offset? _downPos;
-
-  void _cancelTimer() {
-    _holdTimer?.cancel();
-    _holdTimer = null;
-    _downPos = null;
-  }
-
-  @override
-  void dispose() {
-    _cancelTimer();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!widget.enabled) return widget.child;
-    return Listener(
-      onPointerDown: (e) {
-        _cancelTimer();
-        _downPos = e.position;
-        _holdTimer = Timer(const Duration(milliseconds: 2000), () {
-          if (!mounted) return;
-          _cancelTimer();
-          HapticFeedback.heavyImpact();
-          widget.onLongHold();
-        });
-      },
-      onPointerMove: (e) {
-        if (_downPos != null) {
-          final delta = (e.position - _downPos!).distance;
-          if (delta > 10) {
-            // Cancel when user starts scrolling or dragging
-            _cancelTimer();
-          }
-        }
-      },
-      onPointerUp: (_) => _cancelTimer(),
-      onPointerCancel: (_) => _cancelTimer(),
-      child: widget.child,
     );
   }
 }
