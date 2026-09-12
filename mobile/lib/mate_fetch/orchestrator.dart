@@ -183,3 +183,20 @@ Future<MateOrchestrateResult> orchestrateMateFetch({
     code: 'fallback',
   );
 }
+
+
+/// design/252 — snake token for evidence (never CamelCase enum .name).
+String mateOrchestrateModeSnake(MateOrchestrateMode mode) {
+  switch (mode) {
+    case MateOrchestrateMode.fetched:
+      return 'fetched';
+    case MateOrchestrateMode.absent:
+      return 'absent';
+    case MateOrchestrateMode.fallbackBrowser:
+      return 'fallback_browser';
+    case MateOrchestrateMode.killed:
+      return 'killed';
+    case MateOrchestrateMode.failed:
+      return 'failed';
+  }
+}

@@ -28,3 +28,7 @@ Auto-ingest without SAF pick · docx SI · MES.
 ## Version
 
 **0.3.238**
+
+## Amend (design/252)
+
+Resume offer path emits `pdf_find_watch_resume_offer` with `outcome`/`skip_reason` (proves silent return). See [252](252-find-return-causal-evidence.md).

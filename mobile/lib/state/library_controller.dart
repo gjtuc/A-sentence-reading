@@ -377,6 +377,9 @@ class LibraryController extends ChangeNotifier {
   int pdfFindWatchUntilMs = 0;
   int pdfFindWatchBaselineMs = 0;
   String? pdfFindWatchHitDocUri;
+  /// design/252 — join mate→arm→resume_offer (hf_ + hex).
+  String? pdfFindWatchFindId;
+  String? _activeMateHandoffId;
   bool _pdfFindWatchHandled = false;
   final Set<String> _pdfFindWatchIgnoreUris = {};
 
@@ -5275,23 +5278,30 @@ class LibraryController extends ChangeNotifier {
     return normalizePairingKey(raw);
   }
 
-  void armFindWatch({int windowMs = 120000}) {
+  void armFindWatch({int windowMs = 120000, String? findId}) {
     var baseline = 0;
     for (final e in pdfFolderEntries) {
       if (e.lastModifiedMs > baseline) baseline = e.lastModifiedMs;
     }
     final now = DateTime.now().millisecondsSinceEpoch;
+    final fid = (findId ?? _activeMateHandoffId ?? asrEvidenceBus?.newHandoffId() ?? '')
+        .trim();
     pdfFindWatchArmed = true;
     pdfFindWatchUntilMs = now + windowMs;
     pdfFindWatchBaselineMs = baseline;
     pdfFindWatchHitDocUri = null;
+    pdfFindWatchFindId = fid.isEmpty ? null : fid;
     _pdfFindWatchHandled = false;
     _pdfFindWatchIgnoreUris.clear();
     asrEvidenceBus?.record(
       'pdf_find_watch_arm',
       severity: 'lifecycle',
       stage: 'find',
-      details: {'ok': true, 'window_ms': windowMs},
+      details: {
+        'ok': true,
+        'window_ms': windowMs,
+        if (fid.isNotEmpty) 'find_id': fid,
+      },
     );
     notifyListeners();
   }
@@ -5312,28 +5322,37 @@ class LibraryController extends ChangeNotifier {
   void disarmFindWatch({String reason = 'cancel'}) {
     if (!pdfFindWatchArmed && pdfFindWatchHitDocUri == null) return;
     final wasArmed = pdfFindWatchArmed;
+    final fid = (pdfFindWatchFindId ?? '').trim();
     pdfFindWatchArmed = false;
     pdfFindWatchUntilMs = 0;
     pdfFindWatchBaselineMs = 0;
     pdfFindWatchHitDocUri = null;
+    pdfFindWatchFindId = null;
     _pdfFindWatchHandled = false;
     if (wasArmed) {
       asrEvidenceBus?.record(
         'pdf_find_watch_disarm',
         severity: 'lifecycle',
         stage: 'find',
-        details: {'reason': _evidenceSnakeToken(reason, fallback: 'cancel')},
+        details: {
+          'reason': _evidenceSnakeToken(reason, fallback: 'cancel'),
+          if (fid.isNotEmpty) 'find_id': fid,
+        },
       );
     }
     notifyListeners();
   }
 
   void confirmFindWatchHit({required bool accepted}) {
+    final fid = (pdfFindWatchFindId ?? '').trim();
     asrEvidenceBus?.record(
       'pdf_find_watch_confirm',
       severity: 'lifecycle',
       stage: 'find',
-      details: {'accepted': accepted},
+      details: {
+        'accepted': accepted,
+        if (fid.isNotEmpty) 'find_id': fid,
+      },
     );
     // Hit already in connected tree — caller selects URI; never delete.
     pdfFindWatchArmed = false;
@@ -5348,12 +5367,16 @@ class LibraryController extends ChangeNotifier {
   void _pollFindWatchAfterScan() {
     if (!pdfFindWatchArmed || _pdfFindWatchHandled) return;
     final now = DateTime.now().millisecondsSinceEpoch;
+    final fid = (pdfFindWatchFindId ?? '').trim();
     if (now > pdfFindWatchUntilMs) {
       asrEvidenceBus?.record(
         'pdf_find_watch_timeout',
         severity: 'lifecycle',
         stage: 'find',
-        details: {'ok': false},
+        details: {
+          'ok': false,
+          if (fid.isNotEmpty) 'find_id': fid,
+        },
       );
       disarmFindWatch(reason: 'timeout');
       return;
@@ -5369,11 +5392,19 @@ class LibraryController extends ChangeNotifier {
     if (newest == null) return;
     pdfFindWatchHitDocUri = newest.docUri;
     _pdfFindWatchHandled = true;
+    final lower = newest.displayName.toLowerCase();
+    final fileKind = lower.endsWith('.docx')
+        ? 'docx'
+        : (lower.endsWith('.pdf') ? 'pdf' : 'other');
     asrEvidenceBus?.record(
       'pdf_find_watch_hit',
       severity: 'lifecycle',
       stage: 'find',
-      details: {'ok': true},
+      details: {
+        'ok': true,
+        'file_kind': fileKind,
+        if (fid.isNotEmpty) 'find_id': fid,
+      },
     );
     notifyListeners();
   }
@@ -5408,6 +5439,10 @@ class LibraryController extends ChangeNotifier {
     final role = e.advisoryRole.trim().toLowerCase();
     final want = role == 'supplementary' ? 'main' : 'si';
     final t0 = DateTime.now().millisecondsSinceEpoch;
+    final findId = (asrEvidenceBus?.newHandoffId() ??
+            'hf_${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}')
+        .trim();
+    _activeMateHandoffId = findId;
     asrEvidenceBus?.record(
       'mate_fetch_start',
       severity: 'lifecycle',
@@ -5416,9 +5451,22 @@ class LibraryController extends ChangeNotifier {
         'ok': true,
         'want': want,
         'has_stem': e.siStem.trim().isNotEmpty,
+        if (findId.isNotEmpty) 'find_id': findId,
       },
     );
     if (doi.isEmpty) {
+      asrEvidenceBus?.record(
+        'mate_fetch_done',
+        severity: 'warn',
+        stage: 'mate',
+        details: {
+          'ok': false,
+          'mode': 'failed',
+          'code': 'no_doi',
+          'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+          if (findId.isNotEmpty) 'find_id': findId,
+        },
+      );
       return (
         mode: 'failed',
         message: 'DOI가 없습니다.',
@@ -5428,6 +5476,18 @@ class LibraryController extends ChangeNotifier {
       );
     }
     if (matePresentForEntry(e, pdfFolderEntries)) {
+      asrEvidenceBus?.record(
+        'mate_fetch_done',
+        severity: 'lifecycle',
+        stage: 'mate',
+        details: {
+          'ok': false,
+          'mode': 'failed',
+          'code': 'mate_present',
+          'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+          if (findId.isNotEmpty) 'find_id': findId,
+        },
+      );
       return (
         mode: 'failed',
         message: '이미 짝 파일이 있습니다.',
@@ -5484,7 +5544,10 @@ class LibraryController extends ChangeNotifier {
         'mate_si_status',
         severity: 'lifecycle',
         stage: 'mate',
-        details: {'status': meta.siStatus},
+        details: {
+          'status': meta.siStatus,
+          if (findId.isNotEmpty) 'find_id': findId,
+        },
       );
       try {
         await _pdfAdvisoryCache.put(
@@ -5514,6 +5577,7 @@ class LibraryController extends ChangeNotifier {
           'tier': _evidenceSnakeToken(c.tier, fallback: 'unk'),
           'source': _evidenceSnakeToken(c.source, fallback: 'unk'),
           'kind': c.kind,
+          if (findId.isNotEmpty) 'find_id': findId,
         },
       );
     }
@@ -5534,7 +5598,9 @@ class LibraryController extends ChangeNotifier {
         details: {
           'ok': true,
           'mode': 'absent',
+          'code': 'si_absent',
           'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+          if (findId.isNotEmpty) 'find_id': findId,
         },
       );
       return (
@@ -5554,8 +5620,9 @@ class LibraryController extends ChangeNotifier {
         stage: 'mate',
         details: {
           'ok': v.ok,
-          'code': v.code.name,
+          'code': mateValidateCodeSnake(v.code),
           'size_bucket': sizeBucket(orch.bytes!.length),
+          if (findId.isNotEmpty) 'find_id': findId,
         },
       );
       if (!v.ok) {
@@ -5563,7 +5630,13 @@ class LibraryController extends ChangeNotifier {
           'mate_fetch_fallback_browser',
           severity: 'warn',
           stage: 'mate',
-          details: {'ok': true, 'reason': 'validate_fail'},
+          details: {
+            'ok': true,
+            'reason': 'validate_fail',
+            'code': mateValidateCodeSnake(v.code),
+            'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+            if (findId.isNotEmpty) 'find_id': findId,
+          },
         );
         return (
           mode: 'fallback',
@@ -5585,11 +5658,13 @@ class LibraryController extends ChangeNotifier {
         stage: 'mate',
         details: {
           'ok': sink.ok,
-          'mode': sink.mode,
+          'mode': sink.ok ? 'fetched' : 'fallback',
+          'code': sink.ok ? 'ok' : 'sink_fail',
           'tier': _evidenceSnakeToken(orch.tier, fallback: 'unk'),
           'source': _evidenceSnakeToken(orch.source, fallback: 'unk'),
           'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
           'size_bucket': sizeBucket(orch.bytes!.length),
+          if (findId.isNotEmpty) 'find_id': findId,
         },
       );
       if (sink.ok) {
@@ -5619,8 +5694,13 @@ class LibraryController extends ChangeNotifier {
       stage: 'mate',
       details: {
         'ok': true,
-        'mode': orch.mode.name,
+        'mode': mateOrchestrateModeSnake(orch.mode),
+        'code': _evidenceSnakeToken(
+          orch.code.isEmpty ? 'fallback' : orch.code,
+          fallback: 'fallback',
+        ),
         'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+        if (findId.isNotEmpty) 'find_id': findId,
       },
     );
     return (

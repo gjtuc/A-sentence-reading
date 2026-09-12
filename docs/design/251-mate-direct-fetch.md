@@ -68,3 +68,7 @@ Hook: `_openFind` → `LibraryController` mate fetch → 기존 copy/enqueue.
 **0.3.244** (CF-safe pattern candidates to device; RSC/Nature/Wiley SI templates)
 
 **0.3.243** (Phase A + ACS/RSC SI patterns seed + SI-absent CTA)
+
+## Amend (design/252)
+
+Mate evidence must terminal every return with snake `mode`/`code` + shared `find_id`. See [252](252-find-return-causal-evidence.md).

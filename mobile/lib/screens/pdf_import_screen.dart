@@ -1,5 +1,5 @@
 /// design/226 — full-screen PDF folder import (not thin sheet).
-/// design/237 find CTA · 238/248 Downloads in-app · 239 set · 242 watch · 247 hint.
+/// design/237 find CTA · 238/248 Downloads in-app · 239 set · 242 watch · 247 hint · 252 evidence.
 library;
 
 import 'dart:async';
@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api/pdf_folder_grant_models.dart';
 import '../state/library_controller.dart';
+import '../services/evidence_bus.dart';
 
 class PdfImportScreen extends StatefulWidget {
   const PdfImportScreen({
@@ -69,19 +70,64 @@ class _PdfImportScreenState extends State<PdfImportScreen>
   }
 
   /// design/247 — after 찾아보기, SI/main often lands in Downloads (outside tree).
+  /// design/252 — always emit resume_offer (including skip reasons).
   Future<void> _maybeOfferDownloadsPickAfterFind() async {
     if (!mounted) return;
-    if (!lib.pdfFindWatchArmed || lib.pdfFindWatchHitDocUri != null) return;
-    if (_findWatchPickOffered || _findWatchDialogOpen || _busy) return;
-    if (lib.reanalyzing || lib.opening) return;
+    final findId = (lib.pdfFindWatchFindId ?? '').trim();
+    final remaining =
+        lib.pdfFindWatchUntilMs - DateTime.now().millisecondsSinceEpoch;
+    String? skip;
+    if (!lib.pdfFindWatchArmed) {
+      skip = 'not_armed';
+    } else if (lib.pdfFindWatchHitDocUri != null) {
+      skip = 'already_hit';
+    } else if (_findWatchPickOffered) {
+      skip = 'already_offered';
+    } else if (_findWatchDialogOpen) {
+      skip = 'dialog_open';
+    } else if (_busy) {
+      skip = 'busy';
+    } else if (lib.reanalyzing) {
+      skip = 'reanalyzing';
+    } else if (lib.opening) {
+      skip = 'opening';
+    } else if (remaining <= 0) {
+      skip = 'expired';
+    }
+
+    void emit({
+      required String outcome,
+      String? skipReason,
+    }) {
+      asrEvidenceBus?.record(
+        'pdf_find_watch_resume_offer',
+        severity: 'lifecycle',
+        stage: 'find',
+        details: {
+          'ok': outcome != 'skipped',
+          'outcome': outcome,
+          if (skipReason != null) 'skip_reason': skipReason,
+          'armed': lib.pdfFindWatchArmed,
+          'remaining_ms': remaining < 0 ? 0 : remaining,
+          if (findId.isNotEmpty) 'find_id': findId,
+        },
+      );
+    }
+
+    if (skip != null) {
+      emit(outcome: 'skipped', skipReason: skip);
+      return;
+    }
+
     _findWatchPickOffered = true;
+    emit(outcome: 'offered');
     final go = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('다운로드에서 가져올까요?'),
         content: const Text(
-          '브라우저에서 받은 PDF는 보통 다운로드 폴더에 있습니다. '
-          '앱 목록에서 고를까요? (PDF만)',
+          '브라우저에서 받은 파일은 보통 다운로드 폴더에 있습니다. '
+          '앱 목록에서 고를까요? (PDF/DOCX)',
         ),
         actions: [
           TextButton(
@@ -96,6 +142,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
       ),
     );
     if (!mounted) return;
+    emit(outcome: go == true ? 'accepted' : 'declined');
     if (go == true) {
       await _openDownloadsBrowse();
     }

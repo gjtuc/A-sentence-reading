@@ -251,6 +251,8 @@ const Set<String> kEvidenceAllowedKinds = {
   'pdf_find_watch_timeout',
   'pdf_find_watch_confirm',
   'pdf_find_watch_disarm',
+  // design/252 — find return resume offer
+  'pdf_find_watch_resume_offer',
   // design/251 — mate direct fetch
   'mate_fetch_start',
   'mate_fetch_candidate',

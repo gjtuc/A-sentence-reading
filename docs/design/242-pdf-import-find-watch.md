@@ -16,3 +16,7 @@ Amends [226](226-pdf-folder-import-browser.md) · [237](237-pdf-import-doi-find-
 ## Version
 
 **0.3.235**
+
+## Amend (design/252)
+
+Find-watch events carry `find_id`; hit may include `file_kind` bucket. Resume Downloads offer evidence: [252](252-find-return-causal-evidence.md).

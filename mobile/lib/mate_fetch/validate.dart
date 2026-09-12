@@ -110,3 +110,22 @@ String sizeBucket(int n) {
   if (n < 20 * 1024 * 1024) return 'lt_20mb';
   return 'ge_20mb';
 }
+
+
+/// design/252 — snake token for evidence (never CamelCase enum .name).
+String mateValidateCodeSnake(MateValidateCode code) {
+  switch (code) {
+    case MateValidateCode.ok:
+      return 'ok';
+    case MateValidateCode.empty:
+      return 'empty';
+    case MateValidateCode.tooLarge:
+      return 'too_large';
+    case MateValidateCode.notPdf:
+      return 'not_pdf';
+    case MateValidateCode.html:
+      return 'html';
+    case MateValidateCode.badHost:
+      return 'bad_host';
+  }
+}
