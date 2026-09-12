@@ -64,12 +64,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Timer? _editHoldTimer;
   Offset? _editHoldDownPos;
   String? _editHoldCardId;
+  final ValueNotifier<bool> _dragLifted = ValueNotifier<bool>(false);
 
   void _cancelEditHold() {
     _editHoldTimer?.cancel();
     _editHoldTimer = null;
     _editHoldDownPos = null;
     _editHoldCardId = null;
+    _dragLifted.value = false;
+  }
+
+  void _checkDragMotion(Offset currentPos) {
+    if (_editHoldDownPos != null) {
+      final dist = (currentPos - _editHoldDownPos!).distance;
+      if (dist > 15) {
+        _editHoldTimer?.cancel();
+        if (!_dragLifted.value && _dragCacheId != null) {
+          _dragLifted.value = true;
+          HapticFeedback.mediumImpact();
+        }
+      }
+    }
   }
 
   void _handleLongHoldEdit() {
@@ -116,6 +131,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void dispose() {
     _cancelEditHold();
+    _dragLifted.dispose();
     widget.auth.removeListener(_onAuth);
     super.dispose();
   }
@@ -485,7 +501,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
             if (didPop) return;
             if (_selecting) _exitEdit();
           },
-          child: CustomScrollView(
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerMove: (event) => _checkDragMotion(event.position),
+            onPointerUp: (_) => _cancelEditHold(),
+            onPointerCancel: (_) => _cancelEditHold(),
+            child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(
@@ -715,14 +736,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       index,
                       animation,
                       colorScheme: scheme,
+                      isLifted: _dragLifted,
                     );
                     return Listener(
                       onPointerMove: (e) {
                         _updateTrashHover(e.position);
-                        if (_editHoldDownPos != null &&
-                            (e.position - _editHoldDownPos!).distance > 20) {
-                          _cancelEditHold();
-                        }
+                        _checkDragMotion(e.position);
                       },
                       onPointerUp: (_) => _cancelEditHold(),
                       onPointerCancel: (_) => _cancelEditHold(),
@@ -1006,25 +1025,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           }
                           _editHoldDownPos = event.position;
                           _editHoldCardId = e.id;
+                          _dragLifted.value = false;
                           _editHoldTimer?.cancel();
                           _editHoldTimer = Timer(
                             const Duration(milliseconds: 2000),
                             _handleLongHoldEdit,
                           );
                         },
-                        onPointerMove: (event) {
-                          if (_editHoldDownPos != null &&
-                              (event.position - _editHoldDownPos!).distance > 20) {
-                            _cancelEditHold();
-                          }
-                        },
+                        onPointerMove: (event) => _checkDragMotion(event.position),
                         onPointerUp: (_) => _cancelEditHold(),
+                        onPointerCancel: (_) => _cancelEditHold(),
                         child: tile,
                       ),
                     );
                   },
                 ),
             ],
+          ),
           ),
         );
       },

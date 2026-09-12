@@ -3,6 +3,7 @@ library;
 
 import 'dart:ui' show lerpDouble;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -18,6 +19,7 @@ Widget libraryReorderProxyDecorator(
   Animation<double> animation, {
   required ColorScheme colorScheme,
   Color? shadowColor,
+  ValueListenable<bool>? isLifted,
 }) {
   // EDGE: index unused — signature matches proxyDecorator callback.
   assert(index >= 0);
@@ -25,6 +27,7 @@ Widget libraryReorderProxyDecorator(
     animation: animation,
     colorScheme: colorScheme,
     shadowColor: shadowColor,
+    isLifted: isLifted,
     child: child,
   );
 }
@@ -35,12 +38,14 @@ class _LibraryReorderProxyWidget extends StatefulWidget {
     required this.animation,
     required this.colorScheme,
     this.shadowColor,
+    this.isLifted,
   });
 
   final Widget child;
   final Animation<double> animation;
   final ColorScheme colorScheme;
   final Color? shadowColor;
+  final ValueListenable<bool>? isLifted;
 
   @override
   State<_LibraryReorderProxyWidget> createState() =>
@@ -52,40 +57,56 @@ class _LibraryReorderProxyWidgetState
   @override
   void initState() {
     super.initState();
-    // Physical "pick up & lift" haptic feedback on drag pickup.
-    HapticFeedback.mediumImpact();
+    if (widget.isLifted == null) {
+      // Physical "pick up & lift" haptic feedback on drag pickup if not decoupled.
+      HapticFeedback.mediumImpact();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: widget.animation,
-      builder: (context, _) {
-        final t = Curves.easeOutCubic.transform(widget.animation.value);
-        final elevation = lerpDouble(0, 10, t) ?? 0;
-        final scale = lerpDouble(1.0, 1.04, t) ?? 1.0;
-        return Transform.scale(
-          scale: scale,
-          child: Material(
-            elevation: elevation,
-            // Fail-closed against white flash: never rely on default tinted surface.
-            color: widget.colorScheme.surface,
-            surfaceTintColor: Colors.transparent,
-            shadowColor: widget.shadowColor ?? widget.colorScheme.shadow,
-            borderRadius: BorderRadius.circular(12),
-            clipBehavior: Clip.antiAlias,
-            child: Container(
-              decoration: BoxDecoration(
+    final liftedListenable = widget.isLifted ?? ValueNotifier<bool>(true);
+
+    return ValueListenableBuilder<bool>(
+      valueListenable: liftedListenable,
+      builder: (context, lifted, _) {
+        return AnimatedBuilder(
+          animation: widget.animation,
+          builder: (context, _) {
+            // When not yet lifted (static finger holding before drag motion),
+            // show zero elevation, 1.0 scale and no border (stealth mode for 2s hold).
+            final t = lifted
+                ? Curves.easeOutCubic.transform(widget.animation.value)
+                : 0.0;
+            final elevation = lerpDouble(0, 10, t) ?? 0;
+            final scale = lerpDouble(1.0, 1.04, t) ?? 1.0;
+            return Transform.scale(
+              key: const Key('reorder_proxy_transform'),
+              scale: scale,
+              child: Material(
+                elevation: elevation,
+                // Fail-closed against white flash: never rely on default tinted surface.
+                color: widget.colorScheme.surface,
+                surfaceTintColor: Colors.transparent,
+                shadowColor: widget.shadowColor ?? widget.colorScheme.shadow,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: widget.colorScheme.primary
-                      .withValues(alpha: t * 0.9),
-                  width: 2,
+                clipBehavior: Clip.antiAlias,
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: lifted
+                          ? widget.colorScheme.primary
+                              .withValues(alpha: t * 0.9)
+                          : Colors.transparent,
+                      width: 2,
+                    ),
+                  ),
+                  child: widget.child,
                 ),
               ),
-              child: widget.child,
-            ),
-          ),
+            );
+          },
         );
       },
     );
