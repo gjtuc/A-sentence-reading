@@ -421,7 +421,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             if (countShadowingReadySentences(plan) >= 1 ||
                 shadowingPlanStatusIsPending(plan) ||
                 shadowingPlanStatusIsOk(plan)) {
-              unawaited(_disk.writeChunkPlanJson(cacheId, plan!));
+              unawaited(_disk.writeChunkPlanJson(cacheId, plan));
             }
           }
         } catch (_) {
