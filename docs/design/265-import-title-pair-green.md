@@ -1,7 +1,7 @@
 # 265 — Import title · pairing · green「이미 보관」
 
-Version: **0.3.262** · Status: **locked**  
-Amends [223](223-library-content-hash-border.md) · [224](224-soft-delete.md) · [228](228-pdf-advisory-title.md) · [239](239-pairing-key.md) · backlog from folder audit (4 mate folders).
+Version: **0.3.262** · Status: **locked + shipped**  
+Amends [223](223-library-content-hash-border.md) · [224](224-soft-delete.md) · [228](228-pdf-advisory-title.md) · [239](239-pdf-import-advisory-set-pairing.md) · backlog from folder audit (4 mate folders).
 
 Does **not** reopen [263](263-si-merge-integrity.md) merge/bib/figure logic.
 
