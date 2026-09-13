@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../api/paper_models.dart';
 import '../api/reading_models.dart';
+import '../pdf/normalize_pairing_key.dart';
 import 'figure_disk_cache.dart';
 
 const String kPaperDiskStoreDirName = 'asr_papers';
@@ -149,6 +150,7 @@ class PaperDiskIndexEntry {
 }
 
 /// design/240 — place soft-paired mates adjacent; keep two rows (no merge).
+/// design/261 — prefer [collapsePairedSetRows] for library publish.
 List<PaperEntry> pairAdjacentPapers(List<PaperEntry> papers) {
   if (papers.length < 2) return List<PaperEntry>.from(papers);
   final byId = {for (final e in papers) e.id: e};
@@ -166,6 +168,81 @@ List<PaperEntry> pairAdjacentPapers(List<PaperEntry> papers) {
     used.add(pairId);
   }
   return out;
+}
+
+bool _ingestReady(PaperEntry e) {
+  final st = e.ingestStatus.trim().toLowerCase();
+  return st.isEmpty || st == 'ok' || st == 'local';
+}
+
+String _pairingKeyOf(PaperEntry e) {
+  final k = normalizePairingKey(e.title);
+  return k.isNotEmpty ? k : e.title.trim().toLowerCase();
+}
+
+/// design/261 — Dart twin of server apply_pairing_pass (key-only, 1+1).
+List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) {
+  if (papers.isEmpty) return papers;
+  final cleared = [
+    for (final e in papers)
+      e.copyWith(pairedCacheId: '', canMergeSupplementary: false),
+  ];
+  final byKey = <String, List<int>>{};
+  for (var i = 0; i < cleared.length; i++) {
+    final e = cleared[i];
+    final role = e.docRole.trim().toLowerCase();
+    if (role == 'merged') continue;
+    final key = _pairingKeyOf(e);
+    if (key.isEmpty) continue;
+    byKey.putIfAbsent(key, () => []).add(i);
+  }
+  final out = List<PaperEntry>.from(cleared);
+  for (final idxs in byKey.values) {
+    final mainIs = <int>[];
+    final siIs = <int>[];
+    for (final i in idxs) {
+      final role = out[i].docRole.trim().toLowerCase();
+      if (role == 'supplementary' || role == 'si' || role == 'supp') {
+        siIs.add(i);
+      } else if (role == 'main' || role.isEmpty) {
+        mainIs.add(i);
+      }
+    }
+    if (mainIs.length != 1 || siIs.length != 1) continue;
+    final mi = mainIs.first;
+    final si = siIs.first;
+    final main = out[mi];
+    final mate = out[si];
+    final canMerge = _ingestReady(main) && _ingestReady(mate);
+    out[mi] = main.copyWith(
+      pairedCacheId: mate.id,
+      canMergeSupplementary: canMerge,
+      libraryTag: canMerge ? '메인+보충(짝)' : main.libraryTag,
+    );
+    out[si] = mate.copyWith(
+      pairedCacheId: main.id,
+      canMergeSupplementary: false,
+    );
+  }
+  return out;
+}
+
+/// design/261 — one set row: hide SI when paired to a main (hybrid one-line).
+List<PaperEntry> collapsePairedSetRows(List<PaperEntry> papers) {
+  if (papers.length < 2) return List<PaperEntry>.from(papers);
+  final hide = <String>{};
+  for (final e in papers) {
+    final role = e.docRole.trim().toLowerCase();
+    if (role == 'supplementary' || role == 'si' || role == 'supp') continue;
+    final mateId = e.pairedCacheId.trim();
+    if (mateId.isEmpty) continue;
+    hide.add(mateId);
+  }
+  if (hide.isEmpty) return pairAdjacentPapers(papers);
+  return [
+    for (final e in papers)
+      if (!hide.contains(e.id)) e,
+  ];
 }
 
 /// Handoff-style manifest (sha256 per relative path).
@@ -420,8 +497,11 @@ class PaperDiskStore {
     for (final e in cur) {
       if (e.id != entry.id) continue;
       final keepPair = entry.pairedCacheId.trim().isEmpty &&
-          e.pairedCacheId.trim().isNotEmpty;
-      final keepMerge = !entry.canMergeSupplementary && e.canMergeSupplementary;
+          e.pairedCacheId.trim().isNotEmpty &&
+          entry.docRole.trim().toLowerCase() != 'merged';
+      final keepMerge = !entry.canMergeSupplementary &&
+          e.canMergeSupplementary &&
+          entry.docRole.trim().toLowerCase() != 'merged';
       if (keepPair || keepMerge) {
         toWrite = PaperDiskIndexEntry(
           id: entry.id,

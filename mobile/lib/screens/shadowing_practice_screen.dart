@@ -841,7 +841,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
     // design/259 — keep Listen UI through mic ready-beat; Speak chrome in
     // `_revealSpeakUi` together with beginSpeak / 「말하는 중」.
-    final speakResult = await _runSpeakPhase();
+    final speakResult = await _runSpeakPhase(token: token);
     if (!alive()) {
       return;
     }
@@ -905,7 +905,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   /// Phase 2 — mic open; focus clock runs only after ready-beat. Reuses chunk TTS.
   /// UI stays Listen until `_revealSpeakUi` (design/259).
-  Future<_SpeakPhaseResult> _runSpeakPhase() async {
+  /// design/260 — after ready beat, require cycle [token] still alive.
+  Future<_SpeakPhaseResult> _runSpeakPhase({required int token}) async {
     if (_chunks.isEmpty) {
       return const _SpeakPhaseResult(
         ok: false,
@@ -913,6 +914,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         code: 'no_chunks',
       );
     }
+    bool alive() =>
+        mounted &&
+        token == _cycleToken &&
+        _focus.sessionActive &&
+        !_focus.paused;
     var okMic = await _mic.invokeMethod<bool>('hasPermission') ?? false;
     if (!okMic) {
       okMic = await _mic.invokeMethod<bool>('requestPermission') ?? false;
@@ -959,12 +965,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     }
     // design/245 — let the recorder settle; design/259 — UI still Listen here.
     await Future<void>.delayed(_speakMicReadyBeat);
-    if (!mounted) {
+    // design/260 — Give Up / jump / pause during beat must not reveal Speak.
+    if (!alive()) {
       unawaited(_mic.invokeMethod<String>('stop'));
       return const _SpeakPhaseResult(
         ok: false,
         signal: GroomingSignal.takeFail,
-        code: 'unmounted',
+        code: 'cycle_cancelled',
       );
     }
     _revealSpeakUi();

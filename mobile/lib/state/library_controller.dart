@@ -166,8 +166,9 @@ class LibraryController extends ChangeNotifier {
     final filtered = hidden.isEmpty
         ? next
         : next.where((e) => !hidden.contains(e.id)).toList(growable: false);
-    // design/240 — adjacent mates; still two openable rows (no auto-merge).
-    papers = pairAdjacentPapers(filtered);
+    // design/240 — adjacent mates; design/261 — local pairing + one set row.
+    final paired = applyLocalPairingPass(filtered);
+    papers = collapsePairedSetRows(paired);
   }
 
   void _scheduleSoftPurgeWorker() {
@@ -2678,7 +2679,7 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  /// design/152 — merge paired supplementary into main session.
+  /// design/152 · 261 — merge paired SI into main (device-local first, else POST).
   Future<bool> mergeSupplementary(PaperEntry entry) async {
     if (!entry.canMergeSupplementary) return false;
     if (uploading || reanalyzing || opening) {
@@ -2690,7 +2691,12 @@ class LibraryController extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      await _client.mergeSupplementary(entry.id);
+      final siId = entry.pairedCacheId.trim();
+      final localOk = siId.isNotEmpty &&
+          await _mergeSupplementaryLocal(mainId: entry.id, siId: siId);
+      if (!localOk) {
+        await _client.mergeSupplementary(entry.id);
+      }
       await refresh();
       error = null;
       notifyListeners();
@@ -2726,6 +2732,145 @@ class LibraryController extends ChangeNotifier {
       opening = false;
       notifyListeners();
     }
+  }
+
+  /// design/261 — append SI session into main on device (185 post-wipe safe).
+  Future<bool> _mergeSupplementaryLocal({
+    required String mainId,
+    required String siId,
+  }) async {
+    final mainSession = await _paperDisk.loadSessionJson(mainId);
+    final siSession = await _paperDisk.loadSessionJson(siId);
+    if (mainSession == null || siSession == null) return false;
+
+    final mainSents = <Map<String, dynamic>>[];
+    final rawMain = mainSession['sentences'];
+    if (rawMain is List) {
+      for (final s in rawMain) {
+        if (s is Map) mainSents.add(Map<String, dynamic>.from(s));
+      }
+    }
+    final usedIds = <String>{
+      for (final s in mainSents) '${s['id'] ?? ''}'.trim(),
+    }..removeWhere((e) => e.isEmpty);
+
+    final rawSi = siSession['sentences'];
+    if (rawSi is List) {
+      var i = 0;
+      for (final s in rawSi) {
+        i += 1;
+        if (s is! Map) continue;
+        final m = Map<String, dynamic>.from(s);
+        var sid = '${m['id'] ?? ''}'.trim();
+        if (sid.isEmpty || usedIds.contains(sid)) {
+          sid = 'si_${i.toString().padLeft(4, '0')}';
+          var n = 0;
+          while (usedIds.contains(sid)) {
+            n += 1;
+            sid = 'si_${i.toString().padLeft(4, '0')}_$n';
+          }
+        }
+        usedIds.add(sid);
+        m['id'] = sid;
+        m['section'] = 'supplementary';
+        mainSents.add(m);
+      }
+    }
+
+    final mainFigs = <Map<String, dynamic>>[];
+    final rawMainFigs = mainSession['figures'];
+    if (rawMainFigs is List) {
+      for (final f in rawMainFigs) {
+        if (f is Map) mainFigs.add(Map<String, dynamic>.from(f));
+      }
+    }
+    final rawSiFigs = siSession['figures'];
+    if (rawSiFigs is List) {
+      var i = 0;
+      for (final f in rawSiFigs) {
+        i += 1;
+        if (f is! Map) continue;
+        final m = Map<String, dynamic>.from(f);
+        var fid = '${m['id'] ?? ''}'.trim();
+        if (fid.isEmpty) fid = 'si-fig-${mainFigs.length + i}';
+        if (!fid.startsWith('si-')) fid = 'si-$fid';
+        m['id'] = fid;
+        mainFigs.add(m);
+      }
+    }
+
+    // Copy SI figure PNG bytes into main folder when present.
+    try {
+      final siDir = await _paperDisk.paperDir(siId);
+      final mainDir = await _paperDisk.paperDir(mainId);
+      if (siDir != null && mainDir != null) {
+        final sep = Platform.pathSeparator;
+        final siFigs = Directory('${siDir.path}${sep}figures');
+        if (await siFigs.exists()) {
+          final dest = Directory('${mainDir.path}${sep}figures');
+          if (!await dest.exists()) await dest.create(recursive: true);
+          await for (final ent in siFigs.list(followLinks: false)) {
+            if (ent is! File) continue;
+            final name = ent.uri.pathSegments.isNotEmpty
+                ? ent.uri.pathSegments.last
+                : '';
+            if (!name.endsWith('.png')) continue;
+            await ent.copy('${dest.path}$sep$name');
+          }
+        }
+      }
+    } catch (_) {}
+
+    final digests = <String, dynamic>{};
+    final md = mainSession['translate_digests'];
+    final sd = siSession['translate_digests'];
+    if (md is Map) digests.addAll(Map<String, dynamic>.from(md));
+    if (sd is Map) digests.addAll(Map<String, dynamic>.from(sd));
+
+    final merged = Map<String, dynamic>.from(mainSession);
+    merged['sentences'] = mainSents;
+    merged['figures'] = mainFigs;
+    merged['translate_digests'] = digests;
+    merged['doc_role'] = 'merged';
+    merged['supplementary_merged'] = true;
+    merged['supplementary_cache_id'] = siId;
+
+    final ch = '${merged['content_hash'] ?? ''}'.trim();
+    final ok = await _paperDisk.writeSessionJson(
+      mainId,
+      merged,
+      contentHash: ch,
+    );
+    if (!ok) return false;
+
+    PaperEntry? mainMeta;
+    for (final e in papers) {
+      if (e.id == mainId) {
+        mainMeta = e;
+        break;
+      }
+    }
+    await _paperDisk.upsertIndex(
+      PaperDiskIndexEntry(
+        id: mainId,
+        title: (mainMeta?.title.isNotEmpty == true)
+            ? mainMeta!.title
+            : '${merged['title'] ?? mainId}',
+        source: mainMeta?.source ?? 'pdf',
+        updatedAt: DateTime.now().toUtc().toIso8601String(),
+        sentenceCount: mainSents.length,
+        figureCount: mainFigs.length,
+        contentHash: ch,
+        pipelineVersion: mainMeta?.pipelineVersion ?? '',
+        hasSource: mainMeta?.hasSource ?? false,
+        debone: mainMeta?.debone ?? false,
+        docRole: 'merged',
+        pairedCacheId: '',
+        canMergeSupplementary: false,
+      ),
+    );
+    await _paperDisk.removeFromIndex(siId);
+    return true;
   }
 
   Future<List<PaperEntry>> _applySavedOrder(List<PaperEntry> fetched) async {

@@ -894,7 +894,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       ),
                       subtitle: Text(
                         [
-                          if (e.pairedCacheId.trim().isNotEmpty) '⇄ 짝 논문 (별도 행 · 자동 합치지 않음)',
+                          if (e.pairedCacheId.trim().isNotEmpty)
+                            '⇄ 짝 있음 · 합치면 한 세션으로 읽기',
                           e.metaLine(),
                           e.progressResumeLine(
                             readSection: lib.progressResumeByCacheId[e.id],

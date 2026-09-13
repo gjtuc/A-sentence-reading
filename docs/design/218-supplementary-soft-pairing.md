@@ -1,6 +1,6 @@
 # 218 — Supplementary soft pairing + visible role tags
 
-Version: **0.3.218** · Status: **locked** · Amends [152](152-supplementary-merge.md) · [160](160-mobile-library-reader-polish.md)
+Version: **0.3.218** · Status: **locked** · Amended by [261](261-cross-source-pair-set-row.md) · Amends [152](152-supplementary-merge.md) · [160](160-mobile-library-reader-polish.md)
 
 ## Problem
 
@@ -15,7 +15,7 @@ Version: **0.3.218** · Status: **locked** · Amends [152](152-supplementary-mer
 1. **Dedup unchanged:** still `title_key + source + doc_role` (no overwrite across near titles).
 2. **Pairing key** `normalize_pairing_key(title)` = `normalize_title_key` then strip SI
    boilerplate prefix, then drop English articles `{a,an,the}` only (pairing-only).
-3. **`apply_pairing_pass`** indexes by `(pairing_key, source)` for main↔SI 1:1 newest.
+3. **`apply_pairing_pass`** indexes by **`pairing_key` only** for main↔SI 1:1 (cross-source; amended [261](261-cross-source-pair-set-row.md)). Strict 1+1.
 4. Exact `title_key` match still wins when present; pairing key covers article drift.
 5. Library: role chip **above** title (always visible); `metaResumeLine` prefixes `libraryTag`.
 6. Merge eligibility still `can_merge_supplementary` (ingest ok + paired + roles).

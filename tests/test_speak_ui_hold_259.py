@@ -27,11 +27,13 @@ def test_design_245_amended_by_259() -> None:
 
 
 def test_versions_259() -> None:
-    app = APP.read_text(encoding="utf-8")
-    assert 'version="0.3.259"' in app
-    assert '"version": "0.3.259"' in app
-    assert "0.3.259" in PUBSPEC.read_text(encoding="utf-8")
-    assert "0.3.259" in CONFIG.read_text(encoding="utf-8")
+    # Shipped at 0.3.259; later chips bump app version — design pin stays.
+    text = DESIGN.read_text(encoding="utf-8")
+    assert "0.3.259" in text
+    assert "Status: **locked**" in text
+    assert "0.3." in APP.read_text(encoding="utf-8")
+    assert "0.3." in PUBSPEC.read_text(encoding="utf-8")
+    assert "0.3." in CONFIG.read_text(encoding="utf-8")
 
 
 def test_speak_ui_hold_impl() -> None:

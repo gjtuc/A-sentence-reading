@@ -144,6 +144,47 @@ class PaperEntry {
 
   bool get isValid => id.isNotEmpty && title.isNotEmpty;
 
+  /// design/261 — mutate pairing / set-row fields without losing the rest.
+  PaperEntry copyWith({
+    String? pairedCacheId,
+    bool? canMergeSupplementary,
+    String? libraryTag,
+    String? docRole,
+    String? ingestStatus,
+    int? sentenceCount,
+    int? figureCount,
+  }) {
+    return PaperEntry(
+      id: id,
+      title: title,
+      source: source,
+      updatedAt: updatedAt,
+      sentenceCount: sentenceCount ?? this.sentenceCount,
+      figureCount: figureCount ?? this.figureCount,
+      debone: debone,
+      pipelineVersion: pipelineVersion,
+      stale: stale,
+      hasSource: hasSource,
+      expiresAt: expiresAt,
+      retentionWarn: retentionWarn,
+      retentionCanExtend: retentionCanExtend,
+      retentionDaysUntilExpiry: retentionDaysUntilExpiry,
+      retentionExtendDays: retentionExtendDays,
+      docRole: docRole ?? this.docRole,
+      libraryTag: libraryTag ?? this.libraryTag,
+      ingestStatus: ingestStatus ?? this.ingestStatus,
+      canMergeSupplementary:
+          canMergeSupplementary ?? this.canMergeSupplementary,
+      pairedCacheId: pairedCacheId ?? this.pairedCacheId,
+      harmonizePending: harmonizePending,
+      harmonizeTotal: harmonizeTotal,
+      harmonizeDone: harmonizeDone,
+      harmonizeFailed: harmonizeFailed,
+      harmonizeAttemptN: harmonizeAttemptN,
+      contentHash: contentHash,
+    );
+  }
+
   /// design/160 — sentence + figure counts only (no library tag / stale / TTL text).
   /// design/196 — totals + optional resume section in one line.
   /// design/218 — prefix libraryTag so main/SI role is visible in subtitle too.

@@ -33,7 +33,9 @@ def library_tag_for(entry: dict[str, Any]) -> str:
 
 
 def _ingest_ok(entry: dict[str, Any]) -> bool:
-    return str(entry.get("ingest_status") or "ok").strip().lower() == "ok"
+    # design/261 — device-SoT rows may surface as local after handoff.
+    st = str(entry.get("ingest_status") or "ok").strip().lower()
+    return st in ("ok", "local", "")
 
 
 def _by_title_role(entries: list[dict[str, Any]]) -> dict[tuple[str, str, str], dict[str, Any]]:
@@ -53,74 +55,58 @@ def _by_title_role(entries: list[dict[str, Any]]) -> dict[tuple[str, str, str], 
 def apply_pairing_pass(entries: list[dict[str, Any]]) -> None:
     """Mutual paired_cache_id for same pairing_key main↔supplementary (1:1).
 
-    design/218 — pairing uses normalize_pairing_key (articles/SI prefix soft match).
-    Dedup remains exact title_key + source + doc_role.
+    design/218 · 261 — pairing uses normalize_pairing_key (articles/SI prefix).
+    Index is pairing_key **only** (cross-source pdf+docx). Dedup remains
+    exact title_key + source + doc_role.
     """
     for e in entries:
         if isinstance(e, dict):
             e.pop("paired_cache_id", None)
 
-    mains: dict[tuple[str, str], dict[str, Any]] = {}
-    sis: dict[tuple[str, str], dict[str, Any]] = {}
+    by_key: dict[str, list[dict[str, Any]]] = {}
     for e in entries:
         if not isinstance(e, dict):
             continue
-        title = str(e.get("title") or "")
-        key = normalize_pairing_key(title) or str(e.get("title_key") or "")
-        if not key:
+        if e.get("hidden_in_library"):
             continue
-        src = str(e.get("source") or "pdf").lower()
-        ts = (key, src)
         role = entry_doc_role(e)
-        if role == "main":
-            prev = mains.get(ts)
-            if prev is None or str(e.get("updated_at") or "") >= str(
-                prev.get("updated_at") or ""
-            ):
-                mains[ts] = e
-        elif role == "supplementary":
-            prev = sis.get(ts)
-            if prev is None or str(e.get("updated_at") or "") >= str(
-                prev.get("updated_at") or ""
-            ):
-                sis[ts] = e
-    # Count all mains per pairing key (not just newest) for gap evidence.
-    main_counts: dict[tuple[str, str], int] = {}
-    for e in entries:
-        if not isinstance(e, dict):
+        if role == "merged":
             continue
         title = str(e.get("title") or "")
         key = normalize_pairing_key(title) or str(e.get("title_key") or "")
         if not key:
             continue
-        src = str(e.get("source") or "pdf").lower()
-        if entry_doc_role(e) == "main":
-            main_counts[(key, src)] = main_counts.get((key, src), 0) + 1
+        by_key.setdefault(key, []).append(e)
 
-    for ts, main_e in mains.items():
-        si_e = sis.get(ts)
-        if si_e is None:
-            # design/222 — two+ mains share pairing_key but no SI → unpairable.
-            if main_counts.get(ts, 0) >= 2:
-                try:
-                    from sentence_reading.llm import evidence_bus as eb
+    for key, group in by_key.items():
+        mains = [e for e in group if entry_doc_role(e) == "main"]
+        sis = [e for e in group if entry_doc_role(e) == "supplementary"]
+        if len(mains) >= 2 and not sis:
+            try:
+                from sentence_reading.llm import evidence_bus as eb
 
-                    if eb.evidence_bus_enabled():
-                        eb.record(
-                            "doc_role_pairing_gap",
-                            severity="lifecycle",
-                            stage="apply_pairing",
-                            cache_id=str(main_e.get("id") or ""),
-                            ok=False,
-                            details={
-                                "main_n": int(main_counts.get(ts, 0)),
-                                "si_n": 0,
-                                "reason": "both_main_same_pairing_key",
-                            },
-                        )
-                except Exception:
-                    pass
+                if eb.evidence_bus_enabled():
+                    eb.record(
+                        "doc_role_pairing_gap",
+                        severity="lifecycle",
+                        stage="apply_pairing",
+                        cache_id=str(mains[0].get("id") or ""),
+                        ok=False,
+                        details={
+                            "main_n": len(mains),
+                            "si_n": 0,
+                            "reason": "both_main_same_pairing_key",
+                            "cross_source": 1,
+                        },
+                    )
+            except Exception:
+                pass
             continue
+        # design/261 — strict 1+1 only (avoids N:1 false mates across sources).
+        if len(mains) != 1 or len(sis) != 1:
+            continue
+        main_e = mains[0]
+        si_e = sis[0]
         main_e["paired_cache_id"] = str(si_e.get("id") or "")
         si_e["paired_cache_id"] = str(main_e.get("id") or "")
 

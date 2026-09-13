@@ -40,3 +40,7 @@ relative to when speech should start.
 ## Version
 
 **0.3.259**
+
+## Residual
+
+Post-beat cancel race → [260](260-speak-ui-post-beat-alive-gate.md).
