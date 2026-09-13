@@ -518,6 +518,10 @@ def _process_chunk_with_guard(
         ok=False,
         kind=kind,
     )
+    # design/263 — bibliography chunks must not become practice sentences.
+    if kind == "references":
+        stat.ok = True
+        return [], stat
     pairs: list[tuple[str, str]] | None = None
     hb_done = progress_done if progress_done is not None else (1 + idx)
     hb_total = progress_total if progress_total is not None else (total + 1)

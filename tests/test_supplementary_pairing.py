@@ -36,7 +36,12 @@ def test_normalize_pairing_key_strips_si_prefix() -> None:
     assert normalize_pairing_key(with_si) == normalize_pairing_key(base)
 
 
-def _session(title: str, *, section: str = "introduction") -> PaperSession:
+def _session(
+    title: str,
+    *,
+    section: str = "introduction",
+    references: list | None = None,
+) -> PaperSession:
     return PaperSession(
         title=title + " " + ("x" * 24),
         sentences=[
@@ -47,6 +52,7 @@ def _session(title: str, *, section: str = "introduction") -> PaperSession:
             )
         ],
         figures=[],
+        references=list(references or []),
     )
 
 
@@ -141,3 +147,32 @@ def test_exact_title_still_pairs(tmp_path, monkeypatch) -> None:
     apply_pairing_pass(entries)
     main_e = next(e for e in entries if e["id"] == e_main["id"])
     assert can_merge_supplementary(main_e, entries) is True
+
+
+def test_merge_or_merges_si_only_references(tmp_path, monkeypatch) -> None:
+    """design/263 — empty main refs + SI refs → merged session keeps SI bib."""
+    monkeypatch.setattr(pc, "cache_root", lambda: tmp_path / "papers")
+    title = "Alumina doping methodology review merge refs fixture title"
+    si_refs = [
+        {
+            "n": 1,
+            "text": "Rakov, S.I.; Author, G.S. Journal of Materials Science 2001.",
+            "doi": "",
+        }
+    ]
+    e_main = pc.save_paper_session(
+        _session(title), debone=True, source="pdf", doc_role="main"
+    )
+    e_si = pc.save_paper_session(
+        _session(title, section="supplementary", references=si_refs),
+        debone=True,
+        source="pdf",
+        doc_role="supplementary",
+    )
+    assert e_main and e_si
+    result = merge_supplementary(str(e_main["id"]))
+    assert result.get("ok") is True, result
+    loaded, _ = pc.load_cached_session(str(e_main["id"]))
+    assert loaded is not None
+    assert len(loaded.references) == 1
+    assert int(loaded.references[0].get("n") or 0) == 1

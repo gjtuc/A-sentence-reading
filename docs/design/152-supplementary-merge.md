@@ -69,3 +69,10 @@ User: Merge on main
 ## Version pin
 
 Reanalyze required after rich-v24 for SI slot keys and doc_role on legacy caches.
+
+## Amend — design/263 (0.3.261)
+
+Local merge must or-merge `references` and rewrite SI figure PNGs to
+`figures/{safe(si-id)}.png`. SI ingest cuts bibliography from the sentence
+stream while keeping `references[]` for the cite panel. See
+[263](263-si-merge-integrity.md).

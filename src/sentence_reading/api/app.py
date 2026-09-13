@@ -283,7 +283,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.260",
+    version="0.3.261",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1806,7 +1806,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.260",
+        "version": "0.3.261",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -7766,6 +7766,7 @@ async def _run_ingest_job_body(
         title = Path(filename).stem or "Untitled"
         digests: dict = {}
         resumed_debone = False
+        text_for_sentences = text
         if skip_debone and isinstance(resume_pl, dict) and resume_pl.get("sentences"):
             try:
                 restored = []
@@ -7812,7 +7813,22 @@ async def _run_ingest_job_body(
                 sentences = []
 
         if not resumed_debone:
-            if gemini_available() and text.strip():
+            from sentence_reading.cite_refs import (
+                bibliography_public,
+                cut_bibliography_for_sentences,
+                extract_bibliography,
+                filter_bibliography_sentences,
+            )
+
+            # design/263 — refs from full text; SI sentence stream cuts bib region.
+            references = bibliography_public(extract_bibliography(text))
+            text_for_sentences = text
+            if doc_role == "supplementary" and references:
+                cut = cut_bibliography_for_sentences(text)
+                if cut.strip() and cut != text:
+                    text_for_sentences = cut
+
+            if gemini_available() and text_for_sentences.strip():
 
                 _debone_prog_done = -1
                 _debone_chunk_t0 = __import__("time").monotonic()
@@ -7857,7 +7873,7 @@ async def _run_ingest_job_body(
 
                 _job_set(job_id, percent=48, stage="debone", message="논문 훑는 중")
                 result: DeboneResult = await asyncio.to_thread(
-                    debone_sentences, text, on_progress
+                    debone_sentences, text_for_sentences, on_progress
                 )
                 if result.ok and result.sentences:
                     sentences = result.sentences
@@ -7875,12 +7891,16 @@ async def _run_ingest_job_body(
                         warnings.extend(result.warnings)
                     ingest_quality = result.ingest_quality
                     _job_set(job_id, percent=90, stage="split", message="기본 문장 나누기")
-                    sentences = await asyncio.to_thread(split_into_sentences, text)
+                    sentences = await asyncio.to_thread(
+                        split_into_sentences, text_for_sentences
+                    )
             else:
                 if not gemini_available() and "gemini_key_missing" not in warnings:
                     warnings.append("gemini_key_missing")
                 _job_set(job_id, percent=70, stage="split", message="문장 나누는 중")
-                sentences = await asyncio.to_thread(split_into_sentences, text)
+                sentences = await asyncio.to_thread(
+                    split_into_sentences, text_for_sentences
+                )
 
             # WHY: debone 경로도 apply_glossary가 이미 정규화함 — 폴백·누락 lookalike 한 번 더
             sentences = [
@@ -7898,13 +7918,8 @@ async def _run_ingest_job_body(
                 )
                 for s in sentences
             ]
-
-            from sentence_reading.cite_refs import (
-                bibliography_public,
-                extract_bibliography,
-            )
-
-            references = bibliography_public(extract_bibliography(text))
+            if doc_role == "supplementary" and references:
+                sentences = filter_bibliography_sentences(sentences, references)
             title = Path(filename).stem or "Untitled"
             for s in sentences:
                 if s.section == "title" and plain_text(s.text):

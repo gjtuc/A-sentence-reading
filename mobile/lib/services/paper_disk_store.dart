@@ -369,6 +369,14 @@ Map<String, dynamic> readingSessionToPaperDiskJson(ReadingSession s) {
           'file': 'figures/${figureCacheSafeToken(f.id, maxLen: 64)}.png',
         },
     ],
+    'references': [
+      for (final r in s.references)
+        {
+          'n': r.n,
+          'text': r.text,
+          if (r.doi.isNotEmpty) 'doi': r.doi,
+        },
+    ],
   };
 }
 

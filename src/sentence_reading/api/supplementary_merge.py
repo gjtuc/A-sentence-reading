@@ -52,9 +52,17 @@ def merge_supplementary(main_id: str) -> dict:
     main_session, _ = main_loaded
     si_session, _ = si_loaded
 
+    from sentence_reading.cite_refs import filter_bibliography_sentences
+
+    merge_refs = main_session.references or si_session.references
+    si_sentences = filter_bibliography_sentences(
+        list(si_session.sentences),
+        merge_refs if isinstance(merge_refs, list) else [],
+    )
+
     used_ids: set[str] = {s.id for s in main_session.sentences}
     appended_sentences: list[Sentence] = []
-    for i, s in enumerate(si_session.sentences):
+    for i, s in enumerate(si_sentences):
         sid = s.id
         if sid in used_ids or not sid:
             sid = f"si_{i + 1:04d}"
@@ -105,7 +113,7 @@ def merge_supplementary(main_id: str) -> dict:
             **(main_session.translate_digests or {}),
             **(si_session.translate_digests or {}),
         },
-        references=main_session.references or si_session.references,
+        references=merge_refs,
         document_citation=dict(main_session.document_citation or {}),
     )
     merged_session.clamp_indices()

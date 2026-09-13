@@ -42,6 +42,11 @@ Amends [218](218-supplementary-soft-pairing.md) · [240](240-library-paired-set-
 Silent auto-merge without confirm · dropping `source` from dedup · Documents
 mirror (see [262](262-documents-mirror.md)).
 
+## Amend — design/263 (0.3.261)
+
+Local merge refs/figure parity + SI bibliography sentence exclusion. See
+[263](263-si-merge-integrity.md).
+
 ## Version
 
-**0.3.260**
+**0.3.260** (pairing/set-row); merge integrity **0.3.261**

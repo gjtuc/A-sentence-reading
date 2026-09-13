@@ -98,6 +98,14 @@ def chunk_kind(chunk: str) -> ChunkKind:
     head = chunk[:800]
     m = REFERENCES_HEAD_RE.search(head)
     if m:
+        # design/263 — EndNote-dense SI has many prose-like bib lines; trust parser.
+        try:
+            from sentence_reading.cite_refs import extract_bibliography
+
+            if len(extract_bibliography(chunk)) >= 2:
+                return "references"
+        except Exception:  # noqa: BLE001
+            pass
         body_after = chunk[m.end() :]
         prose_lines = [
             ln

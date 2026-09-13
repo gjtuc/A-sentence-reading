@@ -252,6 +252,93 @@ def strip_cite_markers_for_display(html: str) -> str:
     return s.strip()
 
 
+def bibliography_header_start(full_text: str) -> int | None:
+    """Index of References/Bibliography header start, or None (design/263)."""
+    text = full_text or ""
+    if not text.strip():
+        return None
+    head = _REF_HEAD.search(text)
+    if head:
+        return head.start()
+    inline = _REF_INLINE.search(text)
+    if inline:
+        return inline.start()
+    loose = re.search(
+        r"(?is)\n\s*(?:[■•*\-]+\s*)?(references|bibliography)\s*\n",
+        text,
+    )
+    if loose:
+        return loose.start()
+    return None
+
+
+def cut_bibliography_for_sentences(full_text: str) -> str:
+    """
+    design/263 — keep text before bibliography for sentence split/debone.
+    No-op when extract_bibliography yields no entries (Nature ESM / short SI).
+    Always extract refs from the *full* text separately.
+    """
+    text = full_text or ""
+    if not text.strip():
+        return text
+    if not extract_bibliography(text):
+        return text
+    start = bibliography_header_start(text)
+    if start is None or start <= 0:
+        return text
+    return text[:start].rstrip()
+
+
+def _norm_bib_plain(text: str) -> str:
+    plain = strip_tags(text or "")
+    plain = re.sub(r"\s+", " ", plain).strip().lower()
+    return plain
+
+
+def sentence_matches_bibliography(
+    sentence_text: str,
+    references: list[dict[str, Any]] | None,
+    *,
+    min_len: int = 40,
+) -> bool:
+    """True when sentence text is (near-)duplicate of a bibliography entry."""
+    plain = _norm_bib_plain(sentence_text)
+    if len(plain) < min_len:
+        return False
+    for e in references or []:
+        if not isinstance(e, dict):
+            continue
+        ref = _norm_bib_plain(str(e.get("text") or ""))
+        if len(ref) < 12:
+            continue
+        if plain in ref or ref in plain:
+            return True
+        # Leading overlap — EndNote lines often over-split on initials.
+        n = min(len(plain), len(ref), 80)
+        if n >= min_len and plain[:n] == ref[:n]:
+            return True
+    return False
+
+
+def filter_bibliography_sentences(
+    sentences: list[Any],
+    references: list[dict[str, Any]] | None,
+) -> list[Any]:
+    """Drop practice sentences that duplicate bibliography_public rows."""
+    refs = references or []
+    if not refs:
+        return list(sentences or [])
+    out: list[Any] = []
+    for s in sentences or []:
+        text = getattr(s, "text", None)
+        if text is None and isinstance(s, dict):
+            text = s.get("text")
+        if sentence_matches_bibliography(str(text or ""), refs):
+            continue
+        out.append(s)
+    return out
+
+
 def extract_bibliography(full_text: str) -> list[dict[str, Any]]:
     """
     원문에서 References 블록 → [{n, text, doi}].

@@ -49,7 +49,9 @@ import '../services/error_reporter.dart';
 import '../services/evidence_bus.dart';
 import '../services/figure_disk_cache.dart';
 import '../services/paper_disk_store.dart';
+import '../services/supplementary_local_merge.dart';
 import '../services/shadowing_cloud_migrate.dart';
+import '../api/cite_refs.dart';
 import '../services/hang_watchdog.dart';
 import '../services/paper_edit_stash.dart';
 import '../services/shadowing_disk_store.dart';
@@ -652,7 +654,22 @@ class LibraryController extends ChangeNotifier {
             for (var i = 0; i < local.figures.length; i++) {
               final f = local.figures[i];
               if (f.imageSrc.trim().isNotEmpty) continue;
-              final bytes = await _paperDisk.readFigureBytes(cid, f.id);
+              var bytes = await _paperDisk.readFigureBytes(cid, f.id);
+              // design/263 — repair si-* id vs pre-rename PNG filename.
+              if ((bytes == null || bytes.isEmpty) &&
+                  f.id.startsWith('si-') &&
+                  f.id.length > 3) {
+                final prior = f.id.substring(3);
+                bytes = await _paperDisk.readFigureBytes(cid, prior);
+                if (bytes != null && bytes.isNotEmpty) {
+                  await _paperDisk.writeFigureBytes(
+                    cid,
+                    figureId: f.id,
+                    bytes: bytes,
+                    contentHash: local.contentHash,
+                  );
+                }
+              }
               if (bytes == null || bytes.isEmpty) continue;
               local.figures[i].imageSrc = figureDataUrlFromBytes(bytes);
             }
@@ -2734,7 +2751,7 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  /// design/261 — append SI session into main on device (185 post-wipe safe).
+  /// design/261 · 263 — append SI session into main on device (185 post-wipe safe).
   Future<bool> _mergeSupplementaryLocal({
     required String mainId,
     required String siId,
@@ -2742,6 +2759,12 @@ class LibraryController extends ChangeNotifier {
     final mainSession = await _paperDisk.loadSessionJson(mainId);
     final siSession = await _paperDisk.loadSessionJson(siId);
     if (mainSession == null || siSession == null) return false;
+
+    final mergeRefs = orMergeReferences(
+      mainSession['references'],
+      siSession['references'],
+    );
+    final citeRefs = parseReferenceList(mergeRefs);
 
     final mainSents = <Map<String, dynamic>>[];
     final rawMain = mainSession['sentences'];
@@ -2754,27 +2777,32 @@ class LibraryController extends ChangeNotifier {
       for (final s in mainSents) '${s['id'] ?? ''}'.trim(),
     }..removeWhere((e) => e.isEmpty);
 
+    final siSentsRaw = <Map<String, dynamic>>[];
     final rawSi = siSession['sentences'];
     if (rawSi is List) {
-      var i = 0;
       for (final s in rawSi) {
-        i += 1;
-        if (s is! Map) continue;
-        final m = Map<String, dynamic>.from(s);
-        var sid = '${m['id'] ?? ''}'.trim();
-        if (sid.isEmpty || usedIds.contains(sid)) {
-          sid = 'si_${i.toString().padLeft(4, '0')}';
-          var n = 0;
-          while (usedIds.contains(sid)) {
-            n += 1;
-            sid = 'si_${i.toString().padLeft(4, '0')}_$n';
-          }
-        }
-        usedIds.add(sid);
-        m['id'] = sid;
-        m['section'] = 'supplementary';
-        mainSents.add(m);
+        if (s is Map) siSentsRaw.add(Map<String, dynamic>.from(s));
       }
+    }
+    final siSents = filterSiSentencesAgainstRefs(siSentsRaw, citeRefs);
+
+    var i = 0;
+    for (final m0 in siSents) {
+      i += 1;
+      final m = Map<String, dynamic>.from(m0);
+      var sid = '${m['id'] ?? ''}'.trim();
+      if (sid.isEmpty || usedIds.contains(sid)) {
+        sid = 'si_${i.toString().padLeft(4, '0')}';
+        var n = 0;
+        while (usedIds.contains(sid)) {
+          n += 1;
+          sid = 'si_${i.toString().padLeft(4, '0')}_$n';
+        }
+      }
+      usedIds.add(sid);
+      m['id'] = sid;
+      m['section'] = 'supplementary';
+      mainSents.add(m);
     }
 
     final mainFigs = <Map<String, dynamic>>[];
@@ -2786,40 +2814,40 @@ class LibraryController extends ChangeNotifier {
     }
     final rawSiFigs = siSession['figures'];
     if (rawSiFigs is List) {
-      var i = 0;
+      var fi = 0;
       for (final f in rawSiFigs) {
-        i += 1;
+        fi += 1;
         if (f is! Map) continue;
-        final m = Map<String, dynamic>.from(f);
-        var fid = '${m['id'] ?? ''}'.trim();
-        if (fid.isEmpty) fid = 'si-fig-${mainFigs.length + i}';
-        if (!fid.startsWith('si-')) fid = 'si-$fid';
-        m['id'] = fid;
+        final m = rewriteSiFigureMeta(
+          Map<String, dynamic>.from(f),
+          fallbackIndex: mainFigs.length + fi,
+        );
+        final newId = '${m['id'] ?? ''}'.trim();
+        final priorId = '${m.remove('_prior_figure_id') ?? ''}'.trim();
+        Uint8List? bytes;
+        if (priorId.isNotEmpty) {
+          bytes = await _paperDisk.readFigureBytes(siId, priorId);
+        }
+        if ((bytes == null || bytes.isEmpty) && newId.startsWith('si-')) {
+          bytes = await _paperDisk.readFigureBytes(siId, newId.substring(3));
+        }
+        if (bytes == null || bytes.isEmpty) {
+          final src = '${f['image_src'] ?? ''}'.trim();
+          if (src.startsWith('data:')) {
+            bytes = figureBytesFromDataUrl(src);
+          }
+        }
+        if (bytes != null && bytes.isNotEmpty && newId.isNotEmpty) {
+          await _paperDisk.writeFigureBytes(
+            mainId,
+            figureId: newId,
+            bytes: bytes,
+            contentHash: '${mainSession['content_hash'] ?? ''}'.trim(),
+          );
+        }
         mainFigs.add(m);
       }
     }
-
-    // Copy SI figure PNG bytes into main folder when present.
-    try {
-      final siDir = await _paperDisk.paperDir(siId);
-      final mainDir = await _paperDisk.paperDir(mainId);
-      if (siDir != null && mainDir != null) {
-        final sep = Platform.pathSeparator;
-        final siFigs = Directory('${siDir.path}${sep}figures');
-        if (await siFigs.exists()) {
-          final dest = Directory('${mainDir.path}${sep}figures');
-          if (!await dest.exists()) await dest.create(recursive: true);
-          await for (final ent in siFigs.list(followLinks: false)) {
-            if (ent is! File) continue;
-            final name = ent.uri.pathSegments.isNotEmpty
-                ? ent.uri.pathSegments.last
-                : '';
-            if (!name.endsWith('.png')) continue;
-            await ent.copy('${dest.path}$sep$name');
-          }
-        }
-      }
-    } catch (_) {}
 
     final digests = <String, dynamic>{};
     final md = mainSession['translate_digests'];
@@ -2834,6 +2862,9 @@ class LibraryController extends ChangeNotifier {
     merged['doc_role'] = 'merged';
     merged['supplementary_merged'] = true;
     merged['supplementary_cache_id'] = siId;
+    if (mergeRefs.isNotEmpty) {
+      merged['references'] = mergeRefs;
+    }
 
     final ch = '${merged['content_hash'] ?? ''}'.trim();
     final ok = await _paperDisk.writeSessionJson(
