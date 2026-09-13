@@ -15,6 +15,7 @@ BUILD_API_ERRORS = frozenset(
         "practice_off",
         "shadowing_disabled",
         "build_failed",
+        "sentences_over_max",
     }
 )
 
@@ -113,9 +114,14 @@ def compute_shadowing_verdicts(
         )
         if err in BUILD_API_ERRORS:
             out.append("build_api_fail")
+            if err == "sentences_over_max":
+                out.append("sentences_over_max_blocks_practice")
             break
         if err == "cap_hit":
             out.append("build_cap_hit")
+            break
+        if err == "sentences_over_max":
+            out.append("sentences_over_max_blocks_practice")
             break
 
     boot_dones = kinds("shadowing_boot_done")

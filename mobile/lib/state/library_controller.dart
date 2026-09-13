@@ -1753,6 +1753,11 @@ class LibraryController extends ChangeNotifier {
       if (cid.isEmpty) continue;
       if (!await _paperDisk.hasSession(cid)) continue;
       scanned += 1;
+      await _emitTranslateOptoutMismatchIfNeeded(
+        cid,
+        wantTr: wantTr,
+        stage: trig,
+      );
       final needs = await _pendingEnrichNeeds(cid, wantTr: wantTr, wantSh: wantSh);
       if (needs.ko) needKo += 1;
       if (needs.sh) needSh += 1;
@@ -1770,6 +1775,8 @@ class LibraryController extends ChangeNotifier {
         'need_ko_n': needKo,
         'need_shadowing_n': needSh,
         'queue_n': _enrichQueue.length,
+        'want_translate': wantTr ? 1 : 0,
+        'want_shadowing': wantSh ? 1 : 0,
       },
     );
   }
@@ -1806,6 +1813,50 @@ class LibraryController extends ChangeNotifier {
     return (ko: ko, sh: sh);
   }
 
+  /// design/256 — prefer-off + empty KO looks "ready" but is a silent mismatch.
+  Future<void> _emitTranslateOptoutMismatchIfNeeded(
+    String cacheId, {
+    required bool wantTr,
+    String stage = 'enrich',
+  }) async {
+    final cid = cacheId.trim();
+    if (cid.isEmpty || wantTr) return;
+    final raw = await _paperDisk.loadSessionJson(cid);
+    if (raw == null) return;
+    final sents = raw['sentences'];
+    if (sents is! List || sents.isEmpty) return;
+    var sentenceN = 0;
+    var koN = 0;
+    var missing = 0;
+    for (final item in sents) {
+      if (item is! Map) continue;
+      final text = (item['text']?.toString() ?? '').trim();
+      final koText = (item['text_ko']?.toString() ?? '').trim();
+      if (text.isEmpty) continue;
+      sentenceN += 1;
+      if (koText.isEmpty) {
+        missing += 1;
+      } else {
+        koN += 1;
+      }
+    }
+    if (sentenceN < 1 || missing < 1 || koN > 0) return;
+    asrEvidenceBus?.record(
+      'translate_optout_mismatch',
+      severity: 'error',
+      cacheId: cid,
+      stage: stage.length > 40 ? stage.substring(0, 40) : stage,
+      ok: false,
+      code: 'optout_empty_ko',
+      details: {
+        'want_translate': 0,
+        'sentence_n': sentenceN,
+        'ko_sentence_n': koN,
+        'ko_missing_n': missing,
+      },
+    );
+  }
+
   Future<void> _pumpPendingEnrichQueue({String defaultTrigger = 'boot'}) async {
     if (_enrichLoopBusy) return;
     _enrichLoopBusy = true;
@@ -1840,6 +1891,11 @@ class LibraryController extends ChangeNotifier {
     if (cid.isEmpty) return;
     final wantTr = await _wantTranslate();
     final wantSh = await _wantShadowingPractice();
+    await _emitTranslateOptoutMismatchIfNeeded(
+      cid,
+      wantTr: wantTr,
+      stage: trigger,
+    );
     final needs = await _pendingEnrichNeeds(cid, wantTr: wantTr, wantSh: wantSh);
     if (!needs.ko && !needs.sh) {
       _enrichFailCount.remove(cid);
@@ -1849,7 +1905,11 @@ class LibraryController extends ChangeNotifier {
         cacheId: cid,
         stage: trigger,
         ok: true,
-        details: {'skipped': 1, 'reason': 'already_ok'},
+        details: {
+          'skipped': 1,
+          'reason': 'already_ok',
+          'want_translate': wantTr ? 1 : 0,
+        },
       );
       return;
     }
@@ -1863,6 +1923,8 @@ class LibraryController extends ChangeNotifier {
         'need_ko': needs.ko ? 1 : 0,
         'need_shadowing': needs.sh ? 1 : 0,
         'fail_n': _enrichFailCount[cid] ?? 0,
+        'want_translate': wantTr ? 1 : 0,
+        'want_shadowing': wantSh ? 1 : 0,
       },
     );
     var koOk = !needs.ko;
@@ -6631,11 +6693,16 @@ class LibraryController extends ChangeNotifier {
         }
         if (draft != null &&
             (draft.canReattach || draft.canResumeChunks)) {
+          final jid = draft.jobId.trim();
           asrEvidenceBus?.record(
             'upload_queue_blocked',
             severity: 'lifecycle',
             stage: 'resumable_draft',
-            details: {'hash8': draft.contentHash.substring(0, 8)},
+            jobId: jid,
+            details: {
+              'hash8': draft.contentHash.substring(0, 8),
+              if (jid.isNotEmpty) 'job_id': jid,
+            },
             ok: true,
           );
           break;

@@ -339,6 +339,84 @@ def ingest_upload_object(
         return personal_object_name("ingest_uploads", f"{jid}{ext.lower()}")
 
 
+# design/256 — poll GET oversized alarm (4 MiB structural estimate).
+INGEST_JOB_VIEW_OVERSIZED_BYTES = 4 * 1024 * 1024
+
+
+def measure_job_view_size(job: dict[str, Any] | None) -> dict[str, Any]:
+    """
+    Structural size probe for ingest job poll responses (design/256).
+
+    WHY: full json.dumps of a 40MB+ result can itself OOM/timeout; walk known
+    heavy fields only. Never includes base64 content in the returned dict.
+    """
+    raw = job if isinstance(job, dict) else {}
+    result = raw.get("result") if isinstance(raw.get("result"), dict) else {}
+    data_url_n = 0
+    data_url_bytes_sum = 0
+    figure_n = 0
+    sentence_n = 0
+
+    def _count_data_url(value: Any) -> None:
+        nonlocal data_url_n, data_url_bytes_sum
+        if not isinstance(value, str):
+            return
+        s = value
+        if s.startswith("data:image"):
+            data_url_n += 1
+            data_url_bytes_sum += len(s)
+
+    if result:
+        for key, val in result.items():
+            if key in ("figure",) and isinstance(val, dict):
+                _count_data_url(val.get("image_src"))
+            elif key == "figures":
+                if isinstance(val, list):
+                    figure_n = len(val)
+                    for row in val:
+                        if isinstance(row, dict):
+                            _count_data_url(row.get("image_src"))
+                elif isinstance(val, dict):
+                    figure_n = len(val)
+                    for row in val.values():
+                        if isinstance(row, dict):
+                            _count_data_url(row.get("image_src"))
+            elif key == "sentences":
+                if isinstance(val, list):
+                    sentence_n = len(val)
+                elif isinstance(val, dict):
+                    sentence_n = len(val)
+            elif isinstance(val, str) and val.startswith("data:image"):
+                _count_data_url(val)
+
+        # Prefer explicit counts when present without loading bodies.
+        try:
+            if not sentence_n and result.get("sentence_count") is not None:
+                sentence_n = int(result.get("sentence_count") or 0)
+        except (TypeError, ValueError):
+            pass
+        try:
+            if not figure_n and result.get("figure_count") is not None:
+                figure_n = int(result.get("figure_count") or 0)
+        except (TypeError, ValueError):
+            pass
+
+    # Estimate: data URLs dominate; add coarse overhead for sentence JSON.
+    est_bytes = int(data_url_bytes_sum) + int(sentence_n) * 240 + int(figure_n) * 64
+    oversized = 1 if est_bytes >= INGEST_JOB_VIEW_OVERSIZED_BYTES else 0
+    return {
+        "result_present": 1 if result else 0,
+        "result_keys_n": len(result.keys()) if result else 0,
+        "figure_n": max(0, int(figure_n)),
+        "sentence_n": max(0, int(sentence_n)),
+        "data_url_n": int(data_url_n),
+        "data_url_bytes_sum": int(data_url_bytes_sum),
+        "est_bytes": int(est_bytes),
+        "oversized": oversized,
+        "code": "result_too_large" if oversized else "ok",
+    }
+
+
 def public_job_view(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
     """Shape returned by GET /api/ingest/jobs/{id} (no owner_uid leak beyond need)."""
     out: dict[str, Any] = {

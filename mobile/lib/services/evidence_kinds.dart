@@ -260,4 +260,7 @@ const Set<String> kEvidenceAllowedKinds = {
   'mate_fetch_done',
   'mate_fetch_fallback_browser',
   'mate_si_status',
+  // design/256 — ingest poll oversized + translate/practice mismatch
+  'ingest_job_view_size',
+  'translate_optout_mismatch',
 };

@@ -283,7 +283,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.255",
+    version="0.3.256",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1806,7 +1806,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.255",
+        "version": "0.3.256",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -6478,6 +6478,29 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
         _maybe_fail_translate_stall(jid, job)
         job = _JOBS.get(jid) or job
 
+    # design/256 — emit view size before serving (proves oversized poll root cause).
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        size = ij.measure_job_view_size(job)
+        cache_hint = ""
+        res = job.get("result") if isinstance(job, dict) else None
+        if isinstance(res, dict):
+            cache_hint = str(res.get("cache_id") or "").strip()[:32]
+        eb.emit(
+            "ingest_job_view_size",
+            job_id=jid,
+            cache_id=cache_hint,
+            owner_uid=str((job or {}).get("owner_uid") or "")[:64],
+            trace_id=str((job or {}).get("trace_id") or ""),
+            ok=size.get("oversized") != 1,
+            code=str(size.get("code") or "ok"),
+            route="ingest/jobs",
+            details=size,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
     return JSONResponse(ij.public_job_view(jid, job))
 
 
@@ -9105,26 +9128,32 @@ async def shadowing_chunks_build(
             },
         )
     except ValueError as exc:
+        err_code = str(exc)[:80]
+        details = {
+            "error": err_code,
+            "plan_status": "",
+            "elapsed_ms": int((time.monotonic() - t0) * 1000),
+            "budget_s": int(budget_s),
+            "sentence_n": len(rows or []),
+            "max_n": int(getattr(sc, "MAX_SENTENCES", 400) or 400),
+        }
         eb.emit(
             "shadowing_chunks_build_done",
             cache_id=cid,
             owner_uid=user.uid,
             ok=False,
-            code=str(exc)[:80],
+            code=err_code,
             route="shadowing/chunks/build",
-            details={
-                "error": str(exc)[:80],
-                "plan_status": "",
-                "elapsed_ms": int((time.monotonic() - t0) * 1000),
-                "budget_s": int(budget_s),
-            },
+            details=details,
         )
         return JSONResponse(
             status_code=400,
             content={
                 "ok": False,
-                "error": str(exc)[:80],
+                "error": err_code,
                 "message": "연습 구간 요청이 올바르지 않습니다.",
+                "sentence_n": details["sentence_n"],
+                "max_n": details["max_n"],
             },
         )
     except Exception as exc:  # noqa: BLE001

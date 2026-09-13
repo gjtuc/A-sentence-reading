@@ -1596,6 +1596,7 @@ class AsrClient {
     bool hasCacheId = false,
     bool willRefreshLibrary = false,
     String? message,
+    int? bodyBytes,
   }) {
     asrEvidenceBus?.record(
       'ingest_poll_terminal',
@@ -1613,6 +1614,7 @@ class AsrClient {
         'outcome': outcome,
         'has_cache_id': hasCacheId ? 1 : 0,
         'will_refresh_library': willRefreshLibrary ? 1 : 0,
+        if (bodyBytes != null) 'body_bytes': bodyBytes,
       },
     );
   }
@@ -1683,6 +1685,7 @@ class AsrClient {
           outcome: 'http_error',
           httpStatus: 404,
           willRefreshLibrary: true,
+          bodyBytes: stRes.bodyBytes.length,
         );
         throw AsrApiException('작업을 찾을 수 없습니다. 다시 시도해 주세요.', 404);
       }
@@ -1693,6 +1696,7 @@ class AsrClient {
           outcome: 'http_error',
           httpStatus: stRes.statusCode,
           willRefreshLibrary: true,
+          bodyBytes: stRes.bodyBytes.length,
         );
         throw AsrApiException('진행 상태 조회 실패', stRes.statusCode);
       }
@@ -1818,6 +1822,7 @@ class AsrClient {
         percent: pct > 0 ? pct : 100,
         hasCacheId: true,
         willRefreshLibrary: true,
+        bodyBytes: stRes.bodyBytes.length,
       );
       return IngestJobResult(
         jobId: jid,

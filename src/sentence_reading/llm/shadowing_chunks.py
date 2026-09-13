@@ -27,6 +27,8 @@ log = logging.getLogger(__name__)
 _CACHE_ID_RE = re.compile(r"^[a-zA-Z0-9]{8,32}$")
 _MAX_SENTENCE_CHARS = 2000
 _MAX_SENTENCES = 400
+# design/256 — public alias for evidence / API details (do not raise silently).
+MAX_SENTENCES = _MAX_SENTENCES
 _MAX_STORE_BYTES = 2_000_000
 # WHY: Cloud Run --timeout 300; leave headroom so we return JSON before gateway 504.
 _DEFAULT_BUDGET_S = 90.0
@@ -406,8 +408,11 @@ def build_chunk_plan(
         raise PermissionError("shadowing_disabled")
     if not sanitize_uid(uid) or not safe_cache_id(cache_id):
         raise ValueError("invalid_id")
-    if not isinstance(sentences, list) or len(sentences) > _MAX_SENTENCES:
+    if not isinstance(sentences, list):
         raise ValueError("bad_sentences")
+    # design/256 — distinct over-max code (was collapsed into bad_sentences).
+    if len(sentences) > _MAX_SENTENCES:
+        raise ValueError("sentences_over_max")
 
     if budget_s is None:
         limit = float(chunk_build_budget_seconds())
