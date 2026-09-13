@@ -18,7 +18,9 @@ scored — like a rhythm-game hit callout, not a stiff accuracy toast.
 3. **Loop unchanged:** listen TTS → TTS+speak → my-take replay → next.
 4. **Phase UX:** keep Korean status (`듣는 중` / `말하는 중` / `내 녹음 듣는 중`)
    plus a **3-step rail** (Listen · Speak · Replay). Active step filled; thin
-   top hairline tinted by phase.
+   top hairline tinted by phase. **design/259:** Listen→Speak visual flip waits
+   until the mic ready beat ends (engine may already be in Speak); no
+   `말할 준비` status.
 5. **Cheers timing:** when `onTakeReady` returns scored accuracy (may land
    during or near end of replay). Do **not** block replay. Unscored / STT fail
    → no cheer.

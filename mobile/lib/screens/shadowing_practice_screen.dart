@@ -1,4 +1,4 @@
-/// design/82+120+176+214+245 — shadowing practice + minimal rhythm + judgment cheers.
+/// design/82+120+176+214+245+259 — shadowing practice + minimal rhythm + judgment cheers.
 ///
 /// Gates: login (shell) · kill · opt-in · chunks built before loop.
 /// Loop per chunk: listen TTS → speak+TTS(reuse bytes) → my-take replay → next.
@@ -70,7 +70,7 @@ class ShadowingPracticeScreen extends StatefulWidget {
 class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     with WidgetsBindingObserver {
   static const _pad = Duration(seconds: 2);
-  /// design/245 — after mic start, brief beat before speak-guide TTS / user speech.
+  /// design/245+259 — after mic start, brief beat before speak UI / guide TTS.
   static const _speakMicReadyBeat = Duration(milliseconds: 350);
   // WHY: design/82 — Android MediaRecorder via platform channel (no pub `record` dep).
   static const _mic = MethodChannel('asr/shadowing_mic');
@@ -839,7 +839,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       return;
     }
 
-    setState(() => _rhythmPhase = RhythmPhase.speak);
+    // design/259 — keep Listen UI through mic ready-beat; Speak chrome in
+    // `_revealSpeakUi` together with beginSpeak / 「말하는 중」.
     final speakResult = await _runSpeakPhase();
     if (!alive()) {
       return;
@@ -893,7 +894,17 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     }
   }
 
+  /// design/259 — flip Speak rail/status at the same tick as beginSpeak.
+  void _revealSpeakUi() {
+    setState(() {
+      _rhythmPhase = RhythmPhase.speak;
+      _status = '말하는 중';
+    });
+    _focus.beginSpeak();
+  }
+
   /// Phase 2 — mic open; focus clock runs only after ready-beat. Reuses chunk TTS.
+  /// UI stays Listen until `_revealSpeakUi` (design/259).
   Future<_SpeakPhaseResult> _runSpeakPhase() async {
     if (_chunks.isEmpty) {
       return const _SpeakPhaseResult(
@@ -902,7 +913,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         code: 'no_chunks',
       );
     }
-    setState(() => _status = '말할 준비');
     var okMic = await _mic.invokeMethod<bool>('hasPermission') ?? false;
     if (!okMic) {
       okMic = await _mic.invokeMethod<bool>('requestPermission') ?? false;
@@ -947,7 +957,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         code: 'mic_start',
       );
     }
-    // design/245 — let the recorder settle; user should not speak yet.
+    // design/245 — let the recorder settle; design/259 — UI still Listen here.
     await Future<void>.delayed(_speakMicReadyBeat);
     if (!mounted) {
       unawaited(_mic.invokeMethod<String>('stop'));
@@ -957,8 +967,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         code: 'unmounted',
       );
     }
-    setState(() => _status = '말하는 중');
-    _focus.beginSpeak();
+    _revealSpeakUi();
     asrEvidenceBus?.record(
       'shadowing_loop_event',
       cacheId: _cacheId,
