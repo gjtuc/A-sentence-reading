@@ -91,6 +91,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   bool _bootFailed = false;
   /// Plan bound and at least one playable chunk — unlock loop chrome / mirror.
   bool _practiceReady = false;
+  /// design/267 — density→rate bias (status kill).
+  bool _rateBiasEnabled = true;
   Map<String, dynamic>? _plan;
   Map<String, dynamic>? _takes;
   List<String> _chunks = [];
@@ -259,8 +261,49 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   }
 
   void _onLibraryPrepTick() {
-    if (!mounted || !_busy || _practiceReady) return;
-    setState(() => _status = _prepStatusLine());
+    if (!mounted || !_busy) return;
+    if (!_practiceReady) {
+      setState(() => _status = _prepStatusLine());
+      return;
+    }
+    // design/266 — merge new ready sentences while practicing.
+    if (shadowingPlanStatusIsOk(_plan)) return;
+    unawaited(_mergeLatestPlan());
+  }
+
+  Future<void> _mergeLatestPlan() async {
+    final cacheId = _cacheId;
+    if (cacheId.isEmpty || !mounted) return;
+    Map<String, dynamic>? latest = await _disk.loadChunkPlanJson(cacheId);
+    if (latest == null || latest['status']?.toString() == 'error') {
+      try {
+        final got = await widget.client.fetchShadowingChunks(cacheId);
+        final p = got['plan'];
+        if (p is Map) latest = Map<String, dynamic>.from(p);
+      } catch (_) {}
+    }
+    if (latest == null || !mounted) return;
+    final before = countShadowingReadySentences(_plan);
+    _plan = mergeShadowingPlans(_plan, latest);
+    final after = countShadowingReadySentences(_plan);
+    if (after > before) {
+      asrEvidenceBus?.record(
+        'shadowing_plan_merge',
+        cacheId: cacheId,
+        severity: 'lifecycle',
+        ok: true,
+        details: {
+          'ready_before': before,
+          'ready_after': after,
+          'plan_status': _plan?['status']?.toString() ?? '',
+        },
+      );
+    }
+    final session = _session;
+    if (session != null && _chunks.isEmpty) {
+      await _skipToPlayableSentence(session);
+    }
+    if (mounted) setState(() {});
   }
 
   Future<void> _boot() async {
@@ -275,6 +318,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         cloudStt: st.mobilePracticeSttCloud,
         skillEvidence: st.mobilePracticeSkillEvidence,
       );
+      _rateBiasEnabled =
+          st.mobilePracticeRateBias && st.mobilePracticeSkill;
     } catch (_) {}
     final session = _session;
     if (session == null || !session.isValid) {
@@ -365,22 +410,26 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         _takes = localTakes;
       }
 
-      // Prefer local ok plan (device SoT) before network / ensure.
+      // design/266 — accept pending with ≥1 ready sentence; continue ensure.
       Map<String, dynamic>? plan = await _disk.loadChunkPlanJson(cacheId);
-      if (plan == null || plan['status']?.toString() != 'ok') {
+      if (countShadowingReadySentences(plan) < 1) {
         try {
           final got = await widget.client.fetchShadowingChunks(cacheId);
           final p = got['plan'];
-          if (p is Map && p['status']?.toString() == 'ok') {
+          if (p is Map) {
             plan = Map<String, dynamic>.from(p);
+            if (countShadowingReadySentences(plan) >= 1 ||
+                shadowingPlanStatusIsPending(plan) ||
+                shadowingPlanStatusIsOk(plan)) {
+              unawaited(_disk.writeChunkPlanJson(cacheId, plan!));
+            }
           }
         } catch (_) {
           // Fall through to library ensure.
         }
       }
 
-      // Single prep path: join LibraryController ensure (progress + 40-slice).
-      if (plan == null || plan['status']?.toString() != 'ok') {
+      if (countShadowingReadySentences(plan) < 1) {
         if (!mounted) return;
         setState(() => _status = _prepStatusLine());
         await widget.library.ensureShadowingChunks(
@@ -389,31 +438,42 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         );
         rounds = 1;
         plan = await _disk.loadChunkPlanJson(cacheId);
-        if (plan == null || plan['status']?.toString() != 'ok') {
+        if (countShadowingReadySentences(plan) < 1) {
           try {
             final got = await widget.client.fetchShadowingChunks(cacheId);
             final p = got['plan'];
-            if (p is Map && p['status']?.toString() == 'ok') {
-              plan = Map<String, dynamic>.from(p);
-            }
+            if (p is Map) plan = Map<String, dynamic>.from(p);
           } catch (_) {}
         }
-        if (plan == null || plan['status']?.toString() != 'ok') {
-          final err = widget.library.shadowingChunksError;
-          errorCode = (err != null && err.contains('끝나지 않았'))
-              ? 'cap_hit'
-              : 'build_failed';
-          throw AsrApiException(
-            (err != null && err.trim().isNotEmpty)
-                ? err
-                : '연습 구간 준비가 끝나지 않았습니다. 다시 시도해 주세요.',
-            502,
-          );
-        }
       }
-      planStatus = 'ok';
-      _plan = Map<String, dynamic>.from(plan);
+
+      final readyN = countShadowingReadySentences(plan);
+      if (readyN < 1) {
+        final err = widget.library.shadowingChunksError;
+        errorCode = (err != null && err.contains('끝나지 않았'))
+            ? 'cap_hit'
+            : 'build_failed';
+        throw AsrApiException(
+          (err != null && err.trim().isNotEmpty)
+              ? err
+              : '연습 구간 준비가 끝나지 않았습니다. 다시 시도해 주세요.',
+          502,
+        );
+      }
+
+      planStatus = plan?['status']?.toString() ?? '';
+      _plan = Map<String, dynamic>.from(plan!);
       unawaited(_disk.writeChunkPlanJson(cacheId, _plan!));
+
+      // Keep building remaining sentences while user practices.
+      if (!shadowingPlanStatusIsOk(_plan)) {
+        unawaited(
+          widget.library.ensureShadowingChunks(
+            cacheId,
+            trigger: 'practice_background',
+          ),
+        );
+      }
 
       // design/246 — practice cursor SoT (orthogonal to reading sentenceIndex).
       await _restorePracticeCursor(session);
@@ -432,6 +492,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           'plan_status': planStatus,
           'rounds': rounds,
           'chunk_n': chunkN,
+          'ready_sentence_n': readyN,
+          'partial_ready': shadowingPlanStatusIsOk(_plan) ? 0 : 1,
           'sentence_id_h16': _sidH16(_sentenceId),
           'elapsed_ms': sw.elapsedMilliseconds,
           'skipped_empty_n': skippedEmptyN,
@@ -742,7 +804,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   Future<void> _ensureChunkTts(String text) async {
     if (_chunkTtsBytes != null && _chunkTtsParams != null) return;
     unawaited(_skill.ensureSpoken(text));
-    final params = widget.tts.pickPlaybackParams();
+    final bias = _rateBiasEnabled && _skill.serverEnabled;
+    final params = widget.tts.pickPlaybackParams(
+      practiceDensity: _skill.density,
+      applyDensityRateBias: bias,
+    );
     final bytes = await widget.client.synthesizeTts(
       text: text,
       voice: params.voice,
@@ -1277,14 +1343,38 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         fromIndex: _sentenceIndex + 1,
       );
       if (delta < 0) {
-        setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
-        return;
+        final ensureBusy = widget.library.shadowingChunksBusy;
+        final pending = shadowingPlanStatusIsPending(_plan) ||
+            (!shadowingPlanStatusIsOk(_plan) && ensureBusy);
+        if (pending || ensureBusy) {
+          await _mergeLatestPlan();
+          final again = shadowingSkipEmptyDelta(
+            plan: _plan,
+            sentences: rows,
+            fromIndex: _sentenceIndex + 1,
+          );
+          if (again >= 0) {
+            _bindSentenceAt(session, _sentenceIndex + 1 + again);
+          } else {
+            setState(() => _status = '다음 문장 준비 중…');
+            return;
+          }
+        } else {
+          setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
+          return;
+        }
+      } else {
+        _bindSentenceAt(session, _sentenceIndex + 1 + delta);
       }
-      _bindSentenceAt(session, _sentenceIndex + 1 + delta);
       final next = _session ?? session;
       _announceSectionIfChanged(previousKey: prevSection, session: next);
       if (_chunks.isEmpty) {
-        setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
+        final ensureBusy = widget.library.shadowingChunksBusy;
+        if (ensureBusy || shadowingPlanStatusIsPending(_plan)) {
+          setState(() => _status = '다음 문장 준비 중…');
+        } else {
+          setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
+        }
         return;
       }
     } else {

@@ -57,6 +57,8 @@ class AsrStatus {
     this.mobileShadowingPracticeLoop = false,
     // design/208 — missing key → on; explicit false kills process grooming.
     this.mobilePracticeGrooming = true,
+    // design/267 — missing key → on; explicit false kills density rate bias.
+    this.mobilePracticeRateBias = true,
     // design/209 — missing key → on; explicit false kills cycle wide evidence.
     this.mobilePracticeCycleEvidence = false,
     // design/212 — missing → on; explicit false kills.
@@ -160,6 +162,12 @@ class AsrStatus {
           ? json['mobile_practice_grooming'] == true
           : (json.containsKey('practice_grooming')
               ? json['practice_grooming'] == true
+              : true),
+      // design/267 — missing key → on; explicit false kills.
+      mobilePracticeRateBias: json.containsKey('mobile_practice_rate_bias')
+          ? json['mobile_practice_rate_bias'] == true
+          : (json.containsKey('practice_rate_bias')
+              ? json['practice_rate_bias'] == true
               : true),
       // design/209 KILLED — always false; ignore status / env re-enable.
       mobilePracticeCycleEvidence: false,
@@ -326,6 +334,8 @@ class AsrStatus {
   final bool mobileShadowingChunks;
   final bool mobileShadowingPracticeLoop;
   final bool mobilePracticeGrooming;
+  /// design/267 — density→in-tier rate bias.
+  final bool mobilePracticeRateBias;
   final bool mobilePracticeCycleEvidence;
   final bool mobilePracticeSkill;
   final bool mobilePracticeSttCloud;

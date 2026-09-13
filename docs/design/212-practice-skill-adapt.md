@@ -39,7 +39,7 @@ focus calendar, and softly adapts:
 10. **TTS UI:** `fixed` | `random_auto`. Six internal tiers (0..5). Insufficient
     samples → tier **2 (보통)**. Migrate old random_* → auto + mapped tier.
 11. **Calendar:** show 인식 일치도 orthogonal to 176 block heat. Small n → `—`.
-12. **Grooming 208:** independent; rate order = tier band × groom scale × clamp.
+12. **Grooming 208:** independent; rate order = tier band × **density_bias (267)** × groom scale × clamp.
 13. **Kill:** `ASR_PRACTICE_SKILL=0` → status false (missing → on).
 
 ## Non-goals (this ship)

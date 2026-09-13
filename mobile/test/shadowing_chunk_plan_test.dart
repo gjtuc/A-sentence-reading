@@ -18,9 +18,18 @@ void main() {
       );
     });
 
-    test('falls back to plain when plan row missing', () {
+    test('falls back to plain only when allowPlainFallback', () {
       expect(
         shadowingChunksForSentence({'status': 'ok', 'sentences': {}}, 'x', 'Hi'),
+        isEmpty,
+      );
+      expect(
+        shadowingChunksForSentence(
+          {'status': 'ok', 'sentences': {}},
+          'x',
+          'Hi',
+          allowPlainFallback: true,
+        ),
         ['Hi'],
       );
     });

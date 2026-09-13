@@ -47,6 +47,7 @@ Modules: `shadowing_chunks.py` · `/api/shadowing/chunks/.../build` · mobile en
 4. 하드 오류만 `status=error` + 재시도  
 
 5. 소유자 uid 경로만  
+6. **design/266:** 연습 UI는 `ready_sentence_n ≥ 1`이면 `pending`에서도 입장 가능. `ok` 의미는 유지.
 
 
 

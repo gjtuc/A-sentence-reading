@@ -294,7 +294,11 @@ class TtsController extends ChangeNotifier {
   }
 
   /// Current play params (fixed settings or one random draw).
-  TtsPlaybackParams pickPlaybackParams() {
+  /// design/267 — [practiceDensity] + [applyDensityRateBias] practice-only.
+  TtsPlaybackParams pickPlaybackParams({
+    int? practiceDensity,
+    bool applyDensityRateBias = false,
+  }) {
     return pickTtsPlaybackParams(
       mode: mode,
       voice: voice,
@@ -302,6 +306,8 @@ class TtsController extends ChangeNotifier {
       voiceIds: voices.map((v) => v.id).toList(growable: false),
       random: _random,
       skillTier: skillTier,
+      practiceDensity: practiceDensity,
+      applyDensityRateBias: applyDensityRateBias,
     );
   }
 

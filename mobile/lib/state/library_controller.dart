@@ -4118,13 +4118,15 @@ class LibraryController extends ChangeNotifier {
 
 
 
-  Future<void> _persistShadowingPlanIfOk(
+  Future<void> _persistShadowingPlan(
     String cacheId,
     Map<String, dynamic> body,
   ) async {
     final plan = body['plan'];
     if (plan is! Map) return;
-    if (plan['status']?.toString() != 'ok') return;
+    final st = plan['status']?.toString() ?? '';
+    // design/266 — persist honest pending (not only ok).
+    if (st != 'ok' && st != 'pending') return;
     final map = Map<String, dynamic>.from(plan);
     final ok = await _shadowDisk.writeChunkPlanJson(cacheId, map);
     asrEvidenceBus?.record(
@@ -4133,9 +4135,22 @@ class LibraryController extends ChangeNotifier {
       severity: 'lifecycle',
       ok: ok,
       details: {
+        'plan_status': st,
         'sentence_n': plan['sentences'] is Map
             ? (plan['sentences'] as Map).length
             : -1,
+        'ready_n': () {
+          final s = plan['sentences'];
+          if (s is! Map) return 0;
+          var n = 0;
+          for (final v in s.values) {
+            if (v is Map) {
+              final ch = v['chunks'];
+              if (ch is List && ch.isNotEmpty) n += 1;
+            }
+          }
+          return n;
+        }(),
       },
     );
   }
@@ -4363,11 +4378,14 @@ class LibraryController extends ChangeNotifier {
               'total': prog.total ?? -1,
             },
           );
-          await _persistShadowingPlanIfOk(id, got);
+          await _persistShadowingPlan(id, got);
           shadowingChunksError = null;
           shadowingChunksProgress = null;
           okOut = true;
           needBuild = false;
+        } else if (status == 'pending' && plan is Map) {
+          await _persistShadowingPlan(id, got);
+          notifyListeners();
         }
       } on TimeoutException {
         // design/113 — GET stall (cold start / large plan) must not red-banner.
@@ -4506,14 +4524,15 @@ class LibraryController extends ChangeNotifier {
             },
           );
           if (st2 == 'ok') {
-            await _persistShadowingPlanIfOk(id, built);
+            await _persistShadowingPlan(id, built);
             shadowingChunksError = null;
             shadowingChunksProgress = null;
             okOut = true;
             return;
           }
           if (st2 == 'pending' || built['continue'] == true) {
-            // Honest in-progress — keep busy banner, next slice immediately.
+            // design/266 — persist partial so practice can unlock + merge.
+            await _persistShadowingPlan(id, built);
             notifyListeners();
             continue;
           }

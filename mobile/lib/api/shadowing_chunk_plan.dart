@@ -1,29 +1,62 @@
 /// Shadowing chunk plan helpers (practice boot / skip-empty).
 ///
 /// Plan shape: `{ status, sentences: { sid: { chunks: [..] } } }`.
+/// design/266 — playable = plan-row chunks only (no EN plain fallback).
 library;
 
-List<String> shadowingChunksForSentence(
+/// Chunks from plan row only (empty if missing / empty list).
+List<String> shadowingPlanChunksForSentence(
   Map<String, dynamic>? plan,
   String sentenceId,
-  String plain,
 ) {
   final sid = sentenceId.trim();
   final sentences = plan?['sentences'];
-  if (sid.isNotEmpty && sentences is Map && sentences[sid] is Map) {
-    final row = sentences[sid] as Map;
-    final ch = row['chunks'];
-    if (ch is List && ch.isNotEmpty) {
-      return ch.map((e) => e.toString()).toList();
+  if (sid.isEmpty || sentences is! Map) return const [];
+  final row = sentences[sid];
+  if (row is! Map) return const [];
+  final ch = row['chunks'];
+  if (ch is! List || ch.isEmpty) return const [];
+  return ch.map((e) => e.toString()).where((e) => e.trim().isNotEmpty).toList();
+}
+
+/// Count sids with non-empty plan chunks.
+int countShadowingReadySentences(Map<String, dynamic>? plan) {
+  final sentences = plan?['sentences'];
+  if (sentences is! Map) return 0;
+  var n = 0;
+  for (final v in sentences.values) {
+    if (v is! Map) continue;
+    final ch = v['chunks'];
+    if (ch is List && ch.any((e) => e.toString().trim().isNotEmpty)) {
+      n += 1;
     }
   }
+  return n;
+}
+
+bool shadowingPlanStatusIsOk(Map<String, dynamic>? plan) =>
+    plan?['status']?.toString() == 'ok';
+
+bool shadowingPlanStatusIsPending(Map<String, dynamic>? plan) =>
+    plan?['status']?.toString() == 'pending';
+
+/// Practice bind/skip: plan chunks. Optional plain fallback for legacy callers only.
+List<String> shadowingChunksForSentence(
+  Map<String, dynamic>? plan,
+  String sentenceId,
+  String plain, {
+  bool allowPlainFallback = false,
+}) {
+  final planned = shadowingPlanChunksForSentence(plan, sentenceId);
+  if (planned.isNotEmpty) return planned;
+  if (!allowPlainFallback) return const [];
   final t = plain.trim();
   return t.isEmpty ? <String>[] : <String>[t];
 }
 
 /// Steps to advance from [fromIndex] to the next playable sentence.
 ///
-/// Returns `0` if [fromIndex] already has chunks, a positive delta to skip
+/// Returns `0` if [fromIndex] already has plan chunks, a positive delta to skip
 /// empty rows, or `-1` if nothing playable remains (including [fromIndex]).
 int shadowingSkipEmptyDelta({
   required Map<String, dynamic>? plan,
@@ -35,10 +68,39 @@ int shadowingSkipEmptyDelta({
   for (var i = fromIndex; i < sentences.length; i++) {
     final s = sentences[i];
     final sid = s.id.trim().isNotEmpty ? s.id : '$i';
-    final chunks = shadowingChunksForSentence(plan, sid, s.text);
+    final chunks = shadowingPlanChunksForSentence(plan, sid);
     if (chunks.isNotEmpty) {
       return i - fromIndex;
     }
   }
   return -1;
+}
+
+/// Merge [incoming] sentence rows into [base] (incoming wins per sid).
+Map<String, dynamic> mergeShadowingPlans(
+  Map<String, dynamic>? base,
+  Map<String, dynamic> incoming,
+) {
+  final out = Map<String, dynamic>.from(base ?? const {});
+  out['status'] = incoming['status'] ?? out['status'];
+  if (incoming['progress'] != null) out['progress'] = incoming['progress'];
+  final baseSent = out['sentences'];
+  final inSent = incoming['sentences'];
+  final merged = <String, dynamic>{};
+  if (baseSent is Map) {
+    for (final e in baseSent.entries) {
+      merged['${e.key}'] = e.value is Map
+          ? Map<String, dynamic>.from(e.value as Map)
+          : e.value;
+    }
+  }
+  if (inSent is Map) {
+    for (final e in inSent.entries) {
+      merged['${e.key}'] = e.value is Map
+          ? Map<String, dynamic>.from(e.value as Map)
+          : e.value;
+    }
+  }
+  out['sentences'] = merged;
+  return out;
 }

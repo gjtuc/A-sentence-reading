@@ -25,7 +25,7 @@ Modules: `shadowing_takes.py` · `/api/shadowing/takes` · web `shadowing_practi
 4. 별도 연습 화면 (기본 읽기 화면 비확장)  
 5. 현재 문장부터  
 6. TTS 종료 후 **여유 2초** 녹음  
-7. 청크 없으면 **먼저 build 성공**해야 입장  
+7. 청크 **선성공** 후 입장 — **design/266:** 문장 ≥1개 plan-row 청크면 입장 가능 (`pending` 허용). 전체 `ok` 전에도 백그라운드 ensure 계속.  
 8. 비로그인 사용 불가  
 9. 녹음·진행 = 계정(클라우드) 유저별  
 10. 중도 퇴장 후에도 takes 유지  

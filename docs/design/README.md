@@ -324,6 +324,9 @@
 | 256 | [256-ingest-poll-oversized-causal-evidence.md](256-ingest-poll-oversized-causal-evidence.md) | Poll oversized + translate/practice mismatch causal evidence (0.3.256) |
 | 257 | [257-ingest-poll-slim-practice-cap.md](257-ingest-poll-slim-practice-cap.md) | Slim job poll payload · practice cap 2000 · translate hydrate honesty (0.3.257) |
 | 263 | [263-si-merge-integrity.md](263-si-merge-integrity.md) | SI bibliography cut + local merge refs/figures (0.3.261) |
+| 265 | [265-import-title-pair-green.md](265-import-title-pair-green.md) | Import title/pair/green border (0.3.262) |
+| 266 | [266-progressive-practice-readiness.md](266-progressive-practice-readiness.md) | Progressive practice unlock (0.3.263) |
+| 267 | [267-density-rate-bias.md](267-density-rate-bias.md) | Fine difficulty × in-tier rate bias (0.3.263) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264+) |
 | 261 | [261-cross-source-pair-set-row.md](261-cross-source-pair-set-row.md) | Cross-source pair + hybrid set row (0.3.260) |
 | 260 | [260-speak-ui-post-beat-alive-gate.md](260-speak-ui-post-beat-alive-gate.md) | Speak UI post-beat alive gate (0.3.260) |

@@ -21,11 +21,11 @@ Modules: `app.py` (`/api/shadowing/chunks/.../build`) · `shadowing_chunks.py` �
 
 ## Product (locked)
 
-1. 실패를 성공처럼 보이지 않음 (`pending`≠완료, `error`≠입장)  
+1. 실패를 성공처럼 보이지 않음 (`pending`≠전체 완료, `error`≠입장)  
 2. `pending`은 「아직 준비 중」·자동 이어받기  
 3. 하드 실패만 실패 문구 + 재시도 가능  
 4. 소유자 uid 경로만  
-
+5. **design/266:** 연습 입장은 plan-row 청크 ≥1이면 허용 (`pending`+partial). 전체 완료만 `ok`.
 ## Kill / rollback
 
 - `ASR_SHADOWING_PRACTICE=0`  

@@ -263,6 +263,16 @@ String pickWeightedLocale(String mode, Random random) {
   return entries.last.key;
 }
 
+/// design/267 — skew unit u∈[0,1] by chunk density (positive = slower mass).
+double densitySkewUnit(double u, int density) {
+  final d = density < -2 ? -2 : (density > 2 ? 2 : density);
+  final uu = u.clamp(0.0, 1.0);
+  // density +2 → gamma>1 → pow smaller → slower; −2 → gamma<1 → faster.
+  final gamma = (1.0 + 0.35 * d).clamp(0.45, 1.8);
+  if (uu <= 0) return 0.0;
+  return pow(uu, gamma).toDouble();
+}
+
 /// Pick voice + client playback rate (server always synthesizes at 1.0).
 TtsPlaybackParams pickTtsPlaybackParams({
   required String mode,
@@ -271,6 +281,8 @@ TtsPlaybackParams pickTtsPlaybackParams({
   List<String> voiceIds = const [],
   Random? random,
   int? skillTier,
+  int? practiceDensity,
+  bool applyDensityRateBias = false,
 }) {
   final m = normalizeTtsMode(mode);
   if (isTtsRandomMode(m)) {
@@ -310,7 +322,13 @@ TtsPlaybackParams pickTtsPlaybackParams({
         : voiceIds;
     final pool = listTtsVoiceIdsForLocale(ids, locale);
     final picked = pool[rng.nextInt(pool.length)];
-    final rateRaw = band.$1 + rng.nextDouble() * (band.$2 - band.$1);
+    var u = rng.nextDouble();
+    if (applyDensityRateBias &&
+        practiceDensity != null &&
+        m == kTtsModeRandomAuto) {
+      u = densitySkewUnit(u, practiceDensity);
+    }
+    final rateRaw = band.$1 + u * (band.$2 - band.$1);
     final rate = (rateRaw * 100).round() / 100.0;
     return TtsPlaybackParams(
       voice: picked,
