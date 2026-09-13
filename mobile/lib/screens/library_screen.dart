@@ -176,10 +176,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   /// design/224 · 225 — soft-hide + SnackBar undo; hard DELETE after grace.
+  /// design/258 — live seconds countdown; dismiss when purge fires.
   Future<void> _softHideWithUndo(List<String> ids) async {
     if (_deleting || ids.isEmpty) return;
     setState(() => _deleting = true);
-    final hidden = await widget.library.softHidePapers(ids);
+    final result = await widget.library.softHidePapers(ids);
     if (!mounted) return;
     setState(() {
       _deleting = false;
@@ -192,7 +193,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _dragCacheId = null;
       _dragOverTrash = false;
     });
-    if (hidden == 0) {
+    if (result.hidden == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(widget.library.error ?? '숨기기에 실패했습니다.'),
@@ -200,11 +201,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
       return;
     }
+    final purgeAt = result.purgeAtMs ??
+        DateTime.now().millisecondsSinceEpoch +
+            const Duration(seconds: 60).inMilliseconds;
+    final remainMs =
+        (purgeAt - DateTime.now().millisecondsSinceEpoch).clamp(0, 120000);
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        duration: const Duration(seconds: 60),
-        content: Text('$hidden건을 숨겼습니다. 1분 후 영구 삭제됩니다.'),
+        // Keep alive until countdown hits 0; content dismisses itself.
+        duration: Duration(milliseconds: remainMs + 1500),
+        content: _SoftHideCountdownContent(
+          hidden: result.hidden,
+          purgeAtMs: purgeAt,
+          onExpired: () {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            unawaited(widget.library.purgeDueSoftDeletes());
+          },
+        ),
         action: SnackBarAction(
           label: '실행 취소',
           onPressed: () {
@@ -598,7 +613,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                     child: Text(
-                      '체크 후 휴지통으로 숨깁니다. 1분 안 실행 취소 가능.',
+                      '체크 후 휴지통으로 숨깁니다. 60초 안 실행 취소 가능.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
@@ -1046,5 +1061,62 @@ class _LibraryScreenState extends State<LibraryScreen> {
         );
       },
     );
+  }
+}
+
+/// design/258 — live soft-hide countdown inside SnackBar content.
+class _SoftHideCountdownContent extends StatefulWidget {
+  const _SoftHideCountdownContent({
+    required this.hidden,
+    required this.purgeAtMs,
+    required this.onExpired,
+  });
+
+  final int hidden;
+  final int purgeAtMs;
+  final VoidCallback onExpired;
+
+  @override
+  State<_SoftHideCountdownContent> createState() =>
+      _SoftHideCountdownContentState();
+}
+
+class _SoftHideCountdownContentState extends State<_SoftHideCountdownContent> {
+  Timer? _timer;
+  int _secsLeft = 60;
+  bool _expired = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _refresh());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _refresh() {
+    if (_expired) return;
+    final leftMs = widget.purgeAtMs - DateTime.now().millisecondsSinceEpoch;
+    final secs = (leftMs / 1000).ceil();
+    if (secs <= 0) {
+      _expired = true;
+      _timer?.cancel();
+      widget.onExpired();
+      return;
+    }
+    if (!mounted) return;
+    if (secs != _secsLeft) {
+      setState(() => _secsLeft = secs);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Text('${widget.hidden}건을 숨겼습니다.\n$_secsLeft초 후 영구 삭제됩니다.');
   }
 }

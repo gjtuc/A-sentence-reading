@@ -323,6 +323,7 @@
 | 255 | [255-architecture-refactoring-roadmap.md](255-architecture-refactoring-roadmap.md) | Architecture refactoring roadmap (0.3.254) |
 | 256 | [256-ingest-poll-oversized-causal-evidence.md](256-ingest-poll-oversized-causal-evidence.md) | Poll oversized + translate/practice mismatch causal evidence (0.3.256) |
 | 257 | [257-ingest-poll-slim-practice-cap.md](257-ingest-poll-slim-practice-cap.md) | Slim job poll payload · practice cap 2000 · translate hydrate honesty (0.3.257) |
+| 258 | [258-soft-hide-snackbar-abandon-enrich.md](258-soft-hide-snackbar-abandon-enrich.md) | Soft-hide countdown SnackBar · abandon enrich/ensure banner (0.3.258) |
 | 254 | [254-import-screen-tab-cta-separation.md](254-import-screen-tab-cta-separation.md) | Import screen tab CTA separation (0.3.247) |
 | 253 | [253-downloads-open-document-direct.md](253-downloads-open-document-direct.md) | Resume Downloads via OPEN_DOCUMENT (0.3.246) |
 | 252 | [252-find-return-causal-evidence.md](252-find-return-causal-evidence.md) | Find→browser→resume causal evidence (0.3.245) |

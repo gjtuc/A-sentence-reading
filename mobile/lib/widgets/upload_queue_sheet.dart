@@ -32,7 +32,7 @@ Future<void> showUploadQueueSheet({
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '분석은 한 건씩 순서대로 진행됩니다. 대기 중 항목은 제거해도 됩니다.',
+                    '분석은 한 건씩 순서대로 진행됩니다.\n대기 중 항목은 제거해도 됩니다.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 12),

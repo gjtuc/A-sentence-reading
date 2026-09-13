@@ -185,13 +185,16 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// design/224 — hide locally; hard DELETE after purge_at (wall clock).
-  Future<int> softHidePapers(Iterable<String> cacheIds) async {
+  /// Returns hidden count + earliest purge wall-clock for countdown SnackBar (design/258).
+  Future<({int hidden, int? purgeAtMs})> softHidePapers(
+    Iterable<String> cacheIds,
+  ) async {
     final ids = cacheIds
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)
         .toSet()
         .toList(growable: false);
-    if (ids.isEmpty) return 0;
+    if (ids.isEmpty) return (hidden: 0, purgeAtMs: null);
     final list = await _softDelete.hide(ids);
     final purgeAt = list.entries
         .where((e) => ids.contains(e.cacheId))
@@ -214,10 +217,12 @@ class LibraryController extends ChangeNotifier {
       onSoftHideOpened?.call();
     }
     _publishPapers(papers.where((p) => !ids.contains(p.id)).toList());
+    // design/258 — soft-hide must not keep translate/shadowing banner alive.
+    _abandonBackgroundWorkForSoftHide(ids);
     error = null;
     notifyListeners();
     _scheduleSoftPurgeWorker();
-    return ids.length;
+    return (hidden: ids.length, purgeAtMs: purgeAt);
   }
 
   /// design/224 — restore soft-hidden rows via refresh (server/disk still hold them).
@@ -229,6 +234,9 @@ class LibraryController extends ChangeNotifier {
         .toList(growable: false);
     if (ids.isEmpty) return 0;
     await _softDelete.undo(ids);
+    for (final id in ids) {
+      _softHideAbandonedWork.remove(id);
+    }
     asrEvidenceBus?.record(
       'paper_soft_undo',
       severity: 'lifecycle',
@@ -239,6 +247,58 @@ class LibraryController extends ChangeNotifier {
     await refresh(fresh: false, clearError: false, trigger: 'soft_undo');
     _scheduleSoftPurgeWorker();
     return ids.length;
+  }
+
+  /// Ids whose in-flight enrich/ensure should stop updating UI (design/258).
+  final Set<String> _softHideAbandonedWork = {};
+
+  bool _isSoftHideAbandoned(String cacheId) {
+    final id = cacheId.trim();
+    if (id.isEmpty) return false;
+    return _softHideAbandonedWork.contains(id) ||
+        _softDelete.hiddenIds.contains(id);
+  }
+
+  /// Drop queued enrich and clear banners for soft-hidden papers (design/258).
+  void _abandonBackgroundWorkForSoftHide(Iterable<String> ids) {
+    final set = ids
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet();
+    if (set.isEmpty) return;
+    _softHideAbandonedWork.addAll(set);
+    _enrichQueue.removeWhere(set.contains);
+    _enrichInQueue.removeAll(set);
+    for (final id in set) {
+      _enrichFailCount.remove(id);
+    }
+    final shadowHit =
+        shadowingChunksCacheId != null && set.contains(shadowingChunksCacheId);
+    final enrichHit =
+        pendingEnrichCacheId != null && set.contains(pendingEnrichCacheId);
+    if (shadowHit) {
+      shadowingChunksBusy = false;
+      shadowingChunksProgress = null;
+      shadowingChunksError = null;
+    }
+    final enrichActiveHidden = enrichHit ||
+        (pendingEnrichCacheId != null &&
+            _softHideAbandonedWork.contains(pendingEnrichCacheId));
+    pendingEnrichBusy = _enrichQueue.isNotEmpty ||
+        (_enrichLoopBusy && !enrichActiveHidden) ||
+        _enrichRetryTimer != null;
+    asrEvidenceBus?.record(
+      'paper_soft_hide_abandon_work',
+      severity: 'decision',
+      stage: 'abandon',
+      ok: true,
+      details: {
+        'n': set.length,
+        'shadow_hit': shadowHit ? 1 : 0,
+        'enrich_hit': enrichHit ? 1 : 0,
+        'queue_n': _enrichQueue.length,
+      },
+    );
   }
 
   /// design/224 — hard-delete entries whose purge_at has passed.
@@ -253,6 +313,7 @@ class LibraryController extends ChangeNotifier {
       final n = await deletePapers([e.cacheId]);
       if (n > 0) {
         await _softDelete.remove([e.cacheId]);
+        _softHideAbandonedWork.remove(e.cacheId);
         purged += 1;
       }
     }
@@ -1713,6 +1774,8 @@ class LibraryController extends ChangeNotifier {
   }) {
     final cid = cacheId.trim();
     if (cid.isEmpty || !_paperDisk.isBound) return;
+    // design/258 — do not re-queue work for soft-hidden papers.
+    if (_isSoftHideAbandoned(cid)) return;
     final trig = trigger.trim().isEmpty ? 'manual' : trigger.trim();
     if (!force && _enrichInQueue.contains(cid)) return;
     if (!force && pendingEnrichCacheId == cid && _enrichLoopBusy) return;
@@ -1889,6 +1952,20 @@ class LibraryController extends ChangeNotifier {
   }) async {
     final cid = cacheId.trim();
     if (cid.isEmpty) return;
+    if (_isSoftHideAbandoned(cid)) {
+      asrEvidenceBus?.record(
+        'pending_enrich_done',
+        severity: 'lifecycle',
+        cacheId: cid,
+        stage: trigger,
+        ok: true,
+        details: {
+          'skipped': 1,
+          'reason': 'soft_hide',
+        },
+      );
+      return;
+    }
     final wantTr = await _wantTranslate();
     final wantSh = await _wantShadowingPractice();
     await _emitTranslateOptoutMismatchIfNeeded(
@@ -3892,6 +3969,8 @@ class LibraryController extends ChangeNotifier {
   }) async {
     final id = cacheId.trim();
     if (id.isEmpty) return;
+    // design/258 — soft-hidden papers must not keep the library banner.
+    if (_isSoftHideAbandoned(id)) return;
     final trig = trigger.trim().isEmpty ? 'unspecified' : trigger.trim();
     // Join in-flight ensure for same paper — do not reset progress / dual-build.
     if (_shadowingEnsureFuture != null && _shadowingEnsureCacheId == id) {
@@ -4013,6 +4092,7 @@ class LibraryController extends ChangeNotifier {
     }
 
     void applyProgress(Map<String, dynamic> body, {String source = ''}) {
+      if (_isSoftHideAbandoned(id)) return;
       final p = _readProgress(body);
       final d = p.done;
       final tot = p.total;
@@ -4135,6 +4215,23 @@ class LibraryController extends ChangeNotifier {
         // design/113 — several budget slices until ok/error (cap avoids infinite).
         const maxSlices = 40;
         for (var i = 0; i < maxSlices; i++) {
+          if (_isSoftHideAbandoned(id)) {
+            errorCode = 'soft_hide_abort';
+            okOut = false;
+            asrEvidenceBus?.record(
+              'shadowing_ensure_abort',
+              cacheId: id,
+              severity: 'decision',
+              ok: true,
+              code: 'soft_hide_abort',
+              details: {
+                'ensure_id': ensureId,
+                'trigger': trigger,
+                'round': i + 1,
+              },
+            );
+            break;
+          }
           Map<String, dynamic> built;
           final sliceRound = i + 1;
           asrEvidenceBus?.record(
@@ -4293,7 +4390,9 @@ class LibraryController extends ChangeNotifier {
         },
       );
       shadowingChunksBusy = false;
-      if (okOut) shadowingChunksProgress = null;
+      final abandoned = _isSoftHideAbandoned(id);
+      if (okOut || abandoned) shadowingChunksProgress = null;
+      if (abandoned) shadowingChunksError = null;
       notifyListeners();
     }
   }
