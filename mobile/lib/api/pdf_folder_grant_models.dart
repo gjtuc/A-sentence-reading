@@ -123,8 +123,11 @@ class ScannedPdfEntry {
   /// Resolved pairing key for set/mate logic.
   String get effectivePairingKey {
     final k = pairingKey.trim();
-    if (k.isNotEmpty) return k;
-    return normalizePairingKey(advisoryTitle);
+    if (k.isNotEmpty) {
+      return isUsablePairingKey(k) ? k : '';
+    }
+    final fromTitle = normalizePairingKey(advisoryTitle);
+    return isUsablePairingKey(fromTitle) ? fromTitle : '';
   }
 
   ScannedPdfEntry copyWith({

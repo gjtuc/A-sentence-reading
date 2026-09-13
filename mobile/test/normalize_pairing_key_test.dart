@@ -26,4 +26,16 @@ void main() {
       normalizeTitleKey('hello world'),
     );
   });
+
+  test('design/265 isUsablePairingKey and acs stem', () {
+    expect(isUsablePairingKey('1'), isFalse);
+    expect(
+      isUsablePairingKey(
+        'selective hydrogenation of acetylene over nicu catalysts',
+      ),
+      isTrue,
+    );
+    expect(acsManuscriptIdFromDisplayName('am2c04149 si 001.pdf'), 'am2c04149');
+    expect(isUsablePairingKey('acs:am2c04149'), isTrue);
+  });
 }

@@ -222,6 +222,8 @@ class LibraryController extends ChangeNotifier {
     _publishPapers(papers.where((p) => !ids.contains(p.id)).toList());
     // design/258 — soft-hide must not keep translate/shadowing banner alive.
     _abandonBackgroundWorkForSoftHide(ids);
+    // design/265 — green「이미 보관」must drop soft-hidden hashes immediately.
+    await _rebuildLibraryHashSet();
     error = null;
     notifyListeners();
     _scheduleSoftPurgeWorker();
@@ -2506,6 +2508,8 @@ class LibraryController extends ChangeNotifier {
         papers.where((p) => !okIds.contains(p.id)).toList(growable: false),
       );
       await _persistOrder(papers.map((e) => e.id).toList(growable: false));
+      // design/265 — drop purged content hashes from import green border set.
+      await _rebuildLibraryHashSet();
     }
     error = okCount == ids.length
         ? null
@@ -5480,7 +5484,11 @@ class LibraryController extends ChangeNotifier {
             e.advisoryDoi = cached.advisoryDoi;
             e.pairingKey = cached.pairingKey.isNotEmpty
                 ? cached.pairingKey
-                : await _pairingKeyForTitle(cached.advisoryTitle);
+                : await _pairingKeyForTitle(
+                    cached.advisoryTitle,
+                    doi: cached.advisoryDoi,
+                    displayName: e.displayName,
+                  );
             e.siStatus = cached.siStatus;
             e.siStem = cached.siStem;
             e.advisoryState = PdfAdvisoryState.ready;
@@ -5540,7 +5548,11 @@ class LibraryController extends ChangeNotifier {
               e.advisoryReason = det.reason;
               e.advisoryDoi = doi;
               e.siStem = siStem;
-              e.pairingKey = await _pairingKeyForTitle(guessed.title);
+              e.pairingKey = await _pairingKeyForTitle(
+                guessed.title,
+                doi: doi,
+                displayName: e.displayName,
+              );
               e.advisoryState = PdfAdvisoryState.ready;
               await _pdfAdvisoryCache.put(
                 docUri: e.docUri,
@@ -5591,7 +5603,10 @@ class LibraryController extends ChangeNotifier {
             e.advisoryRole = role;
             e.advisoryReason = reason;
             e.advisoryDoi = '';
-            e.pairingKey = await _pairingKeyForTitle(title);
+            e.pairingKey = await _pairingKeyForTitle(
+              title,
+              displayName: e.displayName,
+            );
             e.advisoryState = PdfAdvisoryState.ready;
             await _pdfAdvisoryCache.put(
               docUri: e.docUri,
@@ -5664,7 +5679,11 @@ class LibraryController extends ChangeNotifier {
           e.advisoryReason = det.reason;
           e.advisoryDoi = doi;
           e.siStem = siStem;
-          e.pairingKey = await _pairingKeyForTitle(guessed.title);
+          e.pairingKey = await _pairingKeyForTitle(
+            guessed.title,
+            doi: doi,
+            displayName: e.displayName,
+          );
           e.advisoryState = PdfAdvisoryState.ready;
           await _pdfAdvisoryCache.put(
             docUri: e.docUri,
@@ -5813,16 +5832,38 @@ class LibraryController extends ChangeNotifier {
 
   /// design/237 · 242 — after DOI find CTA opens browser.
   /// design/239 — prefer Android NFKC then Dart normalizePairingKey.
-  Future<String> _pairingKeyForTitle(String title) async {
+  /// design/265 — ACS filename / DOI soft-pair when title key is weak.
+  Future<String> _pairingKeyForTitle(
+    String title, {
+    String doi = '',
+    String displayName = '',
+  }) async {
+    // Prefer ACS manuscript id from filename so main+SI share a key even when
+    // SI advisory title failed (an1c00673.pdf + an1c00673_si_001.pdf).
+    final acs = acsManuscriptIdFromDisplayName(displayName);
+    if (acs != null) return 'acs:$acs';
+
     final raw = title.trim();
-    if (raw.isEmpty) return '';
-    try {
-      final nfkc = await _safTree.normalizeNfkc(raw);
-      if (nfkc != null && nfkc.isNotEmpty) {
-        return normalizePairingKey(nfkc);
+    var fromTitle = '';
+    if (raw.isNotEmpty) {
+      try {
+        final nfkc = await _safTree.normalizeNfkc(raw);
+        if (nfkc != null && nfkc.isNotEmpty) {
+          fromTitle = normalizePairingKey(nfkc);
+        } else {
+          fromTitle = normalizePairingKey(raw);
+        }
+      } catch (_) {
+        fromTitle = normalizePairingKey(raw);
       }
-    } catch (_) {}
-    return normalizePairingKey(raw);
+    }
+    if (isUsablePairingKey(fromTitle)) return fromTitle;
+
+    final dk = doiPairingKey(doi);
+    if (dk != null) return dk;
+
+    // Unusable short stems must not form sets (blocks false「1」/「2」pairs).
+    return '';
   }
 
   void armFindWatch({int windowMs = 120000, String? findId}) {
@@ -6800,8 +6841,11 @@ class LibraryController extends ChangeNotifier {
   }
 
   Future<void> _rebuildLibraryHashSet() async {
+    // design/265 — soft-hidden ids stay on disk; exclude them from「이미 보관」.
+    final hidden = _softDelete.hiddenIds;
     final out = <String>{};
     for (final e in papers) {
+      if (hidden.contains(e.id)) continue;
       final h = e.contentHash.trim().toLowerCase();
       if (h.length == 64 && RegExp(r'^[a-f0-9]{64}$').hasMatch(h)) {
         // EDGE: failed rows still have hash — only skip explicit error status.
@@ -6811,6 +6855,7 @@ class LibraryController extends ChangeNotifier {
     }
     try {
       for (final e in await _paperDisk.listIndex()) {
+        if (hidden.contains(e.id)) continue;
         final h = e.contentHash.trim().toLowerCase();
         if (h.length == 64 && RegExp(r'^[a-f0-9]{64}$').hasMatch(h)) {
           out.add(h);

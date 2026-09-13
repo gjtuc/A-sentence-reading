@@ -10,8 +10,8 @@ import 'pdf_hash_cache_store.dart';
 
 const int kPdfAdvisoryCacheMaxEntries = 2000;
 
-/// design/229 · 233 · 235 · 236 · 237 · 239 · 254 · 255 — bump wipes stale rows (DOCX SI classification, CEJ chrome).
-const int kPdfAdvisoryCacheSchema = 10;
+/// design/229 · 233 · 235 · 236 · 237 · 239 · 254 · 255 · 265 — bump wipes stale rows (title/pair quality).
+const int kPdfAdvisoryCacheSchema = 11; // design/265 — title/pair quality gate
 
 class PdfAdvisoryCacheEntry {
   const PdfAdvisoryCacheEntry({

@@ -26,6 +26,46 @@ String normalizePairingKey(String title) {
   return t;
 }
 
+/// design/265 — reject stem keys like `1` / `2` that false-pair unrelated PDFs.
+bool isUsablePairingKey(String key) {
+  final k = key.trim().toLowerCase();
+  if (k.isEmpty) return false;
+  if (k.startsWith('doi:') && k.length > 8) return true;
+  if (k.startsWith('acs:') && k.length > 7) return true;
+  if (k.length < 12) return false;
+  // Bare ACS-like code without soft-pair prefix — too weak alone.
+  if (RegExp(r'^[a-z]{1,4}\d[a-z0-9]*$').hasMatch(k)) return false;
+  return true;
+}
+
+/// design/265 — ACS manuscript id from filename stem (an1c00673, am2c04149, …).
+String? acsManuscriptIdFromDisplayName(String displayName) {
+  var n = displayName.trim();
+  if (n.toLowerCase().endsWith('.pdf')) {
+    n = n.substring(0, n.length - 4);
+  } else if (n.toLowerCase().endsWith('.docx')) {
+    n = n.substring(0, n.length - 5);
+  }
+  try {
+    n = Uri.decodeComponent(n);
+  } catch (_) {}
+  n = n.replaceAll(RegExp(r'[_\s-]+'), ' ').trim().toLowerCase();
+  final m = RegExp(r'\b([a-z]{1,4}\d[a-z0-9]{4,})\b').firstMatch(n);
+  if (m == null) return null;
+  return m.group(1);
+}
+
+/// design/265 — DOI soft-pair token (lowercase, no URL chrome).
+String? doiPairingKey(String doi) {
+  var d = doi.trim().toLowerCase();
+  if (d.isEmpty) return null;
+  d = d.replaceFirst(RegExp(r'^https?://(dx\.)?doi\.org/'), '');
+  d = d.replaceFirst(RegExp(r'^doi:\s*'), '');
+  d = d.trim();
+  if (d.length < 8 || !d.contains('/')) return null;
+  return 'doi:$d';
+}
+
 String _nfkc(String s) {
   // Dart has no unicodedata; fold common compatibility forms (design/239).
   // Prefer Android Normalizer.NFKC via SAF channel when available for advisory.
