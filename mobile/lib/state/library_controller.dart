@@ -4349,10 +4349,7 @@ class LibraryController extends ChangeNotifier {
         // Fall through to prefs.
       }
     }
-    // design/181 — during figure hydrate, avoid auth_status competing with PNG traffic.
-    if (_hydrateActive.isNotEmpty) {
-      return false;
-    }
+    // design/257 — hydrate must not force translate=0 (was suppressing KO backfill).
     try {
       final auth = await _client.fetchAuthStatus();
       final uid = auth.user?.uid;

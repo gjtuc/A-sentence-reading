@@ -26,8 +26,8 @@ log = logging.getLogger(__name__)
 
 _CACHE_ID_RE = re.compile(r"^[a-zA-Z0-9]{8,32}$")
 _MAX_SENTENCE_CHARS = 2000
-_MAX_SENTENCES = 400
-# design/256 — public alias for evidence / API details (do not raise silently).
+_MAX_SENTENCES = 2000
+# design/256+257 — public alias for evidence / API details (do not raise silently).
 MAX_SENTENCES = _MAX_SENTENCES
 _MAX_STORE_BYTES = 2_000_000
 # WHY: Cloud Run --timeout 300; leave headroom so we return JSON before gateway 504.

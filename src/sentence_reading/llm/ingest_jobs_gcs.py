@@ -417,6 +417,39 @@ def measure_job_view_size(job: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def slim_job_result_for_poll(result: dict[str, Any] | None) -> dict[str, Any]:
+    """
+    design/257 — strip figure data-URLs from ingest poll payloads.
+
+    WHY: full image_src base64 (~40MB+) made GET /api/ingest/jobs crash with HTTP 500.
+    Keep sentence text + metadata so web early-open and mobile IngestJobResult still work.
+    """
+    if not isinstance(result, dict):
+        return {}
+    out = dict(result)
+
+    def _blank_src(row: Any) -> Any:
+        if not isinstance(row, dict):
+            return row
+        cleaned = dict(row)
+        if "image_src" in cleaned:
+            cleaned["image_src"] = ""
+        return cleaned
+
+    if isinstance(out.get("figure"), dict):
+        out["figure"] = _blank_src(out.get("figure"))
+    figs = out.get("figures")
+    if isinstance(figs, list):
+        out["figures"] = [_blank_src(row) for row in figs]
+    elif isinstance(figs, dict):
+        out["figures"] = {k: _blank_src(v) for k, v in figs.items()}
+    # Drop any accidental top-level data URL fields.
+    for key, val in list(out.items()):
+        if isinstance(val, str) and val.startswith("data:image"):
+            out[key] = ""
+    return out
+
+
 def public_job_view(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
     """Shape returned by GET /api/ingest/jobs/{id} (no owner_uid leak beyond need)."""
     out: dict[str, Any] = {
@@ -455,17 +488,22 @@ def public_job_view(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
         out["ingest_phase"] = "error"
         return out
     if job.get("done") and isinstance(job.get("result"), dict):
-        out.update(job["result"])
+        slim = slim_job_result_for_poll(job.get("result"))
+        out.update(slim)
         out["percent"] = 100
         out["done"] = True
-        out["translate_pending"] = False
+        # design/257 — keep deferred KO flag if result says pending.
+        if "translate_pending" not in slim:
+            out["translate_pending"] = False
         out["ingest_phase"] = "complete"
         if tid:
             out["trace_id"] = tid
     elif isinstance(job.get("result"), dict):
-        out.update(job["result"])
+        slim = slim_job_result_for_poll(job.get("result"))
+        out.update(slim)
         out["done"] = False
-        out["translate_pending"] = True
+        if "translate_pending" not in slim:
+            out["translate_pending"] = True
         out["ingest_phase"] = phase
         if tid:
             out["trace_id"] = tid

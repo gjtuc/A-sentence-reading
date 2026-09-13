@@ -283,7 +283,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.256",
+    version="0.3.257",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1806,7 +1806,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.256",
+        "version": "0.3.257",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -6479,14 +6479,23 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
         job = _JOBS.get(jid) or job
 
     # design/256 — emit view size before serving (proves oversized poll root cause).
+    # design/257 — measure the *served* slim view (not raw GCS base64).
+    view = ij.public_job_view(jid, job)
     try:
         from sentence_reading.llm import evidence_bus as eb
 
-        size = ij.measure_job_view_size(job)
+        size = ij.measure_job_view_size({"result": view if isinstance(view, dict) else {}})
+        raw_size = ij.measure_job_view_size(job)
+        size["raw_data_url_n"] = int(raw_size.get("data_url_n") or 0)
+        size["raw_est_bytes"] = int(raw_size.get("est_bytes") or 0)
+        size["slimmed"] = (
+            1
+            if int(raw_size.get("data_url_n") or 0) > int(size.get("data_url_n") or 0)
+            else 0
+        )
         cache_hint = ""
-        res = job.get("result") if isinstance(job, dict) else None
-        if isinstance(res, dict):
-            cache_hint = str(res.get("cache_id") or "").strip()[:32]
+        if isinstance(view, dict):
+            cache_hint = str(view.get("cache_id") or "").strip()[:32]
         eb.emit(
             "ingest_job_view_size",
             job_id=jid,
@@ -6501,7 +6510,7 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
     except Exception:  # noqa: BLE001
         pass
 
-    return JSONResponse(ij.public_job_view(jid, job))
+    return JSONResponse(view)
 
 
 @app.post("/api/ingest/jobs/{job_id}/cancel")
@@ -7551,7 +7560,7 @@ async def _run_ingest_job_body(
                 else:
                     bf_warn = ["translate_skipped_opt_out"]
                 session_id = _remember_session(session)
-                data = session.to_public_dict()
+                data = session.to_public_dict(include_images=False)
                 data["ok"] = True
                 data["session_id"] = session_id
                 data["debone"] = bool(info.get("debone"))
@@ -7705,7 +7714,7 @@ async def _run_ingest_job_body(
                     else:
                         bf_warn = ["translate_skipped_opt_out"]
                     session_id = _remember_session(session)
-                    data = session.to_public_dict()
+                    data = session.to_public_dict(include_images=False)
                     data["ok"] = True
                     data["session_id"] = session_id
                     data["debone"] = bool(info.get("debone"))
@@ -7992,7 +8001,8 @@ async def _run_ingest_job_body(
         session_id = _remember_session(session)
 
         def _pack(*, pending: bool) -> dict:
-            d = session.to_public_dict()
+            # design/257 — never embed figure PNGs in job.result (poll 500 root).
+            d = session.to_public_dict(include_images=False)
             d["ok"] = True
             d["session_id"] = session_id
             d["debone"] = debone_ok
@@ -9151,7 +9161,11 @@ async def shadowing_chunks_build(
             content={
                 "ok": False,
                 "error": err_code,
-                "message": "연습 구간 요청이 올바르지 않습니다.",
+                "message": (
+                    "이 논문은 문장이 너무 많아 연습 구간을 만들 수 없습니다."
+                    if err_code == "sentences_over_max"
+                    else "연습 구간 요청이 올바르지 않습니다."
+                ),
                 "sentence_n": details["sentence_n"],
                 "max_n": details["max_n"],
             },

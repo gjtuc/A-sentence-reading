@@ -593,7 +593,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 ],
               ),
             ),
-            if (library.shadowingChunksBusy)
+            if (library.shadowingChunksBusy &&
+                (library.shadowingChunksCacheId == null ||
+                    library.shadowingChunksCacheId == s.cacheId))
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 child: Text(
@@ -605,7 +607,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   style: const TextStyle(fontSize: 12),
                 ),
               ),
-            if (library.shadowingChunksError != null)
+            // design/257 — do not show another paper's ensure failure on this reader.
+            if (library.shadowingChunksError != null &&
+                (library.shadowingChunksCacheId == null ||
+                    library.shadowingChunksCacheId == s.cacheId))
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
                 child: Row(
