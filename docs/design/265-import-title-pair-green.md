@@ -37,7 +37,11 @@ Does **not** reopen [263](263-si-merge-integrity.md) merge/bib/figure logic.
 
 ## Non-goals
 
-265c cancel-orphan · Documents 262 · architecture 255/173 · silent auto-merge · 263 bib cut · server title extractor.
+Documents 262 · architecture 255/173 · silent auto-merge · 263 bib cut · server title extractor.
+
+## Follow-up
+
+Cancel orphan green / disk purge: [265c](265c-cancel-disk-purge.md) (0.3.264).
 
 ## Tests
 

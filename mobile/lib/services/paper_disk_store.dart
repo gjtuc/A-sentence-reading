@@ -227,7 +227,7 @@ List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) {
   return out;
 }
 
-/// design/261 — one set row: hide SI when paired to a main (hybrid one-line).
+/// design/261 · 273 — one set row only when merge-ready; else keep two adjacent rows.
 List<PaperEntry> collapsePairedSetRows(List<PaperEntry> papers) {
   if (papers.length < 2) return List<PaperEntry>.from(papers);
   final hide = <String>{};
@@ -236,6 +236,8 @@ List<PaperEntry> collapsePairedSetRows(List<PaperEntry> papers) {
     if (role == 'supplementary' || role == 'si' || role == 'supp') continue;
     final mateId = e.pairedCacheId.trim();
     if (mateId.isEmpty) continue;
+    // design/273 — transitional pairs stay two openable rows with connector bar.
+    if (!e.canMergeSupplementary) continue;
     hide.add(mateId);
   }
   if (hide.isEmpty) return pairAdjacentPapers(papers);

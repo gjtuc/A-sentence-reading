@@ -233,9 +233,12 @@ class _PdfImportScreenState extends State<PdfImportScreen>
   }
 
   void _syncFindWatchTimer() {
-    final armed = lib.pdfFindWatchArmed && lib.pdfFindWatchHitDocUri == null;
+    final armed = lib.pdfFindWatchArmed &&
+        !lib.pdfFindWatchPaused &&
+        lib.pdfFindWatchHitDocUri == null;
     if (armed && _findWatchTimer == null) {
       _findWatchTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+        if (lib.pdfFindWatchPaused) return;
         unawaited(
           lib.rescanPdfFolderDebounced(
             trigger: 'find_watch',

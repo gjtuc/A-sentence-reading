@@ -325,9 +325,13 @@
 | 257 | [257-ingest-poll-slim-practice-cap.md](257-ingest-poll-slim-practice-cap.md) | Slim job poll payload · practice cap 2000 · translate hydrate honesty (0.3.257) |
 | 263 | [263-si-merge-integrity.md](263-si-merge-integrity.md) | SI bibliography cut + local merge refs/figures (0.3.261) |
 | 265 | [265-import-title-pair-green.md](265-import-title-pair-green.md) | Import title/pair/green border (0.3.262) |
+| 265c | [265c-cancel-disk-purge.md](265c-cancel-disk-purge.md) | Cancel → disk purge policy B (0.3.264) |
 | 266 | [266-progressive-practice-readiness.md](266-progressive-practice-readiness.md) | Progressive practice unlock (0.3.263) |
 | 267 | [267-density-rate-bias.md](267-density-rate-bias.md) | Fine difficulty × in-tier rate bias (0.3.263) |
-| 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264+) |
+| 271 | [271-find-watch-pick-race.md](271-find-watch-pick-race.md) | Find-watch vs pick race (0.3.264) |
+| 272 | [272-copy-partial-second-fail.md](272-copy-partial-second-fail.md) | copy_partial 2nd-fail honesty (0.3.264) |
+| 273 | [273-transitional-pair-connector.md](273-transitional-pair-connector.md) | Transitional pair rows (0.3.264) |
+| 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 261 | [261-cross-source-pair-set-row.md](261-cross-source-pair-set-row.md) | Cross-source pair + hybrid set row (0.3.260) |
 | 260 | [260-speak-ui-post-beat-alive-gate.md](260-speak-ui-post-beat-alive-gate.md) | Speak UI post-beat alive gate (0.3.260) |
 | 259 | [259-speak-ui-hold-listen-until-ready.md](259-speak-ui-hold-listen-until-ready.md) | Speak UI hold Listen until ready beat (0.3.259) |

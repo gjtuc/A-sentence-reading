@@ -29,8 +29,15 @@ refuse. Hard delete syncs external. Kill: `ASR`-style client flag later.
 
 ## Impl phases (not this ship)
 
-264 MES channel · 265 paper write · 266 empty-gate restore · 267 chunks/cursor.
+Chip IDs avoid collision with product **265/266/267**:
+
+| Chip | Scope |
+|------|--------|
+| **264** | MES MethodChannel + Manifest |
+| **268** | Paper / artifact write into mirror |
+| **269** | Empty-gate restore |
+| **270** | Chunks + cursor flush |
 
 ## Version
 
-**0.3.260** (design lock) · code starts **0.3.264+**
+**0.3.260** (design lock) · code starts **0.3.265+** (after Batch A 0.3.264)

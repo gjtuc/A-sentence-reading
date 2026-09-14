@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sentence_reading/api/paper_models.dart';
 import 'package:sentence_reading/api/reading_models.dart';
 import 'package:sentence_reading/services/paper_disk_store.dart';
 
@@ -126,5 +127,30 @@ void main() {
       await store.writeSessionJson('x', {'cache_id': 'x', 'title': 't'}),
       isFalse,
     );
+  });
+
+  test('design/273 collapse only when canMergeSupplementary', () {
+    final mainReady = PaperEntry(
+      id: 'main1',
+      title: 'Paper A',
+      docRole: 'main',
+      pairedCacheId: 'si1',
+      canMergeSupplementary: true,
+      ingestStatus: 'ok',
+    );
+    final siReady = PaperEntry(
+      id: 'si1',
+      title: 'Paper A SI',
+      docRole: 'supplementary',
+      pairedCacheId: 'main1',
+      ingestStatus: 'ok',
+    );
+    final collapsed = collapsePairedSetRows([mainReady, siReady]);
+    expect(collapsed.map((e) => e.id).toList(), ['main1']);
+
+    final mainPending = mainReady.copyWith(canMergeSupplementary: false);
+    final siPending = siReady.copyWith(canMergeSupplementary: false);
+    final two = collapsePairedSetRows([mainPending, siPending]);
+    expect(two.map((e) => e.id).toList(), ['main1', 'si1']);
   });
 }

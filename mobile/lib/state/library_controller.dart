@@ -443,6 +443,8 @@ class LibraryController extends ChangeNotifier {
 
   /// design/242 — tree-only find-watch after DOI CTA (no MES).
   bool pdfFindWatchArmed = false;
+  /// design/271 — pause poll while system picker is open.
+  bool pdfFindWatchPaused = false;
   int pdfFindWatchUntilMs = 0;
   int pdfFindWatchBaselineMs = 0;
   String? pdfFindWatchHitDocUri;
@@ -460,6 +462,8 @@ class LibraryController extends ChangeNotifier {
   bool _uploadCancelRequested = false;
   String? _activeUploadId;
   String? _activeJobId;
+  /// design/265c — cache_id known mid-ingest (handoff / poll result) for orphan purge.
+  String? _activeIngestCacheId;
 
   /// design/169g phase 4 — last open→reader handoff for nav_tab join.
   String? _lastOpenHandoffId;
@@ -4741,7 +4745,83 @@ class LibraryController extends ChangeNotifier {
     if (activeHash.isNotEmpty) {
       await removeUploadQueueItem(activeHash);
     }
+    // design/265c — purge any partial paper disk for this cancel (not soft-hide).
+    await _purgeCancelOrphans(
+      contentHash: activeHash,
+      cacheId: (_activeIngestCacheId ?? '').trim(),
+    );
+    await _rebuildLibraryHashSet();
     unawaited(_pumpUploadQueue());
+  }
+
+  /// design/265c — local hard purge for cancel orphans (same stack as deletePapers).
+  Future<void> _purgeLocalPaperArtifacts(String cacheId) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) return;
+    await _editStash.purge(id);
+    await _figureDisk.purge(id);
+    await _paperDisk.purge(id);
+    await _shadowDisk.purge(id);
+    _hydrateSessions.remove(id);
+    _figureHydrate.remove(id);
+    _hydrateDismissed.remove(id);
+    await _bookmarks?.purgePaper(id);
+    await _annotations?.purgePaper(id);
+    if (session?.cacheId == id) {
+      clearOpened();
+    }
+  }
+
+  Future<void> _purgeCancelOrphans({
+    required String contentHash,
+    required String cacheId,
+  }) async {
+    final ids = <String>{};
+    final cid = cacheId.trim();
+    if (cid.isNotEmpty) ids.add(cid);
+    final hash = contentHash.trim().toLowerCase();
+    if (hash.isNotEmpty) {
+      for (final p in papers) {
+        if (p.contentHash.trim().toLowerCase() == hash) ids.add(p.id);
+      }
+      try {
+        for (final e in await _paperDisk.listIndex()) {
+          if (e.contentHash.trim().toLowerCase() == hash) ids.add(e.id);
+        }
+      } catch (_) {}
+    }
+    if (ids.isEmpty) return;
+    final purged = <String>{};
+    for (final id in ids) {
+      try {
+        await _client.deletePaper(id);
+        purged.add(id);
+      } on AsrApiException catch (e) {
+        // Gone on server — still wipe local SoT.
+        if (e.statusCode == 404 || e.statusCode == 410) {
+          purged.add(id);
+        } else {
+          // Prefer local wipe anyway so green border clears.
+          purged.add(id);
+        }
+      } catch (_) {
+        purged.add(id);
+      }
+      await _purgeLocalPaperArtifacts(id);
+    }
+    if (purged.isNotEmpty) {
+      _publishPapers(
+        papers.where((p) => !purged.contains(p.id)).toList(growable: false),
+      );
+      await _persistOrder(papers.map((e) => e.id).toList(growable: false));
+      asrEvidenceBus?.record(
+        'ingest_cancel_orphan_purge',
+        severity: 'lifecycle',
+        stage: 'purge',
+        ok: true,
+        details: {'n': purged.length},
+      );
+    }
   }
 
   /// design/221 — load prefs queue (+ migrate singleton draft into list for UI).
@@ -5029,6 +5109,11 @@ class LibraryController extends ChangeNotifier {
     // No tree grant — pick files from Downloads via OPEN_DOCUMENT.
     final t0 = DateTime.now().millisecondsSinceEpoch;
     final findId = (pdfFindWatchFindId ?? '').trim();
+    // design/271 — disarm + pause before system picker (not after import).
+    if (pdfFindWatchArmed) {
+      disarmFindWatch(reason: 'pick');
+    }
+    pdfFindWatchPaused = true;
     asrEvidenceBus?.record(
       'pdf_import_pick_start',
       severity: 'lifecycle',
@@ -5039,39 +5124,43 @@ class LibraryController extends ChangeNotifier {
         if (findId.isNotEmpty) 'find_id': findId,
       },
     );
-    final items = await _safTree.pickDocuments(multiple: true);
-    if (items == null || items.isEmpty) {
-      asrEvidenceBus?.record(
-        'pdf_import_pick_done',
-        severity: 'lifecycle',
-        stage: 'pick',
-        details: {
-          'ok': false,
-          'n': 0,
-          'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
-          'mode': 'cancel',
-          'browse': 'downloads_docs',
-          if (findId.isNotEmpty) 'find_id': findId,
-        },
+    try {
+      final items = await _safTree.pickDocuments(multiple: true);
+      if (items == null || items.isEmpty) {
+        asrEvidenceBus?.record(
+          'pdf_import_pick_done',
+          severity: 'lifecycle',
+          stage: 'pick',
+          details: {
+            'ok': false,
+            'n': 0,
+            'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+            'mode': 'cancel',
+            'browse': 'downloads_docs',
+            if (findId.isNotEmpty) 'find_id': findId,
+          },
+        );
+        notifyListeners();
+        return (ok: false, mode: 'cancel', message: null);
+      }
+      final picked = <({String docUri, String displayName})>[
+        for (final it in items)
+          (docUri: it.docUri, displayName: it.displayName),
+      ];
+      final r = await _importPickedDocs(
+        picked,
+        browse: 'downloads_docs',
+        startedMs: t0,
       );
       notifyListeners();
-      return (ok: false, mode: 'cancel', message: null);
+      return (
+        ok: r.copied > 0 || r.enqueued > 0,
+        mode: r.mode,
+        message: r.message,
+      );
+    } finally {
+      pdfFindWatchPaused = false;
     }
-    final picked = <({String docUri, String displayName})>[
-      for (final it in items)
-        (docUri: it.docUri, displayName: it.displayName),
-    ];
-    final r = await _importPickedDocs(
-      picked,
-      browse: 'downloads_docs',
-      startedMs: t0,
-    );
-    notifyListeners();
-    return (
-      ok: r.copied > 0 || r.enqueued > 0,
-      mode: r.mode,
-      message: r.message,
-    );
   }
 
 
@@ -5951,6 +6040,14 @@ class LibraryController extends ChangeNotifier {
   }
 
   void confirmFindWatchHit({required bool accepted}) {
+    final hit = (pdfFindWatchHitDocUri ?? '').trim();
+    // design/271 — disarm may clear URI while dialog is open; no-op safely.
+    if (hit.isEmpty) {
+      pdfFindWatchArmed = false;
+      _pdfFindWatchHandled = true;
+      notifyListeners();
+      return;
+    }
     final fid = (pdfFindWatchFindId ?? '').trim();
     asrEvidenceBus?.record(
       'pdf_find_watch_confirm',
@@ -5972,6 +6069,7 @@ class LibraryController extends ChangeNotifier {
   }
 
   void _pollFindWatchAfterScan() {
+    if (pdfFindWatchPaused) return;
     if (!pdfFindWatchArmed || _pdfFindWatchHandled) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     final fid = (pdfFindWatchFindId ?? '').trim();
@@ -6668,6 +6766,8 @@ class LibraryController extends ChangeNotifier {
     var mode = 'enqueue';
     var copied = 0;
     var enqueued = 0;
+    var readFailed = 0;
+    var enqueueSkipped = 0;
     String? message;
     final failedPick = <({String docUri, String displayName})>[];
     if (grant != null) {
@@ -6746,20 +6846,38 @@ class LibraryController extends ChangeNotifier {
         if (copied > 0 && failedPick.isNotEmpty) {
           mode = 'copy_partial';
           final batch = <({String name, Uint8List bytes})>[];
+          var sawTooLarge = message == 'too_large';
           for (final it in failedPick) {
             try {
               final bytes = await _safTree.readPdfBytes(it.docUri);
-              if (bytes == null || bytes.isEmpty) continue;
+              if (bytes == null || bytes.isEmpty) {
+                readFailed += 1;
+                continue;
+              }
               batch.add((name: it.displayName, bytes: bytes));
             } on PlatformException catch (ex) {
-              if (ex.code == 'too_large') message = 'too_large';
-            } catch (_) {}
+              readFailed += 1;
+              if (ex.code == 'too_large') {
+                sawTooLarge = true;
+                message = 'too_large';
+              }
+            } catch (_) {
+              readFailed += 1;
+            }
           }
           if (batch.isNotEmpty) {
             final outcome = await enqueuePickedPdfs(batch);
             enqueued = outcome.added;
+            enqueueSkipped = outcome.skipped;
           }
-          message = 'copy_partial';
+          // design/272 — do not clobber too_large; distinguish 2nd-fail shortfall.
+          if (sawTooLarge) {
+            message = 'too_large';
+          } else if (enqueued < failedPick.length) {
+            message = 'copy_partial_short';
+          } else {
+            message = 'copy_partial';
+          }
         }
       }
     }
@@ -6789,6 +6907,8 @@ class LibraryController extends ChangeNotifier {
       copied: copied,
       failed: failedPick.length,
       enqueued: enqueued,
+      readFailed: readFailed,
+      enqueueSkipped: enqueueSkipped,
     );
     asrEvidenceBus?.record(
       'pdf_import_pick_done',
@@ -6800,6 +6920,9 @@ class LibraryController extends ChangeNotifier {
         'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
         'mode': mode,
         'browse': browse,
+        'failed': failedPick.length,
+        'read_failed': readFailed,
+        'enqueue_skipped': enqueueSkipped,
         if ((pdfFindWatchFindId ?? '').trim().isNotEmpty)
           'find_id': pdfFindWatchFindId!.trim(),
       },
@@ -6817,6 +6940,8 @@ class LibraryController extends ChangeNotifier {
     required int copied,
     required int failed,
     required int enqueued,
+    int readFailed = 0,
+    int enqueueSkipped = 0,
   }) {
     if (code == null) return null;
     switch (code) {
@@ -6834,6 +6959,10 @@ class LibraryController extends ChangeNotifier {
         return '파일을 읽지 못했습니다.';
       case 'copy_partial':
         return '폴더에 $copied건 복사 · 실패 $failed건 중 대기열 $enqueued건';
+      case 'copy_partial_short':
+        // design/272 — 2nd-stage read/queue shortfall.
+        return '폴더에 $copied건 복사 · 실패 $failed건 중 대기열 $enqueued건'
+            '${readFailed > 0 || enqueueSkipped > 0 ? ' (읽기 실패 $readFailed · 대기열 제외 $enqueueSkipped — 다시 고르세요)' : ' (일부는 다시 고르세요)'}';
       default:
         return code;
     }
@@ -7328,6 +7457,9 @@ class LibraryController extends ChangeNotifier {
         },
       );
       await _importDraftToEditStash(result.cacheId);
+      if (result.cacheId.trim().isNotEmpty) {
+        _activeIngestCacheId = result.cacheId.trim();
+      }
       await _drafts.clear();
       await _cancelWorkmanager();
       _autoResumeGate.reset();
@@ -7357,7 +7489,7 @@ class LibraryController extends ChangeNotifier {
       );
       return result;
     } on UploadCancelledException {
-      // design/132 — honest cancel; design/134 hang keeps failure message.
+      // design/132 — honest cancel; design/265c orphan purge.
       await _drafts.clear();
       await _cancelWorkmanager();
       await _notify.stop();
@@ -7366,6 +7498,15 @@ class LibraryController extends ChangeNotifier {
       if (!_ingestHangTripped) {
         error = null;
       }
+      final h = (_activeContentHash ?? '').trim();
+      if (h.isNotEmpty) {
+        await removeUploadQueueItem(h);
+      }
+      await _purgeCancelOrphans(
+        contentHash: h,
+        cacheId: (_activeIngestCacheId ?? '').trim(),
+      );
+      await _rebuildLibraryHashSet();
       await refresh();
       return null;
     } on TimeoutException catch (e) {
@@ -7429,6 +7570,7 @@ class LibraryController extends ChangeNotifier {
       _activeContentHash = null;
       _activeUploadId = null;
       _activeJobId = null;
+      _activeIngestCacheId = null;
       _uploadCancelRequested = false;
       _ingestHangTripped = false;
       _stopStallWatch();
@@ -7456,6 +7598,8 @@ class LibraryController extends ChangeNotifier {
     _uploadCancelRequested = false;
     _activeUploadId = draft.uploadId.isEmpty ? null : draft.uploadId;
     _activeJobId = draft.jobId.isEmpty ? null : draft.jobId;
+    _activeIngestCacheId =
+        draft.cacheId.trim().isEmpty ? null : draft.cacheId.trim();
     _pendingAutoResume = false;
     await _maybeOfferBatteryHint(draft.contentHash);
     _startStallWatch();
@@ -7488,6 +7632,9 @@ class LibraryController extends ChangeNotifier {
         },
       );
       await _importDraftToEditStash(result.cacheId);
+      if (result.cacheId.trim().isNotEmpty) {
+        _activeIngestCacheId = result.cacheId.trim();
+      }
       await _drafts.clear();
       await _cancelWorkmanager();
       _autoResumeGate.reset();
@@ -7534,6 +7681,15 @@ class LibraryController extends ChangeNotifier {
       if (!_ingestHangTripped) {
         error = null;
       }
+      final h = (_activeContentHash ?? '').trim();
+      if (h.isNotEmpty) {
+        await removeUploadQueueItem(h);
+      }
+      await _purgeCancelOrphans(
+        contentHash: h,
+        cacheId: (_activeIngestCacheId ?? '').trim(),
+      );
+      await _rebuildLibraryHashSet();
       await refresh();
       return null;
     } on TimeoutException catch (e) {
@@ -7596,6 +7752,7 @@ class LibraryController extends ChangeNotifier {
       _activeContentHash = null;
       _activeUploadId = null;
       _activeJobId = null;
+      _activeIngestCacheId = null;
       _uploadCancelRequested = false;
       _ingestHangTripped = false;
       _stopStallWatch();
