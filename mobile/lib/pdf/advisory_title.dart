@@ -1,4 +1,4 @@
-/// design/228 · 230 · 233 · 236 · 265 · 276 — weak title heuristic from PDF Info.Title + head text.
+/// design/228 · 230 · 233 · 236 · 265 · 276 · 277 — weak title heuristic from PDF Info.Title + head text.
 library;
 
 import 'doc_role_detect.dart';
@@ -69,6 +69,8 @@ final _affiliationOrCaption = RegExp(
   r'|^school of\b'
   r'|^university\b'
   r'|^institute\b'
+  r'|laboratory\b'
+  r'|light source\b'
   r'|@\w+\.\w+'
   r'|orcid'
   r'|^\S+\s+\S+,\s*\S+.*university'
@@ -76,15 +78,54 @@ final _affiliationOrCaption = RegExp(
   caseSensitive: false,
 );
 
-/// design/230 · 265 — snake enum for evidence (`info` | `head_line` | `stem` | `failed`).
+/// design/230 · 265 · 277 — snake enum for evidence (`info` | `head_line` | `stem` | `failed`).
 class AdvisoryTitleGuess {
-  const AdvisoryTitleGuess({required this.title, required this.source});
+  const AdvisoryTitleGuess({
+    required this.title,
+    required this.source,
+    this.styleSource = '',
+    this.styledN = 0,
+    this.joinedN = 0,
+    this.seedSizePt = 0,
+    this.boldSeed = false,
+    this.mixedSizeLine = 0,
+  });
 
   final String title;
 
   /// `info` | `head_line` | `stem` | `failed`
   final String source;
+
+  /// design/277 — `style_join` | `plain_fallback` | `info` | `stem` | `failed` | ''
+  final String styleSource;
+  final int styledN;
+  final int joinedN;
+  final double seedSizePt;
+  final bool boldSeed;
+  final int mixedSizeLine;
 }
+
+/// design/277 — one visual head line with font metrics from PdfBox.
+class PdfHeadStyledLine {
+  const PdfHeadStyledLine({
+    required this.text,
+    required this.sizePt,
+    required this.bold,
+    required this.y,
+    this.mixedSize = false,
+  });
+
+  final String text;
+  final double sizePt;
+  final bool bold;
+  final double y;
+
+  /// True when the line mixed body-size and smaller (sup/sub) glyphs.
+  final bool mixedSize;
+}
+
+/// design/277 — relative font-size tolerance for title wrap join.
+const double kAdvisoryTitleSizeTol = 0.12;
 
 bool isAdvisoryTitleChrome(String raw) {
   final t = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
@@ -101,6 +142,13 @@ bool isAdvisoryTitleChrome(String raw) {
   }
   if (RegExp(r'\bpubs\.acs\.org/', caseSensitive: false).hasMatch(t) &&
       t.length < 96) {
+    return true;
+  }
+  // design/277 — "Green Chemical Engineering—Article" / "RESEARCH ARTICLE".
+  if (RegExp(
+    r'(?:\u2014|\u2013|—|–|-)\s*Article\s*$|^research\s+article\s*$',
+    caseSensitive: false,
+  ).hasMatch(t)) {
     return true;
   }
   // Split masthead fragments: "Science &", "Technology" alone are short;
@@ -192,24 +240,43 @@ bool isTruncatedInfoTitle(String raw) {
     return true;
   }
   // Ends with a short capitalized token that looks mid-word cut ("Functio").
+  // Cap at 8 so complete endings like Diffraction/Spectroscopy stay.
   if (last.length >= 3 &&
-      last.length <= 12 &&
+      last.length <= 8 &&
       RegExp(r'^[A-Z][a-z]+$').hasMatch(last) &&
       !RegExp(
         r'^(Study|Review|Catalysts?|Methane|Oxide|Carbon|Energy|Water|Hydrogen)$',
         caseSensitive: false,
       ).hasMatch(last)) {
-    // Single capitalized dangling word after a long title often = cut.
     if (parts.length >= 6) return true;
   }
   return false;
 }
 
-/// design/265 — ACS manuscript id dumped into Info.Title.
+/// design/277 — numbered bibliography / reference crumbs from PDF head.
+bool looksLikeBibliographyLine(String raw) {
+  final t = decodeHtmlEntities(raw).trim();
+  if (RegExp(r'^\d{1,3}\.\s+\S').hasMatch(t)) return true;
+  if (RegExp(r'\bet\s+al\.\b', caseSensitive: false).hasMatch(t) &&
+      RegExp(r'\(\d{4}\)').hasMatch(t) &&
+      t.length < 160) {
+    return true;
+  }
+  return false;
+}
+
+/// design/265 · 277 — ACS manuscript id dumped into Info.Title.
 bool isCodeLikeInfoTitle(String raw) {
   final t = decodeHtmlEntities(raw).trim();
   if (t.isEmpty) return false;
   if (_acsCodeInfo.hasMatch(t)) return true;
+  // design/277 — "am2c04149 1..9" / "cs5b00357 1..12"
+  if (RegExp(
+    r'^[a-z]{1,4}\d[a-z0-9]*\s+\d+\.\.\d+$',
+    caseSensitive: false,
+  ).hasMatch(t)) {
+    return true;
+  }
   final digits = t.replaceAll(RegExp(r'\D'), '').length;
   if (t.length <= 24 && digits > t.length * 0.35 && !t.contains(' ')) {
     return true;
@@ -282,6 +349,7 @@ bool looksLikePaperTitle(String raw) {
   if (isCodeLikeInfoTitle(t)) return false;
   if (looksLikeAffiliationOrCaption(t)) return false;
   if (looksLikeAuthorLine(t)) return false;
+  if (looksLikeBibliographyLine(t)) return false;
   if (RegExp(r'^[\d\W_]+$').hasMatch(t)) return false;
   final digits = t.replaceAll(RegExp(r'\D'), '').length;
   if (digits > t.length * 0.5) return false;
@@ -319,30 +387,149 @@ String stemFromDisplayName(String displayName) {
   try {
     n = Uri.decodeComponent(n);
   } catch (_) {}
-  // Drop trailing __1_ / _1 style suffixes before judging stem quality.
   n = n.replaceAll(RegExp(r'[_\s-]+$'), '');
   n = n.replaceFirst(RegExp(r'[_\s-]+\d{1,2}$'), '');
   return decodeHtmlEntities(n);
+}
+
+String? _prepareTitleLineText(String raw) {
+  var t = decodeHtmlEntities(raw);
+  if (_siLine.hasMatch(t)) {
+    t = stripSiBannerPrefix(t);
+    if (t.isEmpty) return null;
+  }
+  if (isAdvisoryTitleChrome(t)) return null;
+  if (looksLikeAffiliationOrCaption(t)) return null;
+  if (looksLikeAuthorLine(t)) return null;
+  if (looksLikeBibliographyLine(t)) return null;
+  if (t.length < 8) return null;
+  return t;
+}
+
+bool advisoryTitleSizesSimilar(
+  double a,
+  double b, {
+  double tol = kAdvisoryTitleSizeTol,
+}) {
+  if (a <= 0 || b <= 0) return false;
+  final m = a > b ? a : b;
+  return ((a - b).abs() / m) <= tol;
+}
+
+bool _styleNeighborOk(PdfHeadStyledLine seed, PdfHeadStyledLine other) {
+  if (advisoryTitleSizesSimilar(seed.sizePt, other.sizePt)) return true;
+  if (seed.bold &&
+      other.bold &&
+      advisoryTitleSizesSimilar(seed.sizePt, other.sizePt, tol: 0.18)) {
+    return true;
+  }
+  return false;
+}
+
+/// design/277 — join adjacent lines with similar font size/weight (not word stubs).
+({String title, int seedIndex, int joinedN, double seedSizePt, bool boldSeed, int mixedSizeLine})?
+    joinTitleByFontSimilarity(List<PdfHeadStyledLine> lines) {
+  if (lines.isEmpty) return null;
+  final prepared = <({int i, String text, PdfHeadStyledLine line})>[];
+  for (var i = 0; i < lines.length; i++) {
+    final t = _prepareTitleLineText(lines[i].text);
+    if (t == null) continue;
+    prepared.add((i: i, text: t, line: lines[i]));
+  }
+  if (prepared.isEmpty) return null;
+
+  ({int i, String text, PdfHeadStyledLine line})? seedPrep;
+  for (final e in prepared) {
+    if (looksLikePaperTitle(e.text) && e.text.length >= 12) {
+      seedPrep = e;
+      break;
+    }
+  }
+  seedPrep ??= prepared.reduce(
+    (a, b) => a.line.sizePt >= b.line.sizePt ? a : b,
+  );
+  final seedIdxInLines = seedPrep.i;
+  final seedLine = seedPrep.line;
+
+  var lo = seedIdxInLines;
+  var hi = seedIdxInLines;
+  while (lo > 0) {
+    final t = _prepareTitleLineText(lines[lo - 1].text);
+    if (t == null) break;
+    if (!_styleNeighborOk(seedLine, lines[lo - 1])) break;
+    lo -= 1;
+  }
+  while (hi + 1 < lines.length) {
+    final t = _prepareTitleLineText(lines[hi + 1].text);
+    if (t == null) break;
+    if (!_styleNeighborOk(seedLine, lines[hi + 1])) break;
+    hi += 1;
+  }
+
+  final parts = <String>[];
+  var mixed = 0;
+  for (var i = lo; i <= hi; i++) {
+    final t = _prepareTitleLineText(lines[i].text);
+    if (t == null) continue;
+    parts.add(t);
+    if (lines[i].mixedSize) mixed = 1;
+  }
+  if (parts.isEmpty) return null;
+  final joined = parts.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (joined.length < 12) return null;
+  return (
+    title: joined,
+    seedIndex: seedIdxInLines,
+    joinedN: parts.length,
+    seedSizePt: seedLine.sizePt,
+    boldSeed: seedLine.bold,
+    mixedSizeLine: mixed,
+  );
 }
 
 AdvisoryTitleGuess guessAdvisoryTitle({
   required String infoTitle,
   required String headText,
   required String displayName,
+  List<PdfHeadStyledLine> styledLines = const [],
 }) {
   final qInfo = qualifyAdvisoryTitleCandidate(
     infoTitle,
     rejectTruncated: true,
   );
   if (qInfo != null) {
-    return AdvisoryTitleGuess(title: qInfo, source: 'info');
+    return AdvisoryTitleGuess(
+      title: qInfo,
+      source: 'info',
+      styleSource: 'info',
+      styledN: styledLines.length,
+    );
+  }
+
+  if (styledLines.isNotEmpty) {
+    final joined = joinTitleByFontSimilarity(styledLines);
+    if (joined != null) {
+      final q = qualifyAdvisoryTitleCandidate(joined.title);
+      final title = q ?? (looksLikePaperTitle(joined.title) ? joined.title : null);
+      if (title != null) {
+        return AdvisoryTitleGuess(
+          title: title,
+          source: 'head_line',
+          styleSource: 'style_join',
+          styledN: styledLines.length,
+          joinedN: joined.joinedN,
+          seedSizePt: joined.seedSizePt,
+          boldSeed: joined.boldSeed,
+          mixedSizeLine: joined.mixedSizeLine,
+        );
+      }
+    }
   }
 
   final rawHead = stripFormatChars(headText).text;
   for (final line in rawHead.split(RegExp(r'[\r\n]+'))) {
     var t = decodeHtmlEntities(line);
     if (t.isEmpty) continue;
-    // design/276 — SI banner+title on one line: strip banner, keep title.
     if (_siLine.hasMatch(t)) {
       t = stripSiBannerPrefix(t);
       if (t.isEmpty) continue;
@@ -350,10 +537,17 @@ AdvisoryTitleGuess guessAdvisoryTitle({
     if (isAdvisoryTitleChrome(t)) continue;
     if (looksLikeAffiliationOrCaption(t)) continue;
     if (looksLikeAuthorLine(t)) continue;
+    if (looksLikeBibliographyLine(t)) continue;
     if (t.length < 12) continue;
     final q = qualifyAdvisoryTitleCandidate(t);
     if (q != null) {
-      return AdvisoryTitleGuess(title: q, source: 'head_line');
+      return AdvisoryTitleGuess(
+        title: q,
+        source: 'head_line',
+        styleSource: 'plain_fallback',
+        styledN: styledLines.length,
+        joinedN: 1,
+      );
     }
   }
 
@@ -363,8 +557,18 @@ AdvisoryTitleGuess guessAdvisoryTitle({
     rejectLowQualityStem: true,
   );
   if (qStem != null) {
-    return AdvisoryTitleGuess(title: qStem, source: 'stem');
+    return AdvisoryTitleGuess(
+      title: qStem,
+      source: 'stem',
+      styleSource: 'stem',
+      styledN: styledLines.length,
+    );
   }
 
-  return const AdvisoryTitleGuess(title: '', source: 'failed');
+  return AdvisoryTitleGuess(
+    title: '',
+    source: 'failed',
+    styleSource: 'failed',
+    styledN: styledLines.length,
+  );
 }

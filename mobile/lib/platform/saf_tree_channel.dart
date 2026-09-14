@@ -4,6 +4,7 @@ library;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../pdf/advisory_title.dart' show PdfHeadStyledLine;
 const MethodChannel kSafTreeChannel = MethodChannel('asr/saf_tree');
 
 class SafPdfHeadResult {
@@ -15,6 +16,7 @@ class SafPdfHeadResult {
     required this.truncated,
     required this.elapsedMs,
     required this.code,
+    this.styledLines = const [],
   });
 
   final bool ok;
@@ -24,6 +26,9 @@ class SafPdfHeadResult {
   final bool truncated;
   final int elapsedMs;
   final String code;
+
+  /// design/277 — font-styled head lines (may be empty on older extract / docx).
+  final List<PdfHeadStyledLine> styledLines;
 }
 
 class SafTreePickResult {
@@ -338,6 +343,7 @@ class SafTreeChannel {
         elapsedMs:
             raw['elapsedMs'] is num ? (raw['elapsedMs'] as num).toInt() : 0,
         code: '${raw['code'] ?? ''}'.trim(),
+        styledLines: _parseStyledHeadLines(raw['headLines']),
       );
     } on PlatformException catch (e) {
       return SafPdfHeadResult(
@@ -360,6 +366,29 @@ class SafTreeChannel {
         code: 'exc',
       );
     }
+  }
+
+  /// design/277
+  static List<PdfHeadStyledLine> _parseStyledHeadLines(Object? raw) {
+    if (raw is! List) return const [];
+    final out = <PdfHeadStyledLine>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final text = '${item['text'] ?? ''}'.trim();
+      if (text.isEmpty) continue;
+      final size = item['size_pt'];
+      final y = item['y'];
+      out.add(
+        PdfHeadStyledLine(
+          text: text,
+          sizePt: size is num ? size.toDouble() : 0,
+          bold: item['bold'] == 1 || item['bold'] == true,
+          y: y is num ? y.toDouble() : 0,
+          mixedSize: item['mixed_size'] == 1 || item['mixed_size'] == true,
+        ),
+      );
+    }
+    return out;
   }
 
   /// design/254 — DOCX head extract (word/document.xml + docProps/core.xml).

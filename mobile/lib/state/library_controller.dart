@@ -5865,6 +5865,7 @@ class LibraryController extends ChangeNotifier {
             infoTitle: head.infoTitle,
             headText: head.headText,
             displayName: e.displayName,
+            styledLines: head.styledLines,
           );
           var doi = extractDoiFromText(head.headText) ?? '';
           var doiSource = doi.isNotEmpty ? 'head' : '';
@@ -5917,6 +5918,24 @@ class LibraryController extends ChangeNotifier {
               'head_len': head.headText.length,
               'page_count': head.pageCount,
               'truncated': head.truncated,
+              'title_source': _evidenceSnakeToken(guessed.source),
+            },
+          );
+          // design/277 — overkill style-join observability
+          asrEvidenceBus?.record(
+            'pdf_advisory_title_style',
+            severity: 'debug',
+            stage: 'advisory',
+            ok: guessed.title.trim().isNotEmpty,
+            details: {
+              'ok': guessed.title.trim().isNotEmpty,
+              'styled_n': guessed.styledN,
+              'joined_n': guessed.joinedN,
+              'seed_size_pt_x10': (guessed.seedSizePt * 10).round(),
+              'size_tol_x100': (kAdvisoryTitleSizeTol * 100).round(),
+              'bold_seed': guessed.boldSeed ? 1 : 0,
+              'mixed_size_line': guessed.mixedSizeLine,
+              'source': _evidenceSnakeToken(guessed.styleSource),
               'title_source': _evidenceSnakeToken(guessed.source),
             },
           );

@@ -234,6 +234,8 @@ ALLOWED_KINDS = frozenset(
         # design/237 — DOI find CTA
         "pdf_advisory_doi_hit",
         "pdf_advisory_doi_miss",
+        # design/277 — font-similarity title join
+        "pdf_advisory_title_style",
         "pdf_import_find_open",
         "pdf_import_find_fail",
         # design/238 — OPEN_DOCUMENT pick + rescan

@@ -4,19 +4,25 @@ import android.content.Context
 import android.net.Uri
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.font.PDFont
+import com.tom_roush.pdfbox.pdmodel.font.PDFontDescriptor
 import com.tom_roush.pdfbox.text.PDFTextStripper
+import com.tom_roush.pdfbox.text.TextPosition
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.abs
 import kotlin.math.min
 
 /**
- * design/228 · 231 — head text + Info.Title from SAF content:// (no OCR).
- * Caller passes maxReadBytes (default 50MB); abort with too_large above cap.
+ * design/228 · 231 · 277 — head text + Info.Title + styled head lines (font size/bold/y).
  * Never include URI/path in returned map values used for evidence.
  */
 object PdfHeadExtract {
     @Volatile
     private var inited = false
+
+    private const val MAX_STYLE_LINES = 80
+    private const val Y_LINE_TOL = 2.2f
 
     fun ensureInit(context: Context) {
         if (!inited) {
@@ -67,9 +73,10 @@ object PdfHeadExtract {
                 }
                 val pages = doc.numberOfPages
                 val end = min(maxPages.coerceAtLeast(1), pages.coerceAtLeast(0))
-                val stripper = PDFTextStripper().apply {
+                val stripper = StyledHeadStripper().apply {
                     startPage = 1
                     endPage = end.coerceAtLeast(1)
+                    sortByPosition = true
                 }
                 var head = try {
                     if (pages <= 0) "" else stripper.getText(doc)
@@ -81,6 +88,20 @@ object PdfHeadExtract {
                     head = head.substring(0, maxChars)
                     truncated = true
                 }
+                val headLines = ArrayList<Map<String, Any?>>(stripper.styledLines.size)
+                for (line in stripper.styledLines.take(MAX_STYLE_LINES)) {
+                    var t = line.text
+                    if (t.length > 500) t = t.substring(0, 500)
+                    headLines.add(
+                        mapOf(
+                            "text" to t,
+                            "size_pt" to line.sizePt.toDouble(),
+                            "bold" to if (line.bold) 1 else 0,
+                            "y" to line.y.toDouble(),
+                            "mixed_size" to if (line.mixedSize) 1 else 0,
+                        ),
+                    )
+                }
                 return mapOf(
                     "ok" to true,
                     "headText" to head,
@@ -89,6 +110,8 @@ object PdfHeadExtract {
                     "truncated" to truncated,
                     "elapsedMs" to (System.currentTimeMillis() - t0).toInt(),
                     "code" to "",
+                    // design/277
+                    "headLines" to headLines,
                 )
             }
         } catch (e: SecurityException) {
@@ -112,6 +135,107 @@ object PdfHeadExtract {
             "truncated" to false,
             "elapsedMs" to (System.currentTimeMillis() - t0).toInt(),
             "code" to code,
+            "headLines" to emptyList<Map<String, Any?>>(),
         )
+    }
+
+    private data class StyledLine(
+        val text: String,
+        val sizePt: Float,
+        val bold: Boolean,
+        val y: Float,
+        val mixedSize: Boolean,
+    )
+
+    /**
+     * design/277 — cluster TextPositions into visual lines; keep sub/sup in-line.
+     */
+    private class StyledHeadStripper : PDFTextStripper() {
+        val styledLines = mutableListOf<StyledLine>()
+
+        private val lineBuf = StringBuilder()
+        private val sizes = mutableListOf<Float>()
+        private val bolds = mutableListOf<Boolean>()
+        private var lineY = Float.NaN
+
+        override fun writeString(text: String, textPositions: MutableList<TextPosition>) {
+            if (textPositions.isEmpty()) return
+            val y = textPositions.map { it.y }.average().toFloat()
+            if (!lineY.isNaN() && abs(y - lineY) > Y_LINE_TOL) {
+                flushLine()
+            }
+            lineY = if (lineY.isNaN()) y else (lineY * 0.7f + y * 0.3f)
+            lineBuf.append(text)
+            for (tp in textPositions) {
+                val sz = try {
+                    tp.fontSizeInPt
+                } catch (_: Exception) {
+                    tp.fontSize
+                }
+                if (sz > 0.5f) sizes.add(sz)
+                bolds.add(isBoldFont(tp.font))
+            }
+        }
+
+        override fun writeLineSeparator() {
+            flushLine()
+            super.writeLineSeparator()
+        }
+
+        override fun writeParagraphEnd() {
+            flushLine()
+            super.writeParagraphEnd()
+        }
+
+        override fun writePageEnd() {
+            flushLine()
+            super.writePageEnd()
+        }
+
+        private fun flushLine() {
+            val t = lineBuf.toString().replace(Regex("\\s+"), " ").trim()
+            if (t.isNotEmpty() && sizes.isNotEmpty()) {
+                val sorted = sizes.sorted()
+                val median = sorted[sorted.size / 2]
+                val minSz = sorted.first()
+                val maxSz = sorted.last()
+                val mixed = maxSz > 0.5f && (maxSz - minSz) / maxSz > 0.18f
+                val boldN = bolds.count { it }
+                styledLines.add(
+                    StyledLine(
+                        text = t,
+                        sizePt = median,
+                        bold = boldN * 2 >= bolds.size,
+                        y = lineY,
+                        mixedSize = mixed,
+                    ),
+                )
+            }
+            lineBuf.setLength(0)
+            sizes.clear()
+            bolds.clear()
+            lineY = Float.NaN
+        }
+
+        private fun isBoldFont(font: PDFont?): Boolean {
+            if (font == null) return false
+            return try {
+                val name = font.name.orEmpty()
+                if (name.contains("Bold", ignoreCase = true) ||
+                    name.contains("Black", ignoreCase = true) ||
+                    name.contains("Heavy", ignoreCase = true)
+                ) {
+                    return true
+                }
+                val desc: PDFontDescriptor? = font.fontDescriptor
+                if (desc != null) {
+                    if (desc.isForceBold) return true
+                    if (desc.fontWeight >= 600f) return true
+                }
+                false
+            } catch (_: Exception) {
+                false
+            }
+        }
     }
 }
