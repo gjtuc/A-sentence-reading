@@ -25,9 +25,19 @@ _SI_HEAD = re.compile(
 )
 
 # Filename hints (ACS …_si_001.pdf, Elsevier mmc1, Wiley suppmat).
+# design/281 — do NOT match bare "sup"/"supp" inside "supported"/"support".
 _SI_FILENAME = re.compile(
-    r"(?i)(?:^|[/\_.-])(?:si(?:[_.=-]|\d|$)|mmc\d*|moesm\d*|esm\d*|sup(?:p)?(?:mat|-?\d+)?)"
-    r"|supporting[-_ ]?information|suppl(?:ementary)?"
+    r"(?i)(?:^|[/\_.-])(?:"
+    r"si(?:[_.=-]|\d|$)"
+    r"|mmc\d+"
+    r"|moesm\d*"
+    r"|esm\d+"
+    r"|supp?(?:mat|l(?:ementary)?)(?:[-_.]?\d+)?"
+    r"|sup[-_.]?\d+"
+    r")"
+    r"|supporting[-_ ]?information"
+    r"|suppl(?:ementary)?"
+    r"|[-_.]som(?:[-_.]|$)"
 )
 
 # Page label "S-1" / "S1" near head (common SI cover).
@@ -179,6 +189,17 @@ def detect_doc_role_detailed(
             return DocRoleDetectResult(
                 role="main",
                 reason="head_marker_esi_footnote_veto",
+                head_len=head_len,
+                marker_hit=True,
+                filename_si_hint=fn_hint,
+                page_label_hit=page_label,
+                stripped_format=stripped,
+            )
+        # design/281 — "…found in the Supporting Information" after ABSTRACT ≠ SI cover.
+        if (not fn_hint) and _ABSTRACT_SOON.search(head[: marker_m.start()]):
+            return DocRoleDetectResult(
+                role="main",
+                reason="head_marker_after_abstract_veto",
                 head_len=head_len,
                 marker_hit=True,
                 filename_si_hint=fn_hint,

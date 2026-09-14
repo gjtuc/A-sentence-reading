@@ -32,8 +32,19 @@ final _siHead = RegExp(
   caseSensitive: false,
 );
 
+// design/281 — do NOT match bare "sup"/"supp" inside "supported"/"support".
 final _siFilename = RegExp(
-  r'(?:^|[/\_.-])(?:si(?:[_.=-]|\d|$)|mmc\d*|moesm\d*|esm\d*|sup(?:p)?(?:mat|-?\d+)?)|supporting[-_ ]?information|suppl(?:ementary)?',
+  r'(?:^|[/\_.-])(?:'
+  r'si(?:[_.=-]|\d|$)'
+  r'|mmc\d+'
+  r'|moesm\d*'
+  r'|esm\d+'
+  r'|supp?(?:mat|l(?:ementary)?)(?:[-_.]?\d+)?'
+  r'|sup[-_.]?\d+'
+  r')'
+  r'|supporting[-_ ]?information'
+  r'|suppl(?:ementary)?'
+  r'|[-_.]som(?:[-_.]|$)',
   caseSensitive: false,
 );
 
@@ -197,6 +208,19 @@ DocRoleDetectResult detectDocRoleDetailed(
       return DocRoleDetectResult(
         role: 'main',
         reason: 'head_marker_esi_footnote_veto',
+        headLen: headLen,
+        markerHit: true,
+        filenameSiHint: fnHint,
+        pageLabelHit: pageLabel,
+        strippedFormat: stripped,
+      );
+    }
+    // design/281 — mid-paper "Supporting Information" after ABSTRACT ≠ SI cover.
+    final beforeMarker = head.substring(0, markerMatch.start);
+    if (!fnHint && _abstractSoon.hasMatch(beforeMarker)) {
+      return DocRoleDetectResult(
+        role: 'main',
+        reason: 'head_marker_after_abstract_veto',
         headLen: headLen,
         markerHit: true,
         filenameSiHint: fnHint,

@@ -117,5 +117,16 @@ void main() {
     );
     expect(detEmpty.role, 'supplementary');
     expect(detEmpty.reason, 'filename_si');
+
+    // design/281 — "supported" in title slug must not be filename SI
+    const supportedFn =
+        'revealing-the-mechanism-of-multiwalled-carbon-nanotube-growth-on-'
+        'supported-nickel-nanoparticles-by-in-situ-synchrotron.pdf';
+    expect(filenameLooksLikeSi(supportedFn), isFalse);
+    final detSupported = detectDocRoleDetailed(
+      'Revealing the Mechanism…\nABSTRACT\nWe report…\n',
+      filename: supportedFn,
+    );
+    expect(detSupported.role, 'main');
   });
 }

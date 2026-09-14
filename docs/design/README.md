@@ -338,6 +338,7 @@
 | 278 | [278-soft-hide-undo-mate.md](278-soft-hide-undo-mate.md) | Soft-hide undo restores expanded mate (0.3.271) |
 | 279 | [279-mate-merge-pair-causal-evidence.md](279-mate-merge-pair-causal-evidence.md) | Mate/merge/pairing causal evidence + soft-hide allowlist (0.3.272) |
 | 280 | [280-filename-si-role.md](280-filename-si-role.md) | Filename SI hint alone → advisory supplementary (0.3.275) |
+| 281 | [281-si-filename-supported-abstract-veto.md](281-si-filename-supported-abstract-veto.md) | No `supported` filename SI; late SI phrase after ABSTRACT → main (0.3.276) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

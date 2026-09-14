@@ -12,7 +12,7 @@ const int kPdfAdvisoryCacheMaxEntries = 2000;
 
 /// design/229 · 233 · 235 · 236 · 237 · 239 · 254 · 255 · 265 · 276 — bump wipes stale rows (title/pair quality).
 /// design/229 · 233 · 235 · 236 · 237 · 239 · 254 · 255 · 265 · 276 · 277 · 280 — bump wipes stale rows.
-const int kPdfAdvisoryCacheSchema = 16; // design/280 — empty-head + filename SI
+const int kPdfAdvisoryCacheSchema = 17; // design/281 — supported FN + abstract-before-SI veto
 
 class PdfAdvisoryCacheEntry {
   const PdfAdvisoryCacheEntry({

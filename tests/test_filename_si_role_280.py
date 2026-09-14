@@ -19,23 +19,17 @@ FIXTURE_ACS_MAIN = ROOT / "tests/fixtures/doc_role/A_acs_main_chrome.txt"
 def test_design_280_locked() -> None:
     text = DESIGN.read_text(encoding="utf-8")
     assert "Status: **locked**" in text
-    assert "0.3.275" in text
     assert "filename_si" in text
     assert "empty" in text.lower()
 
 
 def test_versions_280() -> None:
-    app = APP.read_text(encoding="utf-8")
-    assert 'version="0.3.275"' in app
-    assert '"version": "0.3.275"' in app
-    assert "0.3.275" in PUBSPEC.read_text(encoding="utf-8")
-    assert "0.3.275" in CONFIG.read_text(encoding="utf-8")
+    # Version bumps continue in later designs; keep twin surface locked.
     assert "280-filename-si-role.md" in README.read_text(encoding="utf-8")
-    assert "kPdfAdvisoryCacheSchema = 16" in CACHE.read_text(encoding="utf-8")
     dart = DETECT.read_text(encoding="utf-8")
     assert "filename_si" in dart
     assert "!fnHint" in dart
-
+    assert "kPdfAdvisoryCacheSchema" in CACHE.read_text(encoding="utf-8")
 
 def test_filename_si_alone_python() -> None:
     head = (
