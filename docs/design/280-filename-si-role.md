@@ -1,32 +1,38 @@
 # 280 — Filename SI hint alone → advisory supplementary
 
-Version: **0.3.274** · Status: **locked**  
+Version: **0.3.275** · Status: **locked**  
 Amends [222](222-doc-role-detect-disk-honesty.md) · [228](228-pdf-advisory-title.md) · [277](277-advisory-title-wrap-join.md)
 
 ## Why
 
-After 277 (cache schema 13 wipe + better SI cover titles), import showed **`cs9b00733_si_001.pdf` as 「추정 메인」**.  
-Role gate required filename SI **plus** page-label / Table S / docx — PDF SI with only `_si_`/`mmc`/`MOESM` fell through to `default_main`. Improved titles made them look like mains and blocked 1+1 sets.
+After 277 (cache schema wipe + better SI cover titles), import showed **`cs9b00733_si_001.pdf` as 「추정 메인」**.
+
+Causal layers (phone-verified):
+
+1. PDF role required filename SI **plus** page-label / Table S / docx → else `default_main`.
+2. ACS chrome / ESI footnote **main veto** could fire on SI covers before filename_si.
+3. **`headText` empty + Info.Title present** → `empty_head` forced **main** while title still looked like a paper (exact phone pattern).
 
 ## Locked product
 
-1. Dart `detectDocRoleDetailed` **and** Python `detect_doc_role_detailed` (twins): after existing dual gates, if `filenameLooksLikeSi` / `filename_looks_like_si` → **`supplementary`**, reason **`filename_si`**.
-2. When filename SI hint is true, **skip** ACS chrome / ESI footnote **main vetoes** (those vetoes are for main PDFs that mention SI; real `*_si_*` / `mmc` files must stay SI).
-3. Keep ACS chrome / ESI footnote main vetoes when filename is **not** SI-like.
-3. Bump `kPdfAdvisoryCacheSchema` **13 → 15** so import roles refresh (14 was first filename_si ship; 15 adds ACS veto skip).
-5. No title/path/DOI in evidence; existing `doc_role_detect_*` reasons tokenize `filename_si`.
+1. After dual gates, `filenameLooksLikeSi` → **`supplementary`** / `filename_si`.
+2. Filename SI → **skip** ACS chrome / ESI footnote main vetoes.
+3. **Empty head + filename SI** → `filename_si` (not `empty_head` main). Empty head without SI filename stays `empty_head` main.
+4. Bump `kPdfAdvisoryCacheSchema` → **16**.
+5. Dart + Python twins.
 
 ## Non-goals
 
-Auto-merge · changing set 1+1 rule · OCR · weakening ACS main badge veto.
+Auto-merge · OCR · weakening ACS veto for non-SI filenames.
 
 ## Tests
 
-- `cs9b00733_si_001.pdf` + article-title-only head → supplementary / `filename_si`
-- `-main.pdf` without SI hints stays main
-- Existing docx / table_fig / page_label reasons unchanged
-- Schema 15 · version **0.3.274**
+- title-only head + `cs9b00733_si_001.pdf` → supplementary  
+- empty head + SI filename → supplementary / `filename_si`  
+- ACS chrome fixture + SI filename → supplementary (veto skipped)  
+- `-main.pdf` stays main  
+- Schema 16 · **0.3.275**
 
 ## Ship
 
-**0.3.274**
+**0.3.275**

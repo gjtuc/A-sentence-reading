@@ -110,5 +110,12 @@ void main() {
     );
     expect(detFnOnly.role, 'supplementary');
     expect(detFnOnly.reason, 'filename_si');
+
+    final detEmpty = detectDocRoleDetailed(
+      '',
+      filename: 'cs9b00733_si_001.pdf',
+    );
+    expect(detEmpty.role, 'supplementary');
+    expect(detEmpty.reason, 'filename_si');
   });
 }

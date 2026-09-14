@@ -158,6 +158,18 @@ DocRoleDetectResult detectDocRoleDetailed(
       : false;
   final markerMatch = headLen > 0 ? _siHead.firstMatch(head) : null;
   if (head.trim().isEmpty) {
+    // design/280 — Info.Title may still yield a title while extract text is empty.
+    if (fnHint) {
+      return DocRoleDetectResult(
+        role: 'supplementary',
+        reason: 'filename_si',
+        headLen: 0,
+        markerHit: false,
+        filenameSiHint: true,
+        pageLabelHit: false,
+        strippedFormat: stripped,
+      );
+    }
     return DocRoleDetectResult(
       role: 'main',
       reason: 'empty_head',

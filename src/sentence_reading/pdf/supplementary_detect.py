@@ -142,7 +142,17 @@ def detect_doc_role_detailed(
     marker_m = _SI_HEAD.search(head) if head_len else None
 
     if not head.strip():
-        # EDGE: empty extract — filename alone is too weak (main PDFs named *_si by mistake).
+        # design/280 — Info.Title may still yield a title while extract text is empty.
+        if fn_hint:
+            return DocRoleDetectResult(
+                role="supplementary",
+                reason="filename_si",
+                head_len=0,
+                marker_hit=False,
+                filename_si_hint=True,
+                page_label_hit=False,
+                stripped_format=stripped,
+            )
         return DocRoleDetectResult(
             role="main",
             reason="empty_head",
