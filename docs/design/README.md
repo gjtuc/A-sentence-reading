@@ -332,6 +332,10 @@
 | 272 | [272-copy-partial-second-fail.md](272-copy-partial-second-fail.md) | copy_partial 2nd-fail honesty (0.3.264) |
 | 273 | [273-transitional-pair-connector.md](273-transitional-pair-connector.md) | Transitional pair rows (0.3.264) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
+| 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
+| 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |
+| 269 | [269-documents-mirror-restore.md](269-documents-mirror-restore.md) | Empty-gate restore (0.3.265) |
+| 270 | [270-documents-mirror-chunks-cursor.md](270-documents-mirror-chunks-cursor.md) | Chunks + cursor flush (0.3.265) |
 | 261 | [261-cross-source-pair-set-row.md](261-cross-source-pair-set-row.md) | Cross-source pair + hybrid set row (0.3.260) |
 | 260 | [260-speak-ui-post-beat-alive-gate.md](260-speak-ui-post-beat-alive-gate.md) | Speak UI post-beat alive gate (0.3.260) |
 | 259 | [259-speak-ui-hold-listen-until-ready.md](259-speak-ui-hold-listen-until-ready.md) | Speak UI hold Listen until ready beat (0.3.259) |

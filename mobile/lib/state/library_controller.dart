@@ -47,6 +47,7 @@ import '../state/bookmark_controller.dart';
 import '../state/annotation_controller.dart';
 import '../services/error_reporter.dart';
 import '../services/evidence_bus.dart';
+import '../services/documents_mirror_store.dart';
 import '../services/figure_disk_cache.dart';
 import '../services/paper_disk_store.dart';
 import '../services/supplementary_local_merge.dart';
@@ -112,17 +113,22 @@ class LibraryController extends ChangeNotifier {
   final PaperEditStash _editStash;
   final FigureDiskCache _figureDisk;
   final PaperDiskStore _paperDisk;
+  final DocumentsMirrorStore _documentsMirror = DocumentsMirrorStore();
   bool _shadowingLocalSot = false;
   bool Function()? _translateEnabled;
+
+  /// design/262 — last mirror failure banner (library / settings).
+  String? documentsMirrorBanner;
+
+  PaperEditStash get editStash => _editStash;
+  FigureDiskCache get figureDiskCache => _figureDisk;
+  PaperDiskStore get paperDiskStore => _paperDisk;
+  DocumentsMirrorStore get documentsMirror => _documentsMirror;
 
   /// Wire after [TranslateController] exists (app root).
   void attachTranslateEnabled(bool Function() enabled) {
     _translateEnabled = enabled;
   }
-
-  PaperEditStash get editStash => _editStash;
-  FigureDiskCache get figureDiskCache => _figureDisk;
-  PaperDiskStore get paperDiskStore => _paperDisk;
 
   /// design/171 · 185 — bind disk caches to signed-in uid (no cross-user reads).
   
@@ -136,6 +142,9 @@ class LibraryController extends ChangeNotifier {
     _figureDisk.bindUid(uid);
     _paperDisk.bindUid(uid);
     _shadowDisk.bindUid(uid);
+    _documentsMirror.bindUid(uid);
+    _documentsMirror.attachPaperDisk(_paperDisk);
+    _documentsMirror.attachShadowDisk(_shadowDisk);
     unawaited(_pickerRecent.bindUid(_diskUid));
     unawaited(_pdfFolderGrant.bindUid(_diskUid));
     unawaited(_pdfDownloadsGrant.bindUid(_diskUid));
@@ -144,6 +153,36 @@ class LibraryController extends ChangeNotifier {
     unawaited(_pickerRecentThenSoftDelete());
     _bulkHandoffAttempted = false;
     _clearPendingEnrichState();
+    if (_diskUid != null) {
+      unawaited(_maybeDocumentsMirrorRestore());
+    }
+  }
+
+  Future<void> _maybeDocumentsMirrorRestore() async {
+    final n = await _documentsMirror.tryEmptyGateRestore();
+    if (n > 0) {
+      documentsMirrorBanner = null;
+      await refresh();
+      asrEvidenceBus?.record(
+        'documents_mirror_restore',
+        severity: 'lifecycle',
+        stage: 'empty_gate',
+        ok: true,
+        details: {'n': n},
+      );
+    } else if ((_documentsMirror.lastError ?? '').isNotEmpty) {
+      documentsMirrorBanner = _documentsMirror.lastError;
+      notifyListeners();
+    }
+  }
+
+  /// design/270 — library tab return.
+  Future<void> flushDocumentsMirrorCursors() async {
+    await _documentsMirror.flushCursors();
+    if ((_documentsMirror.lastError ?? '').isNotEmpty) {
+      documentsMirrorBanner = _documentsMirror.lastError;
+      notifyListeners();
+    }
   }
 
   Future<void> _pickerRecentThenSoftDelete() async {
@@ -1759,6 +1798,14 @@ class LibraryController extends ChangeNotifier {
       );
       // design/194 — KO backfill + shadowing after handoff (library tab, not only reader).
       unawaited(_postHandoffEnrich(cid));
+      // design/268 — mirror paper folder after successful handoff.
+      unawaited(() async {
+        final ok = await _documentsMirror.mirrorPaper(cid);
+        if (!ok && (_documentsMirror.lastError ?? '').isNotEmpty) {
+          documentsMirrorBanner = _documentsMirror.lastError;
+          notifyListeners();
+        }
+      }());
       return true;
     } catch (e) {
       asrEvidenceBus?.record(
@@ -2412,6 +2459,7 @@ class LibraryController extends ChangeNotifier {
         await _figureDisk.purge(id);
         await _paperDisk.purge(id);
         await _shadowDisk.purge(id);
+        unawaited(_documentsMirror.deletePaper(id));
         _hydrateSessions.remove(id);
         _figureHydrate.remove(id);
         _hydrateDismissed.remove(id);
@@ -4808,6 +4856,7 @@ class LibraryController extends ChangeNotifier {
         purged.add(id);
       }
       await _purgeLocalPaperArtifacts(id);
+      unawaited(_documentsMirror.deletePaper(id));
     }
     if (purged.isNotEmpty) {
       _publishPapers(

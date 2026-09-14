@@ -1,5 +1,9 @@
 # 173 — Capacity & isolation roadmap (access hot path · Run size · workers)
 
+**Status (2026-09):** **173a/b/c shipped on live** (TTL access cache · Run capacity · worker).  
+Residual only: worker reclaim purity / ops polish — **do not re-implement a/b/c** in new chips.  
+See also [255](255-architecture-refactoring-roadmap.md) for modularization (not capacity).
+
 Modules: `access_gate.py` · `app.py` · `deploy_cloud_run.sh` · (later) worker service  
 받침: [25](25-cloud-run.md) · [69](69-access-gate-gcs.md) · [84](84-access-waiting-ux.md) · [107](107-ingest-job-reclaim.md) · [155](155-deploy-live-guard.md) · [172](172-access-sticky-on-timeout.md)
 

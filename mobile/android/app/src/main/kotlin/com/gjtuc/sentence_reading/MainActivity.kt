@@ -28,6 +28,8 @@ class MainActivity : FlutterActivity() {
     private var pdfPreviewChannel: MethodChannel? = null
     private var safTreeHandler: SafTreeHandler? = null
     private var safTreeChannel: MethodChannel? = null
+    private var documentsMirrorHandler: DocumentsMirrorHandler? = null
+    private var documentsMirrorChannel: MethodChannel? = null
     private var pendingOpenCacheId: String? = null
     /** design/77 — session from deep link before Dart handler is ready. */
     private var pendingMagicSession: String? = null
@@ -203,6 +205,15 @@ class MainActivity : FlutterActivity() {
             SafTreeHandler.CHANNEL,
         ).also { ch ->
             ch.setMethodCallHandler(safTreeHandler)
+        }
+
+        // design/264 — Documents/문장읽기 MES mirror (not used by import).
+        documentsMirrorHandler = DocumentsMirrorHandler(this)
+        documentsMirrorChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            DocumentsMirrorHandler.CHANNEL,
+        ).also { ch ->
+            ch.setMethodCallHandler(documentsMirrorHandler)
         }
     }
 

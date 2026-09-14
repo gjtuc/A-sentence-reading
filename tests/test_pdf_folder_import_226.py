@@ -86,7 +86,13 @@ def test_mobile_surface() -> None:
     assert "enqueueFolderPdfs" in ctrl
     assert "PdfImportScreen" in lib
     assert "OPEN_DOCUMENT_TREE" in kt
-    assert "MANAGE_EXTERNAL_STORAGE" not in manifest
+    # design/264 — MES allowed for Documents mirror only; import stays TREE/SAF.
+    assert "MANAGE_EXTERNAL_STORAGE" in manifest
+    assert "asr/documents_mirror" in (
+        (ROOT / "mobile/android/app/src/main/kotlin/com/gjtuc/sentence_reading/DocumentsMirrorHandler.kt").read_text(
+            encoding="utf-8"
+        )
+    )
     assert "READ_MEDIA_IMAGES" not in manifest
     assert "READ_EXTERNAL_STORAGE" not in manifest
 

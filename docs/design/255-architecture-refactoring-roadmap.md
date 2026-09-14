@@ -1,7 +1,14 @@
 # 255 — Architecture Technical Debt Refactoring Roadmap
 
-Version: **0.3.254** · Status: **locked**  
+Version: **0.3.265** · Status: **Phase 1 shipped** (guard.py · routes/status · routes/tts); Phases 2–4 pending  
 Amends [155](155-deploy-live-guard.md) · [168](168-audit-checklist.md) · [169g](169g-causal-handoff-evidence.md) · [173](173-capacity-isolation-roadmap.md)
+
+## Phase 1 delivery (0.3.265)
+
+- `scripts/guard.py` — wraps freshness / floor / pre-deploy / all (no logic fork).
+- `src/sentence_reading/api/routes/tts.py` — `/api/tts/voices`, `/api/tts`, `/api/tts/spoken`.
+- `src/sentence_reading/api/routes/status.py` — `/api/status` via bind; **version string remains in `app.py`**.
+- **173:** already live — no capacity re-ship in this chip.
 
 ## Context & Motivation
 

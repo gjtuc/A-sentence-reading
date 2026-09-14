@@ -153,12 +153,7 @@ from sentence_reading.llm.voice_gcs import (
     download_voice_blob,
     upload_voice_blob,
 )
-from sentence_reading.llm.tts import (
-    CURATED_VOICES,
-    synthesize_mp3,
-    tts_available,
-)
-from sentence_reading.llm.tts_speak import spoken_text_for_tts
+from sentence_reading.llm.tts import tts_available
 from sentence_reading.llm.tts_speak_policy import speak_norm_version
 from sentence_reading.llm.practice_skill import (
     practice_skill_enabled,
@@ -284,7 +279,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.264",
+    version="0.3.265",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1758,9 +1753,8 @@ def _public_api_base(request: Request) -> str:
     return str(request.base_url).rstrip("/")
 
 
-@app.get("/api/status")
 def status(request: Request) -> dict:
-    """기동 확인."""
+    """기동 확인. Registered via routes.status (design/255)."""
     from sentence_reading.llm.ingest_rate_limit import rate_limit_enabled
     from sentence_reading.llm.error_logs import cloud_error_logs_enabled
     from sentence_reading.llm.ops_events import ops_events_enabled, retention_days as ops_retention_days
@@ -1807,7 +1801,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.264",
+        "version": "0.3.265",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -2035,6 +2029,16 @@ def status(request: Request) -> dict:
     except Exception:  # noqa: BLE001
         pass
     return payload
+
+
+# design/255 Phase 1 — domain routers (version string stays above in this handler).
+from sentence_reading.api.routes import status as status_routes
+from sentence_reading.api.routes import tts as tts_routes
+
+tts_routes.bind(paid_access_denied=_paid_access_denied)
+status_routes.bind(status_handler=status)
+app.include_router(tts_routes.router)
+app.include_router(status_routes.router)
 
 
 @app.get("/api/mobile/apk")
@@ -4390,95 +4394,6 @@ def annotations_export(
         return JSONResponse({"ok": True, "format": "json", "paper": paper})
     md = _format_annotations_markdown(paper, sentences_by_id=sentences_by_id)
     return JSONResponse({"ok": True, "format": "markdown", "content": md})
-
-
-@app.get("/api/tts/voices")
-def tts_voices() -> dict:
-    """UI용 추천 보이스 목록."""
-    return {
-        "ok": True,
-        "available": tts_available(),
-        "voices": CURATED_VOICES,
-        "default_voice": "en-US-Neural2-D",
-        "default_rate": 1.0,
-        "rate_min": 0.5,
-        "rate_max": 2.2,
-    }
-
-
-@app.post("/api/tts")
-async def tts_synthesize(request: Request, payload: dict = Body(...)) -> Response:
-    """현재 문장 plain text → MP3."""
-    denied = _paid_access_denied(request)
-    if denied is not None:
-        return denied
-    if not tts_available():
-        return JSONResponse(
-            status_code=503,
-            content={
-                "ok": False,
-                "error": "tts_unavailable",
-                "message": "Cloud TTS 자격 증명이 없습니다.",
-            },
-        )
-    text = spoken_text_for_tts(str(payload.get("text") or ""))
-    voice = str(payload.get("voice") or "").strip() or None
-    if voice in ("undefined", "null", "None"):
-        voice = None
-    try:
-        rate = float(payload.get("speaking_rate", 1.0))
-    except (TypeError, ValueError):
-        rate = 1.0
-    if not text.strip():
-        return JSONResponse(
-            status_code=400,
-            content={
-                "ok": False,
-                "error": "empty_text",
-                "message": "읽을 문장이 없습니다.",
-            },
-        )
-    try:
-        audio = await asyncio.to_thread(
-            synthesize_mp3, text, voice=voice, speaking_rate=rate
-        )
-    except ValueError as exc:
-        code = str(exc) or "bad_request"
-        return JSONResponse(
-            status_code=400,
-            content={"ok": False, "error": code, "message": str(exc)},
-        )
-    except Exception as exc:  # noqa: BLE001
-        return JSONResponse(
-            status_code=502,
-            content={
-                "ok": False,
-                "error": "tts_failed",
-                "message": str(exc),
-            },
-        )
-    return Response(content=audio, media_type="audio/mpeg")
-
-
-@app.post("/api/tts/spoken")
-async def tts_spoken(request: Request, payload: dict = Body(...)) -> dict:
-    """design/212 — display/plain → spoken form + speak_norm_version (no audio)."""
-    denied = _paid_access_denied(request)
-    if denied is not None:
-        return denied
-    raw = str((payload or {}).get("text") or "")
-    spoken = spoken_text_for_tts(raw)
-    if not spoken.strip():
-        return {
-            "ok": False,
-            "error": "empty_text",
-            "message": "읽을 문장이 없습니다.",
-        }
-    return {
-        "ok": True,
-        "spoken": spoken,
-        "speak_norm_version": speak_norm_version(),
-    }
 
 
 @app.get("/api/session/mock")
