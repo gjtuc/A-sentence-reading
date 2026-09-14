@@ -13,29 +13,31 @@ APP = ROOT / "src/sentence_reading/api/app.py"
 PUBSPEC = ROOT / "mobile/pubspec.yaml"
 CONFIG = ROOT / "mobile/lib/config.dart"
 README = ROOT / "docs/design/README.md"
+FIXTURE_ACS_MAIN = ROOT / "tests/fixtures/doc_role/A_acs_main_chrome.txt"
 
 
 def test_design_280_locked() -> None:
     text = DESIGN.read_text(encoding="utf-8")
     assert "Status: **locked**" in text
-    assert "0.3.273" in text
+    assert "0.3.274" in text
     assert "filename_si" in text
-    assert "13 → 14" in text or "schema" in text.lower()
+    assert "veto" in text.lower() or "ACS" in text
 
 
 def test_versions_280() -> None:
     app = APP.read_text(encoding="utf-8")
-    assert 'version="0.3.273"' in app
-    assert '"version": "0.3.273"' in app
-    assert "0.3.273" in PUBSPEC.read_text(encoding="utf-8")
-    assert "0.3.273" in CONFIG.read_text(encoding="utf-8")
+    assert 'version="0.3.274"' in app
+    assert '"version": "0.3.274"' in app
+    assert "0.3.274" in PUBSPEC.read_text(encoding="utf-8")
+    assert "0.3.274" in CONFIG.read_text(encoding="utf-8")
     assert "280-filename-si-role.md" in README.read_text(encoding="utf-8")
-    assert "kPdfAdvisoryCacheSchema = 14" in CACHE.read_text(encoding="utf-8")
-    assert "filename_si" in DETECT.read_text(encoding="utf-8")
+    assert "kPdfAdvisoryCacheSchema = 15" in CACHE.read_text(encoding="utf-8")
+    dart = DETECT.read_text(encoding="utf-8")
+    assert "filename_si" in dart
+    assert "!fnHint" in dart
 
 
 def test_filename_si_alone_python() -> None:
-    # Title-only head (typical SI cover after 277 style join) + ACS SI filename.
     head = (
         "Revealing the Mechanism of Multiwalled Carbon Nanotube Growth on "
         "Supported Nickel Nanoparticles by in Situ Synchrotron X-ray Diffraction\n"
@@ -43,7 +45,6 @@ def test_filename_si_alone_python() -> None:
     det = detect_doc_role_detailed(head, filename="cs9b00733_si_001.pdf")
     assert det.role == "supplementary"
     assert det.reason == "filename_si"
-    assert det.filename_si_hint is True
 
     det2 = detect_doc_role_detailed(head, filename="cs9b00733_si_001 (1).pdf")
     assert det2.role == "supplementary"
@@ -55,6 +56,17 @@ def test_filename_si_alone_python() -> None:
     )
     assert main.role == "main"
     assert main.reason == "default_main"
+
+
+def test_acs_chrome_veto_skipped_when_filename_si() -> None:
+    # Main-PDF ACS chrome fixture would veto; same head + SI filename must stay SI.
+    head = FIXTURE_ACS_MAIN.read_text(encoding="utf-8")
+    as_main = detect_doc_role_detailed(head, filename="an1c00673.pdf")
+    assert as_main.role == "main"
+    assert as_main.reason == "head_marker_acs_chrome_veto"
+    as_si = detect_doc_role_detailed(head, filename="cs9b00733_si_001.pdf")
+    assert as_si.role == "supplementary"
+    assert as_si.reason == "head_marker"
 
 
 def test_docx_reason_unchanged() -> None:

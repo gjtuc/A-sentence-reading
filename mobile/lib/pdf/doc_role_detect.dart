@@ -169,7 +169,8 @@ DocRoleDetectResult detectDocRoleDetailed(
     );
   }
   if (markerMatch != null) {
-    if (_isAcsMainSiBadge(head, markerMatch)) {
+    // design/280 — clear SI filenames must not be vetoed as ACS/ESI main chrome.
+    if (!fnHint && _isAcsMainSiBadge(head, markerMatch)) {
       return DocRoleDetectResult(
         role: 'main',
         reason: 'head_marker_acs_chrome_veto',
@@ -180,7 +181,7 @@ DocRoleDetectResult detectDocRoleDetailed(
         strippedFormat: stripped,
       );
     }
-    if (_isEsiAvailabilityFootnote(head, markerMatch)) {
+    if (!fnHint && _isEsiAvailabilityFootnote(head, markerMatch)) {
       return DocRoleDetectResult(
         role: 'main',
         reason: 'head_marker_esi_footnote_veto',

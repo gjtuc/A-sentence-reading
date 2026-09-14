@@ -154,7 +154,8 @@ def detect_doc_role_detailed(
         )
 
     if marker_m is not None:
-        if _is_acs_main_si_badge(head, marker_m):
+        # design/280 — clear SI filenames must not be vetoed as ACS/ESI main chrome.
+        if (not fn_hint) and _is_acs_main_si_badge(head, marker_m):
             return DocRoleDetectResult(
                 role="main",
                 reason="head_marker_acs_chrome_veto",
@@ -164,7 +165,7 @@ def detect_doc_role_detailed(
                 page_label_hit=page_label,
                 stripped_format=stripped,
             )
-        if _is_esi_availability_footnote(head, marker_m):
+        if (not fn_hint) and _is_esi_availability_footnote(head, marker_m):
             return DocRoleDetectResult(
                 role="main",
                 reason="head_marker_esi_footnote_veto",
