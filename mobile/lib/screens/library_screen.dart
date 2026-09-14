@@ -177,14 +177,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   /// design/224 · 225 — soft-hide + SnackBar undo; hard DELETE after grace.
   /// design/258 — live seconds countdown; dismiss when purge fires.
+  /// design/278 — undo uses expanded hiddenIds (mate soft-hide).
   Future<void> _softHideWithUndo(List<String> ids) async {
     if (_deleting || ids.isEmpty) return;
     setState(() => _deleting = true);
     final result = await widget.library.softHidePapers(ids);
     if (!mounted) return;
+    final undoIds = result.hiddenIds.isNotEmpty
+        ? result.hiddenIds
+        : ids;
     setState(() {
       _deleting = false;
-      for (final id in ids) {
+      for (final id in undoIds) {
         _selected.remove(id);
       }
       if (_selected.isEmpty) {
@@ -223,7 +227,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         action: SnackBarAction(
           label: '실행 취소',
           onPressed: () {
-            unawaited(widget.library.undoSoftHide(ids));
+            unawaited(widget.library.undoSoftHide(undoIds));
           },
         ),
       ),

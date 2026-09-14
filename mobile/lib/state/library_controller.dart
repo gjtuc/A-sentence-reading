@@ -229,14 +229,17 @@ class LibraryController extends ChangeNotifier {
   /// design/224 — hide locally; hard DELETE after purge_at (wall clock).
   /// Returns hidden count + earliest purge wall-clock for countdown SnackBar (design/258).
   /// design/275 — also soft-hide paired mate (collapsed set row must not leave SI green).
-  Future<({int hidden, int? purgeAtMs})> softHidePapers(
+  /// design/278 — return expanded [hiddenIds] so undo restores the same set.
+  Future<({int hidden, int? purgeAtMs, List<String> hiddenIds})> softHidePapers(
     Iterable<String> cacheIds,
   ) async {
     final raw = cacheIds
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)
         .toSet();
-    if (raw.isEmpty) return (hidden: 0, purgeAtMs: null);
+    if (raw.isEmpty) {
+      return (hidden: 0, purgeAtMs: null, hiddenIds: const <String>[]);
+    }
     final ids = <String>{...raw};
     for (final p in papers) {
       if (raw.contains(p.id)) {
@@ -278,19 +281,38 @@ class LibraryController extends ChangeNotifier {
     error = null;
     notifyListeners();
     _scheduleSoftPurgeWorker();
-    return (hidden: idList.length, purgeAtMs: purgeAt);
+    return (hidden: idList.length, purgeAtMs: purgeAt, hiddenIds: idList);
   }
 
   /// design/224 — restore soft-hidden rows via refresh (server/disk still hold them).
+  /// design/278 — also restore still-hidden mates linked by disk pairing.
   Future<int> undoSoftHide(Iterable<String> cacheIds) async {
-    final ids = cacheIds
+    final requested = cacheIds
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)
-        .toSet()
-        .toList(growable: false);
-    if (ids.isEmpty) return 0;
-    await _softDelete.undo(ids);
-    for (final id in ids) {
+        .toSet();
+    if (requested.isEmpty) return 0;
+    final ids = <String>{...requested};
+    try {
+      final hidden = _softDelete.hiddenIds;
+      final index = await _paperDisk.listIndex();
+      for (final e in index) {
+        final id = e.id.trim();
+        final mate = e.pairedCacheId.trim();
+        if (id.isEmpty) continue;
+        if (ids.contains(id) && mate.isNotEmpty && hidden.contains(mate)) {
+          ids.add(mate);
+        }
+        if (mate.isNotEmpty &&
+            ids.contains(mate) &&
+            hidden.contains(id)) {
+          ids.add(id);
+        }
+      }
+    } catch (_) {}
+    final idList = ids.toList(growable: false);
+    await _softDelete.undo(idList);
+    for (final id in idList) {
       _softHideAbandonedWork.remove(id);
     }
     asrEvidenceBus?.record(
@@ -298,11 +320,14 @@ class LibraryController extends ChangeNotifier {
       severity: 'lifecycle',
       stage: 'undo',
       ok: true,
-      details: {'n': ids.length},
+      details: {
+        'n': idList.length,
+        'requested_n': requested.length,
+      },
     );
     await refresh(fresh: false, clearError: false, trigger: 'soft_undo');
     _scheduleSoftPurgeWorker();
-    return ids.length;
+    return idList.length;
   }
 
   /// Ids whose in-flight enrich/ensure should stop updating UI (design/258).
