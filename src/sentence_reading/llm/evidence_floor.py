@@ -149,6 +149,11 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "paper_merge_start",
         "paper_merge_local_done",
         "paper_merge_done",
+        # design/282 — merge/reader honesty
+        "reader_open_honesty",
+        "paper_merge_postcheck",
+        "paper_notify_open",
+        "documents_mirror_done",
     }
 )
 
@@ -485,6 +490,13 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "paper_soft_hide",
             "paper_soft_undo",
             "applyLocalPairingPassDetailed",
+            # design/282
+            "reader_open_honesty",
+            "paper_merge_postcheck",
+            "paper_notify_open",
+            "documents_mirror_done",
+            "_emitReaderOpenHonesty",
+            "_emitMergePostcheck",
         ),
     ),
     (

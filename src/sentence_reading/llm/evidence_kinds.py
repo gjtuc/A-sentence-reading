@@ -256,6 +256,11 @@ ALLOWED_KINDS = frozenset(
         "paper_merge_start",
         "paper_merge_local_done",
         "paper_merge_done",
+        # design/282 — merge/reader honesty densify
+        "reader_open_honesty",
+        "paper_merge_postcheck",
+        "paper_notify_open",
+        "documents_mirror_done",
         # design/241 — SAF tree write
         "pdf_tree_write_probe",
         "pdf_tree_copy_start",

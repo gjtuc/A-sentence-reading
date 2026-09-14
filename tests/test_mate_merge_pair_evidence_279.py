@@ -36,14 +36,13 @@ def test_design_279_locked() -> None:
 
 
 def test_versions_279() -> None:
-    app = APP.read_text(encoding="utf-8")
-    assert 'version="0.3.272"' in app
-    assert '"version": "0.3.272"' in app
-    assert "0.3.272" in PUBSPEC.read_text(encoding="utf-8")
-    assert "0.3.272" in CONFIG.read_text(encoding="utf-8")
+    # Later designs bump app version; keep surface markers locked.
     assert "279-mate-merge-pair-causal-evidence.md" in README.read_text(
         encoding="utf-8"
     )
+    ctrl = CTRL.read_text(encoding="utf-8")
+    assert "library_pairing_pass" in ctrl
+    assert "paper_merge_start" in ctrl
 
 
 def test_kinds_mirrored_279() -> None:

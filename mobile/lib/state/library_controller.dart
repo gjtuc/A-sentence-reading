@@ -1884,13 +1884,8 @@ class LibraryController extends ChangeNotifier {
       // design/194 — KO backfill + shadowing after handoff (library tab, not only reader).
       unawaited(_postHandoffEnrich(cid));
       // design/268 — mirror paper folder after successful handoff.
-      unawaited(() async {
-        final ok = await _documentsMirror.mirrorPaper(cid);
-        if (!ok && (_documentsMirror.lastError ?? '').isNotEmpty) {
-          documentsMirrorBanner = _documentsMirror.lastError;
-          notifyListeners();
-        }
-      }());
+      // design/282 — documents_mirror_done evidence.
+      unawaited(_mirrorPaperWithEvidence(cid, trigger: 'handoff'));
       return true;
     } catch (e) {
       asrEvidenceBus?.record(
@@ -2845,8 +2840,191 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  // design/282 — role/tag tokens for honesty evidence (no Korean tag text).
+  String _normRoleToken(String? raw) {
+    final v = (raw ?? '').trim().toLowerCase();
+    if (v == 'merged') return 'merged';
+    if (v == 'supplementary' || v == 'si' || v == 'supp') return 'supplementary';
+    if (v == 'main' || v.isEmpty) return 'main';
+    return 'other';
+  }
+
+  String _entryTagKind(PaperEntry e) {
+    final role = _normRoleToken(e.docRole);
+    if (role == 'merged') return 'merged';
+    if (role == 'supplementary') return 'si';
+    if (e.canMergeSupplementary || e.pairedCacheId.trim().isNotEmpty) {
+      return 'pair';
+    }
+    if (role == 'main') return 'main';
+    return 'other';
+  }
+
+  int _suppSectionCount(ReadingSession o) {
+    var n = 0;
+    for (final s in o.sentences) {
+      final sec = s.section.trim().toLowerCase();
+      final id = s.id.trim().toLowerCase();
+      if (sec == 'supplementary' || id.startsWith('si_')) n += 1;
+    }
+    return n;
+  }
+
+  int _suppSectionCountRaw(Map<String, dynamic>? raw) {
+    if (raw == null) return 0;
+    final sents = raw['sentences'];
+    if (sents is! List) return 0;
+    var n = 0;
+    for (final s in sents) {
+      if (s is! Map) continue;
+      final sec = '${s['section'] ?? ''}'.trim().toLowerCase();
+      final id = '${s['id'] ?? ''}'.trim().toLowerCase();
+      if (sec == 'supplementary' || id.startsWith('si_')) n += 1;
+    }
+    return n;
+  }
+
+  void _emitReaderOpenHonesty({
+    required PaperEntry entry,
+    required ReadingSession o,
+    required String openStage,
+  }) {
+    final tagKind = _entryTagKind(entry);
+    final mergedFlag = o.supplementaryMerged ? 1 : 0;
+    final entryMergedClaim =
+        (_normRoleToken(entry.docRole) == 'merged' || tagKind == 'merged')
+            ? 1
+            : 0;
+    final mismatchMerged =
+        (entryMergedClaim == 1 && mergedFlag == 0) ? 1 : 0;
+    final mismatchCounts =
+        (entry.sentenceCount > 0 && entry.sentenceCount != o.sentenceCount)
+            ? 1
+            : 0;
+    final mismatchPairOpen =
+        (entry.canMergeSupplementary && mergedFlag == 0) ? 1 : 0;
+    final bad = mismatchMerged == 1 ||
+        mismatchCounts == 1 ||
+        mismatchPairOpen == 1;
+    asrEvidenceBus?.record(
+      'reader_open_honesty',
+      severity: bad ? 'error' : 'lifecycle',
+      cacheId: o.cacheId.isNotEmpty ? o.cacheId : entry.id,
+      stage: openStage,
+      ok: !bad,
+      details: {
+        'mismatch_merged': mismatchMerged,
+        'mismatch_counts': mismatchCounts,
+        'mismatch_pair_open': mismatchPairOpen,
+        'supplementary_merged': mergedFlag,
+        'sent_n': o.sentenceCount,
+        'fig_n': o.figureCount,
+        'supp_section_n': _suppSectionCount(o),
+        'entry_sent_n': entry.sentenceCount,
+        'entry_fig_n': entry.figureCount,
+        'entry_role': _normRoleToken(entry.docRole),
+        'tag_kind': tagKind,
+        'session_role': _normRoleToken(o.docRole),
+        'open_stage': openStage,
+      },
+    );
+  }
+
+  Map<String, Object?> _readerOpenExtraDetails({
+    required PaperEntry entry,
+    required ReadingSession o,
+    required String openStage,
+  }) =>
+      {
+        'supplementary_merged': o.supplementaryMerged ? 1 : 0,
+        'session_role': _normRoleToken(o.docRole),
+        'supp_section_n': _suppSectionCount(o),
+        'entry_sent_n': entry.sentenceCount,
+        'entry_fig_n': entry.figureCount,
+        'entry_role': _normRoleToken(entry.docRole),
+        'tag_kind': _entryTagKind(entry),
+        'open_stage': openStage,
+      };
+
+  Future<void> _emitMergePostcheck({
+    required String mainId,
+    required String path,
+    required bool mergeOk,
+    required int claimedSentN,
+    required int claimedFigN,
+  }) async {
+    final raw = await _paperDisk.loadSessionJson(mainId);
+    final diskHit = raw != null;
+    final diskMerged =
+        diskHit && raw['supplementary_merged'] == true ? 1 : 0;
+    final diskSents = raw?['sentences'];
+    final diskFigs = raw?['figures'];
+    final diskSentN = diskSents is List ? diskSents.length : 0;
+    final diskFigN = diskFigs is List ? diskFigs.length : 0;
+    final diskSupp = _suppSectionCountRaw(raw);
+    final mismatchUiDisk = (mergeOk &&
+            (diskMerged == 0 ||
+                (claimedSentN > 0 && claimedSentN != diskSentN)))
+        ? 1
+        : 0;
+    final bad = mismatchUiDisk == 1 || (mergeOk && diskMerged == 0);
+    asrEvidenceBus?.record(
+      'paper_merge_postcheck',
+      severity: bad ? 'error' : 'lifecycle',
+      stage: 'merge',
+      cacheId: mainId,
+      ok: !bad,
+      details: {
+        'merge_ok': mergeOk ? 1 : 0,
+        'path': path,
+        'disk_hit': diskHit ? 1 : 0,
+        'disk_merged': diskMerged,
+        'disk_sent_n': diskSentN,
+        'disk_fig_n': diskFigN,
+        'disk_supp_section_n': diskSupp,
+        'claimed_sent_n': claimedSentN,
+        'claimed_fig_n': claimedFigN,
+        'mismatch_ui_disk': mismatchUiDisk,
+      },
+    );
+  }
+
+  Future<void> _mirrorPaperWithEvidence(
+    String cacheId, {
+    required String trigger,
+  }) async {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return;
+    final raw = await _paperDisk.loadSessionJson(cid);
+    final diskMerged =
+        raw == null ? -1 : (raw['supplementary_merged'] == true ? 1 : 0);
+    final sents = raw?['sentences'];
+    final diskSentN = raw == null
+        ? -1
+        : (sents is List ? sents.length : 0);
+    final ok = await _documentsMirror.mirrorPaper(cid);
+    asrEvidenceBus?.record(
+      'documents_mirror_done',
+      severity: ok ? 'lifecycle' : 'error',
+      cacheId: cid,
+      stage: trigger,
+      ok: ok,
+      details: {
+        'ok': ok ? 1 : 0,
+        'trigger': trigger,
+        'disk_merged': diskMerged,
+        'disk_sent_n': diskSentN,
+      },
+    );
+    if (!ok && (_documentsMirror.lastError ?? '').isNotEmpty) {
+      documentsMirrorBanner = _documentsMirror.lastError;
+      notifyListeners();
+    }
+  }
+
   /// design/152 · 261 — merge paired SI into main (device-local first, else POST).
   /// design/279 — causal merge evidence (start / local_done / done).
+  /// design/282 — honesty postcheck + mirror after local merge.
   Future<bool> mergeSupplementary(PaperEntry entry) async {
     if (!entry.canMergeSupplementary) return false;
     if (uploading || reanalyzing || opening) {
@@ -2858,6 +3036,7 @@ class LibraryController extends ChangeNotifier {
     error = null;
     notifyListeners();
     final siId = entry.pairedCacheId.trim();
+    final tagKind = _entryTagKind(entry);
     asrEvidenceBus?.record(
       'paper_merge_start',
       severity: 'lifecycle',
@@ -2868,12 +3047,18 @@ class LibraryController extends ChangeNotifier {
         'main_id': entry.id,
         'si_id': siId,
         'can_merge': 1,
+        'si_id_empty': siId.isEmpty ? 1 : 0,
+        'entry_sent_n': entry.sentenceCount,
+        'entry_fig_n': entry.figureCount,
+        'entry_role': _normRoleToken(entry.docRole),
+        'tag_kind': tagKind,
       },
     );
+    var path = 'none';
+    var mergedSentN = 0;
+    var mergedFigN = 0;
+    var mergeOk = false;
     try {
-      var path = 'server';
-      var mergedSentN = 0;
-      var mergedFigN = 0;
       final localOk = siId.isNotEmpty &&
           await _mergeSupplementaryLocal(mainId: entry.id, siId: siId);
       if (localOk) {
@@ -2885,8 +3070,12 @@ class LibraryController extends ChangeNotifier {
           mergedSentN = s is List ? s.length : 0;
           mergedFigN = f is List ? f.length : 0;
         }
+        mergeOk = true;
+        unawaited(_mirrorPaperWithEvidence(entry.id, trigger: 'merge'));
       } else {
         await _client.mergeSupplementary(entry.id);
+        path = 'server';
+        mergeOk = true;
       }
       asrEvidenceBus?.record(
         'paper_merge_done',
@@ -2899,6 +3088,7 @@ class LibraryController extends ChangeNotifier {
           'merged_sent_n': mergedSentN,
           'merged_fig_n': mergedFigN,
           'supplementary_merged': path == 'local' ? 1 : 0,
+          'si_id_empty': siId.isEmpty ? 1 : 0,
         },
       );
       await refresh(fresh: false, clearError: false, trigger: 'merge');
@@ -2914,8 +3104,9 @@ class LibraryController extends ChangeNotifier {
         cacheId: entry.id,
         ok: false,
         details: {
-          'path': 'server',
+          'path': path == 'none' ? 'server' : path,
           'ok': 0,
+          'si_id_empty': siId.isEmpty ? 1 : 0,
         },
       );
       asrEvidenceBus?.record(
@@ -2938,7 +3129,7 @@ class LibraryController extends ChangeNotifier {
         stage: 'merge',
         cacheId: entry.id,
         ok: false,
-        details: {'ok': 0},
+        details: {'ok': 0, 'si_id_empty': siId.isEmpty ? 1 : 0},
       );
       asrEvidenceBus?.record(
         'client_api_fail',
@@ -2952,6 +3143,13 @@ class LibraryController extends ChangeNotifier {
       notifyListeners();
       return false;
     } finally {
+      await _emitMergePostcheck(
+        mainId: entry.id,
+        path: path,
+        mergeOk: mergeOk,
+        claimedSentN: mergedSentN,
+        claimedFigN: mergedFigN,
+      );
       opening = false;
       notifyListeners();
     }
@@ -3691,7 +3889,13 @@ class LibraryController extends ChangeNotifier {
           ok: true,
           details: {
             'figure_count': o.figureCount,
+            'sentence_count': o.sentenceCount,
             'hydrate_active': _hydrateActive.contains(entry.id.trim()) ? 1 : 0,
+            ..._readerOpenExtraDetails(
+              entry: entry,
+              o: o,
+              openStage: 'reuse_hydrate_session',
+            ),
           },
         );
       } else if (await _paperDisk.hasSession(entry.id)) {
@@ -3722,7 +3926,13 @@ class LibraryController extends ChangeNotifier {
           ok: true,
           details: {
             'figure_count': o.figureCount,
+            'sentence_count': o.sentenceCount,
             'ingest_status': entry.ingestStatus,
+            ..._readerOpenExtraDetails(
+              entry: entry,
+              o: o,
+              openStage: 'local_paper_disk',
+            ),
           },
         );
       } else {
@@ -3829,8 +4039,14 @@ class LibraryController extends ChangeNotifier {
           'ko_sentence_n':
               o.sentences.where((s) => s.textKo.trim().isNotEmpty).length,
           if (openHid.isNotEmpty) 'handoff_id': openHid,
+          ..._readerOpenExtraDetails(
+            entry: entry,
+            o: o,
+            openStage: 'ok',
+          ),
         },
       );
+      _emitReaderOpenHonesty(entry: entry, o: o, openStage: 'ok');
       // design/169g phase 4 — open success → reader tab consumer
       if (openHid.isNotEmpty) {
         asrEvidenceBus?.recordHandoff(
@@ -3917,6 +4133,7 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// design/74 — open by cache id after notification tap (product 4B).
+  /// design/282 — paper_notify_open hit/miss evidence.
   Future<ReadingSession?> openByCacheId(String cacheId) async {
     final id = cacheId.trim();
     if (id.isEmpty) return null;
@@ -3937,10 +4154,30 @@ class LibraryController extends ChangeNotifier {
       }
     }
     if (entry == null) {
+      asrEvidenceBus?.record(
+        'paper_notify_open',
+        severity: 'error',
+        cacheId: id,
+        stage: 'miss',
+        ok: false,
+        details: {'after_refresh': 1},
+      );
       error = '알림의 논문을 찾지 못했습니다. 보관함에서 열어 주세요.';
       notifyListeners();
       return null;
     }
+    asrEvidenceBus?.record(
+      'paper_notify_open',
+      severity: 'lifecycle',
+      cacheId: id,
+      stage: 'hit',
+      ok: true,
+      details: {
+        'after_refresh': 0,
+        'entry_role': _normRoleToken(entry.docRole),
+        'tag_kind': _entryTagKind(entry),
+      },
+    );
     return open(entry);
   }
 
