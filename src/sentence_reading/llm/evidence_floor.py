@@ -140,6 +140,15 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "notes_local_migrate_done",
         "notes_cloud_wipe",
         "notes_sync_refused",
+        # design/279 — mate/merge/pair causal (+ soft-hide allowlist fix)
+        "paper_soft_hide",
+        "paper_soft_undo",
+        "paper_soft_hide_abandon_work",
+        "paper_soft_purge",
+        "library_pairing_pass",
+        "paper_merge_start",
+        "paper_merge_local_done",
+        "paper_merge_done",
     }
 )
 
@@ -464,6 +473,27 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "wipe_bookmarks_store",
             "refuse_bookmarks_push_if_local_sot",
+        ),
+    ),
+    (
+        "mobile/lib/state/library_controller.dart",
+        (
+            "library_pairing_pass",
+            "paper_merge_start",
+            "paper_merge_local_done",
+            "paper_merge_done",
+            "paper_soft_hide",
+            "paper_soft_undo",
+            "applyLocalPairingPassDetailed",
+        ),
+    ),
+    (
+        "mobile/lib/services/paper_disk_store.dart",
+        (
+            "LocalPairingPassStats",
+            "applyLocalPairingPassDetailed",
+            "collapsePairedSetRowsDetailed",
+            "skipMultiMain",
         ),
     ),
     (

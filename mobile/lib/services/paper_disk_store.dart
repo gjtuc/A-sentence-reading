@@ -180,9 +180,36 @@ String _pairingKeyOf(PaperEntry e) {
   return k.isNotEmpty ? k : e.title.trim().toLowerCase();
 }
 
+/// design/279 — counts only (no titles) for library_pairing_pass evidence.
+class LocalPairingPassStats {
+  const LocalPairingPassStats({
+    this.keysN = 0,
+    this.pairedN = 0,
+    this.canMergeN = 0,
+    this.skipMultiMainN = 0,
+    this.skipMultiSiN = 0,
+  });
+
+  final int keysN;
+  final int pairedN;
+  final int canMergeN;
+  final int skipMultiMainN;
+  final int skipMultiSiN;
+}
+
 /// design/261 — Dart twin of server apply_pairing_pass (key-only, 1+1).
-List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) {
-  if (papers.isEmpty) return papers;
+List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) =>
+    applyLocalPairingPassDetailed(papers).papers;
+
+/// design/279 — same pass + skip/pair counters for evidence.
+({List<PaperEntry> papers, LocalPairingPassStats stats})
+    applyLocalPairingPassDetailed(List<PaperEntry> papers) {
+  if (papers.isEmpty) {
+    return (
+      papers: papers,
+      stats: const LocalPairingPassStats(),
+    );
+  }
   final cleared = [
     for (final e in papers)
       e.copyWith(pairedCacheId: '', canMergeSupplementary: false),
@@ -197,6 +224,10 @@ List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) {
     byKey.putIfAbsent(key, () => []).add(i);
   }
   final out = List<PaperEntry>.from(cleared);
+  var skipMultiMain = 0;
+  var skipMultiSi = 0;
+  var paired = 0;
+  var canMergeN = 0;
   for (final idxs in byKey.values) {
     final mainIs = <int>[];
     final siIs = <int>[];
@@ -208,7 +239,11 @@ List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) {
         mainIs.add(i);
       }
     }
-    if (mainIs.length != 1 || siIs.length != 1) continue;
+    if (mainIs.length != 1 || siIs.length != 1) {
+      if (mainIs.length != 1) skipMultiMain += 1;
+      if (siIs.length != 1) skipMultiSi += 1;
+      continue;
+    }
     final mi = mainIs.first;
     final si = siIs.first;
     final main = out[mi];
@@ -223,13 +258,29 @@ List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) {
       pairedCacheId: main.id,
       canMergeSupplementary: false,
     );
+    paired += 2;
+    if (canMerge) canMergeN += 1;
   }
-  return out;
+  return (
+    papers: out,
+    stats: LocalPairingPassStats(
+      keysN: byKey.length,
+      pairedN: paired,
+      canMergeN: canMergeN,
+      skipMultiMainN: skipMultiMain,
+      skipMultiSiN: skipMultiSi,
+    ),
+  );
 }
 
 /// design/261 · 273 — one set row only when merge-ready; else keep two adjacent rows.
-List<PaperEntry> collapsePairedSetRows(List<PaperEntry> papers) {
-  if (papers.length < 2) return List<PaperEntry>.from(papers);
+/// Returns collapsed list + how many SI ids were hidden.
+({List<PaperEntry> papers, int collapsedN}) collapsePairedSetRowsDetailed(
+  List<PaperEntry> papers,
+) {
+  if (papers.length < 2) {
+    return (papers: List<PaperEntry>.from(papers), collapsedN: 0);
+  }
   final hide = <String>{};
   for (final e in papers) {
     final role = e.docRole.trim().toLowerCase();
@@ -240,12 +291,20 @@ List<PaperEntry> collapsePairedSetRows(List<PaperEntry> papers) {
     if (!e.canMergeSupplementary) continue;
     hide.add(mateId);
   }
-  if (hide.isEmpty) return pairAdjacentPapers(papers);
-  return [
-    for (final e in papers)
-      if (!hide.contains(e.id)) e,
-  ];
+  if (hide.isEmpty) {
+    return (papers: pairAdjacentPapers(papers), collapsedN: 0);
+  }
+  return (
+    papers: [
+      for (final e in papers)
+        if (!hide.contains(e.id)) e,
+    ],
+    collapsedN: hide.length,
+  );
 }
+
+List<PaperEntry> collapsePairedSetRows(List<PaperEntry> papers) =>
+    collapsePairedSetRowsDetailed(papers).papers;
 
 /// Handoff-style manifest (sha256 per relative path).
 class PaperDiskManifest {

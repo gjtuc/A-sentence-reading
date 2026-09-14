@@ -245,6 +245,14 @@ const Set<String> kEvidenceAllowedKinds = {
   // design/275 — set ingest join + soft purge honesty
   'pdf_import_set_ingest',
   'paper_soft_purge',
+  // design/279 — soft-hide allowlist fix + mate/merge/pair causal
+  'paper_soft_hide',
+  'paper_soft_undo',
+  'paper_soft_hide_abandon_work',
+  'library_pairing_pass',
+  'paper_merge_start',
+  'paper_merge_local_done',
+  'paper_merge_done',
   // design/241 — SAF tree write
   'pdf_tree_write_probe',
   'pdf_tree_copy_start',

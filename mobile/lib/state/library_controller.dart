@@ -202,14 +202,37 @@ class LibraryController extends ChangeNotifier {
   Timer? _softPurgeTimer;
 
   /// design/224 — filter soft-hidden ids before publishing list.
-  void _publishPapers(List<PaperEntry> next) {
+  /// design/279 — emit library_pairing_pass (counts only).
+  void _publishPapers(
+    List<PaperEntry> next, {
+    String trigger = 'publish',
+  }) {
     final hidden = _softDelete.hiddenIds;
     final filtered = hidden.isEmpty
         ? next
         : next.where((e) => !hidden.contains(e.id)).toList(growable: false);
     // design/240 — adjacent mates; design/261 — local pairing + one set row.
-    final paired = applyLocalPairingPass(filtered);
-    papers = collapsePairedSetRows(paired);
+    final paired = applyLocalPairingPassDetailed(filtered);
+    final collapsed = collapsePairedSetRowsDetailed(paired.papers);
+    papers = collapsed.papers;
+    final st = paired.stats;
+    asrEvidenceBus?.record(
+      'library_pairing_pass',
+      severity: 'lifecycle',
+      stage: 'pair',
+      ok: true,
+      details: {
+        'papers_n': filtered.length,
+        'hidden_n': hidden.length,
+        'keys_n': st.keysN,
+        'paired_n': st.pairedN,
+        'can_merge_n': st.canMergeN,
+        'skip_multi_main_n': st.skipMultiMainN,
+        'skip_multi_si_n': st.skipMultiSiN,
+        'collapsed_n': collapsed.collapsedN,
+        'trigger': trigger,
+      },
+    );
   }
 
   void _scheduleSoftPurgeWorker() {
@@ -273,7 +296,8 @@ class LibraryController extends ChangeNotifier {
       // design/225 224b — leave reader surface (Offstage keep-alive).
       onSoftHideOpened?.call();
     }
-    _publishPapers(papers.where((p) => !ids.contains(p.id)).toList());
+    _publishPapers(papers.where((p) => !ids.contains(p.id)).toList(),
+        trigger: 'soft_hide');
     // design/258 — soft-hide must not keep translate/shadowing banner alive.
     _abandonBackgroundWorkForSoftHide(idList);
     // design/265 — green「이미 보관」must drop soft-hidden hashes immediately.
@@ -2291,7 +2315,7 @@ class LibraryController extends ChangeNotifier {
       }
       // design/185 Phase 1 — surface local-only disk papers (no cloud wipe yet).
       final merged = await _paperDisk.mergeRemoteWithLocal(fetched);
-      _publishPapers(await _applySavedOrder(merged));
+      _publishPapers(await _applySavedOrder(merged), trigger: trig);
       await _rebuildLibraryHashSet();
       await _reloadPickerRecent();
       try {
@@ -2822,6 +2846,7 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// design/152 · 261 — merge paired SI into main (device-local first, else POST).
+  /// design/279 — causal merge evidence (start / local_done / done).
   Future<bool> mergeSupplementary(PaperEntry entry) async {
     if (!entry.canMergeSupplementary) return false;
     if (uploading || reanalyzing || opening) {
@@ -2832,19 +2857,67 @@ class LibraryController extends ChangeNotifier {
     opening = true;
     error = null;
     notifyListeners();
+    final siId = entry.pairedCacheId.trim();
+    asrEvidenceBus?.record(
+      'paper_merge_start',
+      severity: 'lifecycle',
+      stage: 'merge',
+      cacheId: entry.id,
+      ok: true,
+      details: {
+        'main_id': entry.id,
+        'si_id': siId,
+        'can_merge': 1,
+      },
+    );
     try {
-      final siId = entry.pairedCacheId.trim();
+      var path = 'server';
+      var mergedSentN = 0;
+      var mergedFigN = 0;
       final localOk = siId.isNotEmpty &&
           await _mergeSupplementaryLocal(mainId: entry.id, siId: siId);
-      if (!localOk) {
+      if (localOk) {
+        path = 'local';
+        final raw = await _paperDisk.loadSessionJson(entry.id);
+        if (raw != null) {
+          final s = raw['sentences'];
+          final f = raw['figures'];
+          mergedSentN = s is List ? s.length : 0;
+          mergedFigN = f is List ? f.length : 0;
+        }
+      } else {
         await _client.mergeSupplementary(entry.id);
       }
-      await refresh();
+      asrEvidenceBus?.record(
+        'paper_merge_done',
+        severity: 'lifecycle',
+        stage: 'merge',
+        cacheId: entry.id,
+        ok: true,
+        details: {
+          'path': path,
+          'merged_sent_n': mergedSentN,
+          'merged_fig_n': mergedFigN,
+          'supplementary_merged': path == 'local' ? 1 : 0,
+        },
+      );
+      await refresh(fresh: false, clearError: false, trigger: 'merge');
       error = null;
       notifyListeners();
       return true;
     } on AsrApiException catch (e) {
       error = e.message;
+      asrEvidenceBus?.record(
+        'paper_merge_done',
+        severity: 'error',
+        stage: 'merge',
+        cacheId: entry.id,
+        ok: false,
+        details: {
+          'path': 'server',
+          'ok': 0,
+        },
+      );
       asrEvidenceBus?.record(
         'client_api_fail',
         severity: 'error',
@@ -2859,6 +2932,14 @@ class LibraryController extends ChangeNotifier {
       return false;
     } catch (e) {
       error = e.toString();
+      asrEvidenceBus?.record(
+        'paper_merge_done',
+        severity: 'error',
+        stage: 'merge',
+        cacheId: entry.id,
+        ok: false,
+        details: {'ok': 0},
+      );
       asrEvidenceBus?.record(
         'client_api_fail',
         severity: 'error',
@@ -2883,7 +2964,20 @@ class LibraryController extends ChangeNotifier {
   }) async {
     final mainSession = await _paperDisk.loadSessionJson(mainId);
     final siSession = await _paperDisk.loadSessionJson(siId);
-    if (mainSession == null || siSession == null) return false;
+    if (mainSession == null || siSession == null) {
+      asrEvidenceBus?.record(
+        'paper_merge_local_done',
+        severity: 'lifecycle',
+        stage: 'merge',
+        cacheId: mainId,
+        ok: false,
+        details: {
+          'ok': 0,
+          'code': mainSession == null ? 'main_session_miss' : 'si_session_miss',
+        },
+      );
+      return false;
+    }
 
     final mergeRefs = orMergeReferences(
       mainSession['references'],
@@ -2937,12 +3031,17 @@ class LibraryController extends ChangeNotifier {
         if (f is Map) mainFigs.add(Map<String, dynamic>.from(f));
       }
     }
+    final mainFigN = mainFigs.length;
+    var siFigN = 0;
+    var figBytesOk = 0;
+    var figBytesMiss = 0;
     final rawSiFigs = siSession['figures'];
     if (rawSiFigs is List) {
       var fi = 0;
       for (final f in rawSiFigs) {
         fi += 1;
         if (f is! Map) continue;
+        siFigN += 1;
         final m = rewriteSiFigureMeta(
           Map<String, dynamic>.from(f),
           fallbackIndex: mainFigs.length + fi,
@@ -2969,6 +3068,9 @@ class LibraryController extends ChangeNotifier {
             bytes: bytes,
             contentHash: '${mainSession['content_hash'] ?? ''}'.trim(),
           );
+          figBytesOk += 1;
+        } else {
+          figBytesMiss += 1;
         }
         mainFigs.add(m);
       }
@@ -2996,6 +3098,25 @@ class LibraryController extends ChangeNotifier {
       mainId,
       merged,
       contentHash: ch,
+    );
+    asrEvidenceBus?.record(
+      'paper_merge_local_done',
+      severity: 'lifecycle',
+      stage: 'merge',
+      cacheId: mainId,
+      ok: ok,
+      details: {
+        'ok': ok ? 1 : 0,
+        'main_sent_n': (rawMain is List) ? rawMain.length : 0,
+        'si_sent_n': siSentsRaw.length,
+        'si_sent_kept_n': siSents.length,
+        'main_fig_n': mainFigN,
+        'si_fig_n': siFigN,
+        'fig_bytes_ok_n': figBytesOk,
+        'fig_bytes_miss_n': figBytesMiss,
+        'merged_sent_n': mainSents.length,
+        'merged_fig_n': mainFigs.length,
+      },
     );
     if (!ok) return false;
 
