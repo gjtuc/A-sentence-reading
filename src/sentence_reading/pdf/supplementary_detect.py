@@ -235,6 +235,18 @@ def detect_doc_role_detailed(
             stripped_format=stripped,
         )
 
+    # design/280 — clear SI filename alone (after dual gates; ACS/ESI veto already applied).
+    if fn_hint:
+        return DocRoleDetectResult(
+            role="supplementary",
+            reason="filename_si",
+            head_len=head_len,
+            marker_hit=False,
+            filename_si_hint=True,
+            page_label_hit=page_label,
+            stripped_format=stripped,
+        )
+
     return DocRoleDetectResult(
         role="main",
         reason="default_main",

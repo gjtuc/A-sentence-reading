@@ -248,6 +248,18 @@ DocRoleDetectResult detectDocRoleDetailed(
       strippedFormat: stripped,
     );
   }
+  // design/280 — clear SI filename alone (after dual gates; ACS/ESI veto already applied).
+  if (fnHint) {
+    return DocRoleDetectResult(
+      role: 'supplementary',
+      reason: 'filename_si',
+      headLen: headLen,
+      markerHit: false,
+      filenameSiHint: true,
+      pageLabelHit: pageLabel,
+      strippedFormat: stripped,
+    );
+  }
   return DocRoleDetectResult(
     role: 'main',
     reason: 'default_main',

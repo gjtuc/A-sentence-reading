@@ -11,8 +11,8 @@ import 'pdf_hash_cache_store.dart';
 const int kPdfAdvisoryCacheMaxEntries = 2000;
 
 /// design/229 · 233 · 235 · 236 · 237 · 239 · 254 · 255 · 265 · 276 — bump wipes stale rows (title/pair quality).
-/// design/229 · 233 · 235 · 236 · 237 · 239 · 254 · 255 · 265 · 276 · 277 — bump wipes stale rows.
-const int kPdfAdvisoryCacheSchema = 13; // design/277 — font-similarity wrap join
+/// design/229 · 233 · 235 · 236 · 237 · 239 · 254 · 255 · 265 · 276 · 277 · 280 — bump wipes stale rows.
+const int kPdfAdvisoryCacheSchema = 14; // design/280 — filename SI → supplementary
 
 class PdfAdvisoryCacheEntry {
   const PdfAdvisoryCacheEntry({

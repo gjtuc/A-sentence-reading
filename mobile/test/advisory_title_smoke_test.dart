@@ -101,5 +101,14 @@ void main() {
     );
     expect(detTableFig.role, 'supplementary');
     expect(detTableFig.reason, 'filename_si_and_table_fig');
+
+    // design/280 — filename SI alone (article-title head, no S-label)
+    final detFnOnly = detectDocRoleDetailed(
+      'Revealing the Mechanism of Multiwalled Carbon Nanotube Growth on '
+          'Supported Nickel Nanoparticles\n',
+      filename: 'cs9b00733_si_001.pdf',
+    );
+    expect(detFnOnly.role, 'supplementary');
+    expect(detFnOnly.reason, 'filename_si');
   });
 }

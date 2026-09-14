@@ -337,6 +337,7 @@
 | 277 | [277-advisory-title-wrap-join.md](277-advisory-title-wrap-join.md) | Advisory title font-similarity wrap join + style evidence (0.3.270) |
 | 278 | [278-soft-hide-undo-mate.md](278-soft-hide-undo-mate.md) | Soft-hide undo restores expanded mate (0.3.271) |
 | 279 | [279-mate-merge-pair-causal-evidence.md](279-mate-merge-pair-causal-evidence.md) | Mate/merge/pairing causal evidence + soft-hide allowlist (0.3.272) |
+| 280 | [280-filename-si-role.md](280-filename-si-role.md) | Filename SI hint alone → advisory supplementary (0.3.273) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |
