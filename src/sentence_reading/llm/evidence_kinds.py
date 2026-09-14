@@ -261,6 +261,17 @@ ALLOWED_KINDS = frozenset(
         "paper_merge_postcheck",
         "paper_notify_open",
         "documents_mirror_done",
+        # design/283 — translate/ingest stage loop & regress
+        "translate_section_enter",
+        "translate_harmonize_start",
+        "translate_harmonize_tick",
+        "translate_harmonize_end",
+        "translate_progress_regress",
+        "translate_stage_loop",
+        "ingest_progress_regress",
+        "ingest_stage_loop",
+        "ingest_stage_tick",
+        "ingest_auto_resume_loop",
         # design/241 — SAF tree write
         "pdf_tree_write_probe",
         "pdf_tree_copy_start",

@@ -33,11 +33,8 @@ def test_design_282_locked() -> None:
 
 
 def test_versions_282() -> None:
-    app = APP.read_text(encoding="utf-8")
-    assert 'version="0.3.277"' in app
-    assert '"version": "0.3.277"' in app
-    assert "0.3.277" in PUBSPEC.read_text(encoding="utf-8")
-    assert "0.3.277" in CONFIG.read_text(encoding="utf-8")
+    # Soft pin: shipped on 0.3.277; later chips may bump further.
+    assert "0.3.277" in DESIGN.read_text(encoding="utf-8")
     assert "282-merge-reader-honesty-evidence.md" in README.read_text(
         encoding="utf-8"
     )

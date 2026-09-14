@@ -288,6 +288,238 @@ def _emit_checkpoint(
         log.warning("translate checkpoint emit failed", exc_info=True)
 
 
+def _emit_pass_kind(
+    kind: str,
+    *,
+    details: dict[str, Any],
+    severity: str = "lifecycle",
+    ok: bool = True,
+    job_id: str | None = None,
+    cache_id: str | None = None,
+    owner_uid: str | None = None,
+    trace_id: str | None = None,
+) -> None:
+    """design/283 — first-class section pass / regress / loop. Never raises."""
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        ctx_job, ctx_cache, ctx_uid, ctx_trace = _evidence_ids()
+        eb.emit(
+            kind,
+            severity=severity,
+            trace_id=str(trace_id if trace_id is not None else ctx_trace or ""),
+            job_id=str(job_id if job_id is not None else ctx_job or ""),
+            cache_id=str(cache_id if cache_id is not None else ctx_cache or ""),
+            owner_uid=str(owner_uid if owner_uid is not None else ctx_uid or ""),
+            stage="translate",
+            details=dict(details or {}),
+            ok=bool(ok),
+            code=kind,
+        )
+    except Exception:  # noqa: BLE001
+        log.warning("translate pass kind emit failed kind=%s", kind, exc_info=True)
+
+
+def _emit_section_enter_pass(
+    *,
+    section: str,
+    in_n: int,
+    queue_i: int,
+    queue_n: int,
+    job_id: str | None,
+    cache_id: str | None,
+    owner_uid: str | None,
+    trace_id: str | None,
+) -> None:
+    """design/283 — translate_section_enter (+ loop if pass_n≥2)."""
+    try:
+        from sentence_reading.llm.translate_progress_guard import TRANSLATE_PASS_TRACKER
+
+        d = TRANSLATE_PASS_TRACKER.note_section_enter(
+            job_id=str(job_id or ""),
+            section=section,
+            in_n=in_n,
+            queue_i=queue_i,
+            queue_n=queue_n,
+        )
+        _emit_pass_kind(
+            "translate_section_enter",
+            details=d,
+            severity="lifecycle",
+            job_id=job_id,
+            cache_id=cache_id,
+            owner_uid=owner_uid,
+            trace_id=trace_id,
+        )
+        if int(d.get("loop") or 0) >= 1:
+            pass_n = int(d.get("pass_n") or 0)
+            _emit_pass_kind(
+                "translate_stage_loop",
+                details={
+                    "section": d.get("section"),
+                    "phase": d.get("phase"),
+                    "pass_n": pass_n,
+                },
+                severity="error" if pass_n >= 3 else "lifecycle",
+                ok=False,
+                job_id=job_id,
+                cache_id=cache_id,
+                owner_uid=owner_uid,
+                trace_id=trace_id,
+            )
+    except Exception:  # noqa: BLE001
+        log.warning("section enter pass emit failed", exc_info=True)
+
+
+def _emit_harmonize_pass_start(
+    *,
+    section: str,
+    in_n: int,
+    worker_n: int,
+    residual: bool = False,
+    job_id: str | None = None,
+    cache_id: str | None = None,
+    owner_uid: str | None = None,
+    trace_id: str | None = None,
+) -> None:
+    try:
+        from sentence_reading.llm.translate_progress_guard import TRANSLATE_PASS_TRACKER
+
+        d = TRANSLATE_PASS_TRACKER.note_harmonize_start(
+            job_id=str(job_id or ""),
+            section=section,
+            in_n=in_n,
+            worker_n=worker_n,
+            residual=residual,
+        )
+        _emit_pass_kind(
+            "translate_harmonize_start",
+            details=d,
+            severity="lifecycle",
+            job_id=job_id,
+            cache_id=cache_id,
+            owner_uid=owner_uid,
+            trace_id=trace_id,
+        )
+        if int(d.get("loop") or 0) >= 1:
+            pass_n = int(d.get("pass_n") or 0)
+            _emit_pass_kind(
+                "translate_stage_loop",
+                details={
+                    "section": d.get("section"),
+                    "phase": d.get("phase"),
+                    "pass_n": pass_n,
+                },
+                severity="error" if pass_n >= 3 else "lifecycle",
+                ok=False,
+                job_id=job_id,
+                cache_id=cache_id,
+                owner_uid=owner_uid,
+                trace_id=trace_id,
+            )
+    except Exception:  # noqa: BLE001
+        log.warning("harmonize start pass emit failed", exc_info=True)
+
+
+def _emit_harmonize_pass_tick(
+    *,
+    section: str,
+    out_n: int,
+    in_n: int,
+    remaining: int,
+    residual: bool = False,
+    job_id: str | None = None,
+    cache_id: str | None = None,
+    owner_uid: str | None = None,
+    trace_id: str | None = None,
+) -> None:
+    try:
+        from sentence_reading.llm.translate_progress_guard import TRANSLATE_PASS_TRACKER
+
+        d, regress = TRANSLATE_PASS_TRACKER.note_harmonize_tick(
+            job_id=str(job_id or ""),
+            section=section,
+            out_n=out_n,
+            in_n=in_n,
+            remaining=remaining,
+            residual=residual,
+        )
+        _emit_pass_kind(
+            "translate_harmonize_tick",
+            details=d,
+            severity="lifecycle",
+            job_id=job_id,
+            cache_id=cache_id,
+            owner_uid=owner_uid,
+            trace_id=trace_id,
+        )
+        if regress:
+            _emit_pass_kind(
+                "translate_progress_regress",
+                details=d,
+                severity="error",
+                ok=False,
+                job_id=job_id,
+                cache_id=cache_id,
+                owner_uid=owner_uid,
+                trace_id=trace_id,
+            )
+            pass_n = int(d.get("pass_n") or 1)
+            if pass_n >= 2 or int(d.get("prev_out_n") or -1) >= 0:
+                # Regress implies a restarted pass for agents reading JSONL.
+                _emit_pass_kind(
+                    "translate_stage_loop",
+                    details={
+                        "section": d.get("section"),
+                        "phase": d.get("phase"),
+                        "pass_n": max(2, pass_n),
+                        "via": "regress",
+                    },
+                    severity="error",
+                    ok=False,
+                    job_id=job_id,
+                    cache_id=cache_id,
+                    owner_uid=owner_uid,
+                    trace_id=trace_id,
+                )
+    except Exception:  # noqa: BLE001
+        log.warning("harmonize tick pass emit failed", exc_info=True)
+
+
+def _emit_harmonize_pass_end(
+    *,
+    section: str,
+    out_n: int,
+    in_n: int,
+    residual: bool = False,
+    job_id: str | None = None,
+    cache_id: str | None = None,
+    owner_uid: str | None = None,
+    trace_id: str | None = None,
+) -> None:
+    try:
+        from sentence_reading.llm.translate_progress_guard import TRANSLATE_PASS_TRACKER
+
+        d = TRANSLATE_PASS_TRACKER.note_harmonize_end(
+            job_id=str(job_id or ""),
+            section=section,
+            out_n=out_n,
+            in_n=in_n,
+            residual=residual,
+        )
+        _emit_pass_kind(
+            "translate_harmonize_end",
+            details=d,
+            severity="lifecycle",
+            job_id=job_id,
+            cache_id=cache_id,
+            owner_uid=owner_uid,
+            trace_id=trace_id,
+        )
+    except Exception:  # noqa: BLE001
+        log.warning("harmonize end pass emit failed", exc_info=True)
+
+
 def _emit_handoff(
     *,
     from_stage: str,
@@ -953,6 +1185,16 @@ def _enrich_session_translations_body(
             owner_uid=ev_uid,
             trace_id=ev_trace,
         )
+        _emit_section_enter_pass(
+            section=sec,
+            in_n=n_plain,
+            queue_i=_si,
+            queue_n=queue_len,
+            job_id=ev_job,
+            cache_id=ev_cache,
+            owner_uid=ev_uid,
+            trace_id=ev_trace,
+        )
 
         finished = 0
         if _use_google_path:
@@ -1046,6 +1288,15 @@ def _enrich_session_translations_body(
                         owner_uid=ev_uid,
                         trace_id=ev_trace,
                     )
+                    _emit_harmonize_pass_start(
+                        section=sec,
+                        in_n=n_harm,
+                        worker_n=harm_workers,
+                        job_id=ev_job,
+                        cache_id=ev_cache,
+                        owner_uid=ev_uid,
+                        trace_id=ev_trace,
+                    )
                     with ThreadPoolExecutor(max_workers=harm_workers) as pool:
                         futs = {
                             pool.submit(
@@ -1088,6 +1339,16 @@ def _enrich_session_translations_body(
                                     owner_uid=ev_uid,
                                     trace_id=ev_trace,
                                 )
+                                _emit_harmonize_pass_tick(
+                                    section=sec,
+                                    out_n=finished_h,
+                                    in_n=n_harm,
+                                    remaining=rem,
+                                    job_id=ev_job,
+                                    cache_id=ev_cache,
+                                    owner_uid=ev_uid,
+                                    trace_id=ev_trace,
+                                )
                             _tick(f"{label} 재감수 {finished_h}/{n_harm}")
                     _emit_checkpoint(
                         "harmonize_pool_end",
@@ -1095,6 +1356,15 @@ def _enrich_session_translations_body(
                         in_n=n_harm,
                         out_n=finished_h,
                         worker_n=harm_workers,
+                        job_id=ev_job,
+                        cache_id=ev_cache,
+                        owner_uid=ev_uid,
+                        trace_id=ev_trace,
+                    )
+                    _emit_harmonize_pass_end(
+                        section=sec,
+                        out_n=finished_h,
+                        in_n=n_harm,
                         job_id=ev_job,
                         cache_id=ev_cache,
                         owner_uid=ev_uid,
@@ -1505,6 +1775,16 @@ def _harmonize_session_residual_body(
             owner_uid=ev_uid,
             trace_id=ev_trace,
         )
+        _emit_harmonize_pass_start(
+            section=sec,
+            in_n=n_harm,
+            worker_n=harm_workers,
+            residual=True,
+            job_id=ev_job,
+            cache_id=ev_cache,
+            owner_uid=ev_uid,
+            trace_id=ev_trace,
+        )
         with ThreadPoolExecutor(max_workers=harm_workers) as pool:
             futs = {
                 pool.submit(_run_harmonize, i, digest, section=sec): i
@@ -1541,6 +1821,17 @@ def _harmonize_session_residual_body(
                         owner_uid=ev_uid,
                         trace_id=ev_trace,
                     )
+                    _emit_harmonize_pass_tick(
+                        section=sec,
+                        out_n=finished_h,
+                        in_n=n_harm,
+                        remaining=rem,
+                        residual=True,
+                        job_id=ev_job,
+                        cache_id=ev_cache,
+                        owner_uid=ev_uid,
+                        trace_id=ev_trace,
+                    )
                 _tick(f"{label} 재감수 {finished_h}/{n_harm}")
         _emit_checkpoint(
             "harmonize_pool_end",
@@ -1548,6 +1839,16 @@ def _harmonize_session_residual_body(
             in_n=n_harm,
             out_n=finished_h,
             worker_n=harm_workers,
+            job_id=ev_job,
+            cache_id=ev_cache,
+            owner_uid=ev_uid,
+            trace_id=ev_trace,
+        )
+        _emit_harmonize_pass_end(
+            section=sec,
+            out_n=finished_h,
+            in_n=n_harm,
+            residual=True,
             job_id=ev_job,
             cache_id=ev_cache,
             owner_uid=ev_uid,

@@ -154,6 +154,17 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "paper_merge_postcheck",
         "paper_notify_open",
         "documents_mirror_done",
+        # design/283 — translate/ingest stage loop & regress
+        "translate_section_enter",
+        "translate_harmonize_start",
+        "translate_harmonize_tick",
+        "translate_harmonize_end",
+        "translate_progress_regress",
+        "translate_stage_loop",
+        "ingest_progress_regress",
+        "ingest_stage_loop",
+        "ingest_stage_tick",
+        "ingest_auto_resume_loop",
     }
 )
 
@@ -192,6 +203,23 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "run_harmonize",
             "harmonize_session_residual",
             "count_harmonize_targets",
+            # design/283
+            "_emit_section_enter_pass",
+            "_emit_harmonize_pass_start",
+            "_emit_harmonize_pass_tick",
+            "_emit_harmonize_pass_end",
+            "translate_progress_regress",
+            "translate_stage_loop",
+        ),
+    ),
+    (
+        "src/sentence_reading/llm/translate_progress_guard.py",
+        (
+            "TranslatePassTracker",
+            "note_section_enter",
+            "note_harmonize_start",
+            "note_harmonize_tick",
+            "TRANSLATE_PASS_TRACKER",
         ),
     ),
     (
@@ -497,6 +525,20 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "documents_mirror_done",
             "_emitReaderOpenHonesty",
             "_emitMergePostcheck",
+            # design/283
+            "ingest_auto_resume_loop",
+            "_ingestStagePass",
+            "parseIngestStageFraction",
+        ),
+    ),
+    (
+        "mobile/lib/state/ingest_stage_progress.dart",
+        (
+            "IngestStagePassTracker",
+            "parseIngestStageFraction",
+            "ingest_progress_regress",
+            "ingest_stage_loop",
+            "ingest_stage_tick",
         ),
     ),
     (

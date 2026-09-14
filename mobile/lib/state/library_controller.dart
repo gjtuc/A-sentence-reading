@@ -57,6 +57,7 @@ import '../services/hang_watchdog.dart';
 import '../services/paper_edit_stash.dart';
 import '../services/shadowing_disk_store.dart';
 import 'ingest_auto_resume.dart';
+import 'ingest_stage_progress.dart';
 import 'figure_hydrate.dart';
 import 'harmonize_residual.dart';
 
@@ -617,6 +618,8 @@ class LibraryController extends ChangeNotifier {
 
   /// Per-stage consecutive timeout auto-resume (max [kIngestAutoResumeMax]).
   final IngestAutoResumeGate _autoResumeGate = IngestAutoResumeGate();
+  /// design/283 — N/M regress / stage loop on upload badge.
+  final IngestStagePassTracker _ingestStagePass = IngestStagePassTracker();
   /// Set in catch; consumed in finally after uploading latch clears.
   bool _pendingAutoResume = false;
 
@@ -4410,6 +4413,23 @@ class LibraryController extends ChangeNotifier {
     _autoResumeGate.noteProgress(
       normalizeIngestStageKey(stage, percent: percent ?? uploadPercent),
     );
+    // design/283 — parse 「서론 재감수 12/135」 style counters.
+    final frac = parseIngestStageFraction(stage);
+    if (frac == null) return;
+    final events = _ingestStagePass.noteFraction(
+      frac,
+      percent: percent ?? uploadPercent,
+    );
+    for (final ev in events) {
+      asrEvidenceBus?.record(
+        ev.kind,
+        severity: ev.severity,
+        route: 'ingest_stage_pass',
+        stage: '${frac.section}_${frac.phase}',
+        ok: ev.ok,
+        details: ev.details,
+      );
+    }
   }
 
   /// On TimeoutException / 504: maybe arm auto resume after finally.
@@ -4428,6 +4448,21 @@ class LibraryController extends ChangeNotifier {
         'max': kIngestAutoResumeMax,
       },
     );
+    // design/283 — first-class loop when auto-resume arms again on same stage.
+    if (should) {
+      asrEvidenceBus?.record(
+        'ingest_auto_resume_loop',
+        severity: _autoResumeGate.consecutiveTimeouts >= 3 ? 'error' : 'lifecycle',
+        route: 'ingest_auto_resume',
+        stage: key.length > 40 ? key.substring(0, 40) : key,
+        ok: false,
+        details: {
+          'pass_n': _autoResumeGate.consecutiveTimeouts,
+          'stage_key_len': key.length,
+          'max': kIngestAutoResumeMax,
+        },
+      );
+    }
     return should;
   }
 
@@ -4453,6 +4488,7 @@ class LibraryController extends ChangeNotifier {
     await _cancelWorkmanager();
     resumeOfferVisible = false;
     _autoResumeGate.reset();
+    _ingestStagePass.reset();
     _pendingAutoResume = false;
     error = null;
     if (draft != null) {
@@ -7887,6 +7923,7 @@ class LibraryController extends ChangeNotifier {
     _activeJobId = null;
     _pendingAutoResume = false;
     _autoResumeGate.reset();
+    _ingestStagePass.reset();
     await _maybeOfferBatteryHint(hash);
     _startStallWatch();
     await _beginIngestHang(filename: filename);
