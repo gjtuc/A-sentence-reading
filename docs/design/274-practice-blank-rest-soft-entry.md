@@ -1,6 +1,6 @@
 # 274 — Blank rest · section cue · soft entry · adapt wire
 
-Version: **0.3.266** · Status: **locked**
+Version: **0.3.267** · Status: **locked**
 
 Amends [207](207-practice-section-enter-cue.md) · [215](215-practice-skill-epoch-adapt.md) · [267](267-density-rate-bias.md)
 
@@ -20,6 +20,7 @@ Amends [207](207-practice-section-enter-cue.md) · [215](215-practice-skill-epoc
 2. Full sentence / N=1 → 15s.
 3. UI: **blank stage overlay** (no countdown, no dots). Leave 「집중 끝내기」 tappable.
 4. Settings toggle: `asr.practice.blank_rest` default **on**. Subtitle explains it is intentional rest.
+   Judgment cheers + blank rest are **nested** under 「따라 말하기 연습」 (left indent ~28, bodyMedium/bodySmall) — not peer switches.
 5. **Skip rest:** speak-fail path, sentence picker jump, when next Listen cannot run.
 
 ### C. Section cue + order B
@@ -45,4 +46,4 @@ Keep `focus_block_done` / `practice_skill_adapt`. On soft entry add details `sof
 
 ## Version
 
-**0.3.266**
+**0.3.267** (0.3.266 feature ship; nested settings chrome)

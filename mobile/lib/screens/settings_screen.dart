@@ -972,24 +972,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ? null
                   : (v) => widget.shadowing.setEnabled(v),
             ),
-            if (widget.shadowing.enabled)
+            // Nested under shadowing master — indent + denser type (not peer switches).
+            if (widget.shadowing.enabled) ...[
               SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('연습 판정 칭찬 (영문)'),
-                subtitle: const Text('말하기 점수 나오면 Good / Great / Perfect'),
+                contentPadding: const EdgeInsets.only(left: 28),
+                title: Text(
+                  '연습 판정 칭찬 (영문)',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                subtitle: Text(
+                  '말하기 점수 나오면 Good / Great / Perfect',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
                 value: _judgmentCheers,
-                onChanged: !logged ? null : (v) => unawaited(_setJudgmentCheers(v)),
+                onChanged:
+                    !logged ? null : (v) => unawaited(_setJudgmentCheers(v)),
               ),
-            if (widget.shadowing.enabled)
               SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Replay 뒤 빈 화면 쉼'),
-                subtitle: const Text(
+                contentPadding: const EdgeInsets.only(left: 28),
+                title: Text(
+                  'Replay 뒤 빈 화면 쉼',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                subtitle: Text(
                   '성공 Replay 후 잠시 빈 화면(문장이 온전할수록 최대 15초). 멈춘 것이 아님',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
                 value: _blankRest,
                 onChanged: !logged ? null : (v) => unawaited(_setBlankRest(v)),
               ),
+            ],
             if (widget.shadowing.error != null)
               Text(
                 widget.shadowing.error!,
