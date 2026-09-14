@@ -4,6 +4,7 @@ library;
 
 import 'dart:convert';
 
+import '../pdf/advisory_title.dart';
 import '../pdf/normalize_pairing_key.dart';
 
 const String kPdfFolderGrantPrefsPrefix = 'asr.pdf_folder_grant.v1.u.';
@@ -187,14 +188,58 @@ class PdfImportSetItem extends PdfImportListItem {
   List<String> get docUris => [main.docUri, si.docUri];
 }
 
+bool _advisoryTitleNeedsMateBorrow(String title) {
+  final t = title.trim();
+  if (t.isEmpty) return true;
+  return isLowQualityStemTitle(t);
+}
+
+/// design/276 — SI with empty/weak title borrows ready main mate title (display only).
+int applyAdvisoryMateTitleBorrow(List<ScannedPdfEntry> entries) {
+  final byKey = <String, List<ScannedPdfEntry>>{};
+  for (final e in entries) {
+    if (e.advisoryState != PdfAdvisoryState.ready) continue;
+    final key = e.effectivePairingKey;
+    if (key.isEmpty) continue;
+    byKey.putIfAbsent(key, () => []).add(e);
+  }
+  var n = 0;
+  for (final group in byKey.values) {
+    ScannedPdfEntry? main;
+    for (final e in group) {
+      if (e.advisoryRole.trim().toLowerCase() != 'main') continue;
+      if (e.advisoryTitle.trim().isEmpty) continue;
+      if (isLowQualityStemTitle(e.advisoryTitle)) continue;
+      if (looksLikeAuthorLine(e.advisoryTitle)) continue;
+      if (isAdvisoryTitleChrome(e.advisoryTitle)) continue;
+      main = e;
+      break;
+    }
+    if (main == null) continue;
+    for (final e in group) {
+      if (e.docUri == main.docUri) continue;
+      if (e.advisoryRole.trim().toLowerCase() != 'supplementary') continue;
+      if (!_advisoryTitleNeedsMateBorrow(e.advisoryTitle)) continue;
+      e.advisoryTitle = main.advisoryTitle;
+      n += 1;
+    }
+  }
+  return n;
+}
+
 /// Group ready advisories: exactly one main + one SI sharing pairing key → set.
 ({List<PdfImportListItem> items, int nSets, int nSingles, int nGap})
     buildPdfImportListItems(List<ScannedPdfEntry> entries) {
+  // design/276 — fill SI display titles before grouping.
+  applyAdvisoryMateTitleBorrow(entries);
+
   final ready = <ScannedPdfEntry>[];
   final pending = <ScannedPdfEntry>[];
   for (final e in entries) {
+    // design/276 — usable soft-pair key may join sets even when title still empty.
     if (e.advisoryState == PdfAdvisoryState.ready &&
-        e.advisoryTitle.trim().isNotEmpty) {
+        (e.advisoryTitle.trim().isNotEmpty ||
+            e.effectivePairingKey.isNotEmpty)) {
       ready.add(e);
     } else {
       pending.add(e);
@@ -233,6 +278,10 @@ class PdfImportSetItem extends PdfImportListItem {
       }
     }
     if (mains == 1 && sis == 1 && main != null && si != null) {
+      if (_advisoryTitleNeedsMateBorrow(si.advisoryTitle) &&
+          main.advisoryTitle.trim().isNotEmpty) {
+        si.advisoryTitle = main.advisoryTitle;
+      }
       items.add(
         PdfImportSetItem(main: main, si: si, pairingKey: entry.key),
       );

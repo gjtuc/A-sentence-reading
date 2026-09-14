@@ -1,4 +1,4 @@
-/// design/228 · 230 · 233 · 236 · 265 — weak title heuristic from PDF Info.Title + head text.
+/// design/228 · 230 · 233 · 236 · 265 · 276 — weak title heuristic from PDF Info.Title + head text.
 library;
 
 import 'doc_role_detect.dart';
@@ -92,6 +92,17 @@ bool isAdvisoryTitleChrome(String raw) {
   if (_exactChrome.hasMatch(t)) return true;
   if (_prefixChrome.hasMatch(t)) return true;
   if (_journalChrome.hasMatch(t)) return true;
+  // design/276 — ACS masthead mash ("Research Article pubs.acs.org/acscatalysis").
+  if (RegExp(
+    r'(?:^|\b)(?:research\s+article|article)\b.*\bpubs\.acs\.org\b',
+    caseSensitive: false,
+  ).hasMatch(t)) {
+    return true;
+  }
+  if (RegExp(r'\bpubs\.acs\.org/', caseSensitive: false).hasMatch(t) &&
+      t.length < 96) {
+    return true;
+  }
   // Split masthead fragments: "Science &", "Technology" alone are short;
   // "Catalysis" alone (common RSC masthead) — reject single-token journal-ish.
   if (RegExp(r'^(catalysis|technology|science\s*&?)$', caseSensitive: false)
@@ -159,16 +170,28 @@ String stripCiteSuffix(String raw) {
   return t.replaceFirst(_citeSuffix, '').trim();
 }
 
-/// design/265 — Info.Title cut mid-phrase (publisher truncation).
+/// design/265 · 276 — Info.Title cut mid-phrase (publisher truncation).
 bool isTruncatedInfoTitle(String raw) {
   final t = decodeHtmlEntities(raw).trim();
   if (t.length < 20) return false;
   if (t.endsWith('-') || t.endsWith(',') || t.endsWith(':')) return true;
   if (_danglingEnd.hasMatch(t)) return true;
-  // Ends with a short lowercase token that looks mid-word cut ("The", "Functio").
   final parts = t.split(RegExp(r'\s+'));
   if (parts.isEmpty) return false;
   final last = parts.last;
+  // design/276 — mid-word cut to a single letter ("… Molecular D").
+  if (parts.length >= 4 &&
+      last.length == 1 &&
+      RegExp(r'^[A-Za-z]$').hasMatch(last)) {
+    return true;
+  }
+  // Two-letter remnant after a long phrase ("… Functio Th").
+  if (parts.length >= 5 &&
+      last.length == 2 &&
+      RegExp(r'^[A-Za-z]{2}$').hasMatch(last)) {
+    return true;
+  }
+  // Ends with a short capitalized token that looks mid-word cut ("Functio").
   if (last.length >= 3 &&
       last.length <= 12 &&
       RegExp(r'^[A-Z][a-z]+$').hasMatch(last) &&
@@ -202,6 +225,33 @@ bool looksLikeAffiliationOrCaption(String raw) {
   return false;
 }
 
+/// design/276 — author / contributor masthead lines (not article titles).
+bool looksLikeAuthorLine(String raw) {
+  final t = decodeHtmlEntities(raw).trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (t.length < 16 || t.length > 420) return false;
+  // "Name,* Name,* and Name*" or trailing author asterisks.
+  final starCommas = RegExp(r'\*').allMatches(t).length;
+  final commas = ','.allMatches(t).length;
+  if (starCommas >= 1 && commas >= 2) return true;
+  if (RegExp(
+    r"^[A-Z][-'’.\w]+(?:\s+[A-Z][-'’.\w]+){0,3}"
+    r"(?:,\s*[A-Z][-'’.\w]+(?:\s+[A-Z][-'’.\w]+){0,3}\*?)+"
+    r"(?:,?\s+and\s+[A-Z])",
+  ).hasMatch(t)) {
+    return true;
+  }
+  // Dense "Last, First" style without content words.
+  if (commas >= 3 &&
+      starCommas >= 1 &&
+      !RegExp(
+        r'\b(of|for|with|from|over|via|using|toward|towards)\b',
+        caseSensitive: false,
+      ).hasMatch(t)) {
+    return true;
+  }
+  return false;
+}
+
 /// design/265 — filename stem must not become the tile title.
 bool isLowQualityStemTitle(String raw) {
   final t = decodeHtmlEntities(raw).trim();
@@ -231,10 +281,18 @@ bool looksLikePaperTitle(String raw) {
   if (isAdvisoryTitleChrome(t)) return false;
   if (isCodeLikeInfoTitle(t)) return false;
   if (looksLikeAffiliationOrCaption(t)) return false;
+  if (looksLikeAuthorLine(t)) return false;
   if (RegExp(r'^[\d\W_]+$').hasMatch(t)) return false;
   final digits = t.replaceAll(RegExp(r'\D'), '').length;
   if (digits > t.length * 0.5) return false;
   return true;
+}
+
+/// design/276 — strip SI / Supporting Information banner; keep remainder.
+String stripSiBannerPrefix(String raw) {
+  final t = decodeHtmlEntities(raw).trim();
+  if (!_siLine.hasMatch(t)) return t;
+  return t.replaceFirst(_siLine, '').trim();
 }
 
 /// design/265 — shared gate for info / head / stem candidates.
@@ -282,11 +340,16 @@ AdvisoryTitleGuess guessAdvisoryTitle({
 
   final rawHead = stripFormatChars(headText).text;
   for (final line in rawHead.split(RegExp(r'[\r\n]+'))) {
-    final t = decodeHtmlEntities(line);
+    var t = decodeHtmlEntities(line);
     if (t.isEmpty) continue;
-    if (_siLine.hasMatch(t)) continue;
+    // design/276 — SI banner+title on one line: strip banner, keep title.
+    if (_siLine.hasMatch(t)) {
+      t = stripSiBannerPrefix(t);
+      if (t.isEmpty) continue;
+    }
     if (isAdvisoryTitleChrome(t)) continue;
     if (looksLikeAffiliationOrCaption(t)) continue;
+    if (looksLikeAuthorLine(t)) continue;
     if (t.length < 12) continue;
     final q = qualifyAdvisoryTitleCandidate(t);
     if (q != null) {

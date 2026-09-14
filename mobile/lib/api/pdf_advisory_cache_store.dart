@@ -10,8 +10,8 @@ import 'pdf_hash_cache_store.dart';
 
 const int kPdfAdvisoryCacheMaxEntries = 2000;
 
-/// design/229 · 233 · 235 · 236 · 237 · 239 · 254 · 255 · 265 — bump wipes stale rows (title/pair quality).
-const int kPdfAdvisoryCacheSchema = 11; // design/265 — title/pair quality gate
+/// design/229 · 233 · 235 · 236 · 237 · 239 · 254 · 255 · 265 · 276 — bump wipes stale rows (title/pair quality).
+const int kPdfAdvisoryCacheSchema = 12; // design/276 — SI strip · chrome · author · mate borrow
 
 class PdfAdvisoryCacheEntry {
   const PdfAdvisoryCacheEntry({
