@@ -228,16 +228,27 @@ class LibraryController extends ChangeNotifier {
 
   /// design/224 — hide locally; hard DELETE after purge_at (wall clock).
   /// Returns hidden count + earliest purge wall-clock for countdown SnackBar (design/258).
+  /// design/275 — also soft-hide paired mate (collapsed set row must not leave SI green).
   Future<({int hidden, int? purgeAtMs})> softHidePapers(
     Iterable<String> cacheIds,
   ) async {
-    final ids = cacheIds
+    final raw = cacheIds
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)
-        .toSet()
-        .toList(growable: false);
-    if (ids.isEmpty) return (hidden: 0, purgeAtMs: null);
-    final list = await _softDelete.hide(ids);
+        .toSet();
+    if (raw.isEmpty) return (hidden: 0, purgeAtMs: null);
+    final ids = <String>{...raw};
+    for (final p in papers) {
+      if (raw.contains(p.id)) {
+        final mate = p.pairedCacheId.trim();
+        if (mate.isNotEmpty) ids.add(mate);
+      }
+      if (raw.contains(p.pairedCacheId.trim()) && p.id.isNotEmpty) {
+        ids.add(p.id);
+      }
+    }
+    final idList = ids.toList(growable: false);
+    final list = await _softDelete.hide(idList);
     final purgeAt = list.entries
         .where((e) => ids.contains(e.cacheId))
         .map((e) => e.purgeAtMs)
@@ -248,7 +259,8 @@ class LibraryController extends ChangeNotifier {
       stage: 'hide',
       ok: true,
       details: {
-        'n': ids.length,
+        'n': idList.length,
+        'requested_n': raw.length,
         if (purgeAt != null) 'purge_at_ms': purgeAt,
       },
     );
@@ -260,13 +272,13 @@ class LibraryController extends ChangeNotifier {
     }
     _publishPapers(papers.where((p) => !ids.contains(p.id)).toList());
     // design/258 — soft-hide must not keep translate/shadowing banner alive.
-    _abandonBackgroundWorkForSoftHide(ids);
+    _abandonBackgroundWorkForSoftHide(idList);
     // design/265 — green「이미 보관」must drop soft-hidden hashes immediately.
     await _rebuildLibraryHashSet();
     error = null;
     notifyListeners();
     _scheduleSoftPurgeWorker();
-    return (hidden: ids.length, purgeAtMs: purgeAt);
+    return (hidden: idList.length, purgeAtMs: purgeAt);
   }
 
   /// design/224 — restore soft-hidden rows via refresh (server/disk still hold them).
@@ -359,6 +371,26 @@ class LibraryController extends ChangeNotifier {
         await _softDelete.remove([e.cacheId]);
         _softHideAbandonedWork.remove(e.cacheId);
         purged += 1;
+        asrEvidenceBus?.record(
+          'paper_soft_purge',
+          severity: 'lifecycle',
+          cacheId: e.cacheId,
+          stage: 'ok',
+          ok: true,
+          code: 'ok',
+          details: {'n': 1},
+        );
+      } else {
+        // design/275 — do not silently leave due forever without a sensor.
+        asrEvidenceBus?.record(
+          'paper_soft_purge',
+          severity: 'error',
+          cacheId: e.cacheId,
+          stage: 'fail',
+          ok: false,
+          code: 'delete_fail',
+          details: {'n': 0},
+        );
       }
     }
     _scheduleSoftPurgeWorker();
@@ -451,6 +483,10 @@ class LibraryController extends ChangeNotifier {
 
   /// design/221 — first_only auto-open; library screen consumes then clears.
   String? pendingAutoOpenCacheId;
+
+  /// design/275 — Main+SI set hashes awaiting both pump outcomes.
+  final List<({String a, String b})> _pendingSetIngest = [];
+  final Map<String, bool> _setIngestPumpOk = {};
 
   /// design/223 — recent pick metadata (uid-scoped).
   List<PickerRecentItem> pickerRecent = const [];
@@ -2430,40 +2466,48 @@ class LibraryController extends ChangeNotifier {
       );
       try {
         await _client.deletePaper(id, handoffId: hid);
+        var localPurgeOk = true;
+        try {
+          await _editStash.purge(id);
+          await _figureDisk.purge(id);
+          await _paperDisk.purge(id);
+          await _shadowDisk.purge(id);
+          unawaited(_documentsMirror.deletePaper(id));
+          _hydrateSessions.remove(id);
+          _figureHydrate.remove(id);
+          _hydrateDismissed.remove(id);
+          await _bookmarks?.purgePaper(id);
+        } catch (_) {
+          localPurgeOk = false;
+        }
         okCount += 1;
         okIds.add(id);
+        // design/275 — top-level ok false if local disk purge failed (no false success).
         asrEvidenceBus?.record(
           'paper_delete_done',
-          severity: 'lifecycle',
+          severity: localPurgeOk ? 'lifecycle' : 'error',
           cacheId: id,
-          stage: 'ok',
-          ok: true,
-          code: 'ok',
+          stage: localPurgeOk ? 'ok' : 'local_purge_fail',
+          ok: localPurgeOk,
+          code: localPurgeOk ? 'ok' : 'local_purge_fail',
           details: {
             'handoff_id': hid,
             'elapsed_ms': sw.elapsedMilliseconds,
+            'local_purge_ok': localPurgeOk ? 1 : 0,
           },
         );
         asrEvidenceBus?.record(
           'paper_delete',
-          severity: 'lifecycle',
+          severity: localPurgeOk ? 'lifecycle' : 'error',
           cacheId: id,
-          stage: 'ok',
-          ok: true,
+          stage: localPurgeOk ? 'ok' : 'local_purge_fail',
+          ok: localPurgeOk,
           details: {
             'handoff_id': hid,
             'elapsed_ms': sw.elapsedMilliseconds,
+            'local_purge_ok': localPurgeOk ? 1 : 0,
           },
         );
-        await _editStash.purge(id);
-        await _figureDisk.purge(id);
-        await _paperDisk.purge(id);
-        await _shadowDisk.purge(id);
-        unawaited(_documentsMirror.deletePaper(id));
-        _hydrateSessions.remove(id);
-        _figureHydrate.remove(id);
-        _hydrateDismissed.remove(id);
-        await _bookmarks?.purgePaper(id);
         if (session?.cacheId == id) {
           clearOpened();
         }
@@ -6682,7 +6726,9 @@ class LibraryController extends ChangeNotifier {
         'pdf_import_set_enqueue',
         severity: 'warn',
         stage: 'import',
-        details: {'ok': false, 'n': 0, 'skipped': 1},
+        ok: false,
+        code: 'no_room',
+        details: {'ok': false, 'n': 0, 'skipped': 1, 'need_n': 2},
       );
       return (
         added: 0,
@@ -6702,7 +6748,9 @@ class LibraryController extends ChangeNotifier {
           'pdf_import_set_enqueue',
           severity: 'warn',
           stage: 'import',
-          details: {'ok': false, 'n': 0, 'skipped': 1},
+          ok: false,
+          code: 'missing_entry',
+          details: {'ok': false, 'n': 0, 'skipped': 1, 'need_n': 2},
         );
         return (added: 0, skipped: 1, message: '파일을 읽지 못했습니다.');
       }
@@ -6713,7 +6761,9 @@ class LibraryController extends ChangeNotifier {
             'pdf_import_set_enqueue',
             severity: 'warn',
             stage: 'import',
-            details: {'ok': false, 'n': 0, 'skipped': 1},
+            ok: false,
+            code: 'empty_bytes',
+            details: {'ok': false, 'n': 0, 'skipped': 1, 'need_n': 2},
           );
           return (added: 0, skipped: 1, message: '파일을 읽지 못했습니다.');
         }
@@ -6729,7 +6779,11 @@ class LibraryController extends ChangeNotifier {
           'pdf_import_set_enqueue',
           severity: 'warn',
           stage: 'import',
-          details: {'ok': false, 'n': 0, 'skipped': 1},
+          ok: false,
+          code: ex.code == 'too_large'
+              ? 'too_large'
+              : (ex.code == 'stale' ? 'stale' : 'read_fail'),
+          details: {'ok': false, 'n': 0, 'skipped': 1, 'need_n': 2},
         );
         return (added: 0, skipped: 1, message: msg);
       } catch (_) {
@@ -6737,22 +6791,36 @@ class LibraryController extends ChangeNotifier {
           'pdf_import_set_enqueue',
           severity: 'warn',
           stage: 'import',
-          details: {'ok': false, 'n': 0, 'skipped': 1},
+          ok: false,
+          code: 'read_fail',
+          details: {'ok': false, 'n': 0, 'skipped': 1, 'need_n': 2},
         );
         return (added: 0, skipped: 1, message: '파일을 읽지 못했습니다.');
       }
     }
+    final hashes = [
+      for (final f in batch) sha256Hex(f.bytes),
+    ];
     final outcome = await enqueuePickedPdfs(batch);
+    final bothQueued = outcome.added >= 2;
     asrEvidenceBus?.record(
       'pdf_import_set_enqueue',
-      severity: 'lifecycle',
+      severity: bothQueued ? 'lifecycle' : 'warn',
       stage: 'import',
+      ok: bothQueued,
+      code: bothQueued
+          ? 'ok'
+          : (outcome.added == 1 ? 'partial' : 'fail'),
       details: {
-        'ok': outcome.added >= 2,
+        'ok': bothQueued,
         'n': outcome.added,
         'skipped': outcome.skipped,
+        'need_n': 2,
       },
     );
+    if (bothQueued && hashes.length >= 2) {
+      _pendingSetIngest.add((a: hashes[0], b: hashes[1]));
+    }
     return outcome;
   }
 
@@ -7038,28 +7106,70 @@ class LibraryController extends ChangeNotifier {
   }
 
   Future<void> _rebuildLibraryHashSet() async {
-    // design/265 — soft-hidden ids stay on disk; exclude them from「이미 보관」.
+    // design/265+275 — green = visible library content (not soft-hidden, not disk orphans).
     final hidden = _softDelete.hiddenIds;
     final out = <String>{};
-    for (final e in papers) {
-      if (hidden.contains(e.id)) continue;
-      final h = e.contentHash.trim().toLowerCase();
+    void addHash(String raw) {
+      final h = raw.trim().toLowerCase();
       if (h.length == 64 && RegExp(r'^[a-f0-9]{64}$').hasMatch(h)) {
-        // EDGE: failed rows still have hash — only skip explicit error status.
-        if (e.ingestStatus.trim().toLowerCase() == 'error') continue;
         out.add(h);
       }
     }
+
+    for (final e in papers) {
+      if (hidden.contains(e.id)) continue;
+      if (e.ingestStatus.trim().toLowerCase() == 'error') continue;
+      addHash(e.contentHash);
+    }
+    // Collapsed SI mate still "in library" via set row — include mate hash only.
     try {
-      for (final e in await _paperDisk.listIndex()) {
-        if (hidden.contains(e.id)) continue;
-        final h = e.contentHash.trim().toLowerCase();
-        if (h.length == 64 && RegExp(r'^[a-f0-9]{64}$').hasMatch(h)) {
-          out.add(h);
-        }
+      final byId = {
+        for (final e in await _paperDisk.listIndex()) e.id: e,
+      };
+      for (final e in papers) {
+        final mateId = e.pairedCacheId.trim();
+        if (mateId.isEmpty || hidden.contains(mateId)) continue;
+        final mate = byId[mateId];
+        if (mate != null) addHash(mate.contentHash);
       }
     } catch (_) {}
     libraryContentHashes = Set<String>.unmodifiable(out);
+  }
+
+  /// design/275 — join Main+SI pump outcomes; never mark set ingest ok on partial.
+  void _noteSetIngestPump(String contentHash, {required bool ok}) {
+    final h = contentHash.trim().toLowerCase();
+    if (h.length != 64) return;
+    _setIngestPumpOk[h] = ok;
+    if (_pendingSetIngest.isEmpty) return;
+    final remain = <({String a, String b})>[];
+    for (final pair in _pendingSetIngest) {
+      final aOk = _setIngestPumpOk[pair.a];
+      final bOk = _setIngestPumpOk[pair.b];
+      if (aOk == null || bOk == null) {
+        remain.add(pair);
+        continue;
+      }
+      final both = aOk && bOk;
+      asrEvidenceBus?.record(
+        'pdf_import_set_ingest',
+        severity: both ? 'lifecycle' : 'error',
+        stage: 'ingest',
+        ok: both,
+        code: both ? 'ok' : (aOk || bOk ? 'partial' : 'fail'),
+        details: {
+          'ok': both,
+          'main_ok': aOk ? 1 : 0,
+          'si_ok': bOk ? 1 : 0,
+          'need_n': 2,
+        },
+      );
+      _setIngestPumpOk.remove(pair.a);
+      _setIngestPumpOk.remove(pair.b);
+    }
+    _pendingSetIngest
+      ..clear()
+      ..addAll(remain);
   }
 
   /// design/221 — enqueue one or more PDFs; serial pump starts if idle.
@@ -7273,6 +7383,7 @@ class LibraryController extends ChangeNotifier {
             ok: true,
             details: {'hash8': head.contentHash.substring(0, 8)},
           );
+          _noteSetIngestPump(head.contentHash, ok: true);
           if (!_uploadQueueAutoOpened && result.cacheId.trim().isNotEmpty) {
             pendingAutoOpenCacheId = result.cacheId.trim();
             _uploadQueueAutoOpened = true;
@@ -7291,6 +7402,7 @@ class LibraryController extends ChangeNotifier {
             ok: false,
             details: {'hash8': head.contentHash.substring(0, 8)},
           );
+          _noteSetIngestPump(head.contentHash, ok: false);
           break;
         }
 
@@ -7302,6 +7414,7 @@ class LibraryController extends ChangeNotifier {
           ok: false,
           details: {'hash8': head.contentHash.substring(0, 8)},
         );
+        _noteSetIngestPump(head.contentHash, ok: false);
       }
     } finally {
       _uploadPumpBusy = false;

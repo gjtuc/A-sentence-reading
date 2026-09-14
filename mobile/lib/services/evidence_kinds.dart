@@ -240,6 +240,9 @@ const Set<String> kEvidenceAllowedKinds = {
   // design/239 — advisory set row
   'pdf_import_set_built',
   'pdf_import_set_enqueue',
+  // design/275 — set ingest join + soft purge honesty
+  'pdf_import_set_ingest',
+  'paper_soft_purge',
   // design/241 — SAF tree write
   'pdf_tree_write_probe',
   'pdf_tree_copy_start',

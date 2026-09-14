@@ -331,6 +331,8 @@
 | 271 | [271-find-watch-pick-race.md](271-find-watch-pick-race.md) | Find-watch vs pick race (0.3.264) |
 | 272 | [272-copy-partial-second-fail.md](272-copy-partial-second-fail.md) | copy_partial 2nd-fail honesty (0.3.264) |
 | 273 | [273-transitional-pair-connector.md](273-transitional-pair-connector.md) | Transitional pair rows (0.3.264) |
+| 274 | [274-practice-blank-rest-soft-entry.md](274-practice-blank-rest-soft-entry.md) | Blank rest · soft entry · adapt wire (0.3.266–267) |
+| 275 | [275-import-green-set-evidence-honesty.md](275-import-green-set-evidence-honesty.md) | Import green honesty · set ingest evidence (0.3.268) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |
