@@ -268,7 +268,8 @@ double densitySkewUnit(double u, int density) {
   final d = density < -2 ? -2 : (density > 2 ? 2 : density);
   final uu = u.clamp(0.0, 1.0);
   // density +2 → gamma>1 → pow smaller → slower; −2 → gamma<1 → faster.
-  final gamma = (1.0 + 0.35 * d).clamp(0.45, 1.8);
+  // design/267+274 — gmin 0.40 so mean(T,−2) > mean(T+1,+2) slightly.
+  final gamma = (1.0 + 0.35 * d).clamp(0.40, 1.8);
   if (uu <= 0) return 0.0;
   return pow(uu, gamma).toDouble();
 }

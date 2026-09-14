@@ -20,6 +20,7 @@ import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
+import '../practice_rhythm/blank_rest.dart';
 import '../practice_rhythm/judgment_prefs.dart';
 import 'error_logs_screen.dart';
 
@@ -71,6 +72,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _localVersion = kAppVersionLabel;
   /// design/214 — English judgment cheers in practice (default on).
   bool _judgmentCheers = true;
+  bool _blankRest = true;
 
   @override
   void initState() {
@@ -81,6 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     widget.auth.addListener(_onAuthChanged);
     _reload();
     unawaited(_loadJudgmentCheersPref());
+    unawaited(_loadBlankRestPref());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.shadowing.applyAutoOffIfStale();
     });
@@ -96,6 +99,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _judgmentCheers = on);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(kJudgmentCheersPrefKey, on);
+  }
+
+  Future<void> _loadBlankRestPref() async {
+    final prefs = await SharedPreferences.getInstance();
+    final on = prefs.getBool(kBlankRestPrefKey) ?? true;
+    if (mounted) setState(() => _blankRest = on);
+  }
+
+  Future<void> _setBlankRest(bool on) async {
+    setState(() => _blankRest = on);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kBlankRestPrefKey, on);
   }
 
   void _onAuthChanged() {
@@ -964,6 +979,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 subtitle: const Text('말하기 점수 나오면 Good / Great / Perfect'),
                 value: _judgmentCheers,
                 onChanged: !logged ? null : (v) => unawaited(_setJudgmentCheers(v)),
+              ),
+            if (widget.shadowing.enabled)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Replay 뒤 빈 화면 쉼'),
+                subtitle: const Text(
+                  '성공 Replay 후 잠시 빈 화면(문장이 온전할수록 최대 15초). 멈춘 것이 아님',
+                ),
+                value: _blankRest,
+                onChanged: !logged ? null : (v) => unawaited(_setBlankRest(v)),
               ),
             if (widget.shadowing.error != null)
               Text(

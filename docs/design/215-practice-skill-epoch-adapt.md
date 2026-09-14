@@ -1,8 +1,8 @@
 # 215 — Practice skill epoch adapt (Bitcoin-style window)
 
-Version: **0.3.215** · Status: **locked**
+Version: **0.3.266** · Status: **locked** (amended by [274](274-practice-blank-rest-soft-entry.md))
 
-받침: [176](176-focus-practice-pomodoro.md) · [206](206-practice-speak-tts-volume.md) · [212](212-practice-skill-adapt.md) · [213](213-practice-skill-evidence.md) · [214](214-minimal-rhythm-practice-ui.md)
+받침: [176](176-focus-practice-pomodoro.md) · [206](206-practice-speak-tts-volume.md) · [212](212-practice-skill-adapt.md) · [213](213-practice-skill-evidence.md) · [214](214-minimal-rhythm-practice-ui.md) · [274](274-practice-blank-rest-soft-entry.md)
 
 ## Intent
 
@@ -19,13 +19,16 @@ difficulty retargeting over a window of blocks.
    starts (fresh install / after an epoch resolves). Persisted in skill prefs.
 4. **When `epochMeans.length >= N`:** compute
    `epoch_avg = mean(epochMeans)`, then:
-   - **≤80%** → density +1 (finer); else if soft-max → TTS tier −1
-   - **≥90%** → density −1 (coarser); else if soft-min → TTS tier +1
+   - **≤80%** → density +1 (finer); else if soft-max → TTS tier −1 (**keep density**)
+   - **≥90%** → density −1 (coarser); else if soft-min → TTS tier +1 (**soft entry: density → +2**)
    - **80–90%** → hold
 5. After resolve (whether hold or change): clear `epochMeans`, draw new N,
    apply cooldown on tier change as before.
 6. **Judgment cheers (214)** stay on take bands **&lt;60 / 60–75 / ≥75** —
    orthogonal to adapt thresholds.
+7. **Wire:** focus block completion must call `onFocusBlockDone` (via
+   `FocusPracticeController.onBlockCompleted`). Rematch chunks at the next
+   practice advance boundary, not mid-speak.
 
 ## Speak TTS volume (206 amend)
 
@@ -35,8 +38,9 @@ Listen + my-take replay remain 100%.
 ## Evidence
 
 Piggyback `practice_skill_adapt` with `phase=epoch_adapt` and numeric details:
-`epoch_n`, `epoch_target`, `epoch_avg` (no transcripts).
+`epoch_n`, `epoch_target`, `epoch_avg` (no transcripts). Soft entry adds
+`soft_entry`, `density_before`, `density_after`.
 
 ## Version
 
-**0.3.215**
+**0.3.266**

@@ -135,6 +135,24 @@ void main() {
     expect(c.displayElapsed, Duration.zero);
   });
 
+  test('onBlockCompleted fires when a block completes', () async {
+    var now = DateTime(2026, 9, 7, 15, 0, 0);
+    var calls = 0;
+    final c = FocusPracticeController(
+      store: _MemFocusStore(),
+      blockDuration: const Duration(seconds: 5),
+      clock: () => now,
+    );
+    c.onBlockCompleted = () => calls++;
+    await c.bindUid('u4');
+    c.startSession();
+    c.beginSpeak();
+    now = now.add(const Duration(seconds: 5));
+    c.endSpeak();
+    expect(calls, 1);
+    expect(c.blocksCompletedToday, 1);
+  });
+
   test('streak and heat level helpers', () {
     final days = {
       '2026-09-05': 1,

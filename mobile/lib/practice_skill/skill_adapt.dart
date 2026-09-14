@@ -1,4 +1,4 @@
-/// design/212+215 — adapt density / tier from epoch of focus-block means.
+/// design/212+215+274 — adapt density / tier from epoch of focus-block means.
 library;
 
 import 'dart:math';
@@ -25,6 +25,70 @@ class SkillAdaptDecision {
   final int densityDelta;
   final int tierDelta;
   final String reason;
+}
+
+/// design/274 — apply decide() with soft entry / asymmetric tier_down.
+class SkillAdaptApply {
+  const SkillAdaptApply({
+    required this.tier,
+    required this.density,
+    required this.cooldown,
+    required this.changed,
+    this.softEntry = false,
+    this.densityBefore = 0,
+  });
+  final int tier;
+  final int density;
+  final int cooldown;
+  final bool changed;
+  final bool softEntry;
+  final int densityBefore;
+}
+
+SkillAdaptApply resolveSkillAdaptApply({
+  required SkillState state,
+  required SkillAdaptDecision decision,
+}) {
+  final densityBefore = state.density;
+  if (decision.reason == 'epoch_wait' || decision.reason == 'cooldown') {
+    return SkillAdaptApply(
+      tier: state.tier,
+      density: state.density,
+      cooldown: state.cooldownBlocks,
+      changed: false,
+      densityBefore: densityBefore,
+    );
+  }
+  if (decision.densityDelta == 0 && decision.tierDelta == 0) {
+    return SkillAdaptApply(
+      tier: state.tier,
+      density: state.density,
+      cooldown: state.cooldownBlocks,
+      changed: false,
+      densityBefore: densityBefore,
+    );
+  }
+  final tier = (state.tier + decision.tierDelta).clamp(0, 9);
+  late final int density;
+  var softEntry = false;
+  if (decision.reason == 'tier_up') {
+    density = kChunkDensityMax; // +2 soft entry
+    softEntry = true;
+  } else if (decision.reason == 'tier_down') {
+    density = state.density; // keep (asymmetric)
+  } else {
+    density = clampChunkDensity(state.density + decision.densityDelta);
+  }
+  final cooldown =
+      decision.tierDelta != 0 ? 1 : state.cooldownBlocks;
+  return SkillAdaptApply(
+    tier: tier,
+    density: density,
+    cooldown: cooldown,
+    changed: true,
+    softEntry: softEntry,
+    densityBefore: densityBefore,
+  );
 }
 
 /// Decide from [SkillState.epochMeans] once length ≥ [SkillState.epochTargetN].

@@ -412,13 +412,15 @@ class PracticeSkillController {
       return;
     }
 
-    if (decision.densityDelta != 0 || decision.tierDelta != 0) {
+    final apply = resolveSkillAdaptApply(
+      state: store.state,
+      decision: decision,
+    );
+    if (apply.changed) {
       await store.setTierDensity(
-        tier: (store.state.tier + decision.tierDelta).clamp(0, 9),
-        density: clampChunkDensity(
-          store.state.density + decision.densityDelta,
-        ),
-        cooldown: decision.tierDelta != 0 ? 1 : store.state.cooldownBlocks,
+        tier: apply.tier,
+        density: apply.density,
+        cooldown: apply.cooldown,
       );
     }
     await store.resolveEpoch(newTargetN: rollSkillEpochTarget());
@@ -434,6 +436,9 @@ class PracticeSkillController {
         'tier_delta': decision.tierDelta,
         'density': store.state.density,
         'tier': store.state.tier,
+        'density_before': apply.densityBefore,
+        'density_after': store.state.density,
+        'soft_entry': apply.softEntry ? 1 : 0,
         'epoch_n': epochN,
         'epoch_target': epochTarget,
         if (epochAvg != null) 'epoch_avg': epochAvg,

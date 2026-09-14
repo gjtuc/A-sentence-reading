@@ -32,6 +32,9 @@ class FocusPracticeController extends ChangeNotifier {
   bool paused = false;
   bool speaking = false;
 
+  /// design/274 — practice skill epoch adapt (wired from shadowing screen).
+  VoidCallback? onBlockCompleted;
+
   /// Progress inside the current unfinished block (not persisted).
   Duration elapsedInBlock = Duration.zero;
 
@@ -265,6 +268,12 @@ class FocusPracticeController extends ChangeNotifier {
             'current_streak': currentStreak,
           },
         );
+        // design/274 — skill adapt runs after block evidence (caller defers rematch).
+        try {
+          onBlockCompleted?.call();
+        } catch (_) {
+          // EDGE: adapt must not break focus clock accounting.
+        }
         if (first) {
           asrEvidenceBus?.record(
             'focus_day_success',

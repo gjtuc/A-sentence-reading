@@ -32,6 +32,7 @@ class _RhythmPhaseRailState extends State<RhythmPhaseRail>
       case RhythmPhase.replay:
         return 2;
       case RhythmPhase.idle:
+      case RhythmPhase.rest:
         return -1;
     }
   }

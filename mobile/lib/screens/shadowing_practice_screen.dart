@@ -26,6 +26,7 @@ import '../api/shadowing_chunk_plan.dart';
 import '../api/tts_models.dart';
 import '../practice_grooming/grooming_policy.dart';
 import '../practice_grooming/practice_grooming_controller.dart';
+import '../practice_rhythm/blank_rest.dart';
 import '../practice_rhythm/judgment_burst.dart';
 import '../practice_rhythm/judgment_copy.dart';
 import '../practice_rhythm/judgment_prefs.dart';
@@ -123,6 +124,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   int _judgmentBurstSeq = 0;
   String? _lastJudgmentCopy;
   bool _judgmentCheers = true;
+  /// design/274 — blank rest after Replay (Settings).
+  bool _blankRestEnabled = true;
+  /// design/274 — defer density rematch until cycle advance.
+  bool _pendingDensityRematch = false;
+  /// design/207+268 — center section cue while non-null.
+  String? _sectionCueName;
   ReadingSession? get _session => widget.library.session;
 
   String get _chunkKey => '$_sentenceId:$_chunkIndex';
@@ -144,6 +151,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     WidgetsBinding.instance.addObserver(this);
     _ownsFocus = widget.focus == null;
     _focus = widget.focus ?? FocusPracticeController();
+    _focus.onBlockCompleted = _onFocusBlockCompleted;
     _focus.addListener(_onFocusTick);
     _practiceBookmarks.addListener(_onPracticeBookmarksTick);
     _grooming.setServerEnabled(widget.shadowing.groomingServerEnabled);
@@ -157,6 +165,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       widget.tts.setSkillTier(_skill.tier);
     }));
     unawaited(_loadJudgmentCheersPref());
+    unawaited(_loadBlankRestPref());
     unawaited(_boot());
   }
 
@@ -164,6 +173,32 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     final prefs = await SharedPreferences.getInstance();
     final on = prefs.getBool(kJudgmentCheersPrefKey) ?? true;
     if (mounted) setState(() => _judgmentCheers = on);
+  }
+
+  Future<void> _loadBlankRestPref() async {
+    final prefs = await SharedPreferences.getInstance();
+    final on = prefs.getBool(kBlankRestPrefKey) ?? true;
+    if (mounted) setState(() => _blankRestEnabled = on);
+  }
+
+  void _onFocusBlockCompleted() {
+    unawaited(_handleFocusBlockDone());
+  }
+
+  Future<void> _handleFocusBlockDone() async {
+    final densBefore = _skill.density;
+    final tierBefore = _skill.tier;
+    await _skill.onFocusBlockDone(_baseChunks);
+    if (!mounted) return;
+    if (_skill.density != densBefore || _skill.tier != tierBefore) {
+      _pendingDensityRematch = true;
+    }
+  }
+
+  void _flushPendingDensityRematch() {
+    if (!_pendingDensityRematch) return;
+    _pendingDensityRematch = false;
+    _reapplyDensity();
   }
 
   void _showJudgmentBurst(double accuracy) {
@@ -212,6 +247,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     WidgetsBinding.instance.removeObserver(this);
     widget.library.removeListener(_onLibraryPrepTick);
     _practiceBookmarks.removeListener(_onPracticeBookmarksTick);
+    _focus.onBlockCompleted = null;
     _focus.removeListener(_onFocusTick);
     if (_focus.speaking) {
       _focus.endSpeak(cacheId: _cacheId);
@@ -236,6 +272,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       unawaited(_skill.flushEvidence(cacheId: _cacheId));
     } else if (state == AppLifecycleState.resumed) {
       unawaited(_loadJudgmentCheersPref());
+      unawaited(_loadBlankRestPref());
     }
   }
 
@@ -923,7 +960,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       if (mounted) setState(() => _rhythmPhase = RhythmPhase.idle);
       await Future<void>.delayed(const Duration(milliseconds: 800));
       if (!alive()) return;
-      await _advanceToNextChunk(token: token);
+      await _advanceToNextChunk(token: token, withRest: false);
       return;
     }
 
@@ -934,7 +971,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (!alive()) return;
 
     if (_autoAdvance) {
-      await _advanceToNextChunk(token: token);
+      await _advanceToNextChunk(token: token, withRest: true);
     }
   }
 
@@ -1294,11 +1331,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     return nav.sectionKeyAt(si);
   }
 
-  /// Immersive focus hides section chrome — one-shot cue on section entry only.
-  void _announceSectionIfChanged({
+  /// Immersive focus — center one-shot section name (design/207+268).
+  Future<void> _showSectionCueIfChanged({
     required String? previousKey,
     required ReadingSession session,
-  }) {
+    required int token,
+  }) async {
     if (!_focus.sessionActive) return;
     final key = _sectionKeyFor(session);
     if (key.isEmpty || key == previousKey) return;
@@ -1306,34 +1344,56 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         .headerPartsFor(_sentenceIndex)
         .sectionName;
     if (name.isEmpty || !mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.clearSnackBars();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          name,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-        ),
-        duration: const Duration(milliseconds: 1800),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: const Color(0xCC2A2A2A),
-        margin: const EdgeInsets.fromLTRB(48, 0, 48, 24),
-      ),
-    );
+    setState(() => _sectionCueName = name);
+    await Future<void>.delayed(const Duration(milliseconds: 2000));
+    if (!mounted || token != _cycleToken) return;
+    setState(() => _sectionCueName = null);
   }
 
-  Future<void> _advanceToNextChunk({required int token}) async {
+  Future<void> _runBlankRest({
+    required int token,
+    required int chunkCountN,
+    required int step1Based,
+  }) async {
+    final dur = blankRestDuration(
+      chunkCountN: chunkCountN,
+      step1Based: step1Based,
+    );
+    if (dur <= Duration.zero) return;
+    if (!mounted || token != _cycleToken) return;
+    if (!_focus.sessionActive || _focus.paused) return;
+    setState(() => _rhythmPhase = RhythmPhase.rest);
+    await Future<void>.delayed(dur);
+    if (!mounted || token != _cycleToken) return;
+    if (mounted && _rhythmPhase == RhythmPhase.rest) {
+      setState(() => _rhythmPhase = RhythmPhase.idle);
+    }
+  }
+
+  Future<void> _advanceToNextChunk({
+    required int token,
+    bool withRest = true,
+  }) async {
     if (!mounted || token != _cycleToken) return;
     final session = _session;
     if (session == null) return;
+
+    final restN = _chunks.length;
+    final restK = _chunkIndex + 1;
+
     _lastTakePath = null;
     _clearChunkTtsCache();
+    var canContinue = false;
+    String? prevSection;
+    var maybeSectionChange = false;
+
     if (_chunkIndex + 1 < _chunks.length) {
       _chunkIndex += 1;
       unawaited(_persistPracticeCursor());
+      canContinue = true;
     } else if (_sentenceIndex + 1 < session.sentenceCount) {
-      final prevSection = _sectionKeyFor(session);
+      prevSection = _sectionKeyFor(session);
+      maybeSectionChange = true;
       final rows = <({String id, String text})>[
         for (final s in session.sentences) (id: s.id, text: s.text),
       ];
@@ -1355,6 +1415,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           );
           if (again >= 0) {
             _bindSentenceAt(session, _sentenceIndex + 1 + again);
+            canContinue = _chunks.isNotEmpty;
           } else {
             setState(() => _status = '다음 문장 준비 중…');
             return;
@@ -1365,15 +1426,23 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         }
       } else {
         _bindSentenceAt(session, _sentenceIndex + 1 + delta);
+        canContinue = _chunks.isNotEmpty;
       }
-      final next = _session ?? session;
-      _announceSectionIfChanged(previousKey: prevSection, session: next);
-      if (_chunks.isEmpty) {
+      if (!canContinue) {
         final ensureBusy = widget.library.shadowingChunksBusy;
         if (ensureBusy || shadowingPlanStatusIsPending(_plan)) {
           setState(() => _status = '다음 문장 준비 중…');
         } else {
           setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
+        }
+        // Still show section cue if we landed on empty next section.
+        if (maybeSectionChange && mounted && token == _cycleToken) {
+          final next = _session ?? session;
+          await _showSectionCueIfChanged(
+            previousKey: prevSection,
+            session: next,
+            token: token,
+          );
         }
         return;
       }
@@ -1382,6 +1451,30 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       return;
     }
     if (!mounted || token != _cycleToken) return;
+
+    // After cursor move — rematch for next Listen (design/274).
+    _flushPendingDensityRematch();
+
+    if (maybeSectionChange) {
+      final next = _session ?? session;
+      await _showSectionCueIfChanged(
+        previousKey: prevSection,
+        session: next,
+        token: token,
+      );
+      if (!mounted || token != _cycleToken) return;
+    }
+
+    if (withRest && _blankRestEnabled && canContinue) {
+      await _runBlankRest(
+        token: token,
+        chunkCountN: restN,
+        step1Based: restK,
+      );
+      if (!mounted || token != _cycleToken) return;
+      if (!_focus.sessionActive || _focus.paused) return;
+    }
+
     await _runCycle();
   }
 
@@ -1409,6 +1502,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           '집중 종료 · 미완료 10분은 초기화됩니다. 「시작」으로 다시.';
       _rhythmPhase = RhythmPhase.idle;
       _judgmentBurst = null;
+      _sectionCueName = null;
     });
   }
 
@@ -1432,6 +1526,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _grooming.resetSession();
     _groomRateScale = 1.0;
     unawaited(_loadJudgmentCheersPref());
+    unawaited(_loadBlankRestPref());
     _focus.startSession(cacheId: _cacheId);
     setState(() {
       _status = '집중 시작. 말할 때만 시계가 갑니다.';
@@ -1462,7 +1557,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       final prevSection = _sectionKeyFor(session);
       // design/246 — do not mutate reading sentenceIndex.
       _bindSentenceAt(session, globalIndex);
-      _announceSectionIfChanged(previousKey: prevSection, session: session);
+      await _showSectionCueIfChanged(
+        previousKey: prevSection,
+        session: session,
+        token: _cycleToken,
+      );
       if (_chunks.isEmpty) {
         setState(() => _status = '이 문장에 연습 구간이 없습니다.');
         return;
@@ -1625,7 +1724,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                             },
                           ),
                         ],
-                        if (_practiceReady && _focus.sessionActive) ...[
+                        if (_practiceReady &&
+                            _focus.sessionActive &&
+                            _rhythmPhase != RhythmPhase.rest &&
+                            _sectionCueName == null) ...[
                           const SizedBox(height: 8),
                           RhythmPhaseRail(phase: _rhythmPhase),
                         ],
@@ -1732,6 +1834,39 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                           ),
                       ],
                     ),
+                    if (_sectionCueName != null ||
+                        _rhythmPhase == RhythmPhase.rest)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: 0,
+                        // Leave 「집중 끝내기」 tappable (design/274).
+                        bottom: 64,
+                        child: IgnorePointer(
+                          child: ColoredBox(
+                            color: kRhythmStage,
+                            child: _sectionCueName != null
+                                ? Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 28,
+                                      ),
+                                      child: Text(
+                                        _sectionCueName!,
+                                        textAlign: TextAlign.center,
+                                        style: theme.textTheme.headlineMedium
+                                            ?.copyWith(
+                                          color: kRhythmText,
+                                          fontWeight: FontWeight.w600,
+                                          height: 1.25,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                : const SizedBox.expand(),
+                          ),
+                        ),
+                      ),
                     if (_judgmentBurst != null)
                       Positioned.fill(
                         child: IgnorePointer(

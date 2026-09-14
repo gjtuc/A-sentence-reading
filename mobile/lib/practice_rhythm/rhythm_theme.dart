@@ -20,7 +20,7 @@ const Duration kJudgmentHoldGreat = Duration(milliseconds: 900);
 const Duration kJudgmentHoldPerfect = Duration(milliseconds: 1100);
 const Duration kJudgmentFade = Duration(milliseconds: 260);
 
-enum RhythmPhase { idle, listen, speak, replay }
+enum RhythmPhase { idle, listen, speak, replay, rest }
 
 Color rhythmAccentFor(RhythmPhase phase) {
   switch (phase) {
@@ -31,6 +31,7 @@ Color rhythmAccentFor(RhythmPhase phase) {
     case RhythmPhase.replay:
       return kRhythmReplay;
     case RhythmPhase.idle:
+    case RhythmPhase.rest:
       return kRhythmRailIdle;
   }
 }
