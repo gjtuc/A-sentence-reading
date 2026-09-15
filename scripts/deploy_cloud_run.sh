@@ -251,10 +251,14 @@ if [[ "${ASR_CPU_THROTTLING:-0}" != "1" ]]; then
   _THROTTLE_ARGS=(--no-cpu-throttling)
 fi
 # design/287 D4 — ASR_DEPLOY_IMAGE skips Cloud Build (reuse API image for worker).
+# design/291 R1 — ASR_DEPLOY_SOURCE_DIR uses clean staged tree for --source upload.
 _SOURCE_OR_IMAGE=(--source .)
 if [[ -n "${ASR_DEPLOY_IMAGE:-}" ]]; then
   echo "design/287: deploying image ${ASR_DEPLOY_IMAGE} (no --source rebuild)" >&2
   _SOURCE_OR_IMAGE=(--image "$ASR_DEPLOY_IMAGE")
+elif [[ -n "${ASR_DEPLOY_SOURCE_DIR:-}" ]]; then
+  echo "design/291: deploying --source ${ASR_DEPLOY_SOURCE_DIR} (staged)" >&2
+  _SOURCE_OR_IMAGE=(--source "$ASR_DEPLOY_SOURCE_DIR")
 fi
 DEPLOY_ARGS=(
   run deploy "$SERVICE"

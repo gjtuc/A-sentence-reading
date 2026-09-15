@@ -1,7 +1,8 @@
-# design/287 + 289 — reliable Windows release APK (D5 caches + artifact-truth success).
+# design/287/289/291 — release APK helper (default machine caches; opt-in same-drive).
 param(
   [switch]$SkipCopy,
-  [switch]$WarmCaches
+  [switch]$WarmCaches,
+  [switch]$SameDriveCache
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,13 +12,25 @@ $GradleProps = Join-Path $Mobile "android\gradle.properties"
 $ApkOut = Join-Path $Mobile "build\app\outputs\flutter-apk\app-release.apk"
 $ApkCopy = Join-Path $Root "data\sentence-reading-latest.apk"
 $Gradlew = Join-Path $Mobile "android\gradlew.bat"
-# D5 — Pub/Gradle on same drive as repo (D:).
 $CacheRoot = Join-Path $Root ".cache\apk-tooling"
 $PubCache = Join-Path $CacheRoot "pub-cache"
 $GradleHome = Join-Path $CacheRoot "gradle-user-home"
-New-Item -ItemType Directory -Force -Path $PubCache, $GradleHome | Out-Null
-$env:PUB_CACHE = $PubCache
-$env:GRADLE_USER_HOME = $GradleHome
+$script:UsedSameDrive = $false
+
+function Enable-SameDriveCache {
+  New-Item -ItemType Directory -Force -Path $PubCache, $GradleHome | Out-Null
+  $env:PUB_CACHE = $PubCache
+  $env:GRADLE_USER_HOME = $GradleHome
+  $script:UsedSameDrive = $true
+  Write-Host "design/291: SameDriveCache PUB_CACHE=$env:PUB_CACHE"
+}
+
+function Disable-SameDriveCache {
+  Remove-Item Env:PUB_CACHE -ErrorAction SilentlyContinue
+  Remove-Item Env:GRADLE_USER_HOME -ErrorAction SilentlyContinue
+  $script:UsedSameDrive = $false
+  Write-Host "design/291: using machine default Pub/Gradle caches"
+}
 
 function Invoke-FlutterApk {
   $prev = $ErrorActionPreference
@@ -45,6 +58,11 @@ function Test-ApkOk([hashtable]$r, [datetime]$started) {
     return $true
   }
   return $false
+}
+
+function Test-KernelSnapshotFail([string]$log) {
+  return $log -match 'kernel_snapshot_program' -or
+    $log -match 'compileFlutterBuildRelease'
 }
 
 function Ensure-KotlinIncrementalOff {
@@ -77,8 +95,12 @@ function Clear-MobileBuildCaches {
 Ensure-KotlinIncrementalOff
 Set-Location $Mobile
 Stop-GradleDaemons
-Write-Host "design/287 D5: PUB_CACHE=$env:PUB_CACHE"
-Write-Host "design/287 D5: GRADLE_USER_HOME=$env:GRADLE_USER_HOME"
+
+if ($SameDriveCache) {
+  Enable-SameDriveCache
+} else {
+  Disable-SameDriveCache
+}
 
 if ($WarmCaches) {
   Write-Host "design/289: WarmCaches - flutter pub get"
@@ -104,6 +126,17 @@ if (-not $ok -and (Test-IncrementalCacheFail $r1.Log)) {
   $r2 = Invoke-FlutterApk
   Write-Host $r2.Log
   $ok = Test-ApkOk $r2 $started
+}
+
+# design/291 R3 — SameDrive cold cache often breaks kernel_snapshot; fall back once.
+if (-not $ok -and $script:UsedSameDrive -and (Test-KernelSnapshotFail $r1.Log)) {
+  Write-Host "design/291: kernel_snapshot fail on SameDriveCache - fallback to machine caches"
+  Disable-SameDriveCache
+  Clear-MobileBuildCaches
+  $started = Get-Date
+  $r3 = Invoke-FlutterApk
+  Write-Host $r3.Log
+  $ok = Test-ApkOk $r3 $started
 }
 
 if (-not $ok) {

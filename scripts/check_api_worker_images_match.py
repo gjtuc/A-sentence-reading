@@ -1,15 +1,38 @@
-"""design/290 — API and worker Cloud Run images must match."""
+"""design/290/291 — API and worker Cloud Run images must match."""
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
 import subprocess
 import sys
+from pathlib import Path
+
+
+def _gcloud_bin() -> str:
+    found = shutil.which("gcloud") or shutil.which("gcloud.cmd")
+    if found:
+        return found
+    candidates = [
+        Path(os.environ.get("LOCALAPPDATA", ""))
+        / "Google"
+        / "Cloud SDK"
+        / "google-cloud-sdk"
+        / "bin"
+        / "gcloud.cmd",
+        Path(r"C:\Program Files (x86)\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd"),
+        Path(r"C:\Program Files\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd"),
+    ]
+    for p in candidates:
+        if p.is_file():
+            return str(p)
+    raise FileNotFoundError("gcloud not found on PATH or common install locations")
 
 
 def _image(service: str, region: str) -> str:
     out = subprocess.check_output(
         [
-            "gcloud",
+            _gcloud_bin(),
             "run",
             "services",
             "describe",

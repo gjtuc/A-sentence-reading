@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# design/287 D4 + 289 S2 + 290 P1 — API then worker; settle+recheck; always finish worker.
+# design/287 D4 + 289/290/291 — API then worker; staged source; settle; finish worker.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -31,8 +31,6 @@ except Exception as e:
     sys.exit(1)
 ver = str(d.get("version") or "")
 sha = str(d.get("deploy_git_sha") or d.get("git_sha") or "")
-# design/290b — version match is enough to resume worker (ops follow-up commits
-# may advance HEAD while live still serves the product version just shipped).
 sha_ok = bool(head12) and sha.startswith(head12)
 ver_ok = ver == want_ver and bool(want_ver)
 ok = ver_ok and (sha_ok or bool(sha))
@@ -47,12 +45,21 @@ _service_image() {
     --format='value(spec.template.spec.containers[0].image)' 2>/dev/null || true
 }
 
-_log "design/290: pair start ver=${_local_ver} head12=${_head12}"
+_log "design/291: pair start ver=${_local_ver} head12=${_head12}"
 
-# --- Phase A: API ---
+# --- Phase A: API (staged source by default) ---
 _log "phase=a start api_source"
 unset ASR_DEPLOY_IMAGE || true
 export ASR_CLOUD_RUN_SERVICE="$API_SERVICE"
+
+if [[ "${ASR_PAIR_STAGED_SOURCE:-1}" == "1" ]]; then
+  STAGE="$(bash scripts/stage_git_archive_for_ship.sh)"
+  export ASR_DEPLOY_SOURCE_DIR="$STAGE"
+  _log "phase=a staged_source=${STAGE}"
+else
+  unset ASR_DEPLOY_SOURCE_DIR || true
+  _log "phase=a worktree_source=. (ASR_PAIR_STAGED_SOURCE=0)"
+fi
 
 set +e
 bash scripts/deploy_cloud_run.sh "$@"
@@ -64,10 +71,10 @@ _api_ok=0
 if [[ "$_api_rc" -eq 0 ]]; then
   _api_ok=1
 elif _live_matches_head; then
-  _log "warn: design/290 API rc=${_api_rc} but live already HEAD — continue"
+  _log "warn: design/290 API rc=${_api_rc} but live version matches — continue"
   _api_ok=1
 else
-  _log "design/290: settle ${SETTLE_SEC}s then recheck live (gcloud may have revised despite crash)"
+  _log "design/290: settle ${SETTLE_SEC}s then recheck live"
   sleep "$SETTLE_SEC"
   if _live_matches_head; then
     _log "warn: design/290 live matched after settle — continue worker"
@@ -76,7 +83,7 @@ else
 fi
 
 if [[ "$_api_ok" -ne 1 ]]; then
-  _log "error: phase=a failed and live does not match HEAD"
+  _log "error: phase=a failed and live does not match"
   exit "${_api_rc:-1}"
 fi
 
@@ -87,7 +94,10 @@ if [[ -z "$IMG" ]]; then
 fi
 _log "phase=a image=${IMG}"
 
-# --- Phase B: worker (always when phase A ok / live match) ---
+# Worker must deploy from worktree scripts but reuse image (no second upload).
+unset ASR_DEPLOY_SOURCE_DIR || true
+
+# --- Phase B: worker ---
 _log "phase=b start worker_image"
 export ASR_DEPLOY_IMAGE="$IMG"
 set +e
@@ -109,6 +119,6 @@ if [[ -z "$WIMG" || "$WIMG" != "$IMG" ]]; then
   exit 1
 fi
 
-_log "pair_ok=1 design/287/289/290 pair deploy done"
-echo "design/290: pair_ok=1 (API+worker same image)" >&2
+_log "pair_ok=1 design/291 pair deploy done"
+echo "design/291: pair_ok=1 (API+worker same image)" >&2
 exit 0
