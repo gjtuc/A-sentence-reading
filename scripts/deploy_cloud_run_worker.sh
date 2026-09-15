@@ -8,7 +8,8 @@ cd "$ROOT"
 
 : "${ASR_WORKER_SECRET:?Set ASR_WORKER_SECRET (shared with API ASR_WORKER_SECRET)}"
 
-export ASR_CLOUD_RUN_SERVICE="${ASR_CLOUD_RUN_SERVICE:-asr-sentence-reading-worker}"
+# Always target the worker service (pair may leave ASR_CLOUD_RUN_SERVICE=api).
+export ASR_CLOUD_RUN_SERVICE="${ASR_WORKER_CLOUD_RUN_SERVICE:-asr-sentence-reading-worker}"
 export ASR_SERVICE_ROLE=worker
 export ASR_INGEST_INLINE=1
 export ASR_MIN_INSTANCES="${ASR_WORKER_MIN_INSTANCES:-0}"

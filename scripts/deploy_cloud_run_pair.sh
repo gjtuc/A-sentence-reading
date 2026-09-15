@@ -96,10 +96,12 @@ _log "phase=a image=${IMG}"
 
 # Worker must deploy from worktree scripts but reuse image (no second upload).
 unset ASR_DEPLOY_SOURCE_DIR || true
+unset ASR_CLOUD_RUN_SERVICE || true
 
 # --- Phase B: worker ---
 _log "phase=b start worker_image"
 export ASR_DEPLOY_IMAGE="$IMG"
+export ASR_CLOUD_RUN_SERVICE="${ASR_WORKER_CLOUD_RUN_SERVICE:-asr-sentence-reading-worker}"
 set +e
 bash scripts/deploy_cloud_run_worker.sh "$@"
 _worker_rc=$?
@@ -110,12 +112,14 @@ if [[ "$_worker_rc" -ne 0 ]]; then
   exit "$_worker_rc"
 fi
 
-# --- Phase C: image equality ---
+# --- Phase C: image equality (compare digests; allow different repo path suffix) ---
 WIMG="$(_service_image "$WORKER_SERVICE")"
 _log "phase=c api_image=${IMG}"
 _log "phase=c worker_image=${WIMG}"
-if [[ -z "$WIMG" || "$WIMG" != "$IMG" ]]; then
-  _log "error: API/worker image mismatch"
+_api_digest="${IMG##*@}"
+_w_digest="${WIMG##*@}"
+if [[ -z "$WIMG" || -z "$_api_digest" || "$_api_digest" != "$_w_digest" ]]; then
+  _log "error: API/worker image digest mismatch"
   exit 1
 fi
 
