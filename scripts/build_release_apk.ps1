@@ -1,4 +1,4 @@
-# design/287 + 289 — reliable Windows release APK (D5 caches · artifact-truth success).
+# design/287 + 289 — reliable Windows release APK (D5 caches + artifact-truth success).
 param(
   [switch]$SkipCopy,
   [switch]$WarmCaches
@@ -11,7 +11,7 @@ $GradleProps = Join-Path $Mobile "android\gradle.properties"
 $ApkOut = Join-Path $Mobile "build\app\outputs\flutter-apk\app-release.apk"
 $ApkCopy = Join-Path $Root "data\sentence-reading-latest.apk"
 $Gradlew = Join-Path $Mobile "android\gradlew.bat"
-# D5 — Pub/Gradle on same drive as repo (D:) so Kotlin incremental maps never see C: vs D:.
+# D5 — Pub/Gradle on same drive as repo (D:).
 $CacheRoot = Join-Path $Root ".cache\apk-tooling"
 $PubCache = Join-Path $CacheRoot "pub-cache"
 $GradleHome = Join-Path $CacheRoot "gradle-user-home"
@@ -20,7 +20,6 @@ $env:PUB_CACHE = $PubCache
 $env:GRADLE_USER_HOME = $GradleHome
 
 function Invoke-FlutterApk {
-  # Flutter prints JVM warnings on stderr; PS Stop mode must not treat them as fatals.
   $prev = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
   try {
@@ -34,7 +33,6 @@ function Invoke-FlutterApk {
 function Test-FreshApk([datetime]$started) {
   if (-not (Test-Path $ApkOut)) { return $false }
   $mtime = (Get-Item $ApkOut).LastWriteTime
-  # design/289 S3 — artifact truth: accept if written near/after this run started.
   return ($mtime -ge $started.AddSeconds(-60))
 }
 
@@ -83,7 +81,7 @@ Write-Host "design/287 D5: PUB_CACHE=$env:PUB_CACHE"
 Write-Host "design/287 D5: GRADLE_USER_HOME=$env:GRADLE_USER_HOME"
 
 if ($WarmCaches) {
-  Write-Host "design/289: WarmCaches — flutter pub get …"
+  Write-Host "design/289: WarmCaches - flutter pub get"
   $prev = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
   try {
@@ -100,7 +98,7 @@ Write-Host $r1.Log
 $ok = Test-ApkOk $r1 $started
 
 if (-not $ok -and (Test-IncrementalCacheFail $r1.Log)) {
-  Write-Host "design/287: incremental-cache failure — wipe build and retry once"
+  Write-Host "design/287: incremental-cache failure - wipe build and retry once"
   Clear-MobileBuildCaches
   $started = Get-Date
   $r2 = Invoke-FlutterApk
