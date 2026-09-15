@@ -316,6 +316,53 @@ def figure_last_events(tl: CacheTimeline, *, limit: int = 8) -> list[str]:
     return lines[-limit:]
 
 
+def compute_pair_index_verdicts(events: list[dict]) -> list[str]:
+    """design/288 — Main+SI index/pairing agent verdicts (counts/tokens only)."""
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(code: str) -> None:
+        if code and code not in seen:
+            seen.add(code)
+            out.append(code)
+
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        k = str(ev.get("kind") or "")
+        d = ev.get("details") if isinstance(ev.get("details"), dict) else {}
+        if k == "library_publish_no_merge" and ev.get("ok") is False:
+            add("harmonize_poll_dropped_local")
+        if k == "pairing_skip_multi":
+            add("skip_multi_main_blocks_pair")
+        elif k == "library_pairing_pass":
+            try:
+                skip_main = int(d.get("skip_multi_main_n") or 0)
+            except (TypeError, ValueError):
+                skip_main = 0
+            if skip_main > 0:
+                add("skip_multi_main_blocks_pair")
+        if k == "open_ko_summary":
+            role = str(d.get("doc_role") or "").strip()
+            try:
+                role_empty = int(d.get("role_empty") or 0)
+            except (TypeError, ValueError):
+                role_empty = 0
+            if role_empty == 1 or not role:
+                add("open_without_doc_role")
+        if k == "figure_extract_done":
+            try:
+                supp = int(d.get("supplementary") or 0)
+                empty = int(d.get("empty") or 0)
+            except (TypeError, ValueError):
+                supp, empty = 0, 0
+            if supp == 1 and empty == 1:
+                add("si_figure_zero_after_extract")
+        if k == "library_index_race":
+            add("index_upsert_lost_id")
+    return out
+
+
 def compute_cache_verdicts(
     cache_id: str,
     events: list[dict],
@@ -323,5 +370,6 @@ def compute_cache_verdicts(
     """Return (verdicts, last_figure_event_lines)."""
     tl = CacheTimeline.from_events(cache_id, events)
     verdicts = compute_figure_verdicts(tl)
+    verdicts.extend(compute_pair_index_verdicts(events))
     last = figure_last_events(tl)
     return verdicts, last

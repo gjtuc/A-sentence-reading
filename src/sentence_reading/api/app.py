@@ -279,7 +279,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.282",
+    version="0.3.283",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -4800,8 +4800,24 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                             figure_file_rel_n += 1
             except (OSError, json.JSONDecodeError, TypeError, ValueError):
                 pass
+            # design/288 — densify open with doc_role snake token (no titles).
+            _role_raw = str(info.get("doc_role") or "").strip().lower()
+            if _role_raw in ("supplementary", "si", "supp"):
+                doc_role_tok = "supplementary"
+            elif _role_raw == "merged":
+                doc_role_tok = "merged"
+            elif _role_raw in ("main",):
+                doc_role_tok = "main"
+            elif _role_raw:
+                doc_role_tok = "".join(
+                    c if c.isalnum() or c == "_" else "_" for c in _role_raw
+                )[:32] or "empty"
+            else:
+                doc_role_tok = "empty"
+            role_empty = 0 if doc_role_tok and doc_role_tok != "empty" else 1
+            sent_n = len(session.sentences or [])
             open_details = {
-                "sentence_n": len(session.sentences or []),
+                "sentence_n": sent_n,
                 "ko_sentence_n": int(ko_s),
                 "figure_n": len(session.figures or []),
                 "ko_figure_n": int(ko_f),
@@ -4809,6 +4825,8 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                 "translate_pending": bool(translate_pending),
                 "backfill_spawned": bool(backfill_spawned),
                 "translate_poll": bool(translate_poll),
+                "doc_role": doc_role_tok,
+                "role_empty": role_empty,
             }
             if session_gen is not None:
                 open_details["session_gen"] = session_gen
@@ -4822,7 +4840,7 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                 owner_uid=owner_uid,
                 content_hash=ch,
                 stage="open",
-                in_n=len(session.sentences or []),
+                in_n=sent_n,
                 out_n=int(ko_s),
             )
             if hid:
@@ -4840,6 +4858,26 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                 ok=True,
                 code="open_ko_summary",
             )
+            # design/288 E6 — title/role pipeline empty sensor
+            if role_empty or (int(ko_s) == 0 and sent_n > 0):
+                eb.emit(
+                    "title_pipeline_empty",
+                    severity="consistency",
+                    cache_id=cache_id,
+                    session_id=session_id,
+                    owner_uid=owner_uid,
+                    content_hash=ch,
+                    stage="open",
+                    route="cache_open",
+                    details={
+                        "ko_s": int(ko_s),
+                        "sent_n": sent_n,
+                        "doc_role": doc_role_tok,
+                        "role_empty": role_empty,
+                    },
+                    ok=False,
+                    code="title_pipeline_empty",
+                )
             # design/169i I1 — open observes session bytes (hash only).
             try:
                 from sentence_reading.llm import artifact_ids as aid
@@ -7796,6 +7834,40 @@ async def _run_ingest_job_body(
             figures = []
             if kind == "docx":
                 warnings.append("docx_figures_partial")
+
+        # design/288 E5 — figure extract outcome (counts only).
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            _role = str(doc_role or "").strip().lower()
+            if _role in ("supplementary", "si", "supp"):
+                _role_tok = "supplementary"
+                _supp = 1
+            elif _role == "merged":
+                _role_tok = "merged"
+                _supp = 0
+            elif _role:
+                _role_tok = "main" if _role == "main" else _role[:32]
+                _supp = 0
+            else:
+                _role_tok = "empty"
+                _supp = 0
+            eb.emit(
+                "figure_extract_done",
+                severity="boundary",
+                job_id=job_id,
+                stage="figures",
+                details={
+                    "doc_role": _role_tok,
+                    "fig_n": len(figures or []),
+                    "supplementary": _supp,
+                    "empty": 1 if len(figures or []) == 0 else 0,
+                },
+                ok=True,
+                code="figure_extract_done",
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
         # WHY: 캡션의 ◦C 등 lookalike — 문장 경로와 동일 정규화
         if figures:

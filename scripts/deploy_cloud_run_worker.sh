@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # design/173c — deploy ingest worker (same image, ASR_SERVICE_ROLE=worker).
+# design/287 — prefer after API deploy; Conflict retries live in deploy_cloud_run.sh.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,6 +18,8 @@ export ASR_CLOUD_RUN_MEMORY="${ASR_WORKER_MEMORY:-2Gi}"
 export ASR_CLOUD_RUN_CPU="${ASR_WORKER_CPU:-2}"
 export ASR_DEPLOY_ALLOW_SAME_VERSION=1
 export ASR_SKIP_POST_DEPLOY_VERIFY=1
+# design/287 — worker often races API/CD; keep retries generous.
+export ASR_DEPLOY_CONFLICT_RETRIES="${ASR_DEPLOY_CONFLICT_RETRIES:-5}"
 
 bash scripts/deploy_cloud_run.sh "$@"
 

@@ -15,6 +15,7 @@ import 'package:path_provider/path_provider.dart';
 import '../api/paper_models.dart';
 import '../api/reading_models.dart';
 import '../pdf/normalize_pairing_key.dart';
+import 'evidence_bus.dart';
 import 'figure_disk_cache.dart';
 
 const String kPaperDiskStoreDirName = 'asr_papers';
@@ -457,6 +458,12 @@ class PaperDiskStore {
 
   String _uid = '';
 
+  /// design/288 — index write generation / concurrency race sensors.
+  int _indexWriteGen = 0;
+  int _indexWriteInFlight = 0;
+  int _lastIndexWriteGen = 0;
+  List<String> _lastIndexWriteIds = const [];
+
   bool get isBound => _uid.isNotEmpty;
 
   void bindUid(String? uid) {
@@ -552,7 +559,51 @@ class PaperDiskStore {
     }
   }
 
-  Future<void> upsertIndex(PaperDiskIndexEntry entry) async {
+  /// Short cache id token for evidence details (no titles).
+  static String _idTok(String id) {
+    var s = id.trim();
+    if (s.isEmpty) return '';
+    final hexOnly = RegExp(r'^[0-9a-fA-F]+$').hasMatch(s);
+    if (hexOnly && !s.toLowerCase().startsWith('c')) {
+      s = 'c$s';
+    }
+    return s.length <= 12 ? s : s.substring(0, 12);
+  }
+
+  Future<void> _emitIndexRace({
+    required String op,
+    required String caller,
+    required Iterable<String> lostIds,
+    required int inflight,
+  }) async {
+    final lost = <String>[];
+    for (final id in lostIds) {
+      if (await hasSession(id)) lost.add(_idTok(id));
+      if (lost.length >= 4) break;
+    }
+    if (lost.isEmpty && inflight <= 1) return;
+    asrEvidenceBus?.record(
+      'library_index_race',
+      severity: 'error',
+      stage: 'index',
+      ok: false,
+      code: 'index_upsert_lost_id',
+      details: {
+        'op': op,
+        'caller': caller,
+        'inflight_n': inflight,
+        'lost_n': lost.length,
+        'write_gen': _lastIndexWriteGen,
+        'index_n_last': _lastIndexWriteIds.length,
+        if (lost.isNotEmpty) 'lost_id_tok': lost.first,
+      },
+    );
+  }
+
+  Future<void> upsertIndex(
+    PaperDiskIndexEntry entry, {
+    String caller = 'unknown',
+  }) async {
     if (!isBound || !entry.isValid) return;
     final f = await _indexFile();
     final root = await uidRoot();
@@ -560,65 +611,148 @@ class PaperDiskStore {
     if (!await root.exists()) {
       await root.create(recursive: true);
     }
-    final cur = await listIndex();
-    // design/240 — preserve pair fields when caller omits them.
-    var toWrite = entry;
-    for (final e in cur) {
-      if (e.id != entry.id) continue;
-      final keepPair = entry.pairedCacheId.trim().isEmpty &&
-          e.pairedCacheId.trim().isNotEmpty &&
-          entry.docRole.trim().toLowerCase() != 'merged';
-      final keepMerge = !entry.canMergeSupplementary &&
-          e.canMergeSupplementary &&
-          entry.docRole.trim().toLowerCase() != 'merged';
-      if (keepPair || keepMerge) {
-        toWrite = PaperDiskIndexEntry(
-          id: entry.id,
-          title: entry.title,
-          source: entry.source,
-          updatedAt: entry.updatedAt,
-          sentenceCount: entry.sentenceCount,
-          figureCount: entry.figureCount,
-          contentHash: entry.contentHash,
-          pipelineVersion: entry.pipelineVersion,
-          hasSource: entry.hasSource,
-          debone: entry.debone,
-          docRole: entry.docRole,
-          pairedCacheId: keepPair ? e.pairedCacheId : entry.pairedCacheId,
-          canMergeSupplementary:
-              keepMerge ? e.canMergeSupplementary : entry.canMergeSupplementary,
-        );
+    _indexWriteInFlight += 1;
+    try {
+      final cur = await listIndex();
+      final beforeIds = {for (final e in cur) e.id};
+      final indexNBefore = cur.length;
+      // design/240 — preserve pair fields when caller omits them.
+      var toWrite = entry;
+      for (final e in cur) {
+        if (e.id != entry.id) continue;
+        final keepPair = entry.pairedCacheId.trim().isEmpty &&
+            e.pairedCacheId.trim().isNotEmpty &&
+            entry.docRole.trim().toLowerCase() != 'merged';
+        final keepMerge = !entry.canMergeSupplementary &&
+            e.canMergeSupplementary &&
+            entry.docRole.trim().toLowerCase() != 'merged';
+        if (keepPair || keepMerge) {
+          toWrite = PaperDiskIndexEntry(
+            id: entry.id,
+            title: entry.title,
+            source: entry.source,
+            updatedAt: entry.updatedAt,
+            sentenceCount: entry.sentenceCount,
+            figureCount: entry.figureCount,
+            contentHash: entry.contentHash,
+            pipelineVersion: entry.pipelineVersion,
+            hasSource: entry.hasSource,
+            debone: entry.debone,
+            docRole: entry.docRole,
+            pairedCacheId: keepPair ? e.pairedCacheId : entry.pairedCacheId,
+            canMergeSupplementary: keepMerge
+                ? e.canMergeSupplementary
+                : entry.canMergeSupplementary,
+          );
+        }
+        break;
       }
-      break;
+      final next = <PaperDiskIndexEntry>[
+        for (final e in cur)
+          if (e.id != toWrite.id) e,
+        toWrite,
+      ];
+      final payload = {
+        'version': 1,
+        'uid': _uid,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+        'papers': [for (final e in next) e.toJson()],
+      };
+      await _atomicWriteString(f, jsonEncode(payload));
+      _indexWriteGen += 1;
+      _lastIndexWriteGen = _indexWriteGen;
+      _lastIndexWriteIds = [for (final e in next) e.id];
+      final afterIds = {for (final e in next) e.id};
+      final role = toWrite.docRole.trim().toLowerCase().isEmpty
+          ? 'main'
+          : toWrite.docRole.trim().toLowerCase();
+      asrEvidenceBus?.record(
+        'library_index_upsert',
+        severity: 'boundary',
+        stage: 'index',
+        cacheId: toWrite.id,
+        ok: true,
+        code: 'library_index_upsert',
+        details: {
+          'op': 'upsert',
+          'index_n_before': indexNBefore,
+          'index_n_after': next.length,
+          'id_tok': _idTok(toWrite.id),
+          'role': role,
+          'has_pair': toWrite.pairedCacheId.trim().isEmpty ? 0 : 1,
+          'caller': caller,
+          'write_gen': _indexWriteGen,
+        },
+      );
+      // Upsert should only add/replace one id — other drops with session ⇒ race.
+      final unexpectedGone = beforeIds.difference(afterIds);
+      await _emitIndexRace(
+        op: 'upsert',
+        caller: caller,
+        lostIds: unexpectedGone,
+        inflight: _indexWriteInFlight,
+      );
+    } finally {
+      _indexWriteInFlight =
+          _indexWriteInFlight > 0 ? _indexWriteInFlight - 1 : 0;
     }
-    final next = <PaperDiskIndexEntry>[
-      for (final e in cur)
-        if (e.id != toWrite.id) e,
-      toWrite,
-    ];
-    final payload = {
-      'version': 1,
-      'uid': _uid,
-      'updated_at': DateTime.now().toUtc().toIso8601String(),
-      'papers': [for (final e in next) e.toJson()],
-    };
-    await _atomicWriteString(f, jsonEncode(payload));
   }
 
-  Future<void> removeFromIndex(String cacheId) async {
+  Future<void> removeFromIndex(
+    String cacheId, {
+    String caller = 'unknown',
+  }) async {
     final cid = cacheId.trim();
     if (!isBound || cid.isEmpty) return;
     final f = await _indexFile();
     if (f == null || !await f.exists()) return;
-    final cur = await listIndex();
-    final next = [for (final e in cur) if (e.id != cid) e];
-    final payload = {
-      'version': 1,
-      'uid': _uid,
-      'updated_at': DateTime.now().toUtc().toIso8601String(),
-      'papers': [for (final e in next) e.toJson()],
-    };
-    await _atomicWriteString(f, jsonEncode(payload));
+    _indexWriteInFlight += 1;
+    try {
+      final cur = await listIndex();
+      final beforeIds = {for (final e in cur) e.id};
+      final indexNBefore = cur.length;
+      final next = [for (final e in cur) if (e.id != cid) e];
+      final payload = {
+        'version': 1,
+        'uid': _uid,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+        'papers': [for (final e in next) e.toJson()],
+      };
+      await _atomicWriteString(f, jsonEncode(payload));
+      _indexWriteGen += 1;
+      _lastIndexWriteGen = _indexWriteGen;
+      _lastIndexWriteIds = [for (final e in next) e.id];
+      final afterIds = {for (final e in next) e.id};
+      asrEvidenceBus?.record(
+        'library_index_upsert',
+        severity: 'boundary',
+        stage: 'index',
+        cacheId: cid,
+        ok: true,
+        code: 'library_index_upsert',
+        details: {
+          'op': 'remove',
+          'index_n_before': indexNBefore,
+          'index_n_after': next.length,
+          'id_tok': _idTok(cid),
+          'role': '',
+          'has_pair': 0,
+          'caller': caller,
+          'write_gen': _indexWriteGen,
+        },
+      );
+      // Remove should only drop [cid]; other drops with session ⇒ race.
+      final unexpectedGone = beforeIds.difference(afterIds)..remove(cid);
+      await _emitIndexRace(
+        op: 'remove',
+        caller: caller,
+        lostIds: unexpectedGone,
+        inflight: _indexWriteInFlight,
+      );
+    } finally {
+      _indexWriteInFlight =
+          _indexWriteInFlight > 0 ? _indexWriteInFlight - 1 : 0;
+    }
   }
 
   Future<PaperDiskManifest?> loadManifest(String cacheId) async {
@@ -863,7 +997,7 @@ class PaperDiskStore {
         await dir.delete(recursive: true);
       } catch (_) {}
     }
-    await removeFromIndex(cacheId);
+    await removeFromIndex(cacheId, caller: 'purge');
   }
 
 
@@ -1004,6 +1138,7 @@ class PaperDiskStore {
         debone: false,
         docRole: session.docRole,
       ),
+      caller: 'session_write',
     );
     return figOk >= 0;
   }
@@ -1157,6 +1292,7 @@ class PaperDiskStore {
             files.containsKey('source.pdf') || files.containsKey('source.docx'),
         debone: false,
       ),
+      caller: 'session_write',
     );
     return true;
   }

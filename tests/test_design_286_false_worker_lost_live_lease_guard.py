@@ -38,12 +38,11 @@ def test_design_286_locked() -> None:
 
 
 def test_versions_286() -> None:
-    assert VERSION in APP.read_text(encoding="utf-8")
-    assert VERSION in PUBSPEC.read_text(encoding="utf-8")
-    assert VERSION in CONFIG.read_text(encoding="utf-8")
+    # Later designs bump app version; keep surface markers locked.
     assert "286-false-worker-lost-live-lease-guard.md" in README.read_text(
         encoding="utf-8"
     )
+    assert "false_worker_lost_guard" in APP.read_text(encoding="utf-8")
 
 
 def test_kinds_mirrored_286() -> None:

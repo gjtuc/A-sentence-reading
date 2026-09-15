@@ -250,9 +250,15 @@ _THROTTLE_ARGS=()
 if [[ "${ASR_CPU_THROTTLING:-0}" != "1" ]]; then
   _THROTTLE_ARGS=(--no-cpu-throttling)
 fi
+# design/287 D4 — ASR_DEPLOY_IMAGE skips Cloud Build (reuse API image for worker).
+_SOURCE_OR_IMAGE=(--source .)
+if [[ -n "${ASR_DEPLOY_IMAGE:-}" ]]; then
+  echo "design/287: deploying image ${ASR_DEPLOY_IMAGE} (no --source rebuild)" >&2
+  _SOURCE_OR_IMAGE=(--image "$ASR_DEPLOY_IMAGE")
+fi
 DEPLOY_ARGS=(
   run deploy "$SERVICE"
-  --source .
+  "${_SOURCE_OR_IMAGE[@]}"
   --region "$REGION"
   --platform managed
   --allow-unauthenticated
@@ -278,7 +284,28 @@ elif [[ "${SMTP_SECRETS_MODE:-}" == "plain" ]]; then
 fi
 # Contiguous form kept for contract tests / docs (also invoked via array below).
 # gcloud run deploy …
-gcloud "${DEPLOY_ARGS[@]}"
+# design/287 — parallel API+worker (or CD) can ABORT with Conflict; retry backoff.
+_DEPLOY_LOG="${ROOT}/.tmp_gcloud_deploy.log"
+_attempt=1
+_max="${ASR_DEPLOY_CONFLICT_RETRIES:-4}"
+while true; do
+  set +e
+  gcloud "${DEPLOY_ARGS[@]}" 2>&1 | tee "$_DEPLOY_LOG"
+  _rc=${PIPESTATUS[0]}
+  set -e
+  if [[ "$_rc" -eq 0 ]]; then
+    break
+  fi
+  if grep -qE 'ABORTED: Conflict for resource|Code: 409' "$_DEPLOY_LOG" \
+    && [[ "$_attempt" -lt "$_max" ]]; then
+    _sleep=$((_attempt * 20))
+    echo "warn: design/287 Cloud Run deploy conflict — retry ${_attempt}/${_max} in ${_sleep}s" >&2
+    sleep "$_sleep"
+    _attempt=$((_attempt + 1))
+    continue
+  fi
+  exit "$_rc"
+done
 
 URL="${ASR_CLOUD_RUN_URL:-}"
 if [[ -z "$URL" ]]; then

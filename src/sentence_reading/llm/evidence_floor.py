@@ -174,6 +174,13 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "false_worker_lost_guard",
         "false_worker_lost_suspect",
         "post_terminal_ingest_progress",
+        # design/288 — Main+SI index/pairing evidence densify
+        "library_index_upsert",
+        "library_index_race",
+        "library_publish_no_merge",
+        "pairing_skip_multi",
+        "figure_extract_done",
+        "title_pipeline_empty",
     }
 )
 
@@ -273,6 +280,9 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             # design/284
             "ingest_cache_id_fork",
             "_maybe_emit_cache_id_fork",
+            # design/288
+            "doc_role",
+            "supplementary",
         ),
     ),
     (
@@ -349,6 +359,11 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "post_terminal_ingest_progress",
             "skipped_live_gcs_lease",
             "kill_skip_for_live_lease",
+            # design/288
+            "title_pipeline_empty",
+            "figure_extract_done",
+            "doc_role",
+            "role_empty",
             # design/169o
             "_run_harmonize_residual",
             "harmonize_pending",
@@ -584,6 +599,14 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "handoff_ok",
             "fail_code",
             "miss_reason",
+            # design/288
+            "library_publish_no_merge",
+            "pairing_skip_multi",
+            "harmonize_poll",
+            "disk_index_n",
+            "caller: 'handoff'",
+            "caller: 'refresh'",
+            "caller: 'merge'",
         ),
     ),
     (
@@ -603,6 +626,14 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "applyLocalPairingPassDetailed",
             "collapsePairedSetRowsDetailed",
             "skipMultiMain",
+            # design/288
+            "library_index_upsert",
+            "library_index_race",
+            "_indexWriteGen",
+            "_indexWriteInFlight",
+            "index_upsert_lost_id",
+            "caller: 'session_write'",
+            "caller: 'purge'",
         ),
     ),
     (

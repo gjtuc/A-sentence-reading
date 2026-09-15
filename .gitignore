@@ -30,6 +30,9 @@ data/shadowing/
 data/error_logs/
 *.pdf
 
+# design/287 — local Pub/Gradle homes for Windows APK builds
+.cache/
+
 # Logs
 *.log
 logs/

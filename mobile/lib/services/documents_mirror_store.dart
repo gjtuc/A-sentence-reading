@@ -207,6 +207,7 @@ class DocumentsMirrorStore {
         figureCount: (map['figures'] is List) ? (map['figures'] as List).length : 0,
         contentHash: '${map['content_hash'] ?? ''}'.trim().toLowerCase(),
       ),
+      caller: 'mirror',
     );
     return true;
   }

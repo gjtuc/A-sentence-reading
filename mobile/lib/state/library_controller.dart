@@ -205,6 +205,7 @@ class LibraryController extends ChangeNotifier {
 
   /// design/224 — filter soft-hidden ids before publishing list.
   /// design/279 — emit library_pairing_pass (counts only).
+  /// design/288 — densify + pairing_skip_multi when skip_multi_* > 0.
   void _publishPapers(
     List<PaperEntry> next, {
     String trigger = 'publish',
@@ -218,6 +219,11 @@ class LibraryController extends ChangeNotifier {
     final collapsed = collapsePairedSetRowsDetailed(paired.papers);
     papers = collapsed.papers;
     final st = paired.stats;
+    var mainNHint = 0;
+    for (final e in filtered) {
+      final role = e.docRole.trim().toLowerCase();
+      if (role == 'main' || role.isEmpty) mainNHint += 1;
+    }
     asrEvidenceBus?.record(
       'library_pairing_pass',
       severity: 'lifecycle',
@@ -233,8 +239,27 @@ class LibraryController extends ChangeNotifier {
         'skip_multi_si_n': st.skipMultiSiN,
         'collapsed_n': collapsed.collapsedN,
         'trigger': trigger,
+        'disk_index_n': next.length,
+        'merged_local': 0,
+        'main_n_hint': mainNHint,
       },
     );
+    if (st.skipMultiMainN > 0 || st.skipMultiSiN > 0) {
+      asrEvidenceBus?.record(
+        'pairing_skip_multi',
+        severity: 'error',
+        stage: 'pair',
+        ok: false,
+        code: 'pairing_skip_multi',
+        details: {
+          'skip_multi_main_n': st.skipMultiMainN,
+          'skip_multi_si_n': st.skipMultiSiN,
+          'keys_n': st.keysN,
+          'trigger': trigger,
+          'main_n_hint': mainNHint,
+        },
+      );
+    }
   }
 
   void _scheduleSoftPurgeWorker() {
@@ -1201,7 +1226,36 @@ class LibraryController extends ChangeNotifier {
   Future<void> _tickHarmonizeResidualPoll(String cid) async {
     try {
       final fetched = await _client.listPapers();
-      _publishPapers(await _applySavedOrder(fetched));
+      // design/288 E3 — publish remote-only without mergeRemoteWithLocal.
+      final remoteIds = {for (final e in fetched) e.id};
+      var localOnlyN = 0;
+      var missingLocalWithSessionN = 0;
+      try {
+        final idx = await _paperDisk.listIndex();
+        for (final e in idx) {
+          if (!e.isValid || e.id.isEmpty) continue;
+          if (remoteIds.contains(e.id)) continue;
+          if (!await _paperDisk.hasSession(e.id)) continue;
+          localOnlyN += 1;
+          missingLocalWithSessionN += 1;
+        }
+      } catch (_) {}
+      asrEvidenceBus?.record(
+        'library_publish_no_merge',
+        severity: missingLocalWithSessionN > 0 ? 'error' : 'sample',
+        cacheId: cid,
+        stage: 'harmonize_poll',
+        ok: missingLocalWithSessionN == 0,
+        code: missingLocalWithSessionN > 0
+            ? 'harmonize_poll_no_merge'
+            : 'harmonize_poll_ok',
+        details: {
+          'remote_n': fetched.length,
+          'local_only_n': localOnlyN,
+          'missing_local_with_session_n': missingLocalWithSessionN,
+        },
+      );
+      _publishPapers(await _applySavedOrder(fetched), trigger: 'harmonize_poll');
     } catch (_) {
       // fail-soft; keep prior snapshot
     }
@@ -1947,6 +2001,7 @@ class LibraryController extends ChangeNotifier {
             return 'main';
           }(),
         ),
+        caller: 'handoff',
       );
       // Refresh sentence/figure counts from session if present.
       final session = await _paperDisk.loadSessionJson(cid);
@@ -1980,6 +2035,7 @@ class LibraryController extends ChangeNotifier {
             hasSource: true,
             docRole: roleFinal,
           ),
+          caller: 'handoff',
         );
       }
       final wiped = ack['wiped'] == true;
@@ -2568,6 +2624,7 @@ class LibraryController extends ChangeNotifier {
               pairedCacheId: e.pairedCacheId,
               canMergeSupplementary: e.canMergeSupplementary,
             ),
+            caller: 'refresh',
           );
         } catch (_) {}
       }
@@ -3616,8 +3673,9 @@ class LibraryController extends ChangeNotifier {
         pairedCacheId: '',
         canMergeSupplementary: false,
       ),
+      caller: 'merge',
     );
-    await _paperDisk.removeFromIndex(siId);
+    await _paperDisk.removeFromIndex(siId, caller: 'merge');
     return true;
   }
 

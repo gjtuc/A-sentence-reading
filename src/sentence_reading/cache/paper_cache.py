@@ -202,6 +202,7 @@ def _emit_figure_meta_boundary(
     prior_meta_for_gen: dict,
     forced: bool,
     content_hash: str = "",
+    doc_role: str = "",
 ) -> None:
     """design/169l L1 — save boundary figure meta observability. Never raises."""
     try:
@@ -222,6 +223,19 @@ def _emit_figure_meta_boundary(
             if len(sample_missing_ids) >= 8:
                 break
         meta_ok = file_rel_n == session_fig_n if session_fig_n > 0 else True
+        role_raw = str(doc_role or "").strip().lower()
+        if role_raw in ("supplementary", "si", "supp"):
+            role_tok = "supplementary"
+            supplementary = 1
+        elif role_raw == "merged":
+            role_tok = "merged"
+            supplementary = 0
+        elif role_raw == "main" or role_raw:
+            role_tok = "main" if role_raw == "main" else role_raw[:32]
+            supplementary = 0
+        else:
+            role_tok = ""
+            supplementary = 0
         write_details = {
             "gen": int(art_gen),
             "activity": activity,
@@ -232,6 +246,8 @@ def _emit_figure_meta_boundary(
             "decoded_src_n": decoded_src_n,
             "preserved_n": preserved_n,
             "missing_file_n": missing_file_n,
+            "doc_role": role_tok,
+            "supplementary": supplementary,
         }
         if sample_missing_ids:
             write_details["sample_missing_ids"] = sample_missing_ids
@@ -1577,6 +1593,7 @@ def save_paper_session(
         prior_meta_for_gen=prior_meta_for_gen,
         forced=bool(forced),
         content_hash=ch or "",
+        doc_role=role,
     )
     # design/284 — detect dual-store same PDF before index rewrite replaces loser.
     _maybe_emit_cache_id_fork(
