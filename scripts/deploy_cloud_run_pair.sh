@@ -94,9 +94,21 @@ if [[ -z "$IMG" ]]; then
 fi
 _log "phase=a image=${IMG}"
 
+# design/292 G2 — API must still be product API before worker hop.
+set +e
+python scripts/check_api_service_role.py --expect-version "$_local_ver"
+_role_rc=$?
+set -e
+_log "phase=a api_role_check rc=${_role_rc}"
+if [[ "$_role_rc" -ne 0 ]]; then
+  _log "error: design/292 API role gate failed after phase A"
+  exit "$_role_rc"
+fi
+
 # Worker must deploy from worktree scripts but reuse image (no second upload).
 unset ASR_DEPLOY_SOURCE_DIR || true
 unset ASR_CLOUD_RUN_SERVICE || true
+unset ASR_SERVICE_ROLE || true
 
 # --- Phase B: worker ---
 _log "phase=b start worker_image"
@@ -123,6 +135,17 @@ if [[ -z "$WIMG" || -z "$_api_digest" || "$_api_digest" != "$_w_digest" ]]; then
   exit 1
 fi
 
-_log "pair_ok=1 design/291 pair deploy done"
-echo "design/291: pair_ok=1 (API+worker same image)" >&2
+# design/292 — API must remain api after worker hop.
+set +e
+python scripts/check_api_service_role.py --expect-version "$_local_ver"
+_role_rc=$?
+set -e
+_log "phase=c api_role_check rc=${_role_rc}"
+if [[ "$_role_rc" -ne 0 ]]; then
+  _log "error: design/292 API role gate failed after phase B"
+  exit "$_role_rc"
+fi
+
+_log "pair_ok=1 design/292 pair deploy done"
+echo "design/292: pair_ok=1 (API+worker same digest; API role ok)" >&2
 exit 0

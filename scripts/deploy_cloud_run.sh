@@ -250,6 +250,17 @@ _THROTTLE_ARGS=()
 if [[ "${ASR_CPU_THROTTLING:-0}" != "1" ]]; then
   _THROTTLE_ARGS=(--no-cpu-throttling)
 fi
+# design/292 G1 — refuse role×service mismatches (API must never get worker role).
+_role_l="$(printf '%s' "${ASR_SERVICE_ROLE:-api}" | tr '[:upper:]' '[:lower:]')"
+_svc_l="$(printf '%s' "$SERVICE" | tr '[:upper:]' '[:lower:]')"
+if [[ "$_role_l" == "worker" && "$_svc_l" != *worker* ]]; then
+  echo "error: design/292 refuse deploy — ASR_SERVICE_ROLE=worker on non-worker service '$SERVICE'" >&2
+  exit 2
+fi
+if [[ "$_svc_l" == *worker* && "$_role_l" != "worker" ]]; then
+  echo "error: design/292 refuse deploy — worker service '$SERVICE' requires ASR_SERVICE_ROLE=worker (got ${_role_l})" >&2
+  exit 2
+fi
 # design/287 D4 — ASR_DEPLOY_IMAGE skips Cloud Build (reuse API image for worker).
 # design/291 R1 — ASR_DEPLOY_SOURCE_DIR uses clean staged tree for --source upload.
 _SOURCE_OR_IMAGE=(--source .)

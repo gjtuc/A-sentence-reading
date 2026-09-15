@@ -40,6 +40,9 @@ _local_ver="$(python -c "import re; from pathlib import Path; t=Path('src/senten
 echo "design/291: verify_live_status --expect ${_local_ver}" >&2
 python scripts/verify_live_status.py --require-azure-layout --min-pipeline rich-v20 --expect "$_local_ver"
 
+echo "design/292: check_api_service_role ..." >&2
+python scripts/check_api_service_role.py --expect-version "$_local_ver"
+
 # Prefer bash-available gcloud via PATH from env / Cloud SDK.
 if command -v gcloud >/dev/null 2>&1; then
   python scripts/check_api_worker_images_match.py
@@ -62,4 +65,4 @@ if [[ "${WITH_APK:-0}" == "1" ]]; then
   fi
 fi
 
-echo "design/291: ship_release OK" >&2
+echo "design/292: ship_release OK" >&2
