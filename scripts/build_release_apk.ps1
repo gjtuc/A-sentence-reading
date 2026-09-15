@@ -1,6 +1,7 @@
-# design/287 — reliable Windows release APK (same-drive caches + Kotlin pin + clean retry).
+# design/287 + 289 — reliable Windows release APK (D5 caches · artifact-truth success).
 param(
-  [switch]$SkipCopy
+  [switch]$SkipCopy,
+  [switch]$WarmCaches
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,6 +29,24 @@ function Invoke-FlutterApk {
   } finally {
     $ErrorActionPreference = $prev
   }
+}
+
+function Test-FreshApk([datetime]$started) {
+  if (-not (Test-Path $ApkOut)) { return $false }
+  $mtime = (Get-Item $ApkOut).LastWriteTime
+  # design/289 S3 — artifact truth: accept if written near/after this run started.
+  return ($mtime -ge $started.AddSeconds(-60))
+}
+
+function Test-ApkOk([hashtable]$r, [datetime]$started) {
+  if (-not (Test-Path $ApkOut)) { return $false }
+  if ($r.Code -eq 0) { return $true }
+  if ($r.Log -match 'Built build\\app\\outputs\\flutter-apk\\app-release\.apk') { return $true }
+  if (Test-FreshApk $started) {
+    Write-Host "design/289: treating fresh APK artifact as success (exit=$($r.Code))"
+    return $true
+  }
+  return $false
 }
 
 function Ensure-KotlinIncrementalOff {
@@ -63,17 +82,30 @@ Stop-GradleDaemons
 Write-Host "design/287 D5: PUB_CACHE=$env:PUB_CACHE"
 Write-Host "design/287 D5: GRADLE_USER_HOME=$env:GRADLE_USER_HOME"
 
+if ($WarmCaches) {
+  Write-Host "design/289: WarmCaches — flutter pub get …"
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    & flutter pub get 2>&1 | ForEach-Object { Write-Host $_ }
+  } finally {
+    $ErrorActionPreference = $prev
+  }
+}
+
+$started = Get-Date
 Write-Host "flutter build apk --release ..."
 $r1 = Invoke-FlutterApk
 Write-Host $r1.Log
-$ok = (Test-Path $ApkOut) -and ($r1.Code -eq 0 -or $r1.Log -match 'Built build\\app\\outputs\\flutter-apk\\app-release\.apk')
+$ok = Test-ApkOk $r1 $started
 
 if (-not $ok -and (Test-IncrementalCacheFail $r1.Log)) {
   Write-Host "design/287: incremental-cache failure — wipe build and retry once"
   Clear-MobileBuildCaches
+  $started = Get-Date
   $r2 = Invoke-FlutterApk
   Write-Host $r2.Log
-  $ok = (Test-Path $ApkOut) -and ($r2.Code -eq 0 -or $r2.Log -match 'Built build\\app\\outputs\\flutter-apk\\app-release\.apk')
+  $ok = Test-ApkOk $r2 $started
 }
 
 if (-not $ok) {

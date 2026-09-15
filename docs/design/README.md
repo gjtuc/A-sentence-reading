@@ -346,6 +346,7 @@
 | 286 | [286-false-worker-lost-live-lease-guard.md](286-false-worker-lost-live-lease-guard.md) | False worker_lost live-lease kill guard + sensors (0.3.282) |
 | 287 | [287-deploy-apk-wallclock-guards.md](287-deploy-apk-wallclock-guards.md) | Deploy conflict retry · APK Kotlin incremental pin (ops) |
 | 288 | [288-main-si-index-pairing-evidence.md](288-main-si-index-pairing-evidence.md) | Main+SI index/pairing evidence densify (0.3.283) |
+| 289 | [289-ship-path-hardening.md](289-ship-path-hardening.md) | Ship path hardening (0.3.284 ops) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

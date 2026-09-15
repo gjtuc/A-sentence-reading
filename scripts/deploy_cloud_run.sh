@@ -296,10 +296,11 @@ while true; do
   if [[ "$_rc" -eq 0 ]]; then
     break
   fi
-  if grep -qE 'ABORTED: Conflict for resource|Code: 409' "$_DEPLOY_LOG" \
+  # design/287 Conflict · design/289 PermissionError / gcloud crash mid-upload
+  if grep -qE 'ABORTED: Conflict for resource|Code: 409|PermissionError|gcloud crashed|Errno 13' "$_DEPLOY_LOG" \
     && [[ "$_attempt" -lt "$_max" ]]; then
     _sleep=$((_attempt * 20))
-    echo "warn: design/287 Cloud Run deploy conflict — retry ${_attempt}/${_max} in ${_sleep}s" >&2
+    echo "warn: design/287/289 Cloud Run deploy transient — retry ${_attempt}/${_max} in ${_sleep}s" >&2
     sleep "$_sleep"
     _attempt=$((_attempt + 1))
     continue
