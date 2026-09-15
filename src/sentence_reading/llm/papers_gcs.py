@@ -407,13 +407,21 @@ def residual_kind_counts(object_names: list[str] | tuple[str, ...] | None) -> di
     return out
 
 
-def gc_superseded_paper(cache_id: str, *, winner_id: str = "") -> dict[str, Any]:
+def gc_superseded_paper(
+    cache_id: str,
+    *,
+    winner_id: str = "",
+    job_id: str = "",
+    content_hash: str = "",
+    trace_id: str = "",
+) -> dict[str, Any]:
     """design/175 — wipe loser prefix after title_key supersede; never touches index."""
     cid = (cache_id or "").strip()
+    win = str(winner_id or "").strip()[:64]
     stats = {
         "ok": False,
         "cache_id": cid,
-        "winner_id": str(winner_id or "").strip()[:64],
+        "winner_id": win,
         "residual_n": 0,
         "deleted_n": 0,
         "skipped": 0,
@@ -436,17 +444,29 @@ def gc_superseded_paper(cache_id: str, *, winner_id: str = "") -> dict[str, Any]
     try:
         from sentence_reading.llm import evidence_bus as eb
 
+        win_det = eb.detail_cache_id(win)
+        jid = str(job_id or "").strip()
+        ch = str(content_hash or "").strip().lower()
+        tid = str(trace_id or "").strip()
+        det: dict[str, Any] = {
+            "deleted_n": stats["deleted_n"],
+            "residual_n": stats["residual_n"],
+            "skipped": stats["skipped"],
+        }
+        if win_det:
+            # design/284 — prefix so digit-leading ids survive _safe_details
+            det["winner_id"] = win_det
+        if not jid or not ch:
+            det["join_incomplete"] = 1
         eb.emit(
             "papers_supersede_gc",
             severity="boundary",
             cache_id=cid,
+            job_id=jid,
+            content_hash=ch,
+            trace_id=tid,
             stage="supersede_gc",
-            details={
-                "winner_id": stats["winner_id"],
-                "deleted_n": stats["deleted_n"],
-                "residual_n": stats["residual_n"],
-                "skipped": stats["skipped"],
-            },
+            details=det,
             ok=bool(stats["ok"]),
             code="papers_supersede_gc",
         )
@@ -735,8 +755,9 @@ def upload_paper_cache(cache_id: str) -> bool:
         return _fail("index_upload_fail")
 
     if losers_final and papers_supersede_gc_enabled():
+        ch = str(meta.get("content_hash") or "").strip().lower()
         for loser in losers_final:
-            gc_superseded_paper(loser, winner_id=cid)
+            gc_superseded_paper(loser, winner_id=cid, content_hash=ch)
     return True
 
 

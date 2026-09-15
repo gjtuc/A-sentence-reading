@@ -2014,21 +2014,28 @@ throw AsrApiException(
     required String contentHash,
     required String artifactGen,
     required int fileCount,
+    String jobId = '',
+    String traceId = '',
   }) async {
     final id = cacheId.trim();
     if (id.isEmpty) {
       throw AsrApiException('cache id is empty', 400);
     }
+    final body = <String, Object?>{
+      'ok': true,
+      'content_hash': contentHash,
+      'artifact_gen': artifactGen,
+      'file_count': fileCount,
+    };
+    final jid = jobId.trim();
+    final tid = traceId.trim();
+    if (jid.isNotEmpty) body['job_id'] = jid;
+    if (tid.isNotEmpty) body['trace_id'] = tid;
     final res = await _http
         .post(
           _uri('/api/cache/papers/${Uri.encodeComponent(id)}/handoff-ack'),
           headers: await _headers(jsonBody: true),
-          body: jsonEncode({
-            'ok': true,
-            'content_hash': contentHash,
-            'artifact_gen': artifactGen,
-            'file_count': fileCount,
-          }),
+          body: jsonEncode(body),
         )
         .timeout(const Duration(seconds: 60));
     return _decodeObject(res, 'handoff-ack');

@@ -125,6 +125,47 @@ def should_emit_heartbeat(hb_seq: int, *, force: bool = False) -> bool:
     return hb_seq % _HB_SAMPLE_EVERY == 0
 
 
+def maybe_emit_lease_dual(
+    job_id: str,
+    job: dict[str, Any] | None,
+    *,
+    hb_seq: int = 0,
+) -> bool:
+    """design/284 — emit ingest_lease_dual when mem vs GCS lease tokens disagree.
+
+    Never raises. Returns True when dual was emitted.
+    """
+    if not isinstance(job, dict):
+        return False
+    jid = str(job_id or "").strip()
+    if not jid:
+        return False
+    mem = lease_tok8(job)
+    uid = str(job.get("owner_uid") or "")
+    gcs = gcs_snapshot(jid, uid)
+    other = str(gcs.get("gcs_tok8") or "")
+    if not mem or not other or mem == other:
+        return False
+    ids = job_ids(job)
+    emit_dual(
+        "ingest_lease_dual",
+        job_id=jid,
+        severity="error",
+        stage="lease_dual",
+        percent=int(job.get("percent") or 0),
+        details={
+            "mem_tok8": mem,
+            "other_tok8": other,
+            "cr_rev8": cr_rev8(),
+            "hb_seq": int(hb_seq),
+            "dual": 1,
+        },
+        ok=False,
+        **ids,
+    )
+    return True
+
+
 def should_sample_sweep_none() -> bool:
     return random.randint(1, 20) == 1
 

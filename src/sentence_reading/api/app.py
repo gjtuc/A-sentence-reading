@@ -279,7 +279,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.278",
+    version="0.3.279",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1801,7 +1801,7 @@ def status(request: Request) -> dict:
         "progress_restore": True,
         # design/123 — true → clients refuse bad stored indices; false = clamp kill.
         "progress_fail_closed": _progress_fail_closed_enabled(),
-        "version": "0.3.278",
+        "version": "0.3.279",
         # design/155 — 배포 시 git HEAD (pre_deploy_guard · stale deploy 차단).
         "deploy_git_sha": (os.environ.get("ASR_DEPLOY_GIT_SHA") or "").strip() or None,
         # design/147 — Azure prebuilt-layout figures/tables when env configured.
@@ -5249,6 +5249,8 @@ async def cache_handoff_ack(request: Request, cache_id: str) -> JSONResponse:
             artifact_gen=str(body.get("artifact_gen") or ""),
             file_count=int(body.get("file_count") or 0),
             ok=body.get("ok", True) is not False,
+            job_id=str(body.get("job_id") or ""),
+            trace_id=str(body.get("trace_id") or ""),
         )
         if not out.get("ok"):
             return JSONResponse(status_code=409, content=out)
@@ -6020,6 +6022,10 @@ async def _ingest_lease_heartbeat(job_id: str) -> None:
         except Exception:  # noqa: BLE001
             persist_ok = False
         hb_seq += 1
+        try:
+            ilo.maybe_emit_lease_dual(job_id, job, hb_seq=hb_seq)
+        except Exception:  # noqa: BLE001
+            pass
         if ilo.should_emit_heartbeat(hb_seq):
             try:
                 ids = ilo.job_ids(job)

@@ -47,6 +47,7 @@ import '../state/bookmark_controller.dart';
 import '../state/annotation_controller.dart';
 import '../services/error_reporter.dart';
 import '../services/evidence_bus.dart';
+import '../services/notify_complete_gate_evidence.dart';
 import '../services/documents_mirror_store.dart';
 import '../services/figure_disk_cache.dart';
 import '../services/paper_disk_store.dart';
@@ -589,6 +590,11 @@ class LibraryController extends ChangeNotifier {
   String? _activeJobId;
   /// design/265c — cache_id known mid-ingest (handoff / poll result) for orphan purge.
   String? _activeIngestCacheId;
+
+  /// design/284 — last notify gate ints for upload_queue_pump_done densify (-1 unknown).
+  int _lastHandoffOk = -1;
+  int _lastConfirmOk = -1;
+  int _lastNotifyGateOk = -1;
 
   /// design/169g phase 4 — last open→reader handoff for nav_tab join.
   String? _lastOpenHandoffId;
@@ -1754,41 +1760,102 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// design/185 — pull paper folder chunks, verify sha256, ACK (may wipe cloud).
+  /// design/284 — densify paper_handoff_done details on every exit.
   Future<bool> _runPaperHandoff(String cacheId, {String title = ''}) async {
     final cid = cacheId.trim();
-    if (cid.isEmpty || !_paperDisk.isBound) return false;
-    try {
-      final st = await _client.fetchStatus();
-      if (!st.paperHandoff) return false;
-    } catch (_) {
-      // Missing status → skip handoff (fail-soft); cloud library still works.
+    final jobId = (_activeJobId ?? '').trim();
+    if (cid.isEmpty || !_paperDisk.isBound) {
+      _emitPaperHandoffDone(
+        cacheId: cid,
+        ok: false,
+        stage: 'fail',
+        failCode: 'empty',
+        jobId: jobId,
+      );
       return false;
     }
+    try {
+      final st = await _client.fetchStatus();
+      if (!st.paperHandoff) {
+        _emitPaperHandoffDone(
+          cacheId: cid,
+          ok: false,
+          stage: 'fail',
+          failCode: 'empty',
+          jobId: jobId,
+        );
+        return false;
+      }
+    } catch (_) {
+      // Missing status → skip handoff (fail-soft); cloud library still works.
+      _emitPaperHandoffDone(
+        cacheId: cid,
+        ok: false,
+        stage: 'fail',
+        failCode: 'exception',
+        jobId: jobId,
+      );
+      return false;
+    }
+    var filesWant = 0;
+    var okN = 0;
     try {
       asrEvidenceBus?.record(
         'paper_handoff_start',
         severity: 'lifecycle',
         cacheId: cid,
+        jobId: jobId,
         stage: 'client_pull',
         ok: true,
       );
       final manifest = await _client.getHandoffManifest(cid);
       if (manifest['ok'] != true) {
-        final err = '${manifest['error'] ?? ''}';
+        final err = '${manifest['error'] ?? ''}'.trim();
         if (err == 'already_acked') {
-          return await _paperDisk.hasSession(cid);
+          final has = await _paperDisk.hasSession(cid);
+          _emitPaperHandoffDone(
+            cacheId: cid,
+            ok: has,
+            stage: has ? 'acked' : 'fail',
+            failCode: has ? 'ok' : 'http_404',
+            filesOkN: 0,
+            filesWantN: 0,
+            hasSession: has,
+            ackOk: true,
+            jobId: jobId,
+          );
+          return has;
         }
+        final failCode = err.contains('404') || err == 'missing' || err == 'session_missing'
+            ? 'http_404'
+            : 'empty';
+        _emitPaperHandoffDone(
+          cacheId: cid,
+          ok: false,
+          stage: 'fail',
+          failCode: failCode,
+          jobId: jobId,
+        );
         return false;
       }
       final filesRaw = manifest['files'];
-      if (filesRaw is! Map) return false;
+      if (filesRaw is! Map) {
+        _emitPaperHandoffDone(
+          cacheId: cid,
+          ok: false,
+          stage: 'fail',
+          failCode: 'empty',
+          jobId: jobId,
+        );
+        return false;
+      }
+      filesWant = filesRaw.length;
       final contentHash = '${manifest['content_hash'] ?? ''}'.trim().toLowerCase();
       final artifactGen = '${manifest['artifact_gen'] ?? ''}'.trim();
       final titleM = '${manifest['title'] ?? title}'.trim();
       if (contentHash.isNotEmpty) {
         await _paperDisk.ensureContentHash(cid, contentHash);
       }
-      var okN = 0;
       for (final e in filesRaw.entries) {
         final rel = '${e.key}'.trim();
         if (rel.isEmpty || e.value is! Map) continue;
@@ -1797,13 +1864,15 @@ class LibraryController extends ChangeNotifier {
         final bytes = await _client.getHandoffFile(cid, rel);
         if (wantSha.isNotEmpty &&
             paperDiskSha256Hex(bytes) != wantSha) {
-          asrEvidenceBus?.record(
-            'paper_handoff_done',
-            severity: 'error',
+          _emitPaperHandoffDone(
             cacheId: cid,
-            stage: 'sha_mismatch',
             ok: false,
-            details: {'rel': rel.length > 40 ? rel.substring(0, 40) : rel},
+            stage: 'sha_mismatch',
+            failCode: 'sha_mismatch',
+            filesOkN: okN,
+            filesWantN: filesWant,
+            jobId: jobId,
+            contentHash: contentHash,
           );
           return false;
         }
@@ -1813,17 +1882,57 @@ class LibraryController extends ChangeNotifier {
           bytes,
           contentHash: contentHash,
         );
-        if (!wrote) return false;
+        if (!wrote) {
+          _emitPaperHandoffDone(
+            cacheId: cid,
+            ok: false,
+            stage: 'fail',
+            failCode: 'empty',
+            filesOkN: okN,
+            filesWantN: filesWant,
+            jobId: jobId,
+            contentHash: contentHash,
+          );
+          return false;
+        }
         okN += 1;
       }
-      if (okN < 1) return false;
+      if (okN < 1) {
+        _emitPaperHandoffDone(
+          cacheId: cid,
+          ok: false,
+          stage: 'fail',
+          failCode: 'empty',
+          filesOkN: 0,
+          filesWantN: filesWant,
+          jobId: jobId,
+          contentHash: contentHash,
+        );
+        return false;
+      }
       final ack = await _client.postHandoffAck(
         cid,
         contentHash: contentHash,
         artifactGen: artifactGen,
         fileCount: okN,
+        jobId: jobId,
       );
-      if (ack['ok'] != true) return false;
+      if (ack['ok'] != true) {
+        final has = await _paperDisk.hasSession(cid);
+        _emitPaperHandoffDone(
+          cacheId: cid,
+          ok: false,
+          stage: 'fail',
+          failCode: 'http_404',
+          filesOkN: okN,
+          filesWantN: filesWant,
+          hasSession: has,
+          ackOk: false,
+          jobId: jobId,
+          contentHash: contentHash,
+        );
+        return false;
+      }
       await _paperDisk.upsertIndex(
         PaperDiskIndexEntry(
           id: cid,
@@ -1873,16 +1982,20 @@ class LibraryController extends ChangeNotifier {
           ),
         );
       }
-      asrEvidenceBus?.record(
-        'paper_handoff_done',
-        severity: 'lifecycle',
+      final wiped = ack['wiped'] == true;
+      final has = await _paperDisk.hasSession(cid);
+      _emitPaperHandoffDone(
         cacheId: cid,
-        stage: ack['wiped'] == true ? 'wiped' : 'acked',
         ok: true,
-        details: {
-          'file_n': okN,
-          'wiped': ack['wiped'] == true ? 1 : 0,
-        },
+        stage: wiped ? 'wiped' : 'acked',
+        failCode: 'ok',
+        filesOkN: okN,
+        filesWantN: filesWant,
+        hasSession: has,
+        ackOk: true,
+        wiped: wiped,
+        jobId: jobId,
+        contentHash: contentHash,
       );
       // design/194 — KO backfill + shadowing after handoff (library tab, not only reader).
       unawaited(_postHandoffEnrich(cid));
@@ -1891,16 +2004,57 @@ class LibraryController extends ChangeNotifier {
       unawaited(_mirrorPaperWithEvidence(cid, trigger: 'handoff'));
       return true;
     } catch (e) {
-      asrEvidenceBus?.record(
-        'paper_handoff_done',
-        severity: 'error',
+      final has = await _paperDisk.hasSession(cid);
+      _emitPaperHandoffDone(
         cacheId: cid,
-        stage: 'fail',
         ok: false,
-        message: e.toString().length > 160 ? e.toString().substring(0, 160) : e.toString(),
+        stage: 'fail',
+        failCode: 'exception',
+        filesOkN: okN,
+        filesWantN: filesWant,
+        hasSession: has,
+        jobId: jobId,
+        message: e.toString().length > 160
+            ? e.toString().substring(0, 160)
+            : e.toString(),
       );
       return false;
     }
+  }
+
+  void _emitPaperHandoffDone({
+    required String cacheId,
+    required bool ok,
+    required String stage,
+    required String failCode,
+    int filesOkN = 0,
+    int filesWantN = 0,
+    bool hasSession = false,
+    bool ackOk = false,
+    bool wiped = false,
+    String jobId = '',
+    String contentHash = '',
+    String message = '',
+  }) {
+    asrEvidenceBus?.record(
+      'paper_handoff_done',
+      severity: ok ? 'lifecycle' : 'error',
+      cacheId: cacheId,
+      jobId: jobId,
+      stage: stage.length > 40 ? stage.substring(0, 40) : stage,
+      ok: ok,
+      message: message,
+      details: {
+        'handoff_ok': ok ? 1 : 0,
+        'files_ok_n': filesOkN,
+        'files_want_n': filesWantN,
+        'has_session': hasSession ? 1 : 0,
+        'ack_ok': ackOk ? 1 : 0,
+        'wiped': wiped ? 1 : 0,
+        'fail_code': failCode,
+        if (jobId.isEmpty) 'join_incomplete': 1,
+      },
+    );
   }
 
   /// design/194·195 — after handoff: enqueue KO + shadowing.
@@ -2231,19 +2385,20 @@ class LibraryController extends ChangeNotifier {
 
 
   /// design/174 — after ingest/reanalyze: refresh, then fresh=1 once; emit on miss.
-  Future<bool> _confirmCacheInLibrary(
+  /// Returns (seen, via) where via is list|disk|none (design/284).
+  Future<(bool, String)> _confirmCacheInLibrary(
     String cacheId, {
     String jobId = '',
     String stage = 'after_ingest',
   }) async {
     final cid = cacheId.trim();
-    if (cid.isEmpty) return false;
+    if (cid.isEmpty) return (false, 'none');
     await refresh();
-    if (papers.any((p) => p.id == cid)) return true;
+    if (papers.any((p) => p.id == cid)) return (true, 'list');
     if (await _paperDisk.hasSession(cid)) {
       await refresh(fresh: true);
-      if (papers.any((p) => p.id == cid)) return true;
-      return true; // local SoT after wipe — list merge may lag one frame
+      if (papers.any((p) => p.id == cid)) return (true, 'list');
+      return (true, 'disk'); // local SoT after wipe — list merge may lag one frame
     }
     await refresh(fresh: true);
     final seen = papers.any((p) => p.id == cid);
@@ -2258,7 +2413,112 @@ class LibraryController extends ChangeNotifier {
         details: {'paper_n': papers.length},
       );
     }
-    return seen;
+    return (seen, seen ? 'list' : 'none');
+  }
+
+  /// design/284 — notify_complete_gate before showCompleted/showFailed.
+  Future<void> _emitNotifyCompleteGate({
+    required String cacheId,
+    required bool handoffOk,
+    required bool confirmOk,
+    required String confirmVia,
+    required String willNotify,
+    String jobId = '',
+    String contentHash = '',
+  }) async {
+    final cid = cacheId.trim();
+    final listHas = cid.isNotEmpty && papers.any((p) => p.id == cid);
+    var diskHas = false;
+    if (cid.isNotEmpty && _paperDisk.isBound) {
+      try {
+        diskHas = await _paperDisk.hasSession(cid);
+      } catch (_) {
+        diskHas = false;
+      }
+    }
+    final details = buildNotifyCompleteGateDetails(
+      handoffOk: handoffOk,
+      confirmOk: confirmOk,
+      confirmVia: confirmVia,
+      willNotify: willNotify,
+      pollCacheId: cid,
+      listHasPollId: listHas,
+      diskHasPollId: diskHas,
+    );
+    final gateOk = notifyCompleteGateOk(
+      handoffOk: handoffOk,
+      confirmOk: confirmOk,
+      willNotify: willNotify,
+    );
+    final code = notifyCompleteGateCode(
+      handoffOk: handoffOk,
+      confirmOk: confirmOk,
+      willNotify: willNotify,
+    );
+    _lastHandoffOk = handoffOk ? 1 : 0;
+    _lastConfirmOk = confirmOk ? 1 : 0;
+    _lastNotifyGateOk = gateOk ? 1 : 0;
+    asrEvidenceBus?.record(
+      'notify_complete_gate',
+      severity: gateOk ? 'boundary' : 'error',
+      cacheId: cid,
+      jobId: jobId,
+      stage: willNotify.length > 40 ? willNotify.substring(0, 40) : willNotify,
+      ok: gateOk,
+      code: code,
+      details: details,
+    );
+    if (cid.isNotEmpty) {
+      await _emitPollCacheVsIndex(
+        cid,
+        contentHash: contentHash,
+        jobId: jobId,
+      );
+    }
+  }
+
+  /// design/284 — poll cache_id missing from index but same-hash alt exists.
+  Future<void> _emitPollCacheVsIndex(
+    String pollCacheId, {
+    String contentHash = '',
+    String jobId = '',
+  }) async {
+    final poll = pollCacheId.trim();
+    if (poll.isEmpty) return;
+    final indexHit = papers.any((p) => p.id == poll);
+    if (indexHit) return;
+    final hash = contentHash.trim().toLowerCase();
+    var alt = '';
+    var sameHash = 0;
+    if (hash.isNotEmpty) {
+      for (final p in papers) {
+        if (p.id != poll && p.contentHash.trim().toLowerCase() == hash) {
+          alt = p.id.trim();
+          sameHash = 1;
+          break;
+        }
+      }
+    }
+    final det = <String, Object>{
+      'poll_cid': 'c${poll.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '')}',
+      'index_hit': 0,
+      'same_hash': sameHash,
+    };
+    if (alt.isNotEmpty) {
+      det['alt_cid'] =
+          'c${alt.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '')}';
+    } else {
+      det['join_incomplete'] = 1;
+    }
+    asrEvidenceBus?.record(
+      'poll_cache_vs_index',
+      severity: sameHash == 1 ? 'consistency' : 'boundary',
+      cacheId: poll,
+      jobId: jobId,
+      stage: 'after_refresh',
+      ok: sameHash != 1,
+      details: det,
+    );
   }
 
 
@@ -2749,11 +3009,21 @@ class LibraryController extends ChangeNotifier {
         notifyListeners();
         return false;
       }
-      await _runPaperHandoff(result.cacheId, title: result.title);
-      final seen = await _confirmCacheInLibrary(
+      final handoffOk =
+          await _runPaperHandoff(result.cacheId, title: result.title);
+      final (seen, confirmVia) = await _confirmCacheInLibrary(
         result.cacheId,
         jobId: result.jobId,
         stage: 'after_reanalyze',
+      );
+      await _emitNotifyCompleteGate(
+        cacheId: result.cacheId,
+        handoffOk: handoffOk,
+        confirmOk: seen,
+        confirmVia: confirmVia,
+        willNotify: 'none',
+        jobId: result.jobId,
+        contentHash: result.contentHash,
       );
       if (!seen) {
         error = '재분석은 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
@@ -4137,10 +4407,27 @@ class LibraryController extends ChangeNotifier {
 
   /// design/74 — open by cache id after notification tap (product 4B).
   /// design/282 — paper_notify_open hit/miss evidence.
+  /// design/284 — densify miss_reason / list_n / mate_resolve.
   Future<ReadingSession?> openByCacheId(String cacheId) async {
     final id = cacheId.trim();
-    if (id.isEmpty) return null;
+    if (id.isEmpty) {
+      asrEvidenceBus?.record(
+        'paper_notify_open',
+        severity: 'error',
+        cacheId: '',
+        stage: 'miss',
+        ok: false,
+        details: {
+          'after_refresh': 0,
+          'list_n': papers.length,
+          'miss_reason': 'empty_id',
+          'mate_resolve': 0,
+        },
+      );
+      return null;
+    }
     PaperEntry? entry;
+    var afterRefresh = 0;
     for (final p in papers) {
       if (p.id == id) {
         entry = p;
@@ -4149,6 +4436,7 @@ class LibraryController extends ChangeNotifier {
     }
     if (entry == null) {
       await refresh();
+      afterRefresh = 1;
       for (final p in papers) {
         if (p.id == id) {
           entry = p;
@@ -4157,13 +4445,31 @@ class LibraryController extends ChangeNotifier {
       }
     }
     if (entry == null) {
+      var missReason = 'not_in_list';
+      var mateResolve = 0;
+      if (_isSoftHideAbandoned(id)) {
+        missReason = 'soft_hidden';
+      } else {
+        for (final p in papers) {
+          if (p.pairedCacheId.trim() == id) {
+            missReason = 'collapsed_mate';
+            mateResolve = 0; // detect only — product open later
+            break;
+          }
+        }
+      }
       asrEvidenceBus?.record(
         'paper_notify_open',
         severity: 'error',
         cacheId: id,
         stage: 'miss',
         ok: false,
-        details: {'after_refresh': 1},
+        details: {
+          'after_refresh': afterRefresh,
+          'list_n': papers.length,
+          'miss_reason': missReason,
+          'mate_resolve': mateResolve,
+        },
       );
       error = '알림의 논문을 찾지 못했습니다. 보관함에서 열어 주세요.';
       notifyListeners();
@@ -4176,9 +4482,11 @@ class LibraryController extends ChangeNotifier {
       stage: 'hit',
       ok: true,
       details: {
-        'after_refresh': 0,
+        'after_refresh': afterRefresh,
+        'list_n': papers.length,
         'entry_role': _normRoleToken(entry.docRole),
         'tag_kind': _entryTagKind(entry),
+        'mate_resolve': 0,
       },
     );
     return open(entry);
@@ -7818,8 +8126,14 @@ class LibraryController extends ChangeNotifier {
             severity: 'lifecycle',
             stage: 'ok',
             cacheId: result.cacheId,
+            jobId: result.jobId,
             ok: true,
-            details: {'hash8': head.contentHash.substring(0, 8)},
+            details: {
+              'hash8': head.contentHash.substring(0, 8),
+              'handoff_ok': _lastHandoffOk,
+              'confirm_ok': _lastConfirmOk,
+              'notify_gate_ok': _lastNotifyGateOk,
+            },
           );
           _noteSetIngestPump(head.contentHash, ok: true);
           if (!_uploadQueueAutoOpened && result.cacheId.trim().isNotEmpty) {
@@ -7838,7 +8152,12 @@ class LibraryController extends ChangeNotifier {
             severity: 'lifecycle',
             stage: 'keep_resume',
             ok: false,
-            details: {'hash8': head.contentHash.substring(0, 8)},
+            details: {
+              'hash8': head.contentHash.substring(0, 8),
+              'handoff_ok': _lastHandoffOk,
+              'confirm_ok': _lastConfirmOk,
+              'notify_gate_ok': _lastNotifyGateOk,
+            },
           );
           _noteSetIngestPump(head.contentHash, ok: false);
           break;
@@ -7850,7 +8169,12 @@ class LibraryController extends ChangeNotifier {
           severity: 'lifecycle',
           stage: 'fail_or_cancel',
           ok: false,
-          details: {'hash8': head.contentHash.substring(0, 8)},
+          details: {
+            'hash8': head.contentHash.substring(0, 8),
+            'handoff_ok': _lastHandoffOk,
+            'confirm_ok': _lastConfirmOk,
+            'notify_gate_ok': _lastNotifyGateOk,
+          },
         );
         _noteSetIngestPump(head.contentHash, ok: false);
       }
@@ -8066,18 +8390,37 @@ class LibraryController extends ChangeNotifier {
       _autoResumeGate.reset();
       // design/221 — drop finished head so a later pump cannot re-ingest.
       await removeUploadQueueItem(hash);
-      await _runPaperHandoff(result.cacheId, title: result.title);
-      final seen = await _confirmCacheInLibrary(
+      final handoffOk =
+          await _runPaperHandoff(result.cacheId, title: result.title);
+      final (seen, confirmVia) = await _confirmCacheInLibrary(
         result.cacheId,
         jobId: result.jobId,
         stage: 'after_upload',
       );
       if (!seen) {
+        await _emitNotifyCompleteGate(
+          cacheId: result.cacheId,
+          handoffOk: handoffOk,
+          confirmOk: false,
+          confirmVia: confirmVia,
+          willNotify: 'failed',
+          jobId: result.jobId,
+          contentHash: result.contentHash,
+        );
         error = '업로드는 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
         await _notify.showFailed(message: error!);
         notifyListeners();
         return null;
       }
+      await _emitNotifyCompleteGate(
+        cacheId: result.cacheId,
+        handoffOk: handoffOk,
+        confirmOk: true,
+        confirmVia: confirmVia,
+        willNotify: 'completed',
+        jobId: result.jobId,
+        contentHash: result.contentHash,
+      );
       await _notify.showCompleted(cacheId: result.cacheId);
       enqueueFigureHydrate(result.cacheId);
       enqueueHarmonizeResidualPoll(
@@ -8240,18 +8583,37 @@ class LibraryController extends ChangeNotifier {
       await _cancelWorkmanager();
       _autoResumeGate.reset();
       await removeUploadQueueItem(draft.contentHash);
-      await _runPaperHandoff(result.cacheId, title: result.title);
-      final seen = await _confirmCacheInLibrary(
+      final handoffOk =
+          await _runPaperHandoff(result.cacheId, title: result.title);
+      final (seen, confirmVia) = await _confirmCacheInLibrary(
         result.cacheId,
         jobId: result.jobId,
         stage: 'after_upload',
       );
       if (!seen) {
+        await _emitNotifyCompleteGate(
+          cacheId: result.cacheId,
+          handoffOk: handoffOk,
+          confirmOk: false,
+          confirmVia: confirmVia,
+          willNotify: 'failed',
+          jobId: result.jobId,
+          contentHash: result.contentHash,
+        );
         error = '업로드는 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
         await _notify.showFailed(message: error!);
         notifyListeners();
         return null;
       }
+      await _emitNotifyCompleteGate(
+        cacheId: result.cacheId,
+        handoffOk: handoffOk,
+        confirmOk: true,
+        confirmVia: confirmVia,
+        willNotify: 'completed',
+        jobId: result.jobId,
+        contentHash: result.contentHash,
+      );
       await _notify.showCompleted(cacheId: result.cacheId);
       enqueueFigureHydrate(result.cacheId);
       enqueueHarmonizeResidualPoll(

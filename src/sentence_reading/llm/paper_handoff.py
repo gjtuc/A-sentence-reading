@@ -286,6 +286,8 @@ def apply_handoff_ack(
     artifact_gen: str,
     file_count: int,
     ok: bool = True,
+    job_id: str = "",
+    trace_id: str = "",
 ) -> dict[str, Any]:
     """Verify ACK then optionally wipe cloud papers/ (not notes)."""
     cid = (cache_id or "").strip()
@@ -361,22 +363,42 @@ def apply_handoff_ack(
     try:
         from sentence_reading.llm import evidence_bus as eb
 
+        jid = str(job_id or "").strip()
+        tid = str(trace_id or "").strip()
+        ch = str(got_hash or expect_hash or "").strip().lower()
+        files_want = int(expect_n or 0)
+        files_ok = int(got_n or expect_n or 0)
+        det: dict[str, Any] = {
+            "handoff_ok": 1,
+            "wiped": 1 if wiped else 0,
+            "wipe_on_ack": 1 if wipe_on_ack_enabled() else 0,
+            "file_count": files_ok,
+            "files_ok_n": files_ok,
+            "files_want_n": files_want,
+            "has_session": 1,
+            "ack_ok": 1,
+            "fail_code": "ok",
+            "content_hash16": _hash16(ch),
+        }
+        if not jid:
+            det["join_incomplete"] = 1
         eb.emit(
             "paper_handoff_done",
             ok=True,
             cache_id=cid,
-            details={
-                "wiped": wiped,
-                "wipe_on_ack": wipe_on_ack_enabled(),
-                "file_count": got_n or expect_n,
-                "content_hash16": _hash16(got_hash or expect_hash),
-            },
+            job_id=jid,
+            content_hash=ch,
+            trace_id=tid,
+            details=det,
         )
         if wiped:
             eb.emit(
                 "paper_cloud_wipe",
                 ok=bool(wipe_stats.get("ok")),
                 cache_id=cid,
+                job_id=jid,
+                content_hash=ch,
+                trace_id=tid,
                 details={
                     "residual_n": wipe_stats.get("residual_n"),
                     "object_n": wipe_stats.get("object_n"),

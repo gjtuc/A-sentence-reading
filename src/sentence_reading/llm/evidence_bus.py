@@ -185,6 +185,18 @@ def _safe_content_hash(raw: Any) -> str:
     return s
 
 
+def detail_cache_id(raw: Any) -> str:
+    """design/284 — cache id for details values (digit-leading hex needs `c` prefix).
+
+    Top-level ``cache_id`` uses ``_safe_cache_id`` (allows digit-leading). Details
+    strings must match ``^[a-z][a-z0-9_]*$`` or they are silently dropped.
+    """
+    s = "".join(c for c in str(raw or "").strip().lower() if c.isalnum())[:32]
+    if not s:
+        return ""
+    return f"c{s}"
+
+
 def _safe_details(raw: Any) -> dict[str, Any]:
     """Numeric/enum/snake details — no free-text paper content."""
     if not isinstance(raw, dict):

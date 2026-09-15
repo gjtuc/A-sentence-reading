@@ -165,6 +165,11 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "ingest_stage_loop",
         "ingest_stage_tick",
         "ingest_auto_resume_loop",
+        # design/284 — dual-lease · cache fork · handoff/notify densify
+        "ingest_lease_dual",
+        "ingest_cache_id_fork",
+        "notify_complete_gate",
+        "poll_cache_vs_index",
     }
 )
 
@@ -258,6 +263,9 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "local_write_session",
             "figure_meta_write",
             "_emit_figure_meta_boundary",
+            # design/284
+            "ingest_cache_id_fork",
+            "_maybe_emit_cache_id_fork",
         ),
     ),
     (
@@ -281,6 +289,10 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "papers_residual_kinds",
             "classify_paper_blob_kind",
             "residual_kind_counts",
+            # design/284
+            "detail_cache_id",
+            "winner_id",
+            "join_incomplete",
         ),
     ),
     (
@@ -321,6 +333,9 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "sweep_decision",
             "mem_lease_age_sec",
             "gcs_lease_age_sec",
+            # design/284
+            "maybe_emit_lease_dual",
+            "ingest_lease_dual",
             # design/169o
             "_run_harmonize_residual",
             "harmonize_pending",
@@ -369,6 +384,9 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "gcs_snapshot",
             "emit_dual",
             "cr_rev8",
+            # design/284
+            "maybe_emit_lease_dual",
+            "ingest_lease_dual",
         ),
     ),
     (
@@ -386,7 +404,14 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     (
         "src/sentence_reading/llm/evidence_bus.py",
-        ("emit_handoff", "new_handoff_id", "stage_token", "rotate_events", "filter_retained"),
+        (
+            "emit_handoff",
+            "new_handoff_id",
+            "stage_token",
+            "rotate_events",
+            "filter_retained",
+            "detail_cache_id",
+        ),
     ),
     (
         "mobile/lib/api/client.dart",
@@ -465,6 +490,11 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "paper_cloud_wipe",
             "purge_abandoned_once",
             "paper_handoff_abandoned",
+            # design/284
+            "handoff_ok",
+            "fail_code",
+            "files_ok_n",
+            "files_want_n",
         ),
     ),
     (
@@ -529,6 +559,14 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "ingest_auto_resume_loop",
             "_ingestStagePass",
             "parseIngestStageFraction",
+            # design/284
+            "notify_complete_gate",
+            "poll_cache_vs_index",
+            "_emitNotifyCompleteGate",
+            "_emitPollCacheVsIndex",
+            "handoff_ok",
+            "fail_code",
+            "miss_reason",
         ),
     ),
     (

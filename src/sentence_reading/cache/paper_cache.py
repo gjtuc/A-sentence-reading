@@ -136,6 +136,59 @@ def _figure_file_rel_n(fig_meta: list) -> int:
     return n
 
 
+def _maybe_emit_cache_id_fork(
+    *,
+    cache_id: str,
+    content_hash: str,
+    entries: list,
+    activity: str,
+) -> None:
+    """design/284 — same content_hash already on another index id → fork sensor."""
+    cid = str(cache_id or "").strip()
+    ch = str(content_hash or "").strip().lower()
+    act = str(activity or "ingest_store").strip()[:40] or "ingest_store"
+    if not cid or not ch or not re.fullmatch(r"[a-f0-9]{64}", ch):
+        return
+    prior = ""
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        eid = str(entry.get("id") or "").strip()
+        if not eid or eid == cid:
+            continue
+        ech = str(entry.get("content_hash") or "").strip().lower()
+        if ech == ch:
+            prior = eid
+            break
+    if not prior:
+        return
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        prior_d = eb.detail_cache_id(prior)
+        new_d = eb.detail_cache_id(cid)
+        det: dict = {
+            "same_hash": 1,
+            "activity": act if re.match(r"^[a-z][a-z0-9_]{0,39}$", act) else "ingest_store",
+        }
+        if prior_d:
+            det["prior_cid"] = prior_d
+        if new_d:
+            det["new_cid"] = new_d
+        eb.emit(
+            "ingest_cache_id_fork",
+            severity="consistency",
+            cache_id=cid,
+            content_hash=ch,
+            stage="cache_id_fork",
+            details=det,
+            ok=False,
+            code="cache_id_fork",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _emit_figure_meta_boundary(
     *,
     cache_id: str,
@@ -1524,6 +1577,13 @@ def save_paper_session(
         prior_meta_for_gen=prior_meta_for_gen,
         forced=bool(forced),
         content_hash=ch or "",
+    )
+    # design/284 — detect dual-store same PDF before index rewrite replaces loser.
+    _maybe_emit_cache_id_fork(
+        cache_id=cache_id,
+        content_hash=ch or "",
+        entries=entries,
+        activity=save_activity,
     )
 
     new_entry = {

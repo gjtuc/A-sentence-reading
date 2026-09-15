@@ -269,6 +269,11 @@ const Set<String> kEvidenceAllowedKinds = {
   'ingest_stage_loop',
   'ingest_stage_tick',
   'ingest_auto_resume_loop',
+  // design/284 — dual-lease · cache fork · handoff/notify densify
+  'ingest_lease_dual',
+  'ingest_cache_id_fork',
+  'notify_complete_gate',
+  'poll_cache_vs_index',
   // design/241 — SAF tree write
   'pdf_tree_write_probe',
   'pdf_tree_copy_start',

@@ -341,6 +341,7 @@
 | 281 | [281-si-filename-supported-abstract-veto.md](281-si-filename-supported-abstract-veto.md) | No `supported` filename SI; late SI phrase after ABSTRACT → main (0.3.276) |
 | 282 | [282-merge-reader-honesty-evidence.md](282-merge-reader-honesty-evidence.md) | Merge/reader honesty evidence + postcheck/notify/mirror (0.3.277) |
 | 283 | [283-translate-stage-loop-evidence.md](283-translate-stage-loop-evidence.md) | Translate/ingest stage loop & regress evidence overkill (0.3.278) |
+| 284 | [284-ingest-dual-handoff-notify-evidence.md](284-ingest-dual-handoff-notify-evidence.md) | Dual-lease · cache fork · handoff/notify gate densify (0.3.279) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |
