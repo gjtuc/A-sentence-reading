@@ -4408,6 +4408,7 @@ class LibraryController extends ChangeNotifier {
   /// design/74 — open by cache id after notification tap (product 4B).
   /// design/282 — paper_notify_open hit/miss evidence.
   /// design/284 — densify miss_reason / list_n / mate_resolve.
+  /// design/285 — resolve ladder: mate · same_hash · disk_session.
   Future<ReadingSession?> openByCacheId(String cacheId) async {
     final id = cacheId.trim();
     if (id.isEmpty) {
@@ -4428,6 +4429,8 @@ class LibraryController extends ChangeNotifier {
     }
     PaperEntry? entry;
     var afterRefresh = 0;
+    var resolve = 'id';
+    var mateResolve = 0;
     for (final p in papers) {
       if (p.id == id) {
         entry = p;
@@ -4444,20 +4447,7 @@ class LibraryController extends ChangeNotifier {
         }
       }
     }
-    if (entry == null) {
-      var missReason = 'not_in_list';
-      var mateResolve = 0;
-      if (_isSoftHideAbandoned(id)) {
-        missReason = 'soft_hidden';
-      } else {
-        for (final p in papers) {
-          if (p.pairedCacheId.trim() == id) {
-            missReason = 'collapsed_mate';
-            mateResolve = 0; // detect only — product open later
-            break;
-          }
-        }
-      }
+    if (entry == null && _isSoftHideAbandoned(id)) {
       asrEvidenceBus?.record(
         'paper_notify_open',
         severity: 'error',
@@ -4467,26 +4457,96 @@ class LibraryController extends ChangeNotifier {
         details: {
           'after_refresh': afterRefresh,
           'list_n': papers.length,
-          'miss_reason': missReason,
-          'mate_resolve': mateResolve,
+          'miss_reason': 'soft_hidden',
+          'mate_resolve': 0,
         },
       );
       error = '알림의 논문을 찾지 못했습니다. 보관함에서 열어 주세요.';
       notifyListeners();
       return null;
     }
+    if (entry == null) {
+      for (final p in papers) {
+        if (p.pairedCacheId.trim() == id) {
+          entry = p;
+          resolve = 'mate';
+          mateResolve = 1;
+          break;
+        }
+      }
+    }
+    if (entry == null && _paperDisk.isBound) {
+      try {
+        final idx = await _paperDisk.listIndex();
+        var hash = '';
+        for (final e in idx) {
+          if (e.id.trim() == id) {
+            hash = e.contentHash.trim().toLowerCase();
+            break;
+          }
+        }
+        if (hash.isNotEmpty) {
+          for (final p in papers) {
+            if (p.id != id &&
+                p.contentHash.trim().toLowerCase() == hash) {
+              entry = p;
+              resolve = 'same_hash';
+              break;
+            }
+          }
+        }
+        if (entry == null && await _paperDisk.hasSession(id)) {
+          PaperDiskIndexEntry? diskRow;
+          for (final e in idx) {
+            if (e.id.trim() == id) {
+              diskRow = e;
+              break;
+            }
+          }
+          entry = diskRow?.toPaperEntry() ??
+              PaperEntry(id: id, title: '', source: '');
+          resolve = 'disk_session';
+        }
+      } catch (_) {
+        // resolve stays miss below
+      }
+    }
+    if (entry == null) {
+      asrEvidenceBus?.record(
+        'paper_notify_open',
+        severity: 'error',
+        cacheId: id,
+        stage: 'miss',
+        ok: false,
+        details: {
+          'after_refresh': afterRefresh,
+          'list_n': papers.length,
+          'miss_reason': 'not_in_list',
+          'mate_resolve': 0,
+        },
+      );
+      error = '알림의 논문을 찾지 못했습니다. 보관함에서 열어 주세요.';
+      notifyListeners();
+      return null;
+    }
+    final stage = resolve == 'id'
+        ? 'hit'
+        : (resolve == 'mate'
+            ? 'hit_mate'
+            : (resolve == 'same_hash' ? 'hit_same_hash' : 'hit_disk'));
     asrEvidenceBus?.record(
       'paper_notify_open',
       severity: 'lifecycle',
-      cacheId: id,
-      stage: 'hit',
+      cacheId: entry.id,
+      stage: stage,
       ok: true,
       details: {
         'after_refresh': afterRefresh,
         'list_n': papers.length,
         'entry_role': _normRoleToken(entry.docRole),
         'tag_kind': _entryTagKind(entry),
-        'mate_resolve': 0,
+        'mate_resolve': mateResolve,
+        'resolve': resolve,
       },
     );
     return open(entry);
@@ -8412,6 +8472,23 @@ class LibraryController extends ChangeNotifier {
         notifyListeners();
         return null;
       }
+      // design/285 — completed notify requires handoff success.
+      if (!handoffOk) {
+        await _emitNotifyCompleteGate(
+          cacheId: result.cacheId,
+          handoffOk: false,
+          confirmOk: true,
+          confirmVia: confirmVia,
+          willNotify: 'failed',
+          jobId: result.jobId,
+          contentHash: result.contentHash,
+        );
+        error =
+            '기기로 옮기기에 실패했습니다. 보관함에서 열어 보거나 다시 동기화해 주세요.';
+        await _notify.showFailed(message: error!);
+        notifyListeners();
+        return null;
+      }
       await _emitNotifyCompleteGate(
         cacheId: result.cacheId,
         handoffOk: handoffOk,
@@ -8601,6 +8678,23 @@ class LibraryController extends ChangeNotifier {
           contentHash: result.contentHash,
         );
         error = '업로드는 끝났지만 목록에 아직 없습니다. 새로고침해 주세요.';
+        await _notify.showFailed(message: error!);
+        notifyListeners();
+        return null;
+      }
+      // design/285 — completed notify requires handoff success.
+      if (!handoffOk) {
+        await _emitNotifyCompleteGate(
+          cacheId: result.cacheId,
+          handoffOk: false,
+          confirmOk: true,
+          confirmVia: confirmVia,
+          willNotify: 'failed',
+          jobId: result.jobId,
+          contentHash: result.contentHash,
+        );
+        error =
+            '기기로 옮기기에 실패했습니다. 보관함에서 열어 보거나 다시 동기화해 주세요.';
         await _notify.showFailed(message: error!);
         notifyListeners();
         return null;

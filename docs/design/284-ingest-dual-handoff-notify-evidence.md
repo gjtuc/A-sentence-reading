@@ -165,7 +165,7 @@ Script: extend `scripts/pull_evidence.py` filter flags (no UI).
 ## Non-goals (explicit)
 
 - Changing reclaim / lease claim algorithm  
-- Blocking `showCompleted` on handoff fail (**product chip after this**)  
+- Blocking `showCompleted` on handoff fail (**done in [285](285-honest-handoff-notify-open.md)**)  
 - Changing supersede GC policy  
 - Main/SI pairing product fixes  
 - Reducing `ingest_job_view_size` volume (noise; separate)
