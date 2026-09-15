@@ -11,6 +11,10 @@ cd "$ROOT"
 # Always target the worker service (pair may leave ASR_CLOUD_RUN_SERVICE=api).
 export ASR_CLOUD_RUN_SERVICE="${ASR_WORKER_CLOUD_RUN_SERVICE:-asr-sentence-reading-worker}"
 export ASR_SERVICE_ROLE=worker
+if [[ "$ASR_CLOUD_RUN_SERVICE" != *worker* ]]; then
+  echo "error: design/291 worker deploy refused — service '$ASR_CLOUD_RUN_SERVICE' is not a worker" >&2
+  exit 2
+fi
 export ASR_INGEST_INLINE=1
 export ASR_MIN_INSTANCES="${ASR_WORKER_MIN_INSTANCES:-0}"
 export ASR_MAX_INSTANCES="${ASR_WORKER_MAX_INSTANCES:-4}"
