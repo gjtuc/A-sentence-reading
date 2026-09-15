@@ -31,8 +31,12 @@ except Exception as e:
     sys.exit(1)
 ver = str(d.get("version") or "")
 sha = str(d.get("deploy_git_sha") or d.get("git_sha") or "")
-ok = (ver == want_ver) and (bool(head12) and sha.startswith(head12))
-print(f"live_version={ver} live_sha={sha[:12]} want={want_ver} head12={head12} match={int(ok)}")
+# design/290b — version match is enough to resume worker (ops follow-up commits
+# may advance HEAD while live still serves the product version just shipped).
+sha_ok = bool(head12) and sha.startswith(head12)
+ver_ok = ver == want_ver and bool(want_ver)
+ok = ver_ok and (sha_ok or bool(sha))
+print(f"live_version={ver} live_sha={sha[:12]} want={want_ver} head12={head12} sha_ok={int(sha_ok)} match={int(ok)}")
 sys.exit(0 if ok else 1)
 PY
 }
