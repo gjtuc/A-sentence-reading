@@ -18,6 +18,18 @@ New-Item -ItemType Directory -Force -Path $PubCache, $GradleHome | Out-Null
 $env:PUB_CACHE = $PubCache
 $env:GRADLE_USER_HOME = $GradleHome
 
+function Invoke-FlutterApk {
+  # Flutter prints JVM warnings on stderr; PS Stop mode must not treat them as fatals.
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $out = & flutter build apk --release 2>&1 | ForEach-Object { "$_" } | Out-String
+    return @{ Log = $out; Code = [int]$LASTEXITCODE }
+  } finally {
+    $ErrorActionPreference = $prev
+  }
+}
+
 function Ensure-KotlinIncrementalOff {
   $text = Get-Content -Raw -Path $GradleProps
   if ($text -notmatch 'kotlin\.incremental=false') {
@@ -52,16 +64,16 @@ Write-Host "design/287 D5: PUB_CACHE=$env:PUB_CACHE"
 Write-Host "design/287 D5: GRADLE_USER_HOME=$env:GRADLE_USER_HOME"
 
 Write-Host "flutter build apk --release ..."
-$log1 = & flutter build apk --release 2>&1 | Out-String
-Write-Host $log1
-$ok = (Test-Path $ApkOut) -and ($LASTEXITCODE -eq 0 -or $log1 -match 'Built build\\app\\outputs\\flutter-apk\\app-release\.apk')
+$r1 = Invoke-FlutterApk
+Write-Host $r1.Log
+$ok = (Test-Path $ApkOut) -and ($r1.Code -eq 0 -or $r1.Log -match 'Built build\\app\\outputs\\flutter-apk\\app-release\.apk')
 
-if (-not $ok -and (Test-IncrementalCacheFail $log1)) {
+if (-not $ok -and (Test-IncrementalCacheFail $r1.Log)) {
   Write-Host "design/287: incremental-cache failure — wipe build and retry once"
   Clear-MobileBuildCaches
-  $log2 = & flutter build apk --release 2>&1 | Out-String
-  Write-Host $log2
-  $ok = (Test-Path $ApkOut) -and ($LASTEXITCODE -eq 0 -or $log2 -match 'Built build\\app\\outputs\\flutter-apk\\app-release\.apk')
+  $r2 = Invoke-FlutterApk
+  Write-Host $r2.Log
+  $ok = (Test-Path $ApkOut) -and ($r2.Code -eq 0 -or $r2.Log -match 'Built build\\app\\outputs\\flutter-apk\\app-release\.apk')
 }
 
 if (-not $ok) {
