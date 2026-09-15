@@ -33,8 +33,19 @@ $rest = ($Root.Substring(2) -replace '\\', '/')
 $rootUnix = "/$drive$rest"
 $envFile = "/c/Users/user/Desktop/.cursor/gc-home/gc_automation.env"
 
-Write-Host "design/290: deploy_cloud_run_pair.sh …"
-& $bash -lc "set -a; [ -f '$envFile' ] && source '$envFile'; set +a; cd '$rootUnix'; bash scripts/deploy_cloud_run_pair.sh"
+# Single-quoted -lc body so PowerShell does not parse [, &&, or python quotes.
+$bashLc = @'
+set -a
+if [ -f '"$envFile"' ]; then source '"$envFile"'; fi
+set +a
+cd '"$rootUnix"'
+bash scripts/deploy_cloud_run_pair.sh
+'@
+# Expand paths into the bash script without PS parsing bash syntax.
+$bashLc = "set -a; if [ -f '$envFile' ]; then source '$envFile'; fi; set +a; cd '$rootUnix'; bash scripts/deploy_cloud_run_pair.sh"
+
+Write-Host "design/290: deploy_cloud_run_pair.sh ..."
+& $bash -lc $bashLc
 if ($LASTEXITCODE -ne 0) {
   Write-Error "pair deploy failed rc=$LASTEXITCODE (see .tmp_pair_deploy.log)"
   exit $LASTEXITCODE
@@ -45,7 +56,8 @@ if ($SkipVerify) {
   exit 0
 }
 
-$ver = & python -c "import re; from pathlib import Path; t=Path(r'src/sentence_reading/api/app.py').read_text(encoding='utf-8'); m=re.search(r'version=\"([^\"]+)\"', t); print(m.group(1) if m else '')"
+$verLine = Select-String -Path "src\sentence_reading\api\app.py" -Pattern 'version="([^"]+)"' | Select-Object -First 1
+$ver = $verLine.Matches[0].Groups[1].Value
 Write-Host "design/290: verify_live_status --expect $ver"
 & python scripts/verify_live_status.py --require-azure-layout --min-pipeline rich-v20 --expect $ver
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
