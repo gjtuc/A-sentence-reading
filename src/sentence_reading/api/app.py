@@ -6023,6 +6023,7 @@ async def _ingest_lease_heartbeat(job_id: str) -> None:
             persist_ok = False
         hb_seq += 1
         try:
+            # design/284 ingest_lease_dual (kind emitted inside helper)
             ilo.maybe_emit_lease_dual(job_id, job, hb_seq=hb_seq)
         except Exception:  # noqa: BLE001
             pass
