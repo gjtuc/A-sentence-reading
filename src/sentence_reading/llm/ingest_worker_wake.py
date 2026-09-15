@@ -40,6 +40,7 @@ class WakeResult:
     exc_class: str = ""
     response_ok: bool | None = None
     wake_path: str = "spawn"
+    wake_error: str = ""
 
     def details(self) -> dict[str, Any]:
         """_safe_details-legal dict for evidence/ops."""
@@ -58,6 +59,9 @@ class WakeResult:
             out["exc_class"] = _snake(self.exc_class) or "exception"
         if self.response_ok is not None:
             out["response_ok"] = bool(self.response_ok)
+        we = _snake(self.wake_error)
+        if we:
+            out["wake_error"] = we
         return out
 
 
@@ -325,6 +329,9 @@ async def wake_ingest_worker(
                 )
             return result
         resp_ok = bool(data.get("ok")) if isinstance(data, dict) else False
+        wake_err = ""
+        if isinstance(data, dict):
+            wake_err = _snake(str(data.get("error") or ""))
         if not resp_ok:
             result = WakeResult(
                 ok=False,
@@ -336,6 +343,7 @@ async def wake_ingest_worker(
                 http_status=200,
                 response_ok=False,
                 wake_path=path,
+                wake_error=wake_err,
             )
             if emit:
                 _emit_wake(
@@ -460,6 +468,10 @@ def stash_wake_on_job(job: dict[str, Any] | None, result: WakeResult) -> None:
         job["_last_wake_exc_class"] = result.exc_class[:64]
     else:
         job.pop("_last_wake_exc_class", None)
+    if result.wake_error:
+        job["_last_wake_error"] = result.wake_error[:64]
+    else:
+        job.pop("_last_wake_error", None)
 
 
 def wake_fields_from_job(job: dict[str, Any] | None) -> dict[str, Any]:
@@ -492,4 +504,7 @@ def wake_fields_from_job(job: dict[str, Any] | None) -> dict[str, Any]:
     exc = _snake(str(job.get("_last_wake_exc_class") or ""))
     if exc:
         out["wake_exc_class"] = exc
+    we = _snake(str(job.get("_last_wake_error") or ""))
+    if we:
+        out["wake_error"] = we
     return out

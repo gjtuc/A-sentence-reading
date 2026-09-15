@@ -73,6 +73,10 @@ _ALLOWED_KINDS = frozenset(
         "sweep_decision",
         # design/179
         "sweep_kill_decision",
+        # design/286
+        "false_worker_lost_guard",
+        "false_worker_lost_suspect",
+        "post_terminal_ingest_progress",
     }
 )
 

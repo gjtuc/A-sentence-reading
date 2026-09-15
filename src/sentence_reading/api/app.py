@@ -279,7 +279,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.281",
+    version="0.3.282",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1013,6 +1013,46 @@ def _job_set(
                 ok=True,
                 code="progress_view",
             )
+            # design/286 — progress after terminal (cross-instance false kill / zombie).
+            try:
+                from sentence_reading.llm import ingest_jobs_gcs as ij286
+                from sentence_reading.llm import ingest_lease_obs as ilo286
+
+                uid286 = str(job.get("owner_uid") or "")
+                if not job.get("_post_terminal_progress_emitted"):
+                    gcs286 = (
+                        ij286.load_ingest_job(job_id, owner_uid=uid286) or {}
+                        if uid286
+                        else {}
+                    )
+                    gcs_terminal = isinstance(gcs286, dict) and bool(
+                        gcs286.get("error")
+                        or (
+                            gcs286.get("done")
+                            and str(gcs286.get("stage") or "") == "error"
+                        )
+                    )
+                    mem_soft_terminal = bool(job.get("error")) and not job.get("done")
+                    if (gcs_terminal and not job.get("error")) or mem_soft_terminal:
+                        job["_post_terminal_progress_emitted"] = True
+                        ilo286.emit_dual(
+                            "post_terminal_ingest_progress",
+                            job_id=job_id,
+                            severity="consistency",
+                            percent=pct_now,
+                            stage=str(stage or "")[:40],
+                            details={
+                                "after_terminal": 1,
+                                "percent": pct_now,
+                                "gcs_terminal": 1 if gcs_terminal else 0,
+                                "mem_soft_terminal": 1 if mem_soft_terminal else 0,
+                            },
+                            ok=False,
+                            code="zombie_progress",
+                            **ilo286.job_ids(job),
+                        )
+            except Exception:  # noqa: BLE001
+                pass
     except Exception:  # noqa: BLE001
         pass
     # design/110 — stamp resume envelope (no paper text); skip wired later.
@@ -1434,7 +1474,15 @@ async def _ingest_sweeper_loop() -> None:
                         or (job.get("_last_reclaim_reason") if isinstance(job, dict) else "")
                         or "unknown"
                     )[:64]
-                    # design/179 — will_mark false when zombie reclaim (live lease).
+                    mem2 = ilo.mem_snapshot(job2)
+                    gcs2 = ilo.gcs_snapshot(jid, owner)
+                    live_skip = ilo.kill_skip_for_live_lease(
+                        reclaim_ok=bool(ok),
+                        reclaim_reason=reclaim_reason,
+                        mem_snap=mem2,
+                        gcs_snap=gcs2,
+                    )
+                    # design/179 + design/286 — never mark lost on live lease / zombie reclaim.
                     _zombie_reasons = (
                         "gcs_lease_alive",
                         "lease_claim_failed",
@@ -1446,6 +1494,7 @@ async def _ingest_sweeper_loop() -> None:
                         and not job2.get("done")
                         and not job2.get("error")
                         and reclaim_reason not in _zombie_reasons
+                        and live_skip is None
                     )
                     try:
                         ilo.emit_dual(
@@ -1458,8 +1507,9 @@ async def _ingest_sweeper_loop() -> None:
                                 "reclaim_ok": bool(ok),
                                 "reclaim_reason": reclaim_reason or "unknown",
                                 "will_mark_lost": bool(will_mark),
-                                **ilo.mem_snapshot(job2),
-                                **ilo.gcs_snapshot(jid, owner),
+                                **ilo.live_lease_flags(mem2, gcs2),
+                                **mem2,
+                                **gcs2,
                             },
                             ok=bool(ok),
                             **ilo.job_ids(job2),
@@ -1469,31 +1519,44 @@ async def _ingest_sweeper_loop() -> None:
                     from sentence_reading.llm import ingest_worker_wake as iww
 
                     # design/179 — closed kill decision (never infer from zombie_risk alone).
-                    _zombie_reasons = (
-                        "gcs_lease_alive",
-                        "lease_claim_failed",
-                        "already_local",
-                    )
-                    zombie_risk = reclaim_reason in _zombie_reasons
+                    # design/286 — live GCS/mem lease after wake_fail is also zombie-class.
+                    zombie_risk = reclaim_reason in _zombie_reasons or live_skip is not None
 
                     def _emit_kill_decision(decision: str, *, will_mark: bool) -> None:
                         try:
+                            det = {
+                                "decision": str(decision)[:64],
+                                "reclaim_reason": reclaim_reason or "unknown",
+                                "reclaim_ok": bool(ok),
+                                "zombie_risk": bool(zombie_risk),
+                                "will_mark_lost": bool(will_mark),
+                                **ilo.live_lease_flags(mem2, gcs2),
+                                **iww.wake_fields_from_job(job2),
+                                **mem2,
+                                **gcs2,
+                            }
                             ilo.emit_dual(
                                 "sweep_kill_decision",
                                 job_id=jid,
                                 severity="error" if decision == "marked_lost" else "boundary",
                                 percent=int(job2.get("percent") or 0),
-                                details={
-                                    "decision": str(decision)[:64],
-                                    "reclaim_reason": reclaim_reason or "unknown",
-                                    "reclaim_ok": bool(ok),
-                                    "zombie_risk": bool(zombie_risk),
-                                    "will_mark_lost": bool(will_mark),
-                                    **iww.wake_fields_from_job(job2),
-                                    **ilo.mem_snapshot(job2),
-                                    **ilo.gcs_snapshot(jid, owner),
-                                },
+                                details=det,
                                 ok=decision != "marked_lost",
+                                code=(
+                                    "false_lost_blocked"
+                                    if decision
+                                    in (
+                                        "skipped_live_gcs_lease",
+                                        "skipped_live_mem_lease",
+                                        "skipped_zombie",
+                                    )
+                                    else (
+                                        "false_lost_marked"
+                                        if decision == "marked_lost"
+                                        and ilo.lease_still_live_gcs(gcs2)
+                                        else "sweep_kill_decision"
+                                    )
+                                ),
                                 **ilo.job_ids(job2),
                             )
                         except Exception:  # noqa: BLE001
@@ -1508,9 +1571,71 @@ async def _ingest_sweeper_loop() -> None:
                     if job2.get("done") or job2.get("error"):
                         _emit_kill_decision("skipped_already_terminal", will_mark=False)
                         continue
-                    # J1: live GCS lease / claim race — do NOT false-kill.
+                    # J1 / 286: live lease — do NOT false-kill.
+                    if live_skip:
+                        try:
+                            ilo.emit_dual(
+                                "false_worker_lost_guard",
+                                job_id=jid,
+                                severity="boundary",
+                                percent=int(job2.get("percent") or 0),
+                                details={
+                                    "blocked": 1,
+                                    "would_mark": 1,
+                                    "reclaim_reason": reclaim_reason or "unknown",
+                                    **ilo.live_lease_flags(mem2, gcs2),
+                                    **iww.wake_fields_from_job(job2),
+                                    **{
+                                        k: mem2[k]
+                                        for k in (
+                                            "mem_lease_age_sec",
+                                            "mem_tok8",
+                                        )
+                                        if k in mem2
+                                    },
+                                    **{
+                                        k: gcs2[k]
+                                        for k in (
+                                            "gcs_lease_age_sec",
+                                            "gcs_tok8",
+                                            "gcs_lease_missing",
+                                        )
+                                        if k in gcs2
+                                    },
+                                },
+                                ok=True,
+                                code="false_lost_blocked",
+                                **ilo.job_ids(job2),
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
+                        _emit_kill_decision(live_skip, will_mark=False)
+                        continue
                     if zombie_risk:
                         _emit_kill_decision("skipped_zombie", will_mark=False)
+                        continue
+                    # Regression sensor: marking lost while GCS lease still live.
+                    if ilo.lease_still_live_gcs(gcs2):
+                        try:
+                            ilo.emit_dual(
+                                "false_worker_lost_suspect",
+                                job_id=jid,
+                                severity="error",
+                                percent=int(job2.get("percent") or 0),
+                                details={
+                                    "blocked": 0,
+                                    "would_mark": 1,
+                                    "reclaim_reason": reclaim_reason or "unknown",
+                                    **ilo.live_lease_flags(mem2, gcs2),
+                                    **iww.wake_fields_from_job(job2),
+                                },
+                                ok=False,
+                                code="false_lost_marked",
+                                **ilo.job_ids(job2),
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
+                        _emit_kill_decision("skipped_live_gcs_lease", will_mark=False)
                         continue
                     _emit_kill_decision("marked_lost", will_mark=True)
                     _fail_job_terminal(
@@ -1524,9 +1649,10 @@ async def _ingest_sweeper_loop() -> None:
                             "reclaim_reason": reclaim_reason or "unknown",
                             "will_mark_lost_path": "sweeper_after_reclaim_fail",
                             "zombie_risk": False,
+                            **ilo.live_lease_flags(mem2, gcs2),
                             **iww.wake_fields_from_job(job2),
-                            **ilo.mem_snapshot(job2),
-                            **ilo.gcs_snapshot(jid, owner),
+                            **mem2,
+                            **gcs2,
                         },
                         percent=int(job2.get("percent") or 0),
                     )

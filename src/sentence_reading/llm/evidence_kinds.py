@@ -277,6 +277,10 @@ ALLOWED_KINDS = frozenset(
         "ingest_cache_id_fork",
         "notify_complete_gate",
         "poll_cache_vs_index",
+        # design/286 — false worker_lost live-lease guard
+        "false_worker_lost_guard",
+        "false_worker_lost_suspect",
+        "post_terminal_ingest_progress",
         # design/241 — SAF tree write
         "pdf_tree_write_probe",
         "pdf_tree_copy_start",

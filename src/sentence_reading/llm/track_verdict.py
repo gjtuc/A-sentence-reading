@@ -116,7 +116,8 @@ def compute_verdicts(
 
     if tl.terminal_error_ts and tl.terminal_reason == "worker_lost":
         out.append("worker_lost_terminal")
-        # design/169m — classify false kill vs true orphan from terminal details.
+        # design/169m — classify false kill vs true orphans from terminal details.
+        # design/286 — live GCS lease on worker_lost is always false-kill class.
         term = None
         for o in tl.events:
             if o.get("kind") == "server_job_terminal_error":
@@ -125,12 +126,21 @@ def compute_verdicts(
             rr = str(term.get("reclaim_reason") or "")
             gcs_age = term.get("gcs_lease_age_sec")
             mem_age = term.get("mem_lease_age_sec")
+            live_gcs = isinstance(gcs_age, int) and gcs_age < 0
+            live_mem = isinstance(mem_age, int) and mem_age < 0
+            if live_gcs:
+                out.append("false_worker_lost_live_gcs")
+            if rr == "worker_wake_failed" and (live_gcs or live_mem):
+                out.append("false_worker_lost_wake_fail_live")
             if rr == "gcs_lease_alive" or (
                 isinstance(gcs_age, int)
                 and gcs_age < 0
                 and isinstance(mem_age, int)
                 and mem_age > 0
             ):
+                out.append("false_worker_lost_stale_mem_lease")
+            elif live_gcs and live_mem:
+                # both leases still valid — tonight's pattern
                 out.append("false_worker_lost_stale_mem_lease")
             elif isinstance(gcs_age, int) and gcs_age > 0:
                 out.append("true_worker_orphaned")

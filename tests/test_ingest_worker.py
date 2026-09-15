@@ -149,6 +149,40 @@ def test_wake_ok_false_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.outcome == "ok_false"
 
 
+def test_wake_ok_false_carries_wake_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """design/286 — worker body error → WakeResult.wake_error for evidence."""
+    monkeypatch.setenv("ASR_WORKER_URL", "https://worker.example.run.app")
+    monkeypatch.setenv("ASR_WORKER_SECRET", "s3cret")
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"ok": False, "error": "gcs_lease_alive"}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return None
+
+        async def post(self, url, json, headers):
+            return _Resp()
+
+    monkeypatch.setattr(iww.httpx, "AsyncClient", lambda **k: _Client())
+    result = asyncio.run(
+        iww.wake_ingest_worker("job_abc", "uid123456789012345678", emit=False)
+    )
+    assert result.ok is False
+    assert result.outcome == "ok_false"
+    assert result.wake_error == "gcs_lease_alive"
+    assert result.details().get("wake_error") == "gcs_lease_alive"
+    job: dict = {}
+    iww.stash_wake_on_job(job, result)
+    assert iww.wake_fields_from_job(job).get("wake_error") == "gcs_lease_alive"
+
+
 def test_wake_timeout_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ASR_WORKER_URL", "https://worker.example.run.app")
     monkeypatch.setenv("ASR_WORKER_SECRET", "s3cret")

@@ -1,4 +1,7 @@
-"""design/179 — false worker_lost skip predicates + sweep_kill_decision emit."""
+"""design/179 — false worker_lost skip predicates + sweep_kill_decision emit.
+
+design/286 — also skip when GCS/mem lease still live after wake_fail.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +21,7 @@ def _will_mark_lost(
     done: bool,
     error: object,
     reclaim_reason: str,
+    live_skip: str | None = None,
 ) -> bool:
     return (
         not ok
@@ -25,6 +29,7 @@ def _will_mark_lost(
         and not done
         and not error
         and reclaim_reason not in _ZOMBIE
+        and live_skip is None
     )
 
 
@@ -51,6 +56,29 @@ def test_true_orphan_wake_failed_still_marks() -> None:
             reclaim_reason="worker_wake_failed",
         )
         is True
+    )
+
+
+def test_286_live_gcs_after_wake_fail_never_marks() -> None:
+    from sentence_reading.llm import ingest_lease_obs as ilo
+
+    skip = ilo.kill_skip_for_live_lease(
+        reclaim_ok=False,
+        reclaim_reason="worker_wake_failed",
+        mem_snap={"mem_lease_age_sec": -274},
+        gcs_snap={"gcs_lease_missing": False, "gcs_lease_age_sec": -274},
+    )
+    assert skip == "skipped_live_gcs_lease"
+    assert (
+        _will_mark_lost(
+            ok=False,
+            local_running=False,
+            done=False,
+            error=None,
+            reclaim_reason="worker_wake_failed",
+            live_skip=skip,
+        )
+        is False
     )
 
 

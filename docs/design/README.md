@@ -343,6 +343,7 @@
 | 283 | [283-translate-stage-loop-evidence.md](283-translate-stage-loop-evidence.md) | Translate/ingest stage loop & regress evidence overkill (0.3.278) |
 | 284 | [284-ingest-dual-handoff-notify-evidence.md](284-ingest-dual-handoff-notify-evidence.md) | Dual-lease · cache fork · handoff/notify gate densify (0.3.279) |
 | 285 | [285-honest-handoff-notify-open.md](285-honest-handoff-notify-open.md) | Honest handoff→notify gate · openByCacheId resolve (0.3.281) |
+| 286 | [286-false-worker-lost-live-lease-guard.md](286-false-worker-lost-live-lease-guard.md) | False worker_lost live-lease kill guard + sensors (0.3.282) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

@@ -117,6 +117,59 @@ def gcs_snapshot(
     return out
 
 
+def lease_still_live_gcs(gcs_snap: dict[str, Any] | None) -> bool:
+    """True when GCS snapshot shows a non-expired lease (age < 0)."""
+    if not isinstance(gcs_snap, dict):
+        return False
+    if gcs_snap.get("gcs_lease_missing"):
+        return False
+    age = gcs_snap.get("gcs_lease_age_sec")
+    return isinstance(age, int) and age < 0
+
+
+def lease_still_live_mem(mem_snap: dict[str, Any] | None) -> bool:
+    """True when mem snapshot shows a non-expired lease (age < 0)."""
+    if not isinstance(mem_snap, dict):
+        return False
+    age = mem_snap.get("mem_lease_age_sec")
+    return isinstance(age, int) and age < 0
+
+
+def live_lease_flags(
+    mem_snap: dict[str, Any] | None,
+    gcs_snap: dict[str, Any] | None,
+) -> dict[str, int]:
+    """design/286 — 0|1 flags for kill-guard + evidence."""
+    return {
+        "live_gcs": 1 if lease_still_live_gcs(gcs_snap) else 0,
+        "live_mem": 1 if lease_still_live_mem(mem_snap) else 0,
+    }
+
+
+def kill_skip_for_live_lease(
+    *,
+    reclaim_ok: bool,
+    reclaim_reason: str,
+    mem_snap: dict[str, Any] | None,
+    gcs_snap: dict[str, Any] | None,
+) -> str | None:
+    """design/286 — if reclaim failed but a lease is live, return skip decision token.
+
+    Returns None when kill is still allowed (true orphan path).
+    """
+    if reclaim_ok:
+        return None
+    reason = str(reclaim_reason or "").strip()
+    zombie = frozenset({"gcs_lease_alive", "lease_claim_failed", "already_local"})
+    if reason in zombie:
+        return "skipped_zombie"
+    if lease_still_live_gcs(gcs_snap):
+        return "skipped_live_gcs_lease"
+    if lease_still_live_mem(mem_snap):
+        return "skipped_live_mem_lease"
+    return None
+
+
 def should_emit_heartbeat(hb_seq: int, *, force: bool = False) -> bool:
     if force:
         return True
@@ -203,9 +256,11 @@ def emit_dual(
     details: dict[str, Any] | None = None,
     severity: str = "boundary",
     ok: bool | None = None,
+    code: str | None = None,
 ) -> None:
     """Emit to evidence + ops when kind is allowlisted on each bus. Never raises."""
     det = dict(details or {})
+    code_tok = str(code or kind or "").strip()[:64] or kind
     try:
         from sentence_reading.llm import evidence_bus as eb
 
@@ -222,14 +277,20 @@ def emit_dual(
             message=(message or "")[:200],
             details=det,
             ok=ok,
-            code=kind,
+            code=code_tok,
         )
     except Exception:  # noqa: BLE001
         pass
     try:
-        from sentence_reading.llm import ops_events as oev
+        from sentence_reading.llm import ops_events as oe
 
-        oev.emit(
+        # ops bus has a narrower emit signature — fold ok/code into details.
+        ops_det = dict(det)
+        if ok is not None:
+            ops_det["ok_flag"] = 1 if ok else 0
+        if code_tok and code_tok != kind:
+            ops_det["code_tok"] = code_tok[:40]
+        oe.emit(
             kind,
             trace_id=trace_id,
             job_id=job_id,
@@ -238,8 +299,8 @@ def emit_dual(
             content_hash=content_hash,
             stage=stage,
             percent=percent,
-            message=message,
-            details=det,
+            message=(message or "")[:200],
+            details=ops_det,
         )
     except Exception:  # noqa: BLE001
         pass

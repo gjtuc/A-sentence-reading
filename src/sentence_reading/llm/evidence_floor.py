@@ -170,6 +170,10 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "ingest_cache_id_fork",
         "notify_complete_gate",
         "poll_cache_vs_index",
+        # design/286
+        "false_worker_lost_guard",
+        "false_worker_lost_suspect",
+        "post_terminal_ingest_progress",
     }
 )
 
@@ -234,6 +238,9 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "compute_verdicts",
             "zombie_worker",
             "accept_169j_title",
+            # design/286
+            "false_worker_lost_live_gcs",
+            "false_worker_lost_wake_fail_live",
         ),
     ),
     (
@@ -336,6 +343,12 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             # design/284
             "maybe_emit_lease_dual",
             "ingest_lease_dual",
+            # design/286
+            "false_worker_lost_guard",
+            "false_worker_lost_suspect",
+            "post_terminal_ingest_progress",
+            "skipped_live_gcs_lease",
+            "kill_skip_for_live_lease",
             # design/169o
             "_run_harmonize_residual",
             "harmonize_pending",
@@ -387,6 +400,10 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             # design/284
             "maybe_emit_lease_dual",
             "ingest_lease_dual",
+            # design/286
+            "kill_skip_for_live_lease",
+            "live_lease_flags",
+            "lease_still_live_gcs",
         ),
     ),
     (

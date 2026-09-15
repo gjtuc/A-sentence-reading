@@ -62,13 +62,25 @@ async def internal_run_job(
     from sentence_reading.api.app import _reclaim_ingest_job_from_gcs
 
     ok = await _reclaim_ingest_job_from_gcs(job_id, owner_uid)
-    return JSONResponse(
-        {
-            "ok": bool(ok),
-            "job_id": job_id,
-            "worker_instance_id": worker_instance_id(),
-        }
-    )
+    # design/286 — surface reclaim reason so wake evidence can carry wake_error.
+    err = ""
+    try:
+        from sentence_reading.api.app import _JOBS as _API_JOBS
+
+        stash = _API_JOBS.get(job_id)
+        if isinstance(stash, dict):
+            err = str(stash.get("_last_reclaim_reason") or "").strip()[:64]
+    except Exception:  # noqa: BLE001
+        err = ""
+    body: dict[str, Any] = {
+        "ok": bool(ok),
+        "job_id": job_id,
+        "worker_instance_id": worker_instance_id(),
+    }
+    if not ok and err:
+        # snake token only — evidence _safe_details
+        body["error"] = err
+    return JSONResponse(body)
 
 
 @app.on_event("startup")
