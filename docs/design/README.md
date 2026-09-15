@@ -350,6 +350,7 @@
 | 290 | [290-ship-orchestrator-pair-finish.md](290-ship-orchestrator-pair-finish.md) | Pair must finish worker · ship orchestrator (0.3.285) |
 | 291 | [291-ship-staged-source-bash-apk.md](291-ship-staged-source-bash-apk.md) | Staged upload · bash ship_release · APK fallback (0.3.286) |
 | 292 | [292-api-worker-role-gates.md](292-api-worker-role-gates.md) | API/worker role gates (0.3.287) |
+| 293 | [293-ship-preflight-checklist.md](293-ship-preflight-checklist.md) | ship_release preflight checklist (0.3.288) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

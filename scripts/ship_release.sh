@@ -27,6 +27,48 @@ if [[ -z "${ASR_SHIP_ALLOW_PARALLEL_APK:-}" ]] && _apk_running; then
   exit 2
 fi
 
+# design/293 F1 — encode the smooth-path checklist before pair.
+echo "design/293 preflight checklist:" >&2
+echo "  1. freshness + version bump above live" >&2
+echo "  2. one version commit pushed to origin/main" >&2
+echo "  3. no tracked dirty files" >&2
+echo "  4. no parallel APK/flutter build" >&2
+echo "  5. use ship_release only (staged pair + role gates)" >&2
+echo "  6. APK only after ship_release OK" >&2
+echo "  7. verify_live + api_role_ok" >&2
+echo "  8. optional adb install" >&2
+
+_tracked_dirty="$(git status --porcelain --untracked-files=no 2>/dev/null || true)"
+if [[ -n "$_tracked_dirty" ]]; then
+  echo "error: design/293 refuse ship — tracked working tree dirty:" >&2
+  echo "$_tracked_dirty" >&2
+  exit 2
+fi
+
+_head="$(git rev-parse HEAD 2>/dev/null || true)"
+_origin="$(git rev-parse origin/main 2>/dev/null || true)"
+if [[ -n "$_head" && -n "$_origin" && "$_head" != "$_origin" && "${ASR_SHIP_ALLOW_UNPUSHED:-0}" != "1" ]]; then
+  echo "error: design/293 refuse ship — HEAD ($_head) != origin/main ($_origin); push first (or ASR_SHIP_ALLOW_UNPUSHED=1)" >&2
+  exit 2
+fi
+
+python - <<'PY'
+from pathlib import Path
+import re
+import sys
+root = Path(".")
+app = re.search(r'version="([^"]+)"', (root / "src/sentence_reading/api/app.py").read_text(encoding="utf-8"))
+pub = re.search(r"^version:\s*([0-9.]+)", (root / "mobile/pubspec.yaml").read_text(encoding="utf-8"), re.M)
+cfg = re.search(r"kAppVersionLabel = '([^']+)'", (root / "mobile/lib/config.dart").read_text(encoding="utf-8"))
+av = app.group(1) if app else ""
+pv = pub.group(1) if pub else ""
+cv = cfg.group(1) if cfg else ""
+print(f"design/293 versions app={av} pubspec={pv} config={cv}", flush=True)
+if not av or av != pv or av != cv:
+    print("error: design/293 version mismatch across app/pubspec/config", file=sys.stderr)
+    sys.exit(2)
+PY
+
 echo "design/291: deploy_cloud_run_pair.sh ..." >&2
 bash scripts/deploy_cloud_run_pair.sh "$@"
 
