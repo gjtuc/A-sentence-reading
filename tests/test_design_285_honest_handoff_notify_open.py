@@ -11,7 +11,7 @@ APP = ROOT / "src/sentence_reading/api/app.py"
 PUBSPEC = ROOT / "mobile/pubspec.yaml"
 CONFIG = ROOT / "mobile/lib/config.dart"
 
-VERSION = "0.3.280"
+VERSION = "0.3.281"
 
 
 def test_design_285_locked() -> None:

@@ -1,8 +1,10 @@
 # 285 — Honest handoff → notify · openByCacheId resolve
 
-Version: **0.3.280** · Status: **locked**  
+Version: **0.3.281** · Status: **locked**  
 Amends [74](74-bg-upload-notify.md) · [185](185-local-paper-sot.md) · [284](284-ingest-dual-handoff-notify-evidence.md)  
 Follows 284 (obs only). Incident: 2026-09-15 notify miss after dual `cache_id` + mid-handoff supersede GC.
+
+**0.3.281 note:** `/api/status` `version` must use `app.version` (not a second hardcoded string). 0.3.280 CD stamped `deploy_git_sha` correctly but status still reported 0.3.279 from a stale literal.
 
 ## Why
 
