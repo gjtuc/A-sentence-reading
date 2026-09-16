@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.291",
+    version="0.3.292",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -7828,7 +7828,9 @@ async def _run_ingest_job_body(
                     pdf_extract.extract_figures, tmp_path, doc_role=doc_role
                 )
             else:
-                figures = await asyncio.to_thread(docx_extract.extract_figures, tmp_path)
+                figures = await asyncio.to_thread(
+                    docx_extract.extract_figures, tmp_path, doc_role=doc_role
+                )
         except Exception as exc:
             from sentence_reading.pdf.caption_lumps import CaptionLumpError
 
@@ -7880,6 +7882,14 @@ async def _run_ingest_job_body(
                     "imagedata_n": int(_census.get("imagedata_n") or 0),
                     "caption_n": int(_census.get("caption_n") or 0),
                     "vml_unseen_n": int(_census.get("vml_unseen_n") or 0),
+                    "slot_s_n": sum(
+                        1
+                        for f in (figures or [])
+                        if str(getattr(f, "slot_key", "") or "")
+                        .strip()
+                        .lower()
+                        .startswith(("fig:s", "table:s"))
+                    ),
                 },
                 ok=True,
                 code="figure_extract_done",
@@ -8087,6 +8097,7 @@ async def _run_ingest_job_body(
             if doc_role == "supplementary" and references:
                 sentences = filter_bibliography_sentences(sentences, references)
             from sentence_reading.title_replay import (
+                align_title_sentences,
                 docx_core_title,
                 pdf_info_title,
                 pdf_styled_title,
@@ -8112,6 +8123,9 @@ async def _run_ingest_job_body(
                 title_guess=_title_guess,
                 styled_title=_styled,
             )
+            _title_card = "absent"
+            if doc_role != "supplementary":
+                sentences, _title_card = align_title_sentences(sentences, title)
             try:
                 from sentence_reading.llm import evidence_bus as eb
 
@@ -8125,6 +8139,7 @@ async def _run_ingest_job_body(
                         "title_class": title_class(title),
                         "char_n": len(title),
                         "doc_role": str(doc_role or "")[:32],
+                        "title_card": _title_card,
                     },
                     ok=True,
                     code="title_pick_done",
@@ -8180,6 +8195,10 @@ async def _run_ingest_job_body(
                 )
                 for s in sentences
             ]
+            if doc_role != "supplementary":
+                from sentence_reading.title_replay import align_title_sentences
+
+                sentences, _ = align_title_sentences(sentences, title)
 
         if doc_role != "supplementary" and not document_citation:
             from sentence_reading.document_citation import extract_document_citation

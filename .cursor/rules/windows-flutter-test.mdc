@@ -1,0 +1,12 @@
+---
+description: Windows agent shells must launch Flutter tests via flutter_test.cmd (design/299).
+alwaysApply: true
+---
+
+# Windows flutter test launch (design/299)
+
+Bare `flutter test` dies when `ProgramFiles(x86)` is unset (`0x2371`).
+
+- Run `scripts/flutter_test.cmd` (optionally with flutter args).
+- Do not assign `$env:ProgramFiles(x86)` or `$env:'ProgramFiles(x86)'`. PowerShell treats that as a drive.
+- Do not insert a new test into an existing test function. Append it, then run the file.

@@ -42,13 +42,27 @@ def test_vml_imagedata_pairs_with_next_caption(tmp_path: Path) -> None:
     path = tmp_path / "si.docx"
     doc.save(path)
 
-    figs = extract_figures(path)
+    figs = extract_figures(path, doc_role="supplementary")
     assert len(figs) == 1
     assert figs[0].caption.startswith("Fig. S1")
+    assert figs[0].slot_key == "fig:s1"
     census = figure_source_census(path)
     assert census["blip_n"] == 0
     assert census["imagedata_n"] == 1
     assert census["vml_unseen_n"] == 0
+
+
+def test_main_docx_does_not_stamp_si_slot(tmp_path: Path) -> None:
+    doc = Document()
+    p = doc.add_paragraph()
+    p.add_run().add_picture(BytesIO(png_over_docx_min()))
+    _replace_blip_with_vml(p)
+    doc.add_paragraph("Fig. S2. Not a main slot.")
+    path = tmp_path / "main.docx"
+    doc.save(path)
+    figs = extract_figures(path, doc_role="main")
+    assert len(figs) == 1
+    assert figs[0].slot_key == ""
 
 
 def test_drawingml_blip_still_extracts(tmp_path: Path) -> None:

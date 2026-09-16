@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from sentence_reading.cache.paper_cache import normalize_pairing_key
 from sentence_reading.models import Sentence
-from sentence_reading.title_replay import join_largest_title_lines, pick_session_title
+from sentence_reading.title_replay import (
+    align_title_sentences,
+    join_largest_title_lines,
+    pick_session_title,
+)
 
 PAPER = (
     "Evaluation of calcium doped Ba-Co-Nb-O perovskite as cathode materials "
@@ -67,3 +71,31 @@ def test_styled_lines_join_title_not_authors() -> None:
     )
     assert source == "styled"
     assert title == PAPER
+
+
+def test_title_card_replaces_author_chrome_and_drops_ko() -> None:
+    chrome = (
+        "TongYuan Xu, Chao Huang, Liping Sun *, Lihua Huo, Hui Zhao "
+        "ARTICLE INFO ABSTRACT Keywords: Solid oxide fuel cells"
+    )
+    rows, card = align_title_sentences(
+        [
+            Sentence(id="t", text=chrome, section="title", text_ko="저자 덩어리"),
+            Sentence(id="a", text="The cathode is stable.", section="abstract", text_ko="안정하다."),
+        ],
+        PAPER,
+    )
+    assert card == "replaced"
+    assert rows[0].section == "title"
+    assert rows[0].text == PAPER
+    assert rows[0].text_ko == ""
+    assert rows[1].text_ko == "안정하다."
+
+
+def test_usable_title_card_keeps_translation() -> None:
+    rows, card = align_title_sentences(
+        [Sentence(id="t", text=PAPER, section="title", text_ko="공식 제목")],
+        PAPER,
+    )
+    assert card == "kept"
+    assert rows[0].text_ko == "공식 제목"

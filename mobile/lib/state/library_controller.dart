@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/client.dart';
 import '../api/fig_refs.dart' as fig;
+import '../api/hydrate_reuse.dart';
 import '../api/ingest_models.dart';
 import '../api/paper_models.dart';
 import '../api/progress_gate.dart';
@@ -3647,6 +3648,7 @@ class LibraryController extends ChangeNotifier {
       },
     );
     if (!ok) return false;
+    _dropHydrateSnapshot(mainId);
 
     PaperEntry? mainMeta;
     for (final e in papers) {
@@ -4204,14 +4206,23 @@ class LibraryController extends ChangeNotifier {
     );
     try {
       ReadingSession o;
-      final side = _hydrateSessions[entry.id.trim()];
-      // design/181 — reuse hydrate side-session to avoid open∩PNG contention.
-      if (side != null &&
-          side.isValid &&
-          side.sentenceCount > 0 &&
-          (_hydrateActive.contains(entry.id.trim()) ||
-              side.figures.any((f) => f.imageSrc.trim().isNotEmpty))) {
-        o = side;
+      final reuseSide = _hydrateSessions[entry.id.trim()];
+      // design/181 — reuse only when the snapshot still matches the library row.
+      // A merged disk session must not reopen the pre-merge hydrate (Figure S missing).
+      if (reuseSide != null &&
+          shouldReuseHydrateSession(
+            sideValid: reuseSide.isValid,
+            sideSentenceCount: reuseSide.sentenceCount,
+            sideFigureCount: reuseSide.figureCount,
+            sideHasImage:
+                reuseSide.figures.any((f) => f.imageSrc.trim().isNotEmpty),
+            sideSupplementaryMerged: reuseSide.supplementaryMerged,
+            hydrateActive: _hydrateActive.contains(entry.id.trim()),
+            entrySentenceCount: entry.sentenceCount,
+            entryFigureCount: entry.figureCount,
+            entryRole: entry.docRole,
+          )) {
+        o = reuseSide;
         asrEvidenceBus?.record(
           'reader_open',
           severity: 'lifecycle',
@@ -5689,6 +5700,14 @@ class LibraryController extends ChangeNotifier {
     );
     await _rebuildLibraryHashSet();
     unawaited(_pumpUploadQueue());
+  }
+
+  void _dropHydrateSnapshot(String cacheId) {
+    final id = cacheId.trim();
+    if (id.isEmpty) return;
+    _hydrateSessions.remove(id);
+    _figureHydrate.remove(id);
+    _hydrateActive.remove(id);
   }
 
   /// design/265c — local hard purge for cancel orphans (same stack as deletePapers).

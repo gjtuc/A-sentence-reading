@@ -10,6 +10,7 @@ import 'dart:typed_data';
 import 'cite_refs.dart';
 import 'document_citation.dart';
 import 'reader_nav_labels.dart';
+import 'title_card.dart';
 
 /// Ingest quality metrics persisted in session.json (design/167).
 class IngestQuality {
@@ -233,6 +234,8 @@ class ReadingSession {
         }
       }
     }
+    final pickedTitle = '${json['title'] ?? fallbackTitle}'.trim();
+    final alignedSentences = alignTitleSentences(sentences, pickedTitle);
     final warnings = <String>[];
     final rawW = json['warnings'];
     if (rawW is List) {
@@ -254,8 +257,8 @@ class ReadingSession {
     return ReadingSession(
       sessionId: sid,
       cacheId: cid,
-      title: '${json['title'] ?? fallbackTitle}'.trim(),
-      sentences: sentences,
+      title: pickedTitle,
+      sentences: alignedSentences,
       figures: figures,
       sentenceIndex: asInt(json['sentence_index']),
       figureIndex: asInt(json['figure_index']),

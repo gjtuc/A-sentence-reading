@@ -222,19 +222,52 @@ def pick_session_title(
     if title_usable(stem):
         return stem, "stem"
     return stem or "Untitled", "stem_fallback"
-    """1 when a text paragraph follows an SI banner paragraph."""
-    seen_banner = False
-    for block in re.split(r"\n\s*\n", text or ""):
-        piece = re.sub(r"\s+", " ", block).strip()
-        if not piece:
+
+
+def align_title_sentences(sentences: list, picked_title: str) -> tuple[list, str]:
+    """Make the Title card match the picked title. Drop a chrome card's translation.
+
+    Card token is absent | kept | replaced. Never returns paper text.
+    """
+    from sentence_reading.models import Sentence
+
+    picked = re.sub(r"\s+", " ", (picked_title or "").strip())
+    has_title = any(
+        str(getattr(row, "section", "") or "") == "title" for row in sentences or []
+    )
+    if not title_usable(picked):
+        return list(sentences or []), ("kept" if has_title else "absent")
+    out: list = []
+    card = "absent"
+    kept_one = False
+    for row in sentences or []:
+        section = str(getattr(row, "section", "") or "")
+        text = re.sub(r"\s+", " ", str(getattr(row, "text", "") or "").strip())
+        if section != "title":
+            out.append(row)
             continue
-        kind = title_class(piece)
-        if kind == "si_banner":
-            seen_banner = True
+        if kept_one:
+            card = "replaced"
             continue
-        if seen_banner and kind == "text" and len(piece) >= 12:
-            return 1
-    return 0
+        kept_one = True
+        if text == picked:
+            card = "kept"
+            out.append(row)
+            continue
+        card = "replaced"
+        out.append(
+            Sentence(
+                id=str(getattr(row, "id", "") or "sent_title"),
+                text=picked,
+                section="title",
+                start_char=getattr(row, "start_char", None),
+                end_char=getattr(row, "end_char", None),
+                text_ko="",
+                text_ko_stage="",
+                quality_flags=tuple(getattr(row, "quality_flags", ()) or ()),
+            )
+        )
+    return out, card
 
 
 def head_title_after_banner(text: str) -> int:

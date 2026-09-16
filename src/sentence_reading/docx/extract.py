@@ -279,7 +279,40 @@ def figure_source_census(path: Path) -> dict[str, int]:
     }
 
 
-def extract_figures(path: Path) -> list[Figure]:
+def stamp_docx_slot_keys(figures: list[Figure], *, supplementary: bool) -> list[Figure]:
+    """Caption Fig. S1 / Table S1 → fig:s1 / table:s1. Empty slot stays empty."""
+    from sentence_reading.fig_refs import caption_key
+    from sentence_reading.pdf.slot_plan import slot_key_from_caption_key
+
+    out: list[Figure] = []
+    for fig in figures:
+        if (fig.slot_key or "").strip():
+            out.append(fig)
+            continue
+        ckey = caption_key(fig.caption or "")
+        sk = (
+            slot_key_from_caption_key(ckey, supplementary=supplementary)
+            if ckey
+            else None
+        )
+        if not sk:
+            out.append(fig)
+            continue
+        out.append(
+            Figure(
+                id=fig.id,
+                image_src=fig.image_src,
+                caption=fig.caption,
+                page_index=fig.page_index,
+                caption_ko=fig.caption_ko,
+                caption_ko_stage=fig.caption_ko_stage,
+                slot_key=sk,
+            )
+        )
+    return out
+
+
+def extract_figures(path: Path, *, doc_role: str = "main") -> list[Figure]:
     """
     임베디드 이미지 (DrawingML blip + VML imagedata) + (직후) Fig/Scheme 캡션.
     Table 캡션이 있는 표는 SVG 요약으로 캐러셀에 넣음.
@@ -363,4 +396,5 @@ def extract_figures(path: Path) -> list[Figure]:
 
     # 문서 끝 — 캡션 없는 pending 폐기
     flush_images_without_caption()
-    return figures[:200]
+    supplementary = (doc_role or "").strip().lower() in ("supplementary", "si", "supp")
+    return stamp_docx_slot_keys(figures[:200], supplementary=supplementary)
