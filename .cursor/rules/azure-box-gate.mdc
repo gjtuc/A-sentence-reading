@@ -1,0 +1,14 @@
+---
+description: Azure reading-order work starts with scripts/azure_box_gate.py (design/302).
+alwaysApply: true
+---
+
+# Azure box gate (design/302)
+
+When section sentences do not match the paper and Azure layout is the source:
+
+- Run `python scripts/azure_box_gate.py --fixtures-only` first, then `--pdf <path>`.
+- Do not edit `section_flow` while `live_ok` is false.
+- Do not print paper text. Inventory JSON has coordinates only.
+- `azure_unavailable` means ask for credentials. Do not substitute PyMuPDF.
+- design/301 `vision_repair_expected` is not the live sentence order once Azure credentials exist.

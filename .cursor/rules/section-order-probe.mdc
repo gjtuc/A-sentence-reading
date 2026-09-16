@@ -1,0 +1,13 @@
+---
+description: Picker section mismatch uses scripts/section_order_probe.py (design/301).
+alwaysApply: true
+---
+
+# Section order probe (design/301)
+
+When picker section sentences do not match the paper:
+
+- Run `python scripts/section_order_probe.py --pdf <path> [--ui <dump.xml>]`.
+- Do not write `_w.py`. Do not print raw PDF text to the Windows console (`©` kills cp949).
+- Phone labels live in `content-desc`, not only `text`. The script reads both.
+- If the report says `vision_repair_expected True`, PyMuPDF order is not the live sentence tags. Azure sentence order is design/302 (`scripts/azure_box_gate.py`), not this probe.

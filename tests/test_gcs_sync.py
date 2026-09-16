@@ -113,13 +113,34 @@ def test_upload_download_with_fake_client(
         assert gcs.download_bytes("asr/tts_cache/missing.mp3") is None
 
 
+def test_missing_sa_file_uses_user_adc(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("ASR_GCS_BUCKET", "b")
+    monkeypatch.setenv(
+        "GOOGLE_APPLICATION_CREDENTIALS", str(tmp_path / "missing-sa.json")
+    )
+    monkeypatch.setattr(gcs, "running_on_gcp", lambda: False)
+    monkeypatch.setattr(
+        "sentence_reading.llm.gcs_secrets.user_adc_path", lambda: tmp_path / "adc.json"
+    )
+    ready, msg = gcs.gcs_client_ready()
+    assert ready is True
+    assert msg == "adc"
+
+
 def test_status_ready_false_without_creds(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("ASR_GCS_BUCKET", "b")
-    # WHY: load_asr_env 가 실제 SA 경로를 setdefault 할 수 있어 없는 파일로 강제
+    # WHY: load_asr_env 가 실제 SA 경로를 setdefault 할 수 있어 없는 파일로 강제.
+    # 사용자 ADC 도 없는 경우만 not-ready 다.
     monkeypatch.setenv(
         "GOOGLE_APPLICATION_CREDENTIALS", str(tmp_path / "missing-sa.json")
+    )
+    monkeypatch.setattr(gcs, "running_on_gcp", lambda: False)
+    monkeypatch.setattr(
+        "sentence_reading.llm.gcs_secrets.user_adc_path", lambda: None
     )
     st = gcs.gcs_status()
     assert st["enabled"] is True

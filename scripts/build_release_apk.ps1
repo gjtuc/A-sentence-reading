@@ -32,18 +32,100 @@ function Disable-SameDriveCache {
   Write-Host "design/291: using machine default Pub/Gradle caches"
 }
 
+function Read-ApkLog([string]$path) {
+  if (-not (Test-Path $path)) { return "" }
+  try {
+    return [IO.File]::ReadAllText($path)
+  } catch {
+    return ""
+  }
+}
+
+function Stop-ProcessTree([int]$processId) {
+  if ($processId -le 0) { return }
+  & taskkill.exe /F /T /PID $processId 2>$null | Out-Null
+}
+
+function Test-GradleDaemonRunning {
+  $hit = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -match 'GradleDaemon' }
+  return $null -ne $hit
+}
+
+function Wait-GradleDaemonsGone {
+  # design/300 - --stop must finish before the next flutter build starts.
+  Stop-GradleDaemons
+  for ($i = 0; $i -lt 15; $i++) {
+    if (-not (Test-GradleDaemonRunning)) {
+      Write-Host "design/300: GradleDaemon gone"
+      return
+    }
+    Write-Host "design/300: waiting for GradleDaemon to exit"
+    Start-Sleep -Seconds 2
+  }
+  Stop-GradleDaemons
+  Start-Sleep -Seconds 2
+}
+
 function Invoke-FlutterApk {
-  # design/298 - cmd so Gradle/JVM stderr is not a PowerShell error record.
+  # design/298 - cmd /c so Gradle/JVM stderr is not a PowerShell error record.
+  # design/300 - do not wait forever after BUILD FAILED or a stable APK file.
   $log = Join-Path $env:TEMP ("asr-apk-" + [guid]::NewGuid().ToString("n") + ".log")
   $prev = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
+  $proc = $null
   try {
-    cmd /c "flutter build apk --release > `"$log`" 2>&1"
+    $arg = '/c flutter build apk --release > "' + $log + '" 2>&1'
+    $proc = Start-Process -FilePath "cmd.exe" -ArgumentList $arg -WorkingDirectory $Mobile -PassThru -WindowStyle Hidden
+    $deadline = (Get-Date).AddMinutes(25)
+    $lastLen = -1
+    $failIdle = 0
+    $apkIdle = 0
+    $apkLen = -1
+    while ($proc -and -not $proc.HasExited) {
+      if ((Get-Date) -gt $deadline) {
+        Write-Host "design/300: apk build deadline - stop hung flutter"
+        Stop-ProcessTree $proc.Id
+        break
+      }
+      Start-Sleep -Seconds 5
+      try { $proc.Refresh() } catch { break }
+      $len = 0
+      if (Test-Path $log) { $len = (Get-Item $log).Length }
+      $text = Read-ApkLog $log
+      $grew = ($len -ne $lastLen)
+      $lastLen = $len
+      if ($grew) {
+        $failIdle = 0
+      } elseif ($text -match 'BUILD FAILED' -or $text -match 'kernel_snapshot_program' -or $text -match 'compileFlutterBuildRelease') {
+        $failIdle += 1
+        if ($failIdle -ge 4) {
+          Write-Host "design/300: failure log idle - stop hung flutter"
+          Stop-ProcessTree $proc.Id
+          break
+        }
+      }
+      if (Test-FreshApk $script:ApkStarted) {
+        $nowLen = (Get-Item $ApkOut).Length
+        if ($nowLen -gt 1000000 -and $nowLen -eq $apkLen) {
+          $apkIdle += 1
+        } else {
+          $apkIdle = 0
+          $apkLen = $nowLen
+        }
+        if ($apkIdle -ge 3) {
+          Write-Host "design/300: APK file stable - stop hung flutter"
+          Stop-ProcessTree $proc.Id
+          break
+        }
+      }
+    }
+    if ($proc -and -not $proc.HasExited) {
+      try { $proc.WaitForExit(15000) | Out-Null } catch {}
+    }
     $code = 1
-    if ($null -ne $LASTEXITCODE) { $code = [int]$LASTEXITCODE }
-    $text = ""
-    if (Test-Path $log) { $text = Get-Content -Raw -Path $log -ErrorAction SilentlyContinue }
-    return @{ Log = [string]$text; Code = $code }
+    if ($proc -and $proc.HasExited) { $code = [int]$proc.ExitCode }
+    return @{ Log = (Read-ApkLog $log); Code = $code }
   } finally {
     $ErrorActionPreference = $prev
     Remove-Item $log -ErrorAction SilentlyContinue
@@ -80,8 +162,7 @@ function Test-KernelSnapshotFail([string]$log) {
 }
 
 function Clear-FlutterSnapshot {
-  Stop-GradleDaemons
-  Start-Sleep -Seconds 2
+  Wait-GradleDaemonsGone
   Remove-Item -Recurse -Force (Join-Path $Mobile ".dart_tool\flutter_build") -ErrorAction SilentlyContinue
 }
 
@@ -105,8 +186,7 @@ function Test-IncrementalCacheFail([string]$log) {
 }
 
 function Clear-MobileBuildCaches {
-  Stop-GradleDaemons
-  Start-Sleep -Seconds 2
+  Wait-GradleDaemonsGone
   Remove-Item -Recurse -Force (Join-Path $Mobile "build") -ErrorAction SilentlyContinue
   Remove-Item -Recurse -Force (Join-Path $Mobile "android\.gradle") -ErrorAction SilentlyContinue
   Remove-Item -Recurse -Force (Join-Path $Mobile "android\app\build") -ErrorAction SilentlyContinue
@@ -118,7 +198,7 @@ if (Test-ApkBuildAlreadyRunning) {
   Write-Error "design/298: refuse APK build - flutter build apk already running"
   exit 2
 }
-Stop-GradleDaemons
+Wait-GradleDaemonsGone
 
 if ($SameDriveCache) {
   Enable-SameDriveCache
@@ -138,6 +218,7 @@ if ($WarmCaches) {
 }
 
 $started = Get-Date
+$script:ApkStarted = $started
 Write-Host "flutter build apk --release ..."
 $r1 = Invoke-FlutterApk
 Write-Host $r1.Log
@@ -147,6 +228,7 @@ if (-not $ok -and (Test-IncrementalCacheFail $r1.Log)) {
   Write-Host "design/287: incremental-cache failure - wipe build and retry once"
   Clear-MobileBuildCaches
   $started = Get-Date
+  $script:ApkStarted = $started
   $r2 = Invoke-FlutterApk
   Write-Host $r2.Log
   $ok = Test-ApkOk $r2 $started
@@ -157,6 +239,7 @@ if (-not $ok -and (Test-KernelSnapshotFail $r1.Log)) {
   Write-Host "design/298: snapshot or compile fail - wipe flutter_build and retry once"
   Clear-FlutterSnapshot
   $started = Get-Date
+  $script:ApkStarted = $started
   $r2s = Invoke-FlutterApk
   Write-Host $r2s.Log
   $ok = Test-ApkOk $r2s $started
@@ -168,6 +251,7 @@ if (-not $ok -and $script:UsedSameDrive -and (Test-KernelSnapshotFail $r1.Log)) 
   Disable-SameDriveCache
   Clear-MobileBuildCaches
   $started = Get-Date
+  $script:ApkStarted = $started
   $r3 = Invoke-FlutterApk
   Write-Host $r3.Log
   $ok = Test-ApkOk $r3 $started

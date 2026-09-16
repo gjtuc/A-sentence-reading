@@ -26,6 +26,7 @@ python scripts/session_freshness_guard.py
 3. `python scripts/pre_deploy_guard.py` — **exit 0**
 4. 커밋은 **Windows** `scripts/git_commit.cmd -Message "..." -Body "..."` (design/296·298). `powershell -File scripts/git_commit.ps1` 는 실행 정책에 막힌다. 그 다음 `scripts/ship_cloud_pair.ps1` (Git Bash 경로가 고정됨). `bash` / `bash -lc` + heredoc 으로 `git commit` 하지 말 것 — 이 PC의 `bash`는 WSL 스텁이고, heredoc 은 메시지가 빠져 `EDITOR unset` 으로 죽는다.
 5. 모바일 테스트는 `scripts/flutter_test.cmd` (design/299). bare `flutter test` 와 `$env:ProgramFiles(x86)` 는 이 PC에서 테스트 전에 죽는다. 새 테스트는 파일 끝에 추가한다.
+6. APK 멈춤은 `scripts/build_release_apk.ps1` 가 처리한다 (design/300). `BUILD FAILED` 로그가 멈췄거나 APK 파일 크기가 안정되면 hung flutter 를 끊는다. 재시도 전에 `GradleDaemon` 이 사라진 뒤에만 다음 빌드를 시작한다.
 
 ## 절대 하지 말 것
 

@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 _DEFAULT_ENV_CANDIDATES = (
+    Path(r"D:\.cursor\gc-home\gc_automation.env"),
     Path(r"C:\Users\user\Desktop\.cursor\gc_automation.env"),
     Path.home() / "Desktop" / ".cursor" / "gc_automation.env",
 )
@@ -47,6 +48,17 @@ def load_asr_env() -> None:
         for k, v in parsed.items():
             os.environ.setdefault(k, v)
         break
+    # A missing Desktop JSON path must not hide user ADC.
+    try:
+        from sentence_reading.llm.gcs_secrets import (
+            apply_runtime_secrets,
+            drop_missing_credentials_path,
+        )
+
+        drop_missing_credentials_path()
+        apply_runtime_secrets()
+    except Exception:
+        return
 
 
 def gemini_api_key() -> str | None:

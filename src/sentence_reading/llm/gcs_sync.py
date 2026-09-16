@@ -147,13 +147,21 @@ def gcs_client_ready() -> tuple[bool, str]:
     except ImportError:
         return False, "google-cloud-storage not installed"
     cred = (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
-    if cred:
-        if not Path(cred).is_file():
-            return False, "GOOGLE_APPLICATION_CREDENTIALS file missing"
+    if cred and Path(cred).is_file():
         return True, "ok"
-    # WHY: Cloud Run 은 런타임 SA ADC — JSON 파일 없음 (design/25)
+    # WHY: Cloud Run 은 런타임 SA ADC. 다른 PC는 사용자 ADC면 되고,
+    # Desktop JSON 경로가 없어도 막지 않는다 (design/25).
     if running_on_gcp():
         return True, "adc"
+    try:
+        from sentence_reading.llm.gcs_secrets import user_adc_path
+
+        if user_adc_path() is not None:
+            return True, "adc"
+    except Exception:
+        pass
+    if cred:
+        return False, "GOOGLE_APPLICATION_CREDENTIALS file missing"
     return False, "GOOGLE_APPLICATION_CREDENTIALS missing"
 
 

@@ -186,6 +186,31 @@ def recover_pdf_text(
             resume_doc = None
 
     if decision is None:
+        # Azure column order is the sentence source. Do not let a multicolumn
+        # flag force vision to rewrite it. Unconfigured Azure stays on the old path.
+        try:
+            from sentence_reading.llm.env import azure_document_intelligence_available
+            from sentence_reading.pdf.azure_layout import azure_layout_enabled
+            from sentence_reading.pdf.section_flow import azure_ordered_pages
+
+            if azure_layout_enabled() and azure_document_intelligence_available():
+                ordered = azure_ordered_pages(pdf_path)
+                if ordered is not None:
+                    if on_progress:
+                        on_progress("quality", 1, 1, "Azure 읽기 순서")
+                    return RecoverResult(
+                        text=ordered.marked_text,
+                        pages=ordered.pages or working,
+                        warnings=[*warnings, "azure_reading_order"],
+                        decision=QualityDecision(
+                            verdict="text_ok",
+                            source="azure_layout",
+                            notes="azure_reading_order",
+                        ),
+                    )
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"azure_reading_order_failed:{exc}") from exc
+
         if on_progress:
             on_progress("quality", 0, 1, "추출 품질 보는 중")
 

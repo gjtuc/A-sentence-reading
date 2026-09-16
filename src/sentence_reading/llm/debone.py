@@ -43,6 +43,10 @@ _SECTION_ORDER = {
     "conclusion": 6,
     "supplementary": 8,
     "body": 7,
+    "credit": 9,
+    "declaration": 10,
+    "acknowledgement": 11,
+    "appendix": 12,
 }
 
 _SECTION_ALIASES = {
@@ -214,6 +218,31 @@ def chunk_raw_text(text: str, size: int = _CHUNK_CHARS) -> list[str]:
     text = (text or "").strip()
     if not text:
         return []
+    if "<<<ASR_SECTION " in text:
+        from sentence_reading.pdf.section_flow import section_mark
+
+        parts = re.split(r"(?=<<<ASR_SECTION [a-z][a-z0-9_]*>>>)", text)
+        chunks: list[str] = []
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            pinned = re.match(r"<<<ASR_SECTION ([a-z][a-z0-9_]*)>>>", part)
+            key = pinned.group(1) if pinned else ""
+            body = re.sub(r"^<<<ASR_SECTION [a-z][a-z0-9_]*>>>\s*", "", part).strip()
+            if not body:
+                continue
+            if len(body) <= size:
+                chunks.append(f"{section_mark(key)}\n{body}" if key else body)
+                continue
+            start = 0
+            while start < len(body):
+                end = min(start + size, len(body))
+                piece = body[start:end].strip()
+                start = end
+                if piece:
+                    chunks.append(f"{section_mark(key)}\n{piece}" if key else piece)
+        return [c for c in chunks if c]
     if len(text) <= size:
         return [text]
 
@@ -512,6 +541,14 @@ def _process_chunk_with_guard(
 ) -> tuple[list[tuple[str, str]], ChunkStat]:
     """Gemini debone + substantive-empty guard + split fallback (design/167)."""
     kind = chunk_kind(chunk)
+    pinned = None
+    work = chunk
+    if "<<<ASR_SECTION " in chunk:
+        from sentence_reading.pdf.section_flow import pinned_section, strip_section_mark
+
+        pinned = pinned_section(chunk)
+        work = strip_section_mark(chunk)
+        kind = chunk_kind(work)
     stat = ChunkStat(
         index=idx,
         chars_in=len(chunk),
@@ -530,16 +567,20 @@ def _process_chunk_with_guard(
         with _debone_chunk_heartbeat(
             on_progress, done=hb_done, total=hb_total
         ):
-            pairs = _process_one_chunk(chunk, idx, total, context_block)
+            pairs = _process_one_chunk(work, idx, total, context_block)
             if not pairs and kind == "substantive":
-                pairs = _process_one_chunk(chunk, idx, total, context_block)
+                pairs = _process_one_chunk(work, idx, total, context_block)
                 if not pairs:
-                    pairs = fallback_split_chunk(chunk, ctx, idx, total)
+                    pairs = fallback_split_chunk(work, ctx, idx, total)
                     stat.fallback = "split"
             elif pairs is None:
                 pairs = []
+        if pinned:
+            pairs = [] if pinned == "references" else [(text, pinned) for text, _sec in (pairs or [])]
     except Exception:  # noqa: BLE001
-        pairs = fallback_split_chunk(chunk, ctx, idx, total)
+        pairs = fallback_split_chunk(work, ctx, idx, total)
+        if pinned:
+            pairs = [] if pinned == "references" else [(text, pinned) for text, _sec in (pairs or [])]
         stat.fallback = "split"
 
     stat.sentences_out = len(pairs or [])

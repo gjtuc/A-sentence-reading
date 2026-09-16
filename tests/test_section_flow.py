@@ -1,0 +1,94 @@
+"""Azure box reading order — synthetic geometry, no live call."""
+
+from sentence_reading.pdf.section_flow import FlowBox, header_key, order_boxes
+
+
+def _page() -> list[dict]:
+    return [{"width": 595.0, "height": 792.0}, {"width": 595.0, "height": 792.0}]
+
+
+def test_marked_chunks_keep_the_header_section() -> None:
+    from sentence_reading.llm.debone import chunk_raw_text
+    from sentence_reading.pdf.section_flow import pinned_section
+
+    text = (
+        "<<<ASR_SECTION results>>>\n"
+        + ("Results prose. " * 400)
+        + "\n\n<<<ASR_SECTION conclusion>>>\nClosing."
+    )
+    chunks = chunk_raw_text(text, size=500)
+    assert chunks
+    assert {pinned_section(c) for c in chunks} == {"results", "conclusion"}
+    assert all(pinned_section(c) != "discussion" for c in chunks)
+    assert header_key("3. Results and discussions") == "results"
+    assert header_key("2.1 Material synthesis") is None
+    assert header_key("4. Conclusion") == "conclusion"
+    assert header_key("Discussion") == "discussion"
+
+
+def test_abstract_sidebar_before_introduction_and_chrome_dropped() -> None:
+    boxes = [
+        FlowBox(0, 300, 40, 520, 90, "Renewable Energy journal", role="pageHeader"),
+        FlowBox(0, 38, 161, 482, 190, "High-performance cathode materials", role="title"),
+        FlowBox(0, 38, 206, 400, 230, "A. Author, B. Author"),
+        FlowBox(0, 38, 250, 180, 280, "ARTICLE INFO"),
+        FlowBox(0, 202, 269, 259, 286, "ABSTRACT"),
+        FlowBox(0, 202, 288, 560, 370, "High-performance cathode body starts here."),
+        FlowBox(0, 38, 269, 160, 286, "Keywords: foo"),
+        FlowBox(0, 38, 394, 180, 410, "1. Introduction"),
+        FlowBox(0, 38, 420, 250, 500, "Left introduction prose."),
+        FlowBox(0, 307, 420, 560, 500, "Right introduction prose."),
+        FlowBox(0, 38, 730, 400, 760, "Copyright 2025 Elsevier Ltd."),
+    ]
+    ordered = order_boxes(boxes, _page())
+    keys = [k for k, _ in ordered.sections]
+    assert keys[:3] == ["title", "abstract", "introduction"]
+    assert "discussion" not in keys
+    joined = ordered.marked_text
+    assert "Author" not in joined
+    assert "ARTICLE INFO" not in joined
+    assert "Keywords" not in joined
+    assert "Elsevier" not in joined
+    assert "Renewable Energy" not in joined
+    abs_i = joined.index("High-performance cathode body")
+    left_i = joined.index("Left introduction")
+    right_i = joined.index("Right introduction")
+    assert abs_i < left_i < right_i
+    assert "<<<ASR_SECTION introduction>>>" in joined
+
+
+def test_experimental_keeps_right_column_top_after_left_header() -> None:
+    boxes = [
+        FlowBox(0, 38, 100, 220, 120, "1. Introduction"),
+        FlowBox(0, 38, 130, 250, 180, "Intro body."),
+        FlowBox(1, 38, 80, 250, 120, "End of introduction."),
+        FlowBox(1, 38, 261, 220, 280, "2. Experimental"),
+        FlowBox(1, 38, 429, 250, 500, "2.2 Synthesis text"),
+        FlowBox(1, 307, 50, 560, 110, "followed by co-sintering"),
+        FlowBox(1, 307, 129, 560, 200, "2.3 later step"),
+    ]
+    ordered = order_boxes(boxes, _page())
+    text = ordered.marked_text
+    assert text.index("End of introduction.") < text.index("2.2 Synthesis text")
+    assert text.index("2.2 Synthesis text") < text.index("followed by co-sintering")
+    assert text.index("followed by co-sintering") < text.index("2.3 later step")
+    assert ordered.sections[-1][0] == "experimental"
+
+
+def test_references_are_not_a_practice_section() -> None:
+    boxes = [
+        FlowBox(0, 38, 80, 250, 100, "4. Conclusion"),
+        FlowBox(0, 38, 110, 250, 160, "iso-valence closing prose."),
+        FlowBox(0, 38, 200, 250, 220, "Acknowledgement"),
+        FlowBox(0, 38, 230, 250, 260, "We thank the lab."),
+        FlowBox(0, 307, 80, 560, 100, "References"),
+        FlowBox(0, 307, 110, 560, 160, "[1] A. Cite."),
+    ]
+    ordered = order_boxes(boxes, _page()[:1])
+    keys = [k for k, _ in ordered.sections]
+    assert "references" not in keys
+    assert "discussion" not in keys
+    assert "We thank the lab." in ordered.marked_text
+    assert ordered.references_text.startswith("References")
+    assert "[1]" in ordered.references_text
+    assert "[1]" not in "\n".join(text for _k, text in ordered.sections)

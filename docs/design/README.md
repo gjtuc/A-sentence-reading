@@ -357,6 +357,9 @@
 | 297 | [297-session-title-from-info-or-head.md](297-session-title-from-info-or-head.md) | Session title from Info.Title or SI head paragraph (0.3.290) |
 | 298 | [298-apk-commit-launch.md](298-apk-commit-launch.md) | git_commit.cmd + APK snapshot retry (0.3.291) |
 | 299 | [299-flutter-test-launch.md](299-flutter-test-launch.md) | flutter_test.cmd sets ProgramFiles(x86) (0.3.292) |
+| 300 | [300-apk-hang-release.md](300-apk-hang-release.md) | stop hung flutter; wait for GradleDaemon (0.3.293) |
+| 301 | [301-section-order-probe.md](301-section-order-probe.md) | ASCII section-order probe; content-desc UI (0.3.293) |
+| 302 | [302-azure-box-gate.md](302-azure-box-gate.md) | Azure box gate before reading-order edits (0.3.293) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |
