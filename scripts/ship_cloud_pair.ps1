@@ -16,11 +16,40 @@ if (-not (Test-Path $bash)) {
   exit 1
 }
 
+# design/305 — MSYS git push hangs in sh.exe ("C: cannot open shared object").
+# Push with Windows git.exe first so bash sees HEAD == origin/main and skips push.
+$git = "C:\Program Files\Git\cmd\git.exe"
+if (-not (Test-Path -LiteralPath $git)) {
+  Write-Error "Windows git.exe not found: $git"
+  exit 2
+}
+$branch = (& $git rev-parse --abbrev-ref HEAD).Trim()
+if ($branch -ne "main") {
+  Write-Error "design/305: refuse ship — branch is $branch, not main"
+  exit 2
+}
+& $git fetch origin
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$head = (& $git rev-parse HEAD).Trim()
+$origin = (& $git rev-parse origin/main).Trim()
+if ($head -ne $origin) {
+  & $git merge-base --is-ancestor $origin $head
+  if ($LASTEXITCODE -ne 0) {
+    Write-Error "design/305: refuse ship — origin/main is not an ancestor of HEAD; pull --ff-only first"
+    exit 2
+  }
+  Write-Host "design/305: Windows git push origin main before bash ship"
+  & $git push origin main
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} else {
+  Write-Host "design/305: origin/main already at HEAD; skip Windows push"
+}
+
 $drive = $Root.Substring(0, 1).ToLower()
 $rest = ($Root.Substring(2) -replace '\\', '/')
 $rootUnix = "/$drive$rest"
 
-$lines = @("export PYTHONUNBUFFERED=1")
+$lines = @("export PYTHONUNBUFFERED=1", "export ASR_SHIP_WINDOWS_PUSHED=1")
 if ($WithApk) { $lines += "export WITH_APK=1" }
 if ($WithAdbInstall) { $lines += "export WITH_ADB_INSTALL=1" }
 if ($SkipVerify) { $lines += "export ASR_SHIP_SKIP_VERIFY=1" }

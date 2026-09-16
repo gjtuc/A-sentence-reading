@@ -2,7 +2,8 @@
 param(
   [switch]$SkipCopy,
   [switch]$WarmCaches,
-  [switch]$SameDriveCache
+  [switch]$SameDriveCache,
+  [switch]$SkipInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -274,5 +275,39 @@ if (-not $SkipCopy) {
   New-Item -ItemType Directory -Force -Path (Split-Path $ApkCopy) | Out-Null
   Copy-Item -Force $ApkOut $ApkCopy
   Write-Host "Copied: $ApkCopy"
+}
+
+# design/305 — APK work includes install when exactly one phone is attached.
+if (-not $SkipInstall) {
+  $adb = Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe"
+  $toInstall = $ApkOut
+  if (-not $SkipCopy -and (Test-Path -LiteralPath $ApkCopy)) { $toInstall = $ApkCopy }
+  if (-not (Test-Path -LiteralPath $adb)) {
+    Write-Host "design/305: adb not found; APK not installed"
+  } else {
+    $online = @(& $adb devices | Select-String -Pattern "`tdevice$")
+    if ($online.Count -eq 0) {
+      Write-Host "design/305: no adb device; APK not installed"
+    } elseif ($online.Count -gt 1) {
+      Write-Error "design/305: more than one adb device; install refused"
+      exit 1
+    } else {
+      Write-Host "design/305: adb install -r"
+      & $adb install -r $toInstall
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      $pub = Get-Content -Raw (Join-Path $Mobile "pubspec.yaml")
+      if ($pub -notmatch '(?m)^version:\s*([0-9]+\.[0-9]+\.[0-9]+)') {
+        Write-Error "design/305: pubspec version not found"
+        exit 1
+      }
+      $want = $Matches[1]
+      $dump = & $adb shell dumpsys package com.gjtuc.sentence_reading
+      if (($dump -join "`n") -notmatch [regex]::Escape("versionName=$want")) {
+        Write-Error "design/305: installed versionName is not $want"
+        exit 1
+      }
+      Write-Host "design/305: installed versionName=$want"
+    }
+  }
 }
 exit 0

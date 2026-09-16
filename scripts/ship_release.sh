@@ -62,7 +62,18 @@ if [[ "${ASR_SHIP_ALLOW_UNPUSHED:-0}" != "1" ]]; then
   if [[ "$_head" != "$_origin" ]]; then
     if git merge-base --is-ancestor "$_origin" "$_head"; then
       echo "design/303: push origin main before ship" >&2
-      git push origin main
+      # design/305 — wrapper already pushed with Windows git.exe. Do not call MSYS git.
+      if [[ "${ASR_SHIP_WINDOWS_PUSHED:-0}" == "1" ]]; then
+        echo "error: design/305 Windows git push did not move origin/main" >&2
+        exit 2
+      fi
+      _git_win="/c/Program Files/Git/cmd/git.exe"
+      if [[ -f "$_git_win" ]]; then
+        echo "design/305: Windows git.exe push" >&2
+        "$_git_win" push origin main
+      else
+        git push origin main
+      fi
       _origin="$(git rev-parse origin/main)"
       _head="$(git rev-parse HEAD)"
     fi

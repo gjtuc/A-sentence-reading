@@ -64,3 +64,21 @@ def test_pytest_launcher_pins_this_repo() -> None:
     assert "PYTHONPATH" in ps1
     assert "Set-Location" in ps1
     assert "sentence_reading" in CONFTEST.read_text(encoding="utf-8")
+
+
+def test_design_305_windows_push_then_apk_install() -> None:
+    wrapper = (ROOT / "scripts/ship_cloud_pair.ps1").read_text(encoding="utf-8")
+    ship = SHIP.read_text(encoding="utf-8")
+    apk = APK.read_text(encoding="utf-8")
+    rule = RULE.read_text(encoding="utf-8")
+    assert "Windows git.exe not found" in wrapper
+    assert "Windows git push origin main before bash ship" in wrapper
+    assert wrapper.find("Windows git push origin main") < wrapper.find("& $bash -lc")
+    assert "ASR_SHIP_WINDOWS_PUSHED=1" in wrapper
+    assert "ASR_SHIP_WINDOWS_PUSHED" in ship
+    assert "Windows git.exe push" in ship
+    assert "git push --force" not in ship
+    assert "adb install -r" in apk
+    assert "installed versionName=" in apk
+    assert "SkipInstall" in apk
+    assert "until that ship has finished" in rule

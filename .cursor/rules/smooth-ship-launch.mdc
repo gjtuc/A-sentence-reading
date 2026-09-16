@@ -5,6 +5,7 @@ alwaysApply: true
 
 # Smooth ship launch (design/303)
 
-- Deploy with `scripts/ship_cloud_pair.ps1`. It pushes `origin main` when that is a fast-forward of HEAD. Do not start a second ship after a "push first" refusal if the script can push. Do not force-push. If the ship log stops after the worker without `ship_release OK`, run live verify only. Do not start another deploy.
-- Build the APK with `scripts/build_release_apk.ps1`. The child command sets `ProgramFiles(x86)` before `flutter`. Do not assign `$env:ProgramFiles(x86)`.
+- Deploy with `scripts/ship_cloud_pair.ps1`. It pushes `origin main` with Windows `git.exe` before bash, so bash must not push. Do not start a second ship after a "push first" refusal if the script can push. Do not force-push. If the ship log stops after the worker without `ship_release OK`, run live verify only. Do not start another deploy.
+- Do not start `build_release_apk.ps1` until that ship has finished and live verify passed. A parallel Gradle build kills the daemon and the ship preflight can refuse.
+- Build the APK with `scripts/build_release_apk.ps1`. It installs with `adb install -r` when exactly one device is attached and checks `versionName`. Do not stop after the file copy. The child command sets `ProgramFiles(x86)` before `flutter`. Do not assign `$env:ProgramFiles(x86)`.
 - Run Python tests with `scripts/pytest.cmd`. Do not run bare `python -m pytest` from a shell whose `PYTHONPATH` can see another checkout.
