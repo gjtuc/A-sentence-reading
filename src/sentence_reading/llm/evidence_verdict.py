@@ -354,10 +354,20 @@ def compute_pair_index_verdicts(events: list[dict]) -> list[str]:
             try:
                 supp = int(d.get("supplementary") or 0)
                 empty = int(d.get("empty") or 0)
+                vml_unseen = int(d.get("vml_unseen_n") or 0)
             except (TypeError, ValueError):
-                supp, empty = 0, 0
+                supp, empty, vml_unseen = 0, 0, 0
             if supp == 1 and empty == 1:
                 add("si_figure_zero_after_extract")
+            if empty == 1 and vml_unseen > 0:
+                add("figures_vml_unseen")
+        if k == "sentence_split_done":
+            try:
+                stub_n = int(d.get("stub_caption_n") or 0)
+            except (TypeError, ValueError):
+                stub_n = 0
+            if stub_n > 0:
+                add("caption_stub_cards")
         if k == "library_index_race":
             add("index_upsert_lost_id")
     return out

@@ -287,6 +287,7 @@ ALLOWED_KINDS = frozenset(
         "library_publish_no_merge",
         "pairing_skip_multi",
         "figure_extract_done",
+        "sentence_split_done",
         "title_pipeline_empty",
         # design/241 — SAF tree write
         "pdf_tree_write_probe",

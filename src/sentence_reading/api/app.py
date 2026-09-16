@@ -167,7 +167,10 @@ from sentence_reading.cite_refs import repair_dollar_cite_artifacts
 from sentence_reading.llm.vision_ocr import recover_pdf_text
 from sentence_reading.models import Figure, PaperSession, Sentence, build_mock_session
 from sentence_reading.pdf import extract as pdf_extract
-from sentence_reading.pdf.sentences import split_into_sentences
+from sentence_reading.pdf.sentences import (
+    split_into_sentences,
+    split_into_sentences_detailed,
+)
 
 # WHY: static은 패키지 옆 — setuptools package-data와 개발 모드 모두에서 찾기 쉽게.
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -279,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.288",
+    version="0.3.289",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -7852,6 +7855,17 @@ async def _run_ingest_job_body(
             else:
                 _role_tok = "empty"
                 _supp = 0
+            _census = {
+                "blip_n": 0,
+                "imagedata_n": 0,
+                "caption_n": 0,
+                "vml_unseen_n": 0,
+            }
+            if kind == "docx":
+                try:
+                    _census = docx_extract.figure_source_census(tmp_path)
+                except Exception:  # noqa: BLE001
+                    pass
             eb.emit(
                 "figure_extract_done",
                 severity="boundary",
@@ -7862,6 +7876,10 @@ async def _run_ingest_job_body(
                     "fig_n": len(figures or []),
                     "supplementary": _supp,
                     "empty": 1 if len(figures or []) == 0 else 0,
+                    "blip_n": int(_census.get("blip_n") or 0),
+                    "imagedata_n": int(_census.get("imagedata_n") or 0),
+                    "caption_n": int(_census.get("caption_n") or 0),
+                    "vml_unseen_n": int(_census.get("vml_unseen_n") or 0),
                 },
                 ok=True,
                 code="figure_extract_done",
@@ -7883,6 +7901,7 @@ async def _run_ingest_job_body(
             ]
 
         debone_ok = False
+        _split_via = ""
         ingest_quality: dict | None = None
         sentences: list = []
         references: list = []
@@ -8015,16 +8034,37 @@ async def _run_ingest_job_body(
                         warnings.extend(result.warnings)
                     ingest_quality = result.ingest_quality
                     _job_set(job_id, percent=90, stage="split", message="기본 문장 나누기")
-                    sentences = await asyncio.to_thread(
-                        split_into_sentences, text_for_sentences
+                    sentences, _split_via = await asyncio.to_thread(
+                        split_into_sentences_detailed, text_for_sentences
                     )
             else:
                 if not gemini_available() and "gemini_key_missing" not in warnings:
                     warnings.append("gemini_key_missing")
                 _job_set(job_id, percent=70, stage="split", message="문장 나누는 중")
-                sentences = await asyncio.to_thread(
-                    split_into_sentences, text_for_sentences
+                sentences, _split_via = await asyncio.to_thread(
+                    split_into_sentences_detailed, text_for_sentences
                 )
+            if sentences and _split_via:
+                try:
+                    from sentence_reading.llm import evidence_bus as eb
+                    from sentence_reading.pdf.sentences import split_stub_stats
+
+                    _stats = split_stub_stats(sentences, splitter=_split_via)
+                    eb.emit(
+                        "sentence_split_done",
+                        severity="boundary",
+                        job_id=job_id,
+                        stage="split",
+                        details={
+                            "splitter": str(_stats.get("splitter") or ""),
+                            "sentence_n": int(_stats.get("sentence_n") or 0),
+                            "stub_caption_n": int(_stats.get("stub_caption_n") or 0),
+                        },
+                        ok=True,
+                        code="sentence_split_done",
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
 
             # WHY: debone 경로도 apply_glossary가 이미 정규화함 — 폴백·누락 lookalike 한 번 더
             sentences = [

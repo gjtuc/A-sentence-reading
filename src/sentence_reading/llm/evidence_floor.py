@@ -180,6 +180,7 @@ FROZEN_KINDS: frozenset[str] = frozenset(
         "library_publish_no_merge",
         "pairing_skip_multi",
         "figure_extract_done",
+        "sentence_split_done",
         "title_pipeline_empty",
     }
 )
@@ -362,6 +363,9 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             # design/288
             "title_pipeline_empty",
             "figure_extract_done",
+            "sentence_split_done",
+            "vml_unseen_n",
+            "stub_caption_n",
             "doc_role",
             "role_empty",
             # design/169o

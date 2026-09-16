@@ -351,6 +351,8 @@
 | 291 | [291-ship-staged-source-bash-apk.md](291-ship-staged-source-bash-apk.md) | Staged upload · bash ship_release · APK fallback (0.3.286) |
 | 292 | [292-api-worker-role-gates.md](292-api-worker-role-gates.md) | API/worker role gates (0.3.287) |
 | 293 | [293-ship-preflight-checklist.md](293-ship-preflight-checklist.md) | ship_release preflight checklist (0.3.288) |
+| 294 | [294-si-extract-diagnosis.md](294-si-extract-diagnosis.md) | SI extract census + split stub sensor (0.3.289) |
+| 295 | [295-docx-vml-caption-split.md](295-docx-vml-caption-split.md) | VML figures + caption label stays on the card (0.3.289) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

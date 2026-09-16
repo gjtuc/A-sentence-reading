@@ -109,36 +109,48 @@ def _paragraph_text(paragraph) -> str:
     return re.sub(r"\s+", " ", (paragraph.text or "").strip())
 
 
-def _paragraph_image_blobs(paragraph, document) -> list[tuple[bytes, str]]:
-    """문단 안 인라인 이미지 → (bytes, mime)."""
+_REL_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+
+
+def _image_rel_id(el) -> str | None:
+    """DrawingML a:blip uses r:embed; Word VML v:imagedata uses r:id."""
     from docx.oxml.ns import qn
 
+    tag = str(el.tag).rsplit("}", 1)[-1]
+    if tag == "blip":
+        return el.get(qn("r:embed")) or el.get(_REL_NS + "embed")
+    if tag == "imagedata":
+        return el.get(qn("r:id")) or el.get(_REL_NS + "id")
+    return None
+
+
+def _blob_from_rel(document, rel_id: str) -> tuple[bytes, str] | None:
+    try:
+        rel = document.part.rels[rel_id]
+        part = rel.target_part
+    except (KeyError, AttributeError):
+        return None
+    blob = getattr(part, "blob", None)
+    if not blob or len(blob) < _MIN_BYTES:
+        return None
+    mime, _ext = _mime_for_image(blob, getattr(part, "content_type", None))
+    if not mime:
+        return None
+    return _to_browser_image(blob, mime)
+
+
+def _paragraph_image_blobs(paragraph, document) -> list[tuple[bytes, str]]:
+    """문단 안 인라인 이미지 → (bytes, mime). Blip and VML imagedata."""
     out: list[tuple[bytes, str]] = []
-    # WHY: findall+ns 는 환경에 따라 비어 있음 — iter 로 blip 탐색
+    seen: set[str] = set()
     for el in paragraph._element.iter():
-        if not str(el.tag).endswith("}blip"):
+        rel_id = _image_rel_id(el)
+        if not rel_id or rel_id in seen:
             continue
-        r_embed = el.get(qn("r:embed")) or el.get(
-            "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
-        )
-        if not r_embed:
-            continue
-        try:
-            rel = document.part.rels[r_embed]
-            part = rel.target_part
-        except (KeyError, AttributeError):
-            continue
-        blob = getattr(part, "blob", None)
-        if not blob or len(blob) < _MIN_BYTES:
-            continue
-        content_type = getattr(part, "content_type", None)
-        mime, _ext = _mime_for_image(blob, content_type)
-        if not mime:
-            continue
-        converted = _to_browser_image(blob, mime)
-        if not converted:
-            continue
-        out.append(converted)
+        seen.add(rel_id)
+        converted = _blob_from_rel(document, rel_id)
+        if converted:
+            out.append(converted)
     return out
 
 
@@ -225,9 +237,51 @@ def extract_text(path: Path) -> str:
     return text
 
 
+def figure_source_census(path: Path) -> dict[str, int]:
+    """design/294 — why extract_figures returned empty (counts only).
+
+    Word SI often stores rasters as VML v:imagedata, not DrawingML a:blip.
+    extract_figures reads both. vml_unseen_n is imagedata whose relationship
+    did not resolve to a raster (still missed), not the raw imagedata count.
+    """
+    from docx import Document
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    doc = Document(str(path))
+    blip_n = 0
+    imagedata_n = 0
+    caption_n = 0
+    unresolved_vml = 0
+    for el in doc.element.body.iter():
+        tag = str(el.tag).rsplit("}", 1)[-1]
+        if tag == "blip":
+            blip_n += 1
+        elif tag == "imagedata":
+            imagedata_n += 1
+            rid = _image_rel_id(el)
+            if not rid or _blob_from_rel(doc, rid) is None:
+                unresolved_vml += 1
+    for block in _iter_block_items(doc):
+        if isinstance(block, Paragraph):
+            text = _paragraph_text(block)
+            if text and (
+                _FIG_CAPTION_START.match(text) or _TABLE_CAPTION_START.match(text)
+            ):
+                caption_n += 1
+        elif isinstance(block, Table):
+            continue
+    return {
+        "blip_n": blip_n,
+        "imagedata_n": imagedata_n,
+        "caption_n": caption_n,
+        "vml_unseen_n": unresolved_vml,
+    }
+
+
 def extract_figures(path: Path) -> list[Figure]:
     """
-    임베디드 이미지 + (직후) Fig/Scheme 캡션.
+    임베디드 이미지 (DrawingML blip + VML imagedata) + (직후) Fig/Scheme 캡션.
     Table 캡션이 있는 표는 SVG 요약으로 캐러셀에 넣음.
     캡션 없는 이미지는 PDF와 같이 제외.
     """
