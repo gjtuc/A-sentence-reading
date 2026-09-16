@@ -20,20 +20,29 @@ $drive = $Root.Substring(0, 1).ToLower()
 $rest = ($Root.Substring(2) -replace '\\', '/')
 $rootUnix = "/$drive$rest"
 
-$extra = "export PYTHONUNBUFFERED=1; "
-if ($WithApk) { $extra += "export WITH_APK=1; " }
-if ($WithAdbInstall) { $extra += "export WITH_ADB_INSTALL=1; " }
-if ($SkipVerify) { $extra += "export ASR_SHIP_SKIP_VERIFY=1; " }
-
+$lines = @("export PYTHONUNBUFFERED=1")
+if ($WithApk) { $lines += "export WITH_APK=1" }
+if ($WithAdbInstall) { $lines += "export WITH_ADB_INSTALL=1" }
+if ($SkipVerify) { $lines += "export ASR_SHIP_SKIP_VERIFY=1" }
+$lines += "cd '$rootUnix'"
 # stdbuf keeps phase lines visible. Do not start a second ship from this wrapper.
-$ship = "if command -v stdbuf >/dev/null 2>&1; then stdbuf -oL -eL bash scripts/ship_release.sh; else bash scripts/ship_release.sh; fi"
-$cmd = "${extra}cd '$rootUnix'; $ship"
+$lines += "if command -v stdbuf >/dev/null 2>&1; then"
+$lines += "  exec stdbuf -oL -eL bash scripts/ship_release.sh"
+$lines += "else"
+$lines += "  exec bash scripts/ship_release.sh"
+$lines += "fi"
 Write-Host "design/291: bash scripts/ship_release.sh"
 
 $stamp = [guid]::NewGuid().ToString("n")
 $outLog = Join-Path $env:TEMP ("asr-ship-" + $stamp + ".out.log")
 $errLog = Join-Path $env:TEMP ("asr-ship-" + $stamp + ".err.log")
-$proc = Start-Process -FilePath $bash -ArgumentList @("-lc", $cmd) -WorkingDirectory $Root -PassThru -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+$shWin = Join-Path $env:TEMP ("asr-ship-" + $stamp + ".sh")
+$shUnix = "/c/Users/user/AppData/Local/Temp/asr-ship-" + $stamp + ".sh"
+$utf8 = New-Object System.Text.UTF8Encoding $false
+[IO.File]::WriteAllText($shWin, (($lines -join "`n") + "`n"), $utf8)
+# Start-Process splits an argument array on spaces. One quoted -lc string.
+$argLine = "-lc `"bash $shUnix`""
+$proc = Start-Process -FilePath $bash -ArgumentList $argLine -WorkingDirectory $Root -PassThru -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog
 
 function Read-NewText([string]$path, [ref]$offset) {
   if (-not (Test-Path $path)) { return "" }

@@ -45,6 +45,8 @@ def test_apk_sets_program_files_without_env_drive() -> None:
 def test_ship_wrapper_verifies_instead_of_redeploying() -> None:
     wrapper = (ROOT / "scripts/ship_cloud_pair.ps1").read_text(encoding="utf-8")
     assert "stdbuf -oL -eL" in wrapper
+    assert 'ArgumentList @("-lc"' not in wrapper
+    assert '-lc `"bash' in wrapper
     assert "ship_release OK" in wrapper
     assert "verify only, no second deploy" in wrapper
     assert "verify_live_status.py" in wrapper
