@@ -182,6 +182,7 @@ class DeboneResult:
     chunks_ok: int = 0
     chunks_total: int = 0
     ingest_quality: dict | None = None
+    title_guess: str = ""
 
 
 @dataclass
@@ -782,4 +783,5 @@ def debone_sentences(
         chunks_ok=iq.chunks_ok,
         chunks_total=n_chunks,
         ingest_quality=iq.to_dict(),
+        title_guess=ctx.title_guess,
     )

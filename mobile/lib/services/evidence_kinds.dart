@@ -285,6 +285,7 @@ const Set<String> kEvidenceAllowedKinds = {
   'pairing_skip_multi',
   'figure_extract_done',
   'sentence_split_done',
+  'title_pick_done',
   'title_pipeline_empty',
   // design/241 — SAF tree write
   'pdf_tree_write_probe',

@@ -25,7 +25,11 @@ New kind `sentence_split_done` (add-only on the floor) when the fallback splitte
 
 ### D4 — local replay
 
-`scripts/replay_docx_extract.py <docx>` calls the same functions and prints counts only (no Gemini, no full text). Reports whether `pysbd` imports. Do not add `pysbd` to production deps here — that would change live splits.
+`scripts/replay_docx_extract.py <docx-or-pdf>` calls the same functions and prints ASCII JSON only (`ensure_ascii=True`). No Gemini, no paper text, no `core.xml` creator. Windows cp949 consoles crash if those strings are printed.
+
+### D5 — title tokens
+
+Replay adds `info_title_class` (`empty` | `si_banner` | `code_like` | `text`), `info_title_char_n`, `stem_class`, `session_title_source` (`filename_stem` | `section_title`), `head_title_after_banner`, `title_verdict`. These are the ingest title path: metadata class and whether the session title would stay the filename stem. The title string itself is not emitted.
 
 ## Non-goals
 

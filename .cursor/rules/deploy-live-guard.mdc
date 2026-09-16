@@ -24,7 +24,7 @@ python scripts/session_freshness_guard.py
 1. `git fetch origin && git pull --ff-only origin main`
 2. `app.py` `version` / `/api/status` `version` / `mobile/pubspec.yaml` / `config.dart` **동시** bump (live **초과**)
 3. `python scripts/pre_deploy_guard.py` — **exit 0**
-4. 커밋 후 `bash scripts/deploy_cloud_run.sh` (스크립트·**전역 셸 훅**이 가드 재실행)
+4. 커밋은 **PowerShell** `scripts/git_commit.ps1 -Message "..." -Body "..."` (design/296). 그 다음 Windows에서는 `scripts/ship_cloud_pair.ps1` (Git Bash 경로가 고정됨). `bash` / `bash -lc` + heredoc 으로 `git commit` 하지 말 것 — 이 PC의 `bash`는 WSL 스텁이고, heredoc 은 메시지가 빠져 `EDITOR unset` 으로 죽는다.
 
 ## 절대 하지 말 것
 

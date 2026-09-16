@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.289",
+    version="0.3.290",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -7902,6 +7902,7 @@ async def _run_ingest_job_body(
 
         debone_ok = False
         _split_via = ""
+        _title_guess = ""
         ingest_quality: dict | None = None
         sentences: list = []
         references: list = []
@@ -8021,6 +8022,7 @@ async def _run_ingest_job_body(
                 if result.ok and result.sentences:
                     sentences = result.sentences
                     debone_ok = True
+                    _title_guess = str(result.title_guess or "")
                     if result.warnings:
                         warnings.extend(result.warnings)
                     elif result.warning:
@@ -8084,11 +8086,51 @@ async def _run_ingest_job_body(
             ]
             if doc_role == "supplementary" and references:
                 sentences = filter_bibliography_sentences(sentences, references)
-            title = Path(filename).stem or "Untitled"
-            for s in sentences:
-                if s.section == "title" and plain_text(s.text):
-                    title = plain_text(s.text)
-                    break
+            from sentence_reading.title_replay import (
+                docx_core_title,
+                pdf_info_title,
+                pdf_styled_title,
+                pick_session_title,
+                title_class,
+            )
+
+            _info = ""
+            _styled = ""
+            try:
+                if kind == "pdf":
+                    _info = pdf_info_title(tmp_path)
+                    _styled = pdf_styled_title(tmp_path)
+                elif kind == "docx":
+                    _info = docx_core_title(tmp_path)
+            except Exception:  # noqa: BLE001
+                _info, _styled = "", ""
+            title, _title_src = pick_session_title(
+                info_title=_info,
+                filename=filename,
+                text=text,
+                sentences=sentences,
+                title_guess=_title_guess,
+                styled_title=_styled,
+            )
+            try:
+                from sentence_reading.llm import evidence_bus as eb
+
+                eb.emit(
+                    "title_pick_done",
+                    severity="boundary",
+                    job_id=job_id,
+                    stage="title",
+                    details={
+                        "title_source": _title_src,
+                        "title_class": title_class(title),
+                        "char_n": len(title),
+                        "doc_role": str(doc_role or "")[:32],
+                    },
+                    ok=True,
+                    code="title_pick_done",
+                )
+            except Exception:  # noqa: BLE001
+                pass
             from sentence_reading.document_citation import extract_document_citation
 
             title_sents = [

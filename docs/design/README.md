@@ -353,6 +353,8 @@
 | 293 | [293-ship-preflight-checklist.md](293-ship-preflight-checklist.md) | ship_release preflight checklist (0.3.288) |
 | 294 | [294-si-extract-diagnosis.md](294-si-extract-diagnosis.md) | SI extract census + split stub sensor (0.3.289) |
 | 295 | [295-docx-vml-caption-split.md](295-docx-vml-caption-split.md) | VML figures + caption label stays on the card (0.3.289) |
+| 296 | [296-windows-commit-shell.md](296-windows-commit-shell.md) | Windows commit via git_commit.ps1, not bash heredoc (0.3.290) |
+| 297 | [297-session-title-from-info-or-head.md](297-session-title-from-info-or-head.md) | Session title from Info.Title or SI head paragraph (0.3.290) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |
