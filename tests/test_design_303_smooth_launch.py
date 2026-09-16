@@ -47,6 +47,8 @@ def test_ship_wrapper_verifies_instead_of_redeploying() -> None:
     assert "stdbuf -oL -eL" in wrapper
     assert "WindowStyle Hidden" not in wrapper
     assert "& $bash -lc" in wrapper
+    bash_at = wrapper.find("& $bash -lc")
+    assert wrapper.rfind('$ErrorActionPreference = "Continue"', 0, bash_at) != -1
     assert "ship_release OK" in wrapper
     assert "verify only, no second deploy" in wrapper
     assert "verify_live_status.py" in wrapper

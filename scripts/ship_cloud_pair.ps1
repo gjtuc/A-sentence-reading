@@ -41,12 +41,20 @@ $utf8 = New-Object System.Text.UTF8Encoding $false
 [IO.File]::WriteAllText($shWin, (($lines -join "`n") + "`n"), $utf8)
 # Call operator inherits the console. A detached process left remote-https waiting.
 $arg = "bash $shUnix"
-& $bash -lc $arg 2>&1 | ForEach-Object {
-  $line = $_.ToString()
-  Add-Content -Path $outLog -Value $line -Encoding utf8
-  Write-Host $line
+# Bash writes progress on stderr. Stop would treat that as a terminating error
+# and abandon the log after the first line, while deploy keeps running.
+$saved = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+  & $bash -lc $arg 2>&1 | ForEach-Object {
+    $line = $_.ToString()
+    Add-Content -Path $outLog -Value $line -Encoding utf8
+    Write-Host $line
+  }
+  $code = $LASTEXITCODE
+} finally {
+  $ErrorActionPreference = $saved
 }
-$code = $LASTEXITCODE
 $text = ""
 if (Test-Path $outLog) { $text = [IO.File]::ReadAllText($outLog) }
 
