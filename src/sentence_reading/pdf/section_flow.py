@@ -81,7 +81,9 @@ def header_key(text: str) -> str | None:
         return "methods"
     if low.startswith("results"):
         return "results"
-    if low.startswith("discussion"):
+    # "4. Further analysis and discussion" is discussion; "results and
+    # discussions" already returned above.
+    if "discussion" in low and "results" not in low:
         return "discussion"
     if low.startswith("conclusion"):
         return "conclusion"
@@ -95,9 +97,28 @@ def header_key(text: str) -> str | None:
         return "declaration"
     if low.startswith("credit") or "authorship contribution" in low:
         return "credit"
-    if re.match(r"^\d+\.\s+\S", line) and len(line) < 80:
+    if re.match(r"^\d+\.\s+\S", line) and len(line) < 80 and _looks_like_heading(line):
         return "body"
     return None
+
+
+def _looks_like_heading(line: str) -> bool:
+    """A numbered section title, not a bibliography entry '1. Smith, 2020.'."""
+    if re.search(r"\[|doi|https?://|www\.", line, re.IGNORECASE):
+        return False
+    if line.count(",") >= 2 or re.search(r"\b(?:19|20)\d{2}\b", line):
+        return False
+    words = re.findall(r"[A-Za-z]{2,}", line)
+    return 1 <= len(words) <= 12
+
+
+def _is_bibliography_line(text: str) -> bool:
+    line = re.sub(r"\s+", " ", text or "").strip()
+    if re.match(r"^\[\d+\]\s+\S", line):
+        return True
+    return bool(
+        re.match(r"^\d+\.\s+[A-Z]", line) and re.search(r"\b(?:19|20)\d{2}\b", line)
+    )
 
 
 def crosses_center(box: FlowBox, width: float, margin: float = 12.0) -> bool:
@@ -110,10 +131,14 @@ def _drop_chrome(box: FlowBox, *, page_height: float) -> bool:
     if kind.startswith("figure") or kind.startswith("table"):
         return True
     role = norm_role(box.role)
-    if role in ("pageheader", "pagefooter", "pagenumber", "footnote"):
+    if role in ("pageheader", "pagefooter", "pagenumber"):
         return True
     text = re.sub(r"\s+", " ", box.text or "").strip()
     if not text:
+        return True
+    # Azure tags the bottom of a references column as a footnote. Keep
+    # bibliography lines; drop real notes (corresponding author, etc.).
+    if role == "footnote" and not _is_bibliography_line(text):
         return True
     if _CHROME.search(text):
         return True
@@ -205,17 +230,83 @@ def _take(out: list[tuple[str, FlowBox]], seen: set[int], box: FlowBox, key: str
     out.append((key, box))
 
 
+def join_section_text(parts: list[str]) -> str:
+    """Glue a column break that split one sentence. Drop display math."""
+    cards: list[str] = []
+    buf = ""
+
+    def flush() -> None:
+        nonlocal buf
+        piece = buf.strip()
+        if piece:
+            cards.append(piece)
+        buf = ""
+
+    i = 0
+    cleaned = [re.sub(r"\s+", " ", p).strip() for p in parts if (p or "").strip()]
+    while i < len(cleaned):
+        raw = cleaned[i]
+        i += 1
+        if _is_display_math(raw):
+            continue
+        if _SUBNUM.match(raw) and i < len(cleaned):
+            nxt = cleaned[i]
+            if nxt and not _is_display_math(nxt) and _prose_words(nxt) <= 8 and len(nxt) < 80:
+                raw = f"{raw.rstrip('.')} {nxt}"
+                i += 1
+        if not buf:
+            buf = raw
+            continue
+        if _SENT_END.search(buf):
+            flush()
+            buf = raw
+        else:
+            buf = f"{buf} {raw}"
+    flush()
+    return "\n\n".join(cards)
+
+
 def _keep_as_sentence(box: FlowBox) -> bool:
     text = re.sub(r"\s+", " ", box.text or "").strip()
     if not text or re.fullmatch(r"\d+\.?", text):
         return False
     if header_key(text) and len(text) < 80:
         return False
+    if _is_display_math(text):
+        return False
     return True
-    if id(box) in seen:
-        return
-    seen.add(id(box))
-    out.append((key, box))
+
+
+_SUBNUM = re.compile(r"^\d+\.\d+\.?$")
+_EQ_END = re.compile(r"\(\d+\)\s*$")
+_SENT_END = re.compile(r"[.!?]\s*$")
+
+
+def _prose_words(text: str) -> int:
+    return len(re.findall(r"[A-Za-z]{3,}", text or ""))
+
+
+def _is_display_math(text: str) -> bool:
+    raw = re.sub(r"\s+", " ", text or "").strip()
+    if not raw or header_key(raw) or _SUBNUM.match(raw):
+        return False
+    if re.match(r"^\[\d+\]", raw):
+        return False
+    words = _prose_words(raw)
+    symbols = sum(1 for c in raw if c in "=+-*/<>()[]{}^_")
+    if _EQ_END.search(raw) and words < 6:
+        return True
+    if words < 3 and symbols >= 2:
+        return True
+    # Column-broken equation: "tion =" or "O 2 = exp AH ...", not prose.
+    if "=" in raw and words <= 6 and len(raw) < 180:
+        if not re.search(
+            r"\b(the|and|with|that|this|were|was|are|from|for|which|where)\b",
+            raw,
+            re.IGNORECASE,
+        ):
+            return True
+    return False
 
 
 def _read_page(
@@ -382,7 +473,7 @@ def order_boxes(boxes: list[FlowBox], pages: list[dict]) -> OrderedPaper:
     body: list[tuple[str, str]] = []
     refs: list[str] = []
     for key, parts in sections:
-        text = "\n\n".join(p for p in parts if p).strip()
+        text = join_section_text(parts)
         if not text:
             continue
         if key == "references":

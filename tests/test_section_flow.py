@@ -92,3 +92,60 @@ def test_references_are_not_a_practice_section() -> None:
     assert ordered.references_text.startswith("References")
     assert "[1]" in ordered.references_text
     assert "[1]" not in "\n".join(text for _k, text in ordered.sections)
+
+
+def test_column_break_does_not_leave_short_fragments() -> None:
+    from sentence_reading.pdf.section_flow import join_section_text
+
+    joined = join_section_text(
+        [
+            "3.1.",
+            "Crystal structure",
+            "The corresponding results are",
+            "Listed in Table 3.",
+            "R = k (pO2) (3)",
+            "Where k is a constant.",
+        ]
+    )
+    assert "3.1 Crystal structure" in joined
+    assert "The corresponding results are Listed in Table 3." in joined
+    assert "(3)" not in joined
+    assert "Where k is a constant." in joined
+
+
+def test_further_analysis_heading_is_discussion() -> None:
+    from sentence_reading.pdf.section_flow import header_key
+
+    assert header_key("4. Further analysis and discussion") == "discussion"
+    assert header_key("3. Results and discussions") == "results"
+    assert header_key("1. Okumura, Y. Nose, J. 2020.") is None
+
+
+def test_footnote_bibliography_stays_in_references() -> None:
+    boxes = [
+        FlowBox(0, 36, 542, 250, 560, "5. Conclusions"),
+        FlowBox(0, 36, 570, 250, 640, "The cell remained stable."),
+        FlowBox(0, 305, 532, 520, 548, "References"),
+        FlowBox(0, 309, 551, 520, 575, "[1] Y. Okumura, A journal. 2020.", role="ParagraphRole.FOOTNOTE"),
+        FlowBox(0, 309, 700, 400, 720, "Corresponding author footnote.", role="ParagraphRole.FOOTNOTE"),
+    ]
+    ordered = order_boxes(boxes, _page()[:1])
+    assert "[1]" in ordered.references_text
+    assert "Corresponding author" not in ordered.references_text
+    assert "[1]" not in "\n".join(text for _k, text in ordered.sections)
+
+
+def test_broken_equation_is_not_a_sentence() -> None:
+    from sentence_reading.pdf.section_flow import join_section_text
+
+    joined = join_section_text(
+        [
+            "Agreement with previous reports [33].",
+            "tion =",
+            "O 2 = exp AHhydr RT Khydr exp",
+            "We further analyze the data based on the model.",
+        ]
+    )
+    assert "tion" not in joined
+    assert "AHhydr" not in joined
+    assert "We further analyze the data based on the model." in joined

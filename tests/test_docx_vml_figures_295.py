@@ -147,3 +147,22 @@ def test_design_295_indexed() -> None:
     readme = (ROOT / "docs/design/README.md").read_text(encoding="utf-8")
     assert "295 |" in readme
     assert (ROOT / "docs/design/295-docx-vml-caption-split.md").is_file()
+
+
+def test_si_banner_lines_are_not_practice_text(tmp_path: Path) -> None:
+    path = tmp_path / "si.docx"
+    doc = Document()
+    doc.add_paragraph("Lulu Jiang 1, Donglin Han 1,2*")
+    doc.add_paragraph("Supporting Information")
+    doc.add_paragraph("Corresponding author:")
+    doc.add_paragraph("Email: lab@example.edu")
+    doc.add_paragraph("Fig. S1 XRD patterns of the sintered pellets.")
+    doc.save(path)
+    from sentence_reading.docx.extract import extract_text
+
+    text = extract_text(path)
+    assert "Supporting Information" not in text
+    assert "Corresponding" not in text
+    assert "Jiang" not in text
+    assert "lab@example.edu" not in text
+    assert "Fig. S1" in text

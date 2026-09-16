@@ -23,6 +23,48 @@ _TABLE_CAPTION_START = re.compile(
     r"^\s*(Table\.?\s*S?\d+[a-z]?)\b",
     re.IGNORECASE,
 )
+_SI_BANNER = re.compile(
+    r"^(?:supporting information|supplementary information(?:\s+for)?|"
+    r"supplementary materials?|references?)\.?$",
+    re.IGNORECASE,
+)
+_SI_CONTACT = re.compile(
+    r"^(?:corresponding authors?|e-?mail|email)\b",
+    re.IGNORECASE,
+)
+
+
+def drop_si_banners(parts: list[str]) -> list[str]:
+    """Drop SI title/contact lines. Keep figure captions and body prose."""
+    cleaned = [(raw, re.sub(r"\s+", " ", raw or "").strip()) for raw in parts]
+    cleaned = [(raw, text) for raw, text in cleaned if text]
+    has_banner = any(_SI_BANNER.match(text) or _SI_CONTACT.match(text) for _raw, text in cleaned)
+    out: list[str] = []
+    seen_body = False
+    for raw, text in cleaned:
+        if _SI_BANNER.match(text) or _SI_CONTACT.match(text):
+            continue
+        if _is_si_body(text):
+            seen_body = True
+        elif not seen_body and has_banner and _looks_like_author_line(text):
+            continue
+        out.append(raw)
+    return out
+
+
+def _is_si_body(text: str) -> bool:
+    if _FIG_CAPTION_START.match(text) or _TABLE_CAPTION_START.match(text):
+        return True
+    return len(text) > 60 and bool(re.search(r"[.!?]$", text))
+
+
+def _looks_like_author_line(text: str) -> bool:
+    if len(text) > 220 or _FIG_CAPTION_START.match(text) or _TABLE_CAPTION_START.match(text):
+        return False
+    if re.search(r"[.!?]\s+[A-Z]", text):
+        return False
+    words = re.findall(r"[A-Za-z]{4,}", text)
+    return bool(re.search(r"\d", text)) and len(words) <= 12
 
 
 def _normalize_caption(text: str) -> str:
@@ -228,6 +270,7 @@ def extract_text(path: Path) -> str:
             plain = _table_plain(block)
             if plain.strip():
                 parts.append(plain)
+    parts = drop_si_banners(parts)
     text = "\n\n".join(parts).strip()
     if not text:
         # 헤더/푸터만 있는 경우 등 — 전체 문단 폴백
