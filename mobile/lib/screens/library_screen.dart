@@ -6,13 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../api/ingest_models.dart';
-import '../api/library_reorder_proxy.dart';
 import '../api/paper_models.dart';
 import '../state/annotation_controller.dart';
 import '../state/auth_controller.dart';
 import '../state/bookmark_controller.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
+import '../widgets/library_card_hold.dart';
 import '../widgets/upload_queue_sheet.dart';
 import 'pdf_import_screen.dart';
 import '../widgets/upload_status_bar.dart';
@@ -47,58 +47,252 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
-  /// design/224 — long-press enters edit; trash only while editing.
+  /// design/224 — trash only while editing. design/308 — hold popup, then drag.
   bool _selecting = false;
   final Set<String> _selected = <String>{};
   bool _deleting = false;
+  final ScrollController _scroll = ScrollController();
+  final Map<String, GlobalKey> _itemKeys = <String, GlobalKey>{};
+  OverlayEntry? _menuEntry;
+  OverlayEntry? _dragEntry;
+  Timer? _edgeScrollTimer;
+  bool _dragging = false;
+  Offset _dragGlobal = Offset.zero;
+  List<String> _movingIds = const <String>[];
+  int? _dropIndex;
 
-  /// design/225-F — magnetic trash while reordering.
-  final GlobalKey _trashKey = GlobalKey();
-  final GlobalKey<SliverReorderableListState> _reorderListKey =
-      GlobalKey<SliverReorderableListState>();
-  String? _dragCacheId;
-  bool _dragOverTrash = false;
-  static const double _magnetPad = 28;
+  bool get _gestureBlocked =>
+      _deleting ||
+      widget.library.opening ||
+      widget.library.uploading ||
+      widget.library.reanalyzing;
 
-  /// 2-second hold-without-move timer to enter selection/edit mode.
-  Timer? _editHoldTimer;
-  Offset? _editHoldDownPos;
-  String? _editHoldCardId;
-  final ValueNotifier<bool> _dragLifted = ValueNotifier<bool>(false);
+  GlobalKey _itemKey(String id) => _itemKeys.putIfAbsent(id, GlobalKey.new);
 
-  void _cancelEditHold() {
-    _editHoldTimer?.cancel();
-    _editHoldTimer = null;
-    _editHoldDownPos = null;
-    _editHoldCardId = null;
-    _dragLifted.value = false;
+  void _dismissMenu() {
+    _menuEntry?.remove();
+    _menuEntry = null;
   }
 
-  void _checkDragMotion(Offset currentPos) {
-    if (_editHoldDownPos != null) {
-      final dist = (currentPos - _editHoldDownPos!).distance;
-      if (dist > 15) {
-        _editHoldTimer?.cancel();
-        if (!_dragLifted.value && _dragCacheId != null) {
-          _dragLifted.value = true;
-          HapticFeedback.mediumImpact();
-        }
-      }
+  void _dismissDragOverlay() {
+    _edgeScrollTimer?.cancel();
+    _edgeScrollTimer = null;
+    _dragEntry?.remove();
+    _dragEntry = null;
+  }
+
+  void _endDrag() {
+    _dismissDragOverlay();
+    if (!mounted) {
+      _dragging = false;
+      _movingIds = const <String>[];
+      _dropIndex = null;
+      return;
     }
+    if (!_dragging && _dropIndex == null && _movingIds.isEmpty) return;
+    setState(() {
+      _dragging = false;
+      _movingIds = const <String>[];
+      _dropIndex = null;
+    });
   }
 
-  void _handleLongHoldEdit() {
-    final cardId = _editHoldCardId;
-    _cancelEditHold();
-    if (cardId == null || !mounted || _selecting) return;
-
-    HapticFeedback.heavyImpact();
-    _reorderListKey.currentState?.cancelReorder();
+  void _selectFromMenu(String id) {
     setState(() {
-      _dragCacheId = null;
-      _dragOverTrash = false;
-      _enterEdit(cardId);
+      _selecting = true;
+      _selected.add(id);
     });
+  }
+
+  void _showMenu(String id, Offset global) {
+    _dismissMenu();
+    final overlay = Overlay.maybeOf(context);
+    if (overlay == null) return;
+    _menuEntry = OverlayEntry(
+      builder: (ctx) {
+        final size = MediaQuery.sizeOf(ctx);
+        final top = (global.dy - 96).clamp(72.0, size.height - 160);
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: _dismissMenu,
+                behavior: HitTestBehavior.opaque,
+              ),
+            ),
+            Positioned(
+              left: 20,
+              top: top,
+              child: Material(
+                elevation: 8,
+                borderRadius: BorderRadius.circular(12),
+                color: Theme.of(ctx).colorScheme.surfaceContainerHigh,
+                child: IntrinsicWidth(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.delete_outline),
+                        title: const Text('삭제'),
+                        onTap: () {
+                          _dismissMenu();
+                          unawaited(_softHideWithUndo([id]));
+                        },
+                      ),
+                      ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.check_box_outlined),
+                        title: const Text('선택'),
+                        onTap: () {
+                          _dismissMenu();
+                          _selectFromMenu(id);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    overlay.insert(_menuEntry!);
+  }
+
+  int _insertIndexFor(Offset global) {
+    final papers = widget.library.papers;
+    for (var i = 0; i < papers.length; i++) {
+      final ctx = _itemKeys[papers[i].id]?.currentContext;
+      if (ctx == null) continue;
+      final box = ctx.findRenderObject() as RenderBox?;
+      if (box == null || !box.hasSize) continue;
+      final mid = box.localToGlobal(Offset.zero).dy + box.size.height / 2;
+      if (global.dy < mid) return i;
+    }
+    return papers.length;
+  }
+
+  void _applyEdgeScroll(Offset global) {
+    if (!_scroll.hasClients || !mounted) return;
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    final dy = box.globalToLocal(global).dy;
+    const edge = 80.0;
+    var delta = 0.0;
+    if (dy < edge) {
+      delta = -18;
+    } else if (dy > box.size.height - edge) {
+      delta = 18;
+    }
+    if (delta == 0) return;
+    final pos = _scroll.position;
+    final target = (_scroll.offset + delta).clamp(
+      pos.minScrollExtent,
+      pos.maxScrollExtent,
+    );
+    if (target != _scroll.offset) _scroll.jumpTo(target);
+  }
+
+  void _onCardHold(String id, Offset global) {
+    if (!mounted || _gestureBlocked) return;
+    HapticFeedback.mediumImpact();
+    if (_selecting && _selected.contains(id)) return;
+    _showMenu(id, global);
+  }
+
+  void _onCardDragStart(String id, Offset global) {
+    if (!mounted || _gestureBlocked) return;
+    _dismissMenu();
+    final papers = widget.library.papers;
+    final moving = (_selecting && _selected.contains(id) && _selected.length > 1)
+        ? <String>[
+            for (final p in papers)
+              if (_selected.contains(p.id)) p.id,
+          ]
+        : <String>[id];
+    setState(() {
+      _dragging = true;
+      _movingIds = moving;
+      _dragGlobal = global;
+      _dropIndex = _insertIndexFor(global);
+    });
+    final overlay = Overlay.maybeOf(context);
+    if (overlay != null) {
+      _dragEntry = OverlayEntry(
+        builder: (ctx) {
+          final title = _dragTitle();
+          final n = _movingIds.length;
+          final top = (_dragGlobal.dy - 28).clamp(
+            8.0,
+            MediaQuery.sizeOf(ctx).height - 64,
+          );
+          return Positioned(
+            left: 16,
+            right: 16,
+            top: top,
+            child: IgnorePointer(
+              child: Material(
+                elevation: 8,
+                borderRadius: BorderRadius.circular(12),
+                color: Theme.of(ctx).colorScheme.surfaceContainerHigh,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  child: Text(
+                    n > 1 ? '$title 외 ${n - 1}건' : title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+      overlay.insert(_dragEntry!);
+    }
+    _edgeScrollTimer?.cancel();
+    _edgeScrollTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      if (!_dragging || !mounted) return;
+      _applyEdgeScroll(_dragGlobal);
+      final next = _insertIndexFor(_dragGlobal);
+      if (next != _dropIndex) {
+        setState(() => _dropIndex = next);
+      }
+    });
+    HapticFeedback.mediumImpact();
+  }
+
+  String _dragTitle() {
+    final id = _movingIds.isEmpty ? '' : _movingIds.first;
+    for (final p in widget.library.papers) {
+      if (p.id == id) return p.title;
+    }
+    return '선택한 논문';
+  }
+
+  void _onCardDragUpdate(Offset global) {
+    if (!_dragging) return;
+    _dragGlobal = global;
+    final next = _insertIndexFor(global);
+    if (next != _dropIndex && mounted) {
+      setState(() => _dropIndex = next);
+    } else {
+      _dragEntry?.markNeedsBuild();
+    }
+    _applyEdgeScroll(global);
+  }
+
+  void _onCardDragEnd(Offset global) {
+    final moving = List<String>.from(_movingIds);
+    final insertAt = _insertIndexFor(global);
+    _endDrag();
+    if (moving.isEmpty || _gestureBlocked) return;
+    unawaited(widget.library.reorderPaperBlock(moving, insertAt));
   }
 
   /// design/168c — non-ok ingest_status chip label (null = hide).
@@ -130,8 +324,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   void dispose() {
-    _cancelEditHold();
-    _dragLifted.dispose();
+    _dismissMenu();
+    _dismissDragOverlay();
+    _scroll.dispose();
     widget.auth.removeListener(_onAuth);
     super.dispose();
   }
@@ -141,6 +336,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _loadAndResume();
     } else {
       // WHY (MULTI-USER): wipe list + upload draft so next account cannot resume.
+      _dismissMenu();
+      _dismissDragOverlay();
+      _dragging = false;
+      _movingIds = const <String>[];
       setState(() {
         _selecting = false;
         _selected.clear();
@@ -149,16 +348,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
-  void _enterEdit(String id) {
-    setState(() {
-      _selecting = true;
-      _selected
-        ..clear()
-        ..add(id);
-    });
-  }
-
   void _exitEdit() {
+    _dismissMenu();
     setState(() {
       _selecting = false;
       _selected.clear();
@@ -194,8 +385,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
       if (_selected.isEmpty) {
         _selecting = false;
       }
-      _dragCacheId = null;
-      _dragOverTrash = false;
     });
     if (result.hidden == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -237,19 +426,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void> _confirmDelete() async {
     if (_deleting || _selected.isEmpty) return;
     await _softHideWithUndo(_selected.toList(growable: false));
-  }
-
-  void _updateTrashHover(Offset globalPos) {
-    final ctx = _trashKey.currentContext;
-    if (ctx == null) return;
-    final box = ctx.findRenderObject() as RenderBox?;
-    if (box == null || !box.hasSize) return;
-    final origin = box.localToGlobal(Offset.zero);
-    final rect = (origin & box.size).inflate(_magnetPad);
-    final hit = rect.contains(globalPos);
-    if (hit != _dragOverTrash) {
-      setState(() => _dragOverTrash = hit);
-    }
   }
 
   Future<void> _showRetentionSheet(PaperEntry entry) async {
@@ -520,13 +696,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
             if (didPop) return;
             if (_selecting) _exitEdit();
           },
-          child: Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerMove: (event) => _checkDragMotion(event.position),
-            onPointerUp: (_) => _cancelEditHold(),
-            onPointerCancel: (_) => _cancelEditHold(),
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (n) {
+              if (n is ScrollUpdateNotification && _menuEntry != null && !_dragging) {
+                _dismissMenu();
+              }
+              return false;
+            },
             child: CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
+            controller: _scroll,
+            physics: _dragging
+                ? const NeverScrollableScrollPhysics()
+                : const AlwaysScrollableScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(
                 child: Padding(
@@ -555,7 +736,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           tooltip: '편집 종료',
                         ),
                         IconButton(
-                          key: _trashKey,
                           onPressed: _deleting || _selected.isEmpty
                               ? null
                               : _confirmDelete,
@@ -567,16 +747,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                     strokeWidth: 2,
                                   ),
                                 )
-                              : AnimatedScale(
-                                  scale: _dragOverTrash ? 1.25 : 1.0,
-                                  duration: const Duration(milliseconds: 120),
-                                  child: Icon(
-                                    Icons.delete_outline,
-                                    color: _dragOverTrash
-                                        ? Theme.of(context).colorScheme.error
-                                        : null,
-                                  ),
-                                ),
+                              : const Icon(Icons.delete_outline),
                           tooltip: '숨기기',
                         ),
                       ],
@@ -617,7 +788,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                     child: Text(
-                      '체크 후 휴지통으로 숨깁니다. 60초 안 실행 취소 가능.',
+                      '체크한 논문을 길게 눌러 한 덩어리로 옮깁니다. 휴지통은 숨기기.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
@@ -627,7 +798,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                     child: Text(
-                      '누르고 끌어 순서 변경 · 길게 눌러 편집.',
+                      '길게 누르면 삭제·선택 · 손을 떼지 않고 끌면 순서를 바꿉니다.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
@@ -743,85 +914,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                 )
               else if (lib.papers.isNotEmpty)
-                SliverReorderableList(
-                  key: _reorderListKey,
-                  itemCount: lib.papers.length,
-                  // design/122 — custom proxy: no M3 white flash; keep lifted row.
-                  // design/225-F — Listener for magnetic trash hit-test.
-                  proxyDecorator: (child, index, animation) {
-                    final scheme = Theme.of(context).colorScheme;
-                    final base = libraryReorderProxyDecorator(
-                      child,
-                      index,
-                      animation,
-                      colorScheme: scheme,
-                      isLifted: _dragLifted,
-                    );
-                    return Listener(
-                      onPointerMove: (e) {
-                        _updateTrashHover(e.position);
-                        _checkDragMotion(e.position);
-                      },
-                      onPointerUp: (_) => _cancelEditHold(),
-                      onPointerCancel: (_) => _cancelEditHold(),
-                      child: base,
-                    );
-                  },
-                  onReorderStart: (index) {
-                    if (index < 0 || index >= lib.papers.length) return;
-                    setState(() {
-                      _dragCacheId = lib.papers[index].id;
-                      _dragOverTrash = false;
-                    });
-                  },
-                  onReorderEnd: (_) {
-                    _cancelEditHold();
-                    if (_dragOverTrash) {
-                      // Drop handled in onReorder; clear leftover flags.
-                    }
-                    if (mounted && !_deleting) {
-                      setState(() {
-                        if (!_dragOverTrash) {
-                          _dragCacheId = null;
-                          _dragOverTrash = false;
-                        }
-                      });
-                    }
-                  },
-                  onReorder: (oldIndex, newIndex) {
-                    _cancelEditHold();
-                    if (lib.opening ||
-                        lib.uploading ||
-                        lib.reanalyzing ||
-                        _deleting) {
-                      setState(() {
-                        _dragCacheId = null;
-                        _dragOverTrash = false;
-                      });
-                      return;
-                    }
-                    // design/225-F — trash magnet: soft-hide, no order persist.
-                    if (_dragOverTrash) {
-                      final id = _dragCacheId;
-                      setState(() {
-                        _dragOverTrash = false;
-                        _dragCacheId = null;
-                      });
-                      if (id != null && id.isNotEmpty) {
-                        unawaited(_softHideWithUndo([id]));
-                      }
-                      return;
-                    }
-                    unawaited(lib.reorderPapers(oldIndex, newIndex));
-                    setState(() {
-                      _dragCacheId = null;
-                      _dragOverTrash = false;
-                    });
-                  },
-                  itemBuilder: (context, i) {
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                  (context, i) {
                     final e = lib.papers[i];
                     final selected = _selected.contains(e.id);
                     final bookmarkCount = widget.bookmarks.paperBookmarkCount(e.id);
+                    final dim = _dragging && _movingIds.contains(e.id);
+                    final showLine = _dragging && _dropIndex == i;
                     final tile = ListTile(
                       leading: _selecting
                           ? Checkbox(
@@ -1016,49 +1116,43 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 _open(e);
                               }
                             },
-                      // design/250 — normal hold (2s) is handled by _LibraryCardTouchWrapper.
-                      // ListTile onLongPress is ONLY active while in edit/select mode.
-                      onLongPress: (_selecting &&
-                              !lib.opening &&
-                              !lib.uploading &&
-                              !lib.reanalyzing &&
-                              !_deleting)
-                          ? () => _toggleSelected(e.id)
-                          : null,
                     );
-                    return ReorderableDelayedDragStartListener(
+                    return KeyedSubtree(
                       key: ValueKey<String>(e.id),
-                      index: i,
-                      enabled: !lib.opening &&
-                          !lib.uploading &&
-                          !lib.reanalyzing &&
-                          !_deleting,
-                      child: Listener(
-                        behavior: HitTestBehavior.translucent,
-                        onPointerDown: (event) {
-                          if (_selecting ||
-                              lib.opening ||
-                              lib.uploading ||
-                              lib.reanalyzing ||
-                              _deleting) {
-                            return;
-                          }
-                          _editHoldDownPos = event.position;
-                          _editHoldCardId = e.id;
-                          _dragLifted.value = false;
-                          _editHoldTimer?.cancel();
-                          _editHoldTimer = Timer(
-                            const Duration(milliseconds: 2000),
-                            _handleLongHoldEdit,
-                          );
-                        },
-                        onPointerMove: (event) => _checkDragMotion(event.position),
-                        onPointerUp: (_) => _cancelEditHold(),
-                        onPointerCancel: (_) => _cancelEditHold(),
-                        child: tile,
+                      child: Opacity(
+                        opacity: dim ? 0.35 : 1,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (showLine)
+                              Container(
+                                height: 3,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            LibraryCardHold(
+                              key: _itemKey(e.id),
+                              enabled: !_gestureBlocked,
+                              onHold: (pos) => _onCardHold(e.id, pos),
+                              onDragStart: (pos) => _onCardDragStart(e.id, pos),
+                              onDragUpdate: _onCardDragUpdate,
+                              onDragEnd: _onCardDragEnd,
+                              onCancel: _endDrag,
+                              child: tile,
+                            ),
+                            if (_dragging &&
+                                _dropIndex == lib.papers.length &&
+                                i == lib.papers.length - 1)
+                              Container(
+                                height: 3,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                          ],
+                        ),
                       ),
                     );
                   },
+                  childCount: lib.papers.length,
+                  ),
                 ),
             ],
           ),

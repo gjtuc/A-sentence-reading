@@ -77,6 +77,7 @@ ALLOWED_KINDS = frozenset(
         "papers_supersede_gc",
         "papers_delete_residual",
         "papers_gcs_orphan_sample",
+        "papers_pre_ingest_orphan_sweep",
         # design/177 — paper delete causal densify
         "paper_delete_start",
         "paper_delete_done",
@@ -261,6 +262,7 @@ ALLOWED_KINDS = frozenset(
         "paper_merge_postcheck",
         "paper_notify_open",
         "documents_mirror_done",
+        "paper_residue_sweep",
         # design/283 — translate/ingest stage loop & regress
         "translate_section_enter",
         "translate_harmonize_start",

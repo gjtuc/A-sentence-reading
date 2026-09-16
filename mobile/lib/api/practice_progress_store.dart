@@ -128,6 +128,26 @@ PracticeProgressRow? clampPracticeProgress({
   );
 }
 
+Future<void> dropPracticeProgress({
+  required String? uid,
+  required String cacheId,
+}) async {
+  final cid = cacheId.trim();
+  if (cid.isEmpty) return;
+  final p = await SharedPreferences.getInstance();
+  final key = practiceProgressPrefsKey(uid);
+  final raw = p.getString(key);
+  if (raw == null || raw.isEmpty) return;
+  try {
+    final map = jsonDecode(raw);
+    if (map is! Map) return;
+    final papers = map['papers'];
+    if (papers is! Map) return;
+    papers.remove(practiceProgressCacheKey(cid));
+    await p.setString(key, jsonEncode(map));
+  } catch (_) {}
+}
+
 /// Batch load practice resume labels for library rows (section only).
 Future<Map<String, String>> loadPracticeResumeLabels({
   required String? uid,

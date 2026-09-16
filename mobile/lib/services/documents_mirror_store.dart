@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../platform/documents_mirror_channel.dart';
 import 'figure_disk_cache.dart';
 import 'paper_disk_store.dart';
+import 'paper_residue.dart';
 import 'shadowing_disk_store.dart';
 
 class DocumentsMirrorStore {
@@ -88,6 +89,30 @@ class DocumentsMirrorStore {
       lastError = '미러 저장 실패';
       return false;
     }
+  }
+
+  /// design/307 — delete paper folders whose names are not in [keep], then re-list.
+  Future<({int deleted, int leftover})> sweepAbsentPapers(
+    Set<String> keep,
+  ) async {
+    if (!isBound || !await _channel.hasManagePermission()) {
+      return (deleted: 0, leftover: -1);
+    }
+    final names = await _channel.listRelative(
+      uid: _uid,
+      relativePath: 'papers',
+    );
+    final drop = residueIdsNotInKeep(keep: keep, found: names);
+    var deleted = 0;
+    for (final name in drop) {
+      if (await deletePaper(name)) deleted += 1;
+    }
+    final again = await _channel.listRelative(
+      uid: _uid,
+      relativePath: 'papers',
+    );
+    final left = residueIdsNotInKeep(keep: keep, found: again);
+    return (deleted: deleted, leftover: left.length);
   }
 
   Future<bool> deletePaper(String cacheId) async {

@@ -163,6 +163,18 @@ class FigureDiskCache {
     return dir;
   }
 
+  Future<List<String>> listChildDirNames() async {
+    if (!isBound) return const [];
+    final docs = await _rootResolver();
+    final dir = Directory(p.join(docs.path, cacheDirName, 'u', _uid));
+    if (!await dir.exists()) return const [];
+    final out = <String>[];
+    await for (final e in dir.list(followLinks: false)) {
+      if (e is Directory) out.add(p.basename(e.path));
+    }
+    return out;
+  }
+
   Future<Directory?> paperDir(String cacheId) async {
     if (!isBound) return null;
     final id = figureCacheSafeToken(cacheId, maxLen: 32);

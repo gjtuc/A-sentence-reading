@@ -40,3 +40,18 @@ Future<void> savePracticeBookmarksStore({
     jsonEncode(compact.toJson()),
   );
 }
+
+Future<void> purgePracticeBookmarks({
+  required String? uid,
+  required String cacheId,
+}) async {
+  final cid = cacheId.trim();
+  if (cid.isEmpty) return;
+  final store = await loadPracticeBookmarksStore(uid: uid);
+  final papers = Map<String, PaperBookmarks>.from(store.papers);
+  papers.remove(bookmarkPaperKey(cid));
+  await savePracticeBookmarksStore(
+    uid: uid,
+    store: BookmarksStore(papers: papers),
+  );
+}

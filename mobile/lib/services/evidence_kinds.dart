@@ -258,6 +258,7 @@ const Set<String> kEvidenceAllowedKinds = {
   'paper_merge_postcheck',
   'paper_notify_open',
   'documents_mirror_done',
+  'paper_residue_sweep',
   // design/283 — translate/ingest stage loop & regress
   'translate_section_enter',
   'translate_harmonize_start',

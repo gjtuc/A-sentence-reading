@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.299",
+    version="0.3.300",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -9125,6 +9125,13 @@ def _begin_ingest_from_bytes(
     except Exception:  # noqa: BLE001
         pass
     owner_uid = str(_JOBS[job_id].get("owner_uid") or "")
+    # design/307 — check leftover server objects, then start analysis anyway.
+    try:
+        from sentence_reading.llm.papers_gcs import sweep_index_absent_paper_prefixes
+
+        sweep_index_absent_paper_prefixes()
+    except Exception:  # noqa: BLE001
+        pass
     _spawn_ingest_worker(
         job_id,
         tmp_path,

@@ -39,6 +39,16 @@ class ShadowingDiskStore {
     return Directory(p.join(docs.path, kShadowingDiskStoreDirName, 'u', _uid));
   }
 
+  Future<List<String>> listChildDirNames() async {
+    final root = await uidRoot();
+    if (root == null || !await root.exists()) return const [];
+    final out = <String>[];
+    await for (final e in root.list(followLinks: false)) {
+      if (e is Directory) out.add(p.basename(e.path));
+    }
+    return out;
+  }
+
   Future<Directory?> paperDir(String cacheId) async {
     final root = await uidRoot();
     final cid = figureCacheSafeToken(cacheId, maxLen: 32);

@@ -370,6 +370,113 @@ def wipe_paper_prefix(cache_id: str) -> dict[str, Any]:
     }
 
 
+def paper_prefix_ids_from_objects(
+    object_names: list[str] | tuple[str, ...] | None,
+    papers_root: str,
+) -> list[str]:
+    """Cache ids that own objects under papers/{id}/. Skips index.json."""
+    root = (papers_root or "").replace("\\", "/").rstrip("/") + "/"
+    seen: set[str] = set()
+    out: list[str] = []
+    if not papers_root:
+        return out
+    for raw in object_names or ():
+        name = str(raw or "").replace("\\", "/")
+        if not name.startswith(root):
+            continue
+        seg = name[len(root) :].split("/", 1)[0]
+        if seg == "index.json" or not _CACHE_ID_RE.match(seg):
+            continue
+        if seg in seen:
+            continue
+        seen.add(seg)
+        out.append(seg)
+    return out
+
+
+def sweep_index_absent_paper_prefixes(*, max_ids: int = 24) -> dict[str, Any]:
+    """
+    design/307 — before a new analysis, wipe papers/{id}/ that are no longer
+    in the user's index. Analysis still proceeds if this is skipped or partial.
+    """
+    from sentence_reading.llm.auth_google import auth_enabled, current_gcs_uid
+
+    stats: dict[str, Any] = {
+        "ok": True,
+        "skipped": 0,
+        "absent_n": 0,
+        "wiped_n": 0,
+        "failed_n": 0,
+        "leftover_n": 0,
+    }
+    if auth_enabled() and not current_gcs_uid():
+        stats["skipped"] = 1
+        return stats
+    papers_root = personal_object_name("papers")
+    if not papers_root or not papers_prefix_delete_enabled():
+        stats["skipped"] = 1
+        return stats
+    ready, _msg = gcs_client_ready()
+    if not gcs_config().enabled or not ready:
+        stats["skipped"] = 1
+        return stats
+    listed = list_blobs_under(papers_root + "/")
+    live: set[str] = set()
+    try:
+        remote = download_remote_index()
+        for e in remote.get("entries") or []:
+            if not isinstance(e, dict):
+                continue
+            eid = str(e.get("id") or "").strip()
+            if _CACHE_ID_RE.match(eid):
+                live.add(eid)
+    except Exception:  # noqa: BLE001
+        stats["ok"] = False
+        stats["skipped"] = 1
+        return stats
+    absent = [
+        cid
+        for cid in paper_prefix_ids_from_objects(listed, papers_root)
+        if cid not in live
+    ]
+    stats["absent_n"] = len(absent)
+    cap = max(0, int(max_ids))
+    for cid in absent[:cap]:
+        wipe = wipe_paper_prefix(cid)
+        if wipe.get("ok"):
+            stats["wiped_n"] = int(stats["wiped_n"]) + 1
+        else:
+            stats["failed_n"] = int(stats["failed_n"]) + 1
+    again = list_blobs_under(papers_root + "/")
+    leftover = [
+        cid
+        for cid in paper_prefix_ids_from_objects(again, papers_root)
+        if cid not in live
+    ]
+    stats["leftover_n"] = len(leftover)
+    stats["ok"] = int(stats["failed_n"]) == 0 and int(stats["leftover_n"]) == 0
+    try:
+        from sentence_reading.llm import evidence_bus as eb
+
+        eb.emit(
+            "papers_pre_ingest_orphan_sweep",
+            severity="error" if not stats["ok"] else "lifecycle",
+            stage="pre_ingest",
+            details={
+                "absent_n": stats["absent_n"],
+                "wiped_n": stats["wiped_n"],
+                "failed_n": stats["failed_n"],
+                "leftover_n": stats["leftover_n"],
+                "skipped": stats["skipped"],
+            },
+            ok=bool(stats["ok"]),
+            code="papers_pre_ingest_orphan_sweep",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return stats
+
+
 def classify_paper_blob_kind(object_name: str) -> str:
     """design/177 — residual histogram class (no full paths in evidence)."""
     name = (object_name or "").replace("\\", "/").lower()

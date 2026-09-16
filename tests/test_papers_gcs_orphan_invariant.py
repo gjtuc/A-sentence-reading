@@ -186,7 +186,7 @@ def test_upload_supersede_gc_loser(monkeypatch: pytest.MonkeyPatch, _iso: Path) 
         p = prefix if prefix.endswith("/") else prefix + "/"
         return [k for k in list(store.keys()) if k.startswith(p)]
 
-    def fake_gc(cid: str, *, winner_id: str = ""):
+    def fake_gc(cid: str, *, winner_id: str = "", **_extra):
         gc_calls.append(cid)
         wipe = pg.wipe_paper_prefix(cid)
         return {"ok": wipe.get("ok"), "cache_id": cid, "winner_id": winner_id, **wipe}
@@ -205,6 +205,56 @@ def test_upload_supersede_gc_loser(monkeypatch: pytest.MonkeyPatch, _iso: Path) 
     assert old_id in gc_calls
     idx = json.loads(store["asr/papers/index.json"])
     assert [e["id"] for e in idx["entries"]] == [new_id]
+
+
+def test_pre_ingest_sweep_wipes_index_absent_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ASR_EVIDENCE_BUS", "0")
+    blobs = {
+        "asr/users/u/papers/index.json": b"{}",
+        "asr/users/u/papers/keptkeptkept/session.json": b"{}",
+        "asr/users/u/papers/gonegonegone/session.json": b"{}",
+        "asr/users/u/papers/gonegonegone/source.pdf": b"x",
+    }
+
+    def list_under(prefix: str):
+        pfx = prefix if prefix.endswith("/") else prefix + "/"
+        return [k for k in list(blobs) if k.startswith(pfx)]
+
+    def delete(name: str) -> bool:
+        blobs.pop(name, None)
+        return True
+
+    def pon(*parts: str) -> str | None:
+        if parts and parts[0] == "papers":
+            return "asr/users/u/" + "/".join(parts)
+        return None
+
+    monkeypatch.setattr(pg, "list_blobs_under", list_under)
+    monkeypatch.setattr(pg, "delete_bytes", delete)
+    monkeypatch.setattr(pg, "personal_object_name", pon)
+    monkeypatch.setattr(
+        pg,
+        "download_remote_index",
+        lambda: {"entries": [{"id": "keptkeptkept"}]},
+    )
+    monkeypatch.setattr(pg, "gcs_client_ready", lambda: (True, "ok"))
+    monkeypatch.setattr(
+        pg,
+        "gcs_config",
+        lambda: type("C", (), {"enabled": True, "bucket": "b", "prefix": "asr"})(),
+    )
+    monkeypatch.setattr(pg, "papers_prefix_delete_enabled", lambda: True)
+    import sentence_reading.llm.auth_google as ag
+
+    monkeypatch.setattr(ag, "auth_enabled", lambda: True)
+    monkeypatch.setattr(ag, "current_gcs_uid", lambda: "u1")
+
+    stats = pg.sweep_index_absent_paper_prefixes()
+    assert stats["absent_n"] == 1
+    assert stats["wiped_n"] == 1
+    assert stats["leftover_n"] == 0
+    assert any("keptkeptkept" in k for k in blobs)
+    assert not any("gonegonegone" in k for k in blobs)
 
 
 if __name__ == "__main__":

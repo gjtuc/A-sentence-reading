@@ -19,6 +19,7 @@ import '../api/paper_models.dart';
 import '../api/progress_gate.dart';
 import '../api/progress_store.dart';
 import '../api/reading_models.dart';
+import '../api/practice_bookmark_store.dart';
 import '../api/practice_progress_store.dart';
 import '../api/shadowing_chunk_plan.dart';
 import '../api/upload_draft_models.dart';
@@ -51,6 +52,8 @@ import '../services/error_reporter.dart';
 import '../services/evidence_bus.dart';
 import '../services/notify_complete_gate_evidence.dart';
 import '../services/documents_mirror_store.dart';
+import 'library_block_move.dart';
+import '../services/paper_residue.dart';
 import '../services/figure_disk_cache.dart';
 import '../services/paper_disk_store.dart';
 import '../services/supplementary_local_merge.dart';
@@ -2732,6 +2735,7 @@ class LibraryController extends ChangeNotifier {
       unawaited(
         _editStash.purgeOrphans(papers.map((p) => p.id).toSet()),
       );
+      unawaited(sweepLocalResidues(trigger: 'library_refresh'));
       unawaited(reconcileUploadNotify());
       for (final p in papers) {
         if (p.harmonizePending) {
@@ -2797,6 +2801,30 @@ class LibraryController extends ChangeNotifier {
     await _persistOrder(papers.map((e) => e.id).toList(growable: false));
   }
 
+  /// design/308 — drop checked rows in as one block at [insertAt].
+  Future<void> reorderPaperBlock(List<String> moving, int insertAt) async {
+    final ids = papers.map((e) => e.id).toList(growable: false);
+    final nextIds = moveIdsAsBlock(ids, moving, insertAt);
+    if (nextIds.length != ids.length) return;
+    var same = true;
+    for (var i = 0; i < ids.length; i++) {
+      if (ids[i] != nextIds[i]) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return;
+    final byId = {for (final p in papers) p.id: p};
+    final next = <PaperEntry>[
+      for (final id in nextIds)
+        if (byId[id] != null) byId[id]!,
+    ];
+    if (next.length != papers.length) return;
+    _publishPapers(next);
+    notifyListeners();
+    await _persistOrder(nextIds);
+  }
+
   /// design/102 + design/177 — delete selected papers (GCS + user records via API).
   /// Honesty: list rows are removed only after HTTP ok for that id.
   Future<int> deletePapers(Iterable<String> cacheIds) async {
@@ -2838,11 +2866,14 @@ class LibraryController extends ChangeNotifier {
           await _figureDisk.purge(id);
           await _paperDisk.purge(id);
           await _shadowDisk.purge(id);
-          unawaited(_documentsMirror.deletePaper(id));
+          await _documentsMirror.deletePaper(id);
           _hydrateSessions.remove(id);
           _figureHydrate.remove(id);
           _hydrateDismissed.remove(id);
           await _bookmarks?.purgePaper(id);
+          await _annotations?.purgePaper(id);
+          await dropPracticeProgress(uid: _diskUid, cacheId: id);
+          await purgePracticeBookmarks(uid: _diskUid, cacheId: id);
         } catch (_) {
           localPurgeOk = false;
         }
@@ -2977,7 +3008,59 @@ class LibraryController extends ChangeNotifier {
         ? null
         : (lastErr ?? '삭제에 실패했습니다.');
     notifyListeners();
+    if (okIds.isNotEmpty) {
+      await sweepLocalResidues(trigger: 'delete');
+    }
     return okCount;
+  }
+
+  /// design/307 — delete folders not in the library or soft-hide set, then re-list.
+  Future<void> sweepLocalResidues({required String trigger}) async {
+    final keep = residueKeepTokens([
+      ...papers.map((p) => p.id),
+      ..._softDelete.hiddenIds,
+    ]);
+    var deleted = 0;
+    var leftover = 0;
+
+    Future<void> pass(
+      Future<List<String>> Function() list,
+      Future<void> Function(String id) purge,
+    ) async {
+      final drop = residueIdsNotInKeep(keep: keep, found: await list());
+      for (final id in drop) {
+        await purge(id);
+        deleted += 1;
+      }
+      final left = residueIdsNotInKeep(keep: keep, found: await list());
+      for (final id in left) {
+        await purge(id);
+      }
+      leftover += residueIdsNotInKeep(keep: keep, found: await list()).length;
+    }
+
+    try {
+      await pass(_paperDisk.listChildDirNames, _paperDisk.purge);
+      await pass(_shadowDisk.listChildDirNames, _shadowDisk.purge);
+      await pass(_figureDisk.listChildDirNames, _figureDisk.purge);
+      await _editStash.purgeOrphans(keep);
+      final mirror = await _documentsMirror.sweepAbsentPapers(keep);
+      if (mirror.deleted > 0) deleted += mirror.deleted;
+      if (mirror.leftover > 0) leftover += mirror.leftover;
+    } catch (_) {
+      leftover += 1;
+    }
+    asrEvidenceBus?.record(
+      'paper_residue_sweep',
+      severity: leftover == 0 ? 'lifecycle' : 'error',
+      stage: trigger,
+      ok: leftover == 0,
+      details: {
+        'deleted_n': deleted,
+        'leftover_n': leftover,
+        'keep_n': keep.length,
+      },
+    );
   }
 
   /// design/144 — extend retention +90d when server allows.
@@ -5788,7 +5871,7 @@ class LibraryController extends ChangeNotifier {
         purged.add(id);
       }
       await _purgeLocalPaperArtifacts(id);
-      unawaited(_documentsMirror.deletePaper(id));
+      await _documentsMirror.deletePaper(id);
     }
     if (purged.isNotEmpty) {
       _publishPapers(
