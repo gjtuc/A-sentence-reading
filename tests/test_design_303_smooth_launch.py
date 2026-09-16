@@ -35,8 +35,21 @@ def test_apk_sets_program_files_without_env_drive() -> None:
     text = APK.read_text(encoding="utf-8")
     assert "SetEnvironmentVariable" in text
     assert "ProgramFiles(x86)" in text
+    assert 'set "' in text
+    assert "flutter build apk --release" in text
+    assert text.find('set "') < text.find("flutter build apk --release")
     assert "$env:ProgramFiles" not in text
     assert "$env:'ProgramFiles" not in text
+
+
+def test_ship_wrapper_verifies_instead_of_redeploying() -> None:
+    wrapper = (ROOT / "scripts/ship_cloud_pair.ps1").read_text(encoding="utf-8")
+    assert "stdbuf -oL -eL" in wrapper
+    assert "ship_release OK" in wrapper
+    assert "verify only, no second deploy" in wrapper
+    assert "verify_live_status.py" in wrapper
+    stall = wrapper.split("verify only, no second deploy", 1)[1]
+    assert "ship_release.sh" not in stall
 
 
 def test_pytest_launcher_pins_this_repo() -> None:

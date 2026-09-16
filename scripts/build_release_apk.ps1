@@ -81,7 +81,8 @@ function Invoke-FlutterApk {
   $ErrorActionPreference = "Continue"
   $proc = $null
   try {
-    $arg = '/c flutter build apk --release > "' + $log + '" 2>&1'
+    # design/304 — the child cmd must see the catalog. Parent SetEnvironmentVariable did not.
+    $arg = '/c set "' + $pf86 + '=C:\Program Files (x86)" && flutter build apk --release > "' + $log + '" 2>&1'
     $proc = Start-Process -FilePath "cmd.exe" -ArgumentList $arg -WorkingDirectory $Mobile -PassThru -WindowStyle Hidden
     $deadline = (Get-Date).AddMinutes(25)
     $lastLen = -1

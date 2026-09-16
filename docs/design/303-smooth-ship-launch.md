@@ -1,6 +1,6 @@
 # 303 — Smooth ship launch
 
-Version: **0.3.295** · Status: **locked**
+Version: **0.3.297** · Status: **locked**
 
 ## Why
 
@@ -9,8 +9,9 @@ The 0.3.294 ship was correct, but three launches failed before the product ran. 
 ## Rules
 
 1. `scripts/ship_release.sh` pushes `origin main` when that ref is an ancestor of HEAD, then deploys. It does not force-push. If the histories diverged or local is behind, it stops and asks for `git pull --ff-only`.
-2. `scripts/build_release_apk.ps1` sets `ProgramFiles(x86)` with `SetEnvironmentVariable` before `flutter build apk`. Do not write `$env:ProgramFiles(x86)`.
-3. Python tests run via `scripts/pytest.cmd`. It sets the working directory and `PYTHONPATH` to this repo. `tests/conftest.py` drops any other `sentence_reading` checkout from `sys.path`.
+2. `scripts/build_release_apk.ps1` sets `ProgramFiles(x86)` with `SetEnvironmentVariable` and in the child `set` before `flutter build apk`. Do not write `$env:ProgramFiles(x86)`.
+3. `scripts/ship_cloud_pair.ps1` line-buffers ship output. If the log ends after the worker without `ship_release OK`, it runs live verify only. It does not start a second deploy.
+4. Python tests run via `scripts/pytest.cmd`. It sets the working directory and `PYTHONPATH` to this repo. `tests/conftest.py` drops any other `sentence_reading` checkout from `sys.path`.
 
 ## Non-goals
 
