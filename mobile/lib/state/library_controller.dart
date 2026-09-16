@@ -6287,36 +6287,7 @@ class LibraryController extends ChangeNotifier {
           cached = prevEntry.contentHash;
         }
 
-        final adv = await _pdfAdvisoryCache.lookup(
-          docUri: it.docUri,
-          sizeBytes: it.sizeBytes,
-          lastModifiedMs: it.lastModifiedMs,
-        );
-        final inheritAdv = adv == null &&
-            isSameFile &&
-            prevEntry.advisoryState == PdfAdvisoryState.ready;
-        final advTitle =
-            inheritAdv ? prevEntry.advisoryTitle : (adv?.advisoryTitle ?? '');
-        final advRole =
-            inheritAdv ? prevEntry.advisoryRole : (adv?.advisoryRole ?? '');
-        final advReason =
-            inheritAdv ? prevEntry.advisoryReason : (adv?.advisoryReason ?? '');
-        final advDoi =
-            inheritAdv ? prevEntry.advisoryDoi : (adv?.advisoryDoi ?? '');
-        final advState = (adv != null || inheritAdv)
-            ? PdfAdvisoryState.ready
-            : PdfAdvisoryState.unknown;
-        final advPairingKey = inheritAdv
-            ? prevEntry.pairingKey
-            : ((adv?.pairingKey ?? '').isNotEmpty
-                ? adv!.pairingKey
-                : (adv != null && adv.advisoryTitle.trim().isNotEmpty
-                    ? normalizePairingKey(adv.advisoryTitle)
-                    : ''));
-        final advSiStatus =
-            inheritAdv ? prevEntry.siStatus : (adv?.siStatus ?? '');
-        final advSiStem = inheritAdv ? prevEntry.siStem : (adv?.siStem ?? '');
-
+        // design/309 — do not reuse a saved or previous title. Extract again.
         next.add(
           ScannedPdfEntry(
             docUri: it.docUri,
@@ -6326,14 +6297,7 @@ class LibraryController extends ChangeNotifier {
             contentHash: cached ?? '',
             hashState:
                 cached == null ? PdfHashState.unknown : PdfHashState.ready,
-            advisoryTitle: advTitle,
-            advisoryRole: advRole,
-            advisoryReason: advReason,
-            advisoryState: advState,
-            advisoryDoi: advDoi,
-            pairingKey: advPairingKey,
-            siStatus: advSiStatus,
-            siStem: advSiStem,
+            advisoryState: PdfAdvisoryState.unknown,
           ),
         );
       }
@@ -6643,52 +6607,8 @@ class LibraryController extends ChangeNotifier {
         if (epoch != _pdfAdvisoryPumpEpoch) return;
         final t0 = DateTime.now().millisecondsSinceEpoch;
         try {
-          final cached = await _pdfAdvisoryCache.lookup(
-            docUri: e.docUri,
-            sizeBytes: e.sizeBytes,
-            lastModifiedMs: e.lastModifiedMs,
-          );
           if (epoch != _pdfAdvisoryPumpEpoch) return;
-          if (cached != null) {
-            e.advisoryTitle = cached.advisoryTitle;
-            e.advisoryRole = cached.advisoryRole;
-            e.advisoryReason = cached.advisoryReason;
-            e.advisoryDoi = cached.advisoryDoi;
-            e.pairingKey = cached.pairingKey.isNotEmpty
-                ? cached.pairingKey
-                : await _pairingKeyForTitle(
-                    cached.advisoryTitle,
-                    doi: cached.advisoryDoi,
-                    displayName: e.displayName,
-                  );
-            e.siStatus = cached.siStatus;
-            e.siStem = cached.siStem;
-            e.advisoryState = PdfAdvisoryState.ready;
-            nOk += 1;
-            nHit += 1;
-            bump(reasonHist, _evidenceSnakeToken(cached.advisoryReason));
-            final ts = cached.titleSource.isEmpty
-                ? 'unknown'
-                : _evidenceSnakeToken(cached.titleSource, fallback: 'unknown');
-            bump(titleSrcHist, ts);
-            asrEvidenceBus?.record(
-              'pdf_advisory_cache_hit',
-              severity: 'debug',
-              stage: 'advisory',
-              details: {
-                'n': 1,
-                'role': cached.advisoryRole,
-                'reason': _evidenceSnakeToken(cached.advisoryReason),
-                'title_source': ts,
-              },
-            );
-            _emitDoiEvidence(
-              doi: cached.advisoryDoi,
-              source: cached.doiSource,
-              role: cached.advisoryRole,
-            );
-            return;
-          }
+          // design/309 — no saved title. Always read the file.
           // design/249 · 254 — docx: extract head text + infoTitle via DocxHeadExtract.
           final isDocx =
               e.displayName.toLowerCase().endsWith('.docx');
@@ -6726,21 +6646,6 @@ class LibraryController extends ChangeNotifier {
                 displayName: e.displayName,
               );
               e.advisoryState = PdfAdvisoryState.ready;
-              await _pdfAdvisoryCache.put(
-                docUri: e.docUri,
-                sizeBytes: e.sizeBytes,
-                lastModifiedMs: e.lastModifiedMs,
-                advisoryTitle: guessed.title,
-                advisoryRole: det.role,
-                advisoryReason: det.reason,
-                extractOk: true,
-                titleSource: guessed.source,
-                advisoryDoi: doi,
-                doiSource: doiSource,
-                pairingKey: e.pairingKey,
-                siStem: siStem,
-                siStatus: e.siStatus,
-              );
               nOk += 1;
               nMiss += 1;
               bump(reasonHist, _evidenceSnakeToken(det.reason));
@@ -6780,19 +6685,6 @@ class LibraryController extends ChangeNotifier {
               displayName: e.displayName,
             );
             e.advisoryState = PdfAdvisoryState.ready;
-            await _pdfAdvisoryCache.put(
-              docUri: e.docUri,
-              sizeBytes: e.sizeBytes,
-              lastModifiedMs: e.lastModifiedMs,
-              advisoryTitle: title,
-              advisoryRole: role,
-              advisoryReason: reason,
-              extractOk: true,
-              titleSource: 'filename',
-              advisoryDoi: '',
-              doiSource: '',
-              pairingKey: e.pairingKey,
-            );
             nOk += 1;
             nMiss += 1;
             bump(reasonHist, _evidenceSnakeToken(reason));
@@ -6858,21 +6750,6 @@ class LibraryController extends ChangeNotifier {
             displayName: e.displayName,
           );
           e.advisoryState = PdfAdvisoryState.ready;
-          await _pdfAdvisoryCache.put(
-            docUri: e.docUri,
-            sizeBytes: e.sizeBytes,
-            lastModifiedMs: e.lastModifiedMs,
-            advisoryTitle: guessed.title,
-            advisoryRole: det.role,
-            advisoryReason: det.reason,
-            extractOk: true,
-            titleSource: guessed.source,
-            advisoryDoi: doi,
-            doiSource: doiSource,
-            pairingKey: e.pairingKey,
-            siStem: siStem,
-            siStatus: e.siStatus,
-          );
           nOk += 1;
           nMiss += 1;
           bump(reasonHist, _evidenceSnakeToken(det.reason));
@@ -7383,21 +7260,6 @@ class LibraryController extends ChangeNotifier {
           if (findId.isNotEmpty) 'find_id': findId,
         },
       );
-      try {
-        await _pdfAdvisoryCache.put(
-          docUri: e.docUri,
-          sizeBytes: e.sizeBytes,
-          lastModifiedMs: e.lastModifiedMs,
-          advisoryTitle: e.advisoryTitle,
-          advisoryRole: e.advisoryRole,
-          advisoryReason: e.advisoryReason,
-          extractOk: true,
-          advisoryDoi: e.advisoryDoi,
-          pairingKey: e.pairingKey,
-          siStatus: e.siStatus,
-          siStem: e.siStem,
-        );
-      } catch (_) {}
       notifyListeners();
     }
 

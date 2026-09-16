@@ -1,18 +1,12 @@
-/// design/228 · 229 · 230 · 237 · 239 — disk cache title/role/doi/pairing_key (no path/URI).
+/// design/309 — advisory titles are extracted on each folder scan and are not stored.
 library;
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
-import 'pdf_hash_cache_store.dart';
-
-const int kPdfAdvisoryCacheMaxEntries = 2000;
-
-/// design/229 · 233 · 235 · 236 · 237 · 239 · 254 · 255 · 265 · 276 — bump wipes stale rows (title/pair quality).
-/// design/229 · 233 · 235 · 236 · 237 · 239 · 254 · 255 · 265 · 276 · 277 · 280 — bump wipes stale rows.
-const int kPdfAdvisoryCacheSchema = 17; // design/281 — supported FN + abstract-before-SI veto
+/// design/309 — advisory titles are not stored. Schema is unused; disk rows are deleted.
+const int kPdfAdvisoryCacheSchema = 0;
 
 class PdfAdvisoryCacheEntry {
   const PdfAdvisoryCacheEntry({
@@ -56,13 +50,10 @@ class PdfAdvisoryCacheStore {
   PdfAdvisoryCacheStore();
 
   String? _uid;
-  Map<String, Map<String, dynamic>> _mem = {};
-  bool _loaded = false;
 
   Future<void> bindUid(String? uid) async {
     _uid = (uid ?? '').trim().isEmpty ? null : uid!.trim();
-    _mem = {};
-    _loaded = false;
+    await _refusePersist();
   }
 
   Future<Directory?> _dir() async {
@@ -70,11 +61,7 @@ class PdfAdvisoryCacheStore {
     if (u == null || u.isEmpty) return null;
     final safe = u.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
     final base = await getApplicationDocumentsDirectory();
-    final d = Directory('${base.path}/pdf_advisory_cache/u_$safe');
-    if (!await d.exists()) {
-      await d.create(recursive: true);
-    }
-    return d;
+    return Directory('${base.path}/pdf_advisory_cache/u_$safe');
   }
 
   Future<File?> _file() async {
@@ -83,65 +70,16 @@ class PdfAdvisoryCacheStore {
     return File('${d.path}/index.json');
   }
 
-  Future<void> _ensureLoaded() async {
-    if (_loaded) return;
-    _loaded = true;
-    final f = await _file();
-    if (f == null || !await f.exists()) {
-      _mem = {};
-      return;
-    }
+  /// design/309 — never read a saved title. Delete leftover files instead.
+  Future<void> _refusePersist() async {
     try {
-      final decoded = jsonDecode(await f.readAsString());
-      if (decoded is! Map) {
-        _mem = {};
-        return;
+      final f = await _file();
+      if (f != null && await f.exists()) await f.delete();
+      final d = await _dir();
+      if (d != null && await d.exists()) {
+        await d.delete(recursive: true);
       }
-      final schema = decoded['v'];
-      if (schema is! num || schema.toInt() != kPdfAdvisoryCacheSchema) {
-        _mem = {};
-        return;
-      }
-      final entries = decoded['entries'];
-      if (entries is! Map) {
-        _mem = {};
-        return;
-      }
-      final out = <String, Map<String, dynamic>>{};
-      for (final e in entries.entries) {
-        final v = e.value;
-        if (v is! Map) continue;
-        out['${e.key}'] = Map<String, dynamic>.from(v);
-      }
-      _mem = out;
-    } catch (_) {
-      _mem = {};
-    }
-  }
-
-  Future<void> _persist() async {
-    final f = await _file();
-    if (f == null) return;
-    if (_mem.length > kPdfAdvisoryCacheMaxEntries) {
-      final ranked = _mem.entries.toList()
-        ..sort((a, b) {
-          final am = a.value['computed_at_ms'] is num
-              ? (a.value['computed_at_ms'] as num).toInt()
-              : 0;
-          final bm = b.value['computed_at_ms'] is num
-              ? (b.value['computed_at_ms'] as num).toInt()
-              : 0;
-          return am.compareTo(bm);
-        });
-      final drop = ranked.length - kPdfAdvisoryCacheMaxEntries;
-      for (var i = 0; i < drop; i++) {
-        _mem.remove(ranked[i].key);
-      }
-    }
-    await f.writeAsString(
-      jsonEncode({'v': kPdfAdvisoryCacheSchema, 'entries': _mem}),
-      flush: true,
-    );
+    } catch (_) {}
   }
 
   Future<PdfAdvisoryCacheEntry?> lookup({
@@ -149,42 +87,11 @@ class PdfAdvisoryCacheStore {
     required int sizeBytes,
     required int lastModifiedMs,
   }) async {
-    await _ensureLoaded();
-    final key = pdfHashCacheKey(
-      docUri: docUri,
-      sizeBytes: sizeBytes,
-      lastModifiedMs: lastModifiedMs,
-    );
-    final row = _mem[key];
-    if (row == null) return null;
-    final role = '${row['advisory_role'] ?? ''}'.trim().toLowerCase();
-    if (role.isNotEmpty && role != 'main' && role != 'supplementary') {
-      return null;
-    }
-    final src = '${row['title_source'] ?? ''}'.trim().toLowerCase();
-    final titleSource = (src == 'info' || src == 'head_line' || src == 'stem')
-        ? src
-        : '';
-    final doiSrc = '${row['doi_source'] ?? ''}'.trim().toLowerCase();
-    final doiSource = (doiSrc == 'head' || doiSrc == 'info') ? doiSrc : '';
-    final si = '${row['si_status'] ?? ''}'.trim().toLowerCase();
-    final siStatus = (si == 'absent' || si == 'available' || si == 'unknown')
-        ? si
-        : '';
-    return PdfAdvisoryCacheEntry(
-      advisoryTitle: '${row['advisory_title'] ?? ''}'.trim(),
-      advisoryRole: role,
-      advisoryReason: '${row['advisory_reason'] ?? ''}'.trim(),
-      extractOk: row['extract_ok'] == true,
-      titleSource: titleSource,
-      advisoryDoi: '${row['advisory_doi'] ?? ''}'.trim(),
-      doiSource: doiSource,
-      pairingKey: '${row['pairing_key'] ?? ''}'.trim(),
-      siStatus: siStatus,
-      siStem: '${row['si_stem'] ?? ''}'.trim(),
-    );
+    await _refusePersist();
+    return null;
   }
 
+  /// design/309 — callers may still pass a title. It is discarded and the disk row is deleted.
   Future<void> put({
     required String docUri,
     required int sizeBytes,
@@ -200,51 +107,28 @@ class PdfAdvisoryCacheStore {
     String siStatus = '',
     String siStem = '',
   }) async {
-    await _ensureLoaded();
-    final key = pdfHashCacheKey(
-      docUri: docUri,
-      sizeBytes: sizeBytes,
-      lastModifiedMs: lastModifiedMs,
-    );
-    final role = advisoryRole.trim().toLowerCase();
-    final src = titleSource.trim().toLowerCase();
-    final srcOut =
-        (src == 'info' || src == 'head_line' || src == 'stem') ? src : '';
-    final dsrc = doiSource.trim().toLowerCase();
-    final dsrcOut = (dsrc == 'head' || dsrc == 'info') ? dsrc : '';
-    _mem[key] = {
-      'advisory_title': advisoryTitle.trim(),
-      'advisory_role':
-          (role == 'main' || role == 'supplementary') ? role : '',
-      'advisory_reason': advisoryReason.trim(),
-      'extract_ok': extractOk,
-      'title_source': srcOut,
-      'advisory_doi': advisoryDoi.trim(),
-      'doi_source': dsrcOut,
-      'pairing_key': pairingKey.trim(),
-      'si_status': () {
-        final s = siStatus.trim().toLowerCase();
-        return (s == 'absent' || s == 'available' || s == 'unknown') ? s : '';
-      }(),
-      'si_stem': siStem.trim(),
-      'size_bytes': sizeBytes,
-      'last_modified_ms': lastModifiedMs,
-      'computed_at_ms': DateTime.now().millisecondsSinceEpoch,
-    };
-    await _persist();
+    if (kPdfAdvisoryCacheSchema != 0 ||
+        advisoryTitle.isNotEmpty ||
+        docUri.isNotEmpty ||
+        sizeBytes < 0 ||
+        lastModifiedMs < 0 ||
+        advisoryRole.isNotEmpty ||
+        advisoryReason.isNotEmpty ||
+        extractOk ||
+        titleSource.isNotEmpty ||
+        advisoryDoi.isNotEmpty ||
+        doiSource.isNotEmpty ||
+        pairingKey.isNotEmpty ||
+        siStatus.isNotEmpty ||
+        siStem.isNotEmpty) {
+      await _refusePersist();
+      return;
+    }
+    await _refusePersist();
   }
 
   Future<void> clearBound() async {
-    try {
-      final f = await _file();
-      if (f != null && await f.exists()) await f.delete();
-      final d = await _dir();
-      if (d != null && await d.exists()) {
-        await d.delete(recursive: true);
-      }
-    } catch (_) {}
-    _mem = {};
-    _loaded = false;
+    await _refusePersist();
     _uid = null;
   }
 }
