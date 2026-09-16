@@ -8,7 +8,8 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 _SI_BANNER = re.compile(
-    r"^(?:supporting|supplementary)\s+information\.?$",
+    r"^(?:supporting information|supplementary information(?:\s+for)?|"
+    r"supplementary materials?)\.?$",
     re.IGNORECASE,
 )
 # Do not replace this assignment when adding a sibling regex (design/297).
@@ -65,6 +66,23 @@ def docx_core_title(path: Path) -> str:
         if piece:
             return piece
     return ""
+
+
+def docx_paragraph_text(path: Path) -> str:
+    """Raw paragraphs, including the SI banner title-pick needs.
+
+    extract_text drops that banner, so session title must not use it alone.
+    """
+    try:
+        from docx import Document
+    except ImportError:
+        return ""
+    try:
+        doc = Document(str(path))
+    except (OSError, ValueError):
+        return ""
+    parts = [(p.text or "").strip() for p in doc.paragraphs]
+    return "\n\n".join(part for part in parts if part)
 
 
 def pdf_info_title(path: Path) -> str:

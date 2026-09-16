@@ -99,3 +99,28 @@ def test_usable_title_card_keeps_translation() -> None:
     )
     assert card == "kept"
     assert rows[0].text_ko == "공식 제목"
+
+
+def test_banner_stripped_text_loses_si_title_raw_paragraphs_keep_it() -> None:
+    raw = f"Supplementary Materials\n\n{PAPER}\n\nLulu Jiang 1, Donglin Han 1*"
+    stripped = f"{PAPER}\n\nFig. S1 XRD patterns of the sintered pellets."
+    lost, lost_source = pick_session_title(
+        info_title="",
+        filename="1-s2.0-S1385894724017960-mmc1.docx",
+        text=stripped,
+    )
+    assert lost_source == "stem_fallback"
+    kept, kept_source = pick_session_title(
+        info_title="Supplementary Materials",
+        filename="1-s2.0-S1385894724017960-mmc1.docx",
+        text=raw,
+    )
+    assert kept_source == "head"
+    assert kept == PAPER
+    also, also_source = pick_session_title(
+        info_title="",
+        filename="1-s2.0-S2095809922003708-mmc1.docx",
+        text=f"Supplementary Information for\n\n{PAPER}",
+    )
+    assert also_source == "head"
+    assert also == PAPER

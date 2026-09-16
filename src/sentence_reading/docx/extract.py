@@ -78,6 +78,47 @@ def _png_data_url(png: bytes) -> str:
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
 
 
+_CAPTION_STUB = re.compile(
+    r"^(?:Fig(?:ure)?|Scheme|Table)\.?\s*S?\d+[a-z]?\.?$",
+    re.IGNORECASE,
+)
+
+
+def _is_caption_paragraph(text: str) -> bool:
+    piece = re.sub(r"\s+", " ", text or "").strip()
+    return bool(_FIG_CAPTION_START.match(piece) or _TABLE_CAPTION_START.match(piece))
+
+
+def _is_caption_stub(text: str) -> bool:
+    return bool(_CAPTION_STUB.match(re.sub(r"\s+", " ", text or "").strip()))
+
+
+def drop_caption_paragraphs(parts: list[str]) -> list[str]:
+    """Caption lines belong under the figure, not in the practice text.
+
+    A lone 'Fig. S1.' takes the next paragraph with it. A mention such as
+    'as shown in Fig. S1.' does not start a caption and stays.
+    """
+    cleaned = [(raw, re.sub(r"\s+", " ", raw or "").strip()) for raw in parts]
+    cleaned = [(raw, text) for raw, text in cleaned if text]
+    out: list[str] = []
+    i = 0
+    while i < len(cleaned):
+        raw, text = cleaned[i]
+        if _is_caption_paragraph(text):
+            i += 1
+            if (
+                _is_caption_stub(text)
+                and i < len(cleaned)
+                and not _is_caption_paragraph(cleaned[i][1])
+            ):
+                i += 1
+            continue
+        out.append(raw)
+        i += 1
+    return out
+
+
 def _mime_for_image(blob: bytes, content_type: str | None) -> tuple[str, str]:
     ct = (content_type or "").lower()
     if "png" in ct or blob.startswith(b"\x89PNG"):
@@ -253,6 +294,120 @@ def _table_as_png_data_url(caption: str, plain: str) -> str:
     return _png_data_url(buf.getvalue())
 
 
+def _open_raster(blob: bytes):
+    from io import BytesIO
+
+    from PIL import Image
+
+    try:
+        im = Image.open(BytesIO(blob))
+        im.load()
+        return im.convert("RGB")
+    except (OSError, ValueError):
+        return None
+
+
+def _wrap_caption(text: str, width: int, font, draw) -> list[str]:
+    words = re.sub(r"\s+", " ", text or "").strip().split(" ")
+    if not words or words == [""]:
+        return []
+    lines: list[str] = []
+    cur = ""
+    for word in words:
+        trial = word if not cur else f"{cur} {word}"
+        if draw.textlength(trial, font=font) <= width and len(trial) < 180:
+            cur = trial
+            continue
+        if cur:
+            lines.append(cur)
+        cur = word
+    if cur:
+        lines.append(cur)
+    return lines[:8]
+
+
+def compose_panel_png(
+    rows: list[list[tuple[bytes, str]]],
+    caption: str,
+    *,
+    caption_above: bool = False,
+) -> bytes:
+    """One figure: same-paragraph images in a row, rows stacked, caption outside."""
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    gap = 10
+    max_w = 1400
+    opened_rows: list[list] = []
+    for row in rows:
+        opened = [im for blob, _mime in row if (im := _open_raster(blob)) is not None]
+        if opened:
+            opened_rows.append(opened)
+    try:
+        font = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", 22)
+    except OSError:
+        font = ImageFont.load_default()
+
+    row_images: list = []
+    for opened in opened_rows:
+        target_h = min(max(im.height for im in opened), 720)
+        scaled = []
+        for im in opened:
+            if im.height <= 0:
+                continue
+            w = max(1, int(im.width * target_h / im.height))
+            scaled.append(im.resize((w, target_h), Image.Resampling.LANCZOS))
+        if not scaled:
+            continue
+        total_w = sum(im.width for im in scaled) + gap * (len(scaled) - 1)
+        if total_w > max_w:
+            scale = max_w / total_w
+            scaled = [
+                im.resize(
+                    (max(1, int(im.width * scale)), max(1, int(im.height * scale))),
+                    Image.Resampling.LANCZOS,
+                )
+                for im in scaled
+            ]
+            total_w = sum(im.width for im in scaled) + gap * (len(scaled) - 1)
+        row_h = max(im.height for im in scaled)
+        row_im = Image.new("RGB", (max(total_w, 1), row_h), (255, 255, 255))
+        x = 0
+        for im in scaled:
+            row_im.paste(im, (x, (row_h - im.height) // 2))
+            x += im.width + gap
+        row_images.append(row_im)
+
+    body_w = max((im.width for im in row_images), default=1100)
+    body_h = (
+        sum(im.height for im in row_images) + gap * max(len(row_images) - 1, 0)
+        if row_images
+        else 0
+    )
+    probe = ImageDraw.Draw(Image.new("RGB", (max(body_w, 8), 8)))
+    cap_lines = _wrap_caption(caption, max(body_w - 36, 200), font, probe)
+    cap_h = (16 + 28 * len(cap_lines)) if cap_lines else 0
+    canvas_h = body_h + cap_h
+    if canvas_h < 8:
+        canvas_h = cap_h or 8
+    canvas = Image.new("RGB", (max(body_w, 8), canvas_h), (255, 255, 255))
+    body_y = cap_h if caption_above else 0
+    y = body_y
+    for im in row_images:
+        canvas.paste(im, (0, y))
+        y += im.height + gap
+    if cap_lines:
+        draw = ImageDraw.Draw(canvas)
+        text_y = 8 if caption_above else body_h + 8
+        for line in cap_lines:
+            draw.text((18, text_y), line, fill=(20, 20, 20), font=font)
+            text_y += 28
+    buf = BytesIO()
+    canvas.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
 def extract_text(path: Path) -> str:
     """문단·표를 문서 순으로 이어 붙인 원문."""
     from docx import Document
@@ -270,10 +425,11 @@ def extract_text(path: Path) -> str:
             plain = _table_plain(block)
             if plain.strip():
                 parts.append(plain)
-    parts = drop_si_banners(parts)
+    had_parts = bool(parts)
+    parts = drop_caption_paragraphs(drop_si_banners(parts))
     text = "\n\n".join(parts).strip()
-    if not text:
-        # 헤더/푸터만 있는 경우 등 — 전체 문단 폴백
+    if not text and not had_parts:
+        # 필터가 본문을 비운 뒤에는 원문 문단을 다시 붙이지 않는다.
         text = "\n\n".join(
             _paragraph_text(p) for p in doc.paragraphs if _paragraph_text(p)
         ).strip()
@@ -367,62 +523,76 @@ def extract_figures(path: Path, *, doc_role: str = "main") -> list[Figure]:
 
     doc = Document(str(path))
     figures: list[Figure] = []
-    pending_images: list[tuple[bytes, str]] = []
+    pending_rows: list[list[tuple[bytes, str]]] = []
     pending_table_caption = ""
     fig_i = 0
+    blocks = list(_iter_block_items(doc))
 
     def flush_images_without_caption() -> None:
-        nonlocal pending_images
-        pending_images = []
+        nonlocal pending_rows
+        pending_rows = []
 
-    def emit_image(blob: bytes, mime: str, caption: str) -> None:
+    def emit_group(rows: list[list[tuple[bytes, str]]], caption: str) -> None:
         nonlocal fig_i
+        if not rows:
+            return
         fig_i += 1
-        if mime == "image/png":
-            src = _png_data_url(blob)
-        else:
-            src = f"data:{mime};base64," + base64.b64encode(blob).decode("ascii")
+        png = compose_panel_png(rows, caption, caption_above=False)
         figures.append(
             Figure(
                 id=f"fig-{fig_i:04d}",
-                image_src=src,
+                image_src=_png_data_url(png),
                 caption=caption,
                 page_index=None,
             )
         )
 
-    for block in _iter_block_items(doc):
+    def caption_with_stub_body(index: int, text: str) -> tuple[str, int]:
+        cap = _normalize_caption(text)
+        if not _is_caption_stub(text):
+            return cap, index
+        j = index + 1
+        while j < len(blocks) and isinstance(blocks[j], Paragraph):
+            nxt = _paragraph_text(blocks[j])
+            if not nxt:
+                j += 1
+                continue
+            if _paragraph_image_blobs(blocks[j], doc) or _is_caption_paragraph(nxt):
+                break
+            piece = re.sub(r"\s+", " ", nxt).strip()
+            return _normalize_caption(f"{text.rstrip()} {piece}"), j
+        return cap, index
+
+    i = 0
+    while i < len(blocks):
+        block = blocks[i]
         if isinstance(block, Paragraph):
             text = _paragraph_text(block)
             imgs = _paragraph_image_blobs(block, doc)
 
-            if pending_images and text and _FIG_CAPTION_START.match(text):
-                cap = _normalize_caption(text)
-                for blob, mime in pending_images:
-                    emit_image(blob, mime, cap)
-                pending_images = []
+            if pending_rows and text and _FIG_CAPTION_START.match(text):
+                cap, i = caption_with_stub_body(i, text)
+                emit_group(pending_rows, cap)
+                pending_rows = []
+                i += 1
                 continue
 
-            if pending_images and text:
-                # 캡션이 아닌 본문이 오면 캡션 없는 이미지 폐기
+            if pending_rows and text:
                 flush_images_without_caption()
 
             if text and _TABLE_CAPTION_START.match(text):
-                pending_table_caption = _normalize_caption(text)
+                pending_table_caption, i = caption_with_stub_body(i, text)
             elif text and not imgs:
                 pending_table_caption = ""
 
             if imgs:
-                # 같은 문단에 캡션 텍스트가 같이 있는 경우
                 if text and _FIG_CAPTION_START.match(text):
-                    cap = _normalize_caption(text)
-                    for blob, mime in imgs:
-                        emit_image(blob, mime, cap)
+                    cap, i = caption_with_stub_body(i, text)
+                    emit_group([imgs], cap)
                 else:
-                    pending_images.extend(imgs)
-
+                    pending_rows.append(imgs)
         elif isinstance(block, Table):
-            if pending_images:
+            if pending_rows:
                 flush_images_without_caption()
             plain = _table_plain(block)
             if pending_table_caption and plain.strip():
@@ -436,8 +606,8 @@ def extract_figures(path: Path, *, doc_role: str = "main") -> list[Figure]:
                     )
                 )
             pending_table_caption = ""
+        i += 1
 
-    # 문서 끝 — 캡션 없는 pending 폐기
     flush_images_without_caption()
     supplementary = (doc_role or "").strip().lower() in ("supplementary", "si", "supp")
     return stamp_docx_slot_keys(figures[:200], supplementary=supplementary)

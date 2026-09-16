@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.295",
+    version="0.3.296",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -8099,6 +8099,7 @@ async def _run_ingest_job_body(
             from sentence_reading.title_replay import (
                 align_title_sentences,
                 docx_core_title,
+                docx_paragraph_text,
                 pdf_info_title,
                 pdf_styled_title,
                 pick_session_title,
@@ -8107,18 +8108,20 @@ async def _run_ingest_job_body(
 
             _info = ""
             _styled = ""
+            _title_text = text
             try:
                 if kind == "pdf":
                     _info = pdf_info_title(tmp_path)
                     _styled = pdf_styled_title(tmp_path)
                 elif kind == "docx":
                     _info = docx_core_title(tmp_path)
+                    _title_text = docx_paragraph_text(tmp_path) or text
             except Exception:  # noqa: BLE001
-                _info, _styled = "", ""
+                _info, _styled, _title_text = "", "", text
             title, _title_src = pick_session_title(
                 info_title=_info,
                 filename=filename,
-                text=text,
+                text=_title_text,
                 sentences=sentences,
                 title_guess=_title_guess,
                 styled_title=_styled,

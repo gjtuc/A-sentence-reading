@@ -165,4 +165,62 @@ def test_si_banner_lines_are_not_practice_text(tmp_path: Path) -> None:
     assert "Corresponding" not in text
     assert "Jiang" not in text
     assert "lab@example.edu" not in text
-    assert "Fig. S1" in text
+    assert "Fig. S1" not in text
+
+
+def test_panels_above_one_caption_are_one_figure(tmp_path: Path) -> None:
+    path = tmp_path / "si.docx"
+    doc = Document()
+    doc.add_paragraph("The cell was stable as shown in Fig. S1. Heating continued.")
+    for _ in range(2):
+        para = doc.add_paragraph()
+        para.add_run().add_picture(BytesIO(png_over_docx_min()))
+        para.add_run().add_picture(BytesIO(png_over_docx_min()))
+    doc.add_paragraph("Fig. S1. Rietveld refinement of the four panels.")
+    doc.add_paragraph("The next claim stays a sentence.")
+    doc.save(path)
+    from sentence_reading.docx.extract import extract_text
+
+    figs = extract_figures(path, doc_role="supplementary")
+    text = extract_text(path)
+    assert len(figs) == 1
+    assert figs[0].slot_key == "fig:s1"
+    assert figs[0].caption.startswith("Fig. S1")
+    assert "panels" in figs[0].caption
+    assert "Rietveld refinement" not in text
+    assert "The next claim stays a sentence." in text
+    assert "as shown in Fig. S1" in text
+
+
+def test_banner_and_caption_only_stay_empty(tmp_path: Path) -> None:
+    path = tmp_path / "si.docx"
+    doc = Document()
+    doc.add_paragraph("Supporting Information")
+    doc.add_paragraph("Fig. S1. Rietveld refinement of the four panels.")
+    doc.save(path)
+    from sentence_reading.docx.extract import extract_text
+
+    text = extract_text(path)
+    assert text == ""
+    assert "Supporting Information" not in text
+    assert "Rietveld" not in text
+
+
+def test_caption_drop_keeps_inline_mention(tmp_path: Path) -> None:
+    path = tmp_path / "si.docx"
+    doc = Document()
+    doc.add_paragraph("as shown in Fig. S1. The rate increased.")
+    doc.add_paragraph("Fig. S1. Rietveld refinement of the four panels.")
+    doc.save(path)
+    from sentence_reading.docx.extract import extract_text
+
+    text = extract_text(path)
+    assert "Rietveld refinement of the four panels." not in text
+    assert "as shown in Fig. S1. The rate increased." in text
+
+
+def test_extract_does_not_restore_filtered_paragraphs() -> None:
+    src = Path(__file__).resolve().parents[1] / "src/sentence_reading/docx/extract.py"
+    text = src.read_text(encoding="utf-8")
+    assert "if not text and not had_parts:" in text
+    assert "if not text:\n" not in text.split("drop_caption_paragraphs")[1][:400]
