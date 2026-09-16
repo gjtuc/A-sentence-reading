@@ -129,4 +129,17 @@ void main() {
     );
     expect(detSupported.role, 'main');
   });
+
+  test('design/306 view article online is journal chrome', () {
+    expect(isAdvisoryTitleChrome('View Article Online'), isTrue);
+    expect(isAdvisoryTitleChrome('view article online'), isTrue);
+    final g = guessAdvisoryTitle(
+      infoTitle: '',
+      headText: 'View Article Online\n'
+          'Recent advances in promoting dry reforming of methane\n',
+      displayName: 'd3cy01612a.pdf',
+    );
+    expect(g.title.toLowerCase(), contains('dry reforming'));
+    expect(g.title.toLowerCase(), isNot(contains('view article')));
+  });
 }

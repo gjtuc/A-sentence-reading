@@ -10,6 +10,7 @@ import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.text.TextPosition
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import kotlin.math.abs
 import kotlin.math.min
 
@@ -159,22 +160,33 @@ object PdfHeadExtract {
         private var lineY = Float.NaN
 
         override fun writeString(text: String, textPositions: MutableList<TextPosition>) {
-            if (textPositions.isEmpty()) return
-            val y = textPositions.map { it.y }.average().toFloat()
-            if (!lineY.isNaN() && abs(y - lineY) > Y_LINE_TOL) {
-                flushLine()
-            }
-            lineY = if (lineY.isNaN()) y else (lineY * 0.7f + y * 0.3f)
-            lineBuf.append(text)
-            for (tp in textPositions) {
-                val sz = try {
-                    tp.fontSizeInPt
-                } catch (_: Exception) {
-                    tp.fontSize
+            if (textPositions.isNotEmpty()) {
+                val y = textPositions.map { it.y }.average().toFloat()
+                if (!lineY.isNaN() && abs(y - lineY) > Y_LINE_TOL) {
+                    flushLine()
                 }
-                if (sz > 0.5f) sizes.add(sz)
-                bolds.add(isBoldFont(tp.font))
+                lineY = if (lineY.isNaN()) y else (lineY * 0.7f + y * 0.3f)
+                lineBuf.append(text)
+                for (tp in textPositions) {
+                    val sz = try {
+                        tp.fontSizeInPt
+                    } catch (_: Exception) {
+                        tp.fontSize
+                    }
+                    if (sz > 0.5f) sizes.add(sz)
+                    bolds.add(isBoldFont(tp.font))
+                }
             }
+            // headText comes from getText(); skipping super drops the words.
+            super.writeString(text, textPositions)
+        }
+
+        @Throws(IOException::class)
+        override fun writeWordSeparator() {
+            if (lineBuf.isNotEmpty()) {
+                lineBuf.append(getWordSeparator())
+            }
+            super.writeWordSeparator()
         }
 
         override fun writeLineSeparator() {

@@ -20,7 +20,7 @@ final _prefixChrome = RegExp(
   r'^(cite this|cite this:|to cite this|doi:|https?://|www\.|'
   // design/236 — RSC / bare journal short-links (e.g. rsc.li/catalysis)
   r'rsc\.li/|[a-z0-9][\w.-]*\.[a-z]{2,}/|'
-  r'received |accepted |published |view the article|'
+  r'received |accepted |published |view the article|view article online|'
   r'available online|'
   r'this content was downloaded|citation:)',
   caseSensitive: false,
