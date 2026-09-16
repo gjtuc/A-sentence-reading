@@ -45,11 +45,32 @@ if [[ -n "$_tracked_dirty" ]]; then
   exit 2
 fi
 
+# design/303 — push a fast-forward before deploy. Refusing after the fact
+# wasted a ship. Never force-push. Behind or diverged still stops.
+_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
 _head="$(git rev-parse HEAD 2>/dev/null || true)"
 _origin="$(git rev-parse origin/main 2>/dev/null || true)"
-if [[ -n "$_head" && -n "$_origin" && "$_head" != "$_origin" && "${ASR_SHIP_ALLOW_UNPUSHED:-0}" != "1" ]]; then
-  echo "error: design/293 refuse ship — HEAD ($_head) != origin/main ($_origin); push first (or ASR_SHIP_ALLOW_UNPUSHED=1)" >&2
-  exit 2
+if [[ "${ASR_SHIP_ALLOW_UNPUSHED:-0}" != "1" ]]; then
+  if [[ "$_branch" != "main" ]]; then
+    echo "error: design/303 refuse ship — branch is ${_branch:-unknown}, not main" >&2
+    exit 2
+  fi
+  if [[ -z "$_head" || -z "$_origin" ]]; then
+    echo "error: design/303 refuse ship — missing HEAD or origin/main" >&2
+    exit 2
+  fi
+  if [[ "$_head" != "$_origin" ]]; then
+    if git merge-base --is-ancestor "$_origin" "$_head"; then
+      echo "design/303: push origin main before ship" >&2
+      git push origin main
+      _origin="$(git rev-parse origin/main)"
+      _head="$(git rev-parse HEAD)"
+    fi
+  fi
+  if [[ "$_head" != "$_origin" ]]; then
+    echo "error: design/303 refuse ship — HEAD ($_head) != origin/main ($_origin); pull --ff-only first (or ASR_SHIP_ALLOW_UNPUSHED=1)" >&2
+    exit 2
+  fi
 fi
 
 python - <<'PY'

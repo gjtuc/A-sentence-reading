@@ -6,6 +6,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# design/303 - flutter exits 0x2371 when this is unset. No env-drive qualifier.
+$pf86 = 'ProgramFiles(x86)'
+$pf86Cur = [Environment]::GetEnvironmentVariable($pf86, 'Process')
+if ([string]::IsNullOrWhiteSpace($pf86Cur)) {
+  [Environment]::SetEnvironmentVariable($pf86, 'C:\Program Files (x86)', 'Process')
+}
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $Mobile = Join-Path $Root "mobile"
 $GradleProps = Join-Path $Mobile "android\gradle.properties"

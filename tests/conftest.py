@@ -10,7 +10,27 @@ legacy unauth fixture routes keep working. Dedicated tests turn it back on.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
+
+# design/303 — a stale Desktop checkout must not satisfy `import sentence_reading`.
+_SRC = Path(__file__).resolve().parents[1] / "src"
+_src_s = str(_SRC)
+_kept: list[str] = []
+for _entry in sys.path:
+    try:
+        _resolved = Path(_entry).resolve()
+    except OSError:
+        _kept.append(_entry)
+        continue
+    if _resolved == _SRC:
+        continue
+    if (_resolved / "sentence_reading" / "__init__.py").is_file():
+        continue
+    _kept.append(_entry)
+sys.path[:] = [_src_s, *_kept]
 
 
 @pytest.fixture(autouse=True)
