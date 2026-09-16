@@ -96,4 +96,59 @@ void main() {
       );
     });
   });
+
+  test('prior payload keeps only sentences that already have chunks', () {
+    final prior = shadowingPriorSentences({
+      'status': 'error',
+      'sentences': {
+        'a': {'text': 'saved line', 'chunks': ['saved', 'saved line']},
+        'b': {'text': 'empty', 'chunks': []},
+      },
+    });
+    expect(prior, {
+      'a': {
+        'text': 'saved line',
+        'chunks': ['saved', 'saved line'],
+      },
+    });
+  });
+
+  test('merge keeps a saved sentence when the next response has none', () {
+    final merged = mergeShadowingPlans(
+      {
+        'status': 'pending',
+        'sentences': {
+          'a': {'text': 'saved line', 'chunks': ['saved line']},
+        },
+      },
+      {
+        'status': 'error',
+        'sentences': <String, dynamic>{},
+      },
+    );
+    expect(merged['status'], 'error');
+    expect(shadowingPriorSentences(merged)?['a'], isNotNull);
+  });
+
+  test('saved plan must still contain the sentence just written', () {
+    const expected = {
+      'status': 'pending',
+      'sentences': {
+        'a': {'text': 'done line', 'chunks': ['done', 'done line']},
+      },
+    };
+    expect(shadowingPlanRetainsSentences(expected, expected), isTrue);
+    expect(
+      shadowingPlanRetainsSentences(
+        {
+          'status': 'pending',
+          'sentences': {
+            'a': {'text': 'done line', 'chunks': ['done']},
+          },
+        },
+        expected,
+      ),
+      isFalse,
+    );
+  });
 }

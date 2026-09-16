@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'figure_disk_cache.dart';
+import '../api/shadowing_chunk_plan.dart';
 
 const String kShadowingDiskStoreDirName = 'asr_shadowing';
 
@@ -69,11 +70,39 @@ class ShadowingDiskStore {
       await parent.create(recursive: true);
     }
     final part = File('${dest.path}.part');
+    final bak = File('${dest.path}.bak');
     await part.writeAsBytes(bytes, flush: true);
+    if (await bak.exists()) {
+      await bak.delete();
+    }
+    // Keep the previous file until the new one is in place. Do not delete first.
+    if (await dest.exists()) {
+      await dest.rename(bak.path);
+    }
+    try {
+      await part.rename(dest.path);
+    } catch (_) {
+      if (!await dest.exists() && await bak.exists()) {
+        await bak.rename(dest.path);
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _discardBak(File dest) async {
+    final bak = File('${dest.path}.bak');
+    if (await bak.exists()) {
+      await bak.delete();
+    }
+  }
+
+  Future<void> _restoreBak(File dest) async {
+    final bak = File('${dest.path}.bak');
+    if (!await bak.exists()) return;
     if (await dest.exists()) {
       await dest.delete();
     }
-    await part.rename(dest.path);
+    await bak.rename(dest.path);
   }
 
   Future<void> _atomicWriteString(File dest, String text) async {
@@ -88,21 +117,35 @@ class ShadowingDiskStore {
     if (f == null) return false;
     try {
       await _atomicWriteString(f, jsonEncode(plan));
+      final loaded = await loadChunkPlanJson(cacheId);
+      if (!shadowingPlanRetainsSentences(loaded, plan)) {
+        await _restoreBak(f);
+        return false;
+      }
+      await _discardBak(f);
       return true;
     } catch (_) {
+      try {
+        await _restoreBak(f);
+      } catch (_) {}
       return false;
     }
   }
 
-  Future<Map<String, dynamic>?> loadChunkPlanJson(String cacheId) async {
-    final f = await _chunkPlanFile(cacheId);
-    if (f == null || !await f.exists()) return null;
+  Future<Map<String, dynamic>?> _readPlanFile(File f) async {
+    if (!await f.exists()) return null;
     try {
       final raw = jsonDecode(await f.readAsString());
       if (raw is Map<String, dynamic>) return raw;
       if (raw is Map) return Map<String, dynamic>.from(raw);
     } catch (_) {}
     return null;
+  }
+
+  Future<Map<String, dynamic>?> loadChunkPlanJson(String cacheId) async {
+    final f = await _chunkPlanFile(cacheId);
+    if (f == null) return null;
+    return await _readPlanFile(f) ?? await _readPlanFile(File('${f.path}.bak'));
   }
 
   Future<bool> writeTakesJson(

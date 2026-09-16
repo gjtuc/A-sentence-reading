@@ -85,18 +85,69 @@ def test_budget_returns_pending_then_resume(shadowing_env: Path):
     assert 0 < len(p1["sentences"]) < 8
     done1 = len(p1["sentences"])
 
-    p2 = sc.build_chunk_plan(
-        uid="user_budget_a01",
-        cache_id="budgetcid01",
-        sentences=rows,
-        generate=_fake_generate,
-        budget_s=90,
-        resume=True,
-    )
+    p2 = p1
+    for _ in range(8):
+        if p2["status"] == "ok":
+            break
+        p2 = sc.build_chunk_plan(
+            uid="user_budget_a01",
+            cache_id="budgetcid01",
+            sentences=rows,
+            generate=_fake_generate,
+            budget_s=90,
+            resume=True,
+        )
     assert p2["status"] == "ok"
     assert len(p2["sentences"]) == 8
     # Resume kept earlier ids.
     assert done1 <= len(p2["sentences"])
+
+
+def test_prior_keeps_done_sentences_when_next_fails(shadowing_env: Path) -> None:
+    rows = [
+        {"id": "a", "text": "first practice sentence is long enough here"},
+        {"id": "b", "text": "second practice sentence is long enough here"},
+    ]
+
+    def ok_gen(system: str, user: str) -> str | None:
+        text = user.split("Sentence:\n", 1)[-1].strip()
+        return json.dumps([text])
+
+    first = sc.build_chunk_plan(
+        uid="user_prior_a01",
+        cache_id="priorcid0001",
+        sentences=rows,
+        generate=ok_gen,
+        resume=False,
+    )
+    assert first["status"] == "pending"
+    assert list(first["sentences"]) == ["a"]
+
+    def fail_next(system: str, user: str) -> str | None:
+        raise RuntimeError("upstream")
+
+    failed = sc.build_chunk_plan(
+        uid="user_prior_a01",
+        cache_id="priorcid9999",
+        sentences=rows,
+        generate=fail_next,
+        resume=False,
+        prior=first["sentences"],
+    )
+    assert failed["status"] == "error"
+    assert "a" in failed["sentences"]
+    assert "b" not in failed["sentences"]
+
+    done = sc.build_chunk_plan(
+        uid="user_prior_a01",
+        cache_id="priorcid9998",
+        sentences=rows,
+        generate=ok_gen,
+        resume=False,
+        prior=failed["sentences"],
+    )
+    assert done["status"] == "ok"
+    assert set(done["sentences"]) == {"a", "b"}
 
 
 def test_owner_isolation_pending(shadowing_env: Path):

@@ -2855,6 +2855,7 @@ throw AsrApiException(
     String cacheId, {
     required bool practiceEnabled,
     List<Map<String, dynamic>>? sentences,
+    Map<String, dynamic>? prior,
     int? round,
     String? ensureId,
     String? trigger,
@@ -2866,6 +2867,7 @@ throw AsrApiException(
     final body = <String, dynamic>{
       'practice_enabled': practiceEnabled,
       if (sentences != null) 'sentences': sentences,
+      if (prior != null && prior.isNotEmpty) 'prior': prior,
     };
     try {
       final res = await _http

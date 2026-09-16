@@ -20,6 +20,7 @@ import '../api/progress_gate.dart';
 import '../api/progress_store.dart';
 import '../api/reading_models.dart';
 import '../api/practice_progress_store.dart';
+import '../api/shadowing_chunk_plan.dart';
 import '../api/upload_draft_models.dart';
 import '../api/upload_draft_store.dart';
 import '../api/upload_reserve_models.dart';
@@ -5070,22 +5071,27 @@ class LibraryController extends ChangeNotifier {
 
 
 
-  Future<void> _persistShadowingPlan(
+  Future<bool> _persistShadowingPlan(
     String cacheId,
     Map<String, dynamic> body,
   ) async {
     final plan = body['plan'];
-    if (plan is! Map) return;
+    if (plan is! Map) return false;
     final st = plan['status']?.toString() ?? '';
-    // design/266 — persist honest pending (not only ok).
-    if (st != 'ok' && st != 'pending') return;
-    final map = Map<String, dynamic>.from(plan);
-    final ok = await _shadowDisk.writeChunkPlanJson(cacheId, map);
+    // Persist pending and a failed slice that still has finished sentences.
+    if (st != 'ok' && st != 'pending' && st != 'error') return false;
+    final existing = await _shadowDisk.loadChunkPlanJson(cacheId);
+    final map = mergeShadowingPlans(existing, Map<String, dynamic>.from(plan));
+    if (st == 'error' && countShadowingReadySentences(map) == 0) return false;
+    final saved = await _shadowDisk.writeChunkPlanJson(cacheId, map);
+    if (!saved) return false;
+    final loaded = await _shadowDisk.loadChunkPlanJson(cacheId);
+    if (!shadowingPlanRetainsSentences(loaded, map)) return false;
     asrEvidenceBus?.record(
       'shadowing_plan_local_save',
       cacheId: cacheId,
       severity: 'lifecycle',
-      ok: ok,
+      ok: true,
       details: {
         'plan_status': st,
         'sentence_n': plan['sentences'] is Map
@@ -5105,6 +5111,7 @@ class LibraryController extends ChangeNotifier {
         }(),
       },
     );
+    return true;
   }
 
   /// design/80 · design/113 — backfill/retry; pending slices auto-continue.
@@ -5400,6 +5407,9 @@ class LibraryController extends ChangeNotifier {
           );
           try {
             final sentenceRows = await _shadowingSentencesPayload(id);
+            final prior = shadowingPriorSentences(
+              await _shadowDisk.loadChunkPlanJson(id),
+            );
             asrEvidenceBus?.record(
               'shadowing_ensure_slice_start',
               cacheId: id,
@@ -5416,6 +5426,7 @@ class LibraryController extends ChangeNotifier {
               id,
               practiceEnabled: true,
               sentences: sentenceRows,
+              prior: prior,
               round: sliceRound,
               ensureId: ensureId,
               trigger: trigger,
@@ -5476,7 +5487,13 @@ class LibraryController extends ChangeNotifier {
             },
           );
           if (st2 == 'ok') {
-            await _persistShadowingPlan(id, built);
+            final kept = await _persistShadowingPlan(id, built);
+            if (!kept) {
+              errorCode = 'save_unverified';
+              shadowingChunksError =
+                  '마지막 문장을 저장 확인하지 못했습니다. 다시 열면 그 문장부터 이어집니다.';
+              return;
+            }
             shadowingChunksError = null;
             shadowingChunksProgress = null;
             okOut = true;
@@ -5484,11 +5501,18 @@ class LibraryController extends ChangeNotifier {
           }
           if (st2 == 'pending' || built['continue'] == true) {
             // design/266 — persist partial so practice can unlock + merge.
-            await _persistShadowingPlan(id, built);
+            final kept = await _persistShadowingPlan(id, built);
+            if (!kept) {
+              errorCode = 'save_unverified';
+              shadowingChunksError =
+                  '마지막 문장을 저장 확인하지 못했습니다. 다시 열면 그 문장부터 이어집니다.';
+              return;
+            }
             notifyListeners();
             continue;
           }
           if (st2 == 'error' || built['ok'] == false) {
+            await _persistShadowingPlan(id, built);
             final msg = built['message']?.toString();
             errorCode =
                 built['error']?.toString() ??

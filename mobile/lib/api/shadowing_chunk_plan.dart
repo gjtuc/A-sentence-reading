@@ -76,7 +76,41 @@ int shadowingSkipEmptyDelta({
   return -1;
 }
 
-/// Merge [incoming] sentence rows into [base] (incoming wins per sid).
+/// Sentences already planned, for the next build request. Null if none.
+Map<String, dynamic>? shadowingPriorSentences(Map<String, dynamic>? plan) {
+  final sentences = plan?['sentences'];
+  if (sentences is! Map) return null;
+  final out = <String, dynamic>{};
+  for (final entry in sentences.entries) {
+    final sid = '${entry.key}';
+    final chunks = shadowingPlanChunksForSentence(plan, sid);
+    if (chunks.isEmpty) continue;
+    final row = entry.value;
+    final text = row is Map ? '${row['text'] ?? ''}'.trim() : '';
+    if (text.isEmpty) continue;
+    out[sid] = {'text': text, 'chunks': chunks};
+  }
+  return out.isEmpty ? null : out;
+}
+
+/// True when every non-empty [expected] sentence is present with the same chunks.
+bool shadowingPlanRetainsSentences(
+  Map<String, dynamic>? saved,
+  Map<String, dynamic>? expected,
+) {
+  final sentences = expected?['sentences'];
+  if (sentences is! Map) return true;
+  for (final entry in sentences.entries) {
+    final chunks = shadowingPlanChunksForSentence(expected, '${entry.key}');
+    if (chunks.isEmpty) continue;
+    final got = shadowingPlanChunksForSentence(saved, '${entry.key}');
+    if (got.length != chunks.length) return false;
+    for (var i = 0; i < chunks.length; i++) {
+      if (got[i] != chunks[i]) return false;
+    }
+  }
+  return true;
+}
 Map<String, dynamic> mergeShadowingPlans(
   Map<String, dynamic>? base,
   Map<String, dynamic> incoming,

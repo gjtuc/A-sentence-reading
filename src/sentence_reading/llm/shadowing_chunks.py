@@ -386,6 +386,17 @@ def plan_sentence_chunks(
         raise
 
 
+def _stored_chunk_row(row: Any) -> dict[str, Any] | None:
+    """Keep a sentence only when it already has practice chunks."""
+    if not isinstance(row, dict):
+        return None
+    chunks = row.get("chunks")
+    text = _plain(str(row.get("text") or row.get("text_en") or ""))
+    if not isinstance(chunks, list) or not chunks or not text:
+        return None
+    return {"text": text, "chunks": list(chunks)}
+
+
 def build_chunk_plan(
     *,
     uid: str,
@@ -394,6 +405,7 @@ def build_chunk_plan(
     generate: Callable[[str, str], str | None] | None = None,
     budget_s: float | None = None,
     resume: bool = True,
+    prior: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Build plan for a paper in time-budgeted slices (design/113).
@@ -435,29 +447,34 @@ def build_chunk_plan(
             prev_status = str(prev.get("status") or "")
         if isinstance(prev_sents, dict):
             for sid, row in prev_sents.items():
-                if not isinstance(row, dict):
-                    continue
-                chunks = row.get("chunks")
-                text = _plain(str(row.get("text") or ""))
-                if isinstance(chunks, list) and chunks and text:
-                    built[str(sid)] = {"text": text, "chunks": list(chunks)}
+                stored = _stored_chunk_row(row)
+                if stored is not None:
+                    built[str(sid)] = stored
             prev_done = len(built)
-        try:
-            from sentence_reading.llm import evidence_bus as eb
+    # Device SoT: the phone sends chunks the server disk no longer has.
+    if isinstance(prior, dict):
+        for sid, row in list(prior.items())[:_MAX_SENTENCES]:
+            stored = _stored_chunk_row(row)
+            if stored is None or str(sid) in built:
+                continue
+            built[str(sid)] = stored
+        prev_done = len(built)
+    try:
+        from sentence_reading.llm import evidence_bus as eb
 
-            eb.emit(
-                "shadowing_plan_resume",
-                cache_id=str(cache_id or "")[:32],
-                owner_uid=str(uid or "")[:64],
-                ok=True,
-                details={
-                    "prev_status": prev_status,
-                    "prev_done": prev_done,
-                    "resume": 1 if resume else 0,
-                },
-            )
-        except Exception:  # noqa: BLE001
-            pass
+        eb.emit(
+            "shadowing_plan_resume",
+            cache_id=str(cache_id or "")[:32],
+            owner_uid=str(uid or "")[:64],
+            ok=True,
+            details={
+                "prev_status": prev_status,
+                "prev_done": prev_done,
+                "resume": 1 if resume else 0,
+            },
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
     plan = empty_plan(cache_id)
     plan["status"] = "pending"
@@ -500,38 +517,8 @@ def build_chunk_plan(
             break
         built[sid] = {"text": text, "chunks": chunks}
         new_this_slice += 1
-        # Persist mid-slice so reclaim/retry after crash keeps progress.
-        if new_this_slice % 5 == 0:
-            plan["sentences"] = built
-            plan["status"] = "pending"
-            plan["progress"] = {
-                "done": len(built),
-                "total": max(total_work, len(built)),
-            }
-            try:
-                save_chunk_plan(uid=uid, cache_id=cache_id, plan=plan)
-                from sentence_reading.llm import evidence_bus as eb
-
-                eb.emit(
-                    "shadowing_plan_save",
-                    cache_id=str(cache_id or "")[:32],
-                    owner_uid=str(uid or "")[:64],
-                    ok=True,
-                    details={
-                        "status": "pending",
-                        "done": len(built),
-                        "total": max(total_work, len(built)),
-                        "filled": 0,
-                        "new_this_slice": new_this_slice,
-                        "prev_done": prev_done,
-                        "checkpoint": 1,
-                        "elapsed_ms": int((time.monotonic() - started) * 1000),
-                    },
-                )
-            except Exception:  # noqa: BLE001
-                pass
-        if time.monotonic() - started >= limit:
-            break
+        # One new sentence per call so the phone can save before the next.
+        break
 
     # Re-read GCS before save: concurrent slice may have advanced further.
     race_other_done = -1

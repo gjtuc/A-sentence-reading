@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.297",
+    version="0.3.298",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -9286,6 +9286,7 @@ async def shadowing_chunks_build(
             },
         )
     rows = payload.get("sentences") if isinstance(payload.get("sentences"), list) else None
+    prior = payload.get("prior") if isinstance(payload.get("prior"), dict) else None
     if not rows:
         # Load from cached paper session for this user (design/121 GCS-first).
         from sentence_reading.cache.paper_cache import load_cached_session
@@ -9355,7 +9356,11 @@ async def shadowing_chunks_build(
     try:
         set_gcs_uid(user.uid)
         plan = await asyncio.to_thread(
-            sc.build_chunk_plan, uid=user.uid, cache_id=cid, sentences=rows
+            sc.build_chunk_plan,
+            uid=user.uid,
+            cache_id=cid,
+            sentences=rows,
+            prior=prior,
         )
     except PermissionError:
         eb.emit(
@@ -9512,7 +9517,7 @@ async def shadowing_chunks_build(
             if ok
             else "연습 구간을 만들지 못했습니다. 다시 시도해 주세요.",
         },
-        status_code=200 if ok else 502,
+        status_code=200 if ok or plan.get("sentences") else 502,
     )
 
 
