@@ -33,14 +33,27 @@ function Disable-SameDriveCache {
 }
 
 function Invoke-FlutterApk {
+  # design/298 - cmd so Gradle/JVM stderr is not a PowerShell error record.
+  $log = Join-Path $env:TEMP ("asr-apk-" + [guid]::NewGuid().ToString("n") + ".log")
   $prev = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
   try {
-    $out = & flutter build apk --release 2>&1 | ForEach-Object { "$_" } | Out-String
-    return @{ Log = $out; Code = [int]$LASTEXITCODE }
+    cmd /c "flutter build apk --release > `"$log`" 2>&1"
+    $code = 1
+    if ($null -ne $LASTEXITCODE) { $code = [int]$LASTEXITCODE }
+    $text = ""
+    if (Test-Path $log) { $text = Get-Content -Raw -Path $log -ErrorAction SilentlyContinue }
+    return @{ Log = [string]$text; Code = $code }
   } finally {
     $ErrorActionPreference = $prev
+    Remove-Item $log -ErrorAction SilentlyContinue
   }
+}
+
+function Test-ApkBuildAlreadyRunning {
+  $hit = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -match 'flutter(\.bat)?\s+build\s+apk' }
+  return $null -ne $hit
 }
 
 function Test-FreshApk([datetime]$started) {
@@ -62,7 +75,14 @@ function Test-ApkOk([hashtable]$r, [datetime]$started) {
 
 function Test-KernelSnapshotFail([string]$log) {
   return $log -match 'kernel_snapshot_program' -or
-    $log -match 'compileFlutterBuildRelease'
+    $log -match 'compileFlutterBuildRelease' -or
+    $log -match 'Invalid depfile'
+}
+
+function Clear-FlutterSnapshot {
+  Stop-GradleDaemons
+  Start-Sleep -Seconds 2
+  Remove-Item -Recurse -Force (Join-Path $Mobile ".dart_tool\flutter_build") -ErrorAction SilentlyContinue
 }
 
 function Ensure-KotlinIncrementalOff {
@@ -94,6 +114,10 @@ function Clear-MobileBuildCaches {
 
 Ensure-KotlinIncrementalOff
 Set-Location $Mobile
+if (Test-ApkBuildAlreadyRunning) {
+  Write-Error "design/298: refuse APK build - flutter build apk already running"
+  exit 2
+}
 Stop-GradleDaemons
 
 if ($SameDriveCache) {
@@ -128,7 +152,17 @@ if (-not $ok -and (Test-IncrementalCacheFail $r1.Log)) {
   $ok = Test-ApkOk $r2 $started
 }
 
-# design/291 R3 — SameDrive cold cache often breaks kernel_snapshot; fall back once.
+# design/298 - snapshot/depfile fail retries once on the default cache too.
+if (-not $ok -and (Test-KernelSnapshotFail $r1.Log)) {
+  Write-Host "design/298: snapshot or compile fail - wipe flutter_build and retry once"
+  Clear-FlutterSnapshot
+  $started = Get-Date
+  $r2s = Invoke-FlutterApk
+  Write-Host $r2s.Log
+  $ok = Test-ApkOk $r2s $started
+}
+
+# design/291 R3 - SameDrive cold cache often breaks kernel_snapshot; fall back once.
 if (-not $ok -and $script:UsedSameDrive -and (Test-KernelSnapshotFail $r1.Log)) {
   Write-Host "design/291: kernel_snapshot fail on SameDriveCache - fallback to machine caches"
   Disable-SameDriveCache
