@@ -35,50 +35,20 @@ Write-Host "design/291: bash scripts/ship_release.sh"
 
 $stamp = [guid]::NewGuid().ToString("n")
 $outLog = Join-Path $env:TEMP ("asr-ship-" + $stamp + ".out.log")
-$errLog = Join-Path $env:TEMP ("asr-ship-" + $stamp + ".err.log")
 $shWin = Join-Path $env:TEMP ("asr-ship-" + $stamp + ".sh")
 $shUnix = "/c/Users/user/AppData/Local/Temp/asr-ship-" + $stamp + ".sh"
 $utf8 = New-Object System.Text.UTF8Encoding $false
 [IO.File]::WriteAllText($shWin, (($lines -join "`n") + "`n"), $utf8)
-# Start-Process splits an argument array on spaces. One quoted -lc string.
-$argLine = "-lc `"bash $shUnix`""
-$proc = Start-Process -FilePath $bash -ArgumentList $argLine -WorkingDirectory $Root -PassThru -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog
-
-function Read-NewText([string]$path, [ref]$offset) {
-  if (-not (Test-Path $path)) { return "" }
-  $fs = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
-  try {
-    if ($offset.Value -ge $fs.Length) { return "" }
-    $null = $fs.Seek($offset.Value, [IO.SeekOrigin]::Begin)
-    $buf = New-Object byte[] ($fs.Length - $offset.Value)
-    $n = $fs.Read($buf, 0, $buf.Length)
-    $offset.Value += $n
-    return [Text.Encoding]::UTF8.GetString($buf, 0, $n)
-  } finally {
-    $fs.Dispose()
-  }
+# Call operator inherits the console. A detached process left remote-https waiting.
+$arg = "bash $shUnix"
+& $bash -lc $arg 2>&1 | ForEach-Object {
+  $line = $_.ToString()
+  Add-Content -Path $outLog -Value $line -Encoding utf8
+  Write-Host $line
 }
-
-$outAt = 0
-$errAt = 0
-while ($proc -and -not $proc.HasExited) {
-  $chunk = (Read-NewText $outLog ([ref]$outAt)) + (Read-NewText $errLog ([ref]$errAt))
-  if ($chunk) { Write-Host $chunk }
-  Start-Sleep -Seconds 2
-  try { $proc.Refresh() } catch { break }
-}
-$rest = (Read-NewText $outLog ([ref]$outAt)) + (Read-NewText $errLog ([ref]$errAt))
-if ($rest) { Write-Host $rest }
-
+$code = $LASTEXITCODE
 $text = ""
-foreach ($path in @($outLog, $errLog)) {
-  if (Test-Path $path) { $text += [IO.File]::ReadAllText($path) }
-}
-$code = 1
-if ($proc) {
-  try { $proc.Refresh() } catch { }
-  if ($null -ne $proc.ExitCode) { $code = [int]$proc.ExitCode }
-}
+if (Test-Path $outLog) { $text = [IO.File]::ReadAllText($outLog) }
 
 if ($text -match "ship_release OK") {
   exit 0
