@@ -278,3 +278,39 @@ def test_status_exposes_deploy_git_sha(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ASR_DEPLOY_GIT_SHA", "abc123deadbeef")
     st = TestClient(app).get("/api/status").json()
     assert st["deploy_git_sha"] == "abc123deadbeef"
+
+
+def test_hook_has_no_hardcoded_fallback_worktree() -> None:
+    """design/155 — the hook must never grade a worktree nobody is deploying."""
+    path = ROOT / "scripts" / "hook_block_stale_asr_deploy.py"
+    text = path.read_text(encoding="utf-8")
+    assert "Desktop" not in text
+    assert 'os.environ.get("ASR_REPO", "")' in text
+    assert "DEFAULT_ASR = Path(_ASR_REPO_ENV) if _ASR_REPO_ENV else None" in text
+
+
+def test_hook_denies_when_worktree_unresolvable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No cwd match and no ASR_REPO -> deny, never guard a guessed tree."""
+    import io
+    import json
+    from importlib.machinery import SourceFileLoader
+
+    path = ROOT / "scripts" / "hook_block_stale_asr_deploy.py"
+    mod = SourceFileLoader("hook_asr_no_fallback", str(path)).load_module()
+    monkeypatch.setattr(mod, "DEFAULT_ASR", None)
+
+    assert mod._find_asr_root("gcloud run deploy asr-sentence-reading", "") is None
+
+    payload = {
+        "command": "gcloud run deploy asr-sentence-reading",
+        "working_directory": "",
+    }
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    assert mod.main() == 0
+    data = json.loads(out.getvalue().strip())
+    assert data["permission"] == "deny"
+    assert data["agent_message"] == "asr_worktree_missing"

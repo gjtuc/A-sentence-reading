@@ -14,12 +14,11 @@ import re
 import sys
 from pathlib import Path
 
-DEFAULT_ASR = Path(
-    os.environ.get(
-        "ASR_REPO",
-        r"C:\Users\user\Desktop\.cursor\repos\A-sentence-reading",
-    )
-)
+# WHY: a hardcoded fallback worktree lets the guard grade the WRONG tree — an old
+# checkout still on a lower version passes/denies for a repo nobody is deploying
+# (design/155). Only an explicit ASR_REPO may stand in for cwd resolution.
+_ASR_REPO_ENV = os.environ.get("ASR_REPO", "").strip()
+DEFAULT_ASR = Path(_ASR_REPO_ENV) if _ASR_REPO_ENV else None
 
 DEPLOY_PAT = re.compile(
     r"(?:^|[\s;|&])(?:bash\s+|sh\s+)?(?:\.?/?)*(?:scripts/)?deploy_cloud_run\.(?:sh|ps1)"
@@ -71,7 +70,9 @@ def _find_asr_root(command: str, cwd: str) -> Path | None:
             if cur.parent == cur:
                 break
             cur = cur.parent
-    if (DEFAULT_ASR / "scripts" / "pre_deploy_guard.py").is_file():
+    if DEFAULT_ASR is not None and (
+        DEFAULT_ASR / "scripts" / "pre_deploy_guard.py"
+    ).is_file():
         return DEFAULT_ASR
     return None
 
