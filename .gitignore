@@ -41,3 +41,47 @@ data/error_logs/
 logs/
 
 .cursorignore
+
+# design/155 — agent diagnostic scratch. WHY: evidence dumps, phone UI captures and
+# one-shot patch fragments outnumber product files in `git status`, so a stale tree
+# reads as "dirty work in progress" and the next reader cannot tell them apart.
+
+# root-level scratch launchers / patch scripts
+/_*.ps1
+/_*.py
+/_*.sh
+/_*.dartfrag
+/tmp_*.py
+/tmp-*.ps1
+/*-log.txt
+
+# one-shot photo-sorting scripts that do not belong to this project
+/move-camera*.ps1
+/organize-*.ps1
+/delete-camera-folder.ps1
+/kakao_move_ondevice.sh
+
+# data/ investigation dumps and local runtime buses
+data/_*
+data/evidence/
+data/ops_events/
+data/usage/
+data/section_*.json
+data/capacity_baseline_*.json
+data/title_check/
+data/ui_cmp*.xml
+data/*.apk
+
+# phone UI dumps / screenshots pulled over adb
+mobile/.tmp_*
+
+# pipeline QA render output
+/qa_*/
+
+# scripts/ one-shot patch fragments
+scripts/_tmp_*
+scripts/*.pyfrag
+scripts/*.dartfrag
+
+# local canvas scratch
+/canvases/
