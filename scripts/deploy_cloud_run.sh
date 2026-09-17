@@ -146,6 +146,10 @@ trap cleanup EXIT
     echo "ASR_WORKER_SECRET: \"${ASR_WORKER_SECRET}\""
   fi
   echo "ASR_SERVICE_ROLE: \"${ASR_SERVICE_ROLE:-api}\""
+  _release_ver="$(python -c "import re; from pathlib import Path; t=Path('src/sentence_reading/api/app.py').read_text(encoding='utf-8'); m=re.search(r'version=\"([^\"]+)\"', t); print(m.group(1) if m else '')")"
+  if [[ -n "$_release_ver" ]]; then
+    echo "ASR_RELEASE_VERSION: \"${_release_ver}\""
+  fi
   if [[ -n "${ASR_CAPACITY_PROFILE:-}" ]]; then
     echo "ASR_CAPACITY_PROFILE: \"${ASR_CAPACITY_PROFILE}\""
   fi

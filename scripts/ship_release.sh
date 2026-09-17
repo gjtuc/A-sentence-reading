@@ -119,7 +119,7 @@ python scripts/check_api_service_role.py --expect-version "$_local_ver"
 
 # Prefer bash-available gcloud via PATH from env / Cloud SDK.
 if command -v gcloud >/dev/null 2>&1; then
-  python scripts/check_api_worker_images_match.py
+  python scripts/check_api_worker_images_match.py --expect-version "$_local_ver"
 else
   echo "warn: gcloud not on PATH for image check — skip (pair already compared)" >&2
 fi

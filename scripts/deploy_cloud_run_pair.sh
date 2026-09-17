@@ -124,15 +124,17 @@ if [[ "$_worker_rc" -ne 0 ]]; then
   exit "$_worker_rc"
 fi
 
-# --- Phase C: image equality (compare digests; allow different repo path suffix) ---
+# --- Phase C: same digest, or worker-repo copy of this release ---
 WIMG="$(_service_image "$WORKER_SERVICE")"
 _log "phase=c api_image=${IMG}"
 _log "phase=c worker_image=${WIMG}"
-_api_digest="${IMG##*@}"
-_w_digest="${WIMG##*@}"
-if [[ -z "$WIMG" || -z "$_api_digest" || "$_api_digest" != "$_w_digest" ]]; then
+set +e
+python scripts/check_api_worker_images_match.py --expect-version "$_local_ver"
+_img_rc=$?
+set -e
+if [[ "$_img_rc" -ne 0 ]]; then
   _log "error: API/worker image digest mismatch"
-  exit 1
+  exit "$_img_rc"
 fi
 
 # design/292 — API must remain api after worker hop.

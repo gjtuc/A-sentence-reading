@@ -87,10 +87,10 @@ try {
 $text = ""
 if (Test-Path $outLog) { $text = [IO.File]::ReadAllText($outLog) }
 
-if ($text -match "ship_release OK") {
+if ($text -match '(?m)^design/292: ship_release OK\s*$') {
   exit 0
 }
-if ($text -match "asr-sentence-reading-worker" -and $text -notmatch "ship_release OK") {
+if ($text -match "asr-sentence-reading-worker" -and $text -notmatch '(?m)^design/292: ship_release OK\s*$') {
   Write-Host "design/304: ship log ended after worker; verify only, no second deploy"
   python scripts/verify_live_status.py --require-azure-layout --min-pipeline rich-v20
   exit $LASTEXITCODE
