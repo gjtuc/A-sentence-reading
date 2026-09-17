@@ -143,3 +143,28 @@ def test_duplicate_formula_paren_is_not_spoken_twice() -> None:
     ).lower()
     assert "n =" not in aside and "after 10" not in aside
     assert "yield" in aside and "rose" in aside
+
+
+def test_follow_spans_cover_common_name_and_letters() -> None:
+    from sentence_reading.llm.tts_speak import align_display_to_spoken
+
+    co2 = align_display_to_spoken("CO2 reduction")
+    assert co2
+    co2_span = next(s for s in co2 if s["weight"] > 0)
+    assert co2_span["start"] == 0
+    assert co2_span["end"] == 3
+    assert co2_span["weight"] > 3
+
+    cvd = align_display_to_spoken("grown by CVD")
+    lit = [s for s in cvd if s["weight"] > 0]
+    assert lit[-1]["start"] == "grown by CVD".index("CVD")
+    assert lit[-1]["end"] == lit[-1]["start"] + 3
+
+    aside = align_display_to_spoken("The yield (n = 3) rose")
+    assert aside
+    n_span = next(s for s in aside if s["start"] == aside_text_index("The yield (n = 3) rose"))
+    assert n_span["weight"] == 0
+
+
+def aside_text_index(text: str) -> int:
+    return text.index("n")

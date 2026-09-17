@@ -883,6 +883,109 @@ def _drop_parenthetical_asides(text: str) -> str:
     return s.strip()
 
 
+def _paren_drop_ranges(text: str) -> list[tuple[int, int]]:
+    """Display ranges of parentheses that speech drops. End is exclusive."""
+    s = text or ""
+    dropped: list[tuple[int, int]] = []
+    out: list[str] = []
+    i = 0
+    n = len(s)
+    while i < n:
+        ch = s[i]
+        if ch not in "()（）":
+            out.append(ch)
+            i += 1
+            continue
+        close = "）" if ch == "（" else ")"
+        if ch in "）)":
+            out.append(ch)
+            i += 1
+            continue
+        depth = 1
+        j = i + 1
+        while j < n and depth:
+            if s[j] == ch:
+                depth += 1
+            elif s[j] == close:
+                depth -= 1
+            j += 1
+        if depth:
+            break
+        kept = s[i + 1 : j - 1].strip()
+        keep = _keep_formula_paren(kept) and not _paren_duplicates_before(
+            "".join(out), kept
+        )
+        if keep:
+            out.append(f" {_ROMAN_SPOKEN.get(kept, kept)} ")
+        else:
+            dropped.append((i, j))
+        i = j
+    return dropped
+
+
+def _match_spoken_slice(full: str, cursor: int, piece: str) -> int | None:
+    piece_n = re.sub(r"\s+", " ", piece).strip()
+    if not piece_n:
+        return cursor
+    i = cursor
+    pi = 0
+    while pi < len(piece_n) and i < len(full):
+        if piece_n[pi].isspace():
+            if not full[i].isspace():
+                return None
+            while pi < len(piece_n) and piece_n[pi].isspace():
+                pi += 1
+            while i < len(full) and full[i].isspace():
+                i += 1
+            continue
+        if full[i] != piece_n[pi]:
+            return None
+        i += 1
+        pi += 1
+    if pi != len(piece_n):
+        return None
+    return i
+
+
+def align_display_to_spoken(display: str) -> list[dict[str, int]]:
+    """Printed-word spans for follow light. Empty list means do not light."""
+    raw = (display or "").strip()
+    if not raw:
+        return []
+    full = spoken_text_for_tts(raw)
+    if not full.strip():
+        return []
+    dropped = _paren_drop_ranges(raw)
+    word = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?")
+    spans: list[dict[str, int]] = []
+    cursor = 0
+
+    def _skip_ws() -> None:
+        nonlocal cursor
+        while cursor < len(full) and full[cursor].isspace():
+            cursor += 1
+
+    for m in word.finditer(raw):
+        start, end = m.start(), m.end()
+        inside = any(a <= start and end <= b for a, b in dropped)
+        if inside:
+            spans.append({"start": start, "end": end, "weight": 0})
+            continue
+        token = m.group(0)
+        piece = spoken_text_for_tts(_ROMAN_SPOKEN.get(token, token))
+        _skip_ws()
+        matched = _match_spoken_slice(full, cursor, piece)
+        if matched is None:
+            return []
+        weight = matched - cursor
+        spans.append({"start": start, "end": end, "weight": max(weight, 1)})
+        cursor = matched
+    _skip_ws()
+    if cursor != len(full):
+        return []
+    return spans
+
+
 def spoken_text_for_tts(
     raw: str, *, policy: SpeakPolicy | None = None
 ) -> str:

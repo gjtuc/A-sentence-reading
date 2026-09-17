@@ -21,6 +21,7 @@ import 'paper_models.dart';
 import 'reading_models.dart';
 import 'session_store.dart';
 import 'tts_models.dart';
+import '../practice_rhythm/follow_span.dart';
 import 'oauth_models.dart';
 import 'access_models.dart';
 import 'ingest_models.dart';
@@ -2572,6 +2573,7 @@ throw AsrApiException(
     return SpokenTextResult(
       spoken: spoken,
       speakNormVersion: '${map['speak_norm_version'] ?? 'v6'}',
+      spans: _followSpans(map['spans']),
     );
   }
 
@@ -3478,7 +3480,26 @@ class SpokenTextResult {
   const SpokenTextResult({
     required this.spoken,
     required this.speakNormVersion,
+    this.spans = const [],
   });
   final String spoken;
   final String speakNormVersion;
+  final List<FollowSpan> spans;
+}
+
+List<FollowSpan> _followSpans(Object? raw) {
+  if (raw is! List) return const [];
+  final out = <FollowSpan>[];
+  for (final item in raw) {
+    if (item is! Map) continue;
+    final start = item['start'];
+    final end = item['end'];
+    final weight = item['weight'];
+    if (start is! num || end is! num || weight is! num) continue;
+    final s = start.toInt();
+    final e = end.toInt();
+    if (s < 0 || e < s) continue;
+    out.add(FollowSpan(start: s, end: e, weight: weight.toInt()));
+  }
+  return out;
 }

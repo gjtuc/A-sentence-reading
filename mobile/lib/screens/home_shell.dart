@@ -13,6 +13,7 @@ import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
+import '../api/launch_dest.dart';
 import '../api/practice_cloud_sync.dart';
 import '../services/evidence_bus.dart';
 import 'access_waiting_screen.dart';
@@ -20,6 +21,7 @@ import 'library_screen.dart';
 import 'login_screen.dart';
 import 'reader_screen.dart';
 import 'settings_screen.dart';
+import 'shadowing_practice_screen.dart';
 
 /// Auth-gated shell (design/68) + access waiting (design/84) + sticky (172).
 ///
@@ -67,6 +69,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   Timer? _accessRetry;
   /// Last uid while logged-in — logout clears that sticky key.
   String _stickyUid = '';
+  /// design/313 — one launch-destination apply per process, not on resume.
+  bool _launchDestDone = false;
   late final AccessStickyStore _sticky =
       widget.accessSticky ?? PrefsAccessStickyStore();
 
@@ -168,6 +172,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         unawaited(_sticky.clear(uid));
       }
       _stickyUid = '';
+      _launchDestDone = false;
       _accessRetry?.cancel();
       setState(() {
         _accessUnlocked = null;
@@ -220,6 +225,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           _accessUnlocked = decided.unlocked;
           _accessRestorePending = false;
         });
+        _armLaunchDestOnce();
         return;
       } catch (e) {
         lastErr = e;
@@ -249,6 +255,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       _accessUnlocked = decided.unlocked;
       _accessRestorePending = decided.restorePending;
     });
+    _armLaunchDestOnce();
     // Retry while sticky-kept or soft reconnect.
     if (decided.unlocked == true || decided.restorePending) {
       _armAccessRetry();
@@ -303,6 +310,56 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final id = await widget.library.uploadNotify.takePendingOpenCacheId();
     if (id == null || id.isEmpty) return;
     await _onNotifyOpenCacheId(id);
+  }
+
+  void _armLaunchDestOnce() {
+    if (_launchDestDone || _accessUnlocked != true) return;
+    if (!widget.auth.isLoggedIn) return;
+    _launchDestDone = true;
+    unawaited(_applyLaunchDest());
+  }
+
+  Future<void> _applyLaunchDest() async {
+    if (!mounted || _accessUnlocked != true || !widget.auth.isLoggedIn) return;
+    if (_readerSurface) return;
+    await _consumePendingOpen();
+    if (!mounted || _readerSurface) return;
+    await widget.shadowing.applyAutoOffIfStale();
+    try {
+      await widget.library.refresh(trigger: 'launch_dest');
+    } catch (_) {
+      return;
+    }
+    if (!mounted || _readerSurface) return;
+    final uid = widget.auth.user?.uid;
+    final dest = await loadLaunchDest(uid);
+    final live = widget.library.papers.map((p) => p.id).toSet();
+    final open = resolveLaunchOpen(
+      dest: dest,
+      shadowingOn:
+          widget.shadowing.enabled && widget.shadowing.serverAvailable,
+      readAt: await loadReadAtByCacheId(uid),
+      practiceAt: await loadPracticeAtByCacheId(uid),
+      liveIds: live,
+    );
+    if (open == null || !mounted || _readerSurface) return;
+    final opened = await widget.library.openByCacheId(open.cacheId);
+    if (!mounted || opened == null || _readerSurface) return;
+    _goReader();
+    if (!open.practice) return;
+    await widget.shadowing.recordPracticePressed();
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ShadowingPracticeScreen(
+          client: widget.auth.client,
+          library: widget.library,
+          shadowing: widget.shadowing,
+          tts: widget.tts,
+        ),
+      ),
+    );
+    unawaited(widget.library.reloadResumeLabels());
   }
 
   Widget _padded(Widget child) {
@@ -421,6 +478,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                         _accessUnlocked = true;
                         _accessRestorePending = false;
                       });
+                      _armLaunchDestOnce();
                     }
                   },
                 ),

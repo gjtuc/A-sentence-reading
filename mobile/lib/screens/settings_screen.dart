@@ -10,6 +10,7 @@ import '../api/access_models.dart';
 import '../api/app_version.dart';
 import '../api/auth_models.dart';
 import '../api/client.dart';
+import '../api/launch_dest.dart';
 import '../config.dart';
 import '../api/theme_models.dart';
 import '../api/tts_models.dart';
@@ -73,6 +74,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// design/214 — English judgment cheers in practice (default on).
   bool _judgmentCheers = true;
   bool _blankRest = true;
+  LaunchDest _launchDest = LaunchDest.library;
 
   @override
   void initState() {
@@ -84,6 +86,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _reload();
     unawaited(_loadJudgmentCheersPref());
     unawaited(_loadBlankRestPref());
+    unawaited(_loadLaunchDestPref());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.shadowing.applyAutoOffIfStale();
     });
@@ -107,6 +110,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => _blankRest = on);
   }
 
+  Future<void> _loadLaunchDestPref() async {
+    final dest = await loadLaunchDest(widget.auth.user?.uid);
+    if (mounted) setState(() => _launchDest = dest);
+  }
+
+  Future<void> _setLaunchDest(LaunchDest dest) async {
+    setState(() => _launchDest = dest);
+    await saveLaunchDest(widget.auth.user?.uid, dest);
+  }
+
   Future<void> _setBlankRest(bool on) async {
     setState(() => _blankRest = on);
     final prefs = await SharedPreferences.getInstance();
@@ -117,6 +130,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     // Re-fetch access when login/logout flips.
     _reload();
+    unawaited(_loadLaunchDestPref());
   }
 
   @override
@@ -1007,6 +1021,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 widget.shadowing.error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
+            const SizedBox(height: 8),
+            Text(
+              '앱을 열면',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            Text(
+              '다음 실행부터 적용됩니다. 지금 화면은 바뀌지 않습니다.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            RadioGroup<LaunchDest>(
+              groupValue: _launchDest,
+              onChanged: !logged
+                  ? (_) {}
+                  : (v) {
+                      if (v != null) unawaited(_setLaunchDest(v));
+                    },
+              child: const Column(
+                children: [
+                  RadioListTile<LaunchDest>(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('서재'),
+                    value: LaunchDest.library,
+                  ),
+                  RadioListTile<LaunchDest>(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('최근 연습한 논문'),
+                    value: LaunchDest.practice,
+                  ),
+                  RadioListTile<LaunchDest>(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('최근 읽은 논문'),
+                    value: LaunchDest.read,
+                  ),
+                ],
+              ),
+            ),
             _buildAppVersionSection(context),
             // design/104 — invite redeem only for none/pending/denied non-admin.
             // Admin keeps mint/Allow/Deny but does not self-redeem.

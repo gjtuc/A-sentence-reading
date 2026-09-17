@@ -32,6 +32,7 @@ import '../practice_rhythm/judgment_copy.dart';
 import '../practice_rhythm/judgment_prefs.dart';
 import '../practice_rhythm/judgment_tier.dart';
 import '../practice_rhythm/phase_rail.dart';
+import '../practice_rhythm/follow_span.dart';
 import '../practice_rhythm/replay_miss_text.dart';
 import '../practice_rhythm/rhythm_theme.dart';
 import '../practice_skill/chunk_density.dart';
@@ -82,6 +83,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   static const double _kFullTtsVolume = 1.0;
 
   final _player = AudioPlayer();
+  final _promptScroll = ScrollController();
+  StreamSubscription<Duration>? _followPosSub;
+  StreamSubscription<Duration>? _followDurSub;
+  int _followGen = 0;
+  ({int start, int end})? _follow;
   late final FocusPracticeController _focus;
   late final bool _ownsFocus;
   final ShadowingDiskStore _disk = ShadowingDiskStore();
@@ -260,6 +266,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       _focus.dispose();
     }
     _practiceBookmarks.dispose();
+    _followGen++;
+    unawaited(_followPosSub?.cancel());
+    unawaited(_followDurSub?.cancel());
+    _promptScroll.dispose();
     unawaited(_player.dispose());
     unawaited(_mic.invokeMethod<String>('stop'));
     unawaited(_persistPracticeCursor());
@@ -844,19 +854,104 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   Future<void> _ensureChunkTts(String text) async {
     if (_chunkTtsBytes != null && _chunkTtsParams != null) return;
-    unawaited(_skill.ensureSpoken(text));
+    // Spans must be stored before play. Spoken failure still allows audio.
+    final spoken = _skill.ensureSpoken(text);
     final bias = _rateBiasEnabled && _skill.serverEnabled;
     final params = widget.tts.pickPlaybackParams(
       practiceDensity: _skill.density,
       applyDensityRateBias: bias,
     );
-    final bytes = await widget.client.synthesizeTts(
+    final audio = widget.client.synthesizeTts(
       text: text,
       voice: params.voice,
       speakingRate: kTtsRateDefault,
     );
+    final results = await Future.wait<Object?>([spoken, audio]);
+    final bytes = results[1]! as List<int>;
     _chunkTtsBytes = Uint8List.fromList(bytes);
     _chunkTtsParams = params;
+  }
+
+  void _clearFollowLight() {
+    _followGen++;
+    unawaited(_followPosSub?.cancel());
+    unawaited(_followDurSub?.cancel());
+    _followPosSub = null;
+    _followDurSub = null;
+    if (_follow == null) return;
+    _follow = null;
+    if (mounted) setState(() {});
+  }
+
+  TextStyle _promptStyle(ThemeData theme) {
+    return (theme.textTheme.headlineSmall ?? const TextStyle()).copyWith(
+      color: kRhythmText,
+      height: 1.35,
+      letterSpacing: -0.2,
+      fontWeight: FontWeight.w500,
+    );
+  }
+
+  double _promptMaxWidth = 0;
+
+  void _armFollowLight({
+    required String text,
+    required int token,
+    required int chunk,
+  }) {
+    _clearFollowLight();
+    final spans = _skill.spokenCache.peekSpans(text);
+    if (spans.isEmpty) return;
+    final gen = _followGen;
+    Duration? mediaDur;
+    _followPosSub = _player.onPositionChanged.listen((pos) {
+      if (!mounted || gen != _followGen) return;
+      if (token != _cycleToken || chunk != _chunkIndex) return;
+      if (_rhythmPhase != RhythmPhase.listen &&
+          _rhythmPhase != RhythmPhase.speak) {
+        return;
+      }
+      final dms = mediaDur?.inMilliseconds ?? 0;
+      if (dms <= 0) return;
+      // File clock. Do not divide by playback rate (design/313).
+      final hit = activeFollowSpan(spans, pos.inMilliseconds, dms);
+      final next = hit == null ? null : (start: hit.start, end: hit.end);
+      if (next?.start == _follow?.start && next?.end == _follow?.end) return;
+      setState(() => _follow = next);
+      _queueFollowScroll(text);
+    });
+    _followDurSub = _player.onDurationChanged.listen((d) {
+      if (gen != _followGen) return;
+      mediaDur = d;
+    });
+  }
+
+  void _queueFollowScroll(String text) {
+    final span = _follow;
+    if (span == null || !_promptScroll.hasClients) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_promptScroll.hasClients) return;
+      final width = _promptMaxWidth > 0
+          ? _promptMaxWidth
+          : MediaQuery.sizeOf(context).width;
+      final target = followRevealOffset(
+        text: text,
+        style: _promptStyle(Theme.of(context)),
+        start: span.start,
+        end: span.end,
+        maxWidth: width,
+        viewportHeight: _promptScroll.position.viewportDimension,
+        currentOffset: _promptScroll.offset,
+      );
+      if (target == null) return;
+      unawaited(
+        _promptScroll.animateTo(
+          target,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        ),
+      );
+    });
   }
 
   Future<void> _playCachedChunkTts({required String phase}) async {
@@ -882,8 +977,21 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         // EDGE: volume API missing — play at default.
       }
       final done = _player.onPlayerComplete.first;
-      await _player.play(BytesSource(bytes));
-      await done;
+      if (phase == 'tts_listen' || phase == 'tts_speak') {
+        _armFollowLight(
+          text: text,
+          token: _cycleToken,
+          chunk: _chunkIndex,
+        );
+      } else {
+        _clearFollowLight();
+      }
+      try {
+        await _player.play(BytesSource(bytes));
+        await done;
+      } finally {
+        _clearFollowLight();
+      }
       asrEvidenceBus?.record(
         'shadowing_loop_event',
         cacheId: _cacheId,
@@ -1306,6 +1414,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     final file = File(path);
     if (!await file.exists()) return;
     setState(() => _status = '내 녹음 듣는 중');
+    _clearFollowLight();
     try {
       await _player.stop();
       try {
@@ -1498,6 +1607,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   void _onGiveUp() {
     _cycleToken++;
     unawaited(_player.stop());
+    _clearFollowLight();
     unawaited(_mic.invokeMethod<String>('stop'));
     _primedMicPath = null;
     unawaited(_persistPracticeCursor());
@@ -1554,6 +1664,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   Future<void> _goToPracticeSentence(int globalIndex) async {
     _cycleToken++;
     unawaited(_player.stop());
+    _clearFollowLight();
     try {
       await _mic.invokeMethod<String>('stop');
     } catch (_) {}
@@ -1757,22 +1868,25 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                         Expanded(
                           flex: immersive && showMirror ? 2 : 3,
                           child: Center(
-                            child: SingleChildScrollView(
-                              child: ReplayMissText(
-                                text: prompt.isEmpty ? '…' : prompt,
-                                misses: _replayMissChunk == _chunkIndex
-                                    ? _replayMisses
-                                    : const [],
-                                blink: _rhythmPhase == RhythmPhase.replay,
-                                style: (theme.textTheme.headlineSmall ??
-                                        const TextStyle())
-                                    .copyWith(
-                                  color: kRhythmText,
-                                  height: 1.35,
-                                  letterSpacing: -0.2,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                _promptMaxWidth = constraints.maxWidth;
+                                final showFollow =
+                                    _rhythmPhase == RhythmPhase.listen ||
+                                        _rhythmPhase == RhythmPhase.speak;
+                                return SingleChildScrollView(
+                                  controller: _promptScroll,
+                                  child: ReplayMissText(
+                                    text: prompt.isEmpty ? '…' : prompt,
+                                    misses: _replayMissChunk == _chunkIndex
+                                        ? _replayMisses
+                                        : const [],
+                                    blink: _rhythmPhase == RhythmPhase.replay,
+                                    follow: showFollow ? _follow : null,
+                                    style: _promptStyle(theme),
+                                  ),
+                                );
+                              },
                             ),
                           ),
                         ),

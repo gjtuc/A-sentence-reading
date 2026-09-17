@@ -15,12 +15,15 @@ class ReplayMissText extends StatefulWidget {
     required this.misses,
     required this.blink,
     required this.style,
+    this.follow,
   });
 
   final String text;
   final List<MissedWordSpan> misses;
   final bool blink;
   final TextStyle style;
+  /// Printed range to light during listen/speak. Null during replay.
+  final ({int start, int end})? follow;
 
   @override
   State<ReplayMissText> createState() => _ReplayMissTextState();
@@ -62,9 +65,17 @@ class _ReplayMissTextState extends State<ReplayMissText>
 
   @override
   Widget build(BuildContext context) {
+    final follow = widget.follow;
     if (!widget.blink || widget.misses.isEmpty) {
-      return Text(
-        widget.text,
+      if (follow == null) {
+        return Text(
+          widget.text,
+          textAlign: TextAlign.center,
+          style: widget.style,
+        );
+      }
+      return Text.rich(
+        TextSpan(children: _followSpans(follow)),
         textAlign: TextAlign.center,
         style: widget.style,
       );
@@ -80,6 +91,23 @@ class _ReplayMissTextState extends State<ReplayMissText>
         );
       },
     );
+  }
+
+  List<InlineSpan> _followSpans(({int start, int end}) follow) {
+    final text = widget.text;
+    final start = follow.start.clamp(0, text.length);
+    final end = follow.end.clamp(start, text.length);
+    if (end <= start) {
+      return [TextSpan(text: text)];
+    }
+    return [
+      if (start > 0) TextSpan(text: text.substring(0, start)),
+      TextSpan(
+        text: text.substring(start, end),
+        style: widget.style.copyWith(color: kRhythmSpeak),
+      ),
+      if (end < text.length) TextSpan(text: text.substring(end)),
+    ];
   }
 
   List<InlineSpan> _spans(Color missColor) {

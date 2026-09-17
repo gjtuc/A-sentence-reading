@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import '../api/client.dart';
+import '../practice_rhythm/follow_span.dart';
 import 'chunk_density.dart';
 import 'skill_adapt.dart';
 import 'skill_evidence.dart';
@@ -16,12 +17,14 @@ import 'skill_store.dart';
 class SpokenCache {
   String speakNorm = 'v6';
   final Map<String, String> _map = {};
+  final Map<String, List<FollowSpan>> _spans = {};
 
   void setSpeakNorm(String v) {
     final n = v.trim();
     if (n.isEmpty || n == speakNorm) return;
     speakNorm = n;
     _map.clear();
+    _spans.clear();
   }
 
   String _key(String chunk) {
@@ -31,14 +34,27 @@ class SpokenCache {
 
   String? peek(String chunk) => _map[_key(chunk)];
 
-  void put(String chunk, String spoken, {String? version}) {
+  List<FollowSpan> peekSpans(String chunk) =>
+      _spans[_key(chunk)] ?? const [];
+
+  void put(
+    String chunk,
+    String spoken, {
+    String? version,
+    List<FollowSpan> spans = const [],
+  }) {
     if (version != null && version.trim().isNotEmpty) {
       setSpeakNorm(version.trim());
     }
-    _map[_key(chunk)] = spoken;
+    final key = _key(chunk);
+    _map[key] = spoken;
+    _spans[key] = spans;
   }
 
-  void clear() => _map.clear();
+  void clear() {
+    _map.clear();
+    _spans.clear();
+  }
 }
 
 class PracticeSkillController {
@@ -141,7 +157,12 @@ class PracticeSkillController {
         );
         return null;
       }
-      spokenCache.put(chunkDisplay, r.spoken, version: r.speakNormVersion);
+      spokenCache.put(
+        chunkDisplay,
+        r.spoken,
+        version: r.speakNormVersion,
+        spans: r.spans,
+      );
       await evidence.emit(
         kind: 'practice_skill_spoken',
         cacheId: _cacheId,

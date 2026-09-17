@@ -10,7 +10,7 @@ from fastapi import APIRouter, Body, Request, Response
 from fastapi.responses import JSONResponse
 
 from sentence_reading.llm.tts import CURATED_VOICES, synthesize_mp3, tts_available
-from sentence_reading.llm.tts_speak import spoken_text_for_tts
+from sentence_reading.llm.tts_speak import align_display_to_spoken, spoken_text_for_tts
 from sentence_reading.llm.tts_speak_policy import speak_norm_version
 
 router = APIRouter(tags=["tts"])
@@ -113,4 +113,5 @@ async def tts_spoken(request: Request, payload: dict = Body(...)) -> dict[str, A
         "ok": True,
         "spoken": spoken,
         "speak_norm_version": speak_norm_version(),
+        "spans": align_display_to_spoken(raw),
     }
