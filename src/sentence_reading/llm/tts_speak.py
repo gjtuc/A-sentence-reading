@@ -711,6 +711,65 @@ def _apply_light_prosody(text: str) -> str:
     return s
 
 
+_FORMULA_PAREN = re.compile(
+    r"^(?:"
+    r"[IVX]{1,4}"
+    r"|aq|[sgl]"
+    r"|OH|CO|NO|NH|SO|PO|CN|Cl|Br"
+    r"|(?:[A-Z][a-z]?)*\d+"
+    r"|\d{3}"
+    r")$"
+)
+
+
+def _keep_formula_paren(inner: str) -> bool:
+    """(NO3), (III), (110) are the formula. Prose asides are not."""
+    t = (inner or "").strip()
+    if not t or any(ch.isspace() for ch in t) or len(t) > 8:
+        return False
+    if not re.search(r"[A-Za-z]", t) and not re.fullmatch(r"\d{3}", t):
+        return False
+    return bool(_FORMULA_PAREN.fullmatch(t))
+
+
+def _drop_parenthetical_asides(text: str) -> str:
+    """Omit parenthetical asides from speech. Keep formula groups."""
+    s = text or ""
+    out: list[str] = []
+    i = 0
+    n = len(s)
+    while i < n:
+        ch = s[i]
+        if ch not in "()（）":
+            out.append(ch)
+            i += 1
+            continue
+        close = "）" if ch == "（" else ")"
+        if ch in "）)":
+            out.append(ch)
+            i += 1
+            continue
+        depth = 1
+        j = i + 1
+        while j < n and depth:
+            if s[j] == ch:
+                depth += 1
+            elif s[j] == close:
+                depth -= 1
+            j += 1
+        if depth:
+            out.append(s[i:])
+            break
+        inner = s[i + 1 : j - 1]
+        if _keep_formula_paren(inner):
+            out.append(f" {inner.strip()} ")
+        i = j
+    s = "".join(out)
+    s = re.sub(r"\s+([,.;:])", r"\1", s)
+    s = re.sub(r"\s{2,}", " ", s)
+    return s.strip()
+
+
 def spoken_text_for_tts(
     raw: str, *, policy: SpeakPolicy | None = None
 ) -> str:
@@ -738,6 +797,7 @@ def spoken_text_for_tts(
             s = re.sub(r"<[^>]+>", " ", s)
 
     s = _strip_literal_tags(s)
+    s = _drop_parenthetical_asides(s)
     s = _expand_unicode_scripts(s)
     s = _apply_chem_aliases(s)
     s = _expand_plain_chem_digits(s)

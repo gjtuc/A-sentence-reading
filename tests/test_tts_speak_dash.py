@@ -7,7 +7,7 @@ from sentence_reading.llm.tts_speak_policy import SPEAK_NORM_VERSION_DEFAULT
 
 
 def test_speak_norm_v4() -> None:
-    assert SPEAK_NORM_VERSION_DEFAULT == "v4"
+    assert SPEAK_NORM_VERSION_DEFAULT == "v5"
 
 
 def test_ni_cu_alloy_no_minus() -> None:

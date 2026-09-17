@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.302",
+    version="0.3.303",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -8101,7 +8101,6 @@ async def _run_ingest_job_body(
                 docx_core_title,
                 docx_paragraph_text,
                 docx_styled_title,
-                azure_page_title,
                 pdf_info_title,
                 pdf_styled_title,
                 pick_session_title,
@@ -8110,26 +8109,17 @@ async def _run_ingest_job_body(
 
             _info = ""
             _styled = ""
-            _azure = ""
             _title_text = text
             try:
                 if kind == "pdf":
                     _info = pdf_info_title(tmp_path)
                     _styled = pdf_styled_title(tmp_path)
-                    try:
-                        _azure = azure_page_title(tmp_path)
-                    except Exception:  # noqa: BLE001
-                        _azure = ""
                 elif kind == "docx":
                     _info = docx_core_title(tmp_path)
                     _styled = docx_styled_title(tmp_path)
                     _title_text = docx_paragraph_text(tmp_path) or text
-                    try:
-                        _azure = azure_page_title(tmp_path)
-                    except Exception:  # noqa: BLE001
-                        _azure = ""
             except Exception:  # noqa: BLE001
-                _info, _styled, _azure, _title_text = "", "", "", text
+                _info, _styled, _title_text = "", "", text
             title, _title_src = pick_session_title(
                 info_title=_info,
                 filename=filename,
@@ -8137,7 +8127,6 @@ async def _run_ingest_job_body(
                 sentences=sentences,
                 title_guess=_title_guess,
                 styled_title=_styled,
-                azure_title=_azure,
             )
             _title_card = "absent"
             if doc_role != "supplementary":

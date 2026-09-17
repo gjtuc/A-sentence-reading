@@ -90,3 +90,22 @@ def test_title_prefix_stripped() -> None:
     out = spoken_text_for_tts("Title: Nickel catalyst")
     assert not out.lower().startswith("title")
     assert "nickel" in out.lower()
+
+
+def test_parenthetical_aside_is_not_spoken() -> None:
+    out = spoken_text_for_tts(
+        "The catalyst (see Fig. 1) was stable (e.g., after 10 h)."
+    ).lower()
+    assert "fig" not in out
+    assert "e.g" not in out
+    assert "after 10" not in out
+    assert "catalyst" in out and "stable" in out
+    assert spoken_text_for_tts(out) == out
+
+
+def test_formula_parentheses_stay_in_speech() -> None:
+    out = spoken_text_for_tts("Ni(NO3)2 on the (110) facet").lower()
+    assert "nickel" in out
+    assert "nitrogen" in out and "oxygen" in out
+    assert "110" in out
+    assert "(" not in out
