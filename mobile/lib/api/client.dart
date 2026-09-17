@@ -1193,6 +1193,41 @@ class AsrClient {
     return res.bodyBytes;
   }
 
+  /// Import title switch. Called only after the user flips an empty side.
+  Future<({bool ok, String title})> verifyImportTitle({
+    required Uint8List bytes,
+    required String filename,
+  }) async {
+    final req = http.MultipartRequest('POST', _uri('/api/import/title-verify'));
+    req.headers.addAll(await _headers());
+    final name = filename.trim().isEmpty ? 'paper.pdf' : filename.trim();
+    final lower = name.toLowerCase();
+    final type = lower.endsWith('.docx')
+        ? MediaType(
+            'application',
+            'vnd.openxmlformats-officedocument.wordprocessingml.document',
+          )
+        : MediaType('application', 'pdf');
+    req.files.add(
+      http.MultipartFile.fromBytes('file', bytes, filename: name, contentType: type),
+    );
+    final sent = await req.send().timeout(const Duration(seconds: 120));
+    final res = await http.Response.fromStream(sent);
+    if (res.statusCode == 401 || res.statusCode == 403) {
+      throw AsrApiException('로그인 후 제목을 다시 확인할 수 있습니다.', res.statusCode);
+    }
+    Map<String, dynamic> body = {};
+    try {
+      final decoded = jsonDecode(res.body);
+      if (decoded is Map) body = Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    final title = '${body['title'] ?? ''}'.trim();
+    if (res.statusCode == 200 && body['ok'] == true && title.isNotEmpty) {
+      return (ok: true, title: title);
+    }
+    return (ok: false, title: '');
+  }
+
   /// POST multipart figure_edit commit — design/163.
   Future<void> commitFigureEdit({
     required String cacheId,

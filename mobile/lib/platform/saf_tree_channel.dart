@@ -378,6 +378,7 @@ class SafTreeChannel {
       if (text.isEmpty) continue;
       final size = item['size_pt'];
       final y = item['y'];
+      final width = item['width'];
       out.add(
         PdfHeadStyledLine(
           text: text,
@@ -385,6 +386,7 @@ class SafTreeChannel {
           bold: item['bold'] == 1 || item['bold'] == true,
           y: y is num ? y.toDouble() : 0,
           mixedSize: item['mixed_size'] == 1 || item['mixed_size'] == true,
+          width: width is num ? width.toDouble() : 0,
         ),
       );
     }

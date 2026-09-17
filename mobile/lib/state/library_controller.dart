@@ -33,6 +33,7 @@ import '../pdf/normalize_pairing_key.dart';
 import '../api/pdf_folder_grant_store.dart';
 import '../api/pdf_hash_cache_store.dart';
 import '../api/pdf_advisory_cache_store.dart';
+import '../api/title_switch_store.dart';
 import '../api/document_citation.dart';
 import '../mate_fetch/fetch.dart';
 import '../mate_fetch/orchestrator.dart';
@@ -81,6 +82,7 @@ class LibraryController extends ChangeNotifier {
     PdfFolderGrantStore? pdfDownloadsGrantStore,
     PdfHashCacheStore? pdfHashCacheStore,
     PdfAdvisoryCacheStore? pdfAdvisoryCacheStore,
+    TitleSwitchStore? titleSwitchStore,
     SafTreeChannel? safTreeChannel,
     LibrarySoftDeleteStore? softDeleteStore,
     UploadNotify? uploadNotify,
@@ -98,6 +100,7 @@ class LibraryController extends ChangeNotifier {
             pdfDownloadsGrantStore ?? prefsPdfDownloadsGrantStore(),
         _pdfHashCache = pdfHashCacheStore ?? PdfHashCacheStore(),
         _pdfAdvisoryCache = pdfAdvisoryCacheStore ?? PdfAdvisoryCacheStore(),
+        _titleSwitch = titleSwitchStore ?? TitleSwitchStore(),
         _safTree = safTreeChannel ?? SafTreeChannel(),
         _softDelete = softDeleteStore ?? PrefsLibrarySoftDeleteStore(),
         _notify = uploadNotify ?? createUploadNotify(),
@@ -114,6 +117,7 @@ class LibraryController extends ChangeNotifier {
   final PdfFolderGrantStore _pdfDownloadsGrant;
   final PdfHashCacheStore _pdfHashCache;
   final PdfAdvisoryCacheStore _pdfAdvisoryCache;
+  final TitleSwitchStore _titleSwitch;
   final SafTreeChannel _safTree;
   final LibrarySoftDeleteStore _softDelete;
   final UploadNotify _notify;
@@ -157,6 +161,7 @@ class LibraryController extends ChangeNotifier {
     unawaited(_pdfDownloadsGrant.bindUid(_diskUid));
     unawaited(_pdfHashCache.bindUid(_diskUid));
     unawaited(_pdfAdvisoryCache.bindUid(_diskUid));
+    unawaited(_titleSwitch.bindUid(_diskUid));
     unawaited(_pickerRecentThenSoftDelete());
     _bulkHandoffAttempted = false;
     _clearPendingEnrichState();
@@ -6524,6 +6529,104 @@ class LibraryController extends ChangeNotifier {
     return s;
   }
 
+  /// design/310 — last displayed side. Wide-box is filled on open; verify stays empty.
+  Future<void> _applyShownTitle(ScannedPdfEntry e, String boxTitle) async {
+    final box = boxTitle.trim();
+    TitleSwitchEntry? saved;
+    try {
+      saved = await _titleSwitch.lookup(
+        docUri: e.docUri,
+        sizeBytes: e.sizeBytes,
+        lastModifiedMs: e.lastModifiedMs,
+      );
+    } catch (_) {}
+    final verified = (saved?.verifiedTitle ?? '').trim();
+    final shown = saved?.shown == 'verified' && verified.isNotEmpty
+        ? 'verified'
+        : 'box';
+    e.boxTitle = box;
+    e.verifiedTitle = verified;
+    e.titleShown = shown;
+    e.advisoryTitle = shown == 'verified' ? verified : box;
+    try {
+      await _titleSwitch.put(
+        docUri: e.docUri,
+        sizeBytes: e.sizeBytes,
+        lastModifiedMs: e.lastModifiedMs,
+        boxTitle: box,
+        verifiedTitle: verified,
+        shown: shown,
+      );
+    } catch (_) {}
+  }
+
+  /// Empty side: verify once and show it. Both filled: swap saved titles.
+  Future<String?> switchImportTitle(ScannedPdfEntry e) async {
+    if (e.titleSwitchBusy) return null;
+    if (e.verifiedTitle.trim().isNotEmpty) {
+      final next = e.titleShown == 'verified' ? 'box' : 'verified';
+      e.titleShown = next;
+      e.advisoryTitle = next == 'verified' ? e.verifiedTitle : e.boxTitle;
+      try {
+        await _titleSwitch.put(
+          docUri: e.docUri,
+          sizeBytes: e.sizeBytes,
+          lastModifiedMs: e.lastModifiedMs,
+          boxTitle: e.boxTitle,
+          verifiedTitle: e.verifiedTitle,
+          shown: next,
+        );
+      } catch (_) {}
+      e.pairingKey = await _pairingKeyForTitle(
+        e.advisoryTitle,
+        doi: e.advisoryDoi,
+        displayName: e.displayName,
+      );
+      notifyListeners();
+      return null;
+    }
+    e.titleSwitchBusy = true;
+    notifyListeners();
+    try {
+      final bytes = await _safTree.readPdfBytes(e.docUri);
+      if (bytes == null || bytes.isEmpty) {
+        return '파일을 읽지 못해 제목을 다시 확인하지 못했습니다.';
+      }
+      final result = await _client.verifyImportTitle(
+        bytes: bytes,
+        filename: e.displayName,
+      );
+      if (!result.ok || result.title.trim().isEmpty) {
+        return '제목을 다시 확인하지 못했습니다.';
+      }
+      e.verifiedTitle = result.title.trim();
+      e.titleShown = 'verified';
+      e.advisoryTitle = e.verifiedTitle;
+      await _titleSwitch.put(
+        docUri: e.docUri,
+        sizeBytes: e.sizeBytes,
+        lastModifiedMs: e.lastModifiedMs,
+        boxTitle: e.boxTitle,
+        verifiedTitle: e.verifiedTitle,
+        shown: 'verified',
+      );
+      e.pairingKey = await _pairingKeyForTitle(
+        e.advisoryTitle,
+        doi: e.advisoryDoi,
+        displayName: e.displayName,
+      );
+      notifyListeners();
+      return null;
+    } on AsrApiException catch (err) {
+      return err.message;
+    } catch (_) {
+      return '제목을 다시 확인하지 못했습니다.';
+    } finally {
+      e.titleSwitchBusy = false;
+      notifyListeners();
+    }
+  }
+
   /// design/228 · 230 · 254 — lazy advisory title/role (concurrency 2, first [limit]).
   Future<void> ensureVisiblePdfAdvisories({int limit = 40}) async {
     final unknownAll = pdfImportActiveEntries
@@ -6635,13 +6738,13 @@ class LibraryController extends ChangeNotifier {
               final siStem = extractAcsSiStemFromText(head.headText) ??
                   extractAcsSiStemFromText(head.infoTitle) ??
                   '';
-              e.advisoryTitle = guessed.title;
+              await _applyShownTitle(e, guessed.title);
               e.advisoryRole = det.role;
               e.advisoryReason = det.reason;
               e.advisoryDoi = doi;
               e.siStem = siStem;
               e.pairingKey = await _pairingKeyForTitle(
-                guessed.title,
+                e.advisoryTitle,
                 doi: doi,
                 displayName: e.displayName,
               );
@@ -6676,12 +6779,12 @@ class LibraryController extends ChangeNotifier {
                 : 'main';
             final reason =
                 role == 'supplementary' ? 'filename_si' : 'filename_main';
-            e.advisoryTitle = title;
             e.advisoryRole = role;
             e.advisoryReason = reason;
             e.advisoryDoi = '';
+            await _applyShownTitle(e, title);
             e.pairingKey = await _pairingKeyForTitle(
-              title,
+              e.advisoryTitle,
               displayName: e.displayName,
             );
             e.advisoryState = PdfAdvisoryState.ready;
@@ -6739,13 +6842,13 @@ class LibraryController extends ChangeNotifier {
           final siStem = extractAcsSiStemFromText(head.headText) ??
               extractAcsSiStemFromText(head.infoTitle) ??
               '';
-          e.advisoryTitle = guessed.title;
+          await _applyShownTitle(e, guessed.title);
           e.advisoryRole = det.role;
           e.advisoryReason = det.reason;
           e.advisoryDoi = doi;
           e.siStem = siStem;
           e.pairingKey = await _pairingKeyForTitle(
-            guessed.title,
+            e.advisoryTitle,
             doi: doi,
             displayName: e.displayName,
           );

@@ -94,6 +94,9 @@ class ScannedPdfEntry {
     this.pairingKey = '',
     this.siStatus = '',
     this.siStem = '',
+    this.boxTitle = '',
+    this.verifiedTitle = '',
+    this.titleShown = 'box',
   });
 
   final String docUri;
@@ -120,6 +123,17 @@ class ScannedPdfEntry {
 
   /// design/251 — ACS SI stem hint from head.
   String siStem;
+
+  /// Wide-box title. Filled on folder open.
+  String boxTitle;
+
+  /// 1000-char verify. Empty until the user flips the switch.
+  String verifiedTitle;
+
+  /// `box` or `verified`. Last displayed side.
+  String titleShown;
+
+  bool titleSwitchBusy = false;
 
   /// Resolved pairing key for set/mate logic.
   String get effectivePairingKey {
@@ -158,6 +172,9 @@ class ScannedPdfEntry {
       pairingKey: pairingKey ?? this.pairingKey,
       siStatus: siStatus ?? this.siStatus,
       siStem: siStem ?? this.siStem,
+      boxTitle: this.boxTitle,
+      verifiedTitle: this.verifiedTitle,
+      titleShown: this.titleShown,
     );
   }
 }

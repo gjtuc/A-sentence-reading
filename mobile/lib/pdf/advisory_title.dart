@@ -113,12 +113,16 @@ class PdfHeadStyledLine {
     required this.bold,
     required this.y,
     this.mixedSize = false,
+    this.width = 0,
   });
 
   final String text;
   final double sizePt;
   final bool bold;
   final double y;
+
+  /// Text box width (x1 − x0). 0 when the extractor did not send it.
+  final double width;
 
   /// True when the line mixed body-size and smaller (sup/sub) glyphs.
   final bool mixedSize;
@@ -439,15 +443,24 @@ bool _styleNeighborOk(PdfHeadStyledLine seed, PdfHeadStyledLine other) {
   if (prepared.isEmpty) return null;
 
   ({int i, String text, PdfHeadStyledLine line})? seedPrep;
-  for (final e in prepared) {
-    if (looksLikePaperTitle(e.text) && e.text.length >= 12) {
-      seedPrep = e;
-      break;
+  final sized = prepared.where((e) => e.line.sizePt > 0).toList();
+  final hasWidth = sized.any((e) => e.line.width > 1);
+  if (sized.isNotEmpty && hasWidth) {
+    final maxSz = sized.map((e) => e.line.sizePt).reduce((a, b) => a > b ? a : b);
+    final band = sized.where((e) => e.line.sizePt >= maxSz - 1.2).toList();
+    band.sort((a, b) => b.line.width.compareTo(a.line.width));
+    seedPrep = band.first;
+  } else {
+    for (final e in prepared) {
+      if (looksLikePaperTitle(e.text) && e.text.length >= 12) {
+        seedPrep = e;
+        break;
+      }
     }
+    seedPrep ??= prepared.reduce(
+      (a, b) => a.line.sizePt >= b.line.sizePt ? a : b,
+    );
   }
-  seedPrep ??= prepared.reduce(
-    (a, b) => a.line.sizePt >= b.line.sizePt ? a : b,
-  );
   final seedIdxInLines = seedPrep.i;
   final seedLine = seedPrep.line;
 
@@ -493,6 +506,26 @@ AdvisoryTitleGuess guessAdvisoryTitle({
   required String displayName,
   List<PdfHeadStyledLine> styledLines = const [],
 }) {
+  if (styledLines.isNotEmpty && styledLines.any((e) => e.width > 1)) {
+    final joined = joinTitleByFontSimilarity(styledLines);
+    if (joined != null) {
+      final q = qualifyAdvisoryTitleCandidate(joined.title);
+      final title = q ?? (looksLikePaperTitle(joined.title) ? joined.title : null);
+      if (title != null) {
+        return AdvisoryTitleGuess(
+          title: title,
+          source: 'head_line',
+          styleSource: 'wide_box',
+          styledN: styledLines.length,
+          joinedN: joined.joinedN,
+          seedSizePt: joined.seedSizePt,
+          boldSeed: joined.boldSeed,
+          mixedSizeLine: joined.mixedSizeLine,
+        );
+      }
+    }
+  }
+
   final qInfo = qualifyAdvisoryTitleCandidate(
     infoTitle,
     rejectTruncated: true,

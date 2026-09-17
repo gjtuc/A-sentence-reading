@@ -100,6 +100,7 @@ object PdfHeadExtract {
                             "bold" to if (line.bold) 1 else 0,
                             "y" to line.y.toDouble(),
                             "mixed_size" to if (line.mixedSize) 1 else 0,
+                            "width" to line.width.toDouble(),
                         ),
                     )
                 }
@@ -146,6 +147,7 @@ object PdfHeadExtract {
         val bold: Boolean,
         val y: Float,
         val mixedSize: Boolean,
+        val width: Float,
     )
 
     /**
@@ -158,6 +160,8 @@ object PdfHeadExtract {
         private val sizes = mutableListOf<Float>()
         private val bolds = mutableListOf<Boolean>()
         private var lineY = Float.NaN
+        private var lineX0 = Float.POSITIVE_INFINITY
+        private var lineX1 = Float.NEGATIVE_INFINITY
 
         override fun writeString(text: String, textPositions: MutableList<TextPosition>) {
             if (textPositions.isNotEmpty()) {
@@ -175,6 +179,10 @@ object PdfHeadExtract {
                     }
                     if (sz > 0.5f) sizes.add(sz)
                     bolds.add(isBoldFont(tp.font))
+                    val x = tp.x
+                    val right = x + tp.width
+                    if (x < lineX0) lineX0 = x
+                    if (right > lineX1) lineX1 = right
                 }
             }
             // headText comes from getText(); skipping super drops the words.
@@ -213,6 +221,7 @@ object PdfHeadExtract {
                 val maxSz = sorted.last()
                 val mixed = maxSz > 0.5f && (maxSz - minSz) / maxSz > 0.18f
                 val boldN = bolds.count { it }
+                val width = if (lineX1 > lineX0) lineX1 - lineX0 else 0f
                 styledLines.add(
                     StyledLine(
                         text = t,
@@ -220,6 +229,7 @@ object PdfHeadExtract {
                         bold = boldN * 2 >= bolds.size,
                         y = lineY,
                         mixedSize = mixed,
+                        width = width,
                     ),
                 )
             }
@@ -227,6 +237,8 @@ object PdfHeadExtract {
             sizes.clear()
             bolds.clear()
             lineY = Float.NaN
+            lineX0 = Float.POSITIVE_INFINITY
+            lineX1 = Float.NEGATIVE_INFINITY
         }
 
         private fun isBoldFont(font: PDFont?): Boolean {

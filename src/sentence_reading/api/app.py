@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.303",
+    version="0.3.304",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -4941,6 +4941,30 @@ async def cache_merge_supplementary(request: Request, cache_id: str) -> JSONResp
         code = 404
     elif result.get("error") in ("session_missing", "merge_save_failed"):
         code = 502
+    return JSONResponse(status_code=code, content=result)
+
+
+@app.post("/api/import/title-verify")
+async def import_title_verify(request: Request, file: UploadFile = File(...)) -> JSONResponse:
+    """Import-card switch. Runs only when the user flips an empty side."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    raw = await file.read()
+    if not raw:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "empty", "title": "", "doi": ""},
+        )
+    if len(raw) > 50 * 1024 * 1024:
+        return JSONResponse(
+            status_code=413,
+            content={"ok": False, "error": "too_large", "title": "", "doi": ""},
+        )
+    from sentence_reading.title_verify import verify_bytes
+
+    result = await asyncio.to_thread(verify_bytes, raw, file.filename or "paper.pdf")
+    code = 200 if result.get("ok") else 422
     return JSONResponse(status_code=code, content=result)
 
 

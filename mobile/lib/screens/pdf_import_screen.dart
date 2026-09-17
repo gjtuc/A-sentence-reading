@@ -490,6 +490,12 @@ class _PdfImportScreenState extends State<PdfImportScreen>
     }
   }
 
+  Future<void> _switchTitle(ScannedPdfEntry entry) async {
+    final err = await lib.switchImportTitle(entry);
+    if (!mounted) return;
+    if (err != null) setState(() => _banner = err);
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -740,8 +746,10 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                           queued.contains(e.contentHash)),
                                       onToggle: () =>
                                           _toggleUris(item.docUris),
-                                      onDelete: () =>
-                                          _deleteEntries([item.main, item.si]),
+                                    onDelete: () =>
+                                        _deleteEntries([item.main, item.si]),
+                                    onTitleSwitch: () =>
+                                        _switchTitle(item.main),
                                       // design/237 - set row already has mate; hide find CTA.
                                       onFindMain: null,
                                       onFindSi: null,
@@ -765,6 +773,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                     inQueue: inQ,
                                     onToggle: () => _toggleUris([e.docUri]),
                                     onDelete: () => _deleteEntries([e]),
+                                    onTitleSwitch: () => _switchTitle(e),
                                     siAbsent: siAbsent,
                                     onFind: browseDownloads ||
                                             e.advisoryDoi.trim().isEmpty ||
@@ -914,6 +923,7 @@ class _FolderRow extends StatelessWidget {
     required this.inQueue,
     required this.onToggle,
     this.onDelete,
+    this.onTitleSwitch,
     this.onFind,
     this.siAbsent = false,
   });
@@ -924,6 +934,7 @@ class _FolderRow extends StatelessWidget {
   final bool inQueue;
   final VoidCallback onToggle;
   final VoidCallback? onDelete;
+  final VoidCallback? onTitleSwitch;
   final VoidCallback? onFind;
   /// design/251 — show non-action label instead of SI find CTA.
   final bool siAbsent;
@@ -1116,12 +1127,12 @@ class _FolderRow extends StatelessWidget {
                   ],
                 ),
               ),
-              if (onDelete != null)
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 20),
-                  tooltip: '파일 삭제',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: onDelete,
+              if (onDelete != null || onTitleSwitch != null)
+                _TitleSwitchColumn(
+                  onDelete: onDelete,
+                  onSwitch: onTitleSwitch,
+                  busy: entry.titleSwitchBusy,
+                  deleteTooltip: '파일 삭제',
                 ),
             ],
           ),
@@ -1139,6 +1150,7 @@ class _SetRow extends StatelessWidget {
     required this.inQueue,
     required this.onToggle,
     this.onDelete,
+    this.onTitleSwitch,
     this.onFindMain,
     this.onFindSi,
   });
@@ -1149,6 +1161,7 @@ class _SetRow extends StatelessWidget {
   final bool inQueue;
   final VoidCallback onToggle;
   final VoidCallback? onDelete;
+  final VoidCallback? onTitleSwitch;
   final VoidCallback? onFindMain;
   final VoidCallback? onFindSi;
 
@@ -1269,17 +1282,63 @@ class _SetRow extends StatelessWidget {
                   ],
                 ),
               ),
-              if (onDelete != null)
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 20),
-                  tooltip: '세트 파일 삭제',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: onDelete,
+              if (onDelete != null || onTitleSwitch != null)
+                _TitleSwitchColumn(
+                  onDelete: onDelete,
+                  onSwitch: onTitleSwitch,
+                  busy: item.main.titleSwitchBusy,
+                  deleteTooltip: '세트 파일 삭제',
                 ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _TitleSwitchColumn extends StatelessWidget {
+  const _TitleSwitchColumn({
+    required this.deleteTooltip,
+    this.onDelete,
+    this.onSwitch,
+    this.busy = false,
+  });
+
+  final String deleteTooltip;
+  final VoidCallback? onDelete;
+  final VoidCallback? onSwitch;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (onDelete != null)
+          IconButton(
+            icon: const Icon(Icons.delete_outline, size: 20),
+            tooltip: deleteTooltip,
+            visualDensity: VisualDensity.compact,
+            onPressed: onDelete,
+          ),
+        if (onSwitch != null)
+          busy
+              ? const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.sync, size: 20),
+                  tooltip: '제목 바꾸기',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onSwitch,
+                ),
+      ],
     );
   }
 }
