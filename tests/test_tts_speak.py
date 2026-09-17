@@ -109,3 +109,37 @@ def test_formula_parentheses_stay_in_speech() -> None:
     assert "nitrogen" in out and "oxygen" in out
     assert "110" in out
     assert "(" not in out
+
+
+def test_common_names_beat_element_spellout() -> None:
+    co2 = spoken_text_for_tts("CO2 reduction").lower()
+    assert "carbon dioxide" in co2
+    assert "vanadium" not in co2
+    ch4 = spoken_text_for_tts("CH3COOH yields").lower()
+    assert "acetic acid" in ch4
+    assert "methyl" not in ch4
+
+
+def test_formula_fragment_name_when_whole_is_unknown() -> None:
+    out = spoken_text_for_tts("RCOOH oxidation").lower()
+    assert "carboxyl" in out
+    assert "carbon oxygen" not in out
+
+
+def test_unknown_all_caps_is_letters_not_elements() -> None:
+    out = spoken_text_for_tts("grown by CVD and ALD").lower()
+    assert "c v d" in out
+    assert "a l d" in out
+    assert "carbon" not in out
+    assert "vanadium" not in out
+    assert "aluminum" not in out
+
+
+def test_duplicate_formula_paren_is_not_spoken_twice() -> None:
+    out = spoken_text_for_tts("carbon dioxide (CO2) evolved").lower()
+    assert out.count("carbon dioxide") == 1
+    aside = spoken_text_for_tts(
+        "The yield (n = 3) rose (after 10 h)."
+    ).lower()
+    assert "n =" not in aside and "after 10" not in aside
+    assert "yield" in aside and "rose" in aside

@@ -15,6 +15,7 @@ from sentence_reading.llm.tts_speak_lexicon import (
     ACRONYM_NAME_HINTS,
     ACRONYM_SPOKEN,
     CHEM_ALIASES,
+    FORMULA_FRAGMENTS,
 )
 from sentence_reading.llm.tts_speak_policy import SpeakPolicy, load_speak_policy
 
@@ -459,9 +460,14 @@ class _ToSpoken(HTMLParser):
             return
         mode = self._mode[-1] if self._mode else ""
         if mode == "sub":
-            spoken = _speak_numberish(data)
-            if spoken:
-                self._out.append(f" {spoken} ")
+            # Keep numeric subscripts as digits so H2O can match a common name.
+            raw = data.strip()
+            if re.fullmatch(r"\d+", raw):
+                self._out.append(raw)
+            else:
+                spoken = _speak_numberish(data)
+                if spoken:
+                    self._out.append(f" {spoken} ")
         elif mode == "sup":
             spoken = _speak_numberish(data)
             if spoken:
@@ -559,14 +565,88 @@ def _strip_literal_tags(text: str) -> str:
     return _LITERAL_TAG_RE.sub(" ", text)
 
 
+def _fold_formula_subscripts(text: str) -> str:
+    """H₂O / CO₂ → H2O / CO2 so the common-name lexicon can see them."""
+    return re.sub(
+        r"([A-Za-z])([₀₁₂₃₄₅₆₇₈₉]+)",
+        lambda m: m.group(1) + m.group(2).translate(_UNI_SUB),
+        text or "",
+    )
+
+
 def _apply_chem_aliases(text: str) -> str:
-    """Exact formula graphemes to stable spoken (design/205). Longest first."""
+    """Whole-formula common names. Longest key, not a raw substring (CO2 inside CH3CO2H)."""
     s = text
     for grapheme in sorted(CHEM_ALIASES.keys(), key=len, reverse=True):
         spoken = CHEM_ALIASES[grapheme]
-        if grapheme in s:
-            s = s.replace(grapheme, f" {spoken} ")
+        pat = re.compile(
+            rf"(?<![A-Za-z0-9]){re.escape(grapheme)}(?![A-Za-z0-9])"
+        )
+        s = pat.sub(f" {spoken} ", s)
     return s
+
+
+def _formula_token(token: str) -> bool:
+    if token in FORMULA_FRAGMENTS or token in CHEM_ALIASES:
+        return True
+    if re.fullmatch(r"[A-Z][a-z]{3,}", token):
+        return False
+    if re.search(r"\d", token):
+        return True
+    # PhOH / GaN — not an English word.
+    return bool(re.search(r"[A-Z].*[A-Z]", token)) and not re.search(
+        r"[a-z]{3,}", token
+    )
+
+
+def _split_formula_fragments(token: str) -> str:
+    keys = tuple(sorted(FORMULA_FRAGMENTS, key=len, reverse=True))
+    i = 0
+    parts: list[str] = []
+    hit = False
+    while i < len(token):
+        for key in keys:
+            if token.startswith(key, i):
+                parts.append(f" {FORMULA_FRAGMENTS[key]} ")
+                i += len(key)
+                hit = True
+                break
+        else:
+            parts.append(token[i])
+            i += 1
+    if not hit:
+        return token
+    return "".join(parts)
+
+
+def _apply_formula_fragments(text: str) -> str:
+    """Name a fragment only after the whole formula missed the common-name list."""
+
+    def _repl(m: re.Match[str]) -> str:
+        token = m.group(0)
+        if not _formula_token(token):
+            return token
+        if token in CHEM_ALIASES:
+            return token
+        return _split_formula_fragments(token)
+
+    return re.sub(
+        r"(?<![A-Za-z])[A-Z][A-Za-z0-9]{0,24}(?![A-Za-z0-9])",
+        _repl,
+        text or "",
+    )
+
+
+def _letter_spell_unknown_caps(text: str) -> str:
+    """All-caps technique names that are not a known word → letters, not elements."""
+
+    def _repl(m: re.Match[str]) -> str:
+        word = m.group(0)
+        if word in ACRONYM_SPOKEN or word in CHEM_ALIASES:
+            return word
+        return " ".join(ch.lower() for ch in word)
+
+    return re.sub(r"\b[A-Z]{2,}\b", _repl, text or "")
 
 
 def _collapse_full_name_abbrev(text: str) -> str:
@@ -722,14 +802,45 @@ _FORMULA_PAREN = re.compile(
 )
 
 
+_ROMAN_SPOKEN = {
+    "II": "two",
+    "III": "three",
+    "IV": "four",
+    "VI": "six",
+}
+
+
 def _keep_formula_paren(inner: str) -> bool:
-    """(NO3), (III), (110) are the formula. Prose asides are not."""
+    """(NO3), (III), (110), (COOH) are the formula. Prose asides are not."""
     t = (inner or "").strip()
-    if not t or any(ch.isspace() for ch in t) or len(t) > 8:
+    if not t or any(ch.isspace() for ch in t) or len(t) > 12:
         return False
+    if t in FORMULA_FRAGMENTS or t in CHEM_ALIASES or t in _ROMAN_SPOKEN:
+        return True
     if not re.search(r"[A-Za-z]", t) and not re.fullmatch(r"\d{3}", t):
         return False
     return bool(_FORMULA_PAREN.fullmatch(t))
+
+
+def _paren_duplicates_before(before: str, inner: str) -> bool:
+    """Drop (CO2) after carbon dioxide, or (CVD) after the words it abbreviates."""
+    t = (inner or "").strip()
+    letters = [c for c in t if c.isalpha()]
+    if re.fullmatch(r"[A-Z][A-Z0-9]{1,12}", t) and len(letters) >= 2:
+        words = re.findall(r"[A-Za-z]+", before)
+        if len(words) >= len(letters):
+            tail = words[-len(letters) :]
+            if [w[0].upper() for w in tail] == [c.upper() for c in letters]:
+                return True
+    spoken = CHEM_ALIASES.get(t) or FORMULA_FRAGMENTS.get(t) or _ELEMENT_SPOKEN.get(t)
+    if not spoken:
+        return False
+    words = re.findall(r"[A-Za-z]+", before)
+    name_words = spoken.split()
+    if len(words) < len(name_words):
+        return False
+    got = " ".join(words[-len(name_words) :]).lower()
+    return got == spoken.lower()
 
 
 def _drop_parenthetical_asides(text: str) -> str:
@@ -761,8 +872,10 @@ def _drop_parenthetical_asides(text: str) -> str:
             out.append(s[i:])
             break
         inner = s[i + 1 : j - 1]
-        if _keep_formula_paren(inner):
-            out.append(f" {inner.strip()} ")
+        kept = inner.strip()
+        if _keep_formula_paren(kept) and not _paren_duplicates_before("".join(out), kept):
+            spoken_inner = _ROMAN_SPOKEN.get(kept, kept)
+            out.append(f" {spoken_inner} ")
         i = j
     s = "".join(out)
     s = re.sub(r"\s+([,.;:])", r"\1", s)
@@ -798,8 +911,10 @@ def spoken_text_for_tts(
 
     s = _strip_literal_tags(s)
     s = _drop_parenthetical_asides(s)
+    s = _fold_formula_subscripts(s)
     s = _expand_unicode_scripts(s)
     s = _apply_chem_aliases(s)
+    s = _apply_formula_fragments(s)
     s = _expand_plain_chem_digits(s)
     s = _SECTION_PREFIX.sub("", s)
     s = _collapse_full_name_abbrev(s)
@@ -810,6 +925,7 @@ def spoken_text_for_tts(
     # Acronyms before elements so NMR is not nitrogen+MR (design/205).
     s = _expand_acronyms(s)
     s = _dash_pass_b(s)
+    s = _letter_spell_unknown_caps(s)
     s = _expand_element_symbols(s)
     s = _dash_pass_c(s)
     s = _apply_light_prosody(s)

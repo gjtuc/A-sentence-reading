@@ -9,12 +9,13 @@ from sentence_reading.llm.tts_speak_policy import SPEAK_NORM_VERSION_DEFAULT
 
 def test_chem_alias_ch4() -> None:
     out = spoken_text_for_tts("CH4 oxidation").lower()
-    assert "four" in out
+    assert "methane" in out
+    assert "carbon" not in out
 
 
 def test_chem_alias_h2o_unicode() -> None:
     out = spoken_text_for_tts("H₂O adsorption").lower()
-    assert "two" in out
+    assert "water" in out
 
 
 def test_nmr_letters() -> None:
@@ -55,7 +56,7 @@ def test_prosody_arrow_comma() -> None:
 
 
 def test_cache_key_includes_norm_version() -> None:
-    assert SPEAK_NORM_VERSION_DEFAULT == "v5"
+    assert SPEAK_NORM_VERSION_DEFAULT == "v6"
     k1 = tts_mod.cache_key("hello", "en-US-Neural2-D", 1.0)
     assert len(k1) == 24
 
