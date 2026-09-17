@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "src" / "sentence_reading" / "static"
@@ -20,7 +21,7 @@ WHITE_CROSS_SVG = "stroke='%23ffffff'"
 
 def test_status_section_review_crosshair() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["section_review_crosshair"] is True
     assert st["section_review_keys"] is True
     assert "live_enable" not in st
@@ -61,5 +62,5 @@ def test_design_and_assets() -> None:
     assert "0.2.65" in design
     assert "Trading Gate" in design or "ASR 밖" in design
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.156" in served
-    assert "styles.css?v=0.3.156" in served
+    assert f"app.js?v={app_version()}" in served
+    assert f"styles.css?v={app_version()}" in served

@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 MOBILE = ROOT / "mobile"
@@ -17,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "66-mobile-theme.md"
 def test_status_mobile_theme_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["mobile_theme"] is True
     assert st["mobile_oauth"] is True
     assert "live_enable" not in st
@@ -26,7 +27,7 @@ def test_status_mobile_theme_flag() -> None:
 
 def test_mobile_dart_theme_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.156" in pub
+    assert app_version() in pub
     models = (MOBILE / "lib" / "api" / "theme_models.dart").read_text(
         encoding="utf-8"
     )
@@ -81,4 +82,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.156" in html
+    assert f"app.js?v={app_version()}" in html

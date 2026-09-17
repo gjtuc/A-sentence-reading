@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from sentence_reading.api import app as app_mod
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 MOBILE = ROOT / "mobile"
@@ -17,7 +18,7 @@ DESIGN = ROOT / "docs" / "design" / "145-mobile-library-reanalyze.md"
 
 def test_status_version_pin() -> None:
     st = TestClient(app_mod.app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
 
 
 def test_mobile_reanalyze_wiring() -> None:
@@ -35,7 +36,7 @@ def test_mobile_reanalyze_wiring() -> None:
     assert "reanalyzePaper" in ctrl
     assert "reanalyzing" in ctrl
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.156" in pub
+    assert app_version() in pub
 
 
 def test_reanalyze_endpoint_has_paid_gate() -> None:

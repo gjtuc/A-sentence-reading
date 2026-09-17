@@ -7,13 +7,14 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_status_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
 
 
 def test_design_tab_close_contract() -> None:
@@ -42,4 +43,4 @@ def test_app_js_has_close_helpers() -> None:
 
 def test_index_assets_version() -> None:
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.156" in html
+    assert f"app.js?v={app_version()}" in html

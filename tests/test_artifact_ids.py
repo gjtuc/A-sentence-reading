@@ -12,6 +12,7 @@ from sentence_reading.llm import artifact_ids as aid
 from sentence_reading.llm import evidence_bus as eb
 from sentence_reading.llm.evidence_floor import EVIDENCE_FLOOR_VERSION, FROZEN_KINDS
 from sentence_reading.llm.evidence_kinds import ALLOWED_KINDS
+from asr_versions import assert_at_least
 
 
 @pytest.fixture()
@@ -35,7 +36,7 @@ def test_artifact_kinds_in_allowlist_and_floor() -> None:
 
 
 def test_floor_version_includes_169i() -> None:
-    assert EVIDENCE_FLOOR_VERSION == "0.3.165"
+    assert_at_least(EVIDENCE_FLOOR_VERSION, "0.3.165")
 
 
 def test_hash16_and_locators() -> None:

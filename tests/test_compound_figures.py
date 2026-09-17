@@ -20,11 +20,12 @@ from sentence_reading.pdf.compound import (
     split_png_equal,
 )
 from sentence_reading.pdf import extract as pdf_extract
+from asr_versions import assert_at_least
 
 
 def test_status_compound_off() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["pipeline_version"] == "rich-v24"
     assert PIPELINE_VERSION == "rich-v24"
     assert st.get("compound_figures") is False

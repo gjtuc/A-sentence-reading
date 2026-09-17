@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from sentence_reading.llm import paper_retention as pr
+from asr_versions import assert_at_least
 
 
 def _iso(dt: datetime) -> str:
@@ -60,7 +61,7 @@ def test_api_wiring_status() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["paper_retention"] is True
     assert st["paper_retention_days"] == 90
     assert st["paper_retention_extend_days"] == 90

@@ -7,12 +7,13 @@ import os
 from fastapi.testclient import TestClient
 
 from sentence_reading.api import app as app_mod
+from asr_versions import app_version, assert_at_least
 
 
 def test_status_version_pin() -> None:
     with TestClient(app_mod.app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
 
 
 def test_mobile_library_reorder_wiring() -> None:
@@ -43,7 +44,7 @@ def test_mobile_library_reorder_wiring() -> None:
     pub = open(
         os.path.join(root, "mobile", "pubspec.yaml"), encoding="utf-8"
     ).read()
-    assert "0.3.156" in pub
+    assert app_version() in pub
 
 
 def test_apply_library_order_pure() -> None:

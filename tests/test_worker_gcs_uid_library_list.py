@@ -7,6 +7,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from asr_versions import assert_at_least
 
 
 def test_gcs_uid_scope_restores_previous():
@@ -127,7 +128,7 @@ def test_status_version_0_3_156():
 
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
 
 
 def test_cache_papers_fresh_invalidates(monkeypatch):

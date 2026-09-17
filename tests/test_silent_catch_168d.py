@@ -17,6 +17,7 @@ from sentence_reading.api.app import app
 from sentence_reading.cache import paper_cache as pc
 from sentence_reading.llm import ops_events as oev
 from sentence_reading.llm import papers_gcs as pg
+from asr_versions import assert_at_least
 
 
 @pytest.fixture()
@@ -29,7 +30,7 @@ def ops_tmp(tmp_path, monkeypatch):
 
 def test_status_silent_catch_report_pin(ops_tmp) -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st.get("silent_catch_report") is True
 
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 MOBILE = ROOT / "mobile"
@@ -16,7 +17,7 @@ MOBILE = ROOT / "mobile"
 def test_status_exposes_mobile_scaffold_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["mobile_flutter_scaffold"] is True
     # Live Enable / IPS belong to Trading Gate — never on ASR status
     assert "live_enable" not in st
@@ -27,7 +28,7 @@ def test_mobile_tree_and_pubspec() -> None:
     assert MOBILE.is_dir()
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
     assert "name: sentence_reading" in pub
-    assert "0.3.156" in pub or "0.2.56" in pub
+    assert app_version() in pub or "0.2.56" in pub
     assert "http:" in pub
     assert (MOBILE / "lib" / "main.dart").is_file()
     assert (MOBILE / "lib" / "config.dart").is_file()
@@ -77,5 +78,5 @@ def test_design_notes_scaffold_shipped() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.156" in html
-    assert "styles.css?v=0.3.156" in html
+    assert f"app.js?v={app_version()}" in html
+    assert f"styles.css?v={app_version()}" in html

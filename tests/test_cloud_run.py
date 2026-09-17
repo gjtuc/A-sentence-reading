@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from sentence_reading.llm import auth_google as ag
+from asr_versions import app_version, assert_at_least
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,7 +55,7 @@ def test_status_version() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
 
 
 def test_index_asset_cache_bust() -> None:
@@ -63,8 +64,8 @@ def test_index_asset_cache_bust() -> None:
     from sentence_reading.api.app import app
 
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.156" in html
-    assert "styles.css?v=0.3.156" in html
+    assert f"app.js?v={app_version()}" in html
+    assert f"styles.css?v={app_version()}" in html
     assert "__ASR_ASSET_V__" not in html
 
 

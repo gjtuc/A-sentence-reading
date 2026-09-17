@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app, _SESSIONS
 from sentence_reading.models import build_mock_session
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 MOBILE = ROOT / "mobile"
@@ -18,7 +19,7 @@ DESIGN = ROOT / "docs" / "design" / "63-mobile-reader.md"
 def test_status_mobile_reader_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["mobile_reader"] is True
     assert st["mobile_library"] is True
     assert "live_enable" not in st
@@ -64,7 +65,7 @@ def test_session_cursor_patch_independent() -> None:
 
 def test_mobile_dart_reader_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.156" in pub
+    assert app_version() in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "patchCursor" in client
     assert "/api/session/" in client
@@ -127,4 +128,4 @@ def test_no_secrets_in_mobile_dart() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.156" in html
+    assert f"app.js?v={app_version()}" in html

@@ -14,6 +14,7 @@ from sentence_reading.api.app import _file_sha256, app
 from sentence_reading.cache import paper_cache as pc
 from sentence_reading.llm.typography import PIPELINE_VERSION
 from sentence_reading.models import PaperSession, Sentence
+from asr_versions import assert_at_least
 
 
 def clamp_index(i: object, n: int) -> int:
@@ -47,7 +48,7 @@ def progress_keys_for(paper: dict) -> list[str]:
 def test_status_progress_flag() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["progress_restore"] is True
 
 

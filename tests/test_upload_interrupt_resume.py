@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "75-upload-interrupt-resume.md"
@@ -16,7 +17,7 @@ MOBILE = ROOT / "mobile"
 def test_status_interrupt_resume_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["mobile_upload_interrupt_resume"] is True
     assert st["mobile_upload_background"] is True
     assert "live_enable" not in st
@@ -38,7 +39,7 @@ def test_design_75_and_client_wiring() -> None:
     assert "45" in text
 
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.156" in pub
+    assert app_version() in pub
 
     lib = (MOBILE / "lib" / "state" / "library_controller.dart").read_text(
         encoding="utf-8"
@@ -62,4 +63,4 @@ def test_design_75_and_client_wiring() -> None:
 def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
-    assert "app.js?v=0.3.156" in html
+    assert f"app.js?v={app_version()}" in html

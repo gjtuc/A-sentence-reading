@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from asr_versions import app_version
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs/design/278-soft-hide-undo-mate.md"
@@ -23,10 +24,10 @@ def test_design_278_locked() -> None:
 
 def test_versions_278() -> None:
     app = APP.read_text(encoding="utf-8")
-    assert 'version="0.3.271"' in app
+    assert f'version="{app_version()}"' in app
     assert '"version": "0.3.271"' in app
-    assert "0.3.271" in PUBSPEC.read_text(encoding="utf-8")
-    assert "0.3.271" in CONFIG.read_text(encoding="utf-8")
+    assert app_version() in PUBSPEC.read_text(encoding="utf-8")
+    assert app_version() in CONFIG.read_text(encoding="utf-8")
     assert "278-soft-hide-undo-mate.md" in README.read_text(encoding="utf-8")
 
 

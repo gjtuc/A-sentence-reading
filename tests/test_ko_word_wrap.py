@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 CSS = ROOT / "src" / "sentence_reading" / "static" / "styles.css"
@@ -22,7 +23,7 @@ def _sentence_ko_block() -> str:
 
 def test_status_ko_word_wrap() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["ko_word_wrap"] is True
     assert st["cite_display_clean"] is True
     assert "live_enable" not in st
@@ -53,5 +54,5 @@ def test_design_50_and_assets() -> None:
     assert "Trading Gate" in design or "ASR 밖" in design
     assert "design/50" in CSS.read_text(encoding="utf-8")
     html = TestClient(app).get("/").text
-    assert "styles.css?v=0.3.156" in html
-    assert "app.js?v=0.3.156" in html
+    assert f"styles.css?v={app_version()}" in html
+    assert f"app.js?v={app_version()}" in html

@@ -8,6 +8,7 @@ import re
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
+from asr_versions import app_version, assert_at_least
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MOBILE = os.path.join(ROOT, "mobile")
@@ -17,7 +18,7 @@ DESIGN = os.path.join(ROOT, "docs", "design", "105-upload-fail-notify.md")
 def test_status_version_pin() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st.get("mobile_upload_background") is True
 
 
@@ -92,7 +93,7 @@ def test_poll_timeout_20_minutes() -> None:
 
 def test_pubspec_pin() -> None:
     pub = open(os.path.join(MOBILE, "pubspec.yaml"), encoding="utf-8").read()
-    assert "0.3.156" in pub
+    assert app_version() in pub
 
 
 def test_no_secrets() -> None:

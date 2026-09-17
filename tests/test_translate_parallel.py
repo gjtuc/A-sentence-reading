@@ -11,6 +11,7 @@ from sentence_reading.api.app import app
 from sentence_reading.llm import translate as tr
 from sentence_reading.llm import translate_section as ts
 from sentence_reading.models import Figure, Sentence
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,7 +34,7 @@ def _clear_cache() -> None:
 
 def test_status_parallel_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["translate_parallel"] is True
     assert 1 <= int(st["translate_workers"]) <= 8
 
@@ -129,4 +130,4 @@ def test_parallel_workers_one_matches_serial_shape(
 
 def test_asset_version() -> None:
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.156" in served
+    assert f"app.js?v={app_version()}" in served

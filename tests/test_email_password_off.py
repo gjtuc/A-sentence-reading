@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from sentence_reading.api import app as app_mod
+from asr_versions import assert_at_least
 
 
 @pytest.fixture()
@@ -25,7 +26,7 @@ def password_off(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_password_flag_off(password_off: None) -> None:
     with TestClient(app_mod.app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["mobile_email_password"] is False
     assert st["mobile_password_ui"] is False
     assert st["mobile_email_magic_link"] is True

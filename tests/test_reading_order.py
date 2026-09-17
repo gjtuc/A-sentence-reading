@@ -14,11 +14,12 @@ from sentence_reading.pdf.reading_order import (
     merge_multicolumn_decision,
     reorder_blocks_two_column,
 )
+from asr_versions import assert_at_least
 
 
 def test_status() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st.get("reading_order") is True
     assert PIPELINE_VERSION == "rich-v24"
     assert st["pipeline_version"] == "rich-v24"

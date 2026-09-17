@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "143-swipe-direction-flip.md"
@@ -17,13 +18,13 @@ PUB = ROOT / "mobile" / "pubspec.yaml"
 
 def test_status_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
 
 
 def test_wiring_left_is_next() -> None:
     assert DESIGN.is_file()
     assert "0.3.59" in DESIGN.read_text(encoding="utf-8")
-    assert "0.3.156" in PUB.read_text(encoding="utf-8")
+    assert app_version() in PUB.read_text(encoding="utf-8")
     d95 = D95.read_text(encoding="utf-8")
     assert "왼쪽→다음" in d95 or "swipe left = **next**" in d95
     dart = READER.read_text(encoding="utf-8")

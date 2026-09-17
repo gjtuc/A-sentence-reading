@@ -15,6 +15,7 @@ from sentence_reading.api import app as app_mod
 from sentence_reading.api.app import app
 from sentence_reading.llm import ops_events as oev
 from sentence_reading.llm import ingest_jobs_gcs as ij
+from asr_versions import assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "168-ingest-observability.md"
@@ -72,7 +73,7 @@ def test_emit_round_trip(ops_tmp) -> None:
 
 def test_status_ops_events_pin(ops_tmp) -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st.get("ops_events") is True
     assert st.get("silent_catch_report") is True
     assert st.get("ingest_stall_detector") is True

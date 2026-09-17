@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from asr_versions import app_version
 
 ROOT = Path(__file__).resolve().parents[1]
 MOBILE = ROOT / "mobile"
@@ -10,7 +11,7 @@ MOBILE = ROOT / "mobile"
 
 def test_mobile_figure_edit_dart_sources() -> None:
     pub = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
-    assert "0.3.156" in pub
+    assert app_version() in pub
     client = (MOBILE / "lib" / "api" / "client.dart").read_text(encoding="utf-8")
     assert "fetchLayoutMap" in client
     assert "fetchSlotPlan" in client

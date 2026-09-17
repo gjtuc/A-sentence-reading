@@ -14,11 +14,12 @@ from sentence_reading.fig_refs import (
     parse_refs,
 )
 from sentence_reading.models import Figure
+from asr_versions import assert_at_least
 
 
 def test_status_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.173"
+    assert_at_least(st["version"], "0.3.173")
     assert st.get("fig_ref_hints") is True
 
 

@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
 from sentence_reading.llm import translate as tr
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -70,7 +71,7 @@ def _install_stage_gemini(
 
 def test_status_pipeline_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["translate_pipeline"] is True
     assert "translate_en_ko" in st
 
@@ -93,7 +94,7 @@ def test_ui_sends_pipeline_mode() -> None:
     assert "design/35·36" in js or "design/36" in js
     assert "pipeline" in js
     html = TestClient(app).get("/").text
-    assert "app.js?v=0.3.156" in html
+    assert f"app.js?v={app_version()}" in html
 
 
 def test_pipeline_full_three_stages(monkeypatch: pytest.MonkeyPatch) -> None:

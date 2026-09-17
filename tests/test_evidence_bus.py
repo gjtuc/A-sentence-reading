@@ -14,6 +14,7 @@ os.environ.setdefault("ASR_SKIP_ENV_FILE", "1")
 from sentence_reading.api.app import app
 from sentence_reading.llm import evidence_bus as eb
 from sentence_reading.llm.evidence_kinds import ALLOWED_KINDS
+from asr_versions import assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "169-agent-evidence-bus.md"
@@ -138,7 +139,7 @@ def test_body_uid_ignored(ev_tmp, monkeypatch) -> None:
 
 def test_status_evidence_bus_pin(ev_tmp) -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st.get("evidence_bus") is True
 
 

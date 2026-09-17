@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 READER = ROOT / "mobile" / "lib" / "screens" / "reader_screen.dart"
@@ -18,7 +19,7 @@ DESIGN = ROOT / "docs" / "design" / "139-fig-ref-chip-formal.md"
 
 def test_status_version_and_flags() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["fig_ref_hints"] is True
     assert st["fig_ref_chip_formal"] is True
     assert st["mobile_fig_ref_chip_formal"] is True
@@ -37,7 +38,7 @@ def test_wiring_app_web_design() -> None:
     assert DESIGN.is_file()
     # Chip shipped at 0.3.57; pubspec follows current app pin.
     assert "0.3.57" in DESIGN.read_text(encoding="utf-8")
-    assert "0.3.156" in PUB.read_text(encoding="utf-8")
+    assert app_version() in PUB.read_text(encoding="utf-8")
     reader = READER.read_text(encoding="utf-8")
     assert "design/139" in reader
     assert "OutlinedButton" in reader

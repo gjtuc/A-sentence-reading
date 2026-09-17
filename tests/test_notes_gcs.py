@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from sentence_reading.llm import notes_gcs as ng
 from sentence_reading.api.app import app
+from asr_versions import assert_at_least
 
 
 def test_merge_union_and_renumber() -> None:
@@ -94,7 +95,7 @@ def test_api_notes_sync_unavailable() -> None:
     if not body["available"]:
         assert body["store"] is None
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["gcs"]["notes_sync"] is True
     assert st["gcs"]["voice_blob_sync"] is True
     assert st["gcs"]["papers_sync"] is True

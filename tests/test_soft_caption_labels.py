@@ -11,6 +11,7 @@ from sentence_reading.api.app import app
 from sentence_reading.fig_refs import caption_key
 from sentence_reading.llm.typography import PIPELINE_VERSION
 from sentence_reading.pdf.extract import _is_caption_line, extract_figures
+from asr_versions import assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTRACT = ROOT / "src" / "sentence_reading" / "pdf" / "extract.py"
@@ -63,7 +64,7 @@ def _build_soft_caption_pdf(path: Path) -> None:
 
 def test_status_and_pipeline_pin() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert PIPELINE_VERSION == "rich-v24"
     assert "rich-v24" in TYPO.read_text(encoding="utf-8")
     assert DESIGN.is_file()

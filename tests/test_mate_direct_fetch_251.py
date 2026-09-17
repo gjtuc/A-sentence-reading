@@ -10,6 +10,7 @@ from sentence_reading.llm.mate_resolve import (
     normalize_doi,
     resolve_mate,
 )
+from asr_versions import app_version
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "src" / "sentence_reading" / "api" / "app.py"
@@ -57,7 +58,7 @@ def test_route_and_status_wired() -> None:
     assert "/api/mate/resolve" in app
     assert "mate_direct_fetch" in app
     assert "mobile_mate_direct_fetch" in app
-    assert 'version="0.3.246"' in app
+    assert f'version="{app_version()}"' in app
 
 
 def test_evidence_kinds() -> None:

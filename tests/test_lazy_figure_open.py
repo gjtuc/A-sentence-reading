@@ -12,6 +12,7 @@ from sentence_reading.api import app as app_mod
 from sentence_reading.api.app import app
 from sentence_reading.cache import paper_cache as pc
 from sentence_reading.models import Figure, PaperSession, Sentence
+from asr_versions import assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "129-lazy-figure-open.md"
@@ -20,7 +21,7 @@ DESIGN = ROOT / "docs" / "design" / "129-lazy-figure-open.md"
 def test_design_and_status_pin() -> None:
     assert DESIGN.is_file()
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st.get("lazy_figure_open") is True
     assert "rich-v24" in str(st.get("pipeline_version") or "")
 

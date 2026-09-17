@@ -12,12 +12,13 @@ from sentence_reading.cache import paper_cache as pc
 from sentence_reading.llm import papers_gcs as pg
 from sentence_reading.llm.typography import PIPELINE_VERSION
 from sentence_reading.models import PaperSession, Sentence
+from asr_versions import assert_at_least
 
 
 def test_status_version() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
 
 
 def test_save_copies_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

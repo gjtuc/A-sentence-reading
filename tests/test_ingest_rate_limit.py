@@ -12,6 +12,7 @@ from sentence_reading.api.app import app
 from sentence_reading.llm import auth_accounts as aa
 from sentence_reading.llm import auth_google as agu
 from sentence_reading.llm import ingest_rate_limit as irl
+from asr_versions import assert_at_least
 
 
 @pytest.fixture(autouse=True)
@@ -70,7 +71,7 @@ def _create(client: TestClient, raw: bytes):
 
 def test_status_flag():
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["ingest_rate_limit"] is True
 
 

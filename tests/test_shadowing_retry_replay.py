@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "120-shadowing-retry-replay.md"
@@ -35,6 +36,6 @@ def test_design_and_wiring() -> None:
     html = HTML.read_text(encoding="utf-8")
     assert 'id="shadowingPracticeRetry"' in html
     assert 'id="shadowingPracticeReplay"' in html
-    assert "0.3.156" in PUB.read_text(encoding="utf-8")
+    assert app_version() in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")

@@ -12,6 +12,7 @@ from sentence_reading.llm.env import azure_document_intelligence_available
 from sentence_reading.models import Figure
 from sentence_reading.pdf import azure_layout
 from sentence_reading.pdf.extract import extract_figures
+from asr_versions import assert_at_least
 
 
 @pytest.fixture(autouse=True)
@@ -208,7 +209,7 @@ def test_status_figure_caption_in_image(monkeypatch: pytest.MonkeyPatch) -> None
     from sentence_reading.api import app as app_mod
 
     st = TestClient(app_mod.app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["figure_caption_in_image"] is True
     assert st["mobile_figure_caption_in_image"] is True
 

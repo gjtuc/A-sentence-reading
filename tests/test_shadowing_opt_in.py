@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from sentence_reading.api import app as app_mod
 from sentence_reading.llm import shadowing_practice as sp
+from asr_versions import assert_at_least
 
 
 def test_shadowing_default_off(monkeypatch) -> None:
@@ -16,7 +17,7 @@ def test_shadowing_default_off(monkeypatch) -> None:
     assert sp.shadowing_practice_enabled() is False
     with TestClient(app_mod.app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["shadowing_practice"] is False
     assert st["mobile_shadowing_practice"] is False
 

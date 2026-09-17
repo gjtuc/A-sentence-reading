@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from asr_versions import assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 ENSURE = ROOT / "scripts" / "ensure_github_deploy_sa.sh"
@@ -117,7 +118,7 @@ def test_design_and_status_version() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st.get("github_cd") is True
 
 

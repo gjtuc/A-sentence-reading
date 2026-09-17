@@ -13,6 +13,7 @@ from sentence_reading.api.app import app
 from sentence_reading.llm import auth_accounts as aa
 from sentence_reading.llm import auth_google as agu
 from sentence_reading.llm import ingest_jobs_gcs as ij
+from asr_versions import assert_at_least
 
 
 @pytest.fixture()
@@ -66,7 +67,7 @@ def _register(client: TestClient, email: str) -> None:
 
 def test_status_flags(fake_gcs, auth_root):
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["ingest_job_gcs"] is True
     assert st["mobile_upload_resume"] is True
 

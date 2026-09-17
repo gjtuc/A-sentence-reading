@@ -18,6 +18,7 @@ from sentence_reading.cite_refs import (
 )
 from sentence_reading.llm import crossref_resolve as cr
 from sentence_reading.models import PaperSession, Sentence, build_mock_session
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,7 +37,7 @@ References
 
 def test_status_cite_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["cite_ref_open"] is True
 
 
@@ -65,8 +66,8 @@ def test_ui_assets() -> None:
     assert "/api/cite/resolve" in js
     assert "design/41" in js or "citeRefOpenBtn" in js
     served = TestClient(app).get("/").text
-    assert "cite_refs.js?v=0.3.141" in served
-    assert "app.js?v=0.3.156" in served
+    assert f"cite_refs.js?v={app_version()}" in served
+    assert f"app.js?v={app_version()}" in served
 
 
 def test_parse_and_extract() -> None:

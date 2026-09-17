@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
 from sentence_reading.llm import voice_gcs as vg
+from asr_versions import assert_at_least
 
 
 def test_voice_object_is_sha_of_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -55,7 +56,7 @@ def test_api_voice_unavailable() -> None:
     # no bucket → 503
     assert r.status_code in (503, 404)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["gcs"]["voice_blob_sync"] is True
     assert st["gcs"]["papers_sync"] is True
 

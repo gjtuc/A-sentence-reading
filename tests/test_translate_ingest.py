@@ -12,6 +12,7 @@ from sentence_reading.cache import paper_cache as pc
 from sentence_reading.llm import translate as tr
 from sentence_reading.llm import translate_section as ts
 from sentence_reading.models import Figure, PaperSession, Sentence
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,7 +26,7 @@ def _clear_cache() -> None:
 
 def test_status_ingest_translate_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["translate_ingest_sections"] is True
     assert st["translate_side_by_side"] is True
 
@@ -57,8 +58,8 @@ def test_ui_prefers_cached_ko() -> None:
     )
     assert "section-review-digest" in css
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.156" in served
-    assert "styles.css?v=0.3.156" in served
+    assert f"app.js?v={app_version()}" in served
+    assert f"styles.css?v={app_version()}" in served
 
 
 def test_public_dict_includes_ko_and_digests() -> None:

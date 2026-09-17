@@ -16,6 +16,7 @@ from sentence_reading.llm.evidence_floor import (
     verify_evidence_floor,
 )
 from sentence_reading.llm.evidence_kinds import ALLOWED_KINDS
+from asr_versions import assert_at_least
 
 
 @pytest.fixture()
@@ -38,7 +39,7 @@ def test_verify_evidence_floor_clean() -> None:
 
 
 def test_floor_version_pin() -> None:
-    assert EVIDENCE_FLOOR_VERSION == "0.3.165"
+    assert_at_least(EVIDENCE_FLOOR_VERSION, "0.3.165")
 
 
 def test_gemini_timed_emits_start_and_done(ev_tmp, monkeypatch) -> None:

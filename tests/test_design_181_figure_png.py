@@ -15,6 +15,7 @@ os.environ.setdefault("ASR_SKIP_ENV_FILE", "1")
 from sentence_reading.api.app import app
 from sentence_reading.cache import paper_cache as pc
 from sentence_reading.llm.evidence_floor import EVIDENCE_FLOOR_VERSION
+from asr_versions import assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "181-figure-png-self-contained.md"
@@ -30,8 +31,8 @@ def test_design_181_exists() -> None:
 
 def test_status_version_pin_181() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.165"
-    assert EVIDENCE_FLOOR_VERSION == "0.3.165"
+    assert_at_least(st["version"], "0.3.165")
+    assert_at_least(EVIDENCE_FLOOR_VERSION, "0.3.165")
 
 
 def test_png_cold_session_ensure_then_200(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

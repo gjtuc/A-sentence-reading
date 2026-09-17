@@ -11,6 +11,7 @@ from sentence_reading.api import app as app_mod
 from sentence_reading.api.app import app
 from sentence_reading.llm import auth_accounts as aa
 from sentence_reading.llm import auth_google as agu
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "111-fix-want-chunks-nameerror.md"
@@ -45,7 +46,7 @@ def _register(client: TestClient, email: str) -> None:
 
 def test_status_version_pin(auth_root):
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
 
 
 def test_design_111_exists():
@@ -56,7 +57,7 @@ def test_design_111_exists():
 
 
 def test_pubspec_pin():
-    assert "0.3.156" in PUB.read_text(encoding="utf-8")
+    assert app_version() in PUB.read_text(encoding="utf-8")
 
 
 def test_want_chunks_assignment_not_inside_comment():

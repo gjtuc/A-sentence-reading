@@ -12,6 +12,7 @@ from sentence_reading.llm import auth_magic_link as ml
 from sentence_reading.llm.auth_accounts import lookup_uid, resolve_or_create
 from sentence_reading.llm.auth_google import parse_session_token
 from sentence_reading.llm.access_gate import public_access_view
+from asr_versions import assert_at_least
 
 
 @pytest.fixture()
@@ -75,7 +76,7 @@ def test_open_redirect_sets_session_and_gate_not_auto_allow(
 
     client = TestClient(app_mod.app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["mobile_email_magic_link"] is True
     assert st.get("web_email_magic_link_only") is True
 

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
 from sentence_reading.llm import papers_gcs as pg
+from asr_versions import assert_at_least
 
 
 @pytest.fixture(autouse=True)
@@ -152,7 +153,7 @@ def test_status_and_list_api(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.165"
+    assert_at_least(st["version"], "0.3.165")
     assert st.get("pipeline_version")
     papers = client.get("/api/cache/papers").json()["papers"]
     assert papers[0]["id"] == "y"

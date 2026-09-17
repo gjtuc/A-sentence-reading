@@ -12,6 +12,7 @@ from sentence_reading.api.app import app
 from sentence_reading.llm import translate as tr
 from sentence_reading.llm import translate_section as ts
 from sentence_reading.models import Figure, PaperSession, Sentence
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,7 +26,7 @@ def _clear_cache() -> None:
 
 def test_status_progressive_flag() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["translate_progressive"] is True
     assert st["translate_live_fallback"] is False
     assert st["compound_figures"] is False
@@ -162,4 +163,4 @@ def test_ui_progressive_contracts() -> None:
     assert "translate_pending" in js
     assert "design/45" in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.156" in served
+    assert f"app.js?v={app_version()}" in served

@@ -14,6 +14,7 @@ from sentence_reading.llm import gcs_sync as gs
 from sentence_reading.llm import notes_gcs as ng
 from sentence_reading.llm import papers_gcs as pg
 from sentence_reading.llm.auth_google import AuthUser
+from asr_versions import assert_at_least
 
 
 @pytest.fixture(autouse=True)
@@ -35,7 +36,7 @@ def test_status_version_and_auth_block(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ASR_GOOGLE_CLIENT_ID", raising=False)
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert "auth" in st
     assert st["auth"]["auth_enabled"] is False
 

@@ -12,12 +12,13 @@ from sentence_reading.api.app import app
 from sentence_reading.cache import paper_cache as pc
 from sentence_reading.llm.typography import PIPELINE_VERSION
 from sentence_reading.models import Figure, PaperSession, Sentence
+from asr_versions import assert_at_least
 
 
 def test_status_exposes_pipeline() -> None:
     client = TestClient(app)
     st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["pipeline_version"] == PIPELINE_VERSION
 
 

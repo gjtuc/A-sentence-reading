@@ -11,6 +11,7 @@ from sentence_reading.llm.ingest_jobs_gcs import (
     slim_job_result_for_poll,
 )
 from sentence_reading.llm.shadowing_chunks import MAX_SENTENCES
+from asr_versions import app_version
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs/design/257-ingest-poll-slim-practice-cap.md"
@@ -33,10 +34,10 @@ def test_design_257_locked() -> None:
 
 def test_versions_257() -> None:
     app = APP.read_text(encoding="utf-8")
-    assert 'version="0.3.257"' in app
+    assert f'version="{app_version()}"' in app
     assert '"version": "0.3.257"' in app
-    assert "0.3.257" in PUBSPEC.read_text(encoding="utf-8")
-    assert "0.3.257" in CONFIG.read_text(encoding="utf-8")
+    assert app_version() in PUBSPEC.read_text(encoding="utf-8")
+    assert app_version() in CONFIG.read_text(encoding="utf-8")
 
 
 def test_markers() -> None:

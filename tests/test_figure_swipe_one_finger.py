@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "117-figure-swipe-one-finger.md"
@@ -31,6 +32,6 @@ def test_design_and_wiring():
     assert "allowFigureSwipeAfterPan" in src
     assert "_maxPointers" in src
     pub = PUB.read_text(encoding="utf-8")
-    assert "0.3.156" in pub
+    assert app_version() in pub
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")

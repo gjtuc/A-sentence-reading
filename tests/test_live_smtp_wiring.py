@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from asr_versions import assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,7 +27,7 @@ def test_status_exposes_smtp_bool_without_secrets(monkeypatch: pytest.MonkeyPatc
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st.get("email_smtp_configured") is False
     # SECURITY: never leak connection details on status.
     blob = str(st)

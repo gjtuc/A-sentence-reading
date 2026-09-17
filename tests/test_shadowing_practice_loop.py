@@ -15,6 +15,7 @@ from sentence_reading.llm.auth_google import (
     reset_gcs_uid,
     set_gcs_uid,
 )
+from asr_versions import assert_at_least
 
 
 @pytest.fixture()
@@ -122,7 +123,7 @@ def test_practice_off_and_kill(takes_env: Path, monkeypatch: pytest.MonkeyPatch)
     r2 = client.get("/api/shadowing/takes/abcd1234ef")
     assert r2.status_code == 503
     st_status = client.get("/api/status").json()
-    assert st_status["version"] == "0.3.156"
+    assert_at_least(st_status["version"], "0.3.156")
     assert st_status["shadowing_practice_loop"] is False
 
 

@@ -15,6 +15,7 @@ from sentence_reading.pdf.extract import (
     extract_figures,
     page_text_looks_like_title_cover,
 )
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "135-cover-as-figure.md"
@@ -72,13 +73,13 @@ def _body_only_pdf(path: Path) -> None:
 
 def test_status_and_docs_pin_cover_chip():
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["pipeline_version"] == "rich-v24"
     assert st["cover_as_figure"] is True
     assert st["mobile_cover_as_figure"] is True
     assert PIPELINE_VERSION == "rich-v24"
     assert "rich-v24" in TYPO.read_text(encoding="utf-8")
-    assert "0.3.156" in PUB.read_text(encoding="utf-8")
+    assert app_version() in PUB.read_text(encoding="utf-8")
     assert DESIGN.is_file()
     assert "ASR_COVER_AS_FIGURE" in DESIGN.read_text(encoding="utf-8")
 

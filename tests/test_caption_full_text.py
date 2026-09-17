@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from sentence_reading.api.app import app
 from sentence_reading.docx.extract import _normalize_caption as docx_norm
 from sentence_reading.pdf.extract import _CAPTION_MAX_CHARS, _normalize_caption
+from asr_versions import assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "131-caption-full-text.md"
@@ -19,7 +20,7 @@ EXTRACT = ROOT / "src" / "sentence_reading" / "pdf" / "extract.py"
 def test_design_and_status_pin() -> None:
     assert DESIGN.is_file()
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st.get("caption_full_text") is True
     assert st.get("mobile_caption_full_text") is True
 

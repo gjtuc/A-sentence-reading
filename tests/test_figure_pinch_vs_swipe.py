@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
+from asr_versions import app_version
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "116-figure-pinch-vs-swipe.md"
@@ -33,6 +34,6 @@ def test_design_version_and_no_parent_horizontal_drag():
     assert "InteractiveViewer(" in body
     assert "panEnabled: true" in body
     pub = PUB.read_text(encoding="utf-8")
-    assert "0.3.156" in pub
+    assert app_version() in pub
     st = TestClient(app).get("/api/status").json()
     assert "version" in st

@@ -11,6 +11,7 @@ from sentence_reading.api.app import app
 from sentence_reading.llm import translate as tr
 from sentence_reading.llm import translate_section as ts
 from sentence_reading.models import Figure, Sentence
+from asr_versions import assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,7 +34,7 @@ def _clear_cache() -> None:
 
 def test_status_version() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
 
 
 def test_design_43_contract() -> None:

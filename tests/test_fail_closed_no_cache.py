@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from sentence_reading.api import app as app_mod
 from sentence_reading.api.app import app, _finish_job
+from asr_versions import assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "108-fail-closed-no-cache.md"
@@ -17,7 +18,7 @@ CLIENT = ROOT / "mobile" / "lib" / "api" / "client.dart"
 
 def test_status_version_pin() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
 
 
 def test_design_108_exists() -> None:

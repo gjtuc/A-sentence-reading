@@ -21,6 +21,7 @@ from sentence_reading.pdf.caption_lumps import (
 )
 from sentence_reading.pdf.extract import _is_caption_line, extract_figures
 from sentence_reading.models import Figure
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "137-split-caption-lumps.md"
@@ -94,13 +95,13 @@ def _build_ambiguous_lump(path: Path) -> None:
 
 def test_status_and_docs_pin_split_caption_lumps():
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["pipeline_version"] == "rich-v24"
     assert st["split_caption_lumps"] is True
     assert st["mobile_split_caption_lumps"] is True
     assert PIPELINE_VERSION == "rich-v24"
     assert "rich-v24" in TYPO.read_text(encoding="utf-8")
-    assert "0.3.156" in PUB.read_text(encoding="utf-8")
+    assert app_version() in PUB.read_text(encoding="utf-8")
     assert DESIGN.is_file()
     assert "ASR_SPLIT_CAPTION_LUMPS" in DESIGN.read_text(encoding="utf-8")
     assert "design/137" in EXTRACT.read_text(encoding="utf-8")

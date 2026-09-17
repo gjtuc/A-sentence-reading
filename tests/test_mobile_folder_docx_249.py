@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from asr_versions import app_version
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs/design/249-mobile-folder-docx.md"
@@ -32,8 +33,8 @@ def test_versions_0_3_240() -> None:
     app = APP.read_text(encoding="utf-8")
     assert app.count('version="0.3.240"') >= 1
     assert '"version": "0.3.240"' in app
-    assert "0.3.240" in PUBSPEC.read_text(encoding="utf-8")
-    assert "0.3.240" in CONFIG.read_text(encoding="utf-8")
+    assert app_version() in PUBSPEC.read_text(encoding="utf-8")
+    assert app_version() in CONFIG.read_text(encoding="utf-8")
 
 
 def test_kt_lists_docx() -> None:

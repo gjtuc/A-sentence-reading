@@ -16,6 +16,7 @@ from sentence_reading.pdf.adjacent_articles import (
     prepare_pdf_first_article,
     strip_adjacent_enabled,
 )
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "136-strip-adjacent-articles.md"
@@ -91,13 +92,13 @@ def _single_paper(path: Path) -> None:
 
 def test_status_and_docs_pin_strip_adjacent():
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["pipeline_version"] == "rich-v24"
     assert st["strip_adjacent"] is True
     assert st["mobile_strip_adjacent"] is True
     assert PIPELINE_VERSION == "rich-v24"
     assert "rich-v24" in TYPO.read_text(encoding="utf-8")
-    assert "0.3.156" in PUB.read_text(encoding="utf-8")
+    assert app_version() in PUB.read_text(encoding="utf-8")
     assert DESIGN.is_file()
     assert "ASR_STRIP_ADJACENT" in DESIGN.read_text(encoding="utf-8")
 

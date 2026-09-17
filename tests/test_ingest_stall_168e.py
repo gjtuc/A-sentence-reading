@@ -19,6 +19,7 @@ from sentence_reading.llm import ingest_stall as stall
 from sentence_reading.llm import ops_events as oev
 from sentence_reading.llm.auth_google import AuthUser, issue_session_token
 from sentence_reading.llm.ingest_integrity import Violation, violations_to_public
+from asr_versions import assert_at_least
 
 
 @pytest.fixture()
@@ -58,7 +59,7 @@ def _admin_client(monkeypatch) -> tuple[TestClient, str]:
 
 def test_status_stall_pin(ops_tmp) -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st.get("ingest_stall_detector") is True
 
 

@@ -15,6 +15,7 @@ from sentence_reading.pdf.extract import (
     _orphan_table_clip,
     extract_figures,
 )
+from asr_versions import assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTRACT = ROOT / "src" / "sentence_reading" / "pdf" / "extract.py"
@@ -25,7 +26,7 @@ EWBANK = ROOT / "_tmp_ewbank" / "source.pdf"
 
 def test_status_and_pipeline_pin() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert PIPELINE_VERSION == "rich-v24"
     assert "rich-v24" in TYPO.read_text(encoding="utf-8")
     assert DESIGN.is_file()

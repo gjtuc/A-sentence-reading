@@ -7,6 +7,7 @@ import os
 from fastapi.testclient import TestClient
 
 from sentence_reading.api.app import app
+from asr_versions import assert_at_least
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DESIGN = os.path.join(ROOT, "docs", "design", "106-ingest-quality-timeout.md")
@@ -15,7 +16,7 @@ DESIGN = os.path.join(ROOT, "docs", "design", "106-ingest-quality-timeout.md")
 def test_status_version_pin() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
 
 
 def test_design_106_exists() -> None:

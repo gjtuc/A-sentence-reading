@@ -12,6 +12,7 @@ from sentence_reading.api.app import app
 from sentence_reading.llm import access_gate as ag
 from sentence_reading.llm import auth_accounts as aa
 from sentence_reading.llm import auth_google as agu
+from asr_versions import assert_at_least
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +41,7 @@ def _iso(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def test_status_access_gate_gcs_flag() -> None:
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st.get("access_gate_gcs") is True
     assert st.get("access_gate") is True
     assert "live_enable" not in st

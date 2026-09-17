@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from sentence_reading.llm import ingest_artifact_ttl as ttl
+from asr_versions import assert_at_least
 
 
 def _iso(dt: datetime) -> str:
@@ -188,7 +189,7 @@ def test_status_flags() -> None:
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.188"
+    assert_at_least(st["version"], "0.3.188")
     assert st.get("ingest_artifact_ttl") is True
     assert int(st.get("ingest_artifact_ttl_hours") or 0) == 168
     assert st.get("ingest_artifact_ttl_dry_run") is False

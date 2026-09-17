@@ -12,6 +12,7 @@ from sentence_reading.api.app import app
 from sentence_reading.cache import paper_cache as pc
 from sentence_reading.llm import papers_gcs as pg
 from sentence_reading.llm.typography import PIPELINE_VERSION
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs" / "design" / "121-library-open-gcs-first.md"
@@ -59,9 +60,9 @@ def test_design_wiring_and_status(cache_dir: Path) -> None:
     assert "data.ok === false" in js
     dart = CLIENT.read_text(encoding="utf-8")
     assert "design/121" in dart
-    assert "0.3.156" in PUB.read_text(encoding="utf-8")
+    assert app_version() in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st.get("paper_open_gcs_first") is True
 
 

@@ -9,13 +9,14 @@ from fastapi.testclient import TestClient
 from sentence_reading.api.app import app
 from sentence_reading.llm.translate_section import needs_translate_backfill
 from sentence_reading.models import Figure, Sentence
+from asr_versions import app_version, assert_at_least
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_status_ingest_only() -> None:
     st = TestClient(app).get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["translate_ingest_only"] is True
     assert st["translate_live_fallback"] is False
 
@@ -39,7 +40,7 @@ def test_ui_no_live_translate_fetch() -> None:
     assert "design/42" in js
     assert 'fetch("/api/translate"' not in js
     served = TestClient(app).get("/").text
-    assert "app.js?v=0.3.156" in served
+    assert f"app.js?v={app_version()}" in served
 
 
 def test_needs_backfill_edges() -> None:

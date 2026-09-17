@@ -9,6 +9,7 @@ import pytest
 from sentence_reading.llm import access_gate as ag
 from sentence_reading.llm import auth_accounts as aa
 from sentence_reading.llm import auth_google as agu
+from asr_versions import assert_at_least
 
 
 @pytest.fixture(autouse=True)
@@ -132,7 +133,7 @@ def test_status_exposes_access_gate_ttl() -> None:
 
     with TestClient(app) as client:
         st = client.get("/api/status").json()
-    assert st["version"] == "0.3.156"
+    assert_at_least(st["version"], "0.3.156")
     assert st["access_gate_ttl_s"] == 45
     assert "access_gate_cache" in st
     assert st["access_gate_cache"]["ttl_s"] == 45

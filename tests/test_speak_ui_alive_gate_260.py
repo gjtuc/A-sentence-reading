@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from asr_versions import app_version
 
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN = ROOT / "docs/design/260-speak-ui-post-beat-alive-gate.md"
@@ -19,10 +20,10 @@ def test_design_260_locked() -> None:
 
 
 def test_versions_260() -> None:
-    assert 'version="0.3.260"' in APP.read_text(encoding="utf-8")
+    assert f'version="{app_version()}"' in APP.read_text(encoding="utf-8")
     assert '"version": "0.3.260"' in APP.read_text(encoding="utf-8")
-    assert "0.3.260" in PUBSPEC.read_text(encoding="utf-8")
-    assert "0.3.260" in CONFIG.read_text(encoding="utf-8")
+    assert app_version() in PUBSPEC.read_text(encoding="utf-8")
+    assert app_version() in CONFIG.read_text(encoding="utf-8")
 
 
 def test_speak_alive_gate_impl() -> None:
