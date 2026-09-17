@@ -1,5 +1,5 @@
-# 무엇을: PR·main 에서 pytest CI.
-# 왜: merge 전 회귀 차단 (design/32).
+# 무엇을: PR·main 에서 pytest + flutter test CI.
+# 왜: merge 전 회귀 차단 (design/32). Dart 테스트가 CI 밖이라 스모크가 썩었다.
 # 다음에: CD 는 deploy-cloud-run.yml (vars.ASR_CD_ENABLED=1 일 때만).
 name: CI
 
@@ -42,3 +42,20 @@ jobs:
         env:
           ASR_SKIP_ENV_FILE: "1"
         run: python -m pytest -q --tb=short
+
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter test
+        working-directory: mobile
+        run: |
+          flutter pub get
+          flutter test --reporter compact
