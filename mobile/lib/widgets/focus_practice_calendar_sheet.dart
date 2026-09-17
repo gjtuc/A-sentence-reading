@@ -256,7 +256,7 @@ class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
             ),
             const SizedBox(height: 8),
             const Text(
-              '색은 그날 완료한 10분 블록 수 · 연속은 하루 1블록 이상이면 이어집니다.',
+              '색은 그날 완료한 ${kFocusPracticeBlockDuration.inMinutes}분 블록 수 · 연속은 하루 1블록 이상이면 이어집니다.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white38, fontSize: 11),
             ),

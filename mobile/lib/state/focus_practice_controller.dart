@@ -1,4 +1,4 @@
-/// design/176 — 10‑min speaking focus clock (plan C: mic speak segments only).
+/// design/176 — speaking focus clock (plan C: mic speak segments only).
 /// Calendar history + streak; give-up resets unfinished block only.
 library;
 

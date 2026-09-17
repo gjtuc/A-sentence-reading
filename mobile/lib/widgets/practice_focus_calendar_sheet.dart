@@ -253,7 +253,7 @@ class _PracticeFocusCalendarSheetState extends State<PracticeFocusCalendarSheet>
             ),
             const SizedBox(height: 8),
             Text(
-              '하루 1블록(10분 말하기)이면 연속에 포함됩니다.',
+              '하루 1블록(${kFocusPracticeBlockDuration.inMinutes}분 말하기)이면 연속에 포함됩니다.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: Colors.white38,

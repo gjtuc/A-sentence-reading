@@ -47,6 +47,10 @@ Floor version **0.3.159**.
 - Replacing chunk plan generation
 - True continuous open-mic (still chunk TTS+mic loop; clock only while mic open)
 
+## Amend — 3-minute speaking block
+
+Listen, replay, and rest still do not count. The mission is **3 minutes of speaking**. Overflow still stacks the next block. A finished block still counts as day success. Stored history is a block count, not a duration, so older 10-minute completions stay as completed blocks.
+
 ## Ship
 
 App / pubspec / config **0.3.159**. Commit / deploy when asked.

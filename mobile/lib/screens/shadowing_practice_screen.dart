@@ -1622,7 +1622,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _clearChunkTtsCache();
     setState(() {
       _status =
-          '집중 종료 · 미완료 10분은 초기화됩니다. 「시작」으로 다시.';
+          '집중 종료 · 미완료 ${kFocusPracticeBlockDuration.inMinutes}분은 초기화됩니다. 「시작」으로 다시.';
       _rhythmPhase = RhythmPhase.idle;
       _judgmentBurst = null;
       _sectionCueName = null;
@@ -1906,7 +1906,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                         Text(
                           _focus.daySuccess
                               ? '오늘 성공 · ${_focus.blocksCompletedToday}블록 · 다음까지 $missionLeft'
-                              : '10분 말하기 · 남은 $missionLeft',
+                              : '${kFocusPracticeBlockDuration.inMinutes}분 말하기 · 남은 $missionLeft',
                           textAlign: TextAlign.center,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: _focus.daySuccess

@@ -1,13 +1,12 @@
-/// design/176 + calendar streak — 10‑min speaking blocks · daily history.
-///
-/// Pure Dart: unit-test without Flutter bindings.
+/// design/176 + calendar streak — speaking blocks · daily history.
+/// Block length amended to 3 minutes of speaking (listen/replay/rest excluded).
 library;
 
 import 'dart:convert';
 import 'dart:math' as math;
 
 /// Production block length. Tests inject a shorter [FocusPracticeController.blockDuration].
-const Duration kFocusPracticeBlockDuration = Duration(minutes: 10);
+const Duration kFocusPracticeBlockDuration = Duration(minutes: 3);
 
 const String kFocusPracticePrefsKeyBase = 'asr.focus_practice.v1';
 
