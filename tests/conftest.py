@@ -10,14 +10,49 @@ legacy unauth fixture routes keep working. Dedicated tests turn it back on.
 
 from __future__ import annotations
 
+import site
 import sys
+import sysconfig
 from pathlib import Path
 
 import pytest
 
-# design/303 — a stale Desktop checkout must not satisfy `import sentence_reading`.
+
+def _interpreter_package_dirs() -> set[Path]:
+    """site-packages of the running interpreter.
+
+    WHY: `pip install .` puts `sentence_reading` here, so the stale-checkout
+    sweep below would drop the whole directory and take fastapi/pymupdf with
+    it — CI then fails to collect every API test.
+    """
+    candidates: list[str] = []
+    for getter in (site.getsitepackages, site.getusersitepackages):
+        try:
+            got = getter()
+        except (AttributeError, OSError):
+            continue
+        if isinstance(got, str):
+            candidates.append(got)
+        else:
+            candidates.extend(got)
+    paths = sysconfig.get_paths()
+    for key in ("purelib", "platlib"):
+        value = paths.get(key)
+        if value:
+            candidates.append(value)
+    resolved: set[Path] = set()
+    for entry in candidates:
+        try:
+            resolved.add(Path(entry).resolve())
+        except OSError:
+            continue
+    return resolved
+
+
+# design/303 — a stale checkout must not satisfy `import sentence_reading`.
 _SRC = Path(__file__).resolve().parents[1] / "src"
 _src_s = str(_SRC)
+_SITE = _interpreter_package_dirs()
 _kept: list[str] = []
 for _entry in sys.path:
     try:
@@ -27,7 +62,9 @@ for _entry in sys.path:
         continue
     if _resolved == _SRC:
         continue
-    if (_resolved / "sentence_reading" / "__init__.py").is_file():
+    if _resolved not in _SITE and (
+        _resolved / "sentence_reading" / "__init__.py"
+    ).is_file():
         continue
     _kept.append(_entry)
 sys.path[:] = [_src_s, *_kept]

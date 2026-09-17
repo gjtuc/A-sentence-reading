@@ -82,3 +82,26 @@ def test_design_305_windows_push_then_apk_install() -> None:
     assert "installed versionName=" in apk
     assert "SkipInstall" in apk
     assert "until that ship has finished" in rule
+
+
+def test_conftest_keeps_interpreter_site_packages() -> None:
+    """The stale-checkout sweep must not drop the interpreter's own packages.
+
+    CI runs `pip install .`, which puts `sentence_reading` in site-packages.
+    Dropping that directory took fastapi and pymupdf down with it, so every
+    API test failed to collect and CI reported exit code 2 for weeks.
+    """
+    import importlib
+    import sys
+    import sysconfig
+
+    purelib = Path(sysconfig.get_paths()["purelib"]).resolve()
+    on_path = {Path(entry).resolve() for entry in sys.path if entry}
+    assert purelib in on_path
+
+    importlib.import_module("fastapi")
+    importlib.import_module("fitz")
+
+    conftest = CONFTEST.read_text(encoding="utf-8")
+    assert "_interpreter_package_dirs" in conftest
+    assert "_resolved not in _SITE" in conftest
