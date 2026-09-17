@@ -33,6 +33,7 @@ import '../practice_rhythm/judgment_prefs.dart';
 import '../practice_rhythm/judgment_tier.dart';
 import '../practice_rhythm/phase_rail.dart';
 import '../practice_rhythm/follow_span.dart';
+import '../practice_rhythm/miss_review.dart';
 import '../practice_rhythm/replay_miss_text.dart';
 import '../practice_rhythm/rhythm_theme.dart';
 import '../practice_skill/chunk_density.dart';
@@ -115,6 +116,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   /// Per-chunk TTS: one random voice/rate draw; bytes reused for listen+speak.
   Uint8List? _chunkTtsBytes;
   TtsPlaybackParams? _chunkTtsParams;
+  int _heardSkillTier = 2;
+  bool _heardRandomAuto = false;
+  String? _heardVoice;
+  double? _heardClientRate;
+  String? _reviewWord;
+  bool _missReviewActive = false;
   /// design/162 — session-only self-view mirror (not persisted).
   bool _mirrorEnabled = false;
   /// design/176 — auto-advance after full listen→speak→my-take cycle.
@@ -282,6 +289,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
       _focus.onAppPaused(cacheId: _cacheId);
+      if (_missReviewActive) {
+        unawaited(_player.stop());
+      }
       unawaited(_persistPracticeCursor());
       unawaited(_skill.flushEvidence(cacheId: _cacheId));
     } else if (state == AppLifecycleState.resumed) {
@@ -966,6 +976,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           params.speakingRate * _groomRateScale,
         );
         await _player.setPlaybackRate(effective);
+        _heardSkillTier = widget.tts.skillTier;
+        _heardRandomAuto = widget.tts.mode == kTtsModeRandomAuto;
+        _heardVoice = params.voice;
+        _heardClientRate = effective;
       } catch (_) {
         // EDGE: player rate unsupported on some devices — still play.
       }
@@ -1084,8 +1098,29 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (mounted) setState(() => _rhythmPhase = RhythmPhase.idle);
     if (!alive()) return;
 
+    var reviewWords = const <String>[];
+    final score = speakResult.score;
+    if (score != null) {
+      try {
+        final snap = await score.timeout(kMissReviewScoreWait);
+        if (snap != null) {
+          reviewWords = missReviewWords(
+            display: snap.display,
+            spans: snap.spans,
+          );
+        }
+      } catch (_) {
+        reviewWords = const [];
+      }
+    }
+    if (!alive()) return;
+
     if (_autoAdvance) {
-      await _advanceToNextChunk(token: token, withRest: true);
+      await _advanceToNextChunk(
+        token: token,
+        withRest: true,
+        reviewWords: reviewWords,
+      );
     }
   }
 
@@ -1207,6 +1242,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     var code = 'take_fail';
     var takeByteLen = 0;
     var cloudOk = false;
+    Future<({String display, List<MissedWordSpan> spans})?>? scoreFuture;
     final wall = Stopwatch()..start();
     try {
       await _playCachedChunkTts(phase: 'tts_speak');
@@ -1279,34 +1315,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             setState(() => _status = '저장됨');
             final densBefore = _skill.density;
             final tierBefore = _skill.tier;
-            unawaited((() async {
-              _skill.setCycleContext(
-                cacheId: _cacheId,
-                sentenceId: _sentenceId,
-                chunkIndex: _chunkIndex,
-                focusElapsedMs: _focus.displayElapsed.inMilliseconds,
-              );
-              final scoredChunk = _chunkIndex;
-              final scored = await _skill.onTakeReady(
-                chunkDisplay: _displayChunk(),
-                takeBytes: bytes,
-                mime: 'audio/mp4',
-                baseChunks: _baseChunks,
-              );
-              if (!mounted || scored == null) return;
-              if (scoredChunk == _chunkIndex) {
-                setState(() {
-                  _replayMisses = scored.missedSpans;
-                  _replayMissChunk = scoredChunk;
-                });
-              }
-              if (scored.ok && scored.accuracy != null) {
-                _showJudgmentBurst(scored.accuracy!);
-              }
-              if (_skill.density != densBefore || _skill.tier != tierBefore) {
-                _reapplyDensity();
-              }
-            })());
+            final scoredChunk = _chunkIndex;
+            final chunkDisplay = _displayChunk();
+            scoreFuture = _finishTakeScore(
+              chunkDisplay: chunkDisplay,
+              scoredChunk: scoredChunk,
+              bytes: bytes,
+              densBefore: densBefore,
+              tierBefore: tierBefore,
+            );
             final tooShort = await _takeLooksTooShort(
               path: filePath,
               expectedMs: wall.elapsedMilliseconds,
@@ -1380,7 +1397,45 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       takeDurMs: takeDurMs,
       persistOk: takeOk,
       cloudTakeOk: cloudOk,
+      score: scoreFuture,
     );
+  }
+
+  Future<({String display, List<MissedWordSpan> spans})?> _finishTakeScore({
+    required String chunkDisplay,
+    required int scoredChunk,
+    required List<int> bytes,
+    required int densBefore,
+    required int tierBefore,
+  }) async {
+    _skill.setCycleContext(
+      cacheId: _cacheId,
+      sentenceId: _sentenceId,
+      chunkIndex: scoredChunk,
+      focusElapsedMs: _focus.displayElapsed.inMilliseconds,
+    );
+    final scored = await _skill.onTakeReady(
+      chunkDisplay: chunkDisplay,
+      takeBytes: bytes,
+      mime: 'audio/mp4',
+      baseChunks: _baseChunks,
+    );
+    if (!mounted || scored == null) {
+      return (display: chunkDisplay, spans: const <MissedWordSpan>[]);
+    }
+    if (scoredChunk == _chunkIndex) {
+      setState(() {
+        _replayMisses = scored.missedSpans;
+        _replayMissChunk = scoredChunk;
+      });
+    }
+    if (scored.ok && scored.accuracy != null) {
+      _showJudgmentBurst(scored.accuracy!);
+    }
+    if (_skill.density != densBefore || _skill.tier != tierBefore) {
+      _reapplyDensity();
+    }
+    return (display: chunkDisplay, spans: scored.missedSpans);
   }
 
 
@@ -1472,6 +1527,121 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     setState(() => _sectionCueName = null);
   }
 
+  bool _reviewAlive(int token) =>
+      mounted &&
+      token == _cycleToken &&
+      _focus.sessionActive &&
+      !_focus.paused;
+
+  Future<void> _runMissReview({
+    required int token,
+    required List<String> words,
+    required Duration scheduledRest,
+    required int reviewTier,
+    required bool randomAuto,
+    required String? voice,
+    required double? clientRate,
+  }) async {
+    if (words.isEmpty || !_reviewAlive(token)) return;
+    _missReviewActive = true;
+    final clock = Stopwatch()..start();
+    setState(() {
+      _rhythmPhase = RhythmPhase.rest;
+      _reviewWord = null;
+      _judgmentBurst = null;
+    });
+    try {
+      for (var i = 0; i < words.length; i++) {
+        if (!_reviewAlive(token)) return;
+        final played = await _playReviewWord(
+          token: token,
+          word: words[i],
+          reviewTier: reviewTier,
+          randomAuto: randomAuto,
+          voice: voice,
+          clientRate: clientRate,
+        );
+        if (!_reviewAlive(token)) return;
+        if (played && mounted) {
+          setState(() => _reviewWord = null);
+        }
+        if (i + 1 < words.length) {
+          await Future<void>.delayed(kMissReviewGap);
+        }
+      }
+      if (!_reviewAlive(token)) return;
+      clock.stop();
+      final tail = missReviewTail(
+        scheduledRest: scheduledRest,
+        elapsed: clock.elapsed,
+      );
+      if (tail > Duration.zero) {
+        if (mounted) {
+          setState(() {
+            _rhythmPhase = RhythmPhase.rest;
+            _reviewWord = null;
+          });
+        }
+        await Future<void>.delayed(tail);
+      }
+    } finally {
+      _missReviewActive = false;
+      if (mounted) setState(() => _reviewWord = null);
+    }
+  }
+
+  Future<bool> _playReviewWord({
+    required int token,
+    required String word,
+    required int reviewTier,
+    required bool randomAuto,
+    required String? voice,
+    required double? clientRate,
+  }) async {
+    if (!_reviewAlive(token)) return false;
+    _clearFollowLight();
+    try {
+      await _player.stop();
+      await _player.setVolume(_kFullTtsVolume);
+      late final String playVoice;
+      late final double playRate;
+      if (randomAuto) {
+        final picked = pickTtsPlaybackParams(
+          mode: kTtsModeRandomAuto,
+          voice: voice ?? widget.tts.voice,
+          speakingRate: kTtsRateDefault,
+          voiceIds: widget.tts.voices.map((v) => v.id).toList(growable: false),
+          skillTier: reviewTier,
+          applyDensityRateBias: false,
+        );
+        playVoice = picked.voice;
+        playRate = picked.speakingRate;
+      } else {
+        playVoice = (voice ?? widget.tts.voice).trim().isEmpty
+            ? widget.tts.voice
+            : voice!.trim();
+        playRate = clientRate ?? kTtsRateDefault;
+      }
+      await _player.setPlaybackRate(clampSpeakingRate(playRate));
+      final bytes = await widget.client
+          .synthesizeTts(
+            text: word,
+            voice: playVoice,
+            speakingRate: kTtsRateDefault,
+          )
+          .timeout(kMissReviewWordTimeout);
+      if (!_reviewAlive(token) || bytes.isEmpty) return false;
+      setState(() => _reviewWord = word);
+      final done = _player.onPlayerComplete.first.timeout(kMissReviewWordTimeout);
+      await _player.play(BytesSource(bytes));
+      await done;
+      return _reviewAlive(token);
+    } catch (_) {
+      if (mounted) setState(() => _reviewWord = null);
+      return false;
+    }
+  }
+
   Future<void> _runBlankRest({
     required int token,
     required int chunkCountN,
@@ -1495,6 +1665,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   Future<void> _advanceToNextChunk({
     required int token,
     bool withRest = true,
+    List<String> reviewWords = const [],
   }) async {
     if (!mounted || token != _cycleToken) return;
     final session = _session;
@@ -1502,6 +1673,30 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
     final restN = _chunks.length;
     final restK = _chunkIndex + 1;
+    final words = withRest ? reviewWords : const <String>[];
+    final scheduledRest = withRest && _blankRestEnabled
+        ? blankRestDuration(chunkCountN: restN, step1Based: restK)
+        : Duration.zero;
+    final reviewTier = missReviewTier(_heardSkillTier);
+    final reviewRandom = _heardRandomAuto;
+    final reviewVoice = _heardVoice;
+    final reviewRate = _heardClientRate;
+
+    Future<bool> reviewOnce() async {
+      if (words.isEmpty) return true;
+      await _runMissReview(
+        token: token,
+        words: words,
+        scheduledRest: scheduledRest,
+        reviewTier: reviewTier,
+        randomAuto: reviewRandom,
+        voice: reviewVoice,
+        clientRate: reviewRate,
+      );
+      if (!mounted || token != _cycleToken) return false;
+      if (!_focus.sessionActive || _focus.paused) return false;
+      return true;
+    }
 
     _lastTakePath = null;
     _clearChunkTtsCache();
@@ -1540,10 +1735,18 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             canContinue = _chunks.isNotEmpty;
           } else {
             setState(() => _status = '다음 문장 준비 중…');
+            if (!await reviewOnce()) return;
+            if (mounted && _rhythmPhase == RhythmPhase.rest) {
+              setState(() => _rhythmPhase = RhythmPhase.idle);
+            }
             return;
           }
         } else {
           setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
+          if (!await reviewOnce()) return;
+          if (mounted && _rhythmPhase == RhythmPhase.rest) {
+            setState(() => _rhythmPhase = RhythmPhase.idle);
+          }
           return;
         }
       } else {
@@ -1566,10 +1769,18 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             token: token,
           );
         }
+        if (!await reviewOnce()) return;
+        if (mounted && _rhythmPhase == RhythmPhase.rest) {
+          setState(() => _rhythmPhase = RhythmPhase.idle);
+        }
         return;
       }
     } else {
       setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
+      if (!await reviewOnce()) return;
+      if (mounted && _rhythmPhase == RhythmPhase.rest) {
+        setState(() => _rhythmPhase = RhythmPhase.idle);
+      }
       return;
     }
     if (!mounted || token != _cycleToken) return;
@@ -1587,7 +1798,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       if (!mounted || token != _cycleToken) return;
     }
 
-    if (withRest && _blankRestEnabled && canContinue) {
+    if (words.isNotEmpty) {
+      if (!await reviewOnce()) return;
+    } else if (withRest && _blankRestEnabled && canContinue) {
       await _runBlankRest(
         token: token,
         chunkCountN: restN,
@@ -1626,6 +1839,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       _rhythmPhase = RhythmPhase.idle;
       _judgmentBurst = null;
       _sectionCueName = null;
+      _reviewWord = null;
     });
   }
 
@@ -1994,7 +2208,25 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                                       ),
                                     ),
                                   )
-                                : const SizedBox.expand(),
+                                : _reviewWord == null
+                                    ? const SizedBox.expand()
+                                    : Center(
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 28,
+                                          ),
+                                          child: Text(
+                                            _reviewWord!,
+                                            textAlign: TextAlign.center,
+                                            style: theme.textTheme.headlineMedium
+                                                ?.copyWith(
+                                              color: kRhythmText,
+                                              fontWeight: FontWeight.w600,
+                                              height: 1.25,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
                           ),
                         ),
                       ),
@@ -2032,6 +2264,7 @@ class _SpeakPhaseResult {
     this.takeDurMs = 0,
     this.persistOk = false,
     this.cloudTakeOk = false,
+    this.score,
   });
 
   final bool ok;
@@ -2042,4 +2275,5 @@ class _SpeakPhaseResult {
   final int takeDurMs;
   final bool persistOk;
   final bool cloudTakeOk;
+  final Future<({String display, List<MissedWordSpan> spans})?>? score;
 }
