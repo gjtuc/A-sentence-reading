@@ -262,6 +262,49 @@ List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) =>
     paired += 2;
     if (canMerge) canMergeN += 1;
   }
+  final openMain = <int>[];
+  final openSi = <int>[];
+  for (var i = 0; i < out.length; i++) {
+    if (out[i].pairedCacheId.trim().isNotEmpty) continue;
+    final role = out[i].docRole.trim().toLowerCase();
+    if (role == 'merged') continue;
+    if (role == 'supplementary' || role == 'si' || role == 'supp') {
+      openSi.add(i);
+    } else if (role == 'main' || role.isEmpty) {
+      openMain.add(i);
+    }
+  }
+  final siByMain = <int, List<int>>{};
+  final mainBySi = <int, List<int>>{};
+  for (final mi in openMain) {
+    final mk = _pairingKeyOf(out[mi]);
+    for (final si in openSi) {
+      if (!pairingKeysWithinTypos(mk, _pairingKeyOf(out[si]))) continue;
+      siByMain.putIfAbsent(mi, () => []).add(si);
+      mainBySi.putIfAbsent(si, () => []).add(mi);
+    }
+  }
+  for (final mi in openMain) {
+    final mates = siByMain[mi] ?? const <int>[];
+    if (mates.length != 1) continue;
+    final si = mates.single;
+    final back = mainBySi[si] ?? const <int>[];
+    if (back.length != 1 || back.single != mi) continue;
+    final main = out[mi];
+    final mate = out[si];
+    final canMerge = _ingestReady(main) && _ingestReady(mate);
+    out[mi] = main.copyWith(
+      pairedCacheId: mate.id,
+      canMergeSupplementary: canMerge,
+      libraryTag: canMerge ? '메인+보충(짝)' : main.libraryTag,
+    );
+    out[si] = mate.copyWith(
+      pairedCacheId: main.id,
+      canMergeSupplementary: false,
+    );
+    paired += 2;
+    if (canMerge) canMergeN += 1;
+  }
   return (
     papers: out,
     stats: LocalPairingPassStats(

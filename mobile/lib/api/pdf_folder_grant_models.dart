@@ -211,6 +211,20 @@ bool _advisoryTitleNeedsMateBorrow(String title) {
   return isLowQualityStemTitle(t);
 }
 
+bool _displayedTitleCanPair(ScannedPdfEntry e) {
+  final shown = e.advisoryTitle.trim();
+  if (shown.isEmpty) return false;
+  if (isAdvisoryTitleChrome(shown)) return false;
+  if (isLowQualityStemTitle(shown)) return false;
+  if (looksLikeAuthorLine(shown)) return false;
+  final stem = stemFromDisplayName(e.displayName);
+  if (stem.isNotEmpty &&
+      normalizePairingKey(shown) == normalizePairingKey(stem)) {
+    return false;
+  }
+  return isUsablePairingKey(normalizePairingKey(shown));
+}
+
 /// design/276 — SI with empty/weak title borrows ready main mate title (display only).
 int applyAdvisoryMateTitleBorrow(List<ScannedPdfEntry> entries) {
   final byKey = <String, List<ScannedPdfEntry>>{};
@@ -308,6 +322,48 @@ int applyAdvisoryMateTitleBorrow(List<ScannedPdfEntry> entries) {
     } else if (group.length >= 2 && (mains > 0 || sis > 0)) {
       nGap += 1;
     }
+  }
+
+  final openMains = <ScannedPdfEntry>[];
+  final openSis = <ScannedPdfEntry>[];
+  for (final e in ready) {
+    if (used.contains(e.docUri)) continue;
+    if (!_displayedTitleCanPair(e)) continue;
+    final role = e.advisoryRole.trim().toLowerCase();
+    if (role == 'supplementary') {
+      openSis.add(e);
+    } else if (role == 'main') {
+      openMains.add(e);
+    }
+  }
+  final siByMain = <String, List<ScannedPdfEntry>>{};
+  final mainBySi = <String, List<ScannedPdfEntry>>{};
+  for (final main in openMains) {
+    final mk = normalizePairingKey(main.advisoryTitle);
+    for (final si in openSis) {
+      if (!pairingKeysWithinTypos(mk, normalizePairingKey(si.advisoryTitle))) {
+        continue;
+      }
+      siByMain.putIfAbsent(main.docUri, () => []).add(si);
+      mainBySi.putIfAbsent(si.docUri, () => []).add(main);
+    }
+  }
+  for (final main in openMains) {
+    final mates = siByMain[main.docUri] ?? const <ScannedPdfEntry>[];
+    if (mates.length != 1) continue;
+    final si = mates.single;
+    final back = mainBySi[si.docUri] ?? const <ScannedPdfEntry>[];
+    if (back.length != 1 || back.single.docUri != main.docUri) continue;
+    items.add(
+      PdfImportSetItem(
+        main: main,
+        si: si,
+        pairingKey: normalizePairingKey(main.advisoryTitle),
+      ),
+    );
+    used.add(main.docUri);
+    used.add(si.docUri);
+    nSets += 1;
   }
 
   for (final e in ready) {

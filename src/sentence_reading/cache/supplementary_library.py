@@ -6,7 +6,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from sentence_reading.cache.paper_cache import normalize_pairing_key
+from sentence_reading.cache.paper_cache import (
+    normalize_pairing_key,
+    pairing_keys_within_typos,
+)
 
 DocRole = str  # main | supplementary | merged
 
@@ -109,6 +112,46 @@ def apply_pairing_pass(entries: list[dict[str, Any]]) -> None:
         si_e = sis[0]
         main_e["paired_cache_id"] = str(si_e.get("id") or "")
         si_e["paired_cache_id"] = str(main_e.get("id") or "")
+
+    open_mains = [
+        e
+        for e in entries
+        if isinstance(e, dict)
+        and not e.get("hidden_in_library")
+        and not e.get("paired_cache_id")
+        and entry_doc_role(e) == "main"
+    ]
+    open_sis = [
+        e
+        for e in entries
+        if isinstance(e, dict)
+        and not e.get("hidden_in_library")
+        and not e.get("paired_cache_id")
+        and entry_doc_role(e) == "supplementary"
+    ]
+    si_by_main: dict[str, list[dict[str, Any]]] = {}
+    main_by_si: dict[str, list[dict[str, Any]]] = {}
+    for main_e in open_mains:
+        mk = normalize_pairing_key(str(main_e.get("title") or ""))
+        mid = str(main_e.get("id") or "")
+        for si_e in open_sis:
+            if not pairing_keys_within_typos(
+                mk, normalize_pairing_key(str(si_e.get("title") or ""))
+            ):
+                continue
+            si_by_main.setdefault(mid, []).append(si_e)
+            main_by_si.setdefault(str(si_e.get("id") or ""), []).append(main_e)
+    for main_e in open_mains:
+        mid = str(main_e.get("id") or "")
+        mates = si_by_main.get(mid) or []
+        if len(mates) != 1:
+            continue
+        si_e = mates[0]
+        back = main_by_si.get(str(si_e.get("id") or "")) or []
+        if len(back) != 1 or str(back[0].get("id") or "") != mid:
+            continue
+        main_e["paired_cache_id"] = str(si_e.get("id") or "")
+        si_e["paired_cache_id"] = mid
 
 
 def can_merge_supplementary(main_entry: dict[str, Any], entries: list[dict[str, Any]]) -> bool:

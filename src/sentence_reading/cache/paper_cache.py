@@ -64,6 +64,37 @@ def normalize_pairing_key(title: str) -> str:
     return t
 
 
+PAIRING_TYPO_MAX = 5
+
+
+def pairing_edit_distance(a: str, b: str, max_edits: int = PAIRING_TYPO_MAX) -> int:
+    if a == b:
+        return 0
+    if not a or not b or abs(len(a) - len(b)) > max_edits:
+        return max_edits + 1
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i] + [0] * len(b)
+        row_min = cur[0]
+        for j, cb in enumerate(b, 1):
+            best = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb))
+            cur[j] = best
+            if best < row_min:
+                row_min = best
+        if row_min > max_edits:
+            return max_edits + 1
+        prev = cur
+    return prev[-1]
+
+
+def pairing_keys_within_typos(a: str, b: str, max_edits: int = PAIRING_TYPO_MAX) -> bool:
+    left = (a or "").strip().casefold()
+    right = (b or "").strip().casefold()
+    if len(left) < 12 or len(right) < 12:
+        return False
+    return pairing_edit_distance(left, right, max_edits) <= max_edits
+
+
 
 def _index_path() -> Path:
     return cache_root() / _INDEX_NAME

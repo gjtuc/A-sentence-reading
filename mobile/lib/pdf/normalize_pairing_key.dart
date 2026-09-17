@@ -38,6 +38,43 @@ bool isUsablePairingKey(String key) {
   return true;
 }
 
+/// Title pairing allows at most this many character edits.
+const int kPairingTypoMax = 5;
+
+int pairingEditDistance(String a, String b, {int max = kPairingTypoMax}) {
+  if (a == b) return 0;
+  if (a.isEmpty || b.isEmpty) return max + 1;
+  if ((a.length - b.length).abs() > max) return max + 1;
+  var prev = List<int>.generate(b.length + 1, (i) => i);
+  var cur = List<int>.filled(b.length + 1, 0);
+  for (var i = 1; i <= a.length; i++) {
+    cur[0] = i;
+    var rowMin = cur[0];
+    for (var j = 1; j <= b.length; j++) {
+      final cost = a.codeUnitAt(i - 1) == b.codeUnitAt(j - 1) ? 0 : 1;
+      final del = prev[j] + 1;
+      final ins = cur[j - 1] + 1;
+      final sub = prev[j - 1] + cost;
+      var best = del < ins ? del : ins;
+      if (sub < best) best = sub;
+      cur[j] = best;
+      if (best < rowMin) rowMin = best;
+    }
+    if (rowMin > max) return max + 1;
+    final swap = prev;
+    prev = cur;
+    cur = swap;
+  }
+  return prev[b.length];
+}
+
+bool pairingKeysWithinTypos(String a, String b, {int max = kPairingTypoMax}) {
+  final left = a.trim().toLowerCase();
+  final right = b.trim().toLowerCase();
+  if (!isUsablePairingKey(left) || !isUsablePairingKey(right)) return false;
+  return pairingEditDistance(left, right, max: max) <= max;
+}
+
 /// design/265 — ACS manuscript id from filename stem (an1c00673, am2c04149, …).
 String? acsManuscriptIdFromDisplayName(String displayName) {
   var n = displayName.trim();
