@@ -108,4 +108,28 @@ void main() {
       expect(n, inInclusiveRange(5, 10));
     }
   });
+
+  test('replay miss spans skip function words and consume leftover bags', () {
+    final missed = missedContentSpans(
+      display: 'The catalyst is stable',
+      expectedSpoken: 'The catalyst is stable',
+      heard: 'stable',
+    );
+    expect(missed, hasLength(1));
+    expect(missed.single.start, 'The catalyst is stable'.indexOf('catalyst'));
+    expect(
+      missed.single.end,
+      'The catalyst is stable'.indexOf('catalyst') + 'catalyst'.length,
+    );
+
+    const dup = 'bag bag';
+    final oneLeft = missedContentSpans(
+      display: dup,
+      expectedSpoken: dup,
+      heard: 'bag',
+    );
+    expect(oneLeft, hasLength(1));
+    expect(oneLeft.single.start, 0);
+    expect(oneLeft.single.end, 3);
+  });
 }

@@ -42,6 +42,13 @@ List<String> contentWords(String? text) {
       .toList(growable: false);
 }
 
+class MissedWordSpan {
+  const MissedWordSpan(this.start, this.end);
+
+  final int start;
+  final int end;
+}
+
 class SkillScoreResult {
   const SkillScoreResult({
     required this.ok,
@@ -50,6 +57,7 @@ class SkillScoreResult {
     this.hitN = 0,
     this.error,
     this.listV = kContentWordListV,
+    this.missedSpans = const [],
   });
 
   final bool ok;
@@ -58,6 +66,19 @@ class SkillScoreResult {
   final int hitN;
   final String? error;
   final int listV;
+  final List<MissedWordSpan> missedSpans;
+
+  SkillScoreResult copyWith({List<MissedWordSpan>? missedSpans}) {
+    return SkillScoreResult(
+      ok: ok,
+      accuracy: accuracy,
+      refN: refN,
+      hitN: hitN,
+      error: error,
+      listV: listV,
+      missedSpans: missedSpans ?? this.missedSpans,
+    );
+  }
 }
 
 SkillScoreResult contentWordCoverage(String? expectedSpoken, String? heard) {
@@ -89,4 +110,46 @@ SkillScoreResult contentWordCoverage(String? expectedSpoken, String? heard) {
     refN: ref.length,
     hitN: hit,
   );
+}
+
+/// Content words in [display] that the heard take did not cover.
+/// Same bag as [contentWordCoverage]. Function words are not marked.
+List<MissedWordSpan> missedContentSpans({
+  required String display,
+  required String? expectedSpoken,
+  required String? heard,
+}) {
+  final ref = contentWords(expectedSpoken);
+  final hyp = contentWords(heard);
+  if (ref.isEmpty || display.isEmpty) return const [];
+  final missed = <String, int>{};
+  for (final w in ref) {
+    missed[w] = (missed[w] ?? 0) + 1;
+  }
+  for (final w in hyp) {
+    final left = missed[w] ?? 0;
+    if (left <= 0) continue;
+    if (left == 1) {
+      missed.remove(w);
+    } else {
+      missed[w] = left - 1;
+    }
+  }
+  if (missed.isEmpty) return const [];
+  final spans = <MissedWordSpan>[];
+  final word = RegExp(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?", unicode: true);
+  for (final m in word.allMatches(display)) {
+    final key = normalizeSkillText(m.group(0));
+    if (key.isEmpty || kFunctionWords.contains(key)) continue;
+    final left = missed[key] ?? 0;
+    if (left <= 0) continue;
+    spans.add(MissedWordSpan(m.start, m.end));
+    if (left == 1) {
+      missed.remove(key);
+    } else {
+      missed[key] = left - 1;
+    }
+    if (missed.isEmpty) break;
+  }
+  return spans;
 }

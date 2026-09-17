@@ -32,9 +32,11 @@ import '../practice_rhythm/judgment_copy.dart';
 import '../practice_rhythm/judgment_prefs.dart';
 import '../practice_rhythm/judgment_tier.dart';
 import '../practice_rhythm/phase_rail.dart';
+import '../practice_rhythm/replay_miss_text.dart';
 import '../practice_rhythm/rhythm_theme.dart';
 import '../practice_skill/chunk_density.dart';
 import '../practice_skill/practice_skill_controller.dart';
+import '../practice_skill/skill_score.dart';
 import '../services/evidence_bus.dart';
 import '../services/shadowing_disk_store.dart';
 import '../services/shadowing_cloud_migrate.dart';
@@ -117,6 +119,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   final PracticeGroomingController _grooming = PracticeGroomingController();
   double _groomRateScale = 1.0;
   final PracticeSkillController _skill = PracticeSkillController();
+  List<MissedWordSpan> _replayMisses = const [];
+  int _replayMissChunk = -1;
   List<String> _baseChunks = [];
   /// design/214 — minimal rhythm phase + judgment burst.
   RhythmPhase _rhythmPhase = RhythmPhase.idle;
@@ -930,6 +934,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     setState(() {
       _status = '듣는 중';
       _rhythmPhase = RhythmPhase.listen;
+      _replayMisses = const [];
+      _replayMissChunk = -1;
     });
     // design/245 — prepare MediaRecorder while listen TTS plays (no start yet).
     unawaited(_primeMicForUpcomingSpeak());
@@ -1172,6 +1178,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                 chunkIndex: _chunkIndex,
                 focusElapsedMs: _focus.displayElapsed.inMilliseconds,
               );
+              final scoredChunk = _chunkIndex;
               final scored = await _skill.onTakeReady(
                 chunkDisplay: _displayChunk(),
                 takeBytes: bytes,
@@ -1179,6 +1186,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                 baseChunks: _baseChunks,
               );
               if (!mounted || scored == null) return;
+              if (scoredChunk == _chunkIndex) {
+                setState(() {
+                  _replayMisses = scored.missedSpans;
+                  _replayMissChunk = scoredChunk;
+                });
+              }
               if (scored.ok && scored.accuracy != null) {
                 _showJudgmentBurst(scored.accuracy!);
               }
@@ -1745,11 +1758,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                           flex: immersive && showMirror ? 2 : 3,
                           child: Center(
                             child: SingleChildScrollView(
-                              child: Text(
-                                prompt.isEmpty ? '…' : prompt,
-                                textAlign: TextAlign.center,
-                                style:
-                                    theme.textTheme.headlineSmall?.copyWith(
+                              child: ReplayMissText(
+                                text: prompt.isEmpty ? '…' : prompt,
+                                misses: _replayMissChunk == _chunkIndex
+                                    ? _replayMisses
+                                    : const [],
+                                blink: _rhythmPhase == RhythmPhase.replay,
+                                style: (theme.textTheme.headlineSmall ??
+                                        const TextStyle())
+                                    .copyWith(
                                   color: kRhythmText,
                                   height: 1.35,
                                   letterSpacing: -0.2,

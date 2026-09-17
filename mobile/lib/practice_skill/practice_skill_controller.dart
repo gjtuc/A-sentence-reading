@@ -318,6 +318,15 @@ class PracticeSkillController {
       return const SkillScoreResult(ok: false, error: 'empty_heard');
     }
     final score = contentWordCoverage(spoken, heard);
+    final marked = score.ok
+        ? score.copyWith(
+            missedSpans: missedContentSpans(
+              display: chunkDisplay,
+              expectedSpoken: spoken,
+              heard: heard,
+            ),
+          )
+        : score;
     if (!score.ok || score.accuracy == null) {
       await evidence.emit(
         kind: 'practice_skill_unscored',
@@ -372,7 +381,7 @@ class PracticeSkillController {
       },
     );
     // design/215 — adapt only on focus-block epoch resolve, not per take.
-    return score;
+    return marked;
   }
 
   Future<void> onFocusBlockDone(List<String> baseChunks) async {
