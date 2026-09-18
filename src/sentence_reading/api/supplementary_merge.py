@@ -80,6 +80,9 @@ def merge_supplementary(main_id: str) -> dict:
                 end_char=s.end_char,
                 text_ko=s.text_ko or "",
                 text_ko_stage=s.text_ko_stage or "",
+                # design/321 — rebuilding without this erased the ungrounded mark,
+                # so merged papers were the one place the badge could not appear.
+                quality_flags=getattr(s, "quality_flags", ()) or (),
             )
         )
 

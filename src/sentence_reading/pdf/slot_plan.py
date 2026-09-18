@@ -264,6 +264,72 @@ def assign_caption_to_slot(
     )
 
 
+def append_unclaimed_body_slots(
+    layout: LayoutMap, plan: SlotPlan, *, supplementary: bool = False
+) -> int:
+    """design/321 — give every Azure body a slot. Returns how many were added.
+
+    Slot count comes from parsed caption numbers, and a body box only raised the
+    floor to 1, so a paper whose captions are unlabeled or unparseable collapsed
+    N bodies into one carousel entry. The rest were never rendered.
+
+    Runs after caption pairing so numbered captions keep their own slots; only
+    leftovers get appended. Each appended slot is given its body immediately, so
+    it renders that crop under a generic label rather than a `(missing)`
+    placeholder.
+    """
+    added = 0
+    for box_kind, slot_kind in (("figure_body", "fig"), ("table_body", "table")):
+        leftover = layout.unused_boxes(box_kind)
+        if not leftover:
+            continue
+        n = max((s.n for s in plan.slots if s.kind == slot_kind), default=0)
+        for box in leftover:
+            n += 1
+            key = f"{slot_kind}:s{n}" if supplementary else f"{slot_kind}:{n}"
+            if plan.slot_by_key(key) is not None:
+                continue
+            plan.slots.append(Slot(key=key, kind=slot_kind, n=n, status="empty"))
+            assign_body_boxes_to_slot(plan, layout, key, [box.id])
+            added += 1
+    if added:
+        # design/92 — carousel stays all figures, then all tables, by number.
+        plan.slots.sort(key=lambda s: (0 if s.kind == "fig" else 1, s.n))
+    return added
+
+
+def slot_census(layout: LayoutMap, plan: SlotPlan) -> dict[str, int]:
+    """design/321 — what Azure found vs what the carousel will show.
+
+    `unused_body_n` > 0 means Azure located a figure/table body that no slot
+    claimed: those pixels never reach the user and every other counter stays
+    green. `slot_n` < `body_n` is the caption-number collapse (design/321 B).
+    """
+    body_n = 0
+    for box in layout.boxes:
+        if box.kind in ("figure_body", "table_body"):
+            body_n += 1
+    counts = {"empty": 0, "partial": 0, "filled": 0}
+    for slot in plan.slots:
+        if slot.status == "user_confirmed":
+            counts["filled"] += 1
+        elif slot.status in counts:
+            counts[slot.status] += 1
+        else:
+            counts["empty"] += 1
+    unused_body_n = len(layout.unused_boxes("figure_body")) + len(
+        layout.unused_boxes("table_body")
+    )
+    return {
+        "body_n": body_n,
+        "slot_n": len(plan.slots),
+        "empty_n": counts["empty"],
+        "partial_n": counts["partial"],
+        "filled_n": counts["filled"],
+        "unused_body_n": unused_body_n,
+    }
+
+
 def refresh_slot_statuses(plan: SlotPlan) -> None:
     for slot in plan.slots:
         if slot.status == "user_confirmed":

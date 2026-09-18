@@ -266,7 +266,34 @@ def compute_figure_verdicts(tl: CacheTimeline) -> list[str]:
         out.append("figure_read_stuck: repeated empty figure_window_res")
     if _translate_done_for_cache(tl) and figure_meta_broken(tl):
         out.append("translate_ok_figure_broken: KO complete but PNG meta/read fail")
+    out.extend(_slot_census_verdicts(tl))
 
+    return out
+
+
+def _slot_census_verdicts(tl: CacheTimeline) -> list[str]:
+    """design/321 — Azure found bodies the carousel never showed."""
+    ev = tl.last_of("figure_extract_done")
+    if not ev:
+        return []
+    d = ev.get("details") or {}
+    body_n = _safe_int(d.get("body_n"), 0)
+    slot_n = _safe_int(d.get("slot_n"), 0)
+    if body_n <= 0:
+        return []
+
+    out: list[str] = []
+    unused = _safe_int(d.get("unused_body_n"), 0)
+    if unused > 0:
+        out.append(
+            f"figure_body_unslotted: {unused}/{body_n} Azure bodies claimed by no slot"
+        )
+    # Caption numbers, not bodies, size the plan — N bodies can collapse into 1 slot.
+    if slot_n > 0 and body_n > slot_n:
+        out.append(f"figure_slot_collapse: {body_n} bodies → {slot_n} slots")
+    partial = _safe_int(d.get("partial_n"), 0)
+    if partial > 0:
+        out.append(f"figure_slot_partial: {partial}/{slot_n} slots body-or-caption only")
     return out
 
 

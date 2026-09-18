@@ -20,6 +20,12 @@ CHUNK_SPARSE_ALNUM = 40
 COVERAGE_LOW = 0.50
 COVERAGE_WARN = 0.65
 BODY_RATIO_WARN = 0.30
+# design/321 — coverage against the pre-filter text. The extraction stage
+# (section_flow drops, vision page replacement) is outside the debone denominator,
+# so only this pair can tell "Gemini dropped it" from "extraction dropped it".
+SOURCE_COVERAGE_LOW = 0.50
+SOURCE_COVERAGE_WARN = 0.65
+SOURCE_FILTER_GAP_WARN = 0.15
 GROUNDING_MIN_WORDS = 5
 GROUNDING_NGRAM = 5
 
@@ -280,4 +286,27 @@ def quality_to_warnings(
         w.append(f"ungrounded_sentences:{iq.ungrounded_count}")
     if survey_warnings:
         w.extend(survey_warnings)
+    return list(dict.fromkeys(w))
+
+
+def source_coverage_warnings(
+    *,
+    source_coverage: float,
+    debone_coverage: float,
+) -> list[str]:
+    """design/321 — recall against the pre-filter text, and the filter's share.
+
+    `debone_coverage` is measured against the text debone was handed. When the
+    source ratio is much lower, the loss happened before debone and no existing
+    warning can see it.
+    """
+    w: list[str] = []
+    src = float(source_coverage)
+    if src < SOURCE_COVERAGE_LOW:
+        w.append(f"source_coverage_low:{src:.2f}")
+    elif src < SOURCE_COVERAGE_WARN:
+        w.append(f"source_coverage_warn:{src:.2f}")
+    gap = float(debone_coverage) - src
+    if debone_coverage > 0 and gap > SOURCE_FILTER_GAP_WARN:
+        w.append(f"extract_filter_gap:{gap:.2f}")
     return list(dict.fromkeys(w))

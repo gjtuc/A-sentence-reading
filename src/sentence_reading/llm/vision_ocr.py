@@ -267,6 +267,7 @@ def recover_pdf_text(
 
     total = len(vision_indices)
     failed = 0
+    blank_kept = 0
     # design/112 — resume from vision_done (already OCR'd pages kept in working).
     start_k = min(start_k, total)
     for k in range(start_k, total):
@@ -281,7 +282,14 @@ def recover_pdf_text(
         try:
             png = render_page_png(pdf_path, page_index)
             text = ocr_page_png(png, page_index=page_index, page_count=n)
-            working[page_index] = (text or "").strip()
+            fresh = (text or "").strip()
+            # design/321 — an empty OCR return is not proof the page is blank.
+            # Overwriting a page PyMuPDF could read erased it with no counter,
+            # so a blank answer keeps the original and is counted instead.
+            if not fresh and (working[page_index] or "").strip():
+                blank_kept += 1
+            else:
+                working[page_index] = fresh
         except Exception:  # noqa: BLE001
             failed += 1
         # WHY: persist after each page so reclaim can skip OCR already paid for.
@@ -305,6 +313,8 @@ def recover_pdf_text(
 
     if failed:
         warnings.append(f"vision_failed:{failed}/{max(1, total - start_k)}")
+    if blank_kept:
+        warnings.append(f"vision_blank_kept:{blank_kept}/{max(1, total - start_k)}")
     if failed == (total - start_k) and (total - start_k) > 0 and start_k == 0:
         warnings.append("vision_failed")
         # WHY: 전부 실패면 원본 PyMuPDF 텍스트 유지

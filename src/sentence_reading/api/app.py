@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.315",
+    version="0.3.316",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -7513,6 +7513,7 @@ async def _run_ingest_job_body(
                     pass
             _ = reason  # machine reason kept out of user-facing copy
 
+        text_pre_filter = ""
         if resume_pl and (
             skip_vision or vision_resume is not None
         ) and isinstance(resume_pl.get("pages"), list):
@@ -7553,6 +7554,12 @@ async def _run_ingest_job_body(
                 raise
             except Exception as exc:
                 raise RuntimeError(f"{label} 텍스트 추출 실패: {exc}") from exc
+            # design/321 — vision OCR and section_flow overwrite `text`, and debone
+            # coverage is measured against that overwrite. This is the only copy
+            # that can price what extraction dropped. A vision resume starts from
+            # already-filtered pages, so it stays empty and reports no census
+            # rather than a false 1.0.
+            text_pre_filter = text
 
         from sentence_reading.pdf.supplementary_detect import (
             detect_doc_role_detailed,
@@ -7870,6 +7877,16 @@ async def _run_ingest_job_body(
                 _az = pdf_extract.get_last_figure_extract_status()
             except Exception:  # noqa: BLE001
                 _az = {}
+            # design/321 — Azure bodies vs carousel slots; 0 when not the v2 path.
+            _slot_census: dict[str, int] = {}
+            try:
+                from sentence_reading.pdf.extract_figures_v2 import (
+                    get_last_slot_census,
+                )
+
+                _slot_census = get_last_slot_census() or {}
+            except Exception:  # noqa: BLE001
+                _slot_census = {}
             if kind == "docx":
                 try:
                     _census = docx_extract.figure_source_census(tmp_path)
@@ -7902,6 +7919,12 @@ async def _run_ingest_job_body(
                     if str(_az.get("warning") or "")
                     == pdf_extract.AZURE_LAYOUT_FAILED_WARNING
                     else 0,
+                    "body_n": int(_slot_census.get("body_n") or 0),
+                    "slot_n": int(_slot_census.get("slot_n") or 0),
+                    "empty_n": int(_slot_census.get("empty_n") or 0),
+                    "partial_n": int(_slot_census.get("partial_n") or 0),
+                    "filled_n": int(_slot_census.get("filled_n") or 0),
+                    "unused_body_n": int(_slot_census.get("unused_body_n") or 0),
                 },
                 ok=True,
                 code="figure_extract_done",
@@ -8108,6 +8131,45 @@ async def _run_ingest_job_body(
             ]
             if doc_role == "supplementary" and references:
                 sentences = filter_bibliography_sentences(sentences, references)
+
+            # design/321 — price the extraction stage, not just debone. The
+            # ingest_quality coverage denominator is `text_for_sentences`, which
+            # already excludes whatever section_flow/vision dropped.
+            try:
+                if not (text_pre_filter or "").strip():
+                    raise ValueError("no_pre_filter_text")
+                from sentence_reading.llm import evidence_bus as eb
+                from sentence_reading.llm.debone_quality import (
+                    compute_coverage_ratio,
+                    source_coverage_warnings,
+                )
+
+                _src_cov = compute_coverage_ratio(text_pre_filter, sentences)
+                _post_cov = float((ingest_quality or {}).get("coverage_ratio") or 0.0)
+                warnings.extend(
+                    source_coverage_warnings(
+                        source_coverage=_src_cov,
+                        debone_coverage=_post_cov,
+                    )
+                )
+                eb.emit_handoff(
+                    from_stage="extract_text",
+                    to_stage="sentences_ready",
+                    job_id=job_id,
+                    owner_uid=_owner(),
+                    content_hash=str(content_hash or ""),
+                    stage="split",
+                    in_n=len(text_pre_filter or ""),
+                    out_n=len(text_for_sentences or ""),
+                    extra={
+                        "source_coverage": round(_src_cov, 4),
+                        "debone_coverage": round(_post_cov, 4),
+                        "sentence_n": len(sentences or []),
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
             from sentence_reading.title_replay import (
                 align_title_sentences,
                 docx_core_title,

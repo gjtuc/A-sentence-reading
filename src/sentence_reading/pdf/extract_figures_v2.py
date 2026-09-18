@@ -29,14 +29,17 @@ from sentence_reading.pdf.layout_map import (
 )
 from sentence_reading.pdf.slot_plan import (
     SlotPlan,
+    append_unclaimed_body_slots,
     build_slot_plan,
     initial_body_assignments,
     refresh_slot_statuses,
+    slot_census,
 )
 
 log = logging.getLogger(__name__)
 
 _last_artifacts: dict[str, Any] | None = None
+_last_census: dict[str, int] | None = None
 
 _TABLE_CAPTION_LINE = re.compile(
     r"^\s*Table\.?\s*S?\d+[a-z]?\b",
@@ -48,12 +51,18 @@ def get_last_layout_artifacts() -> dict[str, Any] | None:
     return _last_artifacts
 
 
+def get_last_slot_census() -> dict[str, int] | None:
+    """design/321 — body-vs-slot census of the last v2 extract."""
+    return _last_census
+
+
 def _set_artifacts(layout: LayoutMap, plan: SlotPlan) -> None:
-    global _last_artifacts
+    global _last_artifacts, _last_census
     _last_artifacts = {
         "layout_map": layout.to_dict(),
         "slot_plan": plan.to_dict(),
     }
+    _last_census = slot_census(layout, plan)
 
 
 def _orphan_table_png_until_next_caption(page, cap_rect) -> bytes | None:
@@ -194,7 +203,11 @@ def extract_figures_v2(pdf_path: Path, *, doc_role: str = "main") -> list[Figure
 
     from sentence_reading.pdf.supplementary_detect import normalize_doc_role
 
+    global _last_census
+
     supplementary = normalize_doc_role(doc_role) == "supplementary"
+    # design/321 — a raise must not leave the previous paper's census readable.
+    _last_census = None
     layout, client, _result = analyze_layout_map(pdf_path)
     doc = fitz.open(pdf_path)
     try:
@@ -202,6 +215,7 @@ def extract_figures_v2(pdf_path: Path, *, doc_role: str = "main") -> list[Figure
         initial_body_assignments(layout, plan, supplementary=supplementary)
         pair_slot_captions(layout, plan)
         refill_empty_slots(layout, plan)
+        append_unclaimed_body_slots(layout, plan, supplementary=supplementary)
         refresh_slot_statuses(plan)
         merged = slots_to_figures(doc, client, layout, plan)
         _set_artifacts(layout, plan)
