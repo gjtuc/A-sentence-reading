@@ -329,6 +329,10 @@ class ReadingSession {
 
   bool get isValid => sessionId.isNotEmpty;
 
+  /// design/317 — Azure layout fail-closed (quality banner stays hidden).
+  bool get hasAzureLayoutFailed =>
+      warnings.contains('azure_layout_failed');
+
   int get sentenceCount => sentences.length;
   int get figureCount => figures.length;
 

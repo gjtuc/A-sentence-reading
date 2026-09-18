@@ -1,7 +1,8 @@
 # design/154 — Figure pipeline guard (no silent PyMuPDF regression)
 
 **Version:** 0.3.79 (with guard deploy)  
-**Depends:** [151](151-layout-map-slot-carousel.md) · [32](32-github-cd.md)
+**Depends:** [151](151-layout-map-slot-carousel.md) · [32](32-github-cd.md)  
+Amend: [317](317-azure-layout-failed-copy.md) — fail-closed user copy + retry (no PyMuPDF)
 
 ## Problem
 

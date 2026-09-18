@@ -183,3 +183,84 @@ def test_finalize_legacy_path_still_sorts_pymupdf_only() -> None:
 
     keys = [caption_key(f.caption) for f in out]
     assert keys == ["fig:1", "fig:2", "table:1"]
+
+
+def test_extract_figures_azure_exception_records_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sentence_reading.pdf.extract import (
+        AZURE_LAYOUT_FAILED_USER_MESSAGE,
+        AZURE_LAYOUT_FAILED_WARNING,
+        apply_azure_layout_failed_warning,
+        extract_figures,
+        get_last_figure_extract_status,
+    )
+
+    pdf = tmp_path / "t.pdf"
+    doc = fitz.open()
+    doc.new_page()
+    doc.save(pdf)
+    doc.close()
+
+    monkeypatch.setenv("ASR_AZURE_LAYOUT", "1")
+    monkeypatch.delenv("ASR_FIGURE_PYMUPDF_FALLBACK", raising=False)
+    monkeypatch.setenv(
+        "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT",
+        "https://test.cognitiveservices.azure.com",
+    )
+    monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "k")
+
+    with patch(
+        "sentence_reading.pdf.extract_figures_v2.extract_figures_v2",
+        side_effect=RuntimeError("azure_timeout"),
+    ):
+        with patch(
+            "sentence_reading.pdf.extract._collect_pymupdf_figures",
+        ) as mock_pymupdf:
+            figs = extract_figures(pdf)
+
+    mock_pymupdf.assert_not_called()
+    assert figs == []
+    st = get_last_figure_extract_status()
+    assert st.get("outcome") == "azure_failed"
+    assert st.get("warning") == AZURE_LAYOUT_FAILED_WARNING
+    warns: list[str] = []
+    assert apply_azure_layout_failed_warning(warns) == AZURE_LAYOUT_FAILED_USER_MESSAGE
+    assert warns == [AZURE_LAYOUT_FAILED_WARNING]
+
+
+def test_extract_figures_azure_empty_has_no_failed_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sentence_reading.pdf.extract import (
+        apply_azure_layout_failed_warning,
+        extract_figures,
+        get_last_figure_extract_status,
+    )
+
+    pdf = tmp_path / "t.pdf"
+    doc = fitz.open()
+    doc.new_page()
+    doc.save(pdf)
+    doc.close()
+
+    monkeypatch.setenv("ASR_AZURE_LAYOUT", "1")
+    monkeypatch.setenv(
+        "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT",
+        "https://test.cognitiveservices.azure.com",
+    )
+    monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "k")
+
+    with patch(
+        "sentence_reading.pdf.extract_figures_v2.extract_figures_v2",
+        return_value=[],
+    ):
+        figs = extract_figures(pdf)
+
+    assert figs == []
+    st = get_last_figure_extract_status()
+    assert st.get("outcome") == "azure_empty"
+    assert not st.get("warning")
+    warns: list[str] = []
+    assert apply_azure_layout_failed_warning(warns) == ""
+    assert warns == []

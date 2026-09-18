@@ -28,6 +28,7 @@
 | `long_document` | 페이지 많음 |
 | `possible_caption_dup` | 캡션 중복 의심 |
 | `tiny_images_dropped` | 작은 이미지 필터됨 |
+| `azure_layout_failed` | Azure 그림 배치 실패 · 문장은 저장 · 재분석 (design/317) |
 
 ## 로깅
 

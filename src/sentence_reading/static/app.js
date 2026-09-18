@@ -4985,7 +4985,15 @@
         }
       }
       if (data.from_cache) {
-        setUploadStatus(`보관본 · 문장 ${nS} · 그림 ${nF}`, "");
+        const cacheWarn = (data.warnings || []).filter(Boolean);
+        if (cacheWarn.indexOf("azure_layout_failed") >= 0) {
+          setUploadStatus(
+            "그림 배치를 읽지 못했습니다. 문장은 저장됩니다. 잠시 후 재분석해 주세요.",
+            "warn",
+          );
+        } else {
+          setUploadStatus(`보관본 · 문장 ${nS} · 그림 ${nF}`, "");
+        }
       } else if (data.debone) {
         const cached = data.cached ? " · 보관됨" : "";
         const warnList = (data.warnings || []).filter(Boolean);
@@ -4994,7 +5002,12 @@
             String(w),
           ),
         );
-        if (qualityWarn) {
+        if (warnList.indexOf("azure_layout_failed") >= 0) {
+          setUploadStatus(
+            "그림 배치를 읽지 못했습니다. 문장은 저장됩니다. 잠시 후 재분석해 주세요.",
+            "warn",
+          );
+        } else if (qualityWarn) {
           setUploadStatus(
             `문장 ${nS} · 그림 ${nF} · cleaned · ${qualityWarn}${cached}`,
             "warn",
@@ -6627,7 +6640,13 @@
       const nS = state.sentences.length;
       const nF = state.figures.length;
       const stale = !!(data.stale || staleHint);
-      if (stale) {
+      const openWarn = (data.warnings || []).filter(Boolean);
+      if (openWarn.indexOf("azure_layout_failed") >= 0) {
+        setUploadStatus(
+          "그림 배치를 읽지 못했습니다. 문장은 저장됩니다. 잠시 후 재분석해 주세요.",
+          "warn"
+        );
+      } else if (stale) {
         const hint = data.has_source
           ? "보관에서 「재분석」"
           : "파일 다시 열면 재분석";

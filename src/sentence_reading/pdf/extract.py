@@ -1121,6 +1121,39 @@ def _extract_figures_pymupdf(pdf_path: Path) -> list[Figure]:
         doc.close()
 
 
+# design/317 — Azure fail-closed user copy (no PyMuPDF unless fallback env).
+AZURE_LAYOUT_FAILED_WARNING = "azure_layout_failed"
+AZURE_LAYOUT_FAILED_USER_MESSAGE = (
+    "그림 배치를 읽지 못했습니다. 문장은 저장됩니다. 잠시 후 재분석해 주세요."
+)
+_last_figure_extract_status: dict[str, str] = {}
+
+
+def get_last_figure_extract_status() -> dict[str, str]:
+    return dict(_last_figure_extract_status)
+
+
+def _record_figure_extract_status(
+    *, outcome: str, warning: str = "", exc: str = ""
+) -> None:
+    global _last_figure_extract_status
+    _last_figure_extract_status = {
+        "outcome": outcome,
+        "warning": warning,
+        "exc": exc[:120],
+    }
+
+
+def apply_azure_layout_failed_warning(warnings: list[str]) -> str:
+    """If last extract failed Azure fail-closed, append warning. Return user copy or ''."""
+    st = get_last_figure_extract_status()
+    if st.get("warning") != AZURE_LAYOUT_FAILED_WARNING:
+        return ""
+    if AZURE_LAYOUT_FAILED_WARNING not in warnings:
+        warnings.append(AZURE_LAYOUT_FAILED_WARNING)
+    return AZURE_LAYOUT_FAILED_USER_MESSAGE
+
+
 def extract_figures(pdf_path: Path, *, doc_role: str = "main") -> list[Figure]:
     """
     그림(Fig/Scheme) + 표(Table)를 캡션 번호 순으로 합친다 (design/92 · 125).
@@ -1132,6 +1165,7 @@ def extract_figures(pdf_path: Path, *, doc_role: str = "main") -> list[Figure]:
     import logging
 
     log = logging.getLogger(__name__)
+    _record_figure_extract_status(outcome="")
 
     doc = fitz.open(pdf_path)
     try:
@@ -1150,8 +1184,10 @@ def extract_figures(pdf_path: Path, *, doc_role: str = "main") -> list[Figure]:
                 merged = extract_figures_v2(pdf_path, doc_role=doc_role)
                 if merged:
                     log.info("azure_layout extracted %d figures/tables", len(merged))
+                    _record_figure_extract_status(outcome="azure_ok")
                 else:
                     log.warning("azure_layout v2 returned 0 slots (no PyMuPDF fallback)")
+                    _record_figure_extract_status(outcome="azure_empty")
                 return _finalize_figure_list(doc, merged)
         except Exception as exc:
             allow_fb = (os.environ.get("ASR_FIGURE_PYMUPDF_FALLBACK") or "").strip().lower() in (
@@ -1165,12 +1201,24 @@ def extract_figures(pdf_path: Path, *, doc_role: str = "main") -> list[Figure]:
                     "azure_layout failed (%s); PyMuPDF fallback disabled (design/154)",
                     exc,
                 )
+                _record_figure_extract_status(
+                    outcome="azure_failed",
+                    warning=AZURE_LAYOUT_FAILED_WARNING,
+                    exc=type(exc).__name__,
+                )
                 return _finalize_figure_list(doc, merged)
             if azure_configured and allow_fb:
                 log.warning("azure_layout failed (%s); ASR_FIGURE_PYMUPDF_FALLBACK=1", exc)
+                _record_figure_extract_status(
+                    outcome="azure_failed_pymupdf",
+                    exc=type(exc).__name__,
+                )
             else:
                 log.warning("azure_layout skipped (%s); using PyMuPDF", exc)
+                _record_figure_extract_status(outcome="pymupdf", exc=type(exc).__name__)
 
+        if not get_last_figure_extract_status().get("outcome"):
+            _record_figure_extract_status(outcome="pymupdf")
         return _finalize_figure_list(doc, _collect_pymupdf_figures(doc))
     finally:
         doc.close()

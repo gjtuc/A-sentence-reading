@@ -557,6 +557,63 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   ),
                 ],
               ),
+            if (library.showAzureLayoutFailedBanner)
+              MaterialBanner(
+                content: const Text(
+                  LibraryController.azureLayoutFailedUserMessage,
+                ),
+                leading: Icon(
+                  Icons.image_not_supported_outlined,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () async {
+                      final entry = library.paperEntryForCacheId(s.cacheId);
+                      if (entry == null) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              '보관함에서 이 논문을 찾지 못했습니다. 보관 탭에서 새로고침해 주세요.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      if (!entry.hasSource) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              '원본 PDF가 없어 재분석할 수 없습니다. PDF를 다시 업로드해 주세요.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      final ok = await library.reanalyzePaper(entry);
+                      if (!context.mounted) return;
+                      if (ok) {
+                        library.dismissAzureLayoutFailedBanner();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('재분석이 완료되었습니다.')),
+                        );
+                      } else if (library.error != null &&
+                          library.error!.isNotEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(library.error!)),
+                        );
+                      }
+                    },
+                    child: const Text('재분석'),
+                  ),
+                  TextButton(
+                    onPressed: library.dismissAzureLayoutFailedBanner,
+                    child: const Text('닫기'),
+                  ),
+                ],
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               child: Row(

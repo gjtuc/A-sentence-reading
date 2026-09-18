@@ -541,6 +541,13 @@ class LibraryController extends ChangeNotifier {
   bool showIngestQualityBanner = false;
   String? _dismissedQualityBannerCacheId;
 
+  /// design/317 — Azure fail-closed; not the hidden quality banner.
+  static const azureLayoutFailedWarning = 'azure_layout_failed';
+  static const azureLayoutFailedUserMessage =
+      '그림 배치를 읽지 못했습니다. 문장은 저장됩니다. 잠시 후 재분석해 주세요.';
+  bool showAzureLayoutFailedBanner = false;
+  String? _dismissedAzureLayoutCacheId;
+
   /// design/160 — uid-scoped read-left timestamps for library meta lines.
   Map<String, String> progressResumeByCacheId = const {};
   Map<String, String> practiceResumeByCacheId = const {};
@@ -3943,6 +3950,23 @@ class LibraryController extends ChangeNotifier {
     showIngestQualityBanner = false;
   }
 
+  void _maybeShowAzureLayoutFailedBanner(ReadingSession o) {
+    if (_dismissedAzureLayoutCacheId == o.cacheId) {
+      showAzureLayoutFailedBanner = false;
+      return;
+    }
+    showAzureLayoutFailedBanner = o.hasAzureLayoutFailed;
+  }
+
+  void dismissAzureLayoutFailedBanner() {
+    showAzureLayoutFailedBanner = false;
+    final cid = session?.cacheId;
+    if (cid != null && cid.isNotEmpty) {
+      _dismissedAzureLayoutCacheId = cid;
+    }
+    notifyListeners();
+  }
+
   void dismissIngestQualityBanner() {
     showIngestQualityBanner = false;
     final cid = session?.cacheId;
@@ -4448,6 +4472,7 @@ class LibraryController extends ChangeNotifier {
       }
       _hydrateSessions[o.cacheId] = o;
       _maybeShowQualityBanner(o);
+      _maybeShowAzureLayoutFailedBanner(o);
       _maybeStartTranslatePoll(o);
       unawaited(_syncBookmarksForSession(o));
       unawaited(_syncAnnotationsForSession(o));

@@ -181,4 +181,21 @@ void main() {
       expect(d!.bytes.length, greaterThan(10));
     });
   });
+
+  group('design/317 azure layout failed', () {
+    test('fromOpenJson flags azure_layout_failed', () {
+      final s = ReadingSession.fromOpenJson({
+        'session_id': 'ses_az',
+        'cache_id': 'cid_az',
+        'title': 'Azure miss',
+        'sentences': [
+          {'id': 's1', 'text': 'Hello.'},
+        ],
+        'figures': [],
+        'warnings': ['azure_layout_failed'],
+      });
+      expect(s.hasAzureLayoutFailed, isTrue);
+      expect(s.warnings, ['azure_layout_failed']);
+    });
+  });
 }

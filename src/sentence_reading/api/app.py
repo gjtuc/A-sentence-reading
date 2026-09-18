@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.313",
+    version="0.3.314",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -7864,6 +7864,20 @@ async def _run_ingest_job_body(
             if kind == "docx":
                 warnings.append("docx_figures_partial")
 
+        # design/317 — Azure fail-closed is swallowed inside extract_figures.
+        azure_layout_msg = ""
+        try:
+            azure_layout_msg = pdf_extract.apply_azure_layout_failed_warning(warnings)
+        except Exception:  # noqa: BLE001
+            azure_layout_msg = ""
+        if azure_layout_msg:
+            _job_set(
+                job_id,
+                percent=42,
+                stage="figures",
+                message=azure_layout_msg,
+            )
+
         # design/288 E5 — figure extract outcome (counts only).
         try:
             from sentence_reading.llm import evidence_bus as eb
@@ -7887,6 +7901,11 @@ async def _run_ingest_job_body(
                 "caption_n": 0,
                 "vml_unseen_n": 0,
             }
+            _az = {}
+            try:
+                _az = pdf_extract.get_last_figure_extract_status()
+            except Exception:  # noqa: BLE001
+                _az = {}
             if kind == "docx":
                 try:
                     _census = docx_extract.figure_source_census(tmp_path)
@@ -7914,6 +7933,11 @@ async def _run_ingest_job_body(
                         .lower()
                         .startswith(("fig:s", "table:s"))
                     ),
+                    "azure_outcome": str(_az.get("outcome") or "")[:32],
+                    "azure_failed": 1
+                    if str(_az.get("warning") or "")
+                    == pdf_extract.AZURE_LAYOUT_FAILED_WARNING
+                    else 0,
                 },
                 ok=True,
                 code="figure_extract_done",
@@ -9031,10 +9055,13 @@ async def _run_ingest_job_body(
                 job_id=job_id,
             )
 
+        finish_message = "완료 · 제목으로 보관됨" if cache_entry else "완료"
+        if pdf_extract.AZURE_LAYOUT_FAILED_WARNING in warnings:
+            finish_message = pdf_extract.AZURE_LAYOUT_FAILED_USER_MESSAGE
         _finish_job(
             job_id,
             data,
-            message="완료 · 제목으로 보관됨" if cache_entry else "완료",
+            message=finish_message,
         )
         if want_residual and cache_entry:
             _spawn_harmonize_residual(
