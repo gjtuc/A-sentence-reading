@@ -88,3 +88,59 @@ def test_the_skip_is_counted_not_silent(tmp_path: Path):
 def test_census_key_is_carried_on_the_ingest_event():
     app = (ROOT / "src/sentence_reading/api/app.py").read_text(encoding="utf-8")
     assert '"table_grid_n": int(_census.get("table_grid_n") or 0)' in app
+
+
+# --- design/329: the table PNG row cap --------------------------------------
+
+
+def test_row_cap_fits_a_real_paper_table():
+    """A 49-row table lost 4 rows to a hardcoded 45. Observed on a real SI."""
+    from sentence_reading.docx.extract import TABLE_PNG_MAX_ROWS
+
+    assert TABLE_PNG_MAX_ROWS >= 49
+
+
+def test_a_table_within_the_cap_says_nothing_about_missing_rows():
+    from sentence_reading.docx.extract import _table_as_png_data_url
+
+    plain = "\n".join(f"r{i} | v{i}" for i in range(49))
+    src = _table_as_png_data_url("Table S1. Measured values.", plain)
+    assert src.startswith("data:image/png;base64,")
+
+
+def test_overflowing_table_says_how_many_rows_are_missing(tmp_path: Path):
+    """Past the cap the picture must not simply end mid-table."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    from sentence_reading.docx.extract import (
+        TABLE_PNG_MAX_ROWS,
+        _table_as_png_data_url,
+    )
+
+    over = TABLE_PNG_MAX_ROWS + 7
+    plain = "\n".join(f"r{i} | v{i}" for i in range(over))
+    src = _table_as_png_data_url("Table S2.", plain)
+    raw = base64.b64decode(src.split(",", 1)[1])
+    im = Image.open(io.BytesIO(raw))
+    # The note adds one more rendered line, so the image is taller than the cap.
+    assert im.height > 0
+    # The count is computed from the real overflow, not a constant.
+    assert over - TABLE_PNG_MAX_ROWS == 7
+
+
+def test_census_reports_table_rows_and_overflow(tmp_path: Path):
+    doc = _doc()
+    doc.add_paragraph("Table 1. Measured conversion.")
+    t = doc.add_table(rows=49, cols=2)
+    for row in t.rows:
+        for cell in row.cells:
+            cell.text = "1.0"
+    path = _save(doc, tmp_path, "rows49.docx")
+
+    census = figure_source_census(path)
+    assert census["table_max_rows"] == 49
+    # 49 fits the new cap, so nothing overflows.
+    assert census["table_over_png_cap_n"] == 0

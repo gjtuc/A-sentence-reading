@@ -267,16 +267,27 @@ def _table_plain(table) -> str:
     return "\n".join(rows)
 
 
+# design/329 — a 49-row table used to lose 4 rows to a hardcoded 45-row cap, with
+# nothing said. The cap now fits real papers; past it the image says how many
+# rows are missing instead of ending mid-table.
+TABLE_PNG_MAX_ROWS = 200
+
+
 def _table_as_png_data_url(caption: str, plain: str) -> str:
     """
     Word 표를 흰 바탕 PNG 로.
     WHY: SVG data-URL 은 #색상 인코딩이 깨져 흰 배경에서 글자가 안 보임.
+    design/329: 잘릴 때는 몇 행이 빠졌는지 그림 안에 적는다.
     """
     from io import BytesIO
 
     from PIL import Image, ImageDraw, ImageFont
 
-    lines = (plain or "").splitlines()[:45]
+    all_lines = (plain or "").splitlines()
+    lines = all_lines[:TABLE_PNG_MAX_ROWS]
+    dropped = len(all_lines) - len(lines)
+    if dropped > 0:
+        lines = [*lines, f"... {dropped} more rows not shown"]
     cap = (caption or "").strip()
     width = 1100
     pad_x = 28
@@ -487,6 +498,8 @@ def figure_source_census(path: Path) -> dict[str, int]:
             if not rid or _blob_from_rel(doc, rid) is None:
                 unresolved_vml += 1
     grid_n = 0
+    max_rows = 0
+    over_cap_n = 0
     for block in _iter_block_items(doc):
         if isinstance(block, Paragraph):
             text = _paragraph_text(block)
@@ -499,12 +512,22 @@ def figure_source_census(path: Path) -> dict[str, int]:
             # skip is visible rather than a silent drop (design/321).
             if table_is_grid(block):
                 grid_n += 1
+            try:
+                rows = len(block.rows)
+            except Exception:  # noqa: BLE001
+                rows = 0
+            max_rows = max(max_rows, rows)
+            # design/329 — rows the slot PNG cannot show.
+            if rows > TABLE_PNG_MAX_ROWS:
+                over_cap_n += 1
     return {
         "blip_n": blip_n,
         "imagedata_n": imagedata_n,
         "caption_n": caption_n,
         "vml_unseen_n": unresolved_vml,
         "table_grid_n": grid_n,
+        "table_max_rows": max_rows,
+        "table_over_png_cap_n": over_cap_n,
     }
 
 

@@ -24,11 +24,20 @@ denominator, which hides real loss.
 4. The skip is **counted**, not silent: `figure_source_census` returns
    `table_grid_n`, carried on `figure_extract_done` (design/321).
 
+## Measured on a real supplementary file
+
+`1-s2.0-S0272884226009739-mmc1`: paragraph text is 16,765 characters, and
+`extract_text` returned **25,306** — 8,541 characters of cell grid had entered
+the sentence stream. After this chip it returns 16,227 (captions and banners
+removed) with `table_grid_n = 4`, and recall rose 0.939 → 0.968.
+
 ## Known limit
 
 A grid with **no** caption never becomes a figure slot either, so its numbers now
 reach neither the sentences nor the carousel. `table_grid_n` is what makes that
 visible; pairing an uncaptioned grid to a slot is a separate chip.
+
+The slot picture's own row cap is design/329.
 
 ## Test
 
