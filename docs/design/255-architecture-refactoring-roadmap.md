@@ -1,6 +1,6 @@
 # 255 — Architecture Technical Debt Refactoring Roadmap
 
-Version: **0.3.265** · Status: **Phase 1 shipped** (guard.py · routes/status · routes/tts); Phases 2–4 pending  
+Version: **0.3.265** · Status: **Phase 2 started** (deps · routes/auth · routes/access); handlers still in app.py; Phases 3–4 pending  
 Amends [155](155-deploy-live-guard.md) · [168](168-audit-checklist.md) · [169g](169g-causal-handoff-evidence.md) · [173](173-capacity-isolation-roadmap.md)
 
 ## Phase 1 delivery (0.3.265)

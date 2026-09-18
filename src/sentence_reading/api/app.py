@@ -392,52 +392,9 @@ class _GcsUidMiddleware(BaseHTTPMiddleware):
 app.add_middleware(_GcsUidMiddleware)
 
 
-def _request_user(request: Request) -> AuthUser | None:
-    user = getattr(request.state, "auth_user", None)
-    return user if isinstance(user, AuthUser) else None
-
-
-
-def _is_admin_user(user: AuthUser | None) -> bool:
-    if user is None:
-        return False
-    from sentence_reading.llm.usage_meter import is_admin_email
-
-    return is_admin_email(user.email)
-
-
-def _paid_access_denied(request: Request) -> JSONResponse | None:
-    """Return 403/401 if access gate blocks paid APIs; else None."""
-    if not access_gate_enabled():
-        return None
-    user = _request_user(request)
-    if user is None:
-        if auth_enabled():
-            return JSONResponse(
-                status_code=401,
-                content={
-                    "ok": False,
-                    "error": "auth_required",
-                    "message": "로그인 후 이용해 주세요.",
-                },
-            )
-        return None
-    if user_may_use_paid(
-        user.uid, email=user.email or "", is_admin=_is_admin_user(user)
-    ):
-        return None
-    view = public_access_view(
-        user.uid, email=user.email or "", is_admin=_is_admin_user(user)
-    )
-    return JSONResponse(
-        status_code=403,
-        content={
-            "ok": False,
-            "error": "access_denied",
-            "access": view,
-            "message": "초대 코드 승인 후 이용할 수 있습니다. (관리자 Allow 필요)",
-        },
-    )
+from sentence_reading.api.deps import is_admin_user as _is_admin_user
+from sentence_reading.api.deps import paid_access_denied as _paid_access_denied
+from sentence_reading.api.deps import request_user as _request_user
 
 
 from sentence_reading.api.figure_edit import register_figure_edit_routes
@@ -2161,6 +2118,8 @@ def status(request: Request) -> dict:
 
 
 # design/255 Phase 1 — domain routers (version string stays above in this handler).
+from sentence_reading.api.routes import access as access_routes
+from sentence_reading.api.routes import auth as auth_routes
 from sentence_reading.api.routes import status as status_routes
 from sentence_reading.api.routes import tts as tts_routes
 
@@ -2240,7 +2199,7 @@ def _kakao_redirect_uri(request: Request) -> str:
     return _public_api_base(request) + "/api/auth/kakao/callback"
 
 
-@app.get("/api/auth/status")
+@auth_routes.router.get("/api/auth/status")
 def auth_status(request: Request) -> dict:
     user = _request_user(request)
     st = auth_status_fields(user)
@@ -2252,7 +2211,7 @@ def auth_status(request: Request) -> dict:
     return {"ok": True, **st}
 
 
-@app.post("/api/auth/google")
+@auth_routes.router.post("/api/auth/google")
 async def auth_google_login(request: Request, payload: dict = Body(...)) -> JSONResponse:
     """Google Identity Services credential → 세션 (또는 계정 연결)."""
     if not auth_client_id():
@@ -2335,7 +2294,7 @@ async def auth_google_login(request: Request, payload: dict = Body(...)) -> JSON
     return _session_response(user, include_session_token=want_mobile)
 
 
-@app.get("/api/auth/google/mobile/start")
+@auth_routes.router.get("/api/auth/google/mobile/start")
 def auth_google_mobile_start(mode: str = "login") -> Response:
     """Custom Tab page: GIS on Cloud Run origin → deep-link session (design/65).
 
@@ -2443,7 +2402,7 @@ def auth_google_mobile_start(mode: str = "login") -> Response:
     return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
 
 
-@app.get("/api/auth/kakao/start")
+@auth_routes.router.get("/api/auth/kakao/start")
 def auth_kakao_start(
     request: Request, mode: str = "login", mobile: str = "0"
 ) -> Response:
@@ -2482,7 +2441,7 @@ def auth_kakao_start(
     return RedirectResponse(url, status_code=302)
 
 
-@app.get("/api/auth/kakao/callback")
+@auth_routes.router.get("/api/auth/kakao/callback")
 def auth_kakao_callback(
     request: Request, code: str = "", state: str = "", error: str = ""
 ) -> Response:
@@ -2562,7 +2521,7 @@ def auth_kakao_callback(
     return resp
 
 
-@app.post("/api/auth/email/register")
+@auth_routes.router.post("/api/auth/email/register")
 async def auth_email_register(payload: dict = Body(...)) -> JSONResponse:
     if not email_auth_enabled():
         return JSONResponse(
@@ -2605,7 +2564,7 @@ async def auth_email_register(payload: dict = Body(...)) -> JSONResponse:
     return _session_response(user, message="registered")
 
 
-@app.post("/api/auth/email/login")
+@auth_routes.router.post("/api/auth/email/login")
 async def auth_email_login(payload: dict = Body(...)) -> JSONResponse:
     if not email_auth_enabled():
         return JSONResponse(
@@ -2668,7 +2627,7 @@ def _user_from_magic_email(em: str) -> AuthUser:
     return resolve_or_create("email", em, email=em, name="", password=None)
 
 
-@app.post("/api/auth/email/magic/request")
+@auth_routes.router.post("/api/auth/email/magic/request")
 async def auth_email_magic_request(
     request: Request, payload: dict = Body(...)
 ) -> JSONResponse:
@@ -2780,7 +2739,7 @@ async def auth_email_magic_request(
     return JSONResponse({"ok": True, "message": msg})
 
 
-@app.get("/api/auth/email/magic/open")
+@auth_routes.router.get("/api/auth/email/magic/open")
 def auth_email_magic_open(
     request: Request, t: str = "", mobile: str = ""
 ) -> Response:
@@ -2840,7 +2799,7 @@ def auth_email_magic_open(
         )
 
 
-@app.post("/api/auth/email/magic/admin/mint")
+@auth_routes.router.post("/api/auth/email/magic/admin/mint")
 async def auth_email_magic_admin_mint(
     request: Request, payload: dict = Body(None)
 ) -> JSONResponse:
@@ -2915,7 +2874,7 @@ async def auth_email_magic_admin_mint(
     )
 
 
-@app.post("/api/auth/email/link")
+@auth_routes.router.post("/api/auth/email/link")
 async def auth_email_link(request: Request, payload: dict = Body(...)) -> JSONResponse:
     cur = _request_user(request)
     if cur is None:
@@ -2958,7 +2917,7 @@ async def auth_email_link(request: Request, payload: dict = Body(...)) -> JSONRe
     return _session_response(user, message="linked")
 
 
-@app.post("/api/auth/unlink")
+@auth_routes.router.post("/api/auth/unlink")
 async def auth_unlink(request: Request, payload: dict = Body(...)) -> JSONResponse:
     cur = _request_user(request)
     if cur is None:
@@ -3209,7 +3168,7 @@ def usage_admin(request: Request) -> dict:
 
 
 
-@app.get("/api/access/status")
+@access_routes.router.get("/api/access/status")
 def access_status(request: Request) -> dict:
     user = _request_user(request)
     # WHY: Settings「새로고침」must see Allow minted on another instance (design/69)
@@ -3228,7 +3187,7 @@ def access_status(request: Request) -> dict:
     }
 
 
-@app.post("/api/access/invite")
+@access_routes.router.post("/api/access/invite")
 async def access_invite(request: Request, payload: dict = Body(...)) -> JSONResponse:
     user = _request_user(request)
     if user is None:
@@ -3283,7 +3242,7 @@ async def access_invite(request: Request, payload: dict = Body(...)) -> JSONResp
     )
 
 
-@app.get("/api/access/admin/pending")
+@access_routes.router.get("/api/access/admin/pending")
 def access_admin_pending(request: Request) -> JSONResponse:
     user = _request_user(request)
     if user is None or not _is_admin_user(user):
@@ -3298,7 +3257,7 @@ def access_admin_pending(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "pending": list_pending()})
 
 
-@app.get("/api/access/admin/notifications")
+@access_routes.router.get("/api/access/admin/notifications")
 def access_admin_notifications(request: Request, limit: int = 50) -> JSONResponse:
     user = _request_user(request)
     if user is None or not _is_admin_user(user):
@@ -3657,7 +3616,7 @@ def ops_cache_integrity(
     return JSONResponse(body)
 
 
-@app.post("/api/access/admin/mint")
+@access_routes.router.post("/api/access/admin/mint")
 async def access_admin_mint(request: Request, payload: dict = Body(None)) -> JSONResponse:
     """Mint one OTP-style invite (XXXX-XXXX). Plaintext returned once."""
     user = _request_user(request)
@@ -3695,7 +3654,7 @@ async def access_admin_mint(request: Request, payload: dict = Body(None)) -> JSO
     )
 
 
-@app.get("/api/access/admin/invites")
+@access_routes.router.get("/api/access/admin/invites")
 def access_admin_invites(request: Request, limit: int = 20) -> JSONResponse:
     user = _request_user(request)
     if user is None or not _is_admin_user(user):
@@ -3714,7 +3673,7 @@ def access_admin_invites(request: Request, limit: int = 20) -> JSONResponse:
     return JSONResponse({"ok": True, "open": list_open_invite_meta(limit=lim)})
 
 
-@app.post("/api/access/admin/decide")
+@access_routes.router.post("/api/access/admin/decide")
 async def access_admin_decide(
     request: Request, payload: dict = Body(...)
 ) -> JSONResponse:
@@ -3751,11 +3710,16 @@ async def access_admin_decide(
     return JSONResponse({"ok": True, "access": view})
 
 
-@app.post("/api/auth/logout")
+@auth_routes.router.post("/api/auth/logout")
 def auth_logout() -> JSONResponse:
     resp = JSONResponse({"ok": True, "message": "logged_out"})
     resp.delete_cookie(COOKIE_NAME, path="/", secure=cookie_secure(), samesite="lax")
     return resp
+
+
+# After handlers are decorated — include snapshots the route tables.
+app.include_router(auth_routes.router)
+app.include_router(access_routes.router)
 
 
 @app.get("/api/voice/blobs")
