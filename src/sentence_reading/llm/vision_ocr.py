@@ -38,6 +38,10 @@ class RecoverResult:
     warnings: list[str] = field(default_factory=list)
     vision_pages: list[int] = field(default_factory=list)
     decision: QualityDecision | None = None
+    # design/331 — the bibliography as Azure isolated it. The raw PyMuPDF text
+    # interleaves columns, so `extract_bibliography` cannot find the header there
+    # and the recall denominator kept counting references as lost body.
+    references_text: str = ""
 
 
 # design/106 — per-page vision must not hang the whole ingest job.
@@ -207,6 +211,7 @@ def recover_pdf_text(
                             source="azure_layout",
                             notes="azure_reading_order",
                         ),
+                        references_text=ordered.references_text or "",
                     )
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"azure_reading_order_failed:{exc}") from exc

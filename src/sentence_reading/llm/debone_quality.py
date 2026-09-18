@@ -194,10 +194,42 @@ def practice_text_only(raw_text: str) -> str:
 
 
 def coverage_excluding_references(
-    raw_text: str, sentences: list[Sentence]
+    raw_text: str,
+    sentences: list[Sentence],
+    *,
+    references_text: str = "",
 ) -> float:
-    """Recall against the practice text, not against the whole file."""
-    return compute_coverage_ratio(practice_text_only(raw_text), sentences)
+    """Recall against the practice text, not against the whole file.
+
+    design/331 — `references_text` is the bibliography as `order_boxes` isolated
+    it. It is not a substring of the raw column-interleaved text, so it is removed
+    by **token set** rather than by slicing. That makes the denominator right on
+    the Azure path even when `extract_bibliography` cannot find a header in the
+    raw text.
+    """
+    practice = practice_text_only(raw_text)
+    raw_tok = _token_set(practice)
+    if not raw_tok:
+        return 1.0
+    ref_tok = _token_set(references_text) if references_text else set()
+    if ref_tok:
+        # Keep a token that the body also uses; only drop what is references-only.
+        body_only = raw_tok - ref_tok
+        if body_only:
+            raw_tok = body_only
+    out_tok: set[str] = set()
+    for s in sentences:
+        out_tok |= _token_set(s.text or "")
+    return round(len(raw_tok & out_tok) / len(raw_tok), 4)
+
+
+def practice_token_n(raw_text: str, references_text: str = "") -> int:
+    """Size of the denominator design/330 reports on the handoff."""
+    raw_tok = _token_set(practice_text_only(raw_text))
+    ref_tok = _token_set(references_text) if references_text else set()
+    if ref_tok and (raw_tok - ref_tok):
+        raw_tok = raw_tok - ref_tok
+    return len(raw_tok)
 
 
 def compute_coverage_ratio(raw_text: str, sentences: list[Sentence]) -> float:

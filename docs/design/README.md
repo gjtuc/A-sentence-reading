@@ -379,6 +379,7 @@
 | 328 | [328-variable-exponent-and-spelled-run.md](328-variable-exponent-and-spelled-run.md) | 변수 지수를 인용으로 지우던 것·철자 런이 화학식을 쪼개던 것 (0.3.322) |
 | 329 | [329-table-png-row-cap.md](329-table-png-row-cap.md) | 표 그림이 45행에서 끊기던 것 · 넘치면 알림 (0.3.323) |
 | 330 | [330-coverage-denominator.md](330-coverage-denominator.md) | 재현율 분모에서 참고문헌 제외 · 분모를 증거로 보고 (0.3.324) |
+| 331 | [331-azure-references-in-denominator.md](331-azure-references-in-denominator.md) | Azure가 분리한 참고문헌을 분모까지 배선 (0.3.325) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

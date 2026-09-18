@@ -307,6 +307,58 @@ def test_design_330_cut_is_a_noop_without_a_bibliography():
     assert practice_text_only(plain) == plain
 
 
+def test_design_331_azure_references_leave_the_denominator():
+    """The raw text interleaves columns, so only Azure knows where refs are."""
+    from sentence_reading.llm.debone_quality import coverage_excluding_references
+
+    body = " ".join(f"alpha{i} beta{i}" for i in range(30))
+    # No `References` header in the raw text, so design/330's cut cannot fire.
+    refs = " ".join(f"zeta{i} omega{i}" for i in range(30))
+    raw = f"{body} {refs}"
+    sents = [
+        Sentence(id=str(i), text=f"alpha{i} beta{i}", section="results")
+        for i in range(30)
+    ]
+
+    without = coverage_excluding_references(raw, sents)
+    with_refs = coverage_excluding_references(raw, sents, references_text=refs)
+    assert without < 0.6
+    assert with_refs > 0.95
+
+
+def test_design_331_shared_tokens_stay_in_the_denominator():
+    """A body loss must not hide behind a word the references also use."""
+    from sentence_reading.llm.debone_quality import coverage_excluding_references
+
+    raw = "catalyst alpha beta gamma delta catalyst epsilon"
+    refs = "catalyst"
+    # Sentences cover only `catalyst`, missing the rest of the body.
+    sents = [Sentence(id="1", text="catalyst", section="results")]
+    ratio = coverage_excluding_references(raw, sents, references_text=refs)
+    assert ratio < 0.4, ratio
+
+
+def test_design_331_recover_result_carries_references():
+    from sentence_reading.llm.vision_ocr import RecoverResult
+
+    r = RecoverResult(text="t", pages=["t"])
+    assert r.references_text == ""
+    r2 = RecoverResult(text="t", pages=["t"], references_text="refs here")
+    assert r2.references_text == "refs here"
+
+
+def test_design_331_denominator_size_is_reported():
+    from sentence_reading.llm.debone_quality import practice_token_n
+
+    raw = "alpha beta gamma delta epsilon"
+    assert practice_token_n(raw) == 5
+    assert practice_token_n(raw, "delta epsilon") == 3
+
+    app = (ROOT / "src/sentence_reading/api/app.py").read_text(encoding="utf-8")
+    assert '"azure_refs_chars": len(_refs_text or "")' in app
+    assert '"practice_token_n": practice_token_n(' in app
+
+
 def test_design_330_denominator_is_reported_on_the_handoff():
     app = (ROOT / "src/sentence_reading/api/app.py").read_text(encoding="utf-8")
     assert '"practice_chars": len(_practice or "")' in app

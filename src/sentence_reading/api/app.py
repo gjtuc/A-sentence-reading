@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.324",
+    version="0.3.325",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -7514,6 +7514,8 @@ async def _run_ingest_job_body(
             _ = reason  # machine reason kept out of user-facing copy
 
         text_pre_filter = ""
+        # design/331 — set when the Azure reading-order path runs.
+        _azure_refs_text = ""
         if resume_pl and (
             skip_vision or vision_resume is not None
         ) and isinstance(resume_pl.get("pages"), list):
@@ -7733,6 +7735,8 @@ async def _run_ingest_job_body(
             text = recovered.text
             pdf_pages = recovered.pages
             warnings.extend(recovered.warnings)
+            # design/331 — carry Azure's bibliography to the recall denominator.
+            _azure_refs_text = getattr(recovered, "references_text", "") or ""
             # design/222 — vision may surface SI cover text that pre-vision head missed.
             if not job_doc_override:
                 prior = doc_role
@@ -8153,14 +8157,19 @@ async def _run_ingest_job_body(
                     coverage_excluding_references,
                     order_warnings,
                     practice_text_only,
+                    practice_token_n,
                     source_coverage_warnings,
                     source_order_stats,
                 )
 
-                # design/330 — references are never practice text.
+                # design/330/331 — references are never practice text. Azure knows
+                # where they are even when the raw text's columns hide the header.
+                _refs_text = _azure_refs_text
                 _practice = practice_text_only(text_pre_filter)
                 _src_cov = coverage_excluding_references(
-                    text_pre_filter, sentences
+                    text_pre_filter,
+                    sentences,
+                    references_text=_refs_text,
                 )
                 _post_cov = float((ingest_quality or {}).get("coverage_ratio") or 0.0)
                 warnings.extend(
@@ -8185,15 +8194,19 @@ async def _run_ingest_job_body(
                         "source_coverage": round(_src_cov, 4),
                         "debone_coverage": round(_post_cov, 4),
                         "sentence_n": len(sentences or []),
-                        # design/330 — what the denominator actually was. A low
-                        # coverage with refs_share 0 is either real loss or a
-                        # bibliography the raw-text cut could not parse.
+                        # design/330 — what the denominator actually was.
                         "practice_chars": len(_practice or ""),
                         "refs_share": round(
                             1
                             - len(_practice or "")
                             / max(1, len(text_pre_filter or "")),
                             3,
+                        ),
+                        # design/331 — the bibliography Azure isolated, and the
+                        # token count the ratio was actually divided by.
+                        "azure_refs_chars": len(_refs_text or ""),
+                        "practice_token_n": practice_token_n(
+                            text_pre_filter, _refs_text
                         ),
                         "order_anchored_n": int(_ord.get("anchored_n") or 0),
                         "order_backward_n": int(_ord.get("backward_n") or 0),
