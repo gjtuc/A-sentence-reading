@@ -220,15 +220,45 @@ def test_speak_norm_version_bumped_for_the_new_rules():
 # --- known remaining, recorded so the next chip has a target ------------------
 
 
-def test_known_gap_markup_split_formula():
-    """`H<sub>2</sub>SO<sub>4</sub>` is not folded into one token yet.
+def test_marked_up_formula_is_named_too():
+    """design/328 — this was recorded as a folding gap; it was not.
 
-    The plain form is right, so the gap is in sub/sup folding across tags, not in
-    the naming rules. design/326 「Not this chip」.
+    `_SPELLED_RUN`, the rule that keeps an already-spelled acronym stable, was
+    matching `M H` inside `0.1 M H2SO4` and splitting the acid in two. The tail
+    then reached the element passes as `2SO4`.
     """
     assert "sulfuric acid" in _s("H2SO4").lower()
-    marked = _s("0.1 M H<sub>2</sub>SO<sub>4</sub>").lower()
-    assert "sulfuric acid" not in marked  # update when folding is fixed
+    assert "sulfuric acid" in _s("0.1 M H<sub>2</sub>SO<sub>4</sub>").lower()
+    assert "sulfur o" not in _s("0.1 M H<sub>2</sub>SO<sub>4</sub>").lower()
+
+
+def test_a_spelled_run_is_still_stable_next_to_a_number():
+    # The guard must keep working where it was meant to.
+    once = _s("the N M R peak")
+    assert "N M R" in once
+    assert _s(once) == once
+    assert "B Z Y 10" in _s("the BZY10 composition")
+
+
+def test_variable_exponent_is_not_eaten_as_a_citation():
+    """design/328 — design/216 strips a numeric <sup> as a reference marker.
+
+    On `t2g<sup>5</sup>` that silently deleted the value the paper printed.
+    """
+    out = _s(
+        "assigned as <i>t<sub>2g</sub></i><sup>5</sup> "
+        "<i>e<sub>g</sub></i><sup>~1.2</sup>"
+    )
+    assert "t two g" in out
+    assert "to the 5" in out
+    assert "about 1.2" in out
+
+
+def test_a_real_citation_marker_is_still_stripped():
+    out = _s("major contributors.<sup>12</sup>")
+    assert "twelve" not in out.lower()
+    assert "12" not in out
+    assert "contributors" in out
 
 
 def test_known_gap_doped_formula_needs_the_paper_term():

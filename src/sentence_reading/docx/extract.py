@@ -237,6 +237,28 @@ def _paragraph_image_blobs(paragraph, document) -> list[tuple[bytes, str]]:
     return out
 
 
+def table_is_grid(table) -> bool:
+    """design/327 — a cell grid is not prose.
+
+    `extract_text` used to append every table's cell text, so a 49-row table
+    arrived as one practice `sentence` of pipe-separated numbers while the same
+    table was also rendered into its own slot PNG. The reader met the table
+    twice: once as a picture, once as an unspeakable blob.
+
+    A one-column or one-row table is often just a text box holding a paragraph,
+    so that still counts as prose. Two or more columns *and* two or more rows is
+    a grid and belongs to the slot only.
+    """
+    try:
+        rows = table.rows
+        if len(rows) < 2:
+            return False
+        cols = max((len(r.cells) for r in rows), default=0)
+        return cols >= 2
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _table_plain(table) -> str:
     rows: list[str] = []
     for row in table.rows:
@@ -422,6 +444,9 @@ def extract_text(path: Path) -> str:
             if t:
                 parts.append(t)
         elif isinstance(block, Table):
+            # design/327 — a grid goes to its slot PNG, never to the sentences.
+            if table_is_grid(block):
+                continue
             plain = _table_plain(block)
             if plain.strip():
                 parts.append(plain)
@@ -461,6 +486,7 @@ def figure_source_census(path: Path) -> dict[str, int]:
             rid = _image_rel_id(el)
             if not rid or _blob_from_rel(doc, rid) is None:
                 unresolved_vml += 1
+    grid_n = 0
     for block in _iter_block_items(doc):
         if isinstance(block, Paragraph):
             text = _paragraph_text(block)
@@ -469,12 +495,16 @@ def figure_source_census(path: Path) -> dict[str, int]:
             ):
                 caption_n += 1
         elif isinstance(block, Table):
-            continue
+            # design/327 — grids kept out of the sentence stream. Counted so the
+            # skip is visible rather than a silent drop (design/321).
+            if table_is_grid(block):
+                grid_n += 1
     return {
         "blip_n": blip_n,
         "imagedata_n": imagedata_n,
         "caption_n": caption_n,
         "vml_unseen_n": unresolved_vml,
+        "table_grid_n": grid_n,
     }
 
 

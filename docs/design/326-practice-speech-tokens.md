@@ -125,12 +125,22 @@ printed, which is what stopped the `Kröger` class.
   "nitrogen doped" while `Cs-corrected` must become "C S corrected", so the two
   cannot be separated by shape alone. This needs a lexicon, not a rule.
 
+## Follow-up, closed in design/328
+
+The two items first recorded here as "sub/sup folding gaps" were misdiagnosed,
+and both are now fixed:
+
+- `0.1 M H<sub>2</sub>SO<sub>4</sub>` missed `sulfuric acid` because
+  `_SPELLED_RUN` — the rule that keeps an already-spelled acronym stable — was
+  matching `M H` and splitting the acid, leaving `2SO4` for the element passes.
+  The lookahead now rejects a following digit.
+- `<i>t<sub>2g</sub></i><sup>5</sup>` lost its exponent because design/216
+  strips a numeric `<sup>` as a reference marker.
+  `protect_variable_exponents` marks a variable's exponent before the citation
+  rule runs, so design/216 is unchanged and the value survives.
+
 ## Not this chip
 
-- `H<sub>2</sub>SO<sub>4</sub>` is not folded into one token, so the marked-up
-  form misses `sulfuric acid` while the plain form gets it. Sub/sup folding
-  across an intervening tag.
-- `<i>t<sub>2g</sub></i><sup>5</sup>` loses the exponent for the same reason.
 - Doped fractional formulas (waiting on Phase 2 terms).
 - `Cs-corrected` versus `N-doped`: a symbol-hyphen-word lexicon.
 - Chunk boundaries at breath/clause points — the one-breath rule is written

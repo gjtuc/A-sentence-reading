@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.321",
+    version="0.3.322",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -7871,6 +7871,7 @@ async def _run_ingest_job_body(
                 "imagedata_n": 0,
                 "caption_n": 0,
                 "vml_unseen_n": 0,
+                "table_grid_n": 0,
             }
             _az = {}
             try:
@@ -7906,6 +7907,8 @@ async def _run_ingest_job_body(
                     "imagedata_n": int(_census.get("imagedata_n") or 0),
                     "caption_n": int(_census.get("caption_n") or 0),
                     "vml_unseen_n": int(_census.get("vml_unseen_n") or 0),
+                    # design/327 — grids that went to a slot, not to sentences.
+                    "table_grid_n": int(_census.get("table_grid_n") or 0),
                     "slot_s_n": sum(
                         1
                         for f in (figures or [])

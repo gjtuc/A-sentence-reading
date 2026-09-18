@@ -255,7 +255,9 @@ def _is_complex_formula(f: str) -> bool:
 
 
 # `N M R` produced by an earlier call. Keep it, do not re-chew it.
-_SPELLED_RUN = re.compile(r"(?<![A-Za-z])[A-Z](?: [A-Z])+s?(?![A-Za-z])")
+# A trailing digit means the last capital belongs to a formula, not to a spelled
+# run: in `0.1 M H2SO4` this used to match `M H` and split the acid in two.
+_SPELLED_RUN = re.compile(r"(?<![A-Za-z])[A-Z](?: [A-Z])+s?(?![A-Za-z0-9])")
 # `F-T`, `I-V`, `C-H` — single capitals joined by hyphens are letter pairs, not
 # elements and not a minus (design/217). Decided here so the result is stable.
 _CAP_PAIR = re.compile(
@@ -647,6 +649,38 @@ def slash_by_meaning(text: str) -> str:
         _sub,
         text or "",
     )
+
+
+_EXP_MARK = "\x01"
+# `<i>t<sub>2g</sub></i><sup>5</sup>` — an exponent on a variable, not a citation.
+# The italic body must be a single letter with an optional subscript, so an
+# italic journal name followed by a real citation marker is untouched.
+_ORBITAL_EXP = re.compile(
+    r"(<i>[a-z](?:<sub>[0-9a-z]{1,3}</sub>)?</i>)\s*<sup>(~?\d+(?:\.\d+)?)</sup>",
+    re.IGNORECASE,
+)
+_EXP_RESOLVE = re.compile(r"\x01(~?\d+(?:\.\d+)?)\x01")
+
+
+def protect_variable_exponents(raw: str) -> str:
+    """design/328 — keep a variable's exponent from being read as a citation.
+
+    design/216 strips a numeric `<sup>n</sup>` because in ACS text that is a
+    reference marker. On `t2g<sup>5</sup>` it silently deleted the value, so the
+    ear got `t two g` where the paper printed `t2g^5`. Marking it first means the
+    citation rule never sees it and nothing about design/216 changes.
+    """
+    return _ORBITAL_EXP.sub(lambda m: f"{m.group(1)}{_EXP_MARK}{m.group(2)}{_EXP_MARK}", raw or "")
+
+
+def resolve_variable_exponents(text: str) -> str:
+    def _sub(m: re.Match[str]) -> str:
+        val = m.group(1)
+        if val.startswith("~"):
+            return f" to the about {val[1:]} "
+        return f" to the {val} "
+
+    return _EXP_RESOLVE.sub(_sub, text or "")
 
 
 def restore(text: str, mapping: dict[str, str]) -> str:

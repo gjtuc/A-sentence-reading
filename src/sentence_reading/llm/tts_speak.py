@@ -19,6 +19,8 @@ from sentence_reading.llm.tts_speak_lexicon import (
 )
 from sentence_reading.llm.speak_tokens import (
     freeze,
+    protect_variable_exponents,
+    resolve_variable_exponents,
     restore,
     restore_sentence_case,
     spoken_post,
@@ -1020,6 +1022,8 @@ def spoken_text_for_tts(
                 break
             s = after
 
+    # design/328 — mark a variable's exponent before the citation rule can eat it.
+    s = protect_variable_exponents(s)
     # design/216 — strip numeric cite <sup>n</sup> before HTML->spoken
     s = strip_cite_markers_for_display(s)
 
@@ -1033,6 +1037,7 @@ def spoken_text_for_tts(
             s = re.sub(r"<[^>]+>", " ", s)
 
     s = _strip_literal_tags(s)
+    s = resolve_variable_exponents(s)
     # design/326 — rejoin sub/superscripts first. The HTML parser spaces them out,
     # and a spaced `Ba0.5 Sr0.5 ... O3` is not recognisable as one formula, so the
     # token decisions below would never see it.
