@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.326",
+    version="0.3.327",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -8172,10 +8172,12 @@ async def _run_ingest_job_body(
                     references_text=_refs_text,
                 )
                 _post_cov = float((ingest_quality or {}).get("coverage_ratio") or 0.0)
+                _denom_n = practice_token_n(text_pre_filter, _refs_text)
                 warnings.extend(
                     source_coverage_warnings(
                         source_coverage=_src_cov,
                         debone_coverage=_post_cov,
+                        denom_tokens=_denom_n,
                     )
                 )
                 # design/322 — reading order is invisible behind one sentence.
@@ -8205,9 +8207,7 @@ async def _run_ingest_job_body(
                         # design/331 — the bibliography Azure isolated, and the
                         # token count the ratio was actually divided by.
                         "azure_refs_chars": len(_refs_text or ""),
-                        "practice_token_n": practice_token_n(
-                            text_pre_filter, _refs_text
-                        ),
+                        "practice_token_n": _denom_n,
                         "order_anchored_n": int(_ord.get("anchored_n") or 0),
                         "order_backward_n": int(_ord.get("backward_n") or 0),
                         "order_backward_pct": float(_ord.get("backward_pct") or 0.0),

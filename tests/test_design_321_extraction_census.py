@@ -307,23 +307,75 @@ def test_design_330_cut_is_a_noop_without_a_bibliography():
     assert practice_text_only(plain) == plain
 
 
-def test_design_331_azure_references_leave_the_denominator():
-    """The raw text interleaves columns, so only Azure knows where refs are."""
+def test_design_333_reference_tokens_are_not_subtracted():
+    """design/331 subtracted Azure's reference tokens; that was unsound.
+
+    A reference title carries the paper's own topic words, so removing those
+    tokens strips body vocabulary too. On srep41797 the denominator collapsed from
+    about 600 tokens to 40. The bibliography is removed by cutting the text.
+    """
     from sentence_reading.llm.debone_quality import coverage_excluding_references
 
     body = " ".join(f"alpha{i} beta{i}" for i in range(30))
-    # No `References` header in the raw text, so design/330's cut cannot fire.
     refs = " ".join(f"zeta{i} omega{i}" for i in range(30))
     raw = f"{body} {refs}"
     sents = [
         Sentence(id=str(i), text=f"alpha{i} beta{i}", section="results")
         for i in range(30)
     ]
+    # Passing references_text must not change the answer any more.
+    assert coverage_excluding_references(
+        raw, sents
+    ) == coverage_excluding_references(raw, sents, references_text=refs)
 
-    without = coverage_excluding_references(raw, sents)
-    with_refs = coverage_excluding_references(raw, sents, references_text=refs)
-    assert without < 0.6
-    assert with_refs > 0.95
+
+def test_design_333_a_tiny_denominator_is_not_reported_as_a_ratio():
+    from sentence_reading.llm.debone_quality import (
+        COVERAGE_MIN_DENOM_TOKENS,
+        coverage_is_measurable,
+        source_coverage_warnings,
+    )
+
+    assert coverage_is_measurable(COVERAGE_MIN_DENOM_TOKENS) is True
+    assert coverage_is_measurable(9) is False
+    w = source_coverage_warnings(
+        source_coverage=0.55, debone_coverage=0.9, denom_tokens=9
+    )
+    assert w == ["coverage_denom_too_small:9"]
+    # With a real denominator the normal warnings still fire.
+    w2 = source_coverage_warnings(
+        source_coverage=0.40, debone_coverage=0.95, denom_tokens=800
+    )
+    assert any(x.startswith("source_coverage_low:") for x in w2)
+
+
+def test_design_333_back_matter_and_page_chrome_leave_the_denominator():
+    from sentence_reading.llm.debone_quality import strip_back_matter
+
+    body = "The catalyst was stable. " * 40
+    raw = (
+        f"{body}\n"
+        "SCIENTIFIC REPORTS | 7:41797 | DOI: 10.1038/srep41797 www.nature.com/x\n"
+        f"{body}\n"
+        "Author Contributions\n"
+        "Q.L. supervised the work and prepared the manuscript.\n"
+        "This work is licensed under a Creative Commons Attribution 4.0 License.\n"
+    )
+    out = strip_back_matter(raw)
+    assert "nature.com" not in out
+    assert "Creative Commons" not in out
+    assert "Author Contributions" not in out
+    assert "The catalyst was stable." in out
+
+
+def test_design_333_back_matter_cut_ignores_an_early_heading():
+    """A file with two articles carries another paper's back matter up top."""
+    from sentence_reading.llm.debone_quality import strip_back_matter
+
+    tail_of_other_paper = "Supplementary information\nFigs. S1 to S4\n"
+    target = "The design of cost-effective catalysts matters. " * 60
+    out = strip_back_matter(tail_of_other_paper + target)
+    assert "cost-effective" in out, "the target paper must survive"
 
 
 def test_design_331_shared_tokens_stay_in_the_denominator():
@@ -352,11 +404,13 @@ def test_design_331_denominator_size_is_reported():
 
     raw = "alpha beta gamma delta epsilon"
     assert practice_token_n(raw) == 5
-    assert practice_token_n(raw, "delta epsilon") == 3
+    # design/333 — references_text is reported, never subtracted.
+    assert practice_token_n(raw, "delta epsilon") == 5
 
     app = (ROOT / "src/sentence_reading/api/app.py").read_text(encoding="utf-8")
     assert '"azure_refs_chars": len(_refs_text or "")' in app
-    assert '"practice_token_n": practice_token_n(' in app
+    assert '"practice_token_n": _denom_n' in app
+    assert "_denom_n = practice_token_n(" in app
 
 
 def test_design_330_denominator_is_reported_on_the_handoff():

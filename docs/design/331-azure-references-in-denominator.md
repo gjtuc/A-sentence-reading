@@ -3,6 +3,13 @@
 **Version:** 0.3.325 · Status: **locked**  
 Amends [330](330-coverage-denominator.md) · [321](321-extraction-boundary-census.md) · [31](31-reading-order.md)
 
+> **Withdrawn in part by [333](333-coverage-denominator-correction.md).** The
+> token-set subtraction locked below is unsound: a reference title carries the
+> paper's own topic words, so removing those tokens strips body vocabulary too and
+> `srep41797`'s denominator collapsed to 40 tokens. The bibliography is now removed
+> by cutting the text (design/330), and `references_text` is kept for reporting.
+> The measured table below therefore overstates the gain.
+
 ## Why
 
 design/330 removed the bibliography from the recall denominator using

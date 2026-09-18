@@ -26,6 +26,9 @@ BODY_RATIO_WARN = 0.30
 SOURCE_COVERAGE_LOW = 0.50
 SOURCE_COVERAGE_WARN = 0.65
 SOURCE_FILTER_GAP_WARN = 0.15
+# design/333 — below this the denominator is too small to mean anything. Report
+# nothing rather than a ratio computed over a handful of tokens.
+COVERAGE_MIN_DENOM_TOKENS = 120
 GROUNDING_MIN_WORDS = 5
 GROUNDING_NGRAM = 5
 
@@ -169,9 +172,69 @@ def fallback_split_chunk(
     return out
 
 
+# design/333 — PDF extraction fuses a citation superscript onto the word before
+# it (`coagulation16`, `study34`). Emitting the word as well as the fused token,
+# on both sides of the comparison, lets the real word match.
+_FUSED_CITE = re.compile(r"^([a-z]{5,})\d{1,3}$")
+
+
 def _token_set(text: str) -> set[str]:
     plain = plain_text(text).lower()
-    return set(re.findall(r"[a-z0-9]{3,}", plain))
+    out = set(re.findall(r"[a-z0-9]{3,}", plain))
+    for tok in list(out):
+        m = _FUSED_CITE.match(tok)
+        if m:
+            out.add(m.group(1))
+    return out
+
+
+# design/333 — back matter and legal boilerplate a reader never says aloud. The
+# per-page footer repeats on every page, so it dominates the token count.
+_BACK_MATTER = re.compile(
+    r"(?im)^\s*(?:"
+    r"how to cite this article"
+    r"|competing (?:financial )?interests?"
+    r"|conflicts? of interest"
+    r"|author contributions?"
+    r"|additional information"
+    r"|publisher'?s note"
+    r"|data availability"
+    r"|supplementary information"
+    r"|this work is licensed under"
+    r")\b"
+)
+_CHROME_LINE = re.compile(
+    r"(?im)^.*(?:"
+    r"creative ?commons"
+    r"|www\.[a-z0-9.\-]+"
+    r"|https?://"
+    r"|doi:\s*10\."
+    r"|\ball rights reserved\b"
+    r"|\u00a9\s*(?:the author|\d{4})"
+    r").*$"
+)
+
+
+def strip_back_matter(text: str) -> str:
+    """design/333 — drop per-page chrome, then cut a late back-matter heading.
+
+    A page footer such as `SCIENTIFIC REPORTS | 7:41797 | DOI: ... www.nature.com`
+    repeats once per page, so on a short paper it can outweigh real prose in the
+    recall denominator and make correct exclusion read as loss.
+
+    The heading cut only fires in the **last third** of the text. A file holding
+    more than one article carries another paper's `Supporting Online Material`
+    near the top, and cutting there removed the target paper entirely: the Science
+    excerpt's denominator collapsed to 9 tokens.
+    """
+    s = _CHROME_LINE.sub("", text or "")
+    if not s.strip():
+        return s
+    floor = int(len(s) * 0.66)
+    for m in _BACK_MATTER.finditer(s):
+        if m.start() >= floor:
+            return s[: m.start()]
+    return s
 
 
 def practice_text_only(raw_text: str) -> str:
@@ -184,13 +247,15 @@ def practice_text_only(raw_text: str) -> str:
 
     Reuses the bibliography cut the SI path already trusts, which is a no-op when
     no bibliography parses, so a paper with an unusual back matter is unaffected.
+    design/333 also removes back matter and per-page chrome.
     """
     from sentence_reading.cite_refs import cut_bibliography_for_sentences
 
     try:
-        return cut_bibliography_for_sentences(raw_text or "")
+        cut = cut_bibliography_for_sentences(raw_text or "")
     except Exception:  # noqa: BLE001
-        return raw_text or ""
+        cut = raw_text or ""
+    return strip_back_matter(cut)
 
 
 def coverage_excluding_references(
@@ -207,16 +272,10 @@ def coverage_excluding_references(
     the Azure path even when `extract_bibliography` cannot find a header in the
     raw text.
     """
-    practice = practice_text_only(raw_text)
-    raw_tok = _token_set(practice)
+    _ = references_text  # design/333 — no longer subtracted; see the note below.
+    raw_tok = _token_set(practice_text_only(raw_text))
     if not raw_tok:
         return 1.0
-    ref_tok = _token_set(references_text) if references_text else set()
-    if ref_tok:
-        # Keep a token that the body also uses; only drop what is references-only.
-        body_only = raw_tok - ref_tok
-        if body_only:
-            raw_tok = body_only
     out_tok: set[str] = set()
     for s in sentences:
         out_tok |= _token_set(s.text or "")
@@ -224,12 +283,17 @@ def coverage_excluding_references(
 
 
 def practice_token_n(raw_text: str, references_text: str = "") -> int:
-    """Size of the denominator design/330 reports on the handoff."""
-    raw_tok = _token_set(practice_text_only(raw_text))
-    ref_tok = _token_set(references_text) if references_text else set()
-    if ref_tok and (raw_tok - ref_tok):
-        raw_tok = raw_tok - ref_tok
-    return len(raw_tok)
+    """Size of the denominator design/330 reports on the handoff.
+
+    design/333 — subtracting Azure's reference **tokens** is unsound. A reference
+    title carries the paper's own topic words, so removing those tokens strips the
+    body vocabulary with them: on `srep41797`, whose bibliography is 23,090 of
+    50,975 characters, the denominator collapsed from ~600 tokens to 40 and the
+    ratio became meaningless. The bibliography is removed by cutting the **text**
+    (`practice_text_only`); `references_text` is kept for reporting only.
+    """
+    _ = references_text
+    return len(_token_set(practice_text_only(raw_text)))
 
 
 def compute_coverage_ratio(raw_text: str, sentences: list[Sentence]) -> float:
@@ -444,10 +508,16 @@ def practice_text_for_coverage(raw: str) -> str:
     return cut
 
 
+def coverage_is_measurable(denom_tokens: int) -> bool:
+    """design/333 — a ratio over a handful of tokens is not a measurement."""
+    return int(denom_tokens or 0) >= COVERAGE_MIN_DENOM_TOKENS
+
+
 def source_coverage_warnings(
     *,
     source_coverage: float,
     debone_coverage: float,
+    denom_tokens: int | None = None,
 ) -> list[str]:
     """design/321 — recall against the pre-filter text, and the filter's share.
 
@@ -456,6 +526,8 @@ def source_coverage_warnings(
     warning can see it.
     """
     w: list[str] = []
+    if denom_tokens is not None and not coverage_is_measurable(denom_tokens):
+        return [f"coverage_denom_too_small:{int(denom_tokens)}"]
     src = float(source_coverage)
     if src < SOURCE_COVERAGE_LOW:
         w.append(f"source_coverage_low:{src:.2f}")

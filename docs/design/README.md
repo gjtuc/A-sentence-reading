@@ -381,6 +381,7 @@
 | 330 | [330-coverage-denominator.md](330-coverage-denominator.md) | 재현율 분모에서 참고문헌 제외 · 분모를 증거로 보고 (0.3.324) |
 | 331 | [331-azure-references-in-denominator.md](331-azure-references-in-denominator.md) | Azure가 분리한 참고문헌을 분모까지 배선 (0.3.325) |
 | 332 | [332-headingless-reference-list.md](332-headingless-reference-list.md) | 머리글 없는 참고문헌 목록이 연습 문장이 되던 것 (0.3.326) |
+| 333 | [333-coverage-denominator-correction.md](333-coverage-denominator-correction.md) | 재현율 분모 교정 · 331 토큰 차집합 철회 · 분모 하한 (0.3.327) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |
