@@ -104,9 +104,14 @@ def test_parenthetical_aside_is_not_spoken() -> None:
 
 
 def test_formula_parentheses_stay_in_speech() -> None:
+    """design/326 — Ni(NO3)2 is nickel nitrate.
+
+    This used to assert 'nitrogen' and 'oxygen', locking in a name composed from
+    parts. No chemist says 'nickel nitrogen oxygen three two'.
+    """
     out = spoken_text_for_tts("Ni(NO3)2 on the (110) facet").lower()
-    assert "nickel" in out
-    assert "nitrogen" in out and "oxygen" in out
+    assert "nickel nitrate" in out
+    assert "nitrogen" not in out
     assert "110" in out
     assert "(" not in out
 

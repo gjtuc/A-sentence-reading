@@ -9,7 +9,9 @@ from dataclasses import dataclass
 
 
 # Bump when spoken rules change in a way that must bust GCS/local MP3 cache.
-SPEAK_NORM_VERSION_DEFAULT = "v6"
+# v7 — design/326: token-typed decisions, acronyms atomic, compound names never
+# composed from parts, abbreviation definitions voiced.
+SPEAK_NORM_VERSION_DEFAULT = "v7"
 
 
 @dataclass(frozen=True)
@@ -19,7 +21,10 @@ class SpeakPolicy:
     speak_norm_version: str = SPEAK_NORM_VERSION_DEFAULT
     chem_style: str = "symbol_digits"  # later: common_name | letter_spell
     acronym_mode: str = "lexicon"
-    full_name_abbrev: str = "prefer_one"
+    # design/326 — say the long form and the abbreviation. `prefer_one` dropped
+    # the abbreviation at its definition and then read bare letters in later
+    # sentences, so the listener never heard the term defined.
+    full_name_abbrev: str = "say_both"
     pause_mode: str = "punctuation"  # later: light_ssml
     locale: str = "en-US"
 

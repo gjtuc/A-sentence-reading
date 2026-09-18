@@ -24,12 +24,18 @@ def test_nmr_letters() -> None:
 
 
 def test_collapse_name_abbr() -> None:
+    """design/326 — say both, not one.
+
+    `prefer_one` used to drop the abbreviation at its definition, and later
+    sentences then read bare letters the listener had never heard defined. A
+    speaker reading aloud says the long form and the abbreviation.
+    """
     out = spoken_text_for_tts(
         "nuclear magnetic resonance (NMR) was used"
     ).lower()
     assert "nuclear magnetic resonance" in out
     assert "(nmr)" not in out
-    assert "n m r" not in out
+    assert "n m r" in out
 
 
 def test_fig_digit_not_chem() -> None:
@@ -56,7 +62,7 @@ def test_prosody_arrow_comma() -> None:
 
 
 def test_cache_key_includes_norm_version() -> None:
-    assert SPEAK_NORM_VERSION_DEFAULT == "v6"
+    assert SPEAK_NORM_VERSION_DEFAULT == "v7"
     k1 = tts_mod.cache_key("hello", "en-US-Neural2-D", 1.0)
     assert len(k1) == 24
 

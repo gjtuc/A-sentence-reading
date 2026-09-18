@@ -17,6 +17,13 @@ from sentence_reading.llm.tts_speak_lexicon import (
     CHEM_ALIASES,
     FORMULA_FRAGMENTS,
 )
+from sentence_reading.llm.speak_tokens import (
+    freeze,
+    restore,
+    restore_sentence_case,
+    spoken_post,
+    voice_definitions,
+)
 from sentence_reading.llm.tts_speak_policy import SpeakPolicy, load_speak_policy
 
 _SECTION_PREFIX = re.compile(
@@ -987,10 +994,17 @@ def align_display_to_spoken(display: str) -> list[dict[str, int]]:
 
 
 def spoken_text_for_tts(
-    raw: str, *, policy: SpeakPolicy | None = None
+    raw: str,
+    *,
+    policy: SpeakPolicy | None = None,
+    terms: dict[str, str] | None = None,
 ) -> str:
     """
-    Display HTML/plain -> English spoken for TTS (design/205 · 216 · 217).
+    Display HTML/plain -> English spoken for TTS (design/205 · 216 · 217 · 326).
+
+    `terms` is the paper's own spoken dictionary (design/326 hybrid). It wins over
+    every built-in rule, so a formula this module would only spell can be given
+    the name the authors actually say.
     """
     _ = policy or load_speak_policy()
     s = (raw or "").strip()
@@ -1013,9 +1027,20 @@ def spoken_text_for_tts(
             s = re.sub(r"<[^>]+>", " ", s)
 
     s = _strip_literal_tags(s)
-    s = _drop_parenthetical_asides(s)
+    # design/326 — rejoin sub/superscripts first. The HTML parser spaces them out,
+    # and a spaced `Ba0.5 Sr0.5 ... O3` is not recognisable as one formula, so the
+    # token decisions below would never see it.
     s = _fold_formula_subscripts(s)
+    # design/326 — say the long form and the abbreviation. Must precede the aside
+    # drop, which would otherwise delete the definition.
+    s = voice_definitions(s)
+    # design/326 — decide acronyms, site labels and namable compounds once, then
+    # hide them so no later pass can split an acronym into element symbols. This
+    # sits before the unicode-script pass, which turns a trailing delta into a
+    # word and would split the formula token in two.
+    s, _frozen = freeze(s, terms=terms)
     s = _expand_unicode_scripts(s)
+    s = _drop_parenthetical_asides(s)
     s = _apply_chem_aliases(s)
     s = _apply_formula_fragments(s)
     s = _expand_plain_chem_digits(s)
@@ -1034,4 +1059,8 @@ def spoken_text_for_tts(
     s = _apply_light_prosody(s)
     s = re.sub(r"\s+", " ", s).strip()
     s = s.strip(" 	\"'`")
+    s = restore(s, _frozen)
+    # design/326 — units, ranges and punctuation the way a speaker says them.
+    s = spoken_post(s)
+    s = restore_sentence_case(s, raw or "")
     return s

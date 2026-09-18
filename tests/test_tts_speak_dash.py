@@ -6,8 +6,9 @@ from sentence_reading.llm.tts_speak import spoken_text_for_tts
 from sentence_reading.llm.tts_speak_policy import SPEAK_NORM_VERSION_DEFAULT
 
 
-def test_speak_norm_v4() -> None:
-    assert SPEAK_NORM_VERSION_DEFAULT == "v6"
+def test_speak_norm_version_pin() -> None:
+    # design/326 — v7 busts the MP3 cache for the token-typed spoken form.
+    assert SPEAK_NORM_VERSION_DEFAULT == "v7"
 
 
 def test_ni_cu_alloy_no_minus() -> None:
