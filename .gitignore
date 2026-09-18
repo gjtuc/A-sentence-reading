@@ -19,6 +19,10 @@ venv/
 Thumbs.db
 Desktop.ini
 
+# design/323 — local audit scratch: hand-built ground truth + pipeline traces.
+# These quote paper sentences, so they stay out of the repo.
+agent-tools/
+
 # Local uploads / extracted assets / title-keyed paper cache
 data/uploads/
 data/extracted/

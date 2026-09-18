@@ -211,6 +211,15 @@ def slot_missing_caption(kind: str, n: int) -> str:
     return f"Figure {n} (missing)"
 
 
+def slot_unnumbered_caption(kind: str) -> str:
+    """design/324 — a rescued body whose caption never parsed.
+
+    It must not borrow the next integer: asserting `Figure 4` in a paper that
+    prints three figures invents a label (design/124 — no success theatre).
+    """
+    return "번호 없는 표" if kind == "table" else "번호 없는 그림"
+
+
 def rect_from_dict(d: dict | None):
     import fitz
 

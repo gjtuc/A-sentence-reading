@@ -372,6 +372,7 @@
 | 321 | [321-extraction-boundary-census.md](321-extraction-boundary-census.md) | 추출 경계 인구조사 — 문장·그림 손실을 셈 (0.3.316) |
 | 322 | [322-sentence-order-is-the-paper-order.md](322-sentence-order-is-the-paper-order.md) | 문장 순서 = 논문 순서 · 섹션 순위 정렬 폐기 (0.3.317) |
 | 323 | [323-extract-audit-harness.md](323-extract-audit-harness.md) | 논문 1편당 추출 감사 하네스 + 잉크 클리핑 탐침 (ops) |
+| 324 | [324-unnumbered-rescued-figures.md](324-unnumbered-rescued-figures.md) | 구조된 그림은 번호를 빌리지 않는다 (0.3.318) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

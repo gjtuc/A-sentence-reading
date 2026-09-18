@@ -17,6 +17,7 @@ from sentence_reading.pdf.composite import (
     placeholder_png,
     rect_from_dict,
     slot_missing_caption,
+    slot_unnumbered_caption,
 )
 from sentence_reading.pdf.extract import (
     is_caption_only_figure_png,
@@ -165,7 +166,10 @@ def _render_slot_png(
         return placeholder_png(label), label, page_index
 
     if not caption:
-        if slot.kind == "table":
+        if getattr(slot, "unnumbered", False):
+            # design/324 — rescued body; its number is a position, not a label.
+            caption = slot_unnumbered_caption(slot.kind)
+        elif slot.kind == "table":
             caption = f"Table {slot.n}"
         else:
             caption = f"Figure {slot.n}"

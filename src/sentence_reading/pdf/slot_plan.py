@@ -31,6 +31,9 @@ class Slot:
     caption_text: str = ""
     body_box_ids: list[str] = field(default_factory=list)
     caption_box_ids: list[str] = field(default_factory=list)
+    # design/324 — rescued body with no parsed caption number. Its `n` is a
+    # carousel position, not a label the paper printed.
+    unnumbered: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         body_ids = self.body_box_ids or (
@@ -49,6 +52,7 @@ class Slot:
             "body_box_ids": body_ids,
             "caption_box_ids": cap_ids,
             "caption_text": self.caption_text,
+            "unnumbered": bool(self.unnumbered),
         }
 
     @classmethod
@@ -81,6 +85,7 @@ class Slot:
             caption_text=str(raw.get("caption_text") or ""),
             body_box_ids=body_ids,
             caption_box_ids=cap_ids,
+            unnumbered=bool(raw.get("unnumbered")),
         )
 
 
@@ -289,7 +294,17 @@ def append_unclaimed_body_slots(
             key = f"{slot_kind}:s{n}" if supplementary else f"{slot_kind}:{n}"
             if plan.slot_by_key(key) is not None:
                 continue
-            plan.slots.append(Slot(key=key, kind=slot_kind, n=n, status="empty"))
+            plan.slots.append(
+                Slot(
+                    key=key,
+                    kind=slot_kind,
+                    n=n,
+                    status="empty",
+                    # design/324 — `n` here is a carousel position, not a label
+                    # the paper printed. Do not let it read as `Figure n`.
+                    unnumbered=True,
+                )
+            )
             assign_body_boxes_to_slot(plan, layout, key, [box.id])
             added += 1
     if added:

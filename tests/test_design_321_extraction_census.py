@@ -110,6 +110,52 @@ def test_unnumbered_captions_no_longer_collapse_bodies_into_one_slot():
     assert all(s.status != "empty" for s in plan.slots if s.body_box_id)
 
 
+def test_appended_slots_are_marked_unnumbered():
+    # design/324 — a rescued body must not claim the next figure number.
+    layout = LayoutMap(
+        boxes=[
+            _body("fb-1", "figure_body", 100.0),
+            _body("fb-2", "figure_body", 300.0),
+            _body("tb-1", "table_body", 500.0),
+        ]
+    )
+    plan = build_slot_plan(layout)
+    initial_body_assignments(layout, plan)
+    append_unclaimed_body_slots(layout, plan)
+    appended = [s for s in plan.slots if s.unnumbered]
+    assert appended, "expected rescued slots"
+    assert all(s.body_box_id for s in appended)
+    # Round-trip keeps the flag so a reopened plan still tells the truth.
+    from sentence_reading.pdf.slot_plan import SlotPlan as SP
+
+    again = SP.from_dict(plan.to_dict())
+    assert [s.unnumbered for s in again.slots] == [s.unnumbered for s in plan.slots]
+
+
+def test_unnumbered_caption_does_not_assert_a_figure_number():
+    from sentence_reading.pdf.composite import slot_unnumbered_caption
+
+    fig = slot_unnumbered_caption("fig")
+    tbl = slot_unnumbered_caption("table")
+    assert fig == "번호 없는 그림"
+    assert tbl == "번호 없는 표"
+    for s in (fig, tbl):
+        assert not any(ch.isdigit() for ch in s)
+
+
+def test_caption_numbered_slots_are_not_marked_unnumbered():
+    layout = LayoutMap(
+        boxes=[
+            _body("fb-1", "figure_body", 100.0),
+            _caption("fc-1", 205.0, "Figure 2. short label"),
+        ]
+    )
+    plan = build_slot_plan(layout)
+    initial_body_assignments(layout, plan)
+    append_unclaimed_body_slots(layout, plan)
+    assert all(not s.unnumbered for s in plan.slots)
+
+
 def test_appended_slots_keep_figures_before_tables():
     layout = LayoutMap(
         boxes=[
