@@ -50,6 +50,34 @@ void main() {
     );
   });
 
+  test('watchdog is scheduled rest plus two seconds when there is no review', () {
+    expect(
+      restCoverWatchdogLimit(scheduledRest: const Duration(seconds: 15)),
+      const Duration(seconds: 17),
+    );
+    expect(
+      restCoverWatchdogLimit(scheduledRest: Duration.zero),
+      kRestWatchdogSlack,
+    );
+  });
+
+  test('watchdog covers twelve seconds per review word plus tail plus slack', () {
+    expect(
+      restCoverWatchdogLimit(
+        scheduledRest: const Duration(seconds: 15),
+        reviewWordN: 1,
+      ),
+      const Duration(seconds: 17),
+    );
+    expect(
+      restCoverWatchdogLimit(
+        scheduledRest: const Duration(seconds: 15),
+        reviewWordN: 2,
+      ),
+      const Duration(seconds: 29),
+    );
+  });
+
   test('lower-tier draw stays in that band without a saved tier', () {
     final tier = missReviewTier(6);
     final band = kTtsSkillTier[tier]!;

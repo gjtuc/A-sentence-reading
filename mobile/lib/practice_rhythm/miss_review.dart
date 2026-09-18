@@ -1,4 +1,4 @@
-/// Missed-word review after replay (design/314).
+/// Missed-word review after replay (design/314) and rest-cover cap (design/320).
 library;
 
 import '../practice_skill/skill_score.dart';
@@ -7,6 +7,21 @@ const Duration kMissReviewGap = Duration(milliseconds: 400);
 const Duration kMissReviewTail = Duration(seconds: 3);
 const Duration kMissReviewScoreWait = Duration(seconds: 20);
 const Duration kMissReviewWordTimeout = Duration(seconds: 12);
+const Duration kRestWatchdogSlack = Duration(seconds: 2);
+
+/// Hard cap on the black rest cover. Past this, force the next listen.
+Duration restCoverWatchdogLimit({
+  required Duration scheduledRest,
+  int reviewWordN = 0,
+}) {
+  if (reviewWordN <= 0) {
+    if (scheduledRest <= Duration.zero) return kRestWatchdogSlack;
+    return scheduledRest + kRestWatchdogSlack;
+  }
+  final reviewMax = kMissReviewWordTimeout * reviewWordN;
+  final tail = missReviewTail(scheduledRest: scheduledRest, elapsed: reviewMax);
+  return reviewMax + tail + kRestWatchdogSlack;
+}
 
 /// Lower random tier for review. Does not persist.
 int missReviewTier(int applied) {

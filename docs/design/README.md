@@ -368,6 +368,7 @@
 | 317 | [317-azure-layout-failed-copy.md](317-azure-layout-failed-copy.md) | Azure fail-closed user copy + 재분석 (0.3.314) |
 | 318 | [318-jsonl-store.md](318-jsonl-store.md) | Shared JSONL append/rotate/GCS for observability buses (ops) |
 | 319 | [319-auth-access-routers.md](319-auth-access-routers.md) | Auth/access route tables + deps.py (255 Phase 2 start) |
+| 320 | [320-practice-rest-watchdog.md](320-practice-rest-watchdog.md) | Rest-cover watchdog; paint review word before TTS (0.3.315) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

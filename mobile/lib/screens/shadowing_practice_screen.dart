@@ -128,6 +128,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   final bool _autoAdvance = true;
   /// Invalidate in-flight cycle on give-up / picker jump.
   int _cycleToken = 0;
+  /// design/320 — rest cover epoch; watchdog invalidates a stuck delay.
+  int _restEpoch = 0;
+  Timer? _restWatchdog;
   /// design/208 — process grooming (rate nudge); copy-free.
   final PracticeGroomingController _grooming = PracticeGroomingController();
   double _groomRateScale = 1.0;
@@ -277,6 +280,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     unawaited(_followPosSub?.cancel());
     unawaited(_followDurSub?.cancel());
     _promptScroll.dispose();
+    _restWatchdog?.cancel();
+    _restWatchdog = null;
+    _restEpoch++;
     unawaited(_player.dispose());
     unawaited(_mic.invokeMethod<String>('stop'));
     unawaited(_persistPracticeCursor());
@@ -1527,6 +1533,73 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     setState(() => _sectionCueName = null);
   }
 
+  void _clearRestWatchdog() {
+    _restWatchdog?.cancel();
+    _restWatchdog = null;
+  }
+
+  void _armRestWatchdog({
+    required int token,
+    required int epoch,
+    required Duration limit,
+  }) {
+    _clearRestWatchdog();
+    if (limit <= Duration.zero) return;
+    _restWatchdog = Timer(limit, () {
+      unawaited(_onRestCoverWatchdog(token: token, epoch: epoch));
+    });
+  }
+
+  Future<void> _onRestCoverWatchdog({
+    required int token,
+    required int epoch,
+  }) async {
+    if (!mounted || epoch != _restEpoch || token != _cycleToken) return;
+    if (_rhythmPhase != RhythmPhase.rest) return;
+    _restEpoch++;
+    _cycleToken++;
+    _clearRestWatchdog();
+    asrEvidenceBus?.record(
+      'shadowing_loop_event',
+      cacheId: _cacheId,
+      ok: false,
+      code: 'rest_overrun',
+      details: {
+        'phase': 'rest_cover',
+        'ok': false,
+        'chunk_index': _chunkIndex,
+        'chunk_n': _chunks.length,
+      },
+    );
+    unawaited(_player.stop());
+    setState(() {
+      _rhythmPhase = RhythmPhase.idle;
+      _reviewWord = null;
+    });
+    if (!_focus.sessionActive || _focus.paused) return;
+    await _runCycle();
+  }
+
+  Future<bool> _awaitRestDeadline({
+    required int token,
+    required int epoch,
+    required DateTime deadline,
+  }) async {
+    while (DateTime.now().isBefore(deadline)) {
+      if (!mounted || token != _cycleToken || epoch != _restEpoch) {
+        return false;
+      }
+      if (!_focus.sessionActive || _focus.paused) return false;
+      final left = deadline.difference(DateTime.now());
+      final slice = left < const Duration(milliseconds: 400)
+          ? left
+          : const Duration(milliseconds: 400);
+      if (slice <= Duration.zero) break;
+      await Future<void>.delayed(slice);
+    }
+    return mounted && token == _cycleToken && epoch == _restEpoch;
+  }
+
   bool _reviewAlive(int token) =>
       mounted &&
       token == _cycleToken &&
@@ -1545,6 +1618,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (words.isEmpty || !_reviewAlive(token)) return;
     _missReviewActive = true;
     final clock = Stopwatch()..start();
+    final epoch = ++_restEpoch;
+    _armRestWatchdog(
+      token: token,
+      epoch: epoch,
+      limit: restCoverWatchdogLimit(
+        scheduledRest: scheduledRest,
+        reviewWordN: words.length,
+      ),
+    );
     setState(() {
       _rhythmPhase = RhythmPhase.rest;
       _reviewWord = null;
@@ -1582,11 +1664,29 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             _reviewWord = null;
           });
         }
-        await Future<void>.delayed(tail);
+        final still = await _awaitRestDeadline(
+          token: token,
+          epoch: epoch,
+          deadline: DateTime.now().add(tail),
+        );
+        if (!still) return;
       }
     } finally {
       _missReviewActive = false;
-      if (mounted) setState(() => _reviewWord = null);
+      final stillThisCover = epoch == _restEpoch;
+      if (stillThisCover) _clearRestWatchdog();
+      if (!mounted) {
+        // cover already gone with the widget
+      } else if (!_reviewAlive(token) &&
+          stillThisCover &&
+          _rhythmPhase == RhythmPhase.rest) {
+        setState(() {
+          _rhythmPhase = RhythmPhase.idle;
+          _reviewWord = null;
+        });
+      } else {
+        setState(() => _reviewWord = null);
+      }
     }
   }
 
@@ -1600,6 +1700,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   }) async {
     if (!_reviewAlive(token)) return false;
     _clearFollowLight();
+    if (mounted) setState(() => _reviewWord = word);
     try {
       await _player.stop();
       await _player.setVolume(_kFullTtsVolume);
@@ -1631,7 +1732,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           )
           .timeout(kMissReviewWordTimeout);
       if (!_reviewAlive(token) || bytes.isEmpty) return false;
-      setState(() => _reviewWord = word);
+      if (mounted && _reviewWord != word) {
+        setState(() => _reviewWord = word);
+      }
       final done = _player.onPlayerComplete.first.timeout(kMissReviewWordTimeout);
       await _player.play(BytesSource(bytes));
       await done;
@@ -1654,9 +1757,28 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (dur <= Duration.zero) return;
     if (!mounted || token != _cycleToken) return;
     if (!_focus.sessionActive || _focus.paused) return;
+    final epoch = ++_restEpoch;
+    _armRestWatchdog(
+      token: token,
+      epoch: epoch,
+      limit: restCoverWatchdogLimit(scheduledRest: dur),
+    );
     setState(() => _rhythmPhase = RhythmPhase.rest);
-    await Future<void>.delayed(dur);
-    if (!mounted || token != _cycleToken) return;
+    final still = await _awaitRestDeadline(
+      token: token,
+      epoch: epoch,
+      deadline: DateTime.now().add(dur),
+    );
+    if (!still) {
+      if (epoch == _restEpoch) _clearRestWatchdog();
+      if (mounted &&
+          epoch == _restEpoch &&
+          _rhythmPhase == RhythmPhase.rest) {
+        setState(() => _rhythmPhase = RhythmPhase.idle);
+      }
+      return;
+    }
+    _clearRestWatchdog();
     if (mounted && _rhythmPhase == RhythmPhase.rest) {
       setState(() => _rhythmPhase = RhythmPhase.idle);
     }
@@ -1819,6 +1941,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   void _onGiveUp() {
     _cycleToken++;
+    _restEpoch++;
+    _clearRestWatchdog();
     unawaited(_player.stop());
     _clearFollowLight();
     unawaited(_mic.invokeMethod<String>('stop'));
@@ -1877,6 +2001,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   Future<void> _goToPracticeSentence(int globalIndex) async {
     _cycleToken++;
+    _restEpoch++;
+    _clearRestWatchdog();
     unawaited(_player.stop());
     _clearFollowLight();
     try {

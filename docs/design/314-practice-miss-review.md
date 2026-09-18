@@ -44,3 +44,5 @@ Compare wall time of the review, not a character estimate, with the scheduled re
 - Longer, or scheduled rest is zero: after the last word, wait 3 seconds once, then listen.
 
 Give-up, a new cycle token, pause, or background stops playback and does not start the next listen.
+
+The rest cover itself is capped by [320](320-practice-rest-watchdog.md). The printed word is shown before TTS bytes return.
