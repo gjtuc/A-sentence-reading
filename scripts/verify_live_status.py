@@ -86,8 +86,15 @@ def read_repo_app_version() -> str:
         / "app.py"
     )
     text = app_py.read_text(encoding="utf-8")
-    m = re.search(r'"version":\s*"([^"]+)"', text)
-    return m.group(1) if m else ""
+    # WHY: 0.3.281 moved the status version onto `app.version`, so app.py holds
+    # the FastAPI keyword `version="0.3.x"` and no longer a `"version": "0.3.x"`
+    # mapping. Matching only the old shape returned "", which made every caller
+    # that omits --expect skip the version comparison entirely.
+    for pattern in (r'version\s*=\s*"(\d+\.\d+\.\d+)"', r'"version":\s*"([^"]+)"'):
+        m = re.search(pattern, text)
+        if m:
+            return m.group(1)
+    return ""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -111,6 +118,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--timeout", type=float, default=60.0)
     args = p.parse_args(argv)
     expect = str(args.expect or "").strip() or read_repo_app_version()
+    if not expect:
+        # Fail closed: an empty expectation silently skipped the comparison.
+        print("FAIL expect: no version in app.py and no --expect", file=sys.stderr)
+        return 2
     min_pipe = str(args.min_pipeline or "").strip() or None
     try:
         data = fetch_status(args.url, timeout=float(args.timeout))

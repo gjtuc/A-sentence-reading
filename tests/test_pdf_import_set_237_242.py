@@ -154,12 +154,21 @@ def test_controller_wires_doi_and_watch() -> None:
 
 
 def test_no_manage_external_storage() -> None:
+    """PDF import stays on SAF. design/264 owns the one broad-storage grant.
+
+    The blanket manifest ban was written before the Documents mirror existed;
+    design/264 then declared the permission for the sideloaded mirror. Keep the
+    guarantee that matters here — SAF import must not reach for it — and require
+    the manifest grant to name its owner instead of banning it outright.
+    """
     kt = SAF_KT.read_text(encoding="utf-8")
     assert "MANAGE_EXTERNAL_STORAGE" not in kt
     manifest = (
         MOBILE / "android" / "app" / "src" / "main" / "AndroidManifest.xml"
     ).read_text(encoding="utf-8")
-    assert "MANAGE_EXTERNAL_STORAGE" not in manifest
+    if "MANAGE_EXTERNAL_STORAGE" in manifest:
+        before = manifest.split("MANAGE_EXTERNAL_STORAGE")[0]
+        assert "design/264" in before[-400:], "broad storage grant has no owner"
 
 
 def test_polish_235_contracts() -> None:
