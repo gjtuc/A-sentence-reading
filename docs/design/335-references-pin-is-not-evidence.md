@@ -116,37 +116,65 @@ Chunk 10 is correctly **not** rescued.
 
 ## Measured — how widespread the deletion was
 
-The same signature (substantive chunks emptied by a pin) appears across the
-audited set, and design/332 widened it by labelling headingless runs:
+Body prose recovered, on the three papers where a pinned region really was prose:
 
-| paper | sentences | `source_coverage` | rescued chunks |
-|---|---|---|---|
-| `srep41797` | 112 → **199** | 0.437 → **0.657** | 7, 8, 9 |
-| `catalysts-13-01171` | 263 → **392** → see below | 0.545 → 0.926 → see below | 11–14 |
-| `science.1212858` | 53 → **66** | 0.476 → **0.615** | 1, 2, 3, 4 |
-| Adv. Mater. 2021 | 373 → **386** | 0.676 → **0.713** | 18 |
+| paper | publisher | sentences | `source_coverage` | rescued chunks |
+|---|---|---|---|---|
+| `srep41797` | Nature | 112 → **199** | 0.437 → **0.657** | 7, 8, 9 |
+| `science.1212858` | Science | 53 → **66** | 0.476 → **0.615** | 1, 2, 3, 4 |
+| `1-s2.0-S1385894724017960` | Elsevier | 148 → **150** | 0.580 → 0.591 | 16 |
 
-`science.1212858` had four of five chunks deleted. The coverage drops that
-design/332 produced on `catalysts-13-01171` (0.788 → 0.545) and Adv. Mater.
-(0.850 → 0.676) were read at the time as references being correctly excluded.
+`science.1212858` had four of its five chunks deleted.
 
-## The density gate exists because the line filter was not enough
+The drop that design/332 produced on `catalysts-13-01171` (0.788 → 0.545) and
+Adv. Mater. (0.850 → 0.676) was read at the time as references being correctly
+excluded. It was — those regions are genuine bibliography. What design/332 also
+did was hand the deletion gate far more text to delete unverified, which is what
+made the gate's missing check expensive.
 
-`catalysts-13-01171` first came back at 392 sentences and 0.926 coverage — and
-`ungrounded_count` rose to **62**, every one of them in the rescued tail. Their
-shapes were `Catalysts 2023, 13, 117. [CrossRef]`, `Author, A.B.; Smith, C.D.`,
-and `Author Contributions:`. MDPI's split entries had passed the per-line prose
-test. Measured densities:
+## The density gate is the load-bearing test, not a refinement
 
-| region | density | verdict |
-|---|---|---|
-| `catalysts-13-01171` rescued | **15.61** | refuse |
-| `srep41797` rescued | 0.32 | keep |
-| `science.1212858` rescued | 0.34 | keep |
-| Adv. Mater. body | 0.26 | keep |
-| three clean body controls | 0.00 | keep |
+`catalysts-13-01171` first came back at 392 sentences — and `ungrounded_count`
+rose to **62**, every one of them in the rescued tail, shaped like
+`Catalysts 2023, 13, 117. [CrossRef]` and `Author, A.B.; Smith, C.D.`. MDPI's
+split entries passed every per-line test.
 
-A 5x margin below the threshold and 8x above it, on real text.
+The 10-paper audit (`agent-tools/pinaudit.py`, 32 pinned chunks) shows this is not
+an MDPI quirk. On RSC and Wiley the per-line predicate sees **nothing**:
+
+| paper | chunks | reference-like lines | density | correct call |
+|---|---|---|---|---|
+| `d4cs00527a` (RSC) | 34–39 | **0.0%** | 36–50 | drop |
+| `catalysts-13-01171` (MDPI) | 11–14 | **0.0%** | 7–17 | drop |
+| Adv. Mater. (Wiley) | 16–18 | 73–95% | 6–68 | drop |
+| `srep41797` | 7–9 | 0–50% | **0.00** | rescue |
+| `science.1212858` | 1–4 | 0–77% | 0.00–1.94 | rescue |
+
+Without the density check, RSC's ~29,000 characters of bibliography across six
+chunks would have become practice sentences, with `is_bibliography_line` reporting
+0.0% on every line.
+
+## Where the threshold comes from
+
+Across all 32 pinned chunks:
+
+- highest **true body** region: **1.94**
+- lowest **true reference** region: **6.11**
+- between them: nothing
+
+Any threshold from 2.0 to 5.0 decides all 32 chunks identically. `REF_SIGNAL_DENSITY_MAX`
+is **3.5**, the geometric middle, giving 1.8x headroom below and 1.75x above.
+2.0 shipped first and left only 3% under it.
+
+The 1.94 case is instructive: it is `science.1212858`, and the score comes from
+`Acknowledgements: we thank A. Becker, B. Cho, C. Muller …`. Thanked names match
+the author-initials pattern. The region is prose — its kept lines are 339 to 1,255
+character paragraphs at density 0.00 — so the near miss was a correct call for the
+wrong reason, and the threshold now has room for it.
+
+Signal weights are not tunable by taste either. Dropping the initials term was
+considered and rejected: on RSC and Wiley the marker term is **0.00** and initials
+is the only signal present.
 
 ## The order metric was clean because the evidence was deleted
 

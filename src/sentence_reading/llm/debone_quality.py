@@ -27,10 +27,12 @@ CHUNK_YIELD_MIN = 0.45
 # Deleting body prose is the worse failure, so this floor only rejects a chunk
 # that is overwhelmingly a reference list.
 PIN_RESCUE_MIN_SHARE = 0.20
-# Reference-list signals per 1000 characters. Measured: a genuine reference region
-# scores ~19, restored body prose ~0.4, clean body 0. Set with a wide margin on
-# both sides.
-REF_SIGNAL_DENSITY_MAX = 2.0
+# Reference-list signals per 1000 characters. Placed from the 32 pinned chunks of
+# the 10-paper audit: the highest true-body region scores 1.94, the lowest true
+# reference region 6.11, and nothing falls in between. 3.5 is the geometric middle
+# of that gap, so the margin is 1.8x below and 1.75x above. 2.0 decided the same 32
+# chunks but left only 3% of headroom under it.
+REF_SIGNAL_DENSITY_MAX = 3.5
 COVERAGE_LOW = 0.50
 COVERAGE_WARN = 0.65
 BODY_RATIO_WARN = 0.30

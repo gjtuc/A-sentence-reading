@@ -217,6 +217,19 @@ MDPI_SPLIT = (
 )
 
 
+def test_threshold_sits_in_the_measured_gap() -> None:
+    """design/335 — 32 pinned chunks over 10 papers, and the gap has nothing in it.
+
+    Highest true-body region 1.94, lowest true-reference region 6.11. The threshold
+    must stay inside that gap, and not hug either edge.
+    """
+    from sentence_reading.llm.debone_quality import REF_SIGNAL_DENSITY_MAX as t
+
+    assert 1.94 < t < 6.11
+    assert t / 1.94 > 1.5  # headroom for a body region
+    assert 6.11 / t > 1.5  # headroom for a reference region
+
+
 def test_split_reference_entries_are_caught_by_density() -> None:
     """MDPI puts the author list in its own box: prose line by line, not prose.
 
@@ -234,8 +247,26 @@ def test_split_reference_entries_are_caught_by_density() -> None:
 
 def test_body_prose_density_is_near_zero() -> None:
     body = PROSE * 8
-    assert reference_signal_density(body) < 2.0
+    assert reference_signal_density(body) == 0.0
     assert pin_rescue_worth_keeping(body, body) is True
+
+
+def test_an_acknowledgements_name_list_does_not_refuse_the_rescue() -> None:
+    """The `science.1212858` near miss: thanked names read as author initials.
+
+    That region scored 1.94 under a 2.0 threshold — correct by 3%, for the wrong
+    reason. It is prose, and the threshold now has room for it.
+    """
+    from sentence_reading.llm.debone_quality import REF_SIGNAL_DENSITY_MAX
+
+    region = (
+        PROSE
+        + "\nAcknowledgements: we thank A. Becker, B. Cho, C. Muller, D. Rossi "
+        "and E. Tanaka for helpful discussion and for sharing their samples.\n"
+        + PROSE
+    )
+    assert reference_signal_density(region) < REF_SIGNAL_DENSITY_MAX
+    assert pin_rescue_worth_keeping(region, region) is True
 
 
 def test_years_in_body_prose_do_not_refuse_the_rescue() -> None:
