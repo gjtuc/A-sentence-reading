@@ -83,18 +83,47 @@ def test_title_card_still_leads():
     assert _order(pairs) == ["t", "a", "i"]
 
 
-def test_only_the_first_title_card_survives():
+def test_only_the_first_title_card_is_a_title_but_the_rest_is_kept():
+    # design/325 — a second title-labelled item is real text, not a duplicate
+    # card. It keeps its own position and gets a neutral label.
     pairs = [
         ("t1", "title"),
         ("a", "abstract"),
         ("t2", "title"),
     ]
-    assert _order(pairs) == ["t1", "a"]
+    assert _order(pairs) == ["t1", "a", "t2"]
+    assert _sections(pairs) == ["title", "abstract", "body"]
 
 
 def test_source_order_is_kept_inside_one_section():
     pairs = [(f"s{i}", "results") for i in range(12)]
     assert _order(pairs) == [f"s{i}" for i in range(12)]
+
+
+def test_a_title_pinned_run_is_not_deleted():
+    # design/325 — the chemopen shape: headings did not parse, so the abstract,
+    # introduction and results were all pinned `title`. Only one card may claim
+    # the title; none of the text may disappear.
+    pairs = [("t", "title")] + [(f"p{i}", "title") for i in range(40)]
+    out = _assemble_sentences(pairs)
+    assert len(out) == 41
+    assert out[0].section == "title"
+    assert all(s.section == "body" for s in out[1:])
+    assert [s.text for s in out] == ["t"] + [f"p{i}" for i in range(40)]
+
+
+def test_a_mid_paper_title_label_is_not_hoisted_to_the_front():
+    pairs = [
+        ("i1", "introduction"),
+        ("i2", "introduction"),
+        ("stray", "title"),
+        ("r1", "results"),
+    ]
+    # No earlier title, so `stray` is the title card and does move to the front.
+    assert _order(pairs) == ["stray", "i1", "i2", "r1"]
+    # With a real title first, the stray stays where the paper put it.
+    pairs2 = [("t", "title")] + pairs
+    assert _order(pairs2) == ["t", "i1", "i2", "stray", "r1"]
 
 
 def test_ids_are_renumbered_in_stored_order():

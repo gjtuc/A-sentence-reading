@@ -149,3 +149,33 @@ def test_broken_equation_is_not_a_sentence() -> None:
     assert "tion" not in joined
     assert "AHhydr" not in joined
     assert "We further analyze the data based on the model." in joined
+
+
+def test_design_325_abstract_run_in_headings_open_a_section() -> None:
+    from sentence_reading.pdf.section_flow import header_key
+
+    # Azure returns the abstract as one long paragraph, so the run-in form has
+    # to be decided before the standalone-heading length guard.
+    springer = (
+        "Abstract\u2212In order to increase the performance of fuel cell "
+        "electrode, carbon nanotubes were used as support instead of "
+        "conventional carbon black and the text keeps going past the guard"
+    )
+    acs = (
+        "ABSTRACT: A series of bimetallic Fe-Ni catalysts with ratios between "
+        "0 and 1.5 have been examined for methane dry reforming at temperature"
+    )
+    assert header_key(springer) == "abstract"
+    assert header_key(acs) == "abstract"
+    assert header_key("Abstract\u2013 This paper reports") == "abstract"
+    assert header_key("Abstract\u2014This paper reports") == "abstract"
+    assert header_key("Abstract") == "abstract"
+    # Elsevier letter-spaces the heading, like `a r t i c l e   i n f o`.
+    assert header_key("A B S T R A C T") == "abstract"
+
+
+def test_design_325_abstract_word_in_prose_is_not_a_heading() -> None:
+    from sentence_reading.pdf.section_flow import header_key
+
+    assert header_key("Abstract reasoning is not a heading and this runs on") is None
+    assert header_key("Abstracts of the reviewed works are summarised below.") is None

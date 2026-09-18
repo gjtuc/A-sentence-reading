@@ -19,6 +19,12 @@ SECTION_MARK = "<<<ASR_SECTION {key}>>>"
 _MARK_RE = re.compile(r"<<<ASR_SECTION ([a-z][a-z0-9_]*)>>>")
 
 _SUBHEAD = re.compile(r"^\d+\.\d+\b")
+# design/325 — `Abstract` then a separator then the abstract text itself.
+# A bare `Abstract` heading is handled by the exact match below; this pattern
+# needs the separator so a body sentence opening with the word cannot match.
+_ABSTRACT_RUN_IN = re.compile(
+    r"^abstract\s*[-\u2010-\u2015\u2212:\u00b7\u2013\u2014]\s*\S"
+)
 _CHROME = re.compile(
     r"(article\s+info|a r t i c l e\s+i n f o|keywords?\b|graphical\s+abstract|"
     r"copyright|all rights reserved|©|\(c\)\s*\d{4}|corresponding author|"
@@ -67,11 +73,21 @@ def strip_section_mark(chunk: str) -> str:
 
 def header_key(text: str) -> str | None:
     line = re.sub(r"\s+", " ", ((text or "").strip().splitlines() or [""])[0]).strip()
-    if not line or len(line) > 120 or _SUBHEAD.match(line):
+    if not line:
+        return None
+    # design/325 — journals run the abstract straight into its own heading:
+    # `Abstract−In order to...` (Springer) and `ABSTRACT: A series of...` (ACS).
+    # Azure hands the abstract back as one long paragraph, so this has to be
+    # decided before the standalone-heading length guard, or the abstract never
+    # opens a section and inherits whichever one is already open.
+    if _ABSTRACT_RUN_IN.match(line.lower()):
+        return "abstract"
+    if len(line) > 120 or _SUBHEAD.match(line):
         return None
     bare = re.sub(r"^\d+\.\s*", "", line).strip()
     low = bare.lower()
-    if low == "abstract" or low.startswith("abstract "):
+    # `A B S T R A C T` — Elsevier letter-spaces the heading, like `a r t i c l e`.
+    if low == "abstract" or re.sub(r"\s+", "", low) == "abstract":
         return "abstract"
     if low.startswith("introduction"):
         return "introduction"

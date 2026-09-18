@@ -586,18 +586,28 @@ def _assemble_sentences(collected: list[tuple[str, str]]) -> list[Sentence]:
 
     The title card still leads, matching `title_replay.align_title_sentences`.
     """
+    # Only the first title-labelled item in source order is the title card.
+    # design/325 — everything before the first recognised heading is pinned
+    # `title`, so on a paper whose headings do not parse that run holds the
+    # abstract, introduction and results. Dropping it deleted 79% of a real
+    # 4-page paper. The rest keep their text under a neutral label, and they
+    # keep their own position rather than being hoisted with the title.
+    title_seen = False
     decorated: list[tuple[int, int, str, str]] = []
     for i, (text, section) in enumerate(collected):
-        decorated.append((0 if section == "title" else 1, i, text, section))
+        sec = section
+        rank = 1
+        if sec == "title":
+            if title_seen:
+                sec = "body"
+            else:
+                title_seen = True
+                rank = 0
+        decorated.append((rank, i, text, sec))
     decorated.sort(key=lambda t: (t[0], t[1]))
 
-    title_seen = False
     sentences: list[Sentence] = []
     for _, _, text, section in decorated:
-        if section == "title":
-            if title_seen:
-                continue
-            title_seen = True
         sentences.append(
             Sentence(
                 id=f"sent_{len(sentences):06d}",
