@@ -97,8 +97,10 @@ def test_design_95_reader_swipe_nav() -> None:
         ROOT / "mobile" / "lib" / "screens" / "reader_screen.dart"
     ).read_text(encoding="utf-8")
     assert "_SwipePager" in reader
-    # design/116 — pan always on; 1× swipe from pan-end (not parent HorizontalDrag).
-    assert "panEnabled: true" in reader or "panEnabled:true" in reader.replace(" ", "")
+    # design/116 — pan on except ink mode; 1× swipe from pan-end (not parent drag).
+    assert "panEnabled: !inkMode" in reader or "panEnabled:!inkMode" in reader.replace(
+        " ", ""
+    )
     assert "design/116" in reader
 
 

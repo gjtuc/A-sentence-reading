@@ -43,8 +43,11 @@ def test_design_70_and_pubspec() -> None:
     lib = (MOBILE / "lib" / "screens" / "library_screen.dart").read_text(
         encoding="utf-8"
     )
-    assert "PDF 가져오기" in lib
-    assert "자동" in lib
+    picker = (MOBILE / "lib" / "widgets" / "upload_picker_sheet.dart").read_text(
+        encoding="utf-8"
+    )
+    assert "논문 가져오기" in lib
+    assert "PDF 가져오기" in picker
     assert "resumePendingIfAny" in (
         MOBILE / "lib" / "state" / "library_controller.dart"
     ).read_text(encoding="utf-8")

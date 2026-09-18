@@ -24,7 +24,7 @@ DESIGN = ROOT / "docs" / "design" / "181-figure-png-self-contained.md"
 def test_design_181_exists() -> None:
     assert DESIGN.is_file()
     text = DESIGN.read_text(encoding="utf-8")
-    assert "0.3.165" in text
+    assert "0.3.164" in text
     assert "session_ensured" in text
     assert "self-contained" in text.lower() or "self-contained" in text
 

@@ -22,6 +22,7 @@ from asr_versions import assert_at_least
 def takes_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setenv("ASR_SKIP_ENV_FILE", "1")
     monkeypatch.setenv("ASR_SHADOWING_PRACTICE", "1")
+    monkeypatch.setenv("ASR_SHADOWING_LOCAL_SOT", "0")
     monkeypatch.setenv("ASR_ACCESS_GATE", "0")
     monkeypatch.setenv("ASR_EMAIL_AUTH", "0")
     monkeypatch.setenv("ASR_AUTH_SECRET", "takes-test-secret")

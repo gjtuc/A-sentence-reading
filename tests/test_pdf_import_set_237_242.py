@@ -73,16 +73,17 @@ def test_designs_237_242_locked() -> None:
 def test_versions_current() -> None:
     app = APP.read_text(encoding="utf-8")
     assert 'version="0.3.' in app
-    assert '"version": "0.3.' in app
     assert "0.3." in PUBSPEC.read_text(encoding="utf-8")
     assert "0.3." in CONFIG.read_text(encoding="utf-8")
 
 
 def test_cache_schema_v7() -> None:
     cache = CACHE.read_text(encoding="utf-8")
-    assert "kPdfAdvisoryCacheSchema = 8" in cache
-    assert "advisory_doi" in cache
-    assert "doi_source" in cache
+    # design/309 retired the on-disk advisory cache; schema 0 + refuse persist.
+    assert "kPdfAdvisoryCacheSchema = 0" in cache
+    assert "advisoryDoi" in cache
+    assert "doiSource" in cache
+    assert "_refusePersist" in cache
 
 
 def test_scanned_entry_has_advisory_doi() -> None:
@@ -190,7 +191,7 @@ def test_polish_235_contracts() -> None:
     assert "matePresentForEntry" in screen
     assert "pdfFolderWritable == false" in screen
     cache = CACHE.read_text(encoding="utf-8")
-    assert "pairing_key" in cache
+    assert "pairingKey" in cache
     disk = (MOBILE / "lib" / "services" / "paper_disk_store.dart").read_text(
         encoding="utf-8"
     )

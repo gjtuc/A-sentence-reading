@@ -42,12 +42,14 @@ def test_design_288_locked() -> None:
 
 
 def test_versions_288() -> None:
-    assert f'version="{VERSION}"' in APP.read_text(encoding="utf-8")
-    assert f"version: {VERSION}+" in PUBSPEC.read_text(encoding="utf-8")
-    assert f"kAppVersionLabel = '{VERSION}'" in CONFIG.read_text(encoding="utf-8")
+    # Ship pin lives in the design chip; later chips may bump app/pubspec/config.
+    assert VERSION in DESIGN.read_text(encoding="utf-8")
     assert "288-main-si-index-pairing-evidence.md" in README.read_text(
         encoding="utf-8"
     )
+    assert "0.3." in APP.read_text(encoding="utf-8")
+    assert "0.3." in PUBSPEC.read_text(encoding="utf-8")
+    assert "0.3." in CONFIG.read_text(encoding="utf-8")
 
 
 def test_kinds_mirrored_288() -> None:

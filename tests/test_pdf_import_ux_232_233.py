@@ -32,7 +32,9 @@ def test_cache_schema_v3() -> None:
     cache = (
         MOBILE / "lib" / "api" / "pdf_advisory_cache_store.dart"
     ).read_text(encoding="utf-8")
-    assert "kPdfAdvisoryCacheSchema = 8" in cache
+    # design/309 — advisory titles are not stored.
+    assert "kPdfAdvisoryCacheSchema = 0" in cache
+    assert "_refusePersist" in cache
 
 
 def test_dart_chrome_helpers_present() -> None:

@@ -34,8 +34,8 @@ def test_mobile_library_reorder_wiring() -> None:
         os.path.join(root, "docs", "design", "101-library-reorder.md"),
         encoding="utf-8",
     ).read()
-    assert "SliverReorderableList" in screen
-    assert "ReorderableDelayedDragStartListener" in screen
+    assert "LibraryCardHold" in screen
+    assert "reorderPaperBlock" in screen or "reorderPaperBlock" in ctrl
     assert "Icons.drag_handle" not in screen
     assert "reorderPapers" in ctrl
     assert "asr.library.order.v1" in models

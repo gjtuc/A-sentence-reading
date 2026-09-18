@@ -32,7 +32,10 @@ def test_design_version_and_no_parent_horizontal_drag():
     assert "onHorizontalDragUpdate" not in body
     assert "onHorizontalDragEnd" not in body
     assert "InteractiveViewer(" in body
-    assert "panEnabled: true" in body
+    # design/116 — pan stays on so pinch does not lose to a parent drag.
+    # Ink mode later disables pan on the same viewer; that is not a static false.
+    assert "panEnabled: !inkMode" in body
+    assert "panEnabled: false" not in body
     pub = PUB.read_text(encoding="utf-8")
     assert app_version() in pub
     st = TestClient(app).get("/api/status").json()

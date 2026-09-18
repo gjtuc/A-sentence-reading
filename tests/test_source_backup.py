@@ -239,6 +239,7 @@ def test_save_paper_session_force_cache_id(tmp_path, monkeypatch) -> None:
 def test_gcs_upload_includes_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ASR_GCS_BUCKET", "b")
     monkeypatch.setenv("ASR_GCS_PREFIX", "asr")
+    monkeypatch.setenv("ASR_PAPERS_INDEX_CAS", "0")
     root = tmp_path / "papers"
     root.mkdir()
     monkeypatch.setattr(pc, "cache_root", lambda: root)

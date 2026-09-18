@@ -81,8 +81,11 @@ def test_poll_timeout_20_minutes() -> None:
         os.path.join(MOBILE, "lib", "api", "client.dart"),
         encoding="utf-8",
     ).read()
-    assert "Duration(minutes: 20)" in client
-    assert "minutes: 12)" not in client or client.count("minutes: 20)") >= 2
+    # design/158 replaced the fixed 20m wall clock with idle 5m + max 2h.
+    assert "Duration(minutes: 5)" in client
+    assert "Duration(hours: 2)" in client
+    assert "design/158" in client
+    assert "Duration(minutes: 20)" not in client
     ctrl = open(
         os.path.join(MOBILE, "lib", "state", "library_controller.dart"),
         encoding="utf-8",

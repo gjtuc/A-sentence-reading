@@ -26,10 +26,12 @@ def test_design_285_locked() -> None:
 
 
 def test_versions_285() -> None:
-    assert VERSION in APP.read_text(encoding="utf-8")
-    assert VERSION in PUBSPEC.read_text(encoding="utf-8")
-    assert VERSION in CONFIG.read_text(encoding="utf-8")
+    # Ship pin lives in the design chip; later chips may bump app/pubspec/config.
+    assert VERSION in DESIGN.read_text(encoding="utf-8")
     assert "285-honest-handoff-notify-open.md" in README.read_text(encoding="utf-8")
+    assert "0.3." in APP.read_text(encoding="utf-8")
+    assert "0.3." in PUBSPEC.read_text(encoding="utf-8")
+    assert "0.3." in CONFIG.read_text(encoding="utf-8")
 
 
 def test_emit_markers_285() -> None:

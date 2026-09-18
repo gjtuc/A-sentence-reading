@@ -25,9 +25,11 @@ def test_design_and_wiring() -> None:
     assert "다시" in text
     dart = DART.read_text(encoding="utf-8")
     assert "design/120" in dart
-    assert "_retrySpeak" in dart
-    assert "_replayTake" in dart
-    assert "다시 듣기" in dart
+    # Manual next/retry/replay buttons were removed; the cycle still replays
+    # the take and the fail-closed gate still decides whether that is honest.
+    assert "my_take_replay" in dart
+    assert "RhythmPhase.replay" in dart
+    assert "다시 시도" in dart
     assert GATE.is_file()
     assert "canReplayShadowingTake" in GATE.read_text(encoding="utf-8")
     js = JS.read_text(encoding="utf-8")

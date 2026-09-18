@@ -190,6 +190,7 @@ def test_merge_session_richer_emit(ops_tmp, monkeypatch) -> None:
     )
     monkeypatch.setenv("ASR_GCS_BUCKET", "b")
     monkeypatch.setenv("ASR_GCS_PREFIX", "asr")
+    monkeypatch.setenv("ASR_PAPERS_INDEX_CAS", "0")
 
     cid = "abcd1234ef00"
     paper = root / cid

@@ -62,4 +62,6 @@ def test_dart_and_cache_v4() -> None:
     assert "CONSPECTUS" in dart
     assert "head_marker_esi_footnote_veto" in dart
     cache = CACHE.read_text(encoding="utf-8")
-    assert "kPdfAdvisoryCacheSchema = 8" in cache
+    # design/309 — advisory titles are extracted on scan, not stored.
+    assert "kPdfAdvisoryCacheSchema = 0" in cache
+    assert "_refusePersist" in cache

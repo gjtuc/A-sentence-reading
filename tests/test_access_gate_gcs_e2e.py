@@ -70,6 +70,9 @@ def _bind_root(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
     from sentence_reading.cache import paper_cache as pc
 
     monkeypatch.setattr(pc, "project_root", lambda: root)
+    # Two instances share one process here; drop the 173a TTL so B pulls
+    # the allow that A just wrote, the way a fresh Cloud Run worker would.
+    ag.reset_access_gate_cache_for_tests()
 
 
 @pytest.fixture(autouse=True)

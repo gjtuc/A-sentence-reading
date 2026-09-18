@@ -27,11 +27,11 @@ def test_design_and_wiring() -> None:
     assert "surfaceTintColor" in proxy
     assert "Colors.transparent" in proxy
     src = SCREEN.read_text(encoding="utf-8")
-    assert "design/122" in src
-    assert "proxyDecorator" in src
-    assert "libraryReorderProxyDecorator" in src
-    # Product 4A — reorderPapers still used; no rewrite of save path in this chip.
-    assert "reorderPapers" in src
+    # design/308 replaced SliverReorderableList; the proxy helper stays for
+    # the no-white-flash contract and the screen uses a custom overlay instead.
+    assert "design/122" in proxy
+    assert "LibraryCardHold" in src
+    assert "reorderPaperBlock" in src
     assert app_version() in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
     assert_at_least(st["version"], "0.3.156")

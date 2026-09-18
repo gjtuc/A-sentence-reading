@@ -52,7 +52,7 @@ def test_docs_and_clients_no_local_surface() -> None:
     assert "fromEnvironment" not in cfg
     assert "ASR_API_BASE" not in cfg
     assert "asia-northeast3.run.app" in cfg
-    assert "0.3.85" in cfg
+    assert app_version() in cfg
     settings = SETTINGS.read_text(encoding="utf-8")
     assert "hang 시뮬" not in settings
     assert "isLocalDevHost" not in settings

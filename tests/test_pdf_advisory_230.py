@@ -71,4 +71,6 @@ def test_title_source_api() -> None:
         MOBILE / "lib" / "api" / "pdf_advisory_cache_store.dart"
     ).read_text(encoding="utf-8")
     assert "titleSource" in cache
-    assert "title_source" in cache
+    # design/309 — titles are not stored; schema stays 0 and put refuses disk.
+    assert "kPdfAdvisoryCacheSchema = 0" in cache
+    assert "_refusePersist" in cache

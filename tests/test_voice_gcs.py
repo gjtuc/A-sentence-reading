@@ -66,6 +66,8 @@ def test_api_voice_put_get_with_fake(
 ) -> None:
     monkeypatch.setenv("ASR_GCS_BUCKET", "b")
     monkeypatch.setenv("ASR_GCS_PREFIX", "asr")
+    # Exercise the cloud write path; device SoT refuses PUT with 409.
+    monkeypatch.setenv("ASR_SHADOWING_LOCAL_SOT", "0")
     cred = tmp_path / "sa.json"
     cred.write_text("{}", encoding="utf-8")
     monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", str(cred))
@@ -106,6 +108,7 @@ def test_api_voice_put_get_with_fake(
 
 
 def test_api_rejects_bad_key_and_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ASR_SHADOWING_LOCAL_SOT", "0")
     monkeypatch.setattr(
         "sentence_reading.api.app.gcs_status",
         lambda: {"enabled": True, "ready": True, "message": "ok"},

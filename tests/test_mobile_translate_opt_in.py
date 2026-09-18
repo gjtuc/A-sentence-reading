@@ -73,8 +73,9 @@ def test_mobile_settings_has_translate_switch() -> None:
         os.path.join(root, "mobile", "lib", "api", "client.dart"),
         encoding="utf-8",
     ).read()
-    # "?? ??"
-    assert "\ubc88\uc5ed \uc0ac\uc6a9" in settings
+    assert "번역" in settings
+    assert "SwitchListTile" in settings
+    assert "widget.translate.enabled" in settings
     assert "asr.translate.v1" in models
     assert "parseTranslateEnabledPref" in models
     assert "translate=0" in client

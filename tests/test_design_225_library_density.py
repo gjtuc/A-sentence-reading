@@ -47,12 +47,26 @@ def test_upload_status_bar_shared() -> None:
 
 
 def test_magnetic_trash_wiring() -> None:
+    """design/225 hide path survived design/308's custom hold+drag.
+
+    The magnet pad / SliverReorderableList drop target is gone; hide is the
+    hold-menu delete and the select-mode trash icon. Both still call the
+    same undo helper and must not persist order.
+    """
     lib = (MOBILE / "lib" / "screens" / "library_screen.dart").read_text(
         encoding="utf-8"
     )
-    assert "_trashKey" in lib
-    assert "_dragOverTrash" in lib
+    hold = (MOBILE / "lib" / "widgets" / "library_card_hold.dart").read_text(
+        encoding="utf-8"
+    )
     assert "_softHideWithUndo" in lib
-    assert "onReorderStart" in lib
-    assert "_magnetPad" in lib
-    assert "Listener(" in lib
+    assert "Icons.delete_outline" in lib
+    assert "숨기기" in lib
+    assert "softHidePapers" in lib
+    assert "LibraryCardHold" in lib
+    assert "design/308" in hold
+    hide_fn = lib.split("Future<void> _softHideWithUndo")[1].split(
+        "Future<void> _confirmDelete"
+    )[0]
+    assert "reorderPapers" not in hide_fn
+    assert "reorderPaperBlock" not in hide_fn

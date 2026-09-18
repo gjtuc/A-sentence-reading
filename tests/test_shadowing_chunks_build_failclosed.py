@@ -49,8 +49,10 @@ def test_design_wiring_and_version() -> None:
     # Fail-closed: banner clear only on status ok
     assert 'st === "ok"' in app_js
     dart = MOBILE.read_text(encoding="utf-8")
-    assert "maxRounds" in dart
+    # Web still polls with maxRounds; mobile continue is the pending-plan path.
+    assert "shadowingPlanStatusIsPending" in dart
     assert "continue" in dart
+    assert "design/266" in dart
     assert app_version() in PUB.read_text(encoding="utf-8")
     st = TestClient(app).get("/api/status").json()
     assert_at_least(st["version"], "0.3.156")

@@ -57,8 +57,10 @@ def test_mobile_dart_theme_sources() -> None:
     )
     assert "SettingsScreen" in shell
     assert "tts: widget.tts" in shell
-    assert "label: '보관'" in shell
+    # design/224 — library is home; no bottom-tab 보관/서버 labels.
     assert "label: '서버'" not in shell
+    assert "NavigationBar" not in shell
+    assert "onOpenSettings" in shell
     assert DESIGN.is_file()
     design = DESIGN.read_text(encoding="utf-8")
     assert "0.3.3" in design
