@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.311",
+    version="0.3.312",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -8152,7 +8152,9 @@ async def _run_ingest_job_body(
                 title_guess=_title_guess,
                 styled_title=_styled,
             )
-            _title_card = "absent"
+            # WHY: "absent" used to cover both "no title card at all" and "SI, so
+            # alignment never ran", so evidence could not tell them apart.
+            _title_card = "skipped_si" if doc_role == "supplementary" else "absent"
             if doc_role != "supplementary":
                 sentences, _title_card = align_title_sentences(sentences, title)
             try:

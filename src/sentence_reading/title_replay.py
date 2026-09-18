@@ -549,7 +549,12 @@ def pick_session_title(
 def align_title_sentences(sentences: list, picked_title: str) -> tuple[list, str]:
     """Make the Title card match the picked title. Drop a chrome card's translation.
 
-    Card token is absent | kept | replaced. Never returns paper text.
+    Card token is absent | kept | replaced | skipped_unusable. Never returns
+    paper text.
+
+    WHY skipped_unusable: an unusable picked title (a publisher file id such as
+    `1-s2.0-S...-mmc1`) means the card is never compared, so front matter chrome
+    survives in it. Reporting that as `kept` claimed the card already matched.
     """
     from sentence_reading.models import Sentence
 
@@ -558,7 +563,9 @@ def align_title_sentences(sentences: list, picked_title: str) -> tuple[list, str
         str(getattr(row, "section", "") or "") == "title" for row in sentences or []
     )
     if not title_usable(picked):
-        return list(sentences or []), ("kept" if has_title else "absent")
+        return list(sentences or []), (
+            "skipped_unusable" if has_title else "absent"
+        )
     out: list = []
     card = "absent"
     kept_one = False

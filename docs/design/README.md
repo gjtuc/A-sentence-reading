@@ -361,6 +361,9 @@
 | 301 | [301-section-order-probe.md](301-section-order-probe.md) | ASCII section-order probe; content-desc UI (0.3.293) |
 | 302 | [302-azure-box-gate.md](302-azure-box-gate.md) | Azure box gate before reading-order edits (0.3.293) |
 | 303 | [303-smooth-ship-launch.md](303-smooth-ship-launch.md) | line-buffered ship logs; verify-only after a silent worker exit (0.3.297) |
+| 313 | [313-practice-follow-light-launch-dest.md](313-practice-follow-light-launch-dest.md) | 말하는 단어 따라 불 켜기 · 실행 시 열 목적지 (0.3.310) |
+| 314 | [314-practice-miss-review.md](314-practice-miss-review.md) | 리플레이 뒤 놓친 내용어 하나씩 복습 (0.3.311) |
+| 315 | [315-title-card-skip-evidence.md](315-title-card-skip-evidence.md) | 제목 카드 정렬 생략을 증거로 드러냄 — 관측 전용 (0.3.312) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

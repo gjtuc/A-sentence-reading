@@ -1,10 +1,14 @@
 import 'reading_models.dart';
 
 /// Title card must match the picked session title. Chrome cards lose their KO line.
+///
+/// Token is absent | kept | replaced | skipped_unusable. An unusable picked
+/// title (a publisher file id) means the card is never compared, so chrome can
+/// survive in it; reporting that as `kept` claimed the card already matched.
 String titleCardToken(List<SentenceView> sentences, String pickedTitle) {
   final picked = _norm(pickedTitle);
   final hasTitle = sentences.any((s) => s.section == 'title');
-  if (!_titleUsable(picked)) return hasTitle ? 'kept' : 'absent';
+  if (!_titleUsable(picked)) return hasTitle ? 'skipped_unusable' : 'absent';
   var seen = false;
   var card = 'absent';
   for (final s in sentences) {

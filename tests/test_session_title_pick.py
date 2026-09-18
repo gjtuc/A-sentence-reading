@@ -343,3 +343,31 @@ def test_publisher_file_id_is_not_a_title_and_caption_is_skipped() -> None:
         text="Fig. S1 Powder patterns of the sintered pellets.",
     )
     assert skipped_source == "stem_fallback"
+
+
+def test_unusable_title_names_the_skip_instead_of_claiming_kept() -> None:
+    """A publisher file id title never reaches the card comparison.
+
+    Reporting that as `kept` claimed the card already matched the title, so the
+    surviving front matter chrome was invisible in evidence.
+    """
+    chrome = (
+        "TongYuan Xu, Chao Huang, Liping Sun *, Lihua Huo, Hui Zhao "
+        "ARTICLE INFO ABSTRACT Keywords: Solid oxide fuel cells"
+    )
+    rows, card = align_title_sentences(
+        [Sentence(id="t", text=chrome, section="title", text_ko="저자 덩어리")],
+        "1-s2.0-S0960148125003246-mmc1",
+    )
+    assert card == "skipped_unusable"
+    # Behaviour is unchanged for now: the chrome card still stands.
+    assert rows[0].text == chrome
+
+
+def test_no_title_section_is_absent_not_a_skip() -> None:
+    rows, card = align_title_sentences(
+        [Sentence(id="a", text="The cathode is stable.", section="abstract")],
+        "1-s2.0-S0960148125003246-mmc1",
+    )
+    assert card == "absent"
+    assert len(rows) == 1
