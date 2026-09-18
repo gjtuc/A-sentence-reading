@@ -289,6 +289,76 @@ def quality_to_warnings(
     return list(dict.fromkeys(w))
 
 
+_ORDER_ANCHOR_NGRAM = 6
+_ORDER_MIN_TOKENS = 5
+ORDER_BACKWARD_PCT_WARN = 20.0
+
+
+def _order_norm(text: str) -> str:
+    s = re.sub(r"<[^>]+>", " ", text or "").lower()
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _anchor_pos(sentence_norm: str, source_norm: str) -> int:
+    toks = sentence_norm.split()
+    if len(toks) < _ORDER_MIN_TOKENS:
+        return -1
+    span = min(_ORDER_ANCHOR_NGRAM, len(toks))
+    for start in range(0, max(1, len(toks) - span + 1)):
+        gram = " ".join(toks[start : start + span])
+        if len(gram) < 12:
+            continue
+        at = source_norm.find(gram)
+        if at >= 0:
+            return at
+    return -1
+
+
+def source_order_stats(
+    raw_text: str, sentences: list[Sentence]
+) -> dict[str, float | int]:
+    """design/322 — how often the stored order steps back in the source.
+
+    One sentence is on screen at a time, so a reordering cannot be seen. This
+    anchors each sentence in the source and counts backward steps. Sentences
+    that cannot be anchored are excluded rather than guessed.
+    """
+    source_norm = _order_norm(raw_text)
+    if not source_norm or not sentences:
+        return {"anchored_n": 0, "backward_n": 0, "backward_pct": 0.0}
+    positions: list[int] = []
+    for s in sentences:
+        at = _anchor_pos(_order_norm(getattr(s, "text", "") or ""), source_norm)
+        if at >= 0:
+            positions.append(at)
+    if not positions:
+        return {"anchored_n": 0, "backward_n": 0, "backward_pct": 0.0}
+    backward = 0
+    high = -1
+    for p in positions:
+        if high >= 0 and p < high:
+            backward += 1
+        high = max(high, p)
+    pct = round(100.0 * backward / len(positions), 2)
+    return {
+        "anchored_n": len(positions),
+        "backward_n": backward,
+        "backward_pct": pct,
+    }
+
+
+def order_warnings(stats: dict[str, float | int]) -> list[str]:
+    """design/322 — name a scrambled reading order."""
+    n = int(stats.get("anchored_n") or 0)
+    if n < 20:
+        return []
+    pct = float(stats.get("backward_pct") or 0.0)
+    if pct > ORDER_BACKWARD_PCT_WARN:
+        return [f"sentence_order_backward:{pct:.1f}"]
+    return []
+
+
 def source_coverage_warnings(
     *,
     source_coverage: float,

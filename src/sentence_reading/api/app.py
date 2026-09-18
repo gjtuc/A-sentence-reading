@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.316",
+    version="0.3.317",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -8141,7 +8141,9 @@ async def _run_ingest_job_body(
                 from sentence_reading.llm import evidence_bus as eb
                 from sentence_reading.llm.debone_quality import (
                     compute_coverage_ratio,
+                    order_warnings,
                     source_coverage_warnings,
+                    source_order_stats,
                 )
 
                 _src_cov = compute_coverage_ratio(text_pre_filter, sentences)
@@ -8152,6 +8154,9 @@ async def _run_ingest_job_body(
                         debone_coverage=_post_cov,
                     )
                 )
+                # design/322 — reading order is invisible behind one sentence.
+                _ord = source_order_stats(text_pre_filter, sentences)
+                warnings.extend(order_warnings(_ord))
                 eb.emit_handoff(
                     from_stage="extract_text",
                     to_stage="sentences_ready",
@@ -8165,6 +8170,9 @@ async def _run_ingest_job_body(
                         "source_coverage": round(_src_cov, 4),
                         "debone_coverage": round(_post_cov, 4),
                         "sentence_n": len(sentences or []),
+                        "order_anchored_n": int(_ord.get("anchored_n") or 0),
+                        "order_backward_n": int(_ord.get("backward_n") or 0),
+                        "order_backward_pct": float(_ord.get("backward_pct") or 0.0),
                     },
                 )
             except Exception:  # noqa: BLE001

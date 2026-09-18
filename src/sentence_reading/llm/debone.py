@@ -31,24 +31,8 @@ _CHUNK_CHARS = 5000
 _MAX_CHUNK_RETRIES = 3
 # WHY: design/13 — survey에 넣을 평문 상한 (모델 한도·지연 여유)
 _SURVEY_MAX_CHARS = 120_000
-# WHY: UI에 Title / Abstract / Introduction / Results … 표시 (docs/design/12)
-_SECTION_ORDER = {
-    "title": 0,
-    "abstract": 1,
-    "introduction": 2,
-    "methods": 3,
-    "experimental": 3,
-    "results": 4,
-    "discussion": 5,
-    "conclusion": 6,
-    "supplementary": 8,
-    "body": 7,
-    "credit": 9,
-    "declaration": 10,
-    "acknowledgement": 11,
-    "appendix": 12,
-}
-
+# WHY: design/12 — section is a label for the header/nav, not a sort key.
+# design/322 removed the rank table: reading order is the paper's own order.
 _SECTION_ALIASES = {
     "intro": "introduction",
     "introduction": "introduction",
@@ -589,10 +573,22 @@ def _process_chunk_with_guard(
 
 
 def _assemble_sentences(collected: list[tuple[str, str]]) -> list[Sentence]:
+    """design/322 — keep the paper's own order.
+
+    `collected` already arrives in chunk order, which is source order on both
+    the pinned (Azure section marks) and unpinned paths, and the front-matter
+    retry writes back at the same index rather than appending. Ranking by
+    section therefore reordered the paper for no gain: a journal that prints
+    Methods after Discussion was shown Methods before Results, `methods` and
+    `experimental` share a rank so their chunks interleaved, and any heading
+    that fell through to `body` was moved after the conclusion. Only one
+    sentence is on screen, so none of that is visible to the reader.
+
+    The title card still leads, matching `title_replay.align_title_sentences`.
+    """
     decorated: list[tuple[int, int, str, str]] = []
     for i, (text, section) in enumerate(collected):
-        order = _SECTION_ORDER.get(section, _SECTION_ORDER["body"])
-        decorated.append((order, i, text, section))
+        decorated.append((0 if section == "title" else 1, i, text, section))
     decorated.sort(key=lambda t: (t[0], t[1]))
 
     title_seen = False
