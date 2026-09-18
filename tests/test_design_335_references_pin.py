@@ -13,12 +13,14 @@ from unittest.mock import patch
 from sentence_reading.cite_refs import (
     is_bibliography_line,
     looks_like_prose_line,
+    reference_signal_density,
     split_off_bibliography_lines,
 )
 from sentence_reading.llm.debone import _process_chunk_with_guard
 from sentence_reading.llm.debone_quality import (
     ChunkStat,
     build_ingest_quality,
+    pin_rescue_worth_keeping,
     quality_to_warnings,
 )
 
@@ -171,8 +173,6 @@ def test_mostly_references_chunk_is_not_rescued_by_stray_lines() -> None:
 
 
 def test_rescue_share_threshold() -> None:
-    from sentence_reading.llm.debone_quality import pin_rescue_worth_keeping
-
     refs = "\n".join(REF_LINES * 7)
     assert pin_rescue_worth_keeping(PROSE, PROSE) is True
     # srep chunks 7-8: paragraph-length prose lines dominate the chunk.
@@ -205,6 +205,65 @@ def test_real_prose_line_is_prose() -> None:
     assert looks_like_prose_line(
         "The catalyst retained its activity for more than forty hours on stream."
     ) is True
+
+
+MDPI_SPLIT = (
+    "Ostwald, W.R.; Nowak, P.A.; Jiang, Z.Q. Thermally stable single atom "
+    "catalysts for the selective hydrogenation of alkynes over supported metals\n"
+    "Catalysts 2023, 13, 1171. [CrossRef]\n"
+    "Park, S.H.; Lee, J.K.; Chen, Y.M. Electrocatalytic hydrogen evolution on "
+    "nickel phosphide surfaces studied by operando spectroscopy\n"
+    "J. Membr. Sci. 2020, 12, 12345-12350. [CrossRef] [PubMed]\n"
+)
+
+
+def test_split_reference_entries_are_caught_by_density() -> None:
+    """MDPI puts the author list in its own box: prose line by line, not prose.
+
+    This is the cata13 leak — 62 ungrounded sentences shaped like
+    `Catalysts 2023, 13, 117. [CrossRef]` and `Author, A.B.; Smith, C.D.`.
+    """
+    region = MDPI_SPLIT * 8
+    assert reference_signal_density(region) > 5.0
+    kept, _dropped = split_off_bibliography_lines(region)
+    # The author-list lines look like prose, so the line filter alone keeps them.
+    assert kept != ""
+    # The region check is what refuses the rescue.
+    assert pin_rescue_worth_keeping(kept, region) is False
+
+
+def test_body_prose_density_is_near_zero() -> None:
+    body = PROSE * 8
+    assert reference_signal_density(body) < 2.0
+    assert pin_rescue_worth_keeping(body, body) is True
+
+
+def test_years_in_body_prose_do_not_refuse_the_rescue() -> None:
+    """A review paragraph cites years. Only reference-only signals count."""
+    body = (
+        PROSE
+        + " Interest in this reaction has grown since 2015, and by 2019 several "
+        "groups had reported comparable turnover numbers in 2020 and 2021."
+    ) * 4
+    assert reference_signal_density(body) == 0.0
+    assert pin_rescue_worth_keeping(body, body) is True
+
+
+def test_density_needs_several_hits() -> None:
+    """One stray signal in a long survivor must not read as a reference list."""
+    assert reference_signal_density("See doi:10.1021/x for details. " + PROSE) == 0.0
+
+
+def test_mdpi_split_reference_chunk_is_dropped_end_to_end() -> None:
+    chunk = _pin("references", MDPI_SPLIT * 8)
+    with patch(
+        "sentence_reading.llm.debone._process_one_chunk",
+        side_effect=RuntimeError("must not call the model"),
+    ):
+        pairs, stat = _process_chunk_with_guard(chunk, 11, 15, "", _Ctx())
+    assert pairs == []
+    assert stat.kind == "references"
+    assert stat.references_pin_rejected is False
 
 
 def test_other_pins_are_untouched() -> None:

@@ -383,7 +383,7 @@
 | 332 | [332-headingless-reference-list.md](332-headingless-reference-list.md) | 머리글 없는 참고문헌 목록이 연습 문장이 되던 것 (0.3.326) |
 | 333 | [333-coverage-denominator-correction.md](333-coverage-denominator-correction.md) | 재현율 분모 교정 · 331 토큰 차집합 철회 · 분모 하한 (0.3.327) |
 | 334 | [334-chunk-yield-floor.md](334-chunk-yield-floor.md) | 청크가 산문의 일부만 돌려주면 실패 · 수율 하한 (0.3.328) |
-| 335 | [335-references-pin-is-not-evidence.md](335-references-pin-is-not-evidence.md) | `references` 고정은 증거가 아니다 · 본문 1.2만 자 삭제 복구 (0.3.328) |
+| 335 | [335-references-pin-is-not-evidence.md](335-references-pin-is-not-evidence.md) | `references` 고정은 증거가 아니다 · 본문 삭제 복구 · 쪼개진 항목은 신호 밀도로 (0.3.328·0.3.329) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

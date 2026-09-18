@@ -325,6 +325,41 @@ def looks_like_prose_line(text: str) -> bool:
     return (digits / len(line)) < _PROSE_MAX_DIGIT_SHARE
 
 
+_REF_MARKER = re.compile(
+    r"\[CrossRef\]|\[PubMed\]|\[Google Scholar\]|\bdoi:|\b10\.\d{4,9}/", re.IGNORECASE
+)
+# `Author, A.B.;` — an initial run after a surname.
+_REF_INITIALS = re.compile(r"[A-Z][a-z\u00c0-\u024f]+,\s*(?:[A-Z]\.\s*){1,4}")
+# `Catalysts 2023, 13, 117` — year, volume, page.
+_REF_VOLPAGE = re.compile(r"\b(?:19|20)\d{2}\s*,\s*\d{1,4}\s*,\s*\d{1,5}")
+_REF_DENSITY_MIN_HITS = 3
+
+
+def reference_signal_density(text: str) -> float:
+    """Reference-list signals per 1000 characters (design/335).
+
+    MDPI and ACS split one reference across boxes: the author list lands in a long
+    box with no number and no year, which reads as prose line by line. Only the
+    aggregate gives it away. Measured separation is wide — a real reference region
+    scores about 15, restored body prose about 0.3, clean body 0.
+
+    A bare year is deliberately **not** counted. Body prose says `since 2015`,
+    while `[CrossRef]`, a surname-plus-initials run, and a year-volume-page triple
+    belong to reference lists alone.
+    """
+    s = strip_tags(text or "")
+    if not s:
+        return 0.0
+    hits = (
+        len(_REF_MARKER.findall(s))
+        + len(_REF_INITIALS.findall(s))
+        + len(_REF_VOLPAGE.findall(s))
+    )
+    if hits < _REF_DENSITY_MIN_HITS:
+        return 0.0
+    return 1000.0 * hits / len(s)
+
+
 def split_off_bibliography_lines(text: str) -> tuple[str, int]:
     """Keep only running prose from a reference region (design/335).
 

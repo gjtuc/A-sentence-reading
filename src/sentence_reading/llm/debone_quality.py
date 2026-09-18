@@ -27,6 +27,10 @@ CHUNK_YIELD_MIN = 0.45
 # Deleting body prose is the worse failure, so this floor only rejects a chunk
 # that is overwhelmingly a reference list.
 PIN_RESCUE_MIN_SHARE = 0.20
+# Reference-list signals per 1000 characters. Measured: a genuine reference region
+# scores ~19, restored body prose ~0.4, clean body 0. Set with a wide margin on
+# both sides.
+REF_SIGNAL_DENSITY_MAX = 2.0
 COVERAGE_LOW = 0.50
 COVERAGE_WARN = 0.65
 BODY_RATIO_WARN = 0.30
@@ -436,12 +440,18 @@ def pairs_chars(pairs: list[tuple[str, str]] | None) -> int:
 
 def pin_rescue_worth_keeping(kept: str, original: str) -> bool:
     """design/335 — is what survived the bibliography filter really body prose?"""
+    from sentence_reading.cite_refs import reference_signal_density
+
     if chunk_kind(kept) != "substantive":
         return False
     whole = prose_chars(original)
     if whole <= 0:
         return False
-    return (prose_chars(kept) / whole) >= PIN_RESCUE_MIN_SHARE
+    if (prose_chars(kept) / whole) < PIN_RESCUE_MIN_SHARE:
+        return False
+    # A split reference entry reads as prose line by line, so the region as a
+    # whole has to be checked too.
+    return reference_signal_density(kept) < REF_SIGNAL_DENSITY_MAX
 
 
 def chunk_under_yielded(chunk_text: str, pairs: list[tuple[str, str]] | None) -> bool:
