@@ -1012,7 +1012,13 @@ def spoken_text_for_tts(
         return ""
 
     if "&" in s:
-        s = html_lib.unescape(s)
+        # design/326 — extraction can double-escape, so `&amp;gt;` needs two
+        # rounds. One pass left `&gt;` to be read aloud as an entity.
+        for _ in range(3):
+            after = html_lib.unescape(s)
+            if after == s:
+                break
+            s = after
 
     # design/216 — strip numeric cite <sup>n</sup> before HTML->spoken
     s = strip_cite_markers_for_display(s)
@@ -1031,6 +1037,9 @@ def spoken_text_for_tts(
     # and a spaced `Ba0.5 Sr0.5 ... O3` is not recognisable as one formula, so the
     # token decisions below would never see it.
     s = _fold_formula_subscripts(s)
+    # design/326 — drop the section prefix before anything freezes it. `Title:`
+    # opens with the titanium symbol, so the proper-noun guard would keep it.
+    s = _SECTION_PREFIX.sub("", s)
     # design/326 — say the long form and the abbreviation. Must precede the aside
     # drop, which would otherwise delete the definition.
     s = voice_definitions(s)
@@ -1044,7 +1053,6 @@ def spoken_text_for_tts(
     s = _apply_chem_aliases(s)
     s = _apply_formula_fragments(s)
     s = _expand_plain_chem_digits(s)
-    s = _SECTION_PREFIX.sub("", s)
     s = _collapse_full_name_abbrev(s)
     # design/217 — dash A, then units before symbols (cm−1)
     s = _dash_pass_a(s)

@@ -241,6 +241,101 @@ def test_known_gap_doped_formula_needs_the_paper_term():
     assert "barium" in out.lower()
 
 
+# --- found by linting 639 real sentences -------------------------------------
+
+
+def test_proper_noun_is_not_split_into_elements():
+    """`Kröger-Vink` was read as "krypton oger Vink"."""
+    for raw, banned in (
+        ("Kr\u00f6ger-Vink notation", "krypton"),
+        ("Nafion in the film", "sodium"),
+        ("Tafel slope", "tantalum"),
+        ("Fischer-Tropsch synthesis", "fluorine"),
+        ("Barrett-Joyner-Halenda", "barium"),
+    ):
+        got = _s(raw).lower()
+        assert banned not in got, f"{raw} -> {got}"
+
+
+def test_unit_word_slash_is_per():
+    assert "millivolt per decade" in _s("a Tafel slope of 60 mV/decade").lower()
+    assert "per min" in _s("a heating rate of 30 K/min").lower()
+
+
+def test_greater_and_less_than_are_spoken():
+    assert "greater than" in _s("stable with &amp;gt; 87% retained").lower()
+    assert "less than" in _s("particles &lt;2 nm").lower()
+
+
+def test_double_escaped_html_is_fully_unescaped():
+    out = _s("stable with &amp;gt; 87% retained")
+    assert "&" not in out
+    assert ">" not in out
+
+
+def test_spelled_formula_keeps_a_multi_digit_number_whole():
+    out = _s("the BZY10 composition")
+    assert "B Z Y 10" in out
+    assert "1 0" not in out
+
+
+def test_core_level_notation_keeps_the_symbol():
+    out = _s("originating from C 1s and O 1s photoelectrons")
+    assert "C one s" in out
+    assert "carbon 1s" not in out.lower()
+
+
+def test_angle_degrees_are_not_celsius():
+    out = _s("a step of 0.02\u00b0 and a range from 10 to 80\u00b0").lower()
+    assert "degrees" in out
+    assert "celsius" not in out
+    assert "\u00b0" not in out
+
+
+def test_celsius_still_says_celsius():
+    assert "degrees celsius" in _s("annealing at 1000 \u2103").lower()
+
+
+def test_helium_is_not_letter_spelled():
+    out = _s("10% H2/He was flowing").lower()
+    assert "helium" in out
+    assert "h e" not in out
+
+
+def test_ammonium_hydroxide_is_named():
+    assert "ammonium hydroxide" in _s("A precipitating agent, NH4OH,").lower()
+
+
+def test_section_prefix_still_stripped_after_the_proper_noun_guard():
+    """`Title:` opens with the titanium symbol, so the guard nearly kept it."""
+    out = _s("Title: Nickel catalyst")
+    assert not out.lower().startswith("title")
+    assert "nickel" in out.lower()
+
+
+def test_instrument_model_suffix_is_not_elements():
+    """`JEM-2200FS` was read as "J E M minus 2200 fluorine sulfur"."""
+    out = _s("a JEOL JEM-2200FS microscope")
+    assert "fluorine" not in out.lower()
+    assert "sulfur" not in out.lower()
+    assert "minus" not in out.lower()
+    assert "2200" in out
+
+
+def test_the_model_rule_does_not_eat_formulas():
+    """The hyphen is what makes a model label; `CH4` must stay methane."""
+    assert "methane" in _s("CH4 oxidation").lower()
+    assert "carbon dioxide" in _s("CO2 reduction").lower()
+    assert "nickel nitrate" in _s("Ni(NO3)2 solution").lower()
+    assert "ammonium hydroxide" in _s("NH4OH was added").lower()
+
+
+def test_numeric_ratio_slash_is_to():
+    out = _s("as diluent, in a 1/60 ratio")
+    assert "1 to 60" in out
+    assert "/" not in out
+
+
 def test_paper_terms_win_over_every_builtin_rule():
     """Phase 2 hook: once ingest supplies the term, it is used."""
     out = spoken_text_for_tts(

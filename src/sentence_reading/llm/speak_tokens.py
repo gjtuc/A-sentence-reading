@@ -106,6 +106,21 @@ COMPOUND_NAME: dict[str, str] = {
     "FeAl2O4": "iron aluminate",
     "N2O": "nitrous oxide",
     "H2S": "hydrogen sulfide",
+    "NH4OH": "ammonium hydroxide",
+    "NH4NO3": "ammonium nitrate",
+    "(NH4)2SO4": "ammonium sulfate",
+    "NaHCO3": "sodium bicarbonate",
+    "Na2CO3": "sodium carbonate",
+    "CaCO3": "calcium carbonate",
+    "BaCO3": "barium carbonate",
+    "La2O3": "lanthana",
+    "Y2O3": "yttria",
+    "Cr2O3": "chromia",
+    "Co3O4": "cobalt oxide",
+    "Mn3O4": "manganese oxide",
+    "WO3": "tungsten oxide",
+    "MoO3": "molybdenum oxide",
+    "V2O5": "vanadium oxide",
 }
 
 # Anion suffix patterns: (regex on the tail, spoken suffix)
@@ -127,6 +142,38 @@ _ANION_SUFFIX: list[tuple[re.Pattern[str], str]] = [
 
 _SUP_DIGITS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
 _SUB_DIGITS = str.maketrans("₀₁₂₃₄₅₆₇₈₉", "0123456789")
+
+_DIGIT_WORD = {
+    "1": "one",
+    "2": "two",
+    "3": "three",
+    "4": "four",
+    "5": "five",
+    "6": "six",
+    "7": "seven",
+}
+
+# `C 1s`, `O 2p`, `Ni 2p3` — a core level, not the element plus a number.
+_XPS = re.compile(r"(?<![A-Za-z])([A-Z][a-z]?)\s+(\d)([spdf])\b")
+
+# `JEM-2200FS`, `TGP-H-090` — an instrument or model label. The trailing letters
+# are a suffix, not elements: `2200FS` was read as "2200 fluorine sulfur".
+# The hyphen is what distinguishes a model label from a formula: `JEM-2200FS`
+# has one, `CH4` and `Ni(NO3)2` do not and must stay chemicals.
+_MODEL = re.compile(
+    r"(?<![A-Za-z0-9])([A-Z]{2,}[-\u2010\u2011]\d+[A-Z]{0,3})(?![A-Za-z0-9])"
+)
+
+# A capitalised word whose first one or two letters are an element symbol but
+# which continues as a word: Kröger, Nafion, Tafel, Fischer, Barrett.
+_PROPER_WORD = re.compile(
+    r"(?<![A-Za-z])"
+    r"(?:H|B|C|N|O|F|P|S|K|V|W|Y|I|He|Li|Be|Ne|Na|Mg|Al|Si|Cl|Ar|Ca|Sc|Ti|Cr"
+    r"|Mn|Fe|Co|Ni|Cu|Zn|Ga|Ge|As|Se|Br|Kr|Rb|Sr|Zr|Nb|Mo|Ru|Rh|Pd|Ag|Cd|In"
+    r"|Sn|Sb|Te|Xe|Cs|Ba|La|Ce|Pr|Nd|Ta|Re|Os|Ir|Pt|Au|Hg|Tl|Pb|Bi|Th|U)"
+    r"[a-z\u00c0-\u024f]{3,}"
+    r"(?![A-Za-z])"
+)
 
 
 @dataclass(frozen=True)
@@ -192,7 +239,9 @@ def _spell_formula(formula: str) -> str:
         else:
             out.append(ch)
     joined = " ".join(c for c in out if c.strip())
-    return re.sub(r"\s+", " ", joined).strip()
+    joined = re.sub(r"\s+", " ", joined).strip()
+    # `B Z Y 1 0` reads as one-zero. Keep a multi-digit number whole: `B Z Y 10`.
+    return re.sub(r"(?<=\d) (?=\d)", "", joined)
 
 
 def _is_complex_formula(f: str) -> bool:
@@ -214,9 +263,12 @@ _CAP_PAIR = re.compile(
 )
 
 # `Pt/C`, `H2/CO` — decided before the element passes see either side.
+# The right side may open with a Greek prefix (`Ni/γ-Al2O3`), which is a support.
 _SLASH_PAIR = re.compile(
     r"(?<![A-Za-z0-9/])"
-    r"((?:[A-Z][a-z]?\d*){1,6})\s*/\s*((?:[A-Z][a-z]?\d*){1,6})"
+    r"((?:[A-Z][a-z]?\d*){1,6})\s*/\s*"
+    r"(?:[\u03b1-\u03c9]\s*[-\u2010\u2011\u2013]?\s*)?"
+    r"((?:[A-Z][a-z]?\d*){1,6})"
     r"(?![A-Za-z0-9/])"
 )
 # A slash between units is `per`, and the unit lexicon already handles it.
@@ -300,6 +352,32 @@ def freeze(
         lambda m: _put(" ".join(re.findall(r"[A-Z]", m.group(1)))), s
     )
 
+    # 2c. A capitalised word that merely opens with an element symbol is a name,
+    #     not a chemical. `Kröger` was read as "krypton öger", `Nafion` risks
+    #     "sodium fion". Freeze it as printed.
+    s = _PROPER_WORD.sub(lambda m: _put(m.group(0)), s)
+
+    # 2c2. Instrument and model labels keep their digits and spell their letters.
+    s = _MODEL.sub(
+        lambda m: _put(
+            re.sub(
+                r"\s+",
+                " ",
+                " ".join(
+                    part if part.isdigit() else " ".join(part)
+                    for part in re.findall(r"\d+|[A-Z]+", m.group(1))
+                ),
+            )
+        ),
+        s,
+    )
+
+    # 2d. XPS / orbital notation: `C 1s` is "C one s", not "carbon 1s".
+    s = _XPS.sub(
+        lambda m: _put(f"{m.group(1)} {_DIGIT_WORD.get(m.group(2), m.group(2))} {m.group(3)}"),
+        s,
+    )
+
     # 3. Orbital labels.
     s = _ORBITAL.sub(
         lambda m: _put(_orbital_spoken(m.group(1), m.group(2))), s
@@ -368,13 +446,35 @@ def _decide(token: str, put) -> str:
     return put(letter_spell(token))
 
 
+_NONMETAL_NAME = {
+    "C": "carbon",
+    "N": "nitrogen",
+    "O": "oxygen",
+    "H": "hydrogen",
+    "S": "sulfur",
+    "P": "phosphorus",
+    "B": "boron",
+    "F": "fluorine",
+    "Cl": "chlorine",
+    "Br": "bromine",
+    "I": "iodine",
+    "He": "helium",
+    "Ne": "neon",
+    "Ar": "argon",
+    "Kr": "krypton",
+    "Xe": "xenon",
+    "Se": "selenium",
+    "Te": "tellurium",
+    "As": "arsenic",
+    "Ge": "germanium",
+}
+
+
 def _element_name(token: str) -> str | None:
     t = (token or "").strip()
     if t in _METAL_NAME:
         return _METAL_NAME[t]
-    _SINGLE = {"C": "carbon", "N": "nitrogen", "O": "oxygen", "H": "hydrogen",
-               "S": "sulfur", "P": "phosphorus", "B": "boron", "F": "fluorine"}
-    return _SINGLE.get(t)
+    return _NONMETAL_NAME.get(t)
 
 
 def _has_fraction(token: str) -> bool:
@@ -451,14 +551,43 @@ def voice_definitions(text: str) -> str:
 _UNIT_WORD: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?<=\d)\s*\u2103"), " degrees Celsius"),
     (re.compile(r"(?<=\d)\s*\u00b0\s*C(?![a-z])"), " degrees Celsius"),
+    # A bare degree with no C is an angle, not a temperature.
+    (re.compile(r"(?<=\d)\s*\u00b0(?![A-Za-z])"), " degrees"),
     (re.compile(r"(?<=\d)\s+M(?![A-Za-z])"), " molar"),
     (re.compile(r"(?<=\d)\s+mol(?![A-Za-z])"), " molar"),
     (re.compile(r"(?<![\d.])1\s+min(?![A-Za-z])"), "1 minute"),
     (re.compile(r"(?<=\d)\s+min(?![A-Za-z])"), " minutes"),
     (re.compile(r"(?<![\d.])1\s+h(?![A-Za-z])"), "1 hour"),
     (re.compile(r"(?<=\d)\s+h(?![A-Za-z])"), " hours"),
+    (re.compile(r"(?<![\d.])1\s+s(?![A-Za-z])"), "1 second"),
+    (re.compile(r"(?<=\d)\s+s(?![A-Za-z])"), " seconds"),
     (re.compile(r"(?<=\d)\s*wt\s*%"), " weight percent"),
+    (re.compile(r"(?<=\d)\s*at\s*%"), " atomic percent"),
+    (re.compile(r"(?<=\d)\s+kV(?![A-Za-z])"), " kilovolts"),
+    (re.compile(r"(?<=\d)\s+mg(?![A-Za-z])"), " milligrams"),
+    (re.compile(r"(?<=\d)\s+kg(?![A-Za-z])"), " kilograms"),
+    (re.compile(r"(?<=\d)\s+mL(?![A-Za-z])"), " milliliters"),
+    (re.compile(r"(?<=\d)\s+(?:um|\u03bcm)(?![A-Za-z])"), " micrometers"),
+    (re.compile(r"(?<=\d)\s+nm(?![A-Za-z])"), " nanometers"),
+    (re.compile(r"(?<=\d)\s+rpm(?![A-Za-z])"), " r p m"),
+    # `~` before a number is spoken, not shown.
+    (re.compile(r"~\s*(?=[\d.])"), "about "),
 ]
+
+# `mV/decade`, `mL/s` — a unit over anything is `per`.
+_UNIT_SLASH = re.compile(
+    r"(?<![A-Za-z0-9])((?:m|k|M|G|n|u|\u03bc)?(?:V|A|L|g|s|m|W|J|Hz|mol|Pa))"
+    r"\s*/\s*([A-Za-z]+)(?![A-Za-z0-9])"
+)
+_UNIT_WORDS_SPOKEN = (
+    "volt|millivolt|ampere|milliampere|gram|milligram|kilogram|second|minute|"
+    "hour|kelvin|liter|milliliter|watt|joule|kilojoule|mole|molar|meter|"
+    "centimeter|millimeter|nanometer|micrometer|degree|degrees|coulomb|farad|"
+    "hertz|pascal|bar|electron volt"
+)
+_UNIT_WORD_SLASH = re.compile(
+    rf"(?<![A-Za-z])({_UNIT_WORDS_SPOKEN})s?\s*/\s*([a-z]+)(?![A-Za-z])"
+)
 
 # `Pt/C`, `Pt/CNT` — a metal on a support is spoken "on".
 _SUPPORTS = (
@@ -480,6 +609,15 @@ def spoken_post(text: str) -> str:
     s = text or ""
     for pat, word in _UNIT_WORD:
         s = pat.sub(word, s)
+    s = _UNIT_SLASH.sub(r"\1 per \2", s)
+    # By now the abbreviations are words, so `millivolt /decade` needs the same
+    # treatment. Only a known unit word on the left may claim `per`.
+    s = _UNIT_WORD_SLASH.sub(r"\1 per \2", s)
+    # A slash between two plain numbers is a ratio: `1/60` is "1 to 60".
+    s = re.sub(r"(?<![A-Za-z0-9.])(\d+)\s*/\s*(\d+)(?![A-Za-z0-9.])", r"\1 to \2", s)
+    # `> 87%` is spoken, not shown.
+    s = re.sub(r"(?<![A-Za-z])>\s*(?=[\d.])", "greater than ", s)
+    s = re.sub(r"(?<![A-Za-z])<\s*(?=[\d.])", "less than ", s)
     # A dash between two numbers that share a unit is a range.
     s = re.sub(r"(?<=\d)\s*[-\u2010\u2011\u2013](?=\d)", " to ", s)
     # `0.25 volt -1.00 volt` — the unit word sits between the two numbers, so the

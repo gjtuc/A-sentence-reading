@@ -82,8 +82,48 @@ from ingest. Filling `terms` from the survey pass and persisting it in
 - ground truth: **2/20 → 12/20** exact. Of the 8 remaining, 5 differ only in
   digits-versus-words (TTS reads digits correctly), 1 is a foreign-article URL
   that design/325 follow-up removes, and 2 are the markup gaps below.
-- existing suites: **71 assertions pass**, including idempotence and the
+- existing suites: **109 assertions pass**, including idempotence and the
   design/90 unit contracts.
+
+## Scaling the review past twenty sentences
+
+Hand-checking found the big classes; a linter found the rest.
+`agent-tools/speak_lint.py` flags spoken output carrying the signature of a known
+failure mode — an element name next to an unexpanded symbol, a lowercased letter
+run, leftover markup or a tilde, a bare unit abbreviation, an unresolved slash,
+a length blow-up against P9. Run over **2,451 sentences from 10 real papers**,
+it found classes twenty hand-picked sentences had missed:
+
+| found by the linter | was | now |
+|---|---|---|
+| `Kröger-Vink` | **krypton öger Vink** | Kröger Vink |
+| `JEM-2200FS` | **J E M minus 2200 fluorine sulfur** | J E M 2200 F S |
+| `NH4OH` | nitrogen H4 hydroxy | ammonium hydroxide |
+| `H2/He` | hydrogen to **H E** | hydrogen to helium |
+| `mV/decade` | millivolt **/decade** | millivolt per decade |
+| `1/60 ratio` | **1/60** | 1 to 60 |
+| `&amp;gt; 87%` | **&gt; 87%** | greater than 87% |
+| `0.02°` (angle) | **0.02°** | 0.02 degrees |
+| `BZY10` | **B Z Y 1 0** | B Z Y 10 |
+| `C 1s` | **carbon 1s** | C one s |
+| `~60` | **~60** | about 60 |
+| `30 s`, `17.5 kV`, `10 mg`, `1 um` | printed as-is | seconds, kilovolts, milligrams, micrometers |
+
+Flagged sentences fell from 130 to 74 on the first five papers as these landed.
+A capitalised word that merely opens with an element symbol is now frozen as
+printed, which is what stopped the `Kröger` class.
+
+## Still flagged, with the honest reason
+
+- **`lowercase_letter_run` (42)** — mostly subscripted single-letter variables
+  (`d v i`, `delta t`, `V O`). Reading them as letters is defensible; there is no
+  better deterministic answer without knowing the symbol's meaning.
+- **`leftover_slash` (99)** — the large remainder is subscripted acronym ratios
+  such as `STY_CH4/STY_CO2`. Needs the subscript folding below.
+- **`element_then_digit` (37)** and **`composed_name` (26)** — coordination-site
+  notation (`Co-Nx`, `M1-Nx`) and `Cs-corrected`. `N-doped` must stay
+  "nitrogen doped" while `Cs-corrected` must become "C S corrected", so the two
+  cannot be separated by shape alone. This needs a lexicon, not a rule.
 
 ## Not this chip
 
@@ -92,6 +132,7 @@ from ingest. Filling `terms` from the survey pass and persisting it in
   across an intervening tag.
 - `<i>t<sub>2g</sub></i><sup>5</sup>` loses the exponent for the same reason.
 - Doped fractional formulas (waiting on Phase 2 terms).
+- `Cs-corrected` versus `N-doped`: a symbol-hyphen-word lexicon.
 - Chunk boundaries at breath/clause points — the one-breath rule is written
   down here but not yet enforced in `shadowing_chunk_plan`.
 
