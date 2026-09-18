@@ -137,6 +137,49 @@ def _is_bibliography_line(text: str) -> bool:
     )
 
 
+def _retag_bibliography_runs(
+    assigned: list[tuple[str, FlowBox]],
+) -> list[tuple[str, FlowBox]]:
+    """design/332 — a reference list with no heading is still a reference list.
+
+    Wiley prints the numbered list straight after `Acknowledgements` with no
+    `References` line, so `header_key` never opens a references section and the
+    entries became practice sentences: 106 of 496 on one Adv Mater review, more
+    than one sentence in five asking the reader to say
+    `A. Author, B. Author, Adv. Mater. 2019, 31, 1234` aloud.
+
+    Two consecutive bibliography lines switch the section. An explicit heading
+    always wins, so a journal that prints Methods after References recovers.
+    """
+    out: list[tuple[str, FlowBox]] = []
+    run = 0
+    in_refs = False
+    for key, box in assigned:
+        hk = header_key(box.text)
+        if hk:
+            # A real heading decides, in both directions.
+            in_refs = hk == "references"
+            run = 0
+            out.append((key, box))
+            continue
+        if _is_bibliography_line(box.text):
+            run += 1
+            if run >= 2:
+                in_refs = True
+        else:
+            run = 0
+        out.append(("references" if in_refs else key, box))
+
+    if not any(k == "references" for k, _ in out):
+        return assigned
+    # Retag the first line of a run that only tipped over on the second.
+    for i in range(1, len(out)):
+        if out[i][0] == "references" and out[i - 1][0] != "references":
+            if _is_bibliography_line(out[i - 1][1].text):
+                out[i - 1] = ("references", out[i - 1][1])
+    return out
+
+
 def crosses_center(box: FlowBox, width: float, margin: float = 12.0) -> bool:
     center = width / 2.0
     return box.x0 < center - margin and box.x1 > center + margin
@@ -472,6 +515,8 @@ def order_boxes(boxes: list[FlowBox], pages: list[dict]) -> OrderedPaper:
         assigned.extend(page_assigned)
         if page_assigned:
             previous = page_assigned[-1][0]
+
+    assigned = _retag_bibliography_runs(assigned)
 
     sections: list[tuple[str, list[str]]] = []
     page_parts: list[list[str]] = [[] for _ in range(n_pages)]

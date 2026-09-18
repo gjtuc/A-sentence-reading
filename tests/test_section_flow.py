@@ -151,6 +151,70 @@ def test_broken_equation_is_not_a_sentence() -> None:
     assert "We further analyze the data based on the model." in joined
 
 
+def test_design_332_headingless_reference_list_is_not_practice() -> None:
+    """Wiley prints the numbered list with no `References` line."""
+    from sentence_reading.pdf.section_flow import _retag_bibliography_runs
+
+    class _B:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    assigned = [
+        ("introduction", _B("The catalyst was stable over the whole run.")),
+        ("acknowledgement", _B("Acknowledgements")),
+        ("acknowledgement", _B("We thank the funding agency for support.")),
+        ("acknowledgement", _B("[1] A. Author, B. Author, Adv. Mater. 2019, 31, 1.")),
+        ("acknowledgement", _B("[2] C. Author, D. Author, Nature 2020, 5, 22.")),
+        ("acknowledgement", _B("[3] E. Author, Science 2021, 7, 90.")),
+    ]
+    out = _retag_bibliography_runs(assigned)
+    keys = [k for k, _ in out]
+    assert keys[0] == "introduction"
+    assert keys[1] == "acknowledgement"
+    assert keys[2] == "acknowledgement"
+    # All three list entries end up in references, including the first.
+    assert keys[3:] == ["references", "references", "references"]
+
+
+def test_design_332_a_single_numbered_line_is_not_a_reference_list() -> None:
+    from sentence_reading.pdf.section_flow import _retag_bibliography_runs
+
+    class _B:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    assigned = [
+        ("results", _B("[1] A. Author, B. Author, Adv. Mater. 2019, 31, 1.")),
+        ("results", _B("Conversion rose steadily with temperature.")),
+    ]
+    keys = [k for k, _ in _retag_bibliography_runs(assigned)]
+    assert keys == ["results", "results"]
+
+
+def test_design_332_a_heading_after_the_list_stops_the_run() -> None:
+    """A journal that prints Methods after References must recover.
+
+    This pass only retags the bibliography run; `_read_page` still owns the key,
+    so the assertion is that the heading and its body leave references, not that
+    the key is re-derived here.
+    """
+    from sentence_reading.pdf.section_flow import _retag_bibliography_runs
+
+    class _B:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    assigned = [
+        ("body", _B("[1] A. Author, Adv. Mater. 2019, 31, 1.")),
+        ("body", _B("[2] B. Author, Nature 2020, 5, 22.")),
+        ("methods", _B("Methods")),
+        ("methods", _B("Samples were calcined at 800 C for two hours.")),
+    ]
+    keys = [k for k, _ in _retag_bibliography_runs(assigned)]
+    assert keys[:2] == ["references", "references"]
+    assert "references" not in keys[2:]
+
+
 def test_design_325_abstract_run_in_headings_open_a_section() -> None:
     from sentence_reading.pdf.section_flow import header_key
 
