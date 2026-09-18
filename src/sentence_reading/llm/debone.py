@@ -13,13 +13,20 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 import threading
 
-from sentence_reading.cite_refs import repair_dollar_cite_artifacts
+from sentence_reading.cite_refs import (
+    repair_dollar_cite_artifacts,
+    split_off_bibliography_lines,
+)
 from sentence_reading.llm.debone_quality import (
     ChunkStat,
     apply_grounding_flags,
     build_ingest_quality,
     chunk_kind,
+    chunk_under_yielded,
     fallback_split_chunk,
+    pairs_chars,
+    pin_rescue_worth_keeping,
+    prose_chars,
     quality_to_warnings,
 )
 from sentence_reading.llm.env import gemini_api_key, gemini_model
@@ -527,18 +534,36 @@ def _process_chunk_with_guard(
     kind = chunk_kind(chunk)
     pinned = None
     work = chunk
+    bib_dropped = 0
+    pin_rejected = False
     if "<<<ASR_SECTION " in chunk:
         from sentence_reading.pdf.section_flow import pinned_section, strip_section_mark
 
         pinned = pinned_section(chunk)
         work = strip_section_mark(chunk)
-        kind = chunk_kind(work)
+        if pinned == "references":
+            # design/335 — the pin decided deletion on its own. When the run
+            # starts too early it swallows body prose, so keep the lines that are
+            # not reference entries and drop only the ones that are.
+            pinned_all = work
+            work, bib_dropped = split_off_bibliography_lines(work)
+            if pin_rescue_worth_keeping(work, pinned_all):
+                pinned = "body"
+                pin_rejected = True
+            else:
+                bib_dropped = prose_chars(pinned_all)
+                work = ""
+        # An honored references pin keeps that label, so it reads as a deliberate
+        # drop rather than an empty chunk that failed.
+        kind = "references" if pinned == "references" else chunk_kind(work)
     stat = ChunkStat(
         index=idx,
         chars_in=len(chunk),
         sentences_out=0,
         ok=False,
         kind=kind,
+        bib_chars_dropped=bib_dropped,
+        references_pin_rejected=pin_rejected,
     )
     # design/263 — bibliography chunks must not become practice sentences.
     if kind == "references":
@@ -559,6 +584,24 @@ def _process_chunk_with_guard(
                     stat.fallback = "split"
             elif pairs is None:
                 pairs = []
+            elif kind == "substantive" and chunk_under_yielded(work, pairs):
+                # design/334 — handing back a fraction of the prose is a failure
+                # too. design/167 only caught a chunk that returned nothing, so a
+                # chunk giving 10% of its sentences reported ok and the rest of
+                # the section was gone with no warning.
+                stat.low_yield = True
+                retry = _process_one_chunk(work, idx, total, context_block)
+                if retry and not chunk_under_yielded(work, retry):
+                    pairs = retry
+                else:
+                    best = retry if pairs_chars(retry) > pairs_chars(pairs) else pairs
+                    split = fallback_split_chunk(work, ctx, idx, total)
+                    # Only take the splitter when it actually returns more.
+                    if pairs_chars(split) > pairs_chars(best):
+                        pairs = split
+                        stat.fallback = "split"
+                    else:
+                        pairs = best
         if pinned:
             pairs = [] if pinned == "references" else [(text, pinned) for text, _sec in (pairs or [])]
     except Exception:  # noqa: BLE001
@@ -568,6 +611,7 @@ def _process_chunk_with_guard(
         stat.fallback = "split"
 
     stat.sentences_out = len(pairs or [])
+    stat.chars_out = pairs_chars(pairs)
     stat.ok = stat.sentences_out > 0 or kind in ("references", "sparse")
     return pairs or [], stat
 

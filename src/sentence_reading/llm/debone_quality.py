@@ -17,6 +17,16 @@ if TYPE_CHECKING:
 
 CHUNK_SUBSTANTIVE_ALNUM = 120
 CHUNK_SPARSE_ALNUM = 40
+# design/334 — a substantive chunk that returns less than this share of its prose
+# has under-yielded, not succeeded. Deboning strips citation markers and running
+# heads, so some shrinkage is normal; losing most of the chunk is not.
+CHUNK_YIELD_MIN = 0.45
+# design/335 — overruling a `references` pin needs the surviving prose to be most
+# of the chunk. A reference list with a few stray lines is still a reference list,
+# and those strays must not become practice sentences.
+# Deleting body prose is the worse failure, so this floor only rejects a chunk
+# that is overwhelmingly a reference list.
+PIN_RESCUE_MIN_SHARE = 0.20
 COVERAGE_LOW = 0.50
 COVERAGE_WARN = 0.65
 BODY_RATIO_WARN = 0.30
@@ -68,6 +78,21 @@ class ChunkStat:
     ok: bool
     kind: ChunkKind
     fallback: str | None = None
+    # design/334 — characters the chunk actually returned. A chunk that gives
+    # back a fraction of its prose used to report ok, because design/167 only
+    # catches a chunk that returns nothing.
+    chars_out: int = 0
+    low_yield: bool = False
+    # design/335 — characters this chunk dropped as bibliography, and whether an
+    # upstream `references` pin was overruled because the text was prose.
+    bib_chars_dropped: int = 0
+    references_pin_rejected: bool = False
+
+    @property
+    def yield_ratio(self) -> float:
+        if self.chars_in <= 0:
+            return 1.0
+        return self.chars_out / self.chars_in
 
 
 @dataclass
@@ -76,6 +101,11 @@ class IngestQuality:
     chunks_ok: int = 0
     chunks_failed: list[int] = field(default_factory=list)
     chunks_fallback_split: list[int] = field(default_factory=list)
+    # design/334 — chunks that came back with a fraction of their prose.
+    chunks_low_yield: list[int] = field(default_factory=list)
+    # design/335 — bibliography deletion, reported instead of assumed.
+    bib_chars_dropped: int = 0
+    references_pin_rejected: list[int] = field(default_factory=list)
     coverage_ratio: float = 1.0
     body_sentence_count: int = 0
     body_ratio: float = 0.0
@@ -88,6 +118,9 @@ class IngestQuality:
             "chunks_ok": self.chunks_ok,
             "chunks_failed": list(self.chunks_failed),
             "chunks_fallback_split": list(self.chunks_fallback_split),
+            "chunks_low_yield": list(self.chunks_low_yield),
+            "bib_chars_dropped": self.bib_chars_dropped,
+            "references_pin_rejected": list(self.references_pin_rejected),
             "coverage_ratio": round(self.coverage_ratio, 4),
             "body_sentence_count": self.body_sentence_count,
             "body_ratio": round(self.body_ratio, 4),
@@ -377,6 +410,11 @@ def build_ingest_quality(
         chunks_ok=chunks_ok,
         chunks_failed=failed,
         chunks_fallback_split=fallback,
+        chunks_low_yield=[s.index for s in chunk_stats if s.low_yield],
+        bib_chars_dropped=sum(s.bib_chars_dropped for s in chunk_stats),
+        references_pin_rejected=[
+            s.index for s in chunk_stats if s.references_pin_rejected
+        ],
         # design/330 — the bibliography is never practice text, so it must not
         # sit in the denominator and read as loss.
         coverage_ratio=coverage_excluding_references(raw_text, sentences),
@@ -385,6 +423,33 @@ def build_ingest_quality(
         ungrounded_count=len(ungrounded_ids),
         ungrounded_ids=list(ungrounded_ids),
     )
+
+
+def prose_chars(text: str) -> int:
+    """Letters and digits only, so whitespace and markup do not skew the ratio."""
+    return len(re.findall(r"[^\W_]", plain_text(text or ""), flags=re.UNICODE))
+
+
+def pairs_chars(pairs: list[tuple[str, str]] | None) -> int:
+    return sum(prose_chars(t) for t, _sec in (pairs or []))
+
+
+def pin_rescue_worth_keeping(kept: str, original: str) -> bool:
+    """design/335 — is what survived the bibliography filter really body prose?"""
+    if chunk_kind(kept) != "substantive":
+        return False
+    whole = prose_chars(original)
+    if whole <= 0:
+        return False
+    return (prose_chars(kept) / whole) >= PIN_RESCUE_MIN_SHARE
+
+
+def chunk_under_yielded(chunk_text: str, pairs: list[tuple[str, str]] | None) -> bool:
+    """design/334 — did this chunk hand back only a fraction of its prose?"""
+    have = prose_chars(chunk_text)
+    if have <= 0:
+        return False
+    return (pairs_chars(pairs) / have) < CHUNK_YIELD_MIN
 
 
 def quality_to_warnings(
@@ -396,6 +461,10 @@ def quality_to_warnings(
     w: list[str] = []
     for i in iq.chunks_fallback_split:
         w.append(f"chunk_fallback_split:{i}")
+    for i in iq.chunks_low_yield:
+        w.append(f"chunk_low_yield:{i}")
+    for i in iq.references_pin_rejected:
+        w.append(f"references_pin_rejected:{i}")
     if iq.chunks_failed or iq.chunks_ok < iq.chunks_total:
         w.append(f"partial_debone:{iq.chunks_ok}/{iq.chunks_total}")
     if missing_front_matter:

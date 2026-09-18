@@ -129,12 +129,10 @@ def _looks_like_heading(line: str) -> bool:
 
 
 def _is_bibliography_line(text: str) -> bool:
-    line = re.sub(r"\s+", " ", text or "").strip()
-    if re.match(r"^\[\d+\]\s+\S", line):
-        return True
-    return bool(
-        re.match(r"^\d+\.\s+[A-Z]", line) and re.search(r"\b(?:19|20)\d{2}\b", line)
-    )
+    # design/335 — one predicate, shared with the debone deletion gate.
+    from sentence_reading.cite_refs import is_bibliography_line
+
+    return is_bibliography_line(text)
 
 
 def _retag_bibliography_runs(

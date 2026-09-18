@@ -272,6 +272,77 @@ def bibliography_header_start(full_text: str) -> int | None:
     return None
 
 
+_BIB_ENUM = re.compile(r"^\s*(?:\[\d{1,3}\]|\(\d{1,3}\))\s+\S")
+_BIB_DOTTED = re.compile(r"^\s*\d{1,3}[.)]\s+[A-Z\u00c0-\u024f]")
+_BIB_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+_BIB_ETAL = re.compile(r"\bet al\b", re.IGNORECASE)
+_BIB_DOI = re.compile(r"\b10\.\d{4,9}/", re.IGNORECASE)
+# A reference entry is one line of a list, not a paragraph. Past this it is prose
+# that happens to start with a number.
+_BIB_LINE_MAX = 600
+
+
+def is_bibliography_line(text: str) -> bool:
+    """One line of a reference list, judged on the line's own evidence.
+
+    design/335 — a section label is not evidence. Deleting text because something
+    upstream called it `references` needs the line to actually look like a
+    reference entry, or body prose disappears with no trace.
+    """
+    line = re.sub(r"\s+", " ", strip_tags(text or "")).strip()
+    if not line or len(line) > _BIB_LINE_MAX:
+        return False
+    if _BIB_ENUM.match(line):
+        return True
+    if not _BIB_DOTTED.match(line):
+        return False
+    # `3. Author, A. ... 2019` is a reference; `2. Add the solution slowly` is a
+    # numbered procedure step, so require a citation signal too.
+    return bool(
+        _BIB_YEAR.search(line) or _BIB_ETAL.search(line) or _BIB_DOI.search(line)
+    )
+
+
+_BIB_WORD = re.compile(r"[A-Za-z\u00c0-\u024f]{3,}")
+_PROSE_MIN_CHARS = 60
+_PROSE_MIN_WORDS = 8
+_PROSE_MAX_DIGIT_SHARE = 0.18
+
+
+def looks_like_prose_line(text: str) -> bool:
+    """A line of running text, not a heading, footer, or citation fragment.
+
+    Only used inside a region something upstream called `references`, where a
+    surviving short or digit-dense line is far more likely to be the tail of a
+    wrapped reference entry than a sentence worth practising.
+    """
+    line = re.sub(r"\s+", " ", strip_tags(text or "")).strip()
+    if len(line) < _PROSE_MIN_CHARS:
+        return False
+    if len(_BIB_WORD.findall(line)) < _PROSE_MIN_WORDS:
+        return False
+    digits = sum(1 for c in line if c.isdigit())
+    return (digits / len(line)) < _PROSE_MAX_DIGIT_SHARE
+
+
+def split_off_bibliography_lines(text: str) -> tuple[str, int]:
+    """Keep only running prose from a reference region (design/335).
+
+    Returns the surviving text and the character count dropped, so a caller can
+    report the deletion instead of losing it silently.
+    """
+    keep: list[str] = []
+    dropped = 0
+    for line in (text or "").splitlines():
+        if not line.strip():
+            continue
+        if is_bibliography_line(line) or not looks_like_prose_line(line):
+            dropped += len(line.strip())
+        else:
+            keep.append(line)
+    return "\n".join(keep).strip(), dropped
+
+
 def cut_bibliography_for_sentences(full_text: str) -> str:
     """
     design/263 — keep text before bibliography for sentence split/debone.
