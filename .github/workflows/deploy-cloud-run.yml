@@ -1,6 +1,7 @@
-# 무엇을: main 푸시·수동으로 Cloud Run 배포 (선택).
-# 왜: design/25 수동 배포 다음 단계 — PC 없이 재배포 (design/32).
+# 무엇을: main 푸시·수동으로 Cloud Run pair 배포 (선택).
+# 왜: design/25 수동 배포 다음 단계 — PC 없이 재배포 (design/32 · 316).
 # 불변: SA JSON·API 키를 이미지에 넣지 않음 — GitHub Secrets → env-vars-file.
+# 불변: API+worker는 deploy_cloud_run_pair.sh (같은 digest). worker-only CD 금지.
 # 게이트: repository variable ASR_CD_ENABLED=1 일 때만 job 실행 (기본 off).
 name: Deploy Cloud Run
 
@@ -12,14 +13,19 @@ on:
       - "src/**"
       - "Dockerfile"
       - "pyproject.toml"
+      - "src/sentence_reading/worker/**"
       - "scripts/deploy_cloud_run.sh"
+      - "scripts/deploy_cloud_run_pair.sh"
+      - "scripts/deploy_cloud_run_worker.sh"
       - "scripts/deploy_capacity_profile.sh"
       - "scripts/capacity_profiles/**"
       - "scripts/pre_deploy_guard.py"
+      - "scripts/ship_release.sh"
       - ".github/workflows/deploy-cloud-run.yml"
+      - ".github/workflows/deploy-cloud-run-worker.yml"
 
 concurrency:
-  group: deploy-cloud-run
+  group: asr-cloud-pair
   cancel-in-progress: false
 
 jobs:
@@ -86,6 +92,8 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Deploy
+        # design/316 — capacity profile with DEPLOY_WORKER=1 calls
+        # deploy_cloud_run_pair.sh (API then worker, same digest).
         env:
           ASR_GOOGLE_CLIENT_ID: ${{ secrets.ASR_GOOGLE_CLIENT_ID }}
           ASR_AUTH_SECRET: ${{ secrets.ASR_AUTH_SECRET }}

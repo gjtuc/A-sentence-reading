@@ -1,6 +1,8 @@
 # 32 — GitHub CI · Cloud Run CD
 
-모듈: `.github/workflows/ci.yml` · `deploy-cloud-run.yml` · `deploy_cloud_run.sh` · `check_github_cd_ready.py` · `ensure_github_deploy_sa.sh` · `sync_github_cd_secrets.sh`
+모듈: `.github/workflows/ci.yml` · `deploy-cloud-run.yml` · `deploy_cloud_run_pair.sh` · `deploy_cloud_run.sh` · `check_github_cd_ready.py` · `ensure_github_deploy_sa.sh` · `sync_github_cd_secrets.sh`
+
+Amend: [316](316-github-cd-pair.md) — CD pair; solo worker workflow retired.
 
 ## 무엇을
 

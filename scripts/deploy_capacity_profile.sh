@@ -62,27 +62,20 @@ if [[ "${CLEAR_WORKER_ENV:-}" == "1" ]]; then
     2>/dev/null || echo "warn: remove-env-vars skipped (may already absent)"
 fi
 
-bash scripts/deploy_cloud_run.sh
-
+# design/316 — worker hop must reuse the API image (pair). A second
+# --source deploy here used to build a different digest.
 if [[ "${DEPLOY_WORKER:-}" == "1" ]]; then
-  export ASR_CLOUD_RUN_SERVICE="$WORKER_SERVICE"
-  export ASR_SERVICE_ROLE=worker
-  export ASR_INGEST_INLINE=1
-  export ASR_MIN_INSTANCES="${ASR_WORKER_MIN_INSTANCES:-0}"
-  export ASR_MAX_INSTANCES="${ASR_WORKER_MAX_INSTANCES:-4}"
-  export ASR_CLOUD_RUN_CONCURRENCY="${ASR_WORKER_CONCURRENCY:-2}"
-  export ASR_CLOUD_RUN_MEMORY="${ASR_WORKER_MEMORY:-2Gi}"
-  export ASR_CLOUD_RUN_CPU="${ASR_WORKER_CPU:-2}"
-  export ASR_CPU_THROTTLING="${ASR_WORKER_CPU_THROTTLING:-0}"
-  export ASR_DEPLOY_ALLOW_SAME_VERSION=1
-  export ASR_SKIP_POST_DEPLOY_VERIFY=1
-  bash scripts/deploy_cloud_run.sh
+  export ASR_WORKER_CLOUD_RUN_SERVICE="${ASR_WORKER_CLOUD_RUN_SERVICE:-$WORKER_SERVICE}"
+  bash scripts/deploy_cloud_run_pair.sh
 elif [[ "${SCALE_WORKER_MIN:-}" == "0" ]]; then
+  bash scripts/deploy_cloud_run.sh
   echo "scaling worker min=0 (idle; API uses inline ingest)..."
   gcloud run services update "$WORKER_SERVICE" \
     --region="$REGION" \
     --min-instances=0 \
     2>/dev/null || echo "warn: worker scale skipped (service may not exist)"
+else
+  bash scripts/deploy_cloud_run.sh
 fi
 
 echo

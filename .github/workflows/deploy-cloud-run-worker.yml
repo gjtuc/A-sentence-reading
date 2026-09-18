@@ -1,4 +1,7 @@
-# design/173c — deploy ingest worker Cloud Run service.
+# design/316 — solo worker CD is retired.
+# Worker code lives in the same image as the API. A worker-only deploy
+# either reused a stale API digest or built a second digest. Use the
+# pair workflow (Deploy Cloud Run) instead.
 name: Deploy Cloud Run Worker
 
 on:
@@ -9,96 +12,24 @@ on:
       - "src/sentence_reading/worker/**"
       - "src/sentence_reading/llm/ingest_worker_wake.py"
       - "src/sentence_reading/llm/ingest_jobs_gcs.py"
-      - "Dockerfile"
       - "scripts/deploy_cloud_run_worker.sh"
-      - "scripts/deploy_cloud_run.sh"
       - ".github/workflows/deploy-cloud-run-worker.yml"
 
 concurrency:
-  group: deploy-cloud-run-worker
+  group: asr-cloud-pair
   cancel-in-progress: false
 
 jobs:
   deploy-worker:
     if: ${{ vars.ASR_CD_ENABLED == '1' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 5
     permissions:
       contents: read
-      id-token: write
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Pre-deploy guard (design/155)
-        env:
-          ASR_CLOUD_RUN_URL: ${{ vars.ASR_CLOUD_RUN_URL || 'https://asr-sentence-reading-984608876300.asia-northeast3.run.app' }}
+      - name: Refuse solo worker deploy (design/316)
         run: |
-          python scripts/pre_deploy_guard.py --allow-same-version \
-            --url "${ASR_CLOUD_RUN_URL%/}/api/status"
-
-      - name: Require deploy secrets
-        env:
-          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
-          ASR_GOOGLE_CLIENT_ID: ${{ secrets.ASR_GOOGLE_CLIENT_ID }}
-          ASR_AUTH_SECRET: ${{ secrets.ASR_AUTH_SECRET }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ASR_WORKER_SECRET: ${{ secrets.ASR_WORKER_SECRET }}
-        run: |
-          missing=0
-          for name in GCP_SA_KEY ASR_GOOGLE_CLIENT_ID ASR_AUTH_SECRET GEMINI_API_KEY ASR_WORKER_SECRET; do
-            eval "val=\${$name}"
-            if [ -z "$val" ]; then
-              echo "missing secret: $name" >&2
-              missing=1
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-
-      - id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - uses: google-github-actions/setup-gcloud@v2
-
-      - name: Deploy worker
-        env:
-          ASR_GOOGLE_CLIENT_ID: ${{ secrets.ASR_GOOGLE_CLIENT_ID }}
-          ASR_AUTH_SECRET: ${{ secrets.ASR_AUTH_SECRET }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ASR_ADMIN_EMAILS: ${{ secrets.ASR_ADMIN_EMAILS }}
-          ASR_KAKAO_REST_API_KEY: ${{ secrets.ASR_KAKAO_REST_API_KEY }}
-          ASR_KAKAO_CLIENT_SECRET: ${{ secrets.ASR_KAKAO_CLIENT_SECRET }}
-          ASR_SMTP_HOST: ${{ secrets.ASR_SMTP_HOST }}
-          ASR_SMTP_FROM: ${{ secrets.ASR_SMTP_FROM }}
-          ASR_SMTP_USER: ${{ secrets.ASR_SMTP_USER }}
-          ASR_SMTP_PASS: ${{ secrets.ASR_SMTP_PASS }}
-          ASR_SMTP_PORT: ${{ secrets.ASR_SMTP_PORT }}
-          ASR_SMTP_SSL: ${{ secrets.ASR_SMTP_SSL }}
-          AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT: ${{ secrets.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT }}
-          AZURE_DOCUMENT_INTELLIGENCE_KEY: ${{ secrets.AZURE_DOCUMENT_INTELLIGENCE_KEY }}
-          ASR_AZURE_LAYOUT: ${{ vars.ASR_AZURE_LAYOUT || '1' }}
-          ASR_GCS_BUCKET: ${{ vars.ASR_GCS_BUCKET || 'asr-chaheon-warehouse' }}
-          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'peaceful-basis-503207-t4' }}
-          ASR_CLOUD_RUN_REGION: ${{ vars.ASR_CLOUD_RUN_REGION || 'asia-northeast3' }}
-          ASR_SHADOWING_PRACTICE: ${{ vars.ASR_SHADOWING_PRACTICE || '0' }}
-          ASR_LOGIN_REQUIRED: ${{ vars.ASR_LOGIN_REQUIRED || '1' }}
-          ASR_WORKER_SECRET: ${{ secrets.ASR_WORKER_SECRET }}
-          ASR_CD_SKIP_API_ENABLE: "1"
-        run: bash scripts/deploy_cloud_run_worker.sh
-
-      - name: Print worker URL
-        run: |
-          URL="$(gcloud run services describe asr-sentence-reading-worker \
-            --region="${{ vars.ASR_CLOUD_RUN_REGION || 'asia-northeast3' }}" \
-            --format='value(status.url)')"
-          echo "ASR_WORKER_URL=$URL"
-          echo "Set repository variable ASR_WORKER_URL and redeploy API with ASR_INGEST_INLINE=0 to activate."
+          echo "design/316: solo worker CD is retired."
+          echo "Worker and API share one image. Run 'Deploy Cloud Run' so"
+          echo "scripts/deploy_cloud_run_pair.sh ships both at the same digest."
+          echo "This job does not call gcloud."

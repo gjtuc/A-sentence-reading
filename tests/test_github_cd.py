@@ -200,5 +200,15 @@ def test_check_github_cd_ready_evaluate() -> None:
     assert partial["kakao"] == "partial"
 
 
+def test_cd_pair_concurrency_and_retired_worker() -> None:
+    deploy_text = DEPLOY.read_text(encoding="utf-8")
+    worker = (ROOT / ".github" / "workflows" / "deploy-cloud-run-worker.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "asr-cloud-pair" in deploy_text
+    assert "deploy_cloud_run_pair.sh" in deploy_text
+    assert "setup-gcloud" not in worker
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
