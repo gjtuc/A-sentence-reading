@@ -1,4 +1,4 @@
-/// design/63 — reader cursors are independent, verified through the widget tree.
+﻿/// design/63 — reader cursors are independent, verified through the widget tree.
 ///
 /// WHY: the invariant was only covered by model-level tests, so a regression in
 /// the panes (reading the wrong cursor, disabled chevrons) could ship unseen.
@@ -96,14 +96,11 @@ Finder _chevron(String tooltip) =>
 Finder _richText(String needle) =>
     find.textContaining(needle, findRichText: true);
 
-/// The split Column reports the 16px handle as an overflow even once settled.
-/// Both panes sit inside ClipRect, so nothing is hidden on device — but the
-/// layout is genuinely off by the bar height. Tolerated so the cursor
-/// assertions can run; keep it exact and narrow so a new overflow still fails.
-void _clearKnownOverflow(WidgetTester tester) {
-  final err = tester.takeException();
-  if (err == null) return;
-  expect(err.toString(), contains('overflowed by 16 pixels'));
+/// The three split children must sum to the available height. Inserting the bar
+/// at full height while the panes still animated from their old heights used to
+/// overflow the column by exactly the bar height for a frame.
+void _expectNoOverflow(WidgetTester tester) {
+  expect(tester.takeException(), isNull);
 }
 
 /// The reader assumes a phone viewport; the 800x600 test default overflows.
@@ -118,7 +115,7 @@ Future<void> _pumpReader(
   await tester.pumpWidget(_readerHarness(library, client));
   // The split panes animate their heights; assert only on the settled layout.
   await tester.pump(const Duration(milliseconds: 400));
-  _clearKnownOverflow(tester);
+  _expectNoOverflow(tester);
 }
 
 /// Move a cursor and re-render. The model mutates before the first await, so
@@ -126,7 +123,7 @@ Future<void> _pumpReader(
 Future<void> _settle(WidgetTester tester) async {
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 400));
-  _clearKnownOverflow(tester);
+  _expectNoOverflow(tester);
 }
 
 void main() {

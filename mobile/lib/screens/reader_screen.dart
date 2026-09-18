@@ -695,17 +695,31 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                     ),
                             ),
                           ),
-                          if (showBar)
-                            _SplitHandle(
-                              height: _kSplitBar,
-                              magnetActive: _inMagnet,
-                              edgePreviewSentence: _edgePreviewSentence,
-                              edgePreviewFigure: _edgePreviewFigure,
-                              onDragStart: _onSplitDragStart,
-                              onDragUpdate: (dy) =>
-                                  _onSplitDragUpdate(dy, h),
-                              onDragEnd: _onSplitDragEnd,
+                          // The bar animates with the panes. Inserting it at full
+                          // height the moment showBar flips, while the panes are
+                          // still animating away from their old heights, made the
+                          // column exceed its box by exactly _kSplitBar for a
+                          // frame. Sharing the animation keeps the three heights
+                          // summing to the available height throughout.
+                          ClipRect(
+                            child: AnimatedContainer(
+                              duration: Duration(milliseconds: animMs),
+                              curve: Curves.easeInOut,
+                              height: bar,
+                              child: bar < 1
+                                  ? const SizedBox.shrink()
+                                  : _SplitHandle(
+                                      height: _kSplitBar,
+                                      magnetActive: _inMagnet,
+                                      edgePreviewSentence: _edgePreviewSentence,
+                                      edgePreviewFigure: _edgePreviewFigure,
+                                      onDragStart: _onSplitDragStart,
+                                      onDragUpdate: (dy) =>
+                                          _onSplitDragUpdate(dy, h),
+                                      onDragEnd: _onSplitDragEnd,
+                                    ),
                             ),
+                          ),
                           ClipRect(
                             child: AnimatedContainer(
                               duration: Duration(milliseconds: animMs),
