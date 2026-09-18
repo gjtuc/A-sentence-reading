@@ -174,6 +174,32 @@ def _token_set(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]{3,}", plain))
 
 
+def practice_text_only(raw_text: str) -> str:
+    """design/330 — the part of the paper that is supposed to become sentences.
+
+    A reference list is deliberately never practice text (design/263), so leaving
+    it in the coverage denominator makes correct behaviour look like loss. On one
+    Sci Rep paper the bibliography was 23,090 of 45,968 extracted characters, and
+    coverage read 0.44 while almost nothing of the body was actually missing.
+
+    Reuses the bibliography cut the SI path already trusts, which is a no-op when
+    no bibliography parses, so a paper with an unusual back matter is unaffected.
+    """
+    from sentence_reading.cite_refs import cut_bibliography_for_sentences
+
+    try:
+        return cut_bibliography_for_sentences(raw_text or "")
+    except Exception:  # noqa: BLE001
+        return raw_text or ""
+
+
+def coverage_excluding_references(
+    raw_text: str, sentences: list[Sentence]
+) -> float:
+    """Recall against the practice text, not against the whole file."""
+    return compute_coverage_ratio(practice_text_only(raw_text), sentences)
+
+
 def compute_coverage_ratio(raw_text: str, sentences: list[Sentence]) -> float:
     raw_tok = _token_set(raw_text)
     if not raw_tok:
@@ -255,7 +281,9 @@ def build_ingest_quality(
         chunks_ok=chunks_ok,
         chunks_failed=failed,
         chunks_fallback_split=fallback,
-        coverage_ratio=compute_coverage_ratio(raw_text, sentences),
+        # design/330 — the bibliography is never practice text, so it must not
+        # sit in the denominator and read as loss.
+        coverage_ratio=coverage_excluding_references(raw_text, sentences),
         body_sentence_count=body_count,
         body_ratio=body_count / total,
         ungrounded_count=len(ungrounded_ids),
@@ -357,6 +385,31 @@ def order_warnings(stats: dict[str, float | int]) -> list[str]:
     if pct > ORDER_BACKWARD_PCT_WARN:
         return [f"sentence_order_backward:{pct:.1f}"]
     return []
+
+
+def practice_text_for_coverage(raw: str) -> str:
+    """design/330 — the part of the paper practice is supposed to cover.
+
+    A reference list is deliberately not practice text (design/263), so counting
+    it in the coverage denominator makes correct behaviour look like loss. On one
+    real Sci Rep paper the bibliography was 23,090 of 45,968 extracted
+    characters, and coverage read 0.437 while the body was almost fully covered.
+
+    Reuses the SI cut, which is a no-op when no bibliography parses, so a paper
+    whose references cannot be found keeps the old denominator rather than
+    guessing a boundary.
+    """
+    from sentence_reading.cite_refs import cut_bibliography_for_sentences
+
+    text = raw or ""
+    try:
+        cut = cut_bibliography_for_sentences(text)
+    except Exception:  # noqa: BLE001
+        return text
+    # Refuse an implausible cut: a bibliography is back matter, not the paper.
+    if not cut.strip() or len(cut) < len(text) * 0.25:
+        return text
+    return cut
 
 
 def source_coverage_warnings(

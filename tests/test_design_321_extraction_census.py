@@ -271,6 +271,48 @@ def test_vision_blank_return_keeps_the_pymupdf_page():
     assert 'if not fresh and (working[page_index] or "").strip():' in src
 
 
+def test_design_330_references_leave_the_coverage_denominator():
+    """A bibliography is never practice text, so it must not read as loss."""
+    from sentence_reading.llm.debone_quality import (
+        compute_coverage_ratio,
+        coverage_excluding_references,
+        practice_text_only,
+    )
+
+    body = " ".join(f"alpha{i} beta{i} gamma{i}" for i in range(40))
+    refs = "\n".join(
+        f"{i}. A. Author, B. Author, J. Chem. Phys. {100 + i}, {i * 7} (20{i:02d})."
+        for i in range(1, 26)
+    )
+    raw = f"{body}\n\nReferences\n{refs}\n"
+    sents = [
+        Sentence(id=str(i), text=f"alpha{i} beta{i} gamma{i}", section="results")
+        for i in range(40)
+    ]
+
+    practice = practice_text_only(raw)
+    assert len(practice) < len(raw), "the bibliography should be cut"
+    assert "alpha0" in practice
+
+    old = compute_coverage_ratio(raw, sents)
+    new = coverage_excluding_references(raw, sents)
+    assert new > old
+    assert new > 0.95
+
+
+def test_design_330_cut_is_a_noop_without_a_bibliography():
+    from sentence_reading.llm.debone_quality import practice_text_only
+
+    plain = "The catalyst was stable. Conversion rose with temperature."
+    assert practice_text_only(plain) == plain
+
+
+def test_design_330_denominator_is_reported_on_the_handoff():
+    app = (ROOT / "src/sentence_reading/api/app.py").read_text(encoding="utf-8")
+    assert '"practice_chars": len(_practice or "")' in app
+    assert '"refs_share"' in app
+
+
 def test_slot_census_is_wired_into_figure_extract_done():
     app = (ROOT / "src/sentence_reading/api/app.py").read_text(encoding="utf-8")
     for field in ("body_n", "slot_n", "empty_n", "partial_n", "unused_body_n"):

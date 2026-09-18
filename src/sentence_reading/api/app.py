@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.323",
+    version="0.3.324",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -8150,13 +8150,18 @@ async def _run_ingest_job_body(
                     raise ValueError("no_pre_filter_text")
                 from sentence_reading.llm import evidence_bus as eb
                 from sentence_reading.llm.debone_quality import (
-                    compute_coverage_ratio,
+                    coverage_excluding_references,
                     order_warnings,
+                    practice_text_only,
                     source_coverage_warnings,
                     source_order_stats,
                 )
 
-                _src_cov = compute_coverage_ratio(text_pre_filter, sentences)
+                # design/330 — references are never practice text.
+                _practice = practice_text_only(text_pre_filter)
+                _src_cov = coverage_excluding_references(
+                    text_pre_filter, sentences
+                )
                 _post_cov = float((ingest_quality or {}).get("coverage_ratio") or 0.0)
                 warnings.extend(
                     source_coverage_warnings(
@@ -8180,6 +8185,16 @@ async def _run_ingest_job_body(
                         "source_coverage": round(_src_cov, 4),
                         "debone_coverage": round(_post_cov, 4),
                         "sentence_n": len(sentences or []),
+                        # design/330 — what the denominator actually was. A low
+                        # coverage with refs_share 0 is either real loss or a
+                        # bibliography the raw-text cut could not parse.
+                        "practice_chars": len(_practice or ""),
+                        "refs_share": round(
+                            1
+                            - len(_practice or "")
+                            / max(1, len(text_pre_filter or "")),
+                            3,
+                        ),
                         "order_anchored_n": int(_ord.get("anchored_n") or 0),
                         "order_backward_n": int(_ord.get("backward_n") or 0),
                         "order_backward_pct": float(_ord.get("backward_pct") or 0.0),
