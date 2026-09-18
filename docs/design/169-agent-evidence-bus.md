@@ -3,7 +3,8 @@
 **Version:** (구현 시 bump — 예: 0.3.122+)  
 **Depends:** [08](08-errors.md) · [10](10-security-limits.md) · [130](130-cloud-error-logs.md) · [168](168-ingest-observability.md) · [168-audit-checklist.md](168-audit-checklist.md)  
 **Companion:** [169-audit-checklist.md](169-audit-checklist.md) (파일·함수 단위 전수표)  
-**Blocks:** 「처리에 실패했습니다」류 **원인 불명 버그 수정 루프** (증거 없이 패치 금지)
+**Blocks:** 「처리에 실패했습니다」류 **원인 불명 버그 수정 루프** (증거 없이 패치 금지)  
+Amend: [318](318-jsonl-store.md) — append/rotate/GCS body shared; kinds stay here.
 
 ---
 
@@ -11,6 +12,7 @@
 
 사용자가 앱·웹·API에서 하는 **거의 모든 의미 있는 행위**와 **모든 실패·조용한 실패·불일치**를  
 **구조화 JSONL**로 GCS에만 쌓는다.  
+Amend: [318](318-jsonl-store.md) — append/rotate/GCS body shared; kinds stay here.  
 **관리자 UI 없음 · 사용자 UI 없음 · 배지 없음 · 설정 화면 없음.**  
 소비자 = **Cursor 에이전트 / 로컬 스크립트 / gsutil** 뿐.  
 목적 = **오류 개선** (제품 대시보드·알림·상호 감시 아님).

@@ -11,14 +11,13 @@ INVARIANT:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +26,7 @@ from sentence_reading.llm.auth_google import sanitize_uid
 from sentence_reading.llm.env import load_asr_env
 from sentence_reading.llm.error_logs import redact_text
 from sentence_reading.llm.evidence_kinds import ALLOWED_KINDS
+from sentence_reading.llm import jsonl_store as _jl
 
 log = logging.getLogger(__name__)
 
@@ -82,18 +82,7 @@ def retention_days() -> int:
 
 def parse_event_ts(raw: Any) -> datetime | None:
     """Parse evidence ``ts`` (ISO-Z) to UTC datetime."""
-    s = str(raw or "").strip()
-    if not s:
-        return None
-    try:
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        dt = datetime.fromisoformat(s)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
-    except ValueError:
-        return None
+    return _jl.parse_event_ts(raw)
 
 
 def filter_retained(
@@ -104,22 +93,7 @@ def filter_retained(
 ) -> tuple[list[dict[str, Any]], int]:
     """Drop rows older than keep_days. Returns (kept, dropped_n)."""
     days = _DEFAULT_RETENTION_DAYS if keep_days is None else int(keep_days)
-    if days <= 0 or not events:
-        return list(events), 0
-    cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=days)
-    kept: list[dict[str, Any]] = []
-    dropped = 0
-    for ev in events:
-        if not isinstance(ev, dict):
-            dropped += 1
-            continue
-        ts = parse_event_ts(ev.get("ts"))
-        # EDGE: missing/bad ts — keep (fail-closed for observability).
-        if ts is not None and ts < cutoff:
-            dropped += 1
-            continue
-        kept.append(ev)
-    return kept, dropped
+    return _jl.filter_retained(events, keep_days=days, now=now)
 
 
 def local_events_path() -> Path:
@@ -127,12 +101,7 @@ def local_events_path() -> Path:
 
 
 def _gcs_events_object() -> str | None:
-    try:
-        from sentence_reading.llm.gcs_sync import object_name
-
-        return object_name("evidence", "events.jsonl")
-    except Exception:  # noqa: BLE001
-        return None
+    return _jl.gcs_object_name("evidence")
 
 
 def _deploy_git_sha() -> str | None:
@@ -337,55 +306,26 @@ def check_ingest_rate(uid: str) -> bool:
 
 
 def _pull_events_raw() -> bytes:
-    obj = _gcs_events_object()
-    if obj:
-        try:
-            from sentence_reading.llm.gcs_sync import download_bytes, gcs_config
-
-            if gcs_config().enabled:
-                raw = download_bytes(obj, meter=False)
-                if raw is not None:
-                    return raw
-        except Exception:  # noqa: BLE001
-            log.warning("evidence_bus gcs pull failed", exc_info=True)
-    path = local_events_path()
-    if path.is_file():
-        return path.read_bytes()
-    return b""
+    return _jl.pull_events_raw(
+        local_path=local_events_path(),
+        gcs_object=_gcs_events_object(),
+        logger=log,
+        label="evidence_bus",
+    )
 
 
 def _push_events_raw(raw: bytes) -> None:
-    path = local_events_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(raw)
-    obj = _gcs_events_object()
-    if not obj:
-        return
-    try:
-        from sentence_reading.llm.gcs_sync import gcs_config, upload_bytes
-
-        if not gcs_config().enabled:
-            return
-        upload_bytes(obj, raw, content_type="application/x-ndjson; charset=utf-8")
-    except Exception:  # noqa: BLE001
-        log.warning("evidence_bus gcs push failed", exc_info=True)
+    _jl.push_events_raw(
+        raw=raw,
+        local_path=local_events_path(),
+        gcs_object=_gcs_events_object(),
+        logger=log,
+        label="evidence_bus",
+    )
 
 
 def _parse_events(raw: bytes) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    if not raw:
-        return out
-    for line in raw.decode("utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(obj, dict) and obj.get("id"):
-            out.append(obj)
-    return out
+    return _jl.parse_jsonl_events(raw)
 
 
 def append_events(events: list[dict[str, Any]]) -> int:
@@ -397,18 +337,12 @@ def append_events(events: list[dict[str, Any]]) -> int:
             existing = _parse_events(_pull_events_raw())
             existing.extend(events)
             existing, _dropped = filter_retained(existing, keep_days=retention_days())
-            if len(existing) > _MAX_EVENTS_KEEP:
-                existing = existing[-_MAX_EVENTS_KEEP:]
-            blob = (
-                "\n".join(json.dumps(e, ensure_ascii=False) for e in existing) + "\n"
-            ).encode("utf-8")
-            if len(blob) > _MAX_BODY_BYTES:
-                existing = existing[len(existing) // 2 :]
-                blob = (
-                    "\n".join(json.dumps(e, ensure_ascii=False) for e in existing)
-                    + "\n"
-                ).encode("utf-8")
-            _push_events_raw(blob)
+            existing = _jl.trim_jsonl_events(
+                existing,
+                max_keep=_MAX_EVENTS_KEEP,
+                max_body_bytes=_MAX_BODY_BYTES,
+            )
+            _push_events_raw(_jl.encode_jsonl_events(existing))
         return len(events)
     except Exception:  # noqa: BLE001
         log.warning("evidence_bus append failed", exc_info=True)
@@ -459,14 +393,7 @@ def rotate_events(
                 _LAST_ROTATE_MONO = now_m
                 out.update(ok=True, before=before, after=before, dropped=0)
                 return out
-            blob = (
-                (
-                    "\n".join(json.dumps(e, ensure_ascii=False) for e in kept) + "\n"
-                ).encode("utf-8")
-                if kept
-                else b""
-            )
-            _push_events_raw(blob)
+            _push_events_raw(_jl.encode_jsonl_events(kept))
             _LAST_ROTATE_MONO = now_m
             out.update(ok=True, before=before, after=len(kept), dropped=dropped)
             return out
