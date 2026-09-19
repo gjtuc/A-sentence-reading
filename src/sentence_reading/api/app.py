@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.331",
+    version="0.3.332",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -7514,6 +7514,9 @@ async def _run_ingest_job_body(
             _ = reason  # machine reason kept out of user-facing copy
 
         text_pre_filter = ""
+        # design/337 — captured beside the figure extract, not re-read hundreds of
+        # lines later where a concurrent ingest could have replaced it.
+        _layout_artifacts_early: dict | None = None
         # design/331 — set when the Azure reading-order path runs.
         _azure_refs_text = ""
         if resume_pl and (
@@ -7891,9 +7894,22 @@ async def _run_ingest_job_body(
                     get_last_slot_census,
                 )
 
-                _slot_census = get_last_slot_census() or {}
+                _slot_census = get_last_slot_census(tmp_path) or {}
             except Exception:  # noqa: BLE001
                 _slot_census = {}
+            # design/337 — capture the geometry here, next to the extract that
+            # produced it. Reading it ~500 lines and many awaits later left a
+            # window for a concurrent ingest to overwrite the module globals, and
+            # the value is persisted, so a crossed read is a data defect.
+            if kind == "pdf":
+                try:
+                    from sentence_reading.pdf.extract_figures_v2 import (
+                        get_last_layout_artifacts,
+                    )
+
+                    _layout_artifacts_early = get_last_layout_artifacts(tmp_path)
+                except Exception:  # noqa: BLE001
+                    _layout_artifacts_early = None
             if kind == "docx":
                 try:
                     _census = docx_extract.figure_source_census(tmp_path)
@@ -8402,14 +8418,8 @@ async def _run_ingest_job_body(
             ),
         )
         early = _pack(pending=True)
-        layout_artifacts = None
-        if kind == "pdf":
-            try:
-                from sentence_reading.pdf.extract_figures_v2 import get_last_layout_artifacts
-
-                layout_artifacts = get_last_layout_artifacts()
-            except Exception:  # noqa: BLE001
-                layout_artifacts = None
+        # design/337 — captured beside the extract; see the note at the capture.
+        layout_artifacts = _layout_artifacts_early if kind == "pdf" else None
         # design/168c — partial while translate pending; ok when opted out or deferred.
         early_status = (
             "partial" if (want_translate and not defer_enrich) else "ok"

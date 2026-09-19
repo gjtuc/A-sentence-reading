@@ -313,6 +313,16 @@ def append_unclaimed_body_slots(
     return added
 
 
+def _has_body(slot: Slot) -> bool:
+    return bool(slot.body_box_id or getattr(slot, "body_box_ids", None))
+
+
+def _has_caption(slot: Slot) -> bool:
+    return bool(
+        slot.caption_box_id or getattr(slot, "caption_box_ids", None) or slot.caption_text
+    )
+
+
 def slot_census(layout: LayoutMap, plan: SlotPlan) -> dict[str, int]:
     """design/321 — what Azure found vs what the carousel will show.
 
@@ -350,6 +360,17 @@ def slot_census(layout: LayoutMap, plan: SlotPlan) -> dict[str, int]:
         "filled_n": counts["filled"],
         "unused_body_n": unused_body_n,
         "unnumbered_n": sum(1 for s in plan.slots if getattr(s, "unnumbered", False)),
+        # design/337 — the pairing itself, which no counter reported. Measured over
+        # ten papers: 92 slots paired, 13 captions with no image, and 51 images
+        # with no caption. Azure splits a multi-panel figure into several body
+        # boxes; the panels miss their caption's slot and each becomes its own
+        # carousel entry, so a 13-item paper can produce 24 slots.
+        "caption_without_body_n": sum(
+            1 for s in plan.slots if _has_caption(s) and not _has_body(s)
+        ),
+        "body_without_caption_n": sum(
+            1 for s in plan.slots if _has_body(s) and not _has_caption(s)
+        ),
     }
 
 

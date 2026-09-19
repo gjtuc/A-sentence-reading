@@ -41,6 +41,12 @@ log = logging.getLogger(__name__)
 
 _last_artifacts: dict[str, Any] | None = None
 _last_census: dict[str, int] | None = None
+# design/337 — which document the two above describe. Cloud Run runs this service
+# at `--concurrency 16` and `_run_ingest_job` is a bare task, so two ingests share
+# the process. "last" is process-global, not per-job: without a key, paper A could
+# persist paper B's layout_map and slot_plan, and every later re-render and figure
+# edit for A would then reason about B's geometry.
+_last_key: str | None = None
 
 _TABLE_CAPTION_LINE = re.compile(
     r"^\s*Table\.?\s*S?\d+[a-z]?\b",
@@ -48,22 +54,41 @@ _TABLE_CAPTION_LINE = re.compile(
 )
 
 
-def get_last_layout_artifacts() -> dict[str, Any] | None:
+def artifacts_key(pdf_path: Path | str) -> str:
+    return str(pdf_path)
+
+
+def get_last_layout_artifacts(expect: Path | str | None = None) -> dict[str, Any] | None:
+    """design/337 — refuse to hand back another document's geometry.
+
+    A caller that knows which file it extracted passes it; a mismatch returns None
+    rather than the wrong paper's boxes.
+    """
+    if expect is not None and _last_key != artifacts_key(expect):
+        log.warning(
+            "layout artifacts key mismatch (want=%s have=%s) - refusing",
+            artifacts_key(expect),
+            _last_key,
+        )
+        return None
     return _last_artifacts
 
 
-def get_last_slot_census() -> dict[str, int] | None:
+def get_last_slot_census(expect: Path | str | None = None) -> dict[str, int] | None:
     """design/321 — body-vs-slot census of the last v2 extract."""
+    if expect is not None and _last_key != artifacts_key(expect):
+        return None
     return _last_census
 
 
-def _set_artifacts(layout: LayoutMap, plan: SlotPlan) -> None:
-    global _last_artifacts, _last_census
+def _set_artifacts(layout: LayoutMap, plan: SlotPlan, pdf_path: Path | str) -> None:
+    global _last_artifacts, _last_census, _last_key
     _last_artifacts = {
         "layout_map": layout.to_dict(),
         "slot_plan": plan.to_dict(),
     }
     _last_census = slot_census(layout, plan)
+    _last_key = artifacts_key(pdf_path)
 
 
 def _orphan_table_png_until_next_caption(page, cap_rect) -> bytes | None:
@@ -207,11 +232,12 @@ def extract_figures_v2(pdf_path: Path, *, doc_role: str = "main") -> list[Figure
 
     from sentence_reading.pdf.supplementary_detect import normalize_doc_role
 
-    global _last_census
+    global _last_census, _last_key
 
     supplementary = normalize_doc_role(doc_role) == "supplementary"
     # design/321 — a raise must not leave the previous paper's census readable.
     _last_census = None
+    _last_key = None
     layout, client, _result = analyze_layout_map(pdf_path)
     doc = fitz.open(pdf_path)
     try:
@@ -222,7 +248,7 @@ def extract_figures_v2(pdf_path: Path, *, doc_role: str = "main") -> list[Figure
         append_unclaimed_body_slots(layout, plan, supplementary=supplementary)
         refresh_slot_statuses(plan)
         merged = slots_to_figures(doc, client, layout, plan)
-        _set_artifacts(layout, plan)
+        _set_artifacts(layout, plan, pdf_path)
         return merged
     finally:
         doc.close()
