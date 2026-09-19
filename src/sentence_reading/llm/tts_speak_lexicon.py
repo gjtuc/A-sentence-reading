@@ -94,6 +94,11 @@ ACRONYM_SPOKEN: dict[str, str] = {
     "Eq.": "equation",
     "fig.": "figure",
     "Fig.": "figure",
+    # design/339 — `Figs.` was left alone and TTS said "figs", the fruit.
+    "figs.": "figures",
+    "Figs.": "figures",
+    "eqs.": "equations",
+    "Eqs.": "equations",
     "et al.": "et al",
     "i.e.": "that is",
     "e.g.": "for example",

@@ -172,11 +172,59 @@ _ELEMENT_SPOKEN: dict[str, str] = {
 # 영어 단어와 겹치는 기호 — 단독은 유지, 화학식(숫자·다음 원소)일 때만 이름
 _ELEMENT_BARE_SKIP = frozenset({"He", "As", "At", "Be", "In", "No", "I"})
 
+# design/339 — words that make a preceding lone capital an element rather than a
+# variable: `N-doped`, `S-containing`, `O-rich`.
+_ELEMENT_CONTEXT_WORD = (
+    r"(?:doped|doping|containing|rich|poor|based|free|substituted|terminated|"
+    r"modified|functionali[sz]ed|deficient|bearing|linked|bridged|coordinated|"
+    r"vacanc\w+|atoms?|anions?|cations?|species)"
+)
+
 _ELEMENT_KEYS_LONGEST = tuple(
     sorted(_ELEMENT_SPOKEN.keys(), key=len, reverse=True)
 )
 
 # 표시용 기호 → 영어 발음 (논문 빈도 높은 것만)
+# design/339 — subscripts that are abbreviated words. Everything not listed and
+# still a pronounceable lowercase run is spoken as itself rather than spelled.
+_SUBSCRIPT_WORD = {
+    "obs": "observed",
+    "max": "maximum",
+    "min": "minimum",
+    "avg": "average",
+    "eff": "effective",
+    "exp": "experimental",
+    "calc": "calculated",
+    "cal": "calculated",
+    "theo": "theoretical",
+    "ads": "adsorption",
+    "des": "desorption",
+    "red": "reduced",
+    "ox": "oxidized",
+    "tot": "total",
+    "sat": "saturation",
+    "surf": "surface",
+    "app": "apparent",
+    "sol": "solution",
+    "cat": "catalyst",
+    "ref": "reference",
+    "std": "standard",
+}
+_VOWEL_RE = re.compile(r"[aeiouy]")
+
+# design/339 — a letter the printed paper set in italics, or a supplementary label
+# letter, wrapped so the element rules cannot rename it. Converted to a frozen
+# placeholder right after `freeze`, and restored with everything else.
+VAR_MARK = "\x02"
+_VAR_MARKED = re.compile(r"\x02([A-Za-z])\x02")
+# `Fig. S1`, `Table S3`, `Eq. S2` — the S is "supplementary", never sulfur.
+_SUPP_LABEL = re.compile(
+    r"\b(Fig|Figs|Figure|Figures|Table|Tables|Scheme|Schemes|Eq|Eqs|Equation|"
+    r"Section|Note|Notes|Movie|Video|Text|Appendix)(\.?\s+)S(?=\d)"
+)
+_SUPP_CONTEXT = re.compile(r"supplementary|supporting information", re.IGNORECASE)
+_SUPP_BARE = re.compile(r"(?<![A-Za-z\u2019'])S(\d{1,2})\b")
+
 _SYMBOL_SPOKEN = (
     ("≤", " less than or equal to "),
     ("≥", " greater than or equal to "),
@@ -212,6 +260,11 @@ _SYMBOL_SPOKEN = (
     ("−", " minus "),
     ("–", " "),
     ("—", " "),
+    # design/339 — `&gt;` unescapes to a bare `>` and reached TTS as a glyph. All
+    # markup is already parsed away by the time this runs, so a surviving angle
+    # bracket is a comparison the reader has to hear.
+    (">", " greater than "),
+    ("<", " less than "),
 )
 
 # design/88+90 — 단위 역수 꼬리 (HTML 풀어쓴 뒤 · 유니코드 · 평문)
@@ -228,6 +281,16 @@ _SLASH_MOL = r"(?:\s*/\s*mol|\s+per\s+mol)"
 
 # 긴 복합 단위 우선 (W≠텅스텐 충돌 전에 처리). design/90.
 _UNIT_SPOKEN_RES: tuple[tuple[re.Pattern[str], str], ...] = (
+    # design/339 — molar concentrations. `0.4 mM` reached TTS as "zero point four
+    # m M", the most common surviving unit defect in the ten-paper corpus.
+    (re.compile(r"(?<=\d)\s*mM(?![A-Za-z])"), " millimolar "),
+    (re.compile(r"(?<=\d)\s*[µμu]M(?![A-Za-z])"), " micromolar "),
+    (re.compile(r"(?<=\d)\s*nM(?![A-Za-z])"), " nanomolar "),
+    (re.compile(r"(?<=\d)\s*pM(?![A-Za-z])"), " picomolar "),
+    # `35 sec` — the abbreviation was left for TTS to guess.
+    (re.compile(r"(?<=\d)\s*sec(?![A-Za-z])"), " seconds "),
+    (re.compile(r"(?<=\d)\s*ppm(?![A-Za-z])"), " parts per million "),
+    (re.compile(r"(?<=\d)\s*ppb(?![A-Za-z])"), " parts per billion "),
     # --- energy / electricity density ---
     (
         re.compile(
@@ -424,10 +487,21 @@ def _speak_numberish(raw: str) -> str:
             parts.append("point")
             parts.extend(_DIGIT_WORD.get(ch, ch) for ch in frac)
         return " ".join(parts)
-    # 짧은 원소/기호: 글자 사이 공백
+    # design/339 — a subscript that is a word is read as a word. Spelling it was
+    # the single biggest speech defect: `K obs` became "potassium o b s" and
+    # `t ion` became "t i o n", which destroys the sentence's rhythm.
+    low = s.lower()
+    if low in _SUBSCRIPT_WORD:
+        return _SUBSCRIPT_WORD[low]
+    if len(s) >= 2 and s.islower() and _VOWEL_RE.search(low):
+        return low
+    # 짧은 원소/기호: 글자 사이 공백. Orbital labels (`g`, `2g`) belong here.
     if re.fullmatch(r"[A-Za-z]{1,4}", s):
         return " ".join(s)
-    if len(s) <= 8 and re.fullmatch(r"[A-Za-z0-9+\-.,]+", s):
+    # design/339 — the old guard excluded any non-ASCII character, so `O<sub>3-δ</sub>`
+    # fell through untouched and reached TTS as "oxygen 3- delta". Greek letters
+    # belong in a subscript; digits and signs still get spoken.
+    if len(s) <= 8:
         out: list[str] = []
         for ch in s:
             if ch.isdigit():
@@ -449,6 +523,9 @@ class _ToSpoken(HTMLParser):
         super().__init__(convert_charrefs=True)
         self._out: list[str] = []
         self._mode: list[str] = []  # "", "sub", "sup"
+        # design/339 — italic depth, kept apart from the sub/sup stack so an
+        # italic inside a subscript does not change how the subscript is read.
+        self._ital = 0
 
     def handle_starttag(self, tag: str, attrs) -> None:  # noqa: ANN001
         t = tag.lower()
@@ -457,12 +534,16 @@ class _ToSpoken(HTMLParser):
         elif t in ("i", "em", "br"):
             if t == "br":
                 self._out.append(" ")
+            else:
+                self._ital += 1
         # 기타 태그 무시
 
     def handle_endtag(self, tag: str) -> None:
         t = tag.lower()
         if t in ("sub", "sup") and self._mode and self._mode[-1] == t:
             self._mode.pop()
+        elif t in ("i", "em") and self._ital > 0:
+            self._ital -= 1
 
     def handle_data(self, data: str) -> None:
         if not data:
@@ -481,6 +562,11 @@ class _ToSpoken(HTMLParser):
             spoken = _speak_numberish(data)
             if spoken:
                 self._out.append(f" to the {spoken} ")
+        elif self._ital and re.fullmatch(r"[A-Za-z]", data.strip()):
+            # design/339 — italics mark a variable. `<i>C</i> is the concentration`
+            # was read as "carbon is the concentration", and `<i>K</i><sub>obs</sub>`
+            # as "potassium observed". The letter is the name here.
+            self._out.append(f"{VAR_MARK}{data.strip()}{VAR_MARK}")
         else:
             self._out.append(data)
 
@@ -553,9 +639,22 @@ def _expand_element_symbols(text: str) -> str:
     s = text
     for sym in _ELEMENT_KEYS_LONGEST:
         name = _ELEMENT_SPOKEN[sym]
-        if sym in _ELEMENT_BARE_SKIP:
-            # In2O3, BeO — 다음이 숫자·대문자 원소 시작
-            pat = rf"(?<![A-Za-z]){re.escape(sym)}(?=\d|[A-Z]|[₀-₉])"
+        # design/339 — a single capital standing as its own word is a variable or a
+        # label, not an element: in a formula the symbol is glued to digits or to
+        # other symbols. Without this, `spoken_text_for_tts` was not idempotent —
+        # the italic variable in `<i>K</i><sub>obs</sub>` resolves to `K observed`,
+        # and a second pass turned that into `potassium observed`. Measured on the
+        # ten-paper corpus: **0 of 2,366** sentences change, so the restriction
+        # costs nothing on real input and only bites re-processed text.
+        if len(sym) == 1 or sym in _ELEMENT_BARE_SKIP:
+            # In2O3, BeO — 다음이 숫자·대문자 원소 시작.
+            # `N-doped` is an element too, and the dash pass has already turned the
+            # hyphen into a space by the time this runs, so the composition words
+            # have to be named explicitly.
+            pat = (
+                rf"(?<![A-Za-z]){re.escape(sym)}"
+                rf"(?=\d|[A-Z]|[₀-₉]|\s+{_ELEMENT_CONTEXT_WORD})"
+            )
         else:
             # Ni catalyst, NiO — 소문자로 이어지는 보통 단어는 제외
             pat = rf"(?<![A-Za-z]){re.escape(sym)}(?![a-z])"
@@ -568,6 +667,65 @@ def _expand_units(text: str) -> str:
     for pat, spoken in _UNIT_SPOKEN_RES:
         s = pat.sub(spoken, s)
     return s
+
+_DOTTED_ABBREV = tuple(
+    sorted((k for k in ACRONYM_SPOKEN if k.endswith(".")), key=len, reverse=True)
+)
+
+
+def _expand_dotted_abbrev(text: str) -> str:
+    s = text or ""
+    for key in _DOTTED_ABBREV:
+        s = re.sub(
+            rf"(?<![A-Za-z]){re.escape(key)}(?![A-Za-z])",
+            f" {ACRONYM_SPOKEN[key]} ",
+            s,
+        )
+    return s
+
+
+def _mark_supplementary_labels(text: str) -> str:
+    """`Fig. S1`, and then the `S7` in `Figs. S1 to S7` (design/339).
+
+    The element pass read those as sulfur. A label word proves the first one; once a
+    sentence is talking about supplementary items, a bare `S<n>` token in it is one
+    too, which is what `to S7` and `S1 to S5` need.
+    """
+    s = text or ""
+    marked, n = _SUPP_LABEL.subn(
+        lambda m: f"{m.group(1)}{m.group(2)}{VAR_MARK}S{VAR_MARK}", s
+    )
+    if n or _SUPP_CONTEXT.search(s):
+        marked = _SUPP_BARE.sub(lambda m: f"{VAR_MARK}S{VAR_MARK}{m.group(1)}", marked)
+    return marked
+
+
+def _freeze_marked_letters(text: str, mapping: dict[str, str]) -> str:
+    """Hand marked variable/label letters to the existing freeze mapping (design/339).
+
+    `freeze` already owns the placeholder namespace and `restore` already reverses
+    it, so marked letters join that mapping instead of inventing a second one.
+    """
+
+    def _repl(m: re.Match[str]) -> str:
+        key = f"\x00{len(mapping)}\x00"
+        mapping[key] = m.group(1)
+        return key
+
+    return _VAR_MARKED.sub(_repl, text or "")
+
+
+def _speak_prose_slash(text: str) -> str:
+    """`adsorption/desorption` is two words, not a slash (design/339).
+
+    Only a slash between two all-lowercase words is touched. A ratio of formulas or
+    anything inside a URL is left alone, because those are not prose.
+    """
+    s = text or ""
+    if "http" in s or "www." in s:
+        return s
+    return re.sub(r"(?<=[a-z])\s*/\s*(?=[a-z])", ", ", s)
+
 
 def _strip_literal_tags(text: str) -> str:
     """EDGE: escaped/failed markup left as visible tags — do not speak 'sub'."""
@@ -1052,7 +1210,15 @@ def spoken_text_for_tts(
     # hide them so no later pass can split an acronym into element symbols. This
     # sits before the unicode-script pass, which turns a trailing delta into a
     # word and would split the formula token in two.
+    # design/339 — `Fig. S1` is a supplementary label, and the element pass turned
+    # its S into sulfur ("figure sulfur 1"). Mark it before anything can rename it.
+    s = _mark_supplementary_labels(s)
+    # design/339 — `Figs.` reached TTS intact and was read as the fruit. `freeze`
+    # takes `Figs` for a proper noun before the acronym lexicon can see it, so the
+    # dotted abbreviations are expanded ahead of the freeze rather than after it.
+    s = _expand_dotted_abbrev(s)
     s, _frozen = freeze(s, terms=terms)
+    s = _freeze_marked_letters(s, _frozen)
     s = _expand_unicode_scripts(s)
     s = _drop_parenthetical_asides(s)
     s = _apply_chem_aliases(s)
@@ -1075,5 +1241,6 @@ def spoken_text_for_tts(
     s = restore(s, _frozen)
     # design/326 — units, ranges and punctuation the way a speaker says them.
     s = spoken_post(s)
+    s = _speak_prose_slash(s)
     s = restore_sentence_case(s, raw or "")
     return s

@@ -11,7 +11,12 @@ from dataclasses import dataclass
 # Bump when spoken rules change in a way that must bust GCS/local MP3 cache.
 # v7 — design/326: token-typed decisions, acronyms atomic, compound names never
 # composed from parts, abbreviation definitions voiced.
-SPEAK_NORM_VERSION_DEFAULT = "v7"
+# v8 — design/339: subscript words read as words, italics mark a variable,
+# supplementary labels are not sulfur, dotted abbreviations expanded before freeze,
+# a lone capital is not an element, angle brackets are comparisons, prose slash,
+# molar/time units, Greek letters in subscripts. Cached MP3s carry the old wording,
+# so the namespace has to change with the rules.
+SPEAK_NORM_VERSION_DEFAULT = "v8"
 
 
 @dataclass(frozen=True)

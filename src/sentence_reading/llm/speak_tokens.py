@@ -295,7 +295,8 @@ _ACRONYM = re.compile(
     r"(?<![A-Za-z0-9])([A-Z]{2,}(?:-[A-Z]{2,})*s?)(?![A-Za-z0-9])"
 )
 # A lattice position, not an element: `B-site`, `B'-site`, `A site`.
-_SITE = re.compile(r"(?<![A-Za-z])([A-Z]['\u2032]?)[-\u2010\u2011\u2013 ]site\b")
+# design/339 — the plural was missing, so `B sites` still read as "boron sites".
+_SITE = re.compile(r"(?<![A-Za-z])([A-Z]['\u2032]?)[-\u2010\u2011\u2013 ]sites?\b")
 # Orbital labels: t2g, eg, with an optional exponent.
 _ORBITAL = re.compile(
     r"(?<![A-Za-z])(t2g|eg)(?:\^?(~?\d+(?:\.\d+)?))?(?![A-Za-z])"
@@ -347,7 +348,12 @@ def freeze(
         )
 
     # 2. Site labels before anything can read the capital as an element.
-    s = _SITE.sub(lambda m: _put(f"{m.group(1)[0].upper()} site"), s)
+    s = _SITE.sub(
+        lambda m: _put(
+            f"{m.group(1)[0].upper()} site{'s' if m.group(0).endswith('s') else ''}"
+        ),
+        s,
+    )
 
     # 2b. Hyphenated single capitals: `F-T` is "F T", never fluorine or a minus.
     s = _CAP_PAIR.sub(

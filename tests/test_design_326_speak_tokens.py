@@ -213,7 +213,8 @@ def test_idempotent_on_the_new_cases():
 
 
 def test_speak_norm_version_bumped_for_the_new_rules():
-    assert SPEAK_NORM_VERSION_DEFAULT == "v7"
+    # design/339 raised this to v8; the MP3 cache namespace follows the rules.
+    assert SPEAK_NORM_VERSION_DEFAULT == "v8"
     assert load_speak_policy().full_name_abbrev == "say_both"
 
 
