@@ -23,6 +23,7 @@ from sentence_reading.llm.debone_quality import (
     build_ingest_quality,
     chunk_kind,
     chunk_under_yielded,
+    drop_back_matter_sentences,
     fallback_split_chunk,
     pairs_chars,
     pin_rescue_worth_keeping,
@@ -851,6 +852,12 @@ def debone_sentences(
         for s in sentences
     ]
 
+    # design/340 — the journal's apparatus is not the paper. `strip_back_matter`
+    # already removed exactly this from the coverage denominator, so leaving it in
+    # the sentence stream made the metric and the product disagree about what
+    # practice text is.
+    sentences, back_matter_n = drop_back_matter_sentences(sentences)
+
     sentences, ungrounded_ids = apply_grounding_flags(sentences, raw_text)
 
     if not sentences:
@@ -869,6 +876,7 @@ def debone_sentences(
         chunk_stats=chunk_stats,
         ungrounded_ids=ungrounded_ids,
         partial_debone_failed=failed,
+        back_matter_dropped=back_matter_n,
     )
     warn_list = quality_to_warnings(
         iq,

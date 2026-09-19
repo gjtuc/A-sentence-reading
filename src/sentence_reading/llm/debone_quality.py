@@ -124,6 +124,8 @@ class IngestQuality:
     references_pin_rejected: list[int] = field(default_factory=list)
     # design/336 — the same overrule, when `chunk_kind` was the one deleting.
     references_kind_rejected: list[int] = field(default_factory=list)
+    # design/340 — journal apparatus kept out of practice, counted not assumed.
+    back_matter_dropped: int = 0
     coverage_ratio: float = 1.0
     body_sentence_count: int = 0
     body_ratio: float = 0.0
@@ -140,6 +142,7 @@ class IngestQuality:
             "bib_chars_dropped": self.bib_chars_dropped,
             "references_pin_rejected": list(self.references_pin_rejected),
             "references_kind_rejected": list(self.references_kind_rejected),
+            "back_matter_dropped": self.back_matter_dropped,
             "coverage_ratio": round(self.coverage_ratio, 4),
             "body_sentence_count": self.body_sentence_count,
             "body_ratio": round(self.body_ratio, 4),
@@ -253,6 +256,13 @@ _BACK_MATTER = re.compile(
     r"|data availability"
     r"|supplementary information"
     r"|this work is licensed under"
+    # design/340 — shapes the ten-paper corpus actually produced as practice
+    # sentences.
+    r"|supplementary (?:information|materials?|data)"
+    r"|supporting (?:information|online material)"
+    r"|open access article"
+    r"|reprints? and permissions?"
+    r"|author information"
     r")\b"
 )
 _CHROME_LINE = re.compile(
@@ -265,6 +275,34 @@ _CHROME_LINE = re.compile(
     r"|\u00a9\s*(?:the author|\d{4})"
     r").*$"
 )
+
+
+def is_back_matter_sentence(text: str) -> bool:
+    """design/340 — is this sentence the journal's apparatus rather than the paper?
+
+    `strip_back_matter` already removes exactly this text from the **coverage
+    denominator**, so the metric called it "not practice text" while the product
+    handed it to the reader to say aloud: licence blocks, `How to cite this
+    article`, DOI lines, journal mastheads, `Supporting Online Material` plus its
+    URL.
+
+    Judged on the sentence's own evidence, not on a section label — a label can be
+    wrong (design/335), and this decision removes content.
+
+    Measured over 2,366 corpus sentences: 16 match, and every one is apparatus.
+    """
+    plain = plain_text(text or "").strip()
+    if not plain:
+        return False
+    return bool(_CHROME_LINE.search(plain) or _BACK_MATTER.search(plain))
+
+
+def drop_back_matter_sentences(
+    sentences: list[Sentence],
+) -> tuple[list[Sentence], int]:
+    """Returns the kept sentences and how many were apparatus (design/340)."""
+    kept = [s for s in sentences or [] if not is_back_matter_sentence(s.text or "")]
+    return kept, len(sentences or []) - len(kept)
 
 
 def strip_back_matter(text: str) -> str:
@@ -418,6 +456,7 @@ def build_ingest_quality(
     chunk_stats: list[ChunkStat],
     ungrounded_ids: list[str],
     partial_debone_failed: list[int] | None = None,
+    back_matter_dropped: int = 0,
 ) -> IngestQuality:
     n = len(chunk_stats)
     fallback = [s.index for s in chunk_stats if s.fallback == "split"]
@@ -439,6 +478,7 @@ def build_ingest_quality(
         chunks_failed=failed,
         chunks_fallback_split=fallback,
         chunks_low_yield=[s.index for s in chunk_stats if s.low_yield],
+        back_matter_dropped=int(back_matter_dropped),
         bib_chars_dropped=sum(s.bib_chars_dropped for s in chunk_stats),
         references_pin_rejected=[
             s.index
@@ -512,6 +552,8 @@ def quality_to_warnings(
     # deletion of any size produced no warning string at all.
     if iq.bib_chars_dropped >= BIB_DROPPED_REPORT_CHARS:
         w.append(f"bib_chars_dropped:{iq.bib_chars_dropped}")
+    if iq.back_matter_dropped:
+        w.append(f"back_matter_dropped:{iq.back_matter_dropped}")
     if iq.chunks_failed or iq.chunks_ok < iq.chunks_total:
         w.append(f"partial_debone:{iq.chunks_ok}/{iq.chunks_total}")
     if missing_front_matter:
