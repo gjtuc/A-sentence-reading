@@ -263,6 +263,8 @@ _BACK_MATTER = re.compile(
     r"|open access article"
     r"|reprints? and permissions?"
     r"|author information"
+    # design/341 — an RSC page stamp: `Downloaded on 5/28/2026 1:22:30 AM.`
+    r"|downloaded (?:on|from)"
     r")\b"
 )
 _CHROME_LINE = re.compile(

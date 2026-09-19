@@ -16,7 +16,9 @@ from dataclasses import dataclass
 # a lone capital is not an element, angle brackets are comparisons, prose slash,
 # molar/time units, Greek letters in subscripts. Cached MP3s carry the old wording,
 # so the namespace has to change with the rules.
-SPEAK_NORM_VERSION_DEFAULT = "v8"
+# v9 — design/341: unit runs read as grammar, restoring a positive exponent the
+# citation rule had been deleting, and a slash between symbols read as a ratio.
+SPEAK_NORM_VERSION_DEFAULT = "v9"
 
 
 @dataclass(frozen=True)

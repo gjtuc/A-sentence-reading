@@ -661,6 +661,107 @@ def _expand_element_symbols(text: str) -> str:
         s = re.sub(pat, f" {name} ", s)
     return s
 
+# design/341 — singular and plural for the unit-run reader. Only unambiguous, high
+# frequency tokens: a bare `C`, `F` or `N` after a number is as likely to be an
+# element, Celsius or a sample name as it is a unit.
+_UNIT_NAME: dict[str, tuple[str, str]] = {
+    "m": ("meter", "meters"),
+    "mm": ("millimeter", "millimeters"),
+    "cm": ("centimeter", "centimeters"),
+    "nm": ("nanometer", "nanometers"),
+    "µm": ("micrometer", "micrometers"),
+    "μm": ("micrometer", "micrometers"),
+    "um": ("micrometer", "micrometers"),
+    "km": ("kilometer", "kilometers"),
+    "g": ("gram", "grams"),
+    "mg": ("milligram", "milligrams"),
+    "kg": ("kilogram", "kilograms"),
+    "L": ("liter", "liters"),
+    "mL": ("milliliter", "milliliters"),
+    "s": ("second", "seconds"),
+    "min": ("minute", "minutes"),
+    "h": ("hour", "hours"),
+    "mol": ("mole", "moles"),
+    "K": ("kelvin", "kelvin"),
+    "J": ("joule", "joules"),
+    "kJ": ("kilojoule", "kilojoules"),
+    "eV": ("electronvolt", "electronvolts"),
+    "Pa": ("pascal", "pascals"),
+    "Hz": ("hertz", "hertz"),
+    "bar": ("bar", "bar"),
+}
+_UNIT_POWER = {2: "square ", 3: "cubic "}
+_UNI_SUP_DIGIT = {"\u00b2": "2", "\u00b3": "3", "\u00b9": "1", "\u2070": "0"}
+_UNIT_TOK = "|".join(
+    sorted((re.escape(k) for k in _UNIT_NAME), key=len, reverse=True)
+)
+_UNIT_EXP_PART = r"(?:<sup>\s*([\u2212\-]?\d)\s*</sup>|([\u00b2\u00b3])|\u207b([\u00b9\u00b2\u00b3]))"
+_UNIT_ITEM = rf"(?:{_UNIT_TOK})(?:{_UNIT_EXP_PART})?"
+_UNIT_RUN = re.compile(
+    # `>` and `<` are excluded so a subscript body like `<sub>2g</sub>` is not read
+    # as "2 grams" — that is design/328's orbital label, not a unit.
+    rf"(?<![A-Za-z0-9>])(?P<num>\d[\d.,]*)\s*"
+    rf"(?P<run>{_UNIT_ITEM}(?:\s*[\u00b7\u22c5/]\s*{_UNIT_ITEM})*)"
+    # A plain-text inverse (`cm-1`) belongs to the older unit table, which already
+    # reads it as "per centimeter". Taking the token here would strand the `-1`.
+    rf"(?![A-Za-z0-9<])(?!\s*[-\u2212\u2010\u2011]\s*\d)"
+)
+_UNIT_ITEM_RE = re.compile(rf"(?P<sep>^|[\u00b7\u22c5/])\s*(?P<tok>{_UNIT_TOK}){_UNIT_EXP_PART}?")
+# Only take over a single plain token when the existing rules demonstrably miss it.
+# `s` is deliberately absent: `O 1s` is an orbital, and "1 seconds" would be wrong.
+_UNIT_PLAIN_OK = frozenset({"mm", "cm", "nm", "µm", "μm", "um", "mL", "m", "L", "g"})
+
+
+def _unit_phrase(name: tuple[str, str], exp: int) -> str:
+    singular, plural = name
+    power = _UNIT_POWER.get(abs(exp), "")
+    if exp < 0:
+        return f"per {power}{singular}"
+    return f"{power}{plural}"
+
+
+def _read_unit_run(run: str) -> str | None:
+    """`m²·g⁻¹` → "square meters per gram" (design/341).
+
+    `·` separates units, it does not multiply them; `_apply_symbols` turned it into
+    " times ", which is how an area per mass came out as "m times per gram".
+    """
+    items: list[tuple[str, int]] = []
+    pos = 0
+    for m in _UNIT_ITEM_RE.finditer(run):
+        if m.start() != pos:
+            return None
+        pos = m.end()
+        tok = m.group("tok")
+        raw_exp = m.group(3) or m.group(4) or m.group(5)
+        exp = 1
+        if raw_exp:
+            digit = _UNI_SUP_DIGIT.get(raw_exp, raw_exp)
+            exp = int(str(digit).replace("\u2212", "-"))
+            if m.group(5):  # a `⁻` prefix carried the sign
+                exp = -abs(exp)
+        if m.group("sep") == "/":
+            exp = -abs(exp)
+        items.append((tok, exp))
+    if pos != len(run) or not items:
+        return None
+    if len(items) == 1 and items[0][1] == 1 and items[0][0] not in _UNIT_PLAIN_OK:
+        return None
+    positives = [_unit_phrase(_UNIT_NAME[t], e) for t, e in items if e > 0]
+    negatives = [_unit_phrase(_UNIT_NAME[t], e) for t, e in items if e < 0]
+    return " ".join(positives + negatives).strip() or None
+
+
+def _expand_unit_runs(text: str) -> str:
+    def _repl(m: re.Match[str]) -> str:
+        spoken = _read_unit_run(re.sub(r"\s+", "", m.group("run")))
+        if not spoken:
+            return m.group(0)
+        return f"{m.group('num')} {spoken} "
+
+    return _UNIT_RUN.sub(_repl, text or "")
+
+
 def _expand_units(text: str) -> str:
     """SI/energy units → spoken quantities before element names (design/88+90)."""
     s = text
@@ -716,15 +817,19 @@ def _freeze_marked_letters(text: str, mapping: dict[str, str]) -> str:
 
 
 def _speak_prose_slash(text: str) -> str:
-    """`adsorption/desorption` is two words, not a slash (design/339).
+    """A slash is not a word (design/339, design/341).
 
-    Only a slash between two all-lowercase words is touched. A ratio of formulas or
-    anything inside a URL is left alone, because those are not prose.
+    Between two lowercase words it is a pause: `adsorption/desorption`. Between
+    symbols or numbers it is a ratio, which a reader says as "over" — the corpus's
+    single most repeated speech defect was `STY CH4/STY CO2`, spoken with the slash
+    intact seven times in one paper. A URL is left alone: breaking it up would hide
+    that it should not be practice text at all (design/340).
     """
     s = text or ""
     if "http" in s or "www." in s:
         return s
-    return re.sub(r"(?<=[a-z])\s*/\s*(?=[a-z])", ", ", s)
+    s = re.sub(r"(?<=[a-z])\s*/\s*(?=[a-z])", ", ", s)
+    return re.sub(r"(?<=[A-Za-z0-9])\s*/\s*(?=[A-Za-z0-9])", " over ", s)
 
 
 def _strip_literal_tags(text: str) -> str:
@@ -1180,6 +1285,10 @@ def spoken_text_for_tts(
                 break
             s = after
 
+    # design/341 — read unit runs while the printed form is still regular. Doing it
+    # here also keeps the exponent away from the citation rule, which deleted a
+    # positive one: `259.1 m²·g⁻¹` came out as "259.1 m times per gram".
+    s = _expand_unit_runs(s)
     # design/328 — mark a variable's exponent before the citation rule can eat it.
     s = protect_variable_exponents(s)
     # design/216 — strip numeric cite <sup>n</sup> before HTML->spoken

@@ -389,6 +389,7 @@
 | 338 | [338-panel-pairing-and-page-graphics.md](338-panel-pairing-and-page-graphics.md) | 패널은 자기 캡션 것이다 (중심거리→겹침) · 패널 누적·합집합 렌더 · 반복 로고는 그림이 아니다 (0.3.333) |
 | 339 | [339-speech-defects-from-the-linter.md](339-speech-defects-from-the-linter.md) | 린터가 찾은 발화 결함 수정 — 아래첨자 단어·이탤릭 변수·보충 라벨·부등호·단위 (224→83, 0.3.334 · speak_norm v8) |
 | 340 | [340-back-matter-is-not-practice.md](340-back-matter-is-not-practice.md) | 저널 부속물은 논문이 아니다 — 라이선스·DOI·마스트헤드를 문장 스트림에서 제외·계수 (0.3.335) |
+| 341 | [341-unit-grammar-and-the-ratio-slash.md](341-unit-grammar-and-the-ratio-slash.md) | 단위 런은 문법이다 — 지워지던 양의 지수 복구·`·`는 구분자·기호 사이 슬래시는 비율 (224→45, 0.3.336 · speak_norm v9) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

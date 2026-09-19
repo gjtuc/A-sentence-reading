@@ -667,6 +667,17 @@ _ORBITAL_EXP = re.compile(
 )
 _EXP_RESOLVE = re.compile(r"\x01(~?\d+(?:\.\d+)?)\x01")
 
+# design/341 — the same deletion, on a unit. `m<sup>2</sup>` lost its 2 to the
+# citation rule, so `259.1 m²·g⁻¹` was spoken as "259.1 m times per gram": an area
+# per mass read out as a length per mass. Negative exponents were never affected,
+# because the minus sign stopped the citation rule from matching.
+_UNIT_EXP_TOKEN = (
+    r"(?:mm|cm|dm|km|nm|pm|[µμu]m|m|mg|kg|g|mL|L|dL|s|min|h|K|mol|J|eV|V|A|W|Pa|Hz|N|C|F|S)"
+)
+_UNIT_EXP = re.compile(
+    rf"(?<![A-Za-z])({_UNIT_EXP_TOKEN})<sup>(\d)</sup>(?=\s*[·\u00b7\u22c5/]|\s|$|[.,;:)])"
+)
+
 
 def protect_variable_exponents(raw: str) -> str:
     """design/328 — keep a variable's exponent from being read as a citation.
@@ -676,7 +687,11 @@ def protect_variable_exponents(raw: str) -> str:
     ear got `t two g` where the paper printed `t2g^5`. Marking it first means the
     citation rule never sees it and nothing about design/216 changes.
     """
-    return _ORBITAL_EXP.sub(lambda m: f"{m.group(1)}{_EXP_MARK}{m.group(2)}{_EXP_MARK}", raw or "")
+    s = _ORBITAL_EXP.sub(
+        lambda m: f"{m.group(1)}{_EXP_MARK}{m.group(2)}{_EXP_MARK}", raw or ""
+    )
+    # design/341 — a positive exponent on a unit is not a reference marker either.
+    return _UNIT_EXP.sub(lambda m: f"{m.group(1)}{_EXP_MARK}{m.group(2)}{_EXP_MARK}", s)
 
 
 def resolve_variable_exponents(text: str) -> str:
