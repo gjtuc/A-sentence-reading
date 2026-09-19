@@ -18,6 +18,15 @@ _SLOT_PLAN_NAME = "slot_plan.json"
 # design/220 — Azure table_body often overlaps its caption by >8pt.
 FIG_CAPTION_OVERLAP_PT = 8.0
 TABLE_CAPTION_OVERLAP_PT = 40.0
+# design/338 — share of a body box that must sit inside the caption's x-range for
+# the two to belong together. Placed from the measured gap: accepted bodies never
+# fall below 0.68, and the rejected panels worth rescuing sit at 0.4 and up, while
+# the ones that genuinely belong to another column overlap by 0.00.
+CAPTION_X_OVERLAP_MIN = 0.5
+# design/338 — a body repeating at this tolerance on this many pages is a running
+# page graphic, not a figure.
+REPEAT_RECT_TOL_PT = 4.0
+REPEAT_MIN_PAGES = 2
 
 
 @dataclass
@@ -204,11 +213,22 @@ def assign_body_boxes_to_slot(
     layout: LayoutMap,
     slot_key: str,
     body_box_ids: list[str],
+    *,
+    append: bool = False,
 ) -> None:
+    """Attach bodies to a slot. `append` keeps panels already attached (design/338).
+
+    The figure editor sets the whole list, so replacing stays the default. Automatic
+    pairing appends: a multi-panel figure hands its panels over one at a time, and
+    replacing meant only the last one survived even when pairing worked.
+    """
     slot = plan.slot_by_key(slot_key)
     if slot is None:
         return
     ids = [str(x).strip() for x in body_box_ids if str(x).strip()]
+    if append:
+        existing = list(slot.body_box_ids or ([slot.body_box_id] if slot.body_box_id else []))
+        ids = existing + [i for i in ids if i not in existing]
     slot.body_box_ids = ids
     slot.body_box_id = ids[0] if ids else ""
     for bid in ids:
@@ -254,7 +274,8 @@ def assign_body_to_slot(
     slot_key: str,
     body_box_id: str,
 ) -> None:
-    assign_body_boxes_to_slot(plan, layout, slot_key, [body_box_id])
+    # design/338 — panels arrive one at a time; keep the ones already attached.
+    assign_body_boxes_to_slot(plan, layout, slot_key, [body_box_id], append=True)
 
 
 def assign_caption_to_slot(
@@ -419,6 +440,57 @@ def initial_body_assignments(
                 assign_body_to_slot(plan, layout, sk, box.id)
 
 
+def demote_repeating_bodies(layout: LayoutMap) -> int:
+    """Re-type running page graphics so they cannot become figures (design/338).
+
+    A journal logo or masthead sits at the same coordinates on every page and Azure
+    reports each copy as a `figure_body`. Before design/338 each copy became its own
+    carousel entry; with the looser caption match they started joining real figure
+    slots, so ChemistryOpen's Figure 1, 3 and 4 rendered with a logo glued above
+    them. A real figure never repeats at the same rect on another page, so page
+    span is the evidence.
+
+    Measured over ten papers: nine have no repeating bodies at all, and
+    ChemistryOpen has 3 groups covering 7 boxes. Returns how many were demoted.
+    """
+    def _same(a: LayoutBox, b: LayoutBox) -> bool:
+        # Tolerance clustering, not bucket rounding: Azure's coordinates wobble a
+        # point between copies, and two copies either side of a bucket edge used to
+        # land in different groups, letting one logo through.
+        return all(
+            abs(float(a.rect[k]) - float(b.rect[k])) <= REPEAT_RECT_TOL_PT
+            for k in ("x0", "y0", "x1", "y1")
+        )
+
+    groups: list[list[LayoutBox]] = []
+    for box in layout.boxes:
+        if box.kind not in ("figure_body", "table_body"):
+            continue
+        for members in groups:
+            if _same(members[0], box):
+                members.append(box)
+                break
+        else:
+            groups.append([box])
+
+    demoted = 0
+    for members in groups:
+        if len({m.page_index for m in members}) < REPEAT_MIN_PAGES:
+            continue
+        for m in members:
+            m.kind = "figure_chrome" if m.kind == "figure_body" else "table_chrome"
+            demoted += 1
+    return demoted
+
+
+def _x_overlap_frac(body: LayoutBox, cap: LayoutBox) -> float:
+    """How much of `body`'s width sits inside `cap`'s (design/338)."""
+    bx0, bx1 = float(body.rect["x0"]), float(body.rect["x1"])
+    cx0, cx1 = float(cap.rect["x0"]), float(cap.rect["x1"])
+    width = max(bx1 - bx0, 1.0)
+    return max(0.0, min(bx1, cx1) - max(bx0, cx0)) / width
+
+
 def _nearest_caption_for_body(layout: LayoutMap, body: LayoutBox, *, fig: bool) -> str:
     # design/220 — table overlap allowance (Azure caption/body bleed).
     want_kind = "figure_caption" if fig else "table_caption"
@@ -435,9 +507,14 @@ def _nearest_caption_for_body(layout: LayoutMap, body: LayoutBox, *, fig: bool) 
             gap = float(body.rect["y0"]) - float(box.rect["y1"])
             if gap < -overlap or gap > 200:
                 continue
-        mid_cap = (float(box.rect["x0"]) + float(box.rect["x1"])) / 2.0
-        mid_body = (float(body.rect["x0"]) + float(body.rect["x1"])) / 2.0
-        if abs(mid_cap - mid_body) > 48:
+        # design/338 — horizontal overlap, not centre distance. Azure splits a
+        # multi-panel figure into several body boxes, and a left-hand panel under a
+        # full-width caption has its centre far from the caption's while sitting
+        # almost entirely inside it. Measured over 130 figure bodies in ten papers:
+        # the 16 bodies the centre rule rejected have a median centre offset of
+        # 92.6pt (up to 318) but a median 0.76 of the body under the caption, while
+        # every body the centre rule accepted overlaps by at least 0.68.
+        if _x_overlap_frac(body, box) < CAPTION_X_OVERLAP_MIN:
             continue
         dist = abs(gap)
         if dist < best[1]:

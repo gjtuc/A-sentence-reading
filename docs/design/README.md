@@ -386,6 +386,7 @@
 | 335 | [335-references-pin-is-not-evidence.md](335-references-pin-is-not-evidence.md) | `references` 고정은 증거가 아니다 · 본문 삭제 복구 · 신호 밀도 · 10편 32청크 감사 (0.3.328–0.3.330) |
 | 336 | [336-delete-only-what-you-can-name.md](336-delete-only-what-you-can-name.md) | 이름 붙일 수 있는 것만 지운다 · chunk_kind 자체 판정·삭제량 경고·죽은 분모 가드·section_flow 인구조사 (0.3.331) |
 | 337 | [337-per-job-geometry-and-figure-pairing.md](337-per-job-geometry-and-figure-pairing.md) | 기하는 한 작업 것이다 (동시 ingest 교차 차단) · 그림 캡션·본문 짝짓기 계수 (0.3.332) |
+| 338 | [338-panel-pairing-and-page-graphics.md](338-panel-pairing-and-page-graphics.md) | 패널은 자기 캡션 것이다 (중심거리→겹침) · 패널 누적·합집합 렌더 · 반복 로고는 그림이 아니다 (0.3.333) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

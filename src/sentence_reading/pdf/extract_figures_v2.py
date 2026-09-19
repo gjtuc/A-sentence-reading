@@ -32,6 +32,7 @@ from sentence_reading.pdf.slot_plan import (
     SlotPlan,
     append_unclaimed_body_slots,
     build_slot_plan,
+    demote_repeating_bodies,
     initial_body_assignments,
     refresh_slot_statuses,
     slot_census,
@@ -81,13 +82,21 @@ def get_last_slot_census(expect: Path | str | None = None) -> dict[str, int] | N
     return _last_census
 
 
-def _set_artifacts(layout: LayoutMap, plan: SlotPlan, pdf_path: Path | str) -> None:
+def _set_artifacts(
+    layout: LayoutMap,
+    plan: SlotPlan,
+    pdf_path: Path | str,
+    *,
+    chrome_body_n: int = 0,
+) -> None:
     global _last_artifacts, _last_census, _last_key
     _last_artifacts = {
         "layout_map": layout.to_dict(),
         "slot_plan": plan.to_dict(),
     }
     _last_census = slot_census(layout, plan)
+    # design/338 — bodies that were running page graphics, reported not assumed.
+    _last_census["chrome_body_n"] = int(chrome_body_n)
     _last_key = artifacts_key(pdf_path)
 
 
@@ -126,6 +135,31 @@ def _orphan_table_png_until_next_caption(page, cap_rect) -> bytes | None:
     return _render_page_clip(page, clip)
 
 
+def _slot_body_rect(layout: LayoutMap, slot, page_index: int):
+    """Union of every panel this slot holds on `page_index` (design/338).
+
+    A multi-panel figure arrives as several Azure `figure_body` boxes. The render
+    path used `body_box_id` alone, so a slot holding three panels drew one — which
+    is why pairing them correctly is only half the repair. The panels of one figure
+    are adjacent on the page, so their bounding box is the figure region.
+    """
+    ids = list(getattr(slot, "body_box_ids", None) or [])
+    if len(ids) < 2:
+        return None
+    rects = []
+    for bid in ids:
+        box = layout.box_by_id(bid)
+        if box is None or box.page_index != page_index:
+            continue
+        rects.append(rect_from_dict(box.rect))
+    if len(rects) < 2:
+        return None
+    out = rects[0]
+    for r in rects[1:]:
+        out = out | r
+    return out
+
+
 def _render_slot_png(
     doc,
     client,
@@ -142,7 +176,9 @@ def _render_slot_png(
         else (cap_box.page_index if cap_box is not None else 0)
     )
     page = doc[page_index] if 0 <= page_index < len(doc) else doc[0]
-    body_rect = rect_from_dict(body_box.rect) if body_box else None
+    body_rect = _slot_body_rect(layout, slot, page_index) or (
+        rect_from_dict(body_box.rect) if body_box else None
+    )
     cap_rect = rect_from_dict(cap_box.rect) if cap_box else None
     caption = (slot.caption_text or "").strip()
 
@@ -241,6 +277,10 @@ def extract_figures_v2(pdf_path: Path, *, doc_role: str = "main") -> list[Figure
     layout, client, _result = analyze_layout_map(pdf_path)
     doc = fitz.open(pdf_path)
     try:
+        # design/338 — before anything claims a body, take the running page
+        # graphics out. They are not figures, and once caption matching is by
+        # overlap they would otherwise join the figure above them.
+        chrome_n = demote_repeating_bodies(layout)
         plan = build_slot_plan(layout, supplementary=supplementary)
         initial_body_assignments(layout, plan, supplementary=supplementary)
         pair_slot_captions(layout, plan)
@@ -248,7 +288,7 @@ def extract_figures_v2(pdf_path: Path, *, doc_role: str = "main") -> list[Figure
         append_unclaimed_body_slots(layout, plan, supplementary=supplementary)
         refresh_slot_statuses(plan)
         merged = slots_to_figures(doc, client, layout, plan)
-        _set_artifacts(layout, plan, pdf_path)
+        _set_artifacts(layout, plan, pdf_path, chrome_body_n=chrome_n)
         return merged
     finally:
         doc.close()
