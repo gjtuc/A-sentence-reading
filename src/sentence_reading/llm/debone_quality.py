@@ -33,6 +33,13 @@ PIN_RESCUE_MIN_SHARE = 0.20
 # of that gap, so the margin is 1.8x below and 1.75x above. 2.0 decided the same 32
 # chunks but left only 3% of headroom under it.
 REF_SIGNAL_DENSITY_MAX = 3.5
+# design/336 — above this the bibliography deletion is worth naming. Measured
+# bibliographies in the 10-paper audit run 467 to 18,398 characters, so this is
+# not a rare-event threshold; it exists so the number is never silent.
+BIB_DROPPED_REPORT_CHARS = 400
+# A bibliography is back matter, not the paper. A cut that leaves less than this
+# share of the text found the wrong boundary.
+PRACTICE_CUT_MIN_SHARE = 0.25
 COVERAGE_LOW = 0.50
 COVERAGE_WARN = 0.65
 BODY_RATIO_WARN = 0.30
@@ -89,10 +96,13 @@ class ChunkStat:
     # catches a chunk that returns nothing.
     chars_out: int = 0
     low_yield: bool = False
-    # design/335 — characters this chunk dropped as bibliography, and whether an
-    # upstream `references` pin was overruled because the text was prose.
+    # design/335 — characters this chunk dropped as bibliography, and whether a
+    # `references` verdict was overruled because the text was prose.
     bib_chars_dropped: int = 0
     references_pin_rejected: bool = False
+    # design/336 — which signal called this chunk a reference list: the section
+    # pin, or `chunk_kind`'s own reading of the text.
+    references_verdict: str = ""
 
     @property
     def yield_ratio(self) -> float:
@@ -112,6 +122,8 @@ class IngestQuality:
     # design/335 — bibliography deletion, reported instead of assumed.
     bib_chars_dropped: int = 0
     references_pin_rejected: list[int] = field(default_factory=list)
+    # design/336 — the same overrule, when `chunk_kind` was the one deleting.
+    references_kind_rejected: list[int] = field(default_factory=list)
     coverage_ratio: float = 1.0
     body_sentence_count: int = 0
     body_ratio: float = 0.0
@@ -127,6 +139,7 @@ class IngestQuality:
             "chunks_low_yield": list(self.chunks_low_yield),
             "bib_chars_dropped": self.bib_chars_dropped,
             "references_pin_rejected": list(self.references_pin_rejected),
+            "references_kind_rejected": list(self.references_kind_rejected),
             "coverage_ratio": round(self.coverage_ratio, 4),
             "body_sentence_count": self.body_sentence_count,
             "body_ratio": round(self.body_ratio, 4),
@@ -287,13 +300,22 @@ def practice_text_only(raw_text: str) -> str:
     Reuses the bibliography cut the SI path already trusts, which is a no-op when
     no bibliography parses, so a paper with an unusual back matter is unaffected.
     design/333 also removes back matter and per-page chrome.
+
+    design/336 — the implausible-cut refusal below used to live only in
+    `practice_text_for_coverage`, which had no callers, so the live denominator ran
+    unguarded. `bibliography_header_start` returns the *first* match with no
+    position floor, so an SI cover sheet or a "see References therein" near the top
+    could cut the paper away and make a 60% loss read as a measurement problem.
     """
     from sentence_reading.cite_refs import cut_bibliography_for_sentences
 
+    text = raw_text or ""
     try:
-        cut = cut_bibliography_for_sentences(raw_text or "")
+        cut = cut_bibliography_for_sentences(text)
     except Exception:  # noqa: BLE001
-        cut = raw_text or ""
+        cut = text
+    if not cut.strip() or len(cut) < len(text) * PRACTICE_CUT_MIN_SHARE:
+        cut = text
     return strip_back_matter(cut)
 
 
@@ -419,7 +441,14 @@ def build_ingest_quality(
         chunks_low_yield=[s.index for s in chunk_stats if s.low_yield],
         bib_chars_dropped=sum(s.bib_chars_dropped for s in chunk_stats),
         references_pin_rejected=[
-            s.index for s in chunk_stats if s.references_pin_rejected
+            s.index
+            for s in chunk_stats
+            if s.references_pin_rejected and s.references_verdict != "kind"
+        ],
+        references_kind_rejected=[
+            s.index
+            for s in chunk_stats
+            if s.references_pin_rejected and s.references_verdict == "kind"
         ],
         # design/330 — the bibliography is never practice text, so it must not
         # sit in the denominator and read as loss.
@@ -477,6 +506,12 @@ def quality_to_warnings(
         w.append(f"chunk_low_yield:{i}")
     for i in iq.references_pin_rejected:
         w.append(f"references_pin_rejected:{i}")
+    for i in iq.references_kind_rejected:
+        w.append(f"references_kind_rejected:{i}")
+    # design/336 — `bib_chars_dropped` reached the cache and stopped there, so a
+    # deletion of any size produced no warning string at all.
+    if iq.bib_chars_dropped >= BIB_DROPPED_REPORT_CHARS:
+        w.append(f"bib_chars_dropped:{iq.bib_chars_dropped}")
     if iq.chunks_failed or iq.chunks_ok < iq.chunks_total:
         w.append(f"partial_debone:{iq.chunks_ok}/{iq.chunks_total}")
     if missing_front_matter:
@@ -565,28 +600,13 @@ def order_warnings(stats: dict[str, float | int]) -> list[str]:
 
 
 def practice_text_for_coverage(raw: str) -> str:
-    """design/330 — the part of the paper practice is supposed to cover.
+    """design/336 — kept as an alias; `practice_text_only` is the one definition.
 
-    A reference list is deliberately not practice text (design/263), so counting
-    it in the coverage denominator makes correct behaviour look like loss. On one
-    real Sci Rep paper the bibliography was 23,090 of 45,968 extracted
-    characters, and coverage read 0.437 while the body was almost fully covered.
-
-    Reuses the SI cut, which is a no-op when no bibliography parses, so a paper
-    whose references cannot be found keeps the old denominator rather than
-    guessing a boundary.
+    This function held the implausible-cut refusal while having no callers, so the
+    guard never ran on the live denominator. Both names now resolve to the same
+    code rather than drifting apart again.
     """
-    from sentence_reading.cite_refs import cut_bibliography_for_sentences
-
-    text = raw or ""
-    try:
-        cut = cut_bibliography_for_sentences(text)
-    except Exception:  # noqa: BLE001
-        return text
-    # Refuse an implausible cut: a bibliography is back matter, not the paper.
-    if not cut.strip() or len(cut) < len(text) * 0.25:
-        return text
-    return cut
+    return practice_text_only(raw)
 
 
 def coverage_is_measurable(denom_tokens: int) -> bool:

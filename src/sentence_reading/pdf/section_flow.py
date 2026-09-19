@@ -56,6 +56,11 @@ class OrderedPaper:
     marked_text: str
     sections: list[tuple[str, str]] = field(default_factory=list)
     references_text: str = ""
+    # design/336 — this stage deletes boxes at several independent gates and, until
+    # now, counted none of them. Measured on ten papers, the role-label gate alone
+    # removes 188 to 8,724 characters per file. Without a census, a coverage gap
+    # cannot be told apart from a mislabelled body paragraph.
+    drop_census: dict[str, int] = field(default_factory=dict)
 
 
 def section_mark(key: str) -> str:
@@ -183,27 +188,40 @@ def crosses_center(box: FlowBox, width: float, margin: float = 12.0) -> bool:
     return box.x0 < center - margin and box.x1 > center + margin
 
 
-def _drop_chrome(box: FlowBox, *, page_height: float) -> bool:
+def _chrome_reason(box: FlowBox) -> str:
+    """Which gate drops this box, or "" to keep it (design/336).
+
+    Named rather than boolean so the census can say *why* text left the paper. The
+    role gate is label-only and was audited on ten papers: all 42 of its
+    prose-shaped boxes were genuine running heads, download banners and licence
+    lines, several of which `_CHROME` alone misses because `©` extracts as `@`.
+    So the label stays trusted here — its blast radius is a repeating 50-370
+    character box, not a 5,000 character body chunk.
+    """
     kind = (box.kind or "").lower()
     if kind.startswith("figure") or kind.startswith("table"):
-        return True
+        return "figure_table_kind"
     role = norm_role(box.role)
     if role in ("pageheader", "pagefooter", "pagenumber"):
-        return True
+        return "role_" + role
     text = re.sub(r"\s+", " ", box.text or "").strip()
     if not text:
-        return True
+        return "empty"
     # Azure tags the bottom of a references column as a footnote. Keep
     # bibliography lines; drop real notes (corresponding author, etc.).
     if role == "footnote" and not _is_bibliography_line(text):
-        return True
+        return "footnote"
     if _CHROME.search(text):
-        return True
+        return "chrome_text"
     if header_key(text):
-        return False
+        return ""
     if box.y0 < 140 and "elsevier" in text.lower():
-        return True
-    return False
+        return "publisher_banner"
+    return ""
+
+
+def _drop_chrome(box: FlowBox, *, page_height: float) -> bool:
+    return bool(_chrome_reason(box))
 
 
 def _drop_inside_figures(boxes: list[FlowBox]) -> list[FlowBox]:
@@ -468,13 +486,23 @@ def order_boxes(boxes: list[FlowBox], pages: list[dict]) -> OrderedPaper:
     by_page: dict[int, list[FlowBox]] = {}
     figs = [b for b in boxes if (b.kind or "").startswith("figure")]
     tables = [b for b in boxes if (b.kind or "").startswith("table")]
+    census: dict[str, int] = {}
+
+    def _count(reason: str, box: FlowBox) -> None:
+        census[reason + "_n"] = census.get(reason + "_n", 0) + 1
+        chars = len(re.sub(r"\s+", " ", box.text or "").strip())
+        census[reason + "_chars"] = census.get(reason + "_chars", 0) + chars
+
     cleaned: list[FlowBox] = []
     for box in boxes:
-        height = float((pages[box.page] if box.page < len(pages) else {}).get("height") or 800)
-        if _drop_chrome(box, page_height=height):
+        reason = _chrome_reason(box)
+        if reason:
+            _count(reason, box)
             continue
         cleaned.append(box)
+    before_fig = len(cleaned)
     cleaned = _drop_inside_figures(figs + cleaned)
+    census["buried_in_figure_n"] = max(0, before_fig - len(cleaned))
     kept: list[FlowBox] = []
     for box in cleaned:
         cx = (box.x0 + box.x1) / 2.0
@@ -494,7 +522,11 @@ def order_boxes(boxes: list[FlowBox], pages: list[dict]) -> OrderedPaper:
             break
         if not buried:
             kept.append(box)
+        else:
+            _count("buried_in_table", box)
+    before_front = len(kept)
     cleaned = _front_matter(kept)
+    census["front_matter_n"] = max(0, before_front - len(cleaned))
     for box in cleaned:
         by_page.setdefault(box.page, []).append(box)
 
@@ -514,7 +546,19 @@ def order_boxes(boxes: list[FlowBox], pages: list[dict]) -> OrderedPaper:
         if page_assigned:
             previous = page_assigned[-1][0]
 
+    before_keys = [k for k, _b in assigned]
     assigned = _retag_bibliography_runs(assigned)
+    # design/336 — the sticky `in_refs` run is design/335's root cause. Counting
+    # how many boxes it relabelled makes an over-reaching run visible here rather
+    # than only at the deletion gate downstream.
+    census["retagged_references_n"] = sum(
+        1
+        for before, (after, _b) in zip(before_keys, assigned)
+        if after == "references" and before != "references"
+    )
+    census["dropped_not_sentence_n"] = sum(
+        1 for _k, b in assigned if not _keep_as_sentence(b)
+    )
 
     sections: list[tuple[str, list[str]]] = []
     page_parts: list[list[str]] = [[] for _ in range(n_pages)]
@@ -551,6 +595,7 @@ def order_boxes(boxes: list[FlowBox], pages: list[dict]) -> OrderedPaper:
         marked_text="\n\n".join(marked_parts).strip(),
         sections=body,
         references_text=references_text,
+        drop_census={k: v for k, v in sorted(census.items()) if v},
     )
 
 

@@ -319,6 +319,13 @@ def slot_census(layout: LayoutMap, plan: SlotPlan) -> dict[str, int]:
     `unused_body_n` > 0 means Azure located a figure/table body that no slot
     claimed: those pixels never reach the user and every other counter stays
     green. `slot_n` < `body_n` is the caption-number collapse (design/321 B).
+
+    design/336 — both of those verdicts are computed *after*
+    `append_unclaimed_body_slots` has given every leftover a slot, so in the live
+    pipeline `unused_body_n` is always 0 and `slot_n >= body_n` always holds. The
+    10-paper audit confirms it: `unused_body_n: 0` on all ten. The loss that
+    actually survives the repair is design/324's: a slot whose `n` is a carousel
+    position rather than a number the paper printed. `unnumbered_n` counts that.
     """
     body_n = 0
     for box in layout.boxes:
@@ -342,6 +349,7 @@ def slot_census(layout: LayoutMap, plan: SlotPlan) -> dict[str, int]:
         "partial_n": counts["partial"],
         "filled_n": counts["filled"],
         "unused_body_n": unused_body_n,
+        "unnumbered_n": sum(1 for s in plan.slots if getattr(s, "unnumbered", False)),
     }
 
 

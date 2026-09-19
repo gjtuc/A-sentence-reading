@@ -541,21 +541,31 @@ def _process_chunk_with_guard(
 
         pinned = pinned_section(chunk)
         work = strip_section_mark(chunk)
-        if pinned == "references":
-            # design/335 — the pin decided deletion on its own. When the run
-            # starts too early it swallows body prose, so keep the lines that are
-            # not reference entries and drop only the ones that are.
-            pinned_all = work
-            work, bib_dropped = split_off_bibliography_lines(work)
-            if pin_rescue_worth_keeping(work, pinned_all):
+        kind = chunk_kind(work)
+
+    # design/335 — the pin decided deletion on its own. When the run starts too
+    # early it swallows body prose, so keep the lines that are not reference
+    # entries and drop only the ones that are.
+    # design/336 — the same duty applies to `chunk_kind`'s own verdict. It reads a
+    # heading in the first 800 characters and `REFERENCES_HEAD_RE` also matches
+    # `Acknowledgements`, so one chunk holding acknowledgements, references and an
+    # appendix used to be emptied whole with `ok=True` and nothing counted.
+    verdict = "pin" if pinned == "references" else ("kind" if kind == "references" else "")
+    if verdict:
+        whole = work
+        kept, bib_dropped = split_off_bibliography_lines(whole)
+        if pin_rescue_worth_keeping(kept, whole):
+            work = kept
+            if verdict == "pin":
                 pinned = "body"
-                pin_rejected = True
-            else:
-                bib_dropped = prose_chars(pinned_all)
-                work = ""
-        # An honored references pin keeps that label, so it reads as a deliberate
-        # drop rather than an empty chunk that failed.
-        kind = "references" if pinned == "references" else chunk_kind(work)
+            pin_rejected = True
+            kind = chunk_kind(work)
+        else:
+            # An honored verdict keeps the label, so it reads as a deliberate drop
+            # rather than an empty chunk that failed.
+            bib_dropped = prose_chars(whole)
+            work = ""
+            kind = "references"
     stat = ChunkStat(
         index=idx,
         chars_in=len(chunk),
@@ -564,6 +574,7 @@ def _process_chunk_with_guard(
         kind=kind,
         bib_chars_dropped=bib_dropped,
         references_pin_rejected=pin_rejected,
+        references_verdict=verdict,
     )
     # design/263 — bibliography chunks must not become practice sentences.
     if kind == "references":

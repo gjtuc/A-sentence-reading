@@ -384,6 +384,7 @@
 | 333 | [333-coverage-denominator-correction.md](333-coverage-denominator-correction.md) | 재현율 분모 교정 · 331 토큰 차집합 철회 · 분모 하한 (0.3.327) |
 | 334 | [334-chunk-yield-floor.md](334-chunk-yield-floor.md) | 청크가 산문의 일부만 돌려주면 실패 · 수율 하한 (0.3.328) |
 | 335 | [335-references-pin-is-not-evidence.md](335-references-pin-is-not-evidence.md) | `references` 고정은 증거가 아니다 · 본문 삭제 복구 · 신호 밀도 · 10편 32청크 감사 (0.3.328–0.3.330) |
+| 336 | [336-delete-only-what-you-can-name.md](336-delete-only-what-you-can-name.md) | 이름 붙일 수 있는 것만 지운다 · chunk_kind 자체 판정·삭제량 경고·죽은 분모 가드·section_flow 인구조사 (0.3.331) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |
