@@ -49,12 +49,32 @@ class _StripToAllowed(HTMLParser):
         return "".join(self._out)
 
 
+# design/348 — `&amp;amp;amp;deg;C` reached the sentences and the voice read the entity
+# aloud. Each `sanitize_sentence_html` call added one level, because a sentence with no
+# tag took a fast path that escaped `&` without first decoding what was already an
+# entity. Peeling one level is not enough for text that has been through it three
+# times, so peel until it stops changing. Bounded, because a hostile `&amp;amp;…`
+# chain must not loop.
+_UNESCAPE_MAX = 6
+
+
+def unescape_fully(s: str) -> str:
+    out = s or ""
+    for _ in range(_UNESCAPE_MAX):
+        nxt = html.unescape(out)
+        if nxt == out:
+            return out
+        out = nxt
+    return out
+
+
 def plain_text(s: str) -> str:
     """태그 제거 후 표시용 plain."""
     if not s:
         return ""
     if "<" not in s:
-        return s.strip()
+        # design/348 — the reader and the voice want `<600 °C`, not `&lt;600&deg;C`.
+        return unescape_fully(s).strip()
     parser = _StripToAllowed()
     try:
         parser.feed(s)
@@ -63,7 +83,7 @@ def plain_text(s: str) -> str:
         return _TAG_RE.sub("", s).strip()
     # re-parse as text only
     inner = parser.get_html()
-    return re.sub(r"<[^>]+>", "", inner).strip()
+    return unescape_fully(re.sub(r"<[^>]+>", "", inner)).strip()
 
 
 def sanitize_sentence_html(s: str) -> str:
@@ -75,7 +95,10 @@ def sanitize_sentence_html(s: str) -> str:
     if not raw:
         return ""
     if "<" not in raw:
-        return html.escape(raw, quote=False)
+        # design/348 — decode before escaping, or the function is not idempotent and
+        # every pass buries the text one `&amp;` deeper. The parser path already does
+        # this via `convert_charrefs`; this path did not.
+        return html.escape(unescape_fully(raw), quote=False)
 
     parser = _StripToAllowed()
     try:
