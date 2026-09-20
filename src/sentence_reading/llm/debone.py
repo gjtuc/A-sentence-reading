@@ -222,6 +222,41 @@ class PaperContext:
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
+def _split_keeping_sentences(body: str, size: int) -> list[str]:
+    """Cut at a sentence end, never mid-sentence (design/349).
+
+    Two paths used to do this and only one of them looked for a boundary. The pinned
+    path — the one live takes, since the reading-order service always marks sections —
+    cut at exactly `size`. A sentence straddling the cut then reached the model as a
+    fragment at the end of one chunk and another fragment at the start of the next, and
+    both were dropped as fragments. Every genuine loss left after design/347 sat at 88
+    to 99% of its chunk, and one pair sat on both sides of the same cut.
+    """
+    body = (body or "").strip()
+    if not body:
+        return []
+    out: list[str] = []
+    start, n = 0, len(body)
+    while start < n:
+        end = min(start + size, n)
+        if end < n:
+            window = body[start:end]
+            br = max(
+                window.rfind("\n\n"),
+                window.rfind(". "),
+                window.rfind(".\n"),
+                window.rfind("? "),
+                window.rfind("! "),
+            )
+            if br > size // 3:
+                end = start + br + (2 if window[br : br + 2] == "\n\n" else 1)
+        piece = body[start:end].strip()
+        start = end
+        if piece:
+            out.append(piece)
+    return out
+
+
 def chunk_raw_text(text: str, size: int = _CHUNK_CHARS) -> list[str]:
     text = (text or "").strip()
     if not text:
@@ -243,31 +278,13 @@ def chunk_raw_text(text: str, size: int = _CHUNK_CHARS) -> list[str]:
             if len(body) <= size:
                 chunks.append(f"{section_mark(key)}\n{body}" if key else body)
                 continue
-            start = 0
-            while start < len(body):
-                end = min(start + size, len(body))
-                piece = body[start:end].strip()
-                start = end
-                if piece:
-                    chunks.append(f"{section_mark(key)}\n{piece}" if key else piece)
+            for piece in _split_keeping_sentences(body, size):
+                chunks.append(f"{section_mark(key)}\n{piece}" if key else piece)
         return [c for c in chunks if c]
     if len(text) <= size:
         return [text]
 
-    chunks: list[str] = []
-    start = 0
-    n = len(text)
-    while start < n:
-        end = min(start + size, n)
-        if end < n:
-            # prefer break at paragraph / sentence
-            window = text[start:end]
-            br = max(window.rfind("\n\n"), window.rfind(". "), window.rfind("? "))
-            if br > size // 3:
-                end = start + br + (2 if window[br : br + 2] == "\n\n" else 1)
-        chunks.append(text[start:end].strip())
-        start = end
-    return [c for c in chunks if c]
+    return _split_keeping_sentences(text, size)
 
 
 def _extract_json(text: str) -> dict:

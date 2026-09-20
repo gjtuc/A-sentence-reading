@@ -397,6 +397,7 @@
 | 346 | [346-the-service-boxes-the-papers-letters.md](346-the-service-boxes-the-papers-letters.md) | 순서는 Azure 상자, 글자는 논문 자신 — 변질 27.67→0.066 · 전달률 0.956 · 순서 역행 46.8%→23.4% (0.3.342) |
 | 347 | [347-the-ruler-was-wrong-more-often-than-the-pipeline.md](347-the-ruler-was-wrong-more-often-than-the-pipeline.md) | 자가 파이프라인보다 더 자주 틀렸다 — 「빠졌다」 33건 중 18건이 오판 · 청크 하한은 근거 소멸 (0.3.343) |
 | 348 | [348-the-voice-read-the-escape.md](348-the-voice-read-the-escape.md) | 목소리가 글자 대신 이스케이프를 읽었다 — sanitize가 멱등이 아니어서 한 겹씩 묻힘 · 읽을 때 복구되니 재수집 불필요 (0.3.344) |
+| 349 | [349-the-cut-that-split-a-sentence.md](349-the-cut-that-split-a-sentence.md) | 문장을 반으로 가른 절단 — 고정 경로만 5,000자에서 무작정 끊음 · 섹션 내 절단 76번 중 75번이 문장 분할 → 0 (0.3.345) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |
