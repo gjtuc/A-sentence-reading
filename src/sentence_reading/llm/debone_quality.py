@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
@@ -433,9 +434,34 @@ def text_coverage(
         share = len(want & have) / len(want)
         if share >= TEXT_FRAGMENT_FOUND_SHARE:
             ok_chars += n
+        elif _delivered_reworded(frag, sentences):
+            ok_chars += n
         elif _worth_reporting_missing(frag):
             missing.append(frag)
     return (round(ok_chars / max(all_chars, 1), 4), missing)
+
+
+# design/347 — a second look before calling a fragment missing. Shingles cannot
+# survive the system prompt's own instruction to prefer the glossary's rich form, so
+# `covered with BZY10-1 wt% BaCO3` comes back as
+# `covered with BaZr<sub>0.9</sub>Y<sub>0.1</sub>O<sub>3-δ</sub>-1 wt%` and every
+# five-word window around it changes. Opened by hand, the sentence was there. Across
+# the stored traces the shingle ruler alone was wrong about 18 of 33 fragments.
+# Word overlap ignores order and so survives a rewritten token.
+TEXT_REWORDED_SHARE = 0.70
+
+
+def _delivered_reworded(fragment: str, sentences: list[Sentence] | None) -> bool:
+    want = Counter(_coverage_words(fragment))
+    if not want:
+        return True
+    total = sum(want.values())
+    for s in sentences or []:
+        have = Counter(_coverage_words(s.text or ""))
+        hit = sum(min(k, have.get(w, 0)) for w, k in want.items())
+        if hit / total >= TEXT_REWORDED_SHARE:
+            return True
+    return False
 
 
 def _worth_reporting_missing(fragment: str) -> bool:
@@ -449,7 +475,26 @@ def _worth_reporting_missing(fragment: str) -> bool:
 
     if is_back_matter_sentence(fragment):
         return False
+    if _AUTHOR_BIO.search(fragment or ""):
+        return False
     return looks_like_prose_line(fragment)
+
+
+# design/347 — an author biography is prose, so `looks_like_prose_line` accepts it and
+# it arrived in the missing list as if body text had been lost. The 5 fragments that
+# really were absent from the RSC review were all of this kind: `Denis Leybo received
+# his PhD from the National University of Science and Technology MISIS`. Dropping them
+# is correct; reporting them as loss is not. The verb phrase is required, so a results
+# sentence that merely names a person is untouched.
+_AUTHOR_BIO = re.compile(
+    r"\b(?:received (?:his|her|their) (?:PhD|Ph\.?D|M\.?Sc|B\.?Sc|bachelor|master|doctor)"
+    r"|(?:is|was|has been) (?:currently )?(?:a |an |the )?"
+    r"(?:full |associate |assistant )?(?:professor|lecturer|researcher|research fellow)\b"
+    r"|joined the [A-Z][^.]{0,60}(?:laboratory|group|department|institute)\b"
+    r"|(?:his|her|their) research (?:interests?|focuses)\b"
+    r"|obtained (?:his|her|their) (?:PhD|Ph\.?D|degree)\b)",
+    re.I,
+)
 
 
 # design/345 — glyph corruption the extractor can introduce. One run of the Elsevier
