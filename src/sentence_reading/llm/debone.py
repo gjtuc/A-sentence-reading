@@ -23,6 +23,7 @@ from sentence_reading.llm.debone_quality import (
     apply_grounding_flags,
     build_ingest_quality,
     chunk_kind,
+    chunk_text_delivered,
     chunk_under_yielded,
     drop_back_matter_sentences,
     fallback_split_chunk,
@@ -648,6 +649,11 @@ def _process_chunk_with_guard(
 
     stat.sentences_out = len(pairs or [])
     stat.chars_out = pairs_chars(pairs)
+    # design/345 — per-chunk text delivery is *reported*, not gated. The threshold a
+    # gate would need has to come from an in-run measurement, and the first attempt
+    # compared stored sentences against a fresh extraction, which measures the
+    # extractor's own variation instead of the pipeline's loss.
+    stat.text_coverage, _missing = chunk_text_delivered(work, pairs)
     stat.ok = stat.sentences_out > 0 or kind in ("references", "sparse")
     return pairs or [], stat
 

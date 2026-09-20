@@ -96,6 +96,8 @@ class ChunkStat:
     # catches a chunk that returns nothing.
     chars_out: int = 0
     low_yield: bool = False
+    # design/345 — share of this chunk's prose that came back, reported only.
+    text_coverage: float = 1.0
     # design/335 — characters this chunk dropped as bibliography, and whether a
     # `references` verdict was overruled because the text was prose.
     bib_chars_dropped: int = 0
@@ -132,6 +134,8 @@ class IngestQuality:
     # source text arrived and how many prose fragments did not.
     text_coverage: float = 1.0
     text_missing_n: int = 0
+    # design/345 — glyph corruption that reached the reader, per 1000 characters.
+    glyph_corruption_per_1k: float = 0.0
     body_sentence_count: int = 0
     body_ratio: float = 0.0
     ungrounded_count: int = 0
@@ -151,6 +155,7 @@ class IngestQuality:
             "coverage_ratio": round(self.coverage_ratio, 4),
             "text_coverage": round(self.text_coverage, 4),
             "text_missing_n": self.text_missing_n,
+            "glyph_corruption_per_1k": round(self.glyph_corruption_per_1k, 3),
             "body_sentence_count": self.body_sentence_count,
             "body_ratio": round(self.body_ratio, 4),
             "ungrounded_count": self.ungrounded_count,
@@ -447,6 +452,46 @@ def _worth_reporting_missing(fragment: str) -> bool:
     return looks_like_prose_line(fragment)
 
 
+# design/345 — glyph corruption the extractor can introduce. One run of the Elsevier
+# paper turned every `o` into a two-character sequence, 1,483 times, and those
+# sentences went to the reader; the next run of the same PDF was clean. The PDF's own
+# embedded text is deterministic and was correct both times, so it is the answer key.
+_GREEK_IN_WORD = re.compile(r"[A-Za-z]{2,}[\u0370-\u03ff][A-Za-z]{2,}")
+# `phen0men0n` — a digit standing where a letter belongs. Three letters before and two
+# after keeps chemical tokens out: `co2`, `h2o`, `sp3d` and `mp3` all fail it.
+_DIGIT_IN_WORD = re.compile(r"\b[a-z]{3,}[0-9][a-z]{2,}")
+# A one-letter subscript with the word continuing after it. Real prose puts a space
+# or punctuation after a subscript: `e<sub>g</sub> filling`, `t<sub>ion</sub>`. The
+# Elsevier run produced `Pr?<sub>h</sub>t?<sub>h</sub>nic`, where the character before
+# the subscript is not a letter either — so only the tail can be relied on.
+_SUB_IN_WORD = re.compile(r"<sub>[a-z]</sub>(?=[A-Za-z])")
+# Measured over twelve runs: a corrupted extraction scores 2.87 or 27.67 per 1000
+# characters, a clean one 0.000 to 0.201. This is the geometric middle of that gap.
+CORRUPTION_PER_1K_WARN = 0.75
+
+
+def glyph_corruption_marks(text: str) -> int:
+    """Signatures of a glyph that decoded to the wrong character.
+
+    A Greek letter inside a Latin word, a digit inside a lowercase word, or a
+    one-letter subscript wedged between letters are all impossible in real prose:
+    `catalγst`, `phen0men0n`, `Pr?<sub>h</sub>t?<sub>h</sub>nic`.
+    """
+    s = text or ""
+    return (
+        len(_GREEK_IN_WORD.findall(s))
+        + len(_DIGIT_IN_WORD.findall(s))
+        + len(_SUB_IN_WORD.findall(s))
+    )
+
+
+def corruption_per_1k(text: str) -> float:
+    s = text or ""
+    if len(s) < 500:
+        return 0.0
+    return round(1000.0 * glyph_corruption_marks(s) / len(s), 3)
+
+
 def coverage_excluding_references(
     raw_text: str,
     sentences: list[Sentence],
@@ -593,6 +638,9 @@ def build_ingest_quality(
         # sit in the denominator and read as loss.
         coverage_ratio=coverage_excluding_references(raw_text, sentences),
         **_text_ruler(raw_text, sentences),
+        glyph_corruption_per_1k=corruption_per_1k(
+            " ".join(s.text or "" for s in sentences or [])
+        ),
         body_sentence_count=body_count,
         body_ratio=body_count / total,
         ungrounded_count=len(ungrounded_ids),
@@ -623,6 +671,21 @@ def pin_rescue_worth_keeping(kept: str, original: str) -> bool:
     # A split reference entry reads as prose line by line, so the region as a
     # whole has to be checked too.
     return reference_signal_density(kept) < REF_SIGNAL_DENSITY_MAX
+
+
+def chunk_text_delivered(
+    chunk_text: str, pairs: list[tuple[str, str]] | None
+) -> tuple[float, list[str]]:
+    """design/345 — what share of this chunk's prose came back, and which pieces did not.
+
+    Reported, not gated. A gate needs a threshold, and the first attempt at one was
+    derived by comparing stored sentences against a *fresh* extraction of the same
+    PDF — which measures how much the extractor varies between calls, not how much
+    the pipeline lost. Azure returned wildly different text for the same file on two
+    runs, so that comparison could not support a decision.
+    """
+    sents = [Sentence(id=str(i), text=t, section=s) for i, (t, s) in enumerate(pairs or [])]
+    return text_coverage(chunk_text, sents)
 
 
 def chunk_under_yielded(chunk_text: str, pairs: list[tuple[str, str]] | None) -> bool:
@@ -661,6 +724,11 @@ def quality_to_warnings(
         w.append(f"text_missing:{iq.text_missing_n}")
     if iq.text_coverage < TEXT_COVERAGE_WARN:
         w.append(f"text_coverage_low:{iq.text_coverage:.2f}")
+    # design/345 — the sentences the reader will say aloud contain characters the paper
+    # did not print. One run turned every `o` into a two-character sequence, 1,483
+    # times, and shipped; the next run of the same PDF was clean.
+    if iq.glyph_corruption_per_1k >= CORRUPTION_PER_1K_WARN:
+        w.append(f"glyph_corruption:{iq.glyph_corruption_per_1k:.2f}")
     if iq.chunks_failed or iq.chunks_ok < iq.chunks_total:
         w.append(f"partial_debone:{iq.chunks_ok}/{iq.chunks_total}")
     if missing_front_matter:
