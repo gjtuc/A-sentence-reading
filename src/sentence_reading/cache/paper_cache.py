@@ -941,6 +941,24 @@ def _load_document_citation(raw: object) -> dict:
     return public_document_citation(raw if isinstance(raw, dict) else {})
 
 
+def _load_speak_terms(raw: object) -> dict:
+    """design/343 — `printed -> spoken` names, re-verified on the way back in.
+
+    A cache file can be older than the gate, or hand-edited, so the check runs again
+    rather than trusting what is stored.
+    """
+    from sentence_reading.llm.term_dict import verify_term
+
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, str] = {}
+    for printed, spoken in list(raw.items())[:200]:
+        p, s = str(printed).strip()[:200], str(spoken).strip()[:120]
+        if p and s and verify_term(p, s):
+            out[p] = s
+    return out
+
+
 def load_cached_session(
     cache_id: str, *, load_images: bool = True
 ) -> tuple[PaperSession, dict] | None:
@@ -1030,6 +1048,7 @@ def load_cached_session(
         translate_digests=digests,
         references=_load_references(meta.get("references")),
         document_citation=_load_document_citation(meta.get("document_citation")),
+        speak_terms=_load_speak_terms(meta.get("speak_terms")),
     )
     session.clamp_indices()
     info = {
@@ -1557,6 +1576,7 @@ def save_paper_session(
         },
         "references": _load_references(session.references),
         "document_citation": _load_document_citation(session.document_citation),
+        "speak_terms": _load_speak_terms(session.speak_terms),
     }
     if has_tr:
         payload["translate_doc_version"] = "doc-v1"

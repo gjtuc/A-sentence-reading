@@ -353,6 +353,8 @@ class TtsController extends ChangeNotifier {
         voice: params.voice,
         // Server ignores rate for cache; always request native 1.0.
         speakingRate: kTtsRateDefault,
+        // design/343 — the open paper's own compound names.
+        cacheId: _library.session?.cacheId,
       );
       if (bytes.isEmpty) {
         throw AsrApiException('empty audio body', 502);

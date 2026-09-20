@@ -881,6 +881,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       text: text,
       voice: params.voice,
       speakingRate: kTtsRateDefault,
+      // design/343 — this paper's own compound names.
+      cacheId: _cacheId,
     );
     final results = await Future.wait<Object?>([spoken, audio]);
     final bytes = results[1]! as List<int>;
@@ -1729,6 +1731,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             text: word,
             voice: playVoice,
             speakingRate: kTtsRateDefault,
+            cacheId: _cacheId,
           )
           .timeout(kMissReviewWordTimeout);
       if (!_reviewAlive(token) || bytes.isEmpty) return false;

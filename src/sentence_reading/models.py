@@ -65,6 +65,9 @@ class PaperSession:
     references: list = field(default_factory=list)
     # WHY: design/157 — this paper row for Title section panel {text, doi, source?, confidence?}
     document_citation: dict = field(default_factory=dict)
+    # WHY: design/343 — this paper's own compound names, `printed -> spoken`, already
+    # checked against the formula's elements. Per paper, never process-global.
+    speak_terms: dict = field(default_factory=dict)
 
     def clamp_indices(self) -> None:
         """빈 목록이면 인덱스를 0으로 두고, UI가 empty 상태를 처리한다."""

@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.337",
+    version="0.3.338",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -7978,6 +7978,8 @@ async def _run_ingest_job_body(
         debone_ok = False
         _split_via = ""
         _title_guess = ""
+        # design/343 — empty unless the survey proposed names that passed the gate.
+        _speak_terms: dict[str, str] = {}
         ingest_quality: dict | None = None
         sentences: list = []
         references: list = []
@@ -8098,6 +8100,9 @@ async def _run_ingest_job_body(
                     sentences = result.sentences
                     debone_ok = True
                     _title_guess = str(result.title_guess or "")
+                    # design/343 — this paper's verified compound names travel with
+                    # the paper, not in a module global (design/337).
+                    _speak_terms = dict(result.speak_terms or {})
                     if result.warnings:
                         warnings.extend(result.warnings)
                     elif result.warning:
@@ -8380,6 +8385,7 @@ async def _run_ingest_job_body(
             translate_digests=digests,
             references=references,
             document_citation=document_citation if doc_role != "supplementary" else {},
+            speak_terms=_speak_terms,
         )
         session_id = _remember_session(session)
 

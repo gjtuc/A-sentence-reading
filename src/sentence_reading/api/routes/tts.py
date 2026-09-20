@@ -39,6 +39,28 @@ def tts_voices() -> dict:
     }
 
 
+def _paper_speak_terms(cache_id: object) -> dict[str, str] | None:
+    """design/343 — this paper's verified compound names, or None.
+
+    The route only ever knew the text, so the paper's own names could not reach it.
+    `cache_id` is optional: without it the reading is exactly what it was before, so
+    an older client keeps working.
+    """
+    key = str(cache_id or "").strip()
+    if not key:
+        return None
+    try:
+        from sentence_reading.cache.paper_cache import load_cached_session
+
+        loaded = load_cached_session(key, load_images=False)
+    except Exception:  # noqa: BLE001
+        return None
+    if not loaded:
+        return None
+    terms = getattr(loaded[0], "speak_terms", None)
+    return dict(terms) if isinstance(terms, dict) and terms else None
+
+
 @router.post("/api/tts")
 async def tts_synthesize(request: Request, payload: dict = Body(...)) -> Response:
     """현재 문장 plain text → MP3."""
@@ -55,7 +77,10 @@ async def tts_synthesize(request: Request, payload: dict = Body(...)) -> Respons
                 "message": "Cloud TTS 자격 증명이 없습니다.",
             },
         )
-    text = spoken_text_for_tts(str(payload.get("text") or ""))
+    text = spoken_text_for_tts(
+        str(payload.get("text") or ""),
+        terms=_paper_speak_terms(payload.get("cache_id")),
+    )
     voice = str(payload.get("voice") or "").strip() or None
     if voice in ("undefined", "null", "None"):
         voice = None
@@ -102,7 +127,9 @@ async def tts_spoken(request: Request, payload: dict = Body(...)) -> dict[str, A
         if denied is not None:
             return denied  # type: ignore[return-value]
     raw = str((payload or {}).get("text") or "")
-    spoken = spoken_text_for_tts(raw)
+    spoken = spoken_text_for_tts(
+        raw, terms=_paper_speak_terms((payload or {}).get("cache_id"))
+    )
     if not spoken.strip():
         return {
             "ok": False,

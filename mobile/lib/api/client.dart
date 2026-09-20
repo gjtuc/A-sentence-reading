@@ -2501,6 +2501,7 @@ throw AsrApiException(
     required String text,
     String? voice,
     double speakingRate = kTtsRateDefault,
+    String? cacheId,
   }) async {
     if (isEmptyTtsText(text)) {
       throw AsrApiException('empty_text', 400);
@@ -2509,6 +2510,9 @@ throw AsrApiException(
     final payload = <String, dynamic>{
       'text': text.trim(),
       'speaking_rate': rate,
+      // design/343 — lets the server apply this paper's own compound names. The
+      // server reads exactly as before when it is absent.
+      if ((cacheId ?? '').trim().isNotEmpty) 'cache_id': cacheId!.trim(),
     };
     final v = (voice ?? '').trim();
     if (v.isNotEmpty) payload['voice'] = v;
@@ -2556,14 +2560,19 @@ throw AsrApiException(
 
   /// GET /api/access/status
   /// design/212 — POST /api/tts/spoken (no audio).
-  Future<SpokenTextResult?> fetchSpokenText(String text) async {
+  Future<SpokenTextResult?> fetchSpokenText(String text, {String? cacheId}) async {
     if (isEmptyTtsText(text)) return null;
     final headers = await _headers(jsonBody: true);
     final res = await _http
         .post(
           _uri('/api/tts/spoken'),
           headers: headers,
-          body: jsonEncode({'text': text.trim()}),
+          body: jsonEncode({
+            'text': text.trim(),
+            // design/343 — same paper names as the audio call, so the follow
+            // highlight and the audio agree.
+            if ((cacheId ?? '').trim().isNotEmpty) 'cache_id': cacheId!.trim(),
+          }),
         )
         .timeout(const Duration(seconds: 30));
     final map = _decodeObject(res, 'tts/spoken');

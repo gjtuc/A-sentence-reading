@@ -216,6 +216,10 @@ _VOWEL_RE = re.compile(r"[aeiouy]")
 # letter, wrapped so the element rules cannot rename it. Converted to a frozen
 # placeholder right after `freeze`, and restored with everything else.
 VAR_MARK = "\x02"
+# design/343 — a paper term matched on the printed form, before the HTML parse turns
+# its subscripts into words.
+_TERM_MARK = "\x03"
+_TERM_MARKED = re.compile(r"\x03(\d+)\x03")
 _VAR_MARKED = re.compile(r"\x02([A-Za-z])\x02")
 # `Fig. S1`, `Table S3`, `Eq. S2` — the S is "supplementary", never sulfur.
 _SUPP_LABEL = re.compile(
@@ -785,6 +789,39 @@ def _expand_dotted_abbrev(text: str) -> str:
     return s
 
 
+def _mark_paper_terms(text: str, terms: dict[str, str] | None) -> tuple[str, list[str]]:
+    """Claim this paper's own compound names on the printed form (design/343).
+
+    Longest key first, so `CoFe2O4` is not eaten by a shorter `Co` entry. Returns the
+    marked text and the spoken forms in index order; the marks join `freeze`'s
+    mapping once it exists.
+    """
+    if not terms:
+        return text or "", []
+    s = text or ""
+    spoken_by_index: list[str] = []
+    for printed in sorted(terms, key=len, reverse=True):
+        if not printed or printed not in s:
+            continue
+        idx = len(spoken_by_index)
+        spoken_by_index.append(terms[printed])
+        s = s.replace(printed, f"{_TERM_MARK}{idx}{_TERM_MARK}")
+    return s, spoken_by_index
+
+
+def _freeze_marked_terms(
+    text: str, mapping: dict[str, str], spoken_by_index: list[str]
+) -> str:
+    def _repl(m: re.Match[str]) -> str:
+        i = int(m.group(1))
+        spoken = spoken_by_index[i] if 0 <= i < len(spoken_by_index) else ""
+        key = f"\x00{len(mapping)}\x00"
+        mapping[key] = spoken
+        return key
+
+    return _TERM_MARKED.sub(_repl, text or "")
+
+
 def _mark_supplementary_labels(text: str) -> str:
     """`Fig. S1`, and then the `S7` in `Figs. S1 to S7` (design/339).
 
@@ -1300,6 +1337,9 @@ def spoken_text_for_tts(
                 break
             s = after
 
+    # design/343 — the paper's own names win, and they have to be claimed while the
+    # printed form is intact: after the HTML parse, `Ba<sub>0.5</sub>` is words.
+    s, _term_spoken = _mark_paper_terms(s, terms)
     # design/341 — read unit runs while the printed form is still regular. Doing it
     # here also keeps the exponent away from the citation rule, which deleted a
     # positive one: `259.1 m²·g⁻¹` came out as "259.1 m times per gram".
@@ -1343,6 +1383,7 @@ def spoken_text_for_tts(
     s = _expand_dotted_abbrev(s)
     s, _frozen = freeze(s, terms=terms)
     s = _freeze_marked_letters(s, _frozen)
+    s = _freeze_marked_terms(s, _frozen, _term_spoken)
     s = _expand_unicode_scripts(s)
     s = _drop_parenthetical_asides(s)
     s = _apply_chem_aliases(s)

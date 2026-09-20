@@ -139,7 +139,7 @@ class PracticeSkillController {
     }
     final sw = Stopwatch()..start();
     try {
-      final r = await c.fetchSpokenText(chunkDisplay);
+      final r = await c.fetchSpokenText(chunkDisplay, cacheId: _cacheId);
       sw.stop();
       if (r == null) {
         await evidence.emit(

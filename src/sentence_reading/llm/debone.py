@@ -17,6 +17,7 @@ from sentence_reading.cite_refs import (
     repair_dollar_cite_artifacts,
     split_off_bibliography_lines,
 )
+from sentence_reading.llm.term_dict import build_term_dict
 from sentence_reading.llm.debone_quality import (
     ChunkStat,
     apply_grounding_flags,
@@ -75,7 +76,8 @@ _SURVEY_USER = """Survey this paper text and return JSON:
   "section_order": ["title","abstract","introduction","methods","results","discussion","conclusion"],
   "section_notes": "Short map of where sections are and odd headings.",
   "formulas": [
-    {{"raw": "flattened form as in text", "rich": "same with <sub> <sup> only"}}
+    {{"raw": "flattened form as in text", "rich": "same with <sub> <sup> only",
+      "spoken": "how a chemist reads it aloud, or \"\" if unsure"}}
   ],
   "symbols": [
     {{"raw": "as in text", "rich": "<i>σ</i> or similar", "note": "optional"}}
@@ -84,6 +86,13 @@ _SURVEY_USER = """Survey this paper text and return JSON:
 Use only tags <sub> <sup> <i> <em> in rich fields — never LaTeX ($…$).
 Do NOT put bracket citations ([1], [8, 9]) in formulas or symbols.
 Keep formulas/symbols lists short (max ~40 each).
+
+For `spoken`, give the name a chemist would say out loud for that exact formula:
+CoFe2O4 → "cobalt ferrite", Al2O3 → "alumina", BrO3- → "bromate". If this paper's
+authors use their own short name for a doped composition, give that
+(Ba0.5Sr0.5Co0.8Fe0.2O3-δ → "BSCF"). Every element in the formula must be accounted
+for by the name — a name that leaves one out will be discarded. Leave `spoken` empty
+rather than guess.
 
 PAPER TEXT:
 ---
@@ -179,6 +188,8 @@ class DeboneResult:
     chunks_total: int = 0
     ingest_quality: dict | None = None
     title_guess: str = ""
+    # design/343 — this paper's verified `printed -> spoken` compound names.
+    speak_terms: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -192,6 +203,10 @@ class PaperContext:
     symbols: list[dict[str, str]] = field(default_factory=list)
     ok: bool = False
     warning: str | None = None
+    # design/343 — names that passed the element-accounting gate, and the printed
+    # forms whose proposed name was refused.
+    speak_terms: dict[str, str] = field(default_factory=dict)
+    terms_refused: list[str] = field(default_factory=list)
 
     def to_prompt_block(self) -> str:
         if not self.ok and not self.section_notes and not self.formulas:
@@ -407,8 +422,17 @@ def _parse_survey(payload: dict) -> PaperContext:
                 continue
             raw = str(row.get("raw") or "").strip()
             rich = sanitize_sentence_html(str(row.get("rich") or ""))
+            spoken = str(row.get("spoken") or "").strip()
             if raw and rich:
-                ctx.formulas.append({"raw": raw[:200], "rich": rich[:400]})
+                row_out = {"raw": raw[:200], "rich": rich[:400]}
+                # design/343 — the name is kept for the gate to judge later, not
+                # trusted here.
+                if spoken:
+                    row_out["spoken"] = spoken[:120]
+                ctx.formulas.append(row_out)
+    # design/343 — judge the proposed names once, here, so nothing downstream has to
+    # decide whether to trust them.
+    ctx.speak_terms, ctx.terms_refused = build_term_dict(ctx.formulas)
     symbols = payload.get("symbols")
     if isinstance(symbols, list):
         for row in symbols[:40]:
@@ -878,6 +902,11 @@ def debone_sentences(
         partial_debone_failed=failed,
         back_matter_dropped=back_matter_n,
     )
+    # design/343 — a name the gate threw out is a name the reader would have heard.
+    if ctx.terms_refused:
+        warnings.append(f"speak_terms_refused:{len(ctx.terms_refused)}")
+    if ctx.speak_terms:
+        warnings.append(f"speak_terms:{len(ctx.speak_terms)}")
     warn_list = quality_to_warnings(
         iq,
         survey_warnings=warnings,
@@ -894,4 +923,5 @@ def debone_sentences(
         chunks_total=n_chunks,
         ingest_quality=iq.to_dict(),
         title_guess=ctx.title_guess,
+        speak_terms=dict(ctx.speak_terms),
     )
