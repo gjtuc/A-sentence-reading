@@ -205,7 +205,17 @@ def recover_pdf_text(
                     return RecoverResult(
                         text=ordered.marked_text,
                         pages=ordered.pages or working,
-                        warnings=[*warnings, "azure_reading_order"],
+                        warnings=[
+                            *warnings,
+                            "azure_reading_order",
+                            # design/346 — say how many paragraphs took their letters
+                            # from the PDF rather than from the layout service, and
+                            # how many kept the service's reading, by reason.
+                            *(
+                                f"embedded_text_{k}:{v}"
+                                for k, v in sorted((ordered.text_census or {}).items())
+                            ),
+                        ],
                         decision=QualityDecision(
                             verdict="text_ok",
                             source="azure_layout",

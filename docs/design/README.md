@@ -394,6 +394,7 @@
 | 343 | [343-the-papers-own-compound-names.md](343-the-papers-own-compound-names.md) | 논문 자신의 화합물 이름 — 원소 정산 게이트로 검증 후 사용 (CoFe2O4→cobalt ferrite, BSCF, 0.3.338) |
 | 344 | [344-measure-lost-text-not-lost-words.md](344-measure-lost-text-not-lost-words.md) | 잃은 텍스트를 센다 — 단어 목록 자는 문단 손실에 눈이 멀었다 · 10편 전부 실제 문장 손실 (0.3.340) |
 | 345 | [345-characters-the-paper-never-printed.md](345-characters-the-paper-never-printed.md) | 논문에 없는 글자가 독자에게 간다 — 같은 PDF가 실행마다 다름(o→2글자 1,483회) · 검출만 · 청크 텍스트 하한은 철회 (0.3.341) |
+| 346 | [346-the-service-boxes-the-papers-letters.md](346-the-service-boxes-the-papers-letters.md) | 순서는 Azure 상자, 글자는 논문 자신 — 변질 27.67→0.066 · 전달률 0.956 · 순서 역행 46.8%→23.4% (0.3.342) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

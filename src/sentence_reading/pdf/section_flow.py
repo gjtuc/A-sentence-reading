@@ -12,6 +12,7 @@ text. Missing Azure is not replaced here.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -61,6 +62,9 @@ class OrderedPaper:
     # removes 188 to 8,724 characters per file. Without a census, a coverage gap
     # cannot be told apart from a mislabelled body paragraph.
     drop_census: dict[str, int] = field(default_factory=dict)
+    # design/346 — how many paragraphs took their letters from the PDF, and how many
+    # kept the service's reading, by reason.
+    text_census: dict[str, int] = field(default_factory=dict)
 
 
 def section_mark(key: str) -> str:
@@ -599,7 +603,14 @@ def order_boxes(boxes: list[FlowBox], pages: list[dict]) -> OrderedPaper:
     )
 
 
-def boxes_from_azure_result(result, doc) -> tuple[list[FlowBox], list[dict]]:
+def boxes_from_azure_result(
+    result, doc, *, text_census: dict[str, int] | None = None
+) -> tuple[list[FlowBox], list[dict]]:
+    """Boxes for order, letters from the PDF (design/346).
+
+    Pass `text_census` to receive the count of paragraphs whose letters came from the
+    PDF and of each refusal.
+    """
     from sentence_reading.pdf.layout_map import (
         _classify_paragraph_caption,
         _figure_caption_text,
@@ -607,17 +618,37 @@ def boxes_from_azure_result(result, doc) -> tuple[list[FlowBox], list[dict]]:
         build_layout_map_from_result,
     )
 
+    from sentence_reading.pdf.embedded_text import page_words, prefer_embedded, text_in_box
+
     layout = build_layout_map_from_result(result, doc)
     pages = [
         {"width": float(p.get("width_pt") or 595), "height": float(p.get("height_pt") or 842)}
         for p in layout.pages
     ]
+    # design/346 — the service's boxes say where and in what order; the letters come
+    # from the PDF, whose reading does not change between calls. One `get_text` per
+    # page, not per box: a review has 2,352 boxes.
+    words_cache: dict[int, list[tuple[float, float, float, float, str]]] = {}
+    census: Counter[str] = Counter()
+
+    def _page_words(page_index: int):
+        if page_index not in words_cache:
+            words_cache[page_index] = (
+                page_words(doc[page_index]) if 0 <= page_index < doc.page_count else []
+            )
+        return words_cache[page_index]
+
     boxes: list[FlowBox] = []
     for para in result.paragraphs or []:
         page_index, rect = _region_page_and_rect(getattr(para, "bounding_regions", None) or [])
         if page_index is None or rect is None:
             continue
         text = (getattr(para, "content", None) or "").strip()
+        clip = text_in_box(
+            _page_words(page_index), rect["x0"], rect["y0"], rect["x1"], rect["y1"]
+        )
+        text, why = prefer_embedded(text, clip)
+        census[why] += 1
         kind = _classify_paragraph_caption(text) or "paragraph"
         boxes.append(
             FlowBox(
@@ -661,6 +692,8 @@ def boxes_from_azure_result(result, doc) -> tuple[list[FlowBox], list[dict]]:
                 kind="table_body",
             )
         )
+    if text_census is not None:
+        text_census.update({k: v for k, v in sorted(census.items()) if v})
     return boxes, pages
 
 
@@ -677,9 +710,12 @@ def azure_ordered_pages(pdf_path: Path) -> OrderedPaper | None:
     import fitz
 
     doc = fitz.open(pdf_path)
+    text_census: dict[str, int] = {}
     try:
         _layout, _client, result = analyze_layout_map(pdf_path)
-        boxes, pages = boxes_from_azure_result(result, doc)
+        boxes, pages = boxes_from_azure_result(result, doc, text_census=text_census)
     finally:
         doc.close()
-    return order_boxes(boxes, pages)
+    ordered = order_boxes(boxes, pages)
+    ordered.text_census = text_census
+    return ordered
