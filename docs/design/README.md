@@ -392,6 +392,7 @@
 | 341 | [341-unit-grammar-and-the-ratio-slash.md](341-unit-grammar-and-the-ratio-slash.md) | 단위 런은 문법이다 — 지워지던 양의 지수 복구·`·`는 구분자·기호 사이 슬래시는 비율 (224→45, 0.3.336 · speak_norm v9) |
 | 342 | [342-a-code-hyphen-is-not-a-minus.md](342-a-code-hyphen-is-not-a-minus.md) | 시료 코드·과제번호의 하이픈은 마이너스도 범위도 아니다 (린터가 못 본 66문장, 0.3.337 · speak_norm v10) |
 | 343 | [343-the-papers-own-compound-names.md](343-the-papers-own-compound-names.md) | 논문 자신의 화합물 이름 — 원소 정산 게이트로 검증 후 사용 (CoFe2O4→cobalt ferrite, BSCF, 0.3.338) |
+| 344 | [344-measure-lost-text-not-lost-words.md](344-measure-lost-text-not-lost-words.md) | 잃은 텍스트를 센다 — 단어 목록 자는 문단 손실에 눈이 멀었다 · 10편 전부 실제 문장 손실 (0.3.340) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

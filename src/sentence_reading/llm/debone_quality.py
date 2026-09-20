@@ -127,6 +127,11 @@ class IngestQuality:
     # design/340 — journal apparatus kept out of practice, counted not assumed.
     back_matter_dropped: int = 0
     coverage_ratio: float = 1.0
+    # design/344 — the text ruler. `coverage_ratio` compares word *lists*, so a lost
+    # paragraph moves it by a fraction of a point. These two say how much of the
+    # source text arrived and how many prose fragments did not.
+    text_coverage: float = 1.0
+    text_missing_n: int = 0
     body_sentence_count: int = 0
     body_ratio: float = 0.0
     ungrounded_count: int = 0
@@ -144,6 +149,8 @@ class IngestQuality:
             "references_kind_rejected": list(self.references_kind_rejected),
             "back_matter_dropped": self.back_matter_dropped,
             "coverage_ratio": round(self.coverage_ratio, 4),
+            "text_coverage": round(self.text_coverage, 4),
+            "text_missing_n": self.text_missing_n,
             "body_sentence_count": self.body_sentence_count,
             "body_ratio": round(self.body_ratio, 4),
             "ungrounded_count": self.ungrounded_count,
@@ -359,6 +366,87 @@ def practice_text_only(raw_text: str) -> str:
     return strip_back_matter(cut)
 
 
+# design/344 — the text ruler. A word-list metric cannot see a lost paragraph: on one
+# real paper, deleting a 158-character sentence moved it by 0.12 points, because every
+# word in that sentence also appeared somewhere else. So loss was measured with an
+# instrument blind to the scale of loss that matters.
+TEXT_FRAGMENT_MIN_WORDS = 6
+TEXT_SHINGLE = 5
+TEXT_FRAGMENT_FOUND_SHARE = 0.5
+TEXT_COVERAGE_WARN = 0.80
+_FRAGMENT_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def _shingles(words: list[str], n: int = TEXT_SHINGLE) -> set[tuple[str, ...]]:
+    if len(words) < n:
+        return {tuple(words)} if words else set()
+    return {tuple(words[i : i + n]) for i in range(len(words) - n + 1)}
+
+
+def _coverage_words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", plain_text(text or "").lower())
+
+
+def text_fragments(raw_text: str) -> list[str]:
+    """Sentence-sized pieces of the source, long enough to be worth checking."""
+    out: list[str] = []
+    for piece in _FRAGMENT_SPLIT.split(practice_text_only(raw_text or "")):
+        p = piece.strip()
+        if len(_coverage_words(p)) >= TEXT_FRAGMENT_MIN_WORDS:
+            out.append(p)
+    return out
+
+
+def text_coverage(
+    raw_text: str, sentences: list[Sentence]
+) -> tuple[float, list[str]]:
+    """design/344 — which *pieces of text* reached the reader, not which words.
+
+    A fragment counts as delivered when half of its 5-word shingles appear in the
+    practice sentences. Half, not all: deboning legitimately removes citation
+    markers and running heads, and a fragment can be split across two sentences.
+
+    Returns the share of source characters delivered and the fragments that were not.
+    A returned fragment is prose the reader should have had: mastheads, author lists
+    and page stamps are dropped, or the list would be mostly noise.
+    """
+    frags = text_fragments(raw_text)
+    if not frags:
+        return 1.0, []
+    out_words = _coverage_words(" ".join(s.text or "" for s in sentences or []))
+    have = _shingles(out_words)
+    missing: list[str] = []
+    ok_chars = 0
+    all_chars = 0
+    for frag in frags:
+        n = len(frag)
+        all_chars += n
+        want = _shingles(_coverage_words(frag))
+        if not want:
+            ok_chars += n
+            continue
+        share = len(want & have) / len(want)
+        if share >= TEXT_FRAGMENT_FOUND_SHARE:
+            ok_chars += n
+        elif _worth_reporting_missing(frag):
+            missing.append(frag)
+    return (round(ok_chars / max(all_chars, 1), 4), missing)
+
+
+def _worth_reporting_missing(fragment: str) -> bool:
+    """Is this fragment prose the reader should have had? (design/344)
+
+    The first run of the text ruler returned mastheads, author name lists and RSC page
+    stamps alongside real losses, which buries the finding. These are the same two
+    predicates the rest of the pipeline already uses to tell apparatus from prose.
+    """
+    from sentence_reading.cite_refs import looks_like_prose_line
+
+    if is_back_matter_sentence(fragment):
+        return False
+    return looks_like_prose_line(fragment)
+
+
 def coverage_excluding_references(
     raw_text: str,
     sentences: list[Sentence],
@@ -451,6 +539,15 @@ def apply_grounding_flags(
     return out, ungrounded_ids
 
 
+def _text_ruler(raw_text: str, sentences: list[Sentence]) -> dict[str, object]:
+    """design/344 — never let the honest ruler break the ingest it is measuring."""
+    try:
+        ratio, missing = text_coverage(raw_text, sentences)
+    except Exception:  # noqa: BLE001
+        return {}
+    return {"text_coverage": ratio, "text_missing_n": len(missing)}
+
+
 def build_ingest_quality(
     *,
     raw_text: str,
@@ -495,6 +592,7 @@ def build_ingest_quality(
         # design/330 — the bibliography is never practice text, so it must not
         # sit in the denominator and read as loss.
         coverage_ratio=coverage_excluding_references(raw_text, sentences),
+        **_text_ruler(raw_text, sentences),
         body_sentence_count=body_count,
         body_ratio=body_count / total,
         ungrounded_count=len(ungrounded_ids),
@@ -556,6 +654,13 @@ def quality_to_warnings(
         w.append(f"bib_chars_dropped:{iq.bib_chars_dropped}")
     if iq.back_matter_dropped:
         w.append(f"back_matter_dropped:{iq.back_matter_dropped}")
+    # design/344 — a named count of prose that never reached the reader. The word-list
+    # ratio read 0.85 to 0.97 on the same papers while every one of them was losing
+    # real sentences.
+    if iq.text_missing_n:
+        w.append(f"text_missing:{iq.text_missing_n}")
+    if iq.text_coverage < TEXT_COVERAGE_WARN:
+        w.append(f"text_coverage_low:{iq.text_coverage:.2f}")
     if iq.chunks_failed or iq.chunks_ok < iq.chunks_total:
         w.append(f"partial_debone:{iq.chunks_ok}/{iq.chunks_total}")
     if missing_front_matter:
