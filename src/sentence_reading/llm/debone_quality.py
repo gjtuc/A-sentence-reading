@@ -475,26 +475,76 @@ def _worth_reporting_missing(fragment: str) -> bool:
 
     if is_back_matter_sentence(fragment):
         return False
-    if _AUTHOR_BIO.search(fragment or ""):
+    if not looks_like_prose_line(fragment):
         return False
-    return looks_like_prose_line(fragment)
+    return not is_front_or_reference_apparatus(fragment)
 
 
-# design/347 — an author biography is prose, so `looks_like_prose_line` accepts it and
-# it arrived in the missing list as if body text had been lost. The 5 fragments that
-# really were absent from the RSC review were all of this kind: `Denis Leybo received
-# his PhD from the National University of Science and Technology MISIS`. Dropping them
-# is correct; reporting them as loss is not. The verb phrase is required, so a results
-# sentence that merely names a person is untouched.
+# design/350 — after design/349 removed the real losses, everything still listed was
+# apparatus that is correctly dropped, and reporting it as lost prose buries the next
+# real finding. Four shapes, each from the corpus:
+#
+#   author biography   `Her research is aimed at gaining fundamental insights in …`
+#   author/affiliation `Allen,† Sungwoo Lee,† … ‡Department of Materials, Oxford, OX1 3PH`
+#   reference entry    `367 of Astronomical Society of the Pacific Conference Series …`
+#   figure axis labels `( FCH4in − FCH4out FCH4in ) H2 produced (µmol .min-1) CO produced …`
 _AUTHOR_BIO = re.compile(
     r"\b(?:received (?:his|her|their) (?:PhD|Ph\.?D|M\.?Sc|B\.?Sc|bachelor|master|doctor)"
+    r"|obtained (?:his|her|their) (?:PhD|Ph\.?D|degree|diploma)\b"
+    r"|earned (?:his|her|their) (?:PhD|Ph\.?D|degree)\b"
     r"|(?:is|was|has been) (?:currently )?(?:a |an |the )?"
-    r"(?:full |associate |assistant )?(?:professor|lecturer|researcher|research fellow)\b"
+    r"(?:full |associate |assistant )?(?:professor|lecturer|researcher|research fellow"
+    r"|PhD student|postdoc(?:toral)?\b)"
     r"|joined the [A-Z][^.]{0,60}(?:laboratory|group|department|institute)\b"
-    r"|(?:his|her|their) research (?:interests?|focuses)\b"
-    r"|obtained (?:his|her|their) (?:PhD|Ph\.?D|degree)\b)",
+    r"|joined [A-Z][A-Za-z.\u2019' -]{2,40}(?:\u2019s|'s) (?:group|lab|laboratory)\b"
+    r"|(?:his|her|their) research (?:interests?\b|focuses\b|is aimed at\b|centres? on\b))",
     re.I,
 )
+# Affiliation markers. Two or more footnote daggers, or a postal address tail after a
+# department name, is an author block — never a results sentence.
+_AFFIL_MARK = re.compile(r"[\u2020\u2021\u00a7\u00b6]")
+_AFFIL_WORD = re.compile(
+    r"\b(?:Department|Departamento|Institute|Instituto|Faculty|School|Laborator(?:y|ies)"
+    r"|Universi(?:ty|dad|tat)|College|Academy of Sciences)\b"
+)
+# Figure and table axis labels: a unit in parentheses, more than once.
+_UNIT_IN_PARENS = re.compile(
+    r"\(\s*[\u00b5\u03bcmknMGT]?(?:mol|g|L|m|s|min|h|A|V|W|Pa|bar|K|eV|Hz)\b[^)]{0,14}\)"
+)
+# A supplementary file list: `Formation of the 855 line defect (AVI) Motion of kink …`.
+# The format markers are what make it a list of downloads rather than a paragraph.
+_SUPP_FILE_MARK = re.compile(r"\((?:AVI|MP4|MOV|WMV|PDF|DOCX?|XLSX?|ZIP|TIFF?|CIF)\)", re.I)
+# A proceedings or series citation: `367 of Astronomical Society of the Pacific
+# Conference Series (…, 2007), p.` — too few of `reference_signal_density`'s signals to
+# reach its floor, because the authors are in the series name rather than an initials run.
+_SERIES_CITE = re.compile(
+    r"\b(?:Conference Series|Proceedings of|Proc\.|Ser\.|Lect(?:ure)?\.? Notes"
+    r"|Symposium (?:Series|on))\b"
+)
+_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+
+
+def is_front_or_reference_apparatus(fragment: str) -> bool:
+    """Journal front matter or a bibliography entry, not prose the reader lost."""
+    from sentence_reading.cite_refs import reference_signal_density
+
+    s = plain_text(fragment or "")
+    if _AUTHOR_BIO.search(s):
+        return True
+    marks = len(_AFFIL_MARK.findall(s))
+    # Two daggers plus a department name, or three on their own — an author block
+    # carries one per author, and running prose carries none.
+    if marks >= 3 or (marks >= 2 and _AFFIL_WORD.search(s)):
+        return True
+    if reference_signal_density(s) >= REF_SIGNAL_DENSITY_MAX:
+        return True
+    if _SERIES_CITE.search(s) and _YEAR.search(s):
+        return True
+    if len(_SUPP_FILE_MARK.findall(s)) >= 2:
+        return True
+    return len(_UNIT_IN_PARENS.findall(s)) >= 2
+
+
 
 
 # design/345 — glyph corruption the extractor can introduce. One run of the Elsevier
