@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.346",
+    version="0.3.347",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -8202,7 +8202,12 @@ async def _run_ingest_job_body(
                     )
                 )
                 # design/322 — reading order is invisible behind one sentence.
-                _ord = source_order_stats(text_pre_filter, sentences)
+                # design/351 — anchored in the text the sentences were made from. It
+                # used to be `text_pre_filter`, which is the raw page order; the
+                # sentences come from the reading-order text, so on a two-column paper
+                # every place the two orders differ registered as a backward step. That
+                # alone reported 44% on a paper whose order is 99% correct.
+                _ord = source_order_stats(text_for_sentences, sentences)
                 warnings.extend(order_warnings(_ord))
                 eb.emit_handoff(
                     from_stage="extract_text",

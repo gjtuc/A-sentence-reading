@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import bisect
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -843,7 +844,12 @@ def quality_to_warnings(
 
 _ORDER_ANCHOR_NGRAM = 6
 _ORDER_MIN_TOKENS = 5
-ORDER_BACKWARD_PCT_WARN = 20.0
+# design/351 — share of sentences that are not part of the paper's own running order.
+# Measured over eleven runs of ten papers, anchored in the text the sentences were made
+# from: 0.0% to 6.1%. A swapped half of a paper scores 50%, so this sits well clear of
+# both. The old 20% was set against a measure that reported 44% on a paper whose order
+# is 99% correct, because it anchored in the raw page order instead.
+ORDER_BACKWARD_PCT_WARN = 15.0
 
 
 def _order_norm(text: str) -> str:
@@ -886,18 +892,36 @@ def source_order_stats(
             positions.append(at)
     if not positions:
         return {"anchored_n": 0, "backward_n": 0, "backward_pct": 0.0}
-    backward = 0
-    high = -1
-    for p in positions:
-        if high >= 0 and p < high:
-            backward += 1
-        high = max(high, p)
-    pct = round(100.0 * backward / len(positions), 2)
+    n = len(positions)
+    out_of_order = n - _longest_in_order(positions)
     return {
-        "anchored_n": len(positions),
-        "backward_n": backward,
-        "backward_pct": pct,
+        "anchored_n": n,
+        "backward_n": out_of_order,
+        "backward_pct": round(100.0 * out_of_order / n, 2),
     }
+
+
+def _longest_in_order(positions: list[int]) -> int:
+    """Longest run of sentences already in source order (design/351).
+
+    The two obvious rules both mislead. Counting a step below the running **maximum**
+    turns one displaced sentence into a verdict on everything after it — on `advmat`
+    that read 24.8% where only 1.8% of sentences stepped back from the one before.
+    Counting only a step from the previous sentence has the opposite blind spot: move
+    a whole block and just one pair is out of place, which is exactly the defect
+    design/322 exists to catch.
+
+    How many sentences form an increasing run answers both. One displaced sentence
+    costs one; a swapped half costs half.
+    """
+    tails: list[int] = []
+    for p in positions:
+        i = bisect.bisect_right(tails, p)
+        if i == len(tails):
+            tails.append(p)
+        else:
+            tails[i] = p
+    return len(tails)
 
 
 def order_warnings(stats: dict[str, float | int]) -> list[str]:

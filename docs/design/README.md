@@ -399,6 +399,7 @@
 | 348 | [348-the-voice-read-the-escape.md](348-the-voice-read-the-escape.md) | 목소리가 글자 대신 이스케이프를 읽었다 — sanitize가 멱등이 아니어서 한 겹씩 묻힘 · 읽을 때 복구되니 재수집 불필요 (0.3.344) |
 | 349 | [349-the-cut-that-split-a-sentence.md](349-the-cut-that-split-a-sentence.md) | 문장을 반으로 가른 절단 — 고정 경로만 5,000자에서 무작정 끊음 · 섹션 내 절단 76번 중 75번이 문장 분할 → 0 (0.3.345) |
 | 350 | [350-apparatus-is-not-loss.md](350-apparatus-is-not-loss.md) | 장치성 글은 손실이 아니다 — 저자 약력·소속·총서 인용·보충 파일·축 라벨을 보고에서 제외, 진짜 본문은 그대로 (0.3.346) |
+| 351 | [351-order-measured-in-its-own-text.md](351-order-measured-in-its-own-text.md) | 순서는 제 텍스트에서 재야 한다 — 원시 페이지 순서에 대고 재서 44%가 실제 0.9% · 최장 정렬 구간으로 교체 (0.3.347) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |
