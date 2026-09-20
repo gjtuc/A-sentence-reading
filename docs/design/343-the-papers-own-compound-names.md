@@ -1,6 +1,6 @@
 # 343 — The paper's own compound names, verified before the reader hears them
 
-**Version:** 0.3.338 · Status: **locked**  
+**Version:** 0.3.338 · gate widened in 0.3.339 · Status: **locked**  
 Fills [326](326-practice-speech-tokens.md) Phase 2 · follows [342](342-a-code-hyphen-is-not-a-minus.md)
 
 ## Why
@@ -65,6 +65,40 @@ never match a real paper. Two things follow:
 2. The match happens **before** the parse, marking the span, and the marks join
    `freeze`'s existing placeholder mapping afterwards. Longest key first, so
    `CoFe2O4` is not eaten by a shorter `Co` entry.
+
+## The gate was too narrow, and real papers said so
+
+The first version refused **11 of 23** proposals on one Adv. Mater. paper — and every
+one of the 11 was a **correct name**, refused because my own table lacked the word:
+
+```
+NO  CeO2   -> ceria             unknown word
+NO  MgO    -> magnesia          unknown word
+NO  H2SO4  -> sulfuric acid     unknown word
+NO  Pt2+   -> platinum two ion  unknown word
+NO  C2H4   -> ethylene          unknown word
+```
+
+A 48% false-refusal rate would have left the feature inert. Three additions fixed it
+without loosening what the gate is for:
+
+1. **Trivial oxides by rule, not by list.** `ceria`, `magnesia`, `baria`, `yttria`
+   follow one pattern — drop the trailing `a` and what remains starts an element's
+   name. A list of these is always a journal behind.
+2. **Acid and hydrocarbon names.** `acid` itself carries the hydrogen, so
+   `sulfuric acid` accounts for H2SO4 exactly.
+3. **Charge and structure words are not evidence.** `Pt2+` is "platinum two plus
+   ion"; `Fe@SiO2` is "iron at silica". Those words say nothing about which elements
+   are present, and refusing them threw away correct names.
+
+Re-measured on the same paper: **27 of 28 accepted**, the one refusal being a name
+that genuinely did not match. Wrong names are still refused — `cobalt oxide` for
+`CoFe2O4`, `cobalt titanate` for `Co3O4`, `titanium nitride` for `TiO2`.
+
+And the gate caught something nobody was looking for. ChemistryOpen prints `KCl`;
+extraction produced `KCI` with a capital I. The proposed "potassium chloride" was
+right and the **formula** was wrong, so the gate refused it — a corrupted extraction
+surfaced by a speech check.
 
 ## Measured
 

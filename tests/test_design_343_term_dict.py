@@ -78,6 +78,59 @@ def test_the_right_name_is_accepted() -> None:
     assert verify_term("H2PtCl6", "chloroplatinic acid") is True
 
 
+def test_the_names_a_real_paper_actually_proposed() -> None:
+    """Measured, not imagined. A first version of the gate refused 11 of these 23
+    correct names for "unknown word", a 48% false-refusal rate that would have left
+    the feature inert. These are the shapes Gemini returns for one Adv. Mater. paper.
+    """
+    for formula, spoken in [
+        ("Al2O3", "alumina"),
+        ("SiO2", "silica"),
+        ("TiO2", "titania"),
+        ("CeO2", "ceria"),
+        ("MgO", "magnesia"),
+        ("ZrO2", "zirconia"),
+        ("Fe2O3", "iron oxide"),
+        ("N2O", "nitrous oxide"),
+        ("H2O2", "hydrogen peroxide"),
+        ("H2SO4", "sulfuric acid"),
+        ("HCl", "hydrochloric acid"),
+        ("HNO3", "nitric acid"),
+        ("C2H4", "ethylene"),
+        ("C2H6", "ethane"),
+        ("C6H6", "benzene"),
+        ("CH3OH", "methanol"),
+        ("Mg2+", "magnesium two plus ion"),
+        ("Pt4+", "platinum four plus ion"),
+        ("O2-", "oxide ion"),
+        ("Pt1/CeO2", "single atom platinum on ceria"),
+        ("Fe@SiO2", "iron at silica"),
+    ]:
+        assert verify_term(formula, spoken) is True, f"{formula} -> {spoken}"
+
+
+def test_a_trivial_oxide_name_is_read_by_rule_not_by_list() -> None:
+    """`ceria`, `magnesia`, `baria` — a list of these is always a journal behind."""
+    assert verify_term("BaO", "baria") is True
+    assert verify_term("Y2O3", "yttria") is True
+    assert verify_term("ThO2", "thoria") is True
+
+
+def test_a_charge_word_says_nothing_about_composition() -> None:
+    """`Pt2+` is "platinum two plus ion": the charge words must not be evidence."""
+    assert verify_term("Pt2+", "platinum ion") is True
+    assert verify_term("CoFe2O4", "cobalt two plus ion") is False
+
+
+def test_a_corrupted_formula_is_caught_by_the_gate() -> None:
+    """ChemistryOpen prints `KCl`; extraction gave `KCI` with a capital I.
+
+    The name was right and the formula was wrong, and the gate noticed.
+    """
+    assert verify_term("KCl", "potassium chloride") is True
+    assert verify_term("KCI", "potassium chloride") is False
+
+
 def test_a_name_that_drops_an_element_is_refused() -> None:
     """The case that motivated the gate."""
     assert verify_term("CoFe2O4", "cobalt oxide") is False

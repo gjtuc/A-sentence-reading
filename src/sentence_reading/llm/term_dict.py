@@ -167,11 +167,48 @@ _NAME_STEM: dict[str, frozenset[str]] = {
     "water": frozenset({"H", "O"}),
     "ammonia": frozenset({"N", "H"}),
     "ammonium": frozenset({"N", "H"}),
-    "methane": frozenset({"C", "H"}),
-    "ethanol": frozenset({"C", "H", "O"}),
-    "methanol": frozenset({"C", "H", "O"}),
     "graphene": frozenset({"C"}),
     "graphite": frozenset({"C"}),
+    # design/343 — acid names. `acid` itself carries the hydrogen, so
+    # `sulfuric acid` accounts for H2SO4 exactly.
+    "acid": frozenset({"H"}),
+    "sulfuric": frozenset({"S", "O"}),
+    "sulphuric": frozenset({"S", "O"}),
+    "nitric": frozenset({"N", "O"}),
+    "nitrous": frozenset({"N", "O"}),
+    "phosphoric": frozenset({"P", "O"}),
+    "carbonic": frozenset({"C", "O"}),
+    "boric": frozenset({"B", "O"}),
+    "hydrochloric": frozenset({"H", "Cl"}),
+    "hydrofluoric": frozenset({"H", "F"}),
+    "hydrobromic": frozenset({"H", "Br"}),
+    "perchloric": frozenset({"Cl", "O"}),
+    "acetic": frozenset({"C", "H", "O"}),
+    "formic": frozenset({"C", "H", "O"}),
+    "oxalic": frozenset({"C", "H", "O"}),
+    "citric": frozenset({"C", "H", "O"}),
+    # Hydrocarbons and small organics, which name their elements implicitly.
+    "methane": frozenset({"C", "H"}),
+    "ethane": frozenset({"C", "H"}),
+    "propane": frozenset({"C", "H"}),
+    "butane": frozenset({"C", "H"}),
+    "ethylene": frozenset({"C", "H"}),
+    "ethene": frozenset({"C", "H"}),
+    "propylene": frozenset({"C", "H"}),
+    "propene": frozenset({"C", "H"}),
+    "acetylene": frozenset({"C", "H"}),
+    "benzene": frozenset({"C", "H"}),
+    "toluene": frozenset({"C", "H"}),
+    "ethanol": frozenset({"C", "H", "O"}),
+    "methanol": frozenset({"C", "H", "O"}),
+    "propanol": frozenset({"C", "H", "O"}),
+    "acetone": frozenset({"C", "H", "O"}),
+    "acetaldehyde": frozenset({"C", "H", "O"}),
+    "formaldehyde": frozenset({"C", "H", "O"}),
+    "urea": frozenset({"C", "H", "N", "O"}),
+    "glucose": frozenset({"C", "H", "O"}),
+    "cellulose": frozenset({"C", "H", "O"}),
+    "syngas": frozenset({"C", "O", "H"}),
 }
 
 # Words a name may carry that say nothing about composition.
@@ -183,7 +220,16 @@ _IGNORABLE = frozenset(
         "mixed", "layered", "cubic", "hexagonal", "amorphous", "crystalline", "type",
         "based", "rich", "deficient", "activated", "reduced", "oxidized", "alloy",
         "solid", "solution", "powder", "film", "framework", "porous", "mesoporous",
-        "acid", "gas", "aqueous",
+        "gas", "aqueous",
+        # `Fe@SiO2` is read "iron at silica" — core-shell notation, not a element.
+        "at", "over", "core", "shell", "encapsulated", "confined", "anchored",
+        "embedded", "decorated", "modified", "loaded",
+        # design/343 — a charge reading: `Pt2+` is "platinum two ion". These words
+        # say nothing about which elements are present, and refusing them threw
+        # away correct names.
+        "ion", "ions", "cation", "cations", "anion", "anions", "species", "state",
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "plus",
+        "minus", "valent", "divalent", "trivalent", "tetravalent", "metallic",
     }
 )
 
@@ -220,6 +266,27 @@ def formula_elements(raw: str) -> set[str]:
     return out
 
 
+_TRIVIAL_OXIDE_MIN_STEM = 4
+
+
+def _trivial_oxide_element(word: str) -> str | None:
+    """`ceria`, `magnesia`, `baria` — an oxide named by trimming its element.
+
+    A list of these is always one journal behind, and the pattern is regular: drop
+    the trailing `a` and what is left is the start of the element's name. Requiring
+    four characters keeps short accidents out.
+    """
+    if len(word) < _TRIVIAL_OXIDE_MIN_STEM + 1 or not word.endswith("a"):
+        return None
+    stem = word[:-1]
+    if len(stem) < _TRIVIAL_OXIDE_MIN_STEM:
+        return None
+    for name, symbol in _NAME_TO_SYMBOL.items():
+        if name.startswith(stem):
+            return symbol
+    return None
+
+
 def name_elements(name: str) -> tuple[set[str], bool]:
     """Elements a proposed name accounts for, and whether every word was understood."""
     low = re.sub(r"[^a-z\s\-]", " ", (name or "").lower())
@@ -237,6 +304,10 @@ def name_elements(name: str) -> tuple[set[str], bool]:
         hit = next((k for k in _STEM_KEYS if word.endswith(k)), None)
         if hit is not None:
             found |= _NAME_STEM[hit]
+            continue
+        trivial = _trivial_oxide_element(word)
+        if trivial is not None:
+            found |= {trivial, "O"}
             continue
         understood = False
     return found, understood
