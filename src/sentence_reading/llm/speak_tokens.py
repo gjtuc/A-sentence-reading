@@ -627,7 +627,24 @@ def spoken_post(text: str) -> str:
     s = re.sub(r"(?<![A-Za-z])>\s*(?=[\d.])", "greater than ", s)
     s = re.sub(r"(?<![A-Za-z])<\s*(?=[\d.])", "less than ", s)
     # A dash between two numbers that share a unit is a range.
-    s = re.sub(r"(?<=\d)\s*[-\u2010\u2011\u2013](?=\d)", " to ", s)
+    # design/342 — unless a side carries a leading zero. `award DMR 08-019762` is a
+    # grant number, and it was read as "08 to 019762"; a printed range never writes
+    # its bounds with a leading zero.
+    def _coded(n: str) -> bool:
+        # `08` and `019762` are parts of a grant number; `0.5` is just a decimal.
+        return "." not in n and len(n) > 1 and n.startswith("0")
+
+    def _num_range(m: re.Match[str]) -> str:
+        a, b = m.group(1), m.group(2)
+        if _coded(a) or _coded(b):
+            return f"{a} {b}"
+        return f"{a} to {b}"
+
+    s = re.sub(
+        r"(?<![\d.])(\d+(?:\.\d+)?)\s*[-\u2010\u2011\u2013]\s*(\d+(?:\.\d+)?)(?![\d.])",
+        _num_range,
+        s,
+    )
     # `0.25 volt -1.00 volt` — the unit word sits between the two numbers, so the
     # dash is still a range. A bare `at -5` is not, and must keep its minus.
     s = re.sub(
@@ -711,6 +728,11 @@ def restore(text: str, mapping: dict[str, str]) -> str:
     # `H2-TPR` is "hydrogen T P R", `Fe-Ni` is "iron nickel".
     s = re.sub(r"[-\u2010\u2011\u2013]\s*(?=\x00)", " ", text or "")
     s = re.sub(r"(\x00\d+\x00)\s*[-\u2010\u2011\u2013](?=\s|$)", r"\1 ", s)
+    # design/342 — a hyphen glued to a decided token joins two parts of one name:
+    # `BZY10-1700` is a sample code, and leaving the hyphen in let a later range
+    # rule say "B Z Y 10 to 1700". A printed range has its own digits on the left,
+    # never a placeholder, so it is untouched.
+    s = re.sub(r"(\x00\d+\x00)[-\u2010\u2011\u2013](?=[A-Za-z0-9])", r"\1 ", s)
 
     def _sub(m: re.Match[str]) -> str:
         return mapping.get(m.group(0), "")

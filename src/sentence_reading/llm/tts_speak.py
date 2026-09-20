@@ -974,6 +974,8 @@ def _expand_acronyms(text: str) -> str:
 # design/217 — link dash vs minus (practice ear-form)
 _UMINUS_TOKEN = ""  # private-use; must not match element symbols
 _LINK_DASH_CLS = r"\-\u2010\u2011\u2013\u2014"  # hyphen / en / em (not U+2212 minus)
+# design/342 — the placeholder `freeze` wraps a decided token in.
+_FROZEN_MARK = "\x00"
 _ANY_DASH_SCRUB = re.compile(rf"[{_LINK_DASH_CLS}\u2212]")
 
 
@@ -981,7 +983,12 @@ def _dash_pass_a(text: str) -> str:
     """Protect unary minus; silence link hyphens; narrow ranges → to."""
     s = text or ""
     # Unary minus / hyphen-minus before a digit (not mid-token alnum).
-    s = re.sub(r"(?<![A-Za-z0-9.])[\u2212\-](?=\d)", _UMINUS_TOKEN, s)
+    # design/342 — `\x00` is a frozen token, so the hyphen in a sample code such as
+    # `BZY10-1700` sits between two parts of one name, not in front of a negative
+    # number. Without excluding it the reader heard "B Z Y 10 minus 1700", and that
+    # code appears 32 times in one paper. A real range keeps its digits visible
+    # (`10-1700 K`), so it is untouched.
+    s = re.sub(rf"(?<![A-Za-z0-9.{_FROZEN_MARK}])[\u2212\-](?=\d)", _UMINUS_TOKEN, s)
     s = re.sub(r"([=:+/(])\s*[\u2212\-](?=\d)", rf"\1{_UMINUS_TOKEN}", s)
 
     # OCR decade powers 10-3 -> spoken inverse (not a numeric range; design/217)
@@ -1022,10 +1029,18 @@ def _dash_pass_a(text: str) -> str:
         a, b = m.group(1), m.group(2)
         if a == "10" and b in set("123456"):
             return m.group(0)
+        # design/342 — a grant number is not a range: `award DMR 08-019762` was
+        # read as "08 to 019762". A printed range never carries a leading zero.
+        if (len(a) > 1 and a.startswith("0")) or (len(b) > 1 and b.startswith("0")):
+            return m.group(0)
         return f"{a} to {b}"
 
     s = re.sub(
-        rf"(\d{{2,}})\s*[{_LINK_DASH_CLS}\u2212]\s*(\d{{2,}})",
+        # design/342 — not a range when the left number is the tail of a frozen
+        # token: `BZY10-1700` is one sample code. The hyphen then falls through to
+        # the link-dash scrub and goes silent, which is how `BZY10-ZnO` already
+        # reads. A printed range keeps its digits visible and still says "to".
+        rf"(?<!{_FROZEN_MARK})(\d{{2,}})\s*[{_LINK_DASH_CLS}\u2212]\s*(\d{{2,}})",
         _yearish_range,
         s,
     )

@@ -7,8 +7,8 @@ from sentence_reading.llm.tts_speak_policy import SPEAK_NORM_VERSION_DEFAULT
 
 
 def test_speak_norm_version_pin() -> None:
-    # design/341 — v9 busts the MP3 cache for the unit grammar and ratio slash.
-    assert SPEAK_NORM_VERSION_DEFAULT == "v9"
+    # design/342 — v10 busts the MP3 cache for the code-hyphen reading.
+    assert SPEAK_NORM_VERSION_DEFAULT == "v10"
 
 
 def test_ni_cu_alloy_no_minus() -> None:

@@ -18,7 +18,9 @@ from dataclasses import dataclass
 # so the namespace has to change with the rules.
 # v9 — design/341: unit runs read as grammar, restoring a positive exponent the
 # citation rule had been deleting, and a slash between symbols read as a ratio.
-SPEAK_NORM_VERSION_DEFAULT = "v9"
+# v10 — design/342: a hyphen inside a sample code or a grant number is neither a
+# minus nor a range.
+SPEAK_NORM_VERSION_DEFAULT = "v10"
 
 
 @dataclass(frozen=True)
