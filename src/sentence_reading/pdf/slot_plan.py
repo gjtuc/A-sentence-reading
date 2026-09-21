@@ -18,10 +18,11 @@ _SLOT_PLAN_NAME = "slot_plan.json"
 # design/220 — Azure table_body often overlaps its caption by >8pt.
 FIG_CAPTION_OVERLAP_PT = 8.0
 TABLE_CAPTION_OVERLAP_PT = 40.0
-# design/338 — share of a body box that must sit inside the caption's x-range for
-# the two to belong together. Placed from the measured gap: accepted bodies never
-# fall below 0.68, and the rejected panels worth rescuing sit at 0.4 and up, while
-# the ones that genuinely belong to another column overlap by 0.00.
+# design/338 · 359 — share of the narrower of body/caption that must sit inside the
+# other for the two to belong together. Placed from the measured gap: accepted pairs
+# never fall below 0.68, and the ones that genuinely belong to another column overlap
+# by 0.00. Dividing by the body's width (design/338) asked "is the caption text long
+# enough", which no one-line caption over a full-width table can answer.
 CAPTION_X_OVERLAP_MIN = 0.5
 # design/338 — a body repeating at this tolerance on this many pages is a running
 # page graphic, not a figure.
@@ -107,6 +108,8 @@ class SlotPlan:
     # design/357 — bodies held back because the paper's caption numbers ran 1..N with no
     # gaps, so the caption list was the whole truth and these images were the journal's.
     held_by_caption_list_n: int = 0
+    # design/359 — slots given a column's share of a body Azure merged across columns.
+    column_split_n: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {"version": 1, "slots": [s.to_dict() for s in self.slots]}
@@ -340,6 +343,152 @@ def demote_same_size_unclaimed(layout: LayoutMap, box_kind: str) -> int:
     return demoted
 
 
+# design/359 — two column captions printed side by side over one Azure body box.
+# Engineering (Beijing) page 8 prints Fig. 6 and Fig. 7 as a left and a right column
+# graphic; Azure returns a single 513pt box for both. Fig. 6 took the whole box and
+# Fig. 7 rendered `(missing)`, so the carousel showed one picture twice as wide as the
+# paper's and lost the other.
+#
+# The caption's own x-range is the column boundary. Nothing here guesses what a figure
+# looks like: the split happens only where the paper itself printed two captions of the
+# same kind beside each other, which is also the only evidence that the page has two
+# columns at that height.
+SHARED_BODY_MAX_GAP_PT = 200.0
+SHARED_BODY_COVER_TOL_PT = 24.0
+SHARED_BODY_MIN_PART_PT = 40.0
+
+
+def _caps_on_row(caps: list[tuple[Slot, LayoutBox]]) -> list[list[tuple[Slot, LayoutBox]]]:
+    """Group captions whose y-bands overlap, each row sorted left to right."""
+    rows: list[list[tuple[Slot, LayoutBox]]] = []
+    for item in sorted(caps, key=lambda t: float(t[1].rect["y0"])):
+        _slot, box = item
+        y0, y1 = float(box.rect["y0"]), float(box.rect["y1"])
+        for row in rows:
+            ry0 = min(float(b.rect["y0"]) for _s, b in row)
+            ry1 = max(float(b.rect["y1"]) for _s, b in row)
+            if y0 < ry1 and y1 > ry0:
+                row.append(item)
+                break
+        else:
+            rows.append([item])
+    for row in rows:
+        row.sort(key=lambda t: float(t[1].rect["x0"]))
+    return rows
+
+
+def _row_is_side_by_side(row: list[tuple[Slot, LayoutBox]]) -> bool:
+    for (_sa, a), (_sb, b) in zip(row, row[1:]):
+        if float(a.rect["x1"]) > float(b.rect["x0"]):
+            return False
+    return True
+
+
+def _shared_body_for_row(
+    layout: LayoutMap,
+    row: list[tuple[Slot, LayoutBox]],
+    *,
+    fig: bool,
+) -> LayoutBox | None:
+    want_kind = "figure_body" if fig else "table_body"
+    keys = {slot.key for slot, _b in row}
+    x0 = min(float(b.rect["x0"]) for _s, b in row)
+    x1 = max(float(b.rect["x1"]) for _s, b in row)
+    cap_y0 = min(float(b.rect["y0"]) for _s, b in row)
+    cap_y1 = max(float(b.rect["y1"]) for _s, b in row)
+    page_index = row[0][1].page_index
+    overlap = FIG_CAPTION_OVERLAP_PT if fig else TABLE_CAPTION_OVERLAP_PT
+    best: tuple[LayoutBox | None, float] = (None, 1e9)
+    for box in layout.boxes_on_page(page_index):
+        if box.kind != want_kind:
+            continue
+        if box.used_by_slot and box.used_by_slot not in keys:
+            continue
+        # One box has to stand in for the whole row, or it is one column's figure and
+        # the other column's is simply missing.
+        if float(box.rect["x0"]) > x0 + SHARED_BODY_COVER_TOL_PT:
+            continue
+        if float(box.rect["x1"]) < x1 - SHARED_BODY_COVER_TOL_PT:
+            continue
+        gap = (
+            cap_y0 - float(box.rect["y1"])
+            if fig
+            else float(box.rect["y0"]) - cap_y1
+        )
+        if gap < -overlap or gap > SHARED_BODY_MAX_GAP_PT:
+            continue
+        if gap < best[1]:
+            best = (box, gap)
+    return best[0]
+
+
+def split_shared_column_bodies(layout: LayoutMap, plan: SlotPlan) -> int:
+    """Cut a body Azure merged across columns and give each caption its own part.
+
+    Returns how many parts were handed out. Runs after caption pairing so every slot
+    already knows its caption, and before design/321's leftovers so the original box
+    cannot also become an unnumbered carousel entry.
+    """
+    parts_made = 0
+    for fig, slot_kind in ((True, "fig"), (False, "table")):
+        per_page: dict[int, list[tuple[Slot, LayoutBox]]] = {}
+        for slot in plan.slots:
+            if slot.kind != slot_kind or slot.unnumbered:
+                continue
+            if slot.status == "user_confirmed" or not slot.caption_box_id:
+                continue
+            cap = layout.box_by_id(slot.caption_box_id)
+            if cap is None:
+                continue
+            per_page.setdefault(cap.page_index, []).append((slot, cap))
+
+        for caps in per_page.values():
+            for row in _caps_on_row(caps):
+                if len(row) < 2 or not _row_is_side_by_side(row):
+                    continue
+                if all(s.body_box_id for s, _b in row):
+                    continue
+                body = _shared_body_for_row(layout, row, fig=fig)
+                if body is None:
+                    continue
+                cuts = [
+                    (float(a.rect["x1"]) + float(b.rect["x0"])) / 2.0
+                    for (_sa, a), (_sb, b) in zip(row, row[1:])
+                ]
+                edges = [float(body.rect["x0"]), *cuts, float(body.rect["x1"])]
+                if any(
+                    edges[i + 1] - edges[i] < SHARED_BODY_MIN_PART_PT
+                    for i in range(len(edges) - 1)
+                ):
+                    continue
+                for i, (slot, _cap) in enumerate(row):
+                    part = LayoutBox(
+                        id=f"{body.id}-c{i + 1}",
+                        page_index=body.page_index,
+                        kind=body.kind,
+                        rect={
+                            "x0": edges[i],
+                            "y0": float(body.rect["y0"]),
+                            "x1": edges[i + 1],
+                            "y1": float(body.rect["y1"]),
+                        },
+                        azure_ref=body.azure_ref,
+                    )
+                    layout.boxes.append(part)
+                    slot.body_box_ids = []
+                    slot.body_box_id = ""
+                    assign_body_boxes_to_slot(plan, layout, slot.key, [part.id])
+                    parts_made += 1
+                # The merged box is spent. Re-typing keeps it from being counted as an
+                # unused body and from becoming a carousel entry of its own.
+                body.used_by_slot = ""
+                body.kind = "figure_split" if fig else "table_split"
+    if parts_made:
+        refresh_slot_statuses(plan)
+    plan.column_split_n = parts_made
+    return parts_made
+
+
 def append_unclaimed_body_slots(
     layout: LayoutMap, plan: SlotPlan, *, supplementary: bool = False
 ) -> int:
@@ -496,6 +645,8 @@ def slot_census(layout: LayoutMap, plan: SlotPlan) -> dict[str, int]:
         # design/357 — images no caption claimed, on a paper whose caption numbers were
         # complete. These are the journal's furniture and are not shown.
         "held_by_caption_list_n": int(getattr(plan, "held_by_caption_list_n", 0) or 0),
+        # design/359 — slots served by a part of a body Azure merged across columns.
+        "column_split_n": int(getattr(plan, "column_split_n", 0) or 0),
     }
 
 
@@ -588,10 +739,17 @@ def demote_repeating_bodies(layout: LayoutMap) -> int:
 
 
 def _x_overlap_frac(body: LayoutBox, cap: LayoutBox) -> float:
-    """How much of `body`'s width sits inside `cap`'s (design/338)."""
+    """How much of the narrower of body/caption sits inside the other (design/359).
+
+    design/338 divided by the body's width. A one-line caption is narrower than the
+    table it belongs to, so the share could never reach the floor: Catal. Sci.
+    Technol.'s Table 8 caption covered 0.33 of its own table and was thrown away,
+    and the s0167 chapter gave Table 3's table to Table 2 because Table 2's caption
+    ran two lines and so covered more of it from 112pt away.
+    """
     bx0, bx1 = float(body.rect["x0"]), float(body.rect["x1"])
     cx0, cx1 = float(cap.rect["x0"]), float(cap.rect["x1"])
-    width = max(bx1 - bx0, 1.0)
+    width = max(min(bx1 - bx0, cx1 - cx0), 1.0)
     return max(0.0, min(bx1, cx1) - max(bx0, cx0)) / width
 
 

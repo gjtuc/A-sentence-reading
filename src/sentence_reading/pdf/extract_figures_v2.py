@@ -36,6 +36,7 @@ from sentence_reading.pdf.slot_plan import (
     initial_body_assignments,
     refresh_slot_statuses,
     slot_census,
+    split_shared_column_bodies,
 )
 
 log = logging.getLogger(__name__)
@@ -285,6 +286,10 @@ def extract_figures_v2(pdf_path: Path, *, doc_role: str = "main") -> list[Figure
         initial_body_assignments(layout, plan, supplementary=supplementary)
         pair_slot_captions(layout, plan)
         refill_empty_slots(layout, plan)
+        # design/359 — the caption's x-range is the column boundary. Where the paper
+        # printed two captions of one kind side by side and Azure returned one box for
+        # both, hand each caption its own part before leftovers are counted.
+        split_shared_column_bodies(layout, plan)
         append_unclaimed_body_slots(layout, plan, supplementary=supplementary)
         refresh_slot_statuses(plan)
         merged = slots_to_figures(doc, client, layout, plan)

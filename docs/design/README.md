@@ -407,6 +407,7 @@
 | 356 | [356-same-size-is-furniture.md](356-same-size-is-furniture.md) | 저자 얼굴 사진 6장이 그림 6개였다 — 캡션 없는 같은 크기 무리를 제외 · 13→7, 진짜 그림 27개 무변화 (0.3.352) |
 | 357 | [357-the-caption-list-is-the-paper.md](357-the-caption-list-is-the-paper.md) | 캡션 목록이 논문이다 — 번호가 1..N이면 캡션 없는 이미지는 넣지 않음 · 번호 없음 15→0, 짝지어진 그림 무변화 (0.3.353) |
 | 358 | [358-look-where-the-caption-says.md](358-look-where-the-caption-says.md) | 캡션이 가리키는 쪽을 본다 — 그림은 위·표는 아래 · 몸통만으로 표 1을 만들지 않음 (0.3.354) |
+| 359 | [359-the-caption-is-the-column.md](359-the-caption-is-the-column.md) | 캡션의 x축이 곧 단이다 — 겹침 분모를 좁은 상자로(한 줄 캡션이 전폭 표를 되찾음) · 나란한 두 캡션 아래 합쳐진 상자를 단 경계에서 나눔 (0.3.355) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |
