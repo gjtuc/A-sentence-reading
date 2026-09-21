@@ -48,6 +48,9 @@ thresholds.
 `filled_n` unchanged is the check that matters: no captioned figure moved. Reported as
 `same_size_chrome_n`, which is 6 on the review and 0 elsewhere.
 
+design/357 then holds every leftover once the caption numbers themselves run 1..N,
+so the 7 below leave the carousel without a second look at what they look like.
+
 ## The 7 that remain, named
 
 Not fixed, but no longer unidentified:

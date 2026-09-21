@@ -165,15 +165,17 @@ def refill_empty_slots(layout: LayoutMap, plan: SlotPlan) -> None:
         if label_re is None:
             continue
         cap_box: LayoutBox | None = None
-        body_box: LayoutBox | None = None
-        for box in layout.boxes:
-            if box.used_by_slot:
-                continue
-            text = (box.text or "").strip()
-            if text and label_re.match(text):
-                if box.kind.endswith("_caption") or box.kind == "paragraph":
-                    cap_box = box
-                    break
+        if slot.caption_box_id:
+            cap_box = layout.box_by_id(slot.caption_box_id)
+        if cap_box is None:
+            for box in layout.boxes:
+                if box.used_by_slot:
+                    continue
+                text = (box.text or "").strip()
+                if text and label_re.match(text):
+                    if box.kind.endswith("_caption") or box.kind == "paragraph":
+                        cap_box = box
+                        break
         if cap_box is None:
             for box in layout.boxes:
                 if box.used_by_slot:
@@ -195,13 +197,17 @@ def refill_empty_slots(layout: LayoutMap, plan: SlotPlan) -> None:
                     continue
                 if box.page_index != cap_box.page_index:
                     continue
+                # Same geometry as the caption list: a figure sits above its
+                # caption, a table sits below. The previous signs looked the
+                # other way, so Fig. 3's timeline (4pt above) and Table 1's
+                # grid (4pt below) were both skipped.
                 if fig:
-                    gap = float(box.rect["y0"]) - float(cap_box.rect["y1"])
-                    if gap < -20:
+                    gap = float(cap_box.rect["y0"]) - float(box.rect["y1"])
+                    if gap < -FIG_CAPTION_OVERLAP_PT:
                         continue
                 else:
-                    gap = float(cap_box.rect["y0"]) - float(box.rect["y1"])
-                    if gap < -20:
+                    gap = float(box.rect["y0"]) - float(cap_box.rect["y1"])
+                    if gap < -TABLE_CAPTION_OVERLAP_PT:
                         continue
                 dist = abs(gap)
                 if dist < best_body[1]:

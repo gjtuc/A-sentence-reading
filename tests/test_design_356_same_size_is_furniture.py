@@ -73,8 +73,8 @@ def test_they_never_reach_the_carousel() -> None:
     layout = _map(portraits())
     plan = build_slot_plan(layout)
     assert append_unclaimed_body_slots(layout, plan) == 0
-    # design/321 keeps a floor slot even with no captions; what matters is that no
-    # portrait was given to one, and that none was appended as unnumbered.
+    # No caption means no numbered slot (design/358). What matters is that no
+    # portrait was appended as unnumbered either.
     assert not [s for s in plan.slots if s.unnumbered]
     assert not [s for s in plan.slots if s.body_box_id or s.body_box_ids]
 

@@ -104,6 +104,9 @@ class SlotPlan:
     # design/356 — bodies kept out of the carousel for being one of a run of same-size
     # unclaimed boxes. Reported so the removal is a number rather than a silence.
     same_size_chrome_n: int = 0
+    # design/357 — bodies held back because the paper's caption numbers ran 1..N with no
+    # gaps, so the caption list was the whole truth and these images were the journal's.
+    held_by_caption_list_n: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {"version": 1, "slots": [s.to_dict() for s in self.slots]}
@@ -189,13 +192,14 @@ def _scan_max_numbers(
 
 
 def build_slot_plan(layout: LayoutMap, *, supplementary: bool = False) -> SlotPlan:
-    """Create slots fig:1..N or fig:s1..N when supplementary."""
+    """Create slots from parsed caption numbers only (design/357 · 358).
+
+    A `figure_body` or `table_body` is not a caption. Raising the floor to 1
+    because Azure tagged a footer as `table_body` invented Nano Letters' empty
+    Table 1. Unlabelled real figures still reach the carousel as unnumbered
+    leftovers when this kind has no caption list at all.
+    """
     max_fig, max_table = _scan_max_numbers(layout, supplementary=supplementary)
-    for box in layout.boxes:
-        if box.kind == "figure_body":
-            max_fig = max(max_fig, 1)
-        if box.kind == "table_body":
-            max_table = max(max_table, 1)
 
     slots: list[Slot] = []
     if supplementary:
@@ -352,10 +356,18 @@ def append_unclaimed_body_slots(
     """
     added = 0
     same_size_chrome = 0
+    held = 0
     for box_kind, slot_kind in (("figure_body", "fig"), ("table_body", "table")):
         same_size_chrome += demote_same_size_unclaimed(layout, box_kind)
         leftover = layout.unused_boxes(box_kind)
         if not leftover:
+            continue
+        # design/357 — when the paper's own caption numbers run 1..N with no gaps, that
+        # list *is* the set of figures it printed, and an image no caption claimed is the
+        # journal's, not the paper's. Holding those back is what removes author headshots,
+        # cover art, banners and badges without a single rule about what they look like.
+        if caption_numbers_are_complete(plan, slot_kind):
+            held += len(leftover)
             continue
         n = max((s.n for s in plan.slots if s.kind == slot_kind), default=0)
         for box in leftover:
@@ -382,7 +394,43 @@ def append_unclaimed_body_slots(
     # design/356 — how many same-size bodies were kept out of the carousel, so the number
     # is reported rather than the removal being invisible.
     plan.same_size_chrome_n = same_size_chrome
+    # design/357 — and how many were held back because the caption list was complete. If a
+    # paper ever shows 7 figures while holding 10 bodies, these two numbers say so.
+    plan.held_by_caption_list_n = held
     return added
+
+
+def caption_numbers_are_complete(plan: SlotPlan, slot_kind: str) -> bool:
+    """Do this kind's parsed caption numbers run 1..N with no gaps? (design/357)
+
+    The caption list checking itself, with nothing external to compare against. Measured
+    over ten papers: every one parses a complete run — figures 1..27 on the RSC review,
+    1..14 on `cs5b00357`, 1..4 on `nl5b02080`, 1..3 on `science.1212858`.
+
+    Azure's own count of caption *boxes* cannot serve here: a multi-line caption arrives as
+    several boxes, so the review detects 54 for its 27 figures and every paper reads about
+    twice its true count.
+
+    Parsing nothing of *this* kind, on a paper that already named the other kind, is
+    completeness: the paper printed no tables. Parsing nothing at all is design/321 —
+    leftovers are then the paper, and they stay unnumbered.
+    """
+    # A floor slot from design/321 is `fig:1` with no caption. That is not a list
+    # the paper printed — it is the rescue path for unlabelled figures, and treating
+    # it as complete would hold every leftover and show nothing.
+    ns = sorted(
+        {
+            s.n
+            for s in plan.slots
+            if s.kind == slot_kind and not s.unnumbered and _has_caption(s)
+        }
+    )
+    if ns:
+        return ns[0] == 1 and ns == list(range(1, ns[-1] + 1))
+    # No caption of this kind. If the paper already named any caption, it named
+    # none of this kind: Nano Letters prints Figure 1..4 and no Table 1.
+    # An empty paper (no captions at all) is design/321 — leftovers are the paper.
+    return any(_has_caption(s) and not s.unnumbered for s in plan.slots)
 
 
 def _has_body(slot: Slot) -> bool:
@@ -402,12 +450,11 @@ def slot_census(layout: LayoutMap, plan: SlotPlan) -> dict[str, int]:
     claimed: those pixels never reach the user and every other counter stays
     green. `slot_n` < `body_n` is the caption-number collapse (design/321 B).
 
-    design/336 — both of those verdicts are computed *after*
-    `append_unclaimed_body_slots` has given every leftover a slot, so in the live
-    pipeline `unused_body_n` is always 0 and `slot_n >= body_n` always holds. The
-    10-paper audit confirms it: `unused_body_n: 0` on all ten. The loss that
-    actually survives the repair is design/324's: a slot whose `n` is a carousel
-    position rather than a number the paper printed. `unnumbered_n` counts that.
+    design/357 — leftovers are no longer always given a slot. When the paper's
+    caption numbers run 1..N with no gaps, those leftovers stay unused and
+    `held_by_caption_list_n` counts them. `unused_body_n` is then the same
+    number, which is honest: they were found and they were not shown. The
+    rescue in design/321 still runs when the caption list is empty or gapped.
     """
     body_n = 0
     for box in layout.boxes:
@@ -446,6 +493,9 @@ def slot_census(layout: LayoutMap, plan: SlotPlan) -> dict[str, int]:
         # design/356 — same-size unclaimed bodies held back. On the RSC review this is 6
         # author headshots, which used to be 6 carousel entries.
         "same_size_chrome_n": int(getattr(plan, "same_size_chrome_n", 0) or 0),
+        # design/357 — images no caption claimed, on a paper whose caption numbers were
+        # complete. These are the journal's furniture and are not shown.
+        "held_by_caption_list_n": int(getattr(plan, "held_by_caption_list_n", 0) or 0),
     }
 
 

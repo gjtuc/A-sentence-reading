@@ -95,15 +95,15 @@ def test_unnumbered_captions_no_longer_collapse_bodies_into_one_slot():
         ]
     )
     plan = build_slot_plan(layout)
-    # Old behaviour: the body floor is exactly 1, so one slot for three bodies.
-    assert len(plan.slots) == 1
+    # design/358 — a body is not a caption. No parsed number means no numbered slot.
+    assert len(plan.slots) == 0
 
     initial_body_assignments(layout, plan)
     added = append_unclaimed_body_slots(layout, plan)
     refresh_slot_statuses(plan)
 
     assert added == 3
-    assert len(plan.slots) == 4
+    assert len(plan.slots) == 3
     # Every body now belongs to a slot, so nothing is dropped.
     assert slot_census(layout, plan)["unused_body_n"] == 0
     # Appended slots carry a body, so they render a crop and are not placeholders.
