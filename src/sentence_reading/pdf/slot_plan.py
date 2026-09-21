@@ -101,6 +101,9 @@ class Slot:
 @dataclass
 class SlotPlan:
     slots: list[Slot] = field(default_factory=list)
+    # design/356 — bodies kept out of the carousel for being one of a run of same-size
+    # unclaimed boxes. Reported so the removal is a number rather than a silence.
+    same_size_chrome_n: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {"version": 1, "slots": [s.to_dict() for s in self.slots]}
@@ -290,6 +293,49 @@ def assign_caption_to_slot(
     )
 
 
+# design/356 — a run of unclaimed bodies that are all the same size is the journal's
+# furniture, not the paper's figures. Measured: the RSC review prints six author
+# headshots beside the biographies at 114–115 x 141–143 points, and each became its own
+# carousel entry labelled `번호 없는 그림`, so studying the paper meant swiping through
+# six portraits. design/338's detector misses them because it clusters on the whole rect
+# and these sit at six different positions.
+#
+# Three members over two pages, because one page of same-size boxes is what a
+# multi-panel figure looks like, and this runs *after* caption pairing so anything the
+# paper captioned is already spoken for and cannot be reached.
+SAME_SIZE_MIN_BOXES = 3
+SAME_SIZE_MIN_PAGES = 2
+
+
+def demote_same_size_unclaimed(layout: LayoutMap, box_kind: str) -> int:
+    """Re-type same-size unclaimed bodies so they do not become carousel entries."""
+    leftover = [b for b in layout.unused_boxes(box_kind)]
+    groups: list[list[LayoutBox]] = []
+    for box in leftover:
+        w = float(box.rect["x1"]) - float(box.rect["x0"])
+        h = float(box.rect["y1"]) - float(box.rect["y0"])
+        for members in groups:
+            m = members[0]
+            mw = float(m.rect["x1"]) - float(m.rect["x0"])
+            mh = float(m.rect["y1"]) - float(m.rect["y0"])
+            if abs(w - mw) <= REPEAT_RECT_TOL_PT and abs(h - mh) <= REPEAT_RECT_TOL_PT:
+                members.append(box)
+                break
+        else:
+            groups.append([box])
+
+    demoted = 0
+    for members in groups:
+        if len(members) < SAME_SIZE_MIN_BOXES:
+            continue
+        if len({m.page_index for m in members}) < SAME_SIZE_MIN_PAGES:
+            continue
+        for m in members:
+            m.kind = "figure_chrome" if m.kind == "figure_body" else "table_chrome"
+            demoted += 1
+    return demoted
+
+
 def append_unclaimed_body_slots(
     layout: LayoutMap, plan: SlotPlan, *, supplementary: bool = False
 ) -> int:
@@ -305,7 +351,9 @@ def append_unclaimed_body_slots(
     placeholder.
     """
     added = 0
+    same_size_chrome = 0
     for box_kind, slot_kind in (("figure_body", "fig"), ("table_body", "table")):
+        same_size_chrome += demote_same_size_unclaimed(layout, box_kind)
         leftover = layout.unused_boxes(box_kind)
         if not leftover:
             continue
@@ -331,6 +379,9 @@ def append_unclaimed_body_slots(
     if added:
         # design/92 — carousel stays all figures, then all tables, by number.
         plan.slots.sort(key=lambda s: (0 if s.kind == "fig" else 1, s.n))
+    # design/356 — how many same-size bodies were kept out of the carousel, so the number
+    # is reported rather than the removal being invisible.
+    plan.same_size_chrome_n = same_size_chrome
     return added
 
 
@@ -392,6 +443,9 @@ def slot_census(layout: LayoutMap, plan: SlotPlan) -> dict[str, int]:
         "body_without_caption_n": sum(
             1 for s in plan.slots if _has_body(s) and not _has_caption(s)
         ),
+        # design/356 — same-size unclaimed bodies held back. On the RSC review this is 6
+        # author headshots, which used to be 6 carousel entries.
+        "same_size_chrome_n": int(getattr(plan, "same_size_chrome_n", 0) or 0),
     }
 
 
