@@ -882,6 +882,22 @@ def source_order_stats(
     anchors each sentence in the source and counts backward steps. Sentences
     that cannot be anchored are excluded rather than guessed.
     """
+    # design/352 — when the boxes' own offsets are on the sentences, use them. They were
+    # accumulated while the text was assembled, so unlike a six-word search they cannot
+    # land in a passage elsewhere that merely reads alike.
+    placed = [
+        int(getattr(s, "start_char", 0) or 0)
+        for s in sentences or []
+        if int(getattr(s, "start_char", 0) or 0) > 0
+    ]
+    if len(placed) >= 20:
+        out_of_order = len(placed) - _longest_in_order(placed)
+        return {
+            "anchored_n": len(placed),
+            "backward_n": out_of_order,
+            "backward_pct": round(100.0 * out_of_order / len(placed), 2),
+            "anchored_by": "box",
+        }
     source_norm = _order_norm(raw_text)
     if not source_norm or not sentences:
         return {"anchored_n": 0, "backward_n": 0, "backward_pct": 0.0}

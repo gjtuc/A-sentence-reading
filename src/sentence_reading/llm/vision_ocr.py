@@ -42,6 +42,9 @@ class RecoverResult:
     # interleaves columns, so `extract_bibliography` cannot find the header there
     # and the recall denominator kept counting references as lost body.
     references_text: str = ""
+    # design/352 — where each paragraph box lands in `text`, with its page and rectangle.
+    # Only the reading-order path can fill this; the raw path has no boxes.
+    box_marks: list = field(default_factory=list)
 
 
 # design/106 — per-page vision must not hang the whole ingest job.
@@ -205,6 +208,7 @@ def recover_pdf_text(
                     return RecoverResult(
                         text=ordered.marked_text,
                         pages=ordered.pages or working,
+                        box_marks=list(ordered.box_marks or []),
                         warnings=[
                             *warnings,
                             "azure_reading_order",

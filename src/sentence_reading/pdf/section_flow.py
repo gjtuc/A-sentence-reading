@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+
+from sentence_reading.pdf.box_marks import BoxMark, first_sentence
 from pathlib import Path
 
 SECTION_MARK = "<<<ASR_SECTION {key}>>>"
@@ -65,6 +67,9 @@ class OrderedPaper:
     # design/346 — how many paragraphs took their letters from the PDF, and how many
     # kept the service's reading, by reason.
     text_census: dict[str, int] = field(default_factory=dict)
+    # design/352 — where each paragraph box lands in `marked_text`, with the page and
+    # rectangle it came from, so a sentence's position never has to be guessed.
+    box_marks: list[BoxMark] = field(default_factory=list)
 
 
 def section_mark(key: str) -> str:
@@ -311,38 +316,67 @@ def _take(out: list[tuple[str, FlowBox]], seen: set[int], box: FlowBox, key: str
 
 def join_section_text(parts: list[str]) -> str:
     """Glue a column break that split one sentence. Drop display math."""
+    return join_section_text_with_origin(parts)[0]
+
+
+def join_section_text_with_origin(
+    parts: list[str],
+) -> tuple[str, list[tuple[int, int]]]:
+    """The joined text, and for each card `(offset in the text, index in `parts`)`.
+
+    design/352 — a box's coordinates are what put the paper in reading order, and they
+    were then thrown away. Reporting which part opened each card is what lets them be
+    carried forward, so a sentence's position never has to be guessed by searching the
+    whole paper for six of its words.
+    """
     cards: list[str] = []
+    origins: list[int] = []
     buf = ""
+    buf_origin = -1
 
     def flush() -> None:
-        nonlocal buf
+        nonlocal buf, buf_origin
         piece = buf.strip()
         if piece:
             cards.append(piece)
+            origins.append(buf_origin)
         buf = ""
+        buf_origin = -1
 
+    # `parts` is filtered here, so an origin index has to point back into the caller's
+    # list, not into the filtered one.
+    kept: list[tuple[int, str]] = [
+        (i, re.sub(r"\s+", " ", p).strip())
+        for i, p in enumerate(parts)
+        if (p or "").strip()
+    ]
     i = 0
-    cleaned = [re.sub(r"\s+", " ", p).strip() for p in parts if (p or "").strip()]
-    while i < len(cleaned):
-        raw = cleaned[i]
+    while i < len(kept):
+        origin, raw = kept[i]
         i += 1
         if _is_display_math(raw):
             continue
-        if _SUBNUM.match(raw) and i < len(cleaned):
-            nxt = cleaned[i]
+        if _SUBNUM.match(raw) and i < len(kept):
+            nxt = kept[i][1]
             if nxt and not _is_display_math(nxt) and _prose_words(nxt) <= 8 and len(nxt) < 80:
                 raw = f"{raw.rstrip('.')} {nxt}"
                 i += 1
         if not buf:
-            buf = raw
+            buf, buf_origin = raw, origin
             continue
         if _SENT_END.search(buf):
             flush()
-            buf = raw
+            buf, buf_origin = raw, origin
         else:
             buf = f"{buf} {raw}"
     flush()
-    return "\n\n".join(cards)
+    text = "\n\n".join(cards)
+    spans: list[tuple[int, int]] = []
+    at = 0
+    for card, origin in zip(cards, origins):
+        spans.append((at, origin))
+        at += len(card) + 2
+    return text, spans
 
 
 def _keep_as_sentence(box: FlowBox) -> bool:
@@ -564,31 +598,38 @@ def order_boxes(boxes: list[FlowBox], pages: list[dict]) -> OrderedPaper:
         1 for _k, b in assigned if not _keep_as_sentence(b)
     )
 
-    sections: list[tuple[str, list[str]]] = []
+    sections: list[tuple[str, list[str], list[FlowBox]]] = []
     page_parts: list[list[str]] = [[] for _ in range(n_pages)]
     open_key = ""
     for key, box in assigned:
         if key != open_key:
-            sections.append((key, []))
+            sections.append((key, [], []))
             open_key = key
             if box.page < len(page_parts):
                 page_parts[box.page].append(section_mark(key))
-        sections[-1][1].append(box.text.strip()) if _keep_as_sentence(box) else None
-        if box.page < len(page_parts) and _keep_as_sentence(box):
-            page_parts[box.page].append(box.text.strip())
+        if _keep_as_sentence(box):
+            sections[-1][1].append(box.text.strip())
+            # design/352 — the box that supplied this part, so its page and coordinates
+            # can travel with the text instead of being thrown away here.
+            sections[-1][2].append(box)
+            if box.page < len(page_parts):
+                page_parts[box.page].append(box.text.strip())
 
     body: list[tuple[str, str]] = []
     refs: list[str] = []
-    for key, parts in sections:
-        text = join_section_text(parts)
+    body_spans: list[tuple[str, list[tuple[int, int]], list[FlowBox]]] = []
+    for key, parts, boxes in sections:
+        text, spans = join_section_text_with_origin(parts)
         if not text:
             continue
         if key == "references":
             refs.append(text)
         else:
             body.append((key, text))
+            body_spans.append((text, spans, boxes))
 
     marked_parts = [f"{section_mark(key)}\n{text}" for key, text in body]
+    box_marks = _box_marks_for(body, body_spans)
     references_text = "\n\n".join(refs).strip()
     if references_text:
         if not re.match(r"(?i)references\b", references_text):
@@ -600,7 +641,41 @@ def order_boxes(boxes: list[FlowBox], pages: list[dict]) -> OrderedPaper:
         sections=body,
         references_text=references_text,
         drop_census={k: v for k, v in sorted(census.items()) if v},
+        box_marks=box_marks,
     )
+
+
+def _box_marks_for(
+    body: list[tuple[str, str]],
+    body_spans: list[tuple[str, list[tuple[int, int]], list[FlowBox]]],
+) -> list[BoxMark]:
+    """Where each paragraph box lands in `marked_text`, with its page and rectangle.
+
+    design/352 — the offsets are accumulated exactly as `marked_text` is assembled, so no
+    search is involved and the numbers cannot drift from the string they describe.
+    """
+    marks: list[BoxMark] = []
+    at = 0
+    for (key, text), (_same, spans, boxes) in zip(body, body_spans):
+        head = len(section_mark(key)) + 1  # the mark and its newline
+        for card_at, origin in spans:
+            if not (0 <= origin < len(boxes)):
+                continue
+            box = boxes[origin]
+            marks.append(
+                BoxMark(
+                    index=len(marks),
+                    start_char=at + head + card_at,
+                    page=box.page,
+                    x0=box.x0,
+                    y0=box.y0,
+                    x1=box.x1,
+                    y1=box.y1,
+                    marker=first_sentence(text[card_at:].split("\n\n")[0]),
+                )
+            )
+        at += head + len(text) + 2
+    return marks
 
 
 def boxes_from_azure_result(

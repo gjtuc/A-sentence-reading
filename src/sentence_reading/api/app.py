@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.347",
+    version="0.3.348",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -7740,6 +7740,9 @@ async def _run_ingest_job_body(
             warnings.extend(recovered.warnings)
             # design/331 — carry Azure's bibliography to the recall denominator.
             _azure_refs_text = getattr(recovered, "references_text", "") or ""
+            # design/352 — the boxes' own offsets, so a sentence's position never has to
+            # be guessed by searching the paper for six of its words.
+            _box_marks = list(getattr(recovered, "box_marks", None) or [])
             # design/222 — vision may surface SI cover text that pre-vision head missed.
             if not job_doc_override:
                 prior = doc_role
@@ -8094,7 +8097,10 @@ async def _run_ingest_job_body(
 
                 _job_set(job_id, percent=48, stage="debone", message="논문 훑는 중")
                 result: DeboneResult = await asyncio.to_thread(
-                    debone_sentences, text_for_sentences, on_progress
+                    debone_sentences,
+                    text_for_sentences,
+                    on_progress,
+                    _box_marks if text_for_sentences == text else [],
                 )
                 if result.ok and result.sentences:
                     sentences = result.sentences
