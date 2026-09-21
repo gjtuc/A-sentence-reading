@@ -425,4 +425,14 @@ def test_slot_census_is_wired_into_figure_extract_done():
         assert f'"{field}": int(_slot_census.get(' in app
     # The pre-filter copy must be taken on the fresh-extract path only.
     assert "text_pre_filter = text" in app
-    assert 'raise ValueError("no_pre_filter_text")' in app
+    # The guarantee: with no pre-extraction copy, no source coverage is computed — a
+    # ratio against the filtered text would read a false 1.0.
+    #
+    # design/355 changed how that is expressed. It used to `raise ValueError` into an
+    # `except Exception: pass`, which also threw away the rest of the report and left a
+    # resumed paper with no handoff and no explanation. Now the computation is gated and
+    # the absence is named, so the report still runs and still refuses the false ratio.
+    assert '_has_pre = bool((text_pre_filter or "").strip())' in app
+    assert "if _has_pre:" in app
+    assert 'warnings.append("source_coverage_unavailable:resume")' in app
+    assert 'raise ValueError("no_pre_filter_text")' not in app

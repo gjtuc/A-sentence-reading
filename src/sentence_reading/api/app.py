@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.350",
+    version="0.3.351",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -8173,80 +8173,6 @@ async def _run_ingest_job_body(
             if doc_role == "supplementary" and references:
                 sentences = filter_bibliography_sentences(sentences, references)
 
-            # design/321 — price the extraction stage, not just debone. The
-            # ingest_quality coverage denominator is `text_for_sentences`, which
-            # already excludes whatever section_flow/vision dropped.
-            try:
-                if not (text_pre_filter or "").strip():
-                    raise ValueError("no_pre_filter_text")
-                from sentence_reading.llm import evidence_bus as eb
-                from sentence_reading.llm.debone_quality import (
-                    coverage_excluding_references,
-                    order_warnings,
-                    practice_text_only,
-                    practice_token_n,
-                    source_coverage_warnings,
-                    source_order_stats,
-                )
-
-                # design/330/331 — references are never practice text. Azure knows
-                # where they are even when the raw text's columns hide the header.
-                _refs_text = _azure_refs_text
-                _practice = practice_text_only(text_pre_filter)
-                _src_cov = coverage_excluding_references(
-                    text_pre_filter,
-                    sentences,
-                    references_text=_refs_text,
-                )
-                _post_cov = float((ingest_quality or {}).get("coverage_ratio") or 0.0)
-                _denom_n = practice_token_n(text_pre_filter, _refs_text)
-                warnings.extend(
-                    source_coverage_warnings(
-                        source_coverage=_src_cov,
-                        debone_coverage=_post_cov,
-                        denom_tokens=_denom_n,
-                    )
-                )
-                # design/322 — reading order is invisible behind one sentence.
-                # design/351 — anchored in the text the sentences were made from. It
-                # used to be `text_pre_filter`, which is the raw page order; the
-                # sentences come from the reading-order text, so on a two-column paper
-                # every place the two orders differ registered as a backward step. That
-                # alone reported 44% on a paper whose order is 99% correct.
-                _ord = source_order_stats(text_for_sentences, sentences)
-                warnings.extend(order_warnings(_ord))
-                eb.emit_handoff(
-                    from_stage="extract_text",
-                    to_stage="sentences_ready",
-                    job_id=job_id,
-                    owner_uid=_owner(),
-                    content_hash=str(content_hash or ""),
-                    stage="split",
-                    in_n=len(text_pre_filter or ""),
-                    out_n=len(text_for_sentences or ""),
-                    extra={
-                        "source_coverage": round(_src_cov, 4),
-                        "debone_coverage": round(_post_cov, 4),
-                        "sentence_n": len(sentences or []),
-                        # design/330 — what the denominator actually was.
-                        "practice_chars": len(_practice or ""),
-                        "refs_share": round(
-                            1
-                            - len(_practice or "")
-                            / max(1, len(text_pre_filter or "")),
-                            3,
-                        ),
-                        # design/331 — the bibliography Azure isolated, and the
-                        # token count the ratio was actually divided by.
-                        "azure_refs_chars": len(_refs_text or ""),
-                        "practice_token_n": _denom_n,
-                        "order_anchored_n": int(_ord.get("anchored_n") or 0),
-                        "order_backward_n": int(_ord.get("backward_n") or 0),
-                        "order_backward_pct": float(_ord.get("backward_pct") or 0.0),
-                    },
-                )
-            except Exception:  # noqa: BLE001
-                pass
 
             from sentence_reading.title_replay import (
                 align_title_sentences,
@@ -8358,6 +8284,98 @@ async def _run_ingest_job_body(
                 from sentence_reading.title_replay import align_title_sentences
 
                 sentences, _ = align_title_sentences(sentences, title)
+
+        # design/321 — price the extraction stage, not just debone.
+        # design/355 — outside the `resumed_debone` branch, because it used to sit
+        # inside it. A resumed paper therefore emitted no `sentences_ready` handoff at
+        # all: its warnings survived in the payload, but the twelve measured values
+        # behind them were missing from the evidence stream for that paper. And the
+        # report's own failure was `except Exception: pass`, so a paper whose quality
+        # could not be measured looked exactly like a paper with nothing to report.
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+            from sentence_reading.llm.debone_quality import (
+                coverage_excluding_references,
+                order_warnings,
+                practice_text_only,
+                practice_token_n,
+                source_coverage_warnings,
+                source_order_stats,
+            )
+
+            # A resume starts from already-filtered pages, so there is no copy of the
+            # text as it was before extraction. Say so and measure what is here,
+            # rather than reporting nothing.
+            _has_pre = bool((text_pre_filter or "").strip())
+            _refs_text = _azure_refs_text
+            _src_cov = 0.0
+            _denom_n = 0
+            _practice = ""
+            if _has_pre:
+                # design/330/331 — references are never practice text. Azure knows
+                # where they are even when the raw text's columns hide the header.
+                _practice = practice_text_only(text_pre_filter)
+                _src_cov = coverage_excluding_references(
+                    text_pre_filter,
+                    sentences,
+                    references_text=_refs_text,
+                )
+                _denom_n = practice_token_n(text_pre_filter, _refs_text)
+                warnings.extend(
+                    source_coverage_warnings(
+                        source_coverage=_src_cov,
+                        debone_coverage=float(
+                            (ingest_quality or {}).get("coverage_ratio") or 0.0
+                        ),
+                        denom_tokens=_denom_n,
+                    )
+                )
+            else:
+                warnings.append("source_coverage_unavailable:resume")
+            _post_cov = float((ingest_quality or {}).get("coverage_ratio") or 0.0)
+            # design/322 — reading order is invisible behind one sentence.
+            # design/351 — anchored in the text the sentences were made from. It
+            # used to be `text_pre_filter`, which is the raw page order; the
+            # sentences come from the reading-order text, so on a two-column paper
+            # every place the two orders differ registered as a backward step. That
+            # alone reported 44% on a paper whose order is 99% correct.
+            _ord = source_order_stats(text_for_sentences, sentences)
+            warnings.extend(order_warnings(_ord))
+            eb.emit_handoff(
+                from_stage="extract_text",
+                to_stage="sentences_ready",
+                job_id=job_id,
+                owner_uid=_owner(),
+                content_hash=str(content_hash or ""),
+                stage="split",
+                in_n=len(text_pre_filter or ""),
+                out_n=len(text_for_sentences or ""),
+                extra={
+                    "source_coverage": round(_src_cov, 4),
+                    "debone_coverage": round(_post_cov, 4),
+                    "sentence_n": len(sentences or []),
+                    # design/330 — what the denominator actually was.
+                    "practice_chars": len(_practice or ""),
+                    "refs_share": round(
+                        1 - len(_practice or "") / max(1, len(text_pre_filter or "")),
+                        3,
+                    ),
+                    # design/331 — the bibliography Azure isolated, and the
+                    # token count the ratio was actually divided by.
+                    "azure_refs_chars": len(_refs_text or ""),
+                    "practice_token_n": _denom_n,
+                    "order_anchored_n": int(_ord.get("anchored_n") or 0),
+                    "order_backward_n": int(_ord.get("backward_n") or 0),
+                    "order_backward_pct": float(_ord.get("backward_pct") or 0.0),
+                    # design/355 — which of the two shapes this report is.
+                    "resumed": bool(resumed_debone),
+                    "pre_filter_available": _has_pre,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            # design/355 — a report that cannot run says so. `pass` made an
+            # unmeasurable paper indistinguishable from a clean one.
+            warnings.append(f"quality_report_failed:{type(exc).__name__}")
 
         if doc_role != "supplementary" and not document_citation:
             from sentence_reading.document_citation import extract_document_citation

@@ -403,6 +403,7 @@
 | 352 | [352-keep-the-coordinates-we-were-given.md](352-keep-the-coordinates-we-were-given.md) | 받아둔 좌표를 버리지 않는다 — 상자 첫 문장을 표지로 · 표지 91.6% 회수 · 문장마다 페이지·좌표 (0.3.348) |
 | 353 | [353-one-marker-was-one-chance.md](353-one-marker-was-one-chance.md) | 표지 한 개는 기회 한 번 — 둘째·셋째 문장까지 시도 + 한 줄 장치성 신호 · 91.6%→99.2% · 미검출 31→3 (0.3.349) |
 | 354 | [354-the-boundary-from-the-other-side.md](354-the-boundary-from-the-other-side.md) | 경계를 반대쪽에서 짚는다 — 앞 상자 닫는 문장으로 보정 · 18건 중 17건 일치 · 문장 16개를 옳은 상자로 (0.3.350) |
+| 355 | [355-a-resumed-paper-reported-nothing.md](355-a-resumed-paper-reported-nothing.md) | 재개한 논문은 아무것도 보고하지 않았다 — 품질 보고가 재개 분기 밖으로 · `except: pass`가 측정 불가와 무결함을 같게 보이게 함 (0.3.351) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |
