@@ -902,8 +902,8 @@ def debone_sentences(
     ]
     # design/352 — give each sentence the position of the box it came from, found by the
     # box's own opening sentence rather than by searching the paper for six of the
-    # sentence's words. Measured over ten papers: 337 of 368 markers located (91.6%),
-    # 320 of them to within 5%, every paper between 87% and 100%. A marker that is not
+    # sentence's words. Measured over ten papers: 359 of 368 markers located (97.6%),
+    # 342 of them to within 5%, five papers at 100%. A marker that is not
     # found leaves its sentences with the box before it, its neighbour in reading order,
     # so precision drops and nothing breaks.
     sentences, mark_census = place_sentences_in_boxes(sentences, box_marks or [])

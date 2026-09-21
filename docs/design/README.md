@@ -401,6 +401,7 @@
 | 350 | [350-apparatus-is-not-loss.md](350-apparatus-is-not-loss.md) | 장치성 글은 손실이 아니다 — 저자 약력·소속·총서 인용·보충 파일·축 라벨을 보고에서 제외, 진짜 본문은 그대로 (0.3.346) |
 | 351 | [351-order-measured-in-its-own-text.md](351-order-measured-in-its-own-text.md) | 순서는 제 텍스트에서 재야 한다 — 원시 페이지 순서에 대고 재서 44%가 실제 0.9% · 최장 정렬 구간으로 교체 (0.3.347) |
 | 352 | [352-keep-the-coordinates-we-were-given.md](352-keep-the-coordinates-we-were-given.md) | 받아둔 좌표를 버리지 않는다 — 상자 첫 문장을 표지로 · 표지 91.6% 회수 · 문장마다 페이지·좌표 (0.3.348) |
+| 353 | [353-one-marker-was-one-chance.md](353-one-marker-was-one-chance.md) | 표지 한 개는 기회 한 번 — 둘째·셋째 문장까지 시도 + 한 줄 장치성 신호 · 91.6%→99.2% · 미검출 31→3 (0.3.349) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

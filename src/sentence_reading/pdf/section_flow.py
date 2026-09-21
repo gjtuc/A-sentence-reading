@@ -15,7 +15,13 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
-from sentence_reading.pdf.box_marks import BoxMark, first_sentence
+from sentence_reading.pdf.box_marks import (
+    BoxMark,
+    box_closing,
+    box_openings,
+    continues_sentence,
+    first_sentence,
+)
 from pathlib import Path
 
 SECTION_MARK = "<<<ASR_SECTION {key}>>>"
@@ -656,12 +662,18 @@ def _box_marks_for(
     """
     marks: list[BoxMark] = []
     at = 0
+    previous_card = ""
     for (key, text), (_same, spans, boxes) in zip(body, body_spans):
         head = len(section_mark(key)) + 1  # the mark and its newline
         for card_at, origin in spans:
             if not (0 <= origin < len(boxes)):
                 continue
             box = boxes[origin]
+            card = text[card_at:].split("\n\n")[0]
+            # design/353 — one marker is one chance, and a watermark welded to the opening
+            # or an opening longer than the sentence the model returned costs the box that
+            # chance. Carry its next openings and its closing sentence too.
+            spans_break = continues_sentence(previous_card, card)
             marks.append(
                 BoxMark(
                     index=len(marks),
@@ -671,9 +683,13 @@ def _box_marks_for(
                     y0=box.y0,
                     x1=box.x1,
                     y1=box.y1,
-                    marker=first_sentence(text[card_at:].split("\n\n")[0]),
+                    marker=first_sentence(card),
+                    openings=tuple(box_openings(card, continues_previous=spans_break)),
+                    closing=box_closing(card),
+                    continues_previous=spans_break,
                 )
             )
+            previous_card = card
         at += head + len(text) + 2
     return marks
 

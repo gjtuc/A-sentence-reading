@@ -523,6 +523,32 @@ _SERIES_CITE = re.compile(
     r"|Symposium (?:Series|on))\b"
 )
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+# design/353 — four shapes that reach a single line, where `reference_signal_density`
+# cannot help because it is a density over a whole region and scores 0.00 on one entry.
+# Each of these came from the marker misses of ten papers.
+#
+# A numbered bibliography entry: `(57) Handbook of Binary Alloy Phase Diagrams; ASM
+# International: Materials Park, OH, 1996.` or `9 Winnacker Küchler: Chemische Technik,
+# ed. R. Dittmeyer, Wiley, 2005.` Body prose does not open with a bare or bracketed
+# number followed by a capital, and the year or `ed.` confirms it.
+_NUMBERED_ENTRY = re.compile(r"^\s*[(\[]?\d{1,3}[)\].]?\s+[A-Z\u00c0-\u017f]")
+_ENTRY_TAIL = re.compile(r"\bed(?:s|ited by)?\.|\bpp?\.\s*\d|\bvol\.|\bdoi\b", re.I)
+# A labelled front or back matter line. The colon is what makes these safe: a results
+# sentence says `the keywords were chosen`, never `Keywords:`.
+_LABELLED = re.compile(
+    r"^\s*(?:key\s?words?|funding|acknowledge?ments?|author contributions?|conflicts? of"
+    r" interest|data availability|competing interests?|supporting information|abbreviations)"
+    r"\s*[:.]",
+    re.I,
+)
+# A masthead: the journal's own address or site, printed on the page rather than written.
+_MASTHEAD = re.compile(
+    r"\b(?:www\.[a-z0-9.-]+|rsc\.li|doi\.org|pubs\.acs\.org|onlinelibrary\.wiley\.com"
+    r"|link\.springer\.com|nature\.com/[a-z]+)", re.I
+)
+# Three or more shouted words in a row: `SCIENTIFIC REP RTS`, `ADVANCED SCIENCE NEWS`,
+# `REVIEW ARTICLE`. Two is reachable by an acronym pair in prose; three is not.
+_SHOUTED_RUN = re.compile(r"(?:\b[A-Z]{3,}\b[ \t]+){2,}\b[A-Z]{3,}\b")
 
 
 def is_front_or_reference_apparatus(fragment: str) -> bool:
@@ -540,6 +566,10 @@ def is_front_or_reference_apparatus(fragment: str) -> bool:
     if reference_signal_density(s) >= REF_SIGNAL_DENSITY_MAX:
         return True
     if _SERIES_CITE.search(s) and _YEAR.search(s):
+        return True
+    if _LABELLED.match(s) or _MASTHEAD.search(s) or _SHOUTED_RUN.search(s):
+        return True
+    if _NUMBERED_ENTRY.match(s) and (_YEAR.search(s) or _ENTRY_TAIL.search(s)):
         return True
     if len(_SUPP_FILE_MARK.findall(s)) >= 2:
         return True

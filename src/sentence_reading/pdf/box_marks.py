@@ -14,8 +14,8 @@ sixty thousand characters of paper, and everything from one marker to just befor
 next belongs to that box.
 
 Measured through this module over ten papers and 1,405 boxes: 368 carry a usable marker
-and **337 of those are located again (91.6%)**, 320 of them to within 5%. Every paper
-falls between 87% and 100%. A marker that is not found is not a wrong answer — its
+and **359 of those are located again (97.6%)**, 342 of them to within 5%. Five papers
+reach 100% and the lowest is 91.3%. A marker that is not found is not a wrong answer — its
 sentences fall to the previous box, which is the box next to it in reading order, so the
 position loses precision rather than correctness.
 
@@ -80,6 +80,23 @@ class BoxMark:
     x1: float
     y1: float
     marker: str = ""
+    # design/353 — one marker is one chance. A watermark welded to the opening
+    # (`BY Cc It has been reported…`), a box that begins with the tail of a sentence from
+    # the previous column (`to free energy and the electronic structure…`), or an opening
+    # longer than the sentence the model returned all cost that box its only try. These
+    # are the box's next openings, and its own closing sentence, tried in turn.
+    openings: tuple[str, ...] = ()
+    # design/353 — the box's last sentence, which names the same boundary from the other
+    # side and was meant to be the try of last resort. It is **not used**: it rescued 1
+    # box of 368 before apparatus boxes were properly excluded and **0 of 354** after,
+    # because a box that qualifies almost always matches on one of its own openings. Kept
+    # as a field and reported in the census so the claim stays checkable, not as a branch
+    # nothing has been shown to need.
+    closing: str = ""
+    # True when this box's first sentence continues the previous box's last one, which is
+    # what a column break does. The sentence then belongs to both boxes, and saying so is
+    # better than assigning it to one.
+    continues_previous: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -99,6 +116,11 @@ class MarkCensus:
     found_sure: int = 0
     found_probable: int = 0
     not_found: int = 0
+    # design/353 — which try succeeded, so the fallbacks earn their place or are removed.
+    found_by_opening: int = 0
+    found_by_later_opening: int = 0
+    found_by_closing: int = 0
+    spans_column_break: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return {
@@ -107,6 +129,10 @@ class MarkCensus:
             "marker_sure_n": self.found_sure,
             "marker_probable_n": self.found_probable,
             "marker_missing_n": self.not_found,
+            "marker_by_first_n": self.found_by_opening,
+            "marker_by_later_n": self.found_by_later_opening,
+            "marker_by_closing_n": self.found_by_closing,
+            "marker_column_span_n": self.spans_column_break,
         }
 
 
@@ -123,6 +149,83 @@ def split_sentences_for_marks(text: str) -> list[str]:
         else:
             out.append(piece)
     return out
+
+
+MARK_TRIES = 3
+
+
+def box_openings(
+    text: str, *, continues_previous: bool = False, limit: int = MARK_TRIES
+) -> list[str]:
+    """A box's first few usable sentences, best candidate first (design/353).
+
+    One marker is one chance, and three of the four things that cost a box its marker
+    spoil only its *opening*: a watermark welded to the front, a first sentence that is
+    really the tail of the previous column, and an opening longer than the sentence the
+    model gave back. The second and third sentences of the same box are untouched by all
+    three.
+
+    The **box** still has to qualify, judged on the sentence that opens it — the second
+    one when a column break owns the first. Letting each sentence qualify on its own
+    instead put a marker on every reference-list box, whose entries read like prose line
+    by line, and those markers can never be found: the denominator went from 368 to 664
+    and `srep41797` fell from 90% to 37%.
+    """
+    parts = split_sentences_for_marks(text)
+    start = 1 if continues_previous else 0
+    if start >= len(parts) or not _usable_marker(parts[start]):
+        return []
+    out: list[str] = []
+    for part in parts[start:]:
+        head = _usable_marker(part)
+        if head:
+            out.append(head)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def box_closing(text: str) -> str:
+    """A box's last usable sentence — the boundary seen from the other side.
+
+    Where the opening says "this box starts here", the previous box's closing says "the
+    next box starts after this". Two independent answers bracket a boundary that one
+    cannot.
+    """
+    for part in reversed(split_sentences_for_marks(text)):
+        head = _usable_marker(part)
+        if head:
+            return head
+    return ""
+
+
+def continues_sentence(previous_box: str, this_box: str) -> bool:
+    """Does this box open with the rest of the sentence the previous box ended on?
+
+    A two-column page splits a sentence at the column break, which is what leaves a box
+    opening in lower case with no subject. The sentence then belongs to both boxes, and
+    neither can claim it as its own boundary.
+    """
+    prev = (previous_box or "").strip()
+    here = (this_box or "").strip()
+    if not prev or not here:
+        return False
+    if _CLOSED.search(prev):
+        return False
+    first = here.split(maxsplit=1)[0] if here.split() else ""
+    return bool(first) and first[:1].islower()
+
+
+_CLOSED = re.compile(r"[.!?][\"'\u201d\u2019)\]]*\s*$")
+
+
+def _usable_marker(sentence: str) -> str:
+    from sentence_reading.llm.debone_quality import _worth_reporting_missing
+
+    head = (sentence or "").strip()
+    if len(re.findall(r"[A-Za-z0-9]+", head)) < MARK_MIN_WORDS:
+        return ""
+    return head if _worth_reporting_missing(head) else ""
 
 
 def first_sentence(text: str) -> str:
@@ -200,29 +303,81 @@ def assign_boxes(
     owner = [-1] * len(sentences)
     at = 0
     for m_i, mark in enumerate(marks):
-        if not mark.marker:
+        tries = _tries_for(mark, marks[m_i - 1] if m_i > 0 else None)
+        if not tries:
             continue
         census.marked += 1
-        # The **earliest** credible match, not the best one. Boxes are sought in their own
-        # order, so the first sentence that opens with this marker is the one that belongs
-        # to it; preferring a higher score further along is what lets a marginal match
-        # jump the cursor over dozens of sentences and starve the boxes behind it.
-        best, best_i = 0.0, -1
-        for s_i in range(at, len(sentences)):
-            score = match_score(mark.marker, sentences[s_i])
-            if score >= MARK_MATCH_SURE:
-                best, best_i = score, s_i
-                break
-            if score > best:
-                best, best_i = score, s_i
-        if best < MARK_MATCH_MIN or best_i < 0:
+        if mark.continues_previous:
+            census.spans_column_break += 1
+        best, best_i, best_by = 0.0, -1, ""
+        for kind, candidate, lands_after in tries:
+            score, s_i = _seek(candidate, sentences, at)
+            if s_i < 0 or score < MARK_MATCH_MIN:
+                continue
+            # A closing marker names the sentence *before* the boundary.
+            s_i = s_i + 1 if lands_after else s_i
+            if s_i >= len(sentences):
+                continue
+            best, best_i, best_by = score, s_i, kind
+            break
+        if best_i < 0:
             census.not_found += 1
             continue
         if best >= MARK_MATCH_SURE:
             census.found_sure += 1
         else:
             census.found_probable += 1
+        if best_by == "first":
+            census.found_by_opening += 1
+        elif best_by == "later":
+            census.found_by_later_opening += 1
+        else:
+            census.found_by_closing += 1
         for s_i in range(best_i, len(sentences)):
             owner[s_i] = m_i
         at = best_i + 1
     return owner, census
+
+
+def _seek(marker: str, sentences: list[str], start: int) -> tuple[float, int]:
+    """The **earliest** credible match at or after `start`, not the best one.
+
+    Boxes are sought in their own order, so the first sentence that opens with this marker
+    is the one that belongs to it. Preferring a higher score further along is what let a
+    marginal match jump the cursor over dozens of sentences and starve the boxes behind it.
+    """
+    best, best_i = 0.0, -1
+    for s_i in range(start, len(sentences)):
+        score = match_score(marker, sentences[s_i])
+        if score >= MARK_MATCH_SURE:
+            return score, s_i
+        if score > best:
+            best, best_i = score, s_i
+    return best, best_i
+
+
+def _tries_for(
+    mark: BoxMark, previous: BoxMark | None
+) -> list[tuple[str, str, bool]]:
+    """Ordered attempts for one box: `(kind, marker, the match lands before the box)`.
+
+    design/353 — the box's own opening first, because it is the boundary itself. Then its
+    later openings, which a watermark or a column-break tail cannot spoil. Last the
+    previous box's closing sentence, which names the boundary from the other side and is
+    the only try left when this box's own text was never returned.
+    """
+    openings = list(mark.openings) or ([mark.marker] if mark.marker else [])
+    # The box has to qualify on its own text. A closing marker is a *fallback for a
+    # qualifying box*, never a way to admit one that has nothing to find: allowing it to
+    # stand alone put a marker on every apparatus box whose predecessor happened to end in
+    # prose, and the denominator went from 368 to 620.
+    if not openings:
+        return []
+    del previous  # see the note on `closing`
+    tries: list[tuple[str, str, bool]] = []
+    # A box opening mid-sentence has no boundary of its own to offer.
+    if not mark.continues_previous:
+        tries.append(("first", openings[0], False))
+    for later in openings[1:]:
+        tries.append(("later", later, False))
+    return tries
