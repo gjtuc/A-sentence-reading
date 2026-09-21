@@ -86,12 +86,15 @@ class BoxMark:
     # longer than the sentence the model returned all cost that box its only try. These
     # are the box's next openings, and its own closing sentence, tried in turn.
     openings: tuple[str, ...] = ()
-    # design/353 — the box's last sentence, which names the same boundary from the other
-    # side and was meant to be the try of last resort. It is **not used**: it rescued 1
-    # box of 368 before apparatus boxes were properly excluded and **0 of 354** after,
-    # because a box that qualifies almost always matches on one of its own openings. Kept
-    # as a field and reported in the census so the claim stays checkable, not as a branch
-    # nothing has been shown to need.
+    # The box's last sentence, which names the boundary from the other side.
+    #
+    # design/353 tried it as a way to *find* a box whose own openings all failed and
+    # measured 0 rescues of 354, so it was left unused. That was the wrong job for it.
+    # design/354 — its real job is to *correct* a boundary. When a box is found by its
+    # second opening, its first sentence may well have come back and simply not been the
+    # marker that won, and those sentences stay credited to the previous box. The closing
+    # sentence settles it, and on this corpus it matched in 17 of the 18 such cases and
+    # moved 16 sentences to the box that produced them.
     closing: str = ""
     # True when this box's first sentence continues the previous box's last one, which is
     # what a column break does. The sentence then belongs to both boxes, and saying so is
@@ -121,6 +124,9 @@ class MarkCensus:
     found_by_later_opening: int = 0
     found_by_closing: int = 0
     spans_column_break: int = 0
+    # design/354 — sentences moved to the box that actually produced them, after a later
+    # opening won and the previous box's closing showed the boundary was earlier.
+    boundary_corrected: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return {
@@ -133,6 +139,7 @@ class MarkCensus:
             "marker_by_later_n": self.found_by_later_opening,
             "marker_by_closing_n": self.found_by_closing,
             "marker_column_span_n": self.spans_column_break,
+            "marker_boundary_fixed_n": self.boundary_corrected,
         }
 
 
@@ -333,6 +340,18 @@ def assign_boxes(
             census.found_by_later_opening += 1
         else:
             census.found_by_closing += 1
+        # design/354 — a box found by its *second* opening starts before the sentence that
+        # matched, because its first sentence came back and simply was not the marker that
+        # won. Left alone, those sentences stay credited to the previous box. The previous
+        # box's closing sentence says where the boundary really is: matched at j, the next
+        # box starts at j+1.
+        if best_by == "later" and m_i > 0:
+            closing = marks[m_i - 1].closing
+            if closing:
+                score, j = _seek(closing, sentences, max(at - 1, 0))
+                if j >= 0 and score >= MARK_MATCH_MIN and j + 1 < best_i:
+                    census.boundary_corrected += best_i - (j + 1)
+                    best_i = j + 1
         for s_i in range(best_i, len(sentences)):
             owner[s_i] = m_i
         at = best_i + 1
