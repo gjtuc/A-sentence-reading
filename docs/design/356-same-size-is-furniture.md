@@ -1,7 +1,15 @@
 # 356 — Six author headshots were six figures
 
-**Version:** 0.3.352 · Status: **locked**  
+**Version:** 0.3.352 · Status: **retired by [360](360-stop-guessing-what-a-picture-is.md)**  
 Extends [338](338-panel-pairing-and-page-graphics.md)
+
+> `demote_same_size_unclaimed` and `same_size_chrome_n` are **deleted**. The six
+> headshots this chip removed by their shape are removed anyway by
+> [357](357-the-caption-list-is-the-paper.md): `d4cs00527a`'s caption numbers run 1..27
+> with no gaps, so `held_by_caption_list_n` holds all twelve unclaimed bodies and none
+> reaches the carousel. Measured after deletion: unnumbered entries on that paper stay
+> 0. Keeping a second, shape-based rule only risked the same false positives design/338
+> produced.
 
 ## Why
 

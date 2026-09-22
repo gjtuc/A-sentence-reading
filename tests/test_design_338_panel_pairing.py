@@ -27,7 +27,6 @@ from sentence_reading.pdf.slot_plan import (
     _x_overlap_frac,
     assign_body_boxes_to_slot,
     assign_body_to_slot,
-    demote_repeating_bodies,
 )
 
 
@@ -169,58 +168,3 @@ def test_panels_on_another_page_are_not_unioned_in() -> None:
     assign_body_to_slot(plan, layout, "fig:3", "bO")
     # Only one panel lives on page 0, so there is nothing to union there.
     assert _slot_body_rect(layout, plan.slot_by_key("fig:3"), 0) is None
-
-
-# --------------------------------------------------------------- running graphics
-
-
-def _logo(page: int) -> _Box:
-    """The ChemistryOpen masthead: same rect on every page."""
-    return _Box("logo%d" % page, "figure_body", 47.1, 21.3, 135.2, 44.8, page=page)
-
-
-def test_a_graphic_repeating_across_pages_is_not_a_figure() -> None:
-    """Looser caption matching made this urgent, not academic.
-
-    On ChemistryOpen the masthead sat 20pt above Figure 1, so once the centre test
-    was gone it joined the figure's slot and the figure rendered with a logo on top.
-    """
-    layout = _Layout([_logo(0), _logo(1), _logo(2), _logo(3), LEFT])
-    assert demote_repeating_bodies(layout) == 4
-    kinds = {b.id: b.kind for b in layout.boxes}
-    assert all(kinds["logo%d" % p] == "figure_chrome" for p in range(4))
-    assert kinds["bL"] == "figure_body"
-
-
-def test_a_figure_appearing_once_is_untouched() -> None:
-    layout = _Layout([LEFT, RIGHT, _logo(0)])
-    assert demote_repeating_bodies(layout) == 0
-    assert all(b.kind == "figure_body" for b in layout.boxes)
-
-
-def test_two_pages_is_enough_evidence() -> None:
-    layout = _Layout([_logo(0), _logo(5)])
-    assert demote_repeating_bodies(layout) == 2
-
-
-def test_a_near_match_within_tolerance_still_counts() -> None:
-    """Azure's coordinates wobble a point or two between copies."""
-    a = _Box("g0", "figure_body", 47.1, 21.3, 135.2, 44.8, page=0)
-    b = _Box("g1", "figure_body", 47.4, 22.4, 135.3, 44.7, page=1)
-    assert demote_repeating_bodies(_Layout([a, b])) == 2
-
-
-def test_a_demoted_graphic_cannot_claim_a_caption() -> None:
-    layout = _Layout([CAPTION, _logo(0), _logo(1)])
-    demote_repeating_bodies(layout)
-    logo = layout.box_by_id("logo0")
-    # The pairing loop only looks at `figure_body`, so a demoted box never asks.
-    assert logo.kind != "figure_body"
-
-
-def test_tables_demote_to_their_own_kind() -> None:
-    a = _Box("t0", "table_body", 50, 700, 300, 740, page=0)
-    b = _Box("t1", "table_body", 50, 700, 300, 740, page=1)
-    layout = _Layout([a, b])
-    assert demote_repeating_bodies(layout) == 2
-    assert {x.kind for x in layout.boxes} == {"table_chrome"}

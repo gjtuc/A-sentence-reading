@@ -223,6 +223,96 @@ def refill_empty_slots(layout: LayoutMap, plan: SlotPlan) -> None:
     refresh_slot_statuses(plan)
 
 
+# design/360 — the last automatic try, after above/below (design/358) and the column
+# split (design/359) have both failed. Azure tells figures from tables, so a lost figure
+# is searched for among unclaimed *figures* and a lost table among unclaimed *tables*,
+# and the two cannot be swapped. Nothing here reads the picture: it is the paper's own
+# caption, the paper's own page, and the nearest box of the kind the caption names.
+NEIGHBOUR_MAX_PT = 220.0
+NEIGHBOUR_X_OVERLAP_MIN = 0.5
+NEIGHBOUR_Y_OVERLAP_MIN = 0.25
+
+
+def _overlap_frac(a0: float, a1: float, b0: float, b1: float) -> float:
+    return max(0.0, min(a1, b1) - max(a0, b0)) / max(min(a1 - a0, b1 - b0), 1.0)
+
+
+def _rect_distance(a: LayoutBox, b: LayoutBox) -> float:
+    dx = max(
+        0.0,
+        float(a.rect["x0"]) - float(b.rect["x1"]),
+        float(b.rect["x0"]) - float(a.rect["x1"]),
+    )
+    dy = max(
+        0.0,
+        float(a.rect["y0"]) - float(b.rect["y1"]),
+        float(b.rect["y0"]) - float(a.rect["y1"]),
+    )
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def _aligned(cap: LayoutBox, body: LayoutBox) -> bool:
+    """Above, below, or beside — but in line with the caption on one axis."""
+    x = _overlap_frac(
+        float(cap.rect["x0"]),
+        float(cap.rect["x1"]),
+        float(body.rect["x0"]),
+        float(body.rect["x1"]),
+    )
+    y = _overlap_frac(
+        float(cap.rect["y0"]),
+        float(cap.rect["y1"]),
+        float(body.rect["y0"]),
+        float(body.rect["y1"]),
+    )
+    return x >= NEIGHBOUR_X_OVERLAP_MIN or y >= NEIGHBOUR_Y_OVERLAP_MIN
+
+
+def fill_from_page_neighbours(layout: LayoutMap, plan: SlotPlan) -> int:
+    """Give a still-empty caption the nearest unclaimed body of its own kind.
+
+    Assignment is globally nearest-first, so a body that sits between two empty
+    captions goes to the one it is closer to instead of to whichever slot is
+    numbered lower. Returns how many slots were filled.
+    """
+    from sentence_reading.pdf.slot_plan import assign_body_to_slot
+
+    pairs: list[tuple[float, str, str]] = []
+    for slot in plan.slots:
+        if slot.status == "user_confirmed" or slot.unnumbered:
+            continue
+        if slot.body_box_id or slot.body_box_ids or not slot.caption_box_id:
+            continue
+        cap = layout.box_by_id(slot.caption_box_id)
+        if cap is None:
+            continue
+        want = "figure_body" if slot.kind != "table" else "table_body"
+        for box in layout.boxes_on_page(cap.page_index):
+            if box.kind != want or box.used_by_slot:
+                continue
+            if not _aligned(cap, box):
+                continue
+            dist = _rect_distance(cap, box)
+            if dist > NEIGHBOUR_MAX_PT:
+                continue
+            pairs.append((dist, slot.key, box.id))
+
+    pairs.sort(key=lambda t: (t[0], t[1], t[2]))
+    filled = 0
+    for _dist, slot_key, box_id in pairs:
+        slot = plan.slot_by_key(slot_key)
+        box = layout.box_by_id(box_id)
+        if slot is None or box is None:
+            continue
+        if slot.body_box_id or slot.body_box_ids or box.used_by_slot:
+            continue
+        assign_body_to_slot(plan, layout, slot_key, box_id)
+        filled += 1
+    if filled:
+        refresh_slot_statuses(plan)
+    return filled
+
+
 def _slot_label_pattern(slot_key: str) -> re.Pattern[str] | None:
     m = re.match(r"^(fig|table):s(\d+)$", (slot_key or "").lower())
     if m:

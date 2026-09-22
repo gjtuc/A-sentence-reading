@@ -1,7 +1,14 @@
 # 338 — A panel belongs to its caption, and a logo is not a figure
 
-**Version:** 0.3.333 · Status: **locked**  
+**Version:** 0.3.333 · Status: **partly retired by [360](360-stop-guessing-what-a-picture-is.md)**  
 Repairs what [337](337-per-job-geometry-and-figure-pairing.md) measured · amends [321](321-extraction-boundary-census.md) · [324](324-unnumbered-rescued-figures.md)
+
+> The overlap pairing and panel accumulation below stand. The running-page-graphic
+> detector (`demote_repeating_bodies`) is **deleted**, with `chrome_body_n`. Journals
+> place figures at the same spot page after page, so over 88 papers it demoted 137
+> boxes — 67 of them with a numbered caption 4–10pt away — and cost 39 empty slots.
+> One 87-page SI had 7 different full-page graphics on 7 pages grouped as one logo.
+> The x-overlap denominator here was also wrong; see [359](359-the-caption-is-the-column.md).
 
 ## Why
 

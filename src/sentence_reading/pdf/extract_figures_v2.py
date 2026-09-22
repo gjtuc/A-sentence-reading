@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from sentence_reading.models import Figure
-from sentence_reading.pdf.caption_pairing import pair_slot_captions, refill_empty_slots
+from sentence_reading.pdf.caption_pairing import (
+    fill_from_page_neighbours,
+    pair_slot_captions,
+    refill_empty_slots,
+)
 from sentence_reading.pdf.composite import (
     composite_figure_png,
     composite_table_png,
@@ -32,7 +36,6 @@ from sentence_reading.pdf.slot_plan import (
     SlotPlan,
     append_unclaimed_body_slots,
     build_slot_plan,
-    demote_repeating_bodies,
     initial_body_assignments,
     refresh_slot_statuses,
     slot_census,
@@ -87,8 +90,6 @@ def _set_artifacts(
     layout: LayoutMap,
     plan: SlotPlan,
     pdf_path: Path | str,
-    *,
-    chrome_body_n: int = 0,
 ) -> None:
     global _last_artifacts, _last_census, _last_key
     _last_artifacts = {
@@ -96,8 +97,6 @@ def _set_artifacts(
         "slot_plan": plan.to_dict(),
     }
     _last_census = slot_census(layout, plan)
-    # design/338 — bodies that were running page graphics, reported not assumed.
-    _last_census["chrome_body_n"] = int(chrome_body_n)
     _last_key = artifacts_key(pdf_path)
 
 
@@ -278,10 +277,6 @@ def extract_figures_v2(pdf_path: Path, *, doc_role: str = "main") -> list[Figure
     layout, client, _result = analyze_layout_map(pdf_path)
     doc = fitz.open(pdf_path)
     try:
-        # design/338 — before anything claims a body, take the running page
-        # graphics out. They are not figures, and once caption matching is by
-        # overlap they would otherwise join the figure above them.
-        chrome_n = demote_repeating_bodies(layout)
         plan = build_slot_plan(layout, supplementary=supplementary)
         initial_body_assignments(layout, plan, supplementary=supplementary)
         pair_slot_captions(layout, plan)
@@ -290,10 +285,13 @@ def extract_figures_v2(pdf_path: Path, *, doc_role: str = "main") -> list[Figure
         # printed two captions of one kind side by side and Azure returned one box for
         # both, hand each caption its own part before leftovers are counted.
         split_shared_column_bodies(layout, plan)
+        # design/360 — last automatic try: the nearest unclaimed box of the kind the
+        # caption names, on the caption's own page, in any direction.
+        fill_from_page_neighbours(layout, plan)
         append_unclaimed_body_slots(layout, plan, supplementary=supplementary)
         refresh_slot_statuses(plan)
         merged = slots_to_figures(doc, client, layout, plan)
-        _set_artifacts(layout, plan, pdf_path, chrome_body_n=chrome_n)
+        _set_artifacts(layout, plan, pdf_path)
         return merged
     finally:
         doc.close()
