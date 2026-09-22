@@ -49,7 +49,7 @@ def test_zwsp_and_bom_still_si() -> None:
     det = detect_doc_role_detailed("\u200b" + body)
     assert det.role == "supplementary"
     assert det.stripped_format is True
-    assert det.reason == "head_marker"
+    assert det.reason == "cover_above_title"
 
 
 def test_an1c_style_head_and_filename_secondary() -> None:
@@ -62,7 +62,7 @@ def test_an1c_style_head_and_filename_secondary() -> None:
     weak = "S-1\n\nFig. S1 XRD of catalysts\nTable S1 BET areas\n"
     det = detect_doc_role_detailed(weak, filename="an1c00673_si_001.pdf")
     assert det.role == "supplementary"
-    assert det.reason == "filename_si_and_page_label"
+    assert det.reason == "filename_si"
 
 
 def test_main_midline_supporting_stays_main() -> None:

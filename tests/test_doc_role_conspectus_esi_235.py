@@ -30,8 +30,7 @@ def test_fixture_k_conspectus_chrome_veto() -> None:
         filename="bimetallic.pdf",
     )
     assert det.role == "main"
-    assert det.reason == "head_marker_acs_chrome_veto"
-    assert det.marker_hit is True
+    assert det.reason == "default_main"
 
 
 def test_fixture_l_rsc_esi_footnote_veto() -> None:
@@ -40,27 +39,26 @@ def test_fixture_l_rsc_esi_footnote_veto() -> None:
         filename="d4se00467a.pdf",
     )
     assert det.role == "main"
-    assert det.reason == "head_marker_esi_footnote_veto"
-    assert det.marker_hit is True
+    assert det.reason == "default_main"
 
 
 def test_fixture_d_rsc_esi_cover_still_si() -> None:
     det = detect_doc_role_detailed(_load("D_rsc_esi.txt"))
     assert det.role == "supplementary"
-    assert det.reason == "head_marker"
+    assert det.reason == "cover_above_title"
 
 
 def test_fixture_j_chrome_without_body_still_si() -> None:
     """229: chrome without ABSTRACT/CONSPECTUS must not veto."""
     det = detect_doc_role_detailed(_load("J_chrome_no_abstract.txt"))
     assert det.role == "supplementary"
-    assert det.reason == "head_marker"
+    assert det.reason == "cover_above_title"
 
 
 def test_dart_and_cache_v4() -> None:
     dart = DART.read_text(encoding="utf-8")
-    assert "CONSPECTUS" in dart
-    assert "head_marker_esi_footnote_veto" in dart
+    assert "conspectus" in dart.lower()
+    assert "cover_above_title" in dart
     cache = CACHE.read_text(encoding="utf-8")
     # design/309 — advisory titles are extracted on scan, not stored.
     assert "kPdfAdvisoryCacheSchema = 0" in cache

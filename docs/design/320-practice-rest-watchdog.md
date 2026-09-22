@@ -16,7 +16,7 @@ rare and did not reproduce on retry.
 1. The rest cover has a wall-clock cap:
    `restCoverWatchdogLimit(scheduledRest, reviewWordN)`.
    No review: scheduled rest + 2s (or 2s if rest is zero).
-   With review: `12s × wordN` + the 314 tail + 2s.
+   With review: one attempt budget (12s play + mic ready + 12s speak cap + 2s pad + 8s STT) × 5 tries × wordN, plus the 314 tail + 2s.
 2. Past that cap, emit `shadowing_loop_event` `code=rest_overrun`, bump the
    cycle token, drop the cover, and start the next listen. Do not add a
    frozen kind.

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -29,6 +30,7 @@ import '../widgets/reader_nav_picker.dart';
 import '../widgets/annotation_toolbar_sheet.dart';
 import '../api/figure_ink_models.dart';
 import '../widgets/figure_ink_toolbar.dart';
+import '../widgets/swipe_motion.dart';
 import '../widgets/annotated_sentence_text.dart';
 import '../widgets/upload_status_bar.dart';
 import 'figure_edit_screen.dart';
@@ -1094,8 +1096,7 @@ class _SentencePanel extends StatelessWidget {
               ),
             ),
           Expanded(
-            child: Card(
-              child: _SwipePager(
+            child: _SwipePager(
                 enabled: session.sentenceCount > 0 &&
                     !annotations.blocksReaderNavigation,
                 // design/95+143 — swipe left → next, swipe right → prev
@@ -1123,7 +1124,8 @@ class _SentencePanel extends StatelessWidget {
                 // (0.3.170 regression): parent drag recognizers steal the arena
                 // from in-sentence paint the same way swipe did in 0.3.166.
                 // Nav is blocked via enabled/null callbacks + library gate.
-                child: Padding(
+                child: Card(
+                  child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: SingleChildScrollView(
                     physics: annotations.sentencePaintMode
@@ -1790,13 +1792,6 @@ class _FigurePanel extends StatelessWidget {
                   )
                 : const SizedBox(width: double.infinity),
           ),
-          FigureInkToolbar(
-            expanded: annotations.figureInkMode && session.figureCount > 0,
-            tool: annotations.figureInkTool,
-            colorHex: annotations.figureInkColor,
-            onToolChanged: annotations.setFigureInkTool,
-            onColorChanged: annotations.setFigureInkColor,
-          ),
           Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.deferToChild,
@@ -1809,7 +1804,10 @@ class _FigurePanel extends StatelessWidget {
                       onTap: onToggleChrome,
                       child: const Center(child: Text('No figure.')),
                     )
-                  : Column(
+                  : Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Column(
                       children: [
                         Expanded(
                           child: _FigureImage(
@@ -1860,6 +1858,21 @@ class _FigurePanel extends StatelessWidget {
                             ),
                           ),
                       ],
+                        ),
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: FigureInkToolbar(
+                            expanded: annotations.figureInkMode &&
+                                session.figureCount > 0,
+                            tool: annotations.figureInkTool,
+                            colorHex: annotations.figureInkColor,
+                            onToolChanged: annotations.setFigureInkTool,
+                            onColorChanged: annotations.setFigureInkColor,
+                          ),
+                        ),
+                      ],
                     ),
               ),
             ),
@@ -1904,7 +1917,7 @@ class _FigureInkOverlayState extends State<_FigureInkOverlay> {
     final inkEvents = widget.annotations.activeForFigureKey(key);
     final inkMode = widget.annotations.figureInkMode;
     final tool = widget.annotations.figureInkTool;
-    final strokeColor = figureInkColorValue(widget.annotations.figureInkColor);
+    final strokeColor = figureInkStrokeColor(widget.annotations.figureInkColor);
     return LayoutBuilder(
       builder: (context, constraints) {
         final w = constraints.maxWidth;
@@ -1974,10 +1987,9 @@ class _InkPathsPainter extends CustomPainter {
         final pts = path['points'];
         if (pts is! List || pts.length < 2) continue;
         final colorRaw = '${path['color'] ?? ev.color}';
-        final width = (path['width'] as num?)?.toDouble() ?? 2.0;
         final paint = Paint()
-          ..color = figureInkColorValue(colorRaw)
-          ..strokeWidth = width
+          ..color = figureInkStrokeColor(colorRaw)
+          ..strokeWidth = kFigureInkStrokeWidth
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round;
         final pathObj = Path();
@@ -2013,7 +2025,7 @@ class _LiveStrokePainter extends CustomPainter {
     if (points.length < 2) return;
     final paint = Paint()
       ..color = color
-      ..strokeWidth = 2
+      ..strokeWidth = kFigureInkStrokeWidth
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
     final path = Path()..moveTo(points.first.dx, points.first.dy);
@@ -2159,30 +2171,103 @@ class _SwipePager extends StatefulWidget {
   State<_SwipePager> createState() => _SwipePagerState();
 }
 
-class _SwipePagerState extends State<_SwipePager> {
+class _SwipePagerState extends State<_SwipePager>
+    with TickerProviderStateMixin {
   static const double _minDistance = 56;
   static const double _minVelocity = 180;
   static const double _minVerticalDistance = 88;
   double _dx = 0;
   double _dy = 0;
+  double _visual = 0;
+  double _width = 1;
+  AnimationController? _motion;
+  int _motionGen = 0;
+
+  @override
+  void dispose() {
+    _motion?.dispose();
+    super.dispose();
+  }
+
+  void _stopMotion() {
+    _motionGen++;
+    _motion?.dispose();
+    _motion = null;
+  }
+
+  void _springBack(double velocity) {
+    _stopMotion();
+    final from = _visual;
+    if (from.abs() < 0.5 && velocity.abs() < 8) {
+      if (mounted) setState(() => _visual = 0);
+      return;
+    }
+    final gen = _motionGen;
+    final sim = SpringSimulation(
+      const SpringDescription(mass: 0.55, stiffness: 280, damping: 20),
+      from,
+      0,
+      velocity,
+    );
+    final ctrl = AnimationController.unbounded(vsync: this);
+    _motion = ctrl;
+    ctrl.addListener(() {
+      if (!mounted || gen != _motionGen) return;
+      setState(() => _visual = ctrl.value);
+    });
+    ctrl.animateWith(sim).whenComplete(() {
+      if (!mounted || gen != _motionGen) return;
+      setState(() => _visual = 0);
+    });
+  }
+
+  void _flyOff(double target, VoidCallback then) {
+    _stopMotion();
+    final gen = _motionGen;
+    final ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
+    _motion = ctrl;
+    final anim = Tween<double>(begin: _visual, end: target).animate(
+      CurvedAnimation(parent: ctrl, curve: Curves.easeIn),
+    );
+    ctrl.addListener(() {
+      if (!mounted || gen != _motionGen) return;
+      setState(() => _visual = anim.value);
+    });
+    ctrl.forward().whenComplete(() {
+      if (!mounted || gen != _motionGen) return;
+      setState(() => _visual = 0);
+      then();
+    });
+  }
 
   void _handleHorizontalDragEnd(DragEndDetails details) {
     if (!widget.enabled) return;
     // design/183 — one gesture → one action (avoid advance+figureOnly race).
     if (_dy.abs() > _dx.abs()) {
       _dx = 0;
+      _springBack(0);
       return;
     }
     final v = details.primaryVelocity ?? 0;
     // design/143 — gallery convention: finger left → next, right → previous.
     final goNext = _dx < -_minDistance || v < -_minVelocity;
     final goPrev = _dx > _minDistance || v > _minVelocity;
+    final finger = _dx;
     _dx = 0;
     _dy = 0;
     if (goPrev && widget.onPrevious != null) {
-      widget.onPrevious!();
+      _flyOff(flingTarget(finger == 0 ? 1 : finger, _width), () {
+        widget.onPrevious!();
+      });
     } else if (goNext && widget.onNext != null) {
-      widget.onNext!();
+      _flyOff(flingTarget(finger == 0 ? -1 : finger, _width), () {
+        widget.onNext!();
+      });
+    } else {
+      _springBack(v);
     }
   }
 
@@ -2198,6 +2283,7 @@ class _SwipePagerState extends State<_SwipePager> {
     final goUp = _dy < -_minVerticalDistance || v < -_minVelocity;
     _dy = 0;
     _dx = 0;
+    if (_visual.abs() > 0.5) _springBack(0);
     if (goUp) {
       widget.onSwipeUp!();
     }
@@ -2210,32 +2296,56 @@ class _SwipePagerState extends State<_SwipePager> {
     // wins the gesture arena and blocks in-sentence highlight drag even if
     // onEnd is a no-op.
     final swipesOn = widget.enabled;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: widget.onTap,
-      onDoubleTap: widget.onDoubleTap,
-      onHorizontalDragStart: !swipesOn
-          ? null
-          : widget.onSwipeUp == null
-              ? (_) => _dx = 0
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth > 0) _width = constraints.maxWidth;
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          onDoubleTap: widget.onDoubleTap,
+          onHorizontalDragStart: !swipesOn
+              ? null
+              : widget.onSwipeUp == null
+                  ? (_) {
+                      _stopMotion();
+                      _dx = 0;
+                    }
+                  : (_) {
+                      _stopMotion();
+                      _dx = 0;
+                      _dy = 0;
+                    },
+          onHorizontalDragUpdate: !swipesOn
+              ? null
+              : (d) {
+                  _dx += d.delta.dx;
+                  setState(() {
+                    _visual = rubberBandOffset(_dx, _width);
+                  });
+                },
+          onHorizontalDragEnd: !swipesOn ? null : _handleHorizontalDragEnd,
+          onVerticalDragStart: !swipesOn || widget.onSwipeUp == null
+              ? null
               : (_) {
                   _dx = 0;
                   _dy = 0;
                 },
-      onHorizontalDragUpdate: !swipesOn ? null : (d) => _dx += d.delta.dx,
-      onHorizontalDragEnd: !swipesOn ? null : _handleHorizontalDragEnd,
-      onVerticalDragStart: !swipesOn || widget.onSwipeUp == null
-          ? null
-          : (_) {
-              _dx = 0;
-              _dy = 0;
-            },
-      onVerticalDragUpdate: !swipesOn || widget.onSwipeUp == null
-          ? null
-          : (d) => _dy += d.delta.dy,
-      onVerticalDragEnd:
-          !swipesOn || widget.onSwipeUp == null ? null : _handleVerticalDragEnd,
-      child: widget.child,
+          onVerticalDragUpdate: !swipesOn || widget.onSwipeUp == null
+              ? null
+              : (d) => _dy += d.delta.dy,
+          onVerticalDragEnd: !swipesOn || widget.onSwipeUp == null
+              ? null
+              : _handleVerticalDragEnd,
+          child: Transform.translate(
+            offset: Offset(_visual, 0),
+            child: SizedBox(
+              width: constraints.maxWidth,
+              height: constraints.maxHeight,
+              child: widget.child,
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -2279,7 +2389,8 @@ class _ZoomableFigureFrame extends StatefulWidget {
   State<_ZoomableFigureFrame> createState() => _ZoomableFigureFrameState();
 }
 
-class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
+class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame>
+    with TickerProviderStateMixin {
   final TransformationController _transform = TransformationController();
   static const double _minDistance = 56;
   static const double _minVerticalDistance = 88;
@@ -2292,20 +2403,35 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
   /// Scale on axis at [onInteractionStart] — base for design/118 amplify.
   double _scaleAtGestureStart = 1.0;
   Offset _lastFocalPoint = Offset.zero;
+  double _viewWidth = 1;
+  double _fingerDx = 0;
+  double _fingerDy = 0;
+  AnimationController? _slide;
+  int _slideGen = 0;
 
   @override
   void dispose() {
+    _slide?.dispose();
     _transform.dispose();
     super.dispose();
   }
 
+  void _stopSlide() {
+    _slideGen++;
+    _slide?.dispose();
+    _slide = null;
+  }
+
   void _onInteractionStart(ScaleStartDetails details) {
+    _stopSlide();
     // WHY: capture translation at gesture start for 1× horizontal swipe.
     final t = _transform.value.getTranslation();
     _panAtStart = Offset(t.x, t.y);
     _maxPointers = details.pointerCount;
     _scaleAtGestureStart = _transform.value.getMaxScaleOnAxis();
     _lastFocalPoint = details.localFocalPoint;
+    _fingerDx = 0;
+    _fingerDy = 0;
   }
 
   void _onInteractionUpdate(ScaleUpdateDetails details) {
@@ -2314,6 +2440,19 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
       _maxPointers = details.pointerCount;
     }
     final scaleNow = _transform.value.getMaxScaleOnAxis();
+    // 1× horizontal swipe follows the finger with resistance. Zoomed pan stays put.
+    if (widget.swipeEnabled &&
+        details.pointerCount == 1 &&
+        scaleNow <= _zoomEps) {
+      _fingerDx += details.focalPointDelta.dx;
+      _fingerDy += details.focalPointDelta.dy;
+      if (_fingerDx.abs() + 8 >= _fingerDy.abs()) {
+        final resisted = rubberBandOffset(_fingerDx, _viewWidth);
+        _transform.value = Matrix4.identity()..setTranslationRaw(resisted, 0, 0);
+        _lastFocalPoint = details.localFocalPoint;
+        return;
+      }
+    }
     // design/118+156 — amplify zoomed one-finger pan (IV is 1:1 by default).
     if (details.pointerCount == 1 && scaleNow > _zoomEps) {
       final delta = details.localFocalPoint - _lastFocalPoint;
@@ -2354,8 +2493,12 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     final dx = t.x - _panAtStart.dx;
     final dy = t.y - _panAtStart.dy;
     final maxPointers = _maxPointers;
+    final fingerDx = _fingerDx;
+    final fingerDy = _fingerDy;
     // Reset for the next gesture (after fingers up, one-finger swipe works again).
     _maxPointers = 0;
+    _fingerDx = 0;
+    _fingerDy = 0;
 
     // EDGE: pinch ended above 1× — keep pan/zoom; no figure change.
     if (scale > _zoomEps) {
@@ -2366,11 +2509,41 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     if (widget.onSwipeToSentence != null && maxPointers < 2) {
       final goDown = dy > _minVerticalDistance ||
           details.velocity.pixelsPerSecond.dy > _minVelocity;
-      if (dy.abs() > dx.abs() && goDown) {
+      if (dy.abs() > dx.abs() && fingerDy.abs() >= fingerDx.abs() && goDown) {
         _transform.value = Matrix4.identity();
         widget.onSwipeToSentence!();
         return;
       }
+    }
+
+    final v = details.velocity.pixelsPerSecond.dx;
+    final horizontal = fingerDx.abs() >= fingerDy.abs();
+    final goNext = fingerDx < -_minDistance || v < -_minVelocity;
+    final goPrev = fingerDx > _minDistance || v > _minVelocity;
+    if (horizontal &&
+        widget.swipeEnabled &&
+        allowFigureSwipeAfterPan(
+          maxPointerCount: maxPointers,
+          scale: scale,
+          zoomEps: _zoomEps,
+        ) &&
+        ((goPrev && widget.onPrevious != null) ||
+            (goNext && widget.onNext != null))) {
+      final to = flingTarget(goPrev ? 1 : -1, _viewWidth);
+      _flyFigure(to, () {
+        if (goPrev && widget.onPrevious != null) {
+          widget.onPrevious!();
+        } else {
+          widget.onNext?.call();
+        }
+      });
+      return;
+    }
+
+    // Cancelled 1× drag springs back. A zoomed view never reaches here.
+    if (horizontal && _transform.value.getTranslation().x.abs() > 0.5) {
+      _springFigureBack(v);
+      return;
     }
 
     // WHY: 1× pan was only for swipe affordance — snap matrix back so the
@@ -2381,26 +2554,55 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
     if (needsSnap) {
       _transform.value = Matrix4.identity();
     }
+  }
 
-    if (!widget.swipeEnabled) return;
-    // design/117 — never advance on multi-touch, even at 1×.
-    if (!allowFigureSwipeAfterPan(
-      maxPointerCount: maxPointers,
-      scale: scale,
-      zoomEps: _zoomEps,
-    )) {
+  void _flyFigure(double target, VoidCallback then) {
+    _stopSlide();
+    final gen = _slideGen;
+    final from = _transform.value.getTranslation().x;
+    final ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
+    _slide = ctrl;
+    final anim = Tween<double>(begin: from, end: target).animate(
+      CurvedAnimation(parent: ctrl, curve: Curves.easeIn),
+    );
+    ctrl.addListener(() {
+      if (!mounted || gen != _slideGen) return;
+      _transform.value = Matrix4.identity()..setTranslationRaw(anim.value, 0, 0);
+    });
+    ctrl.forward().whenComplete(() {
+      if (!mounted || gen != _slideGen) return;
+      _transform.value = Matrix4.identity();
+      then();
+    });
+  }
+
+  void _springFigureBack(double velocity) {
+    final from = _transform.value.getTranslation().x;
+    if (from.abs() < 0.5 && velocity.abs() < 8) {
+      _transform.value = Matrix4.identity();
       return;
     }
-    // Primary velocity is in logical px/s when available from scale end.
-    // design/143 — gallery: finger left → next, right → previous.
-    final v = details.velocity.pixelsPerSecond.dx;
-    final goNext = dx < -_minDistance || v < -180;
-    final goPrev = dx > _minDistance || v > 180;
-    if (goPrev && widget.onPrevious != null) {
-      widget.onPrevious!();
-    } else if (goNext && widget.onNext != null) {
-      widget.onNext!();
-    }
+    _stopSlide();
+    final gen = _slideGen;
+    final sim = SpringSimulation(
+      const SpringDescription(mass: 0.55, stiffness: 280, damping: 20),
+      from,
+      0,
+      velocity,
+    );
+    final ctrl = AnimationController.unbounded(vsync: this);
+    _slide = ctrl;
+    ctrl.addListener(() {
+      if (!mounted || gen != _slideGen) return;
+      _transform.value = Matrix4.identity()..setTranslationRaw(ctrl.value, 0, 0);
+    });
+    ctrl.animateWith(sim).whenComplete(() {
+      if (!mounted || gen != _slideGen) return;
+      _transform.value = Matrix4.identity();
+    });
   }
 
   @override
@@ -2414,6 +2616,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
         if (!w.isFinite || !h.isFinite || w <= 0 || h <= 0) {
           return widget.child;
         }
+        _viewWidth = w;
         final zoomChild = annotations != null
             ? _FigureInkOverlay(
                 figureKey: widget.figureKey,
@@ -2421,7 +2624,11 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
                 child: widget.child,
               )
             : widget.child;
-        // WHY: tap/double-tap only — no parent drag vs InteractiveViewer scale.
+        // Pen/eraser take the finger. With neither armed, pan and zoom stay on.
+        final inkDraws = figureInkCapturesPointer(
+          inkMode: inkMode,
+          tool: annotations?.figureInkTool,
+        );
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: inkMode ? null : widget.onTap,
@@ -2430,13 +2637,12 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame> {
             transformationController: _transform,
             minScale: 1.0,
             maxScale: _maxScale,
-            // WHY: ink mode captures one-finger pan for strokes — disable IV.
-            panEnabled: !inkMode,
-            scaleEnabled: !inkMode,
+            panEnabled: !inkDraws,
+            scaleEnabled: !inkDraws,
             boundaryMargin: const EdgeInsets.all(48),
-            onInteractionStart: inkMode ? null : _onInteractionStart,
-            onInteractionUpdate: inkMode ? null : _onInteractionUpdate,
-            onInteractionEnd: inkMode ? null : _onInteractionEnd,
+            onInteractionStart: inkDraws ? null : _onInteractionStart,
+            onInteractionUpdate: inkDraws ? null : _onInteractionUpdate,
+            onInteractionEnd: inkDraws ? null : _onInteractionEnd,
             child: SizedBox(
               width: w,
               height: h,

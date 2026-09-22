@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../api/figure_ink_models.dart';
 
-/// Slides open below the figure header when ink mode is on.
+/// Overlays the figure when ink mode is on.
+/// It must not take a layout slot: a shorter figure viewport
+/// rescales a zoomed InteractiveViewer and the drawn spot moves.
 class FigureInkToolbar extends StatelessWidget {
   const FigureInkToolbar({
     super.key,
@@ -14,7 +16,7 @@ class FigureInkToolbar extends StatelessWidget {
   });
 
   final bool expanded;
-  final FigureInkTool tool;
+  final FigureInkTool? tool;
   final String colorHex;
   final ValueChanged<FigureInkTool> onToolChanged;
   final ValueChanged<String> onColorChanged;
@@ -22,7 +24,9 @@ class FigureInkToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return AnimatedSize(
+    return IgnorePointer(
+      ignoring: !expanded,
+      child: AnimatedSize(
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeInOut,
       alignment: Alignment.topCenter,
@@ -75,6 +79,7 @@ class FigureInkToolbar extends StatelessWidget {
               ),
             )
           : const SizedBox(width: double.infinity),
+      ),
     );
   }
 }

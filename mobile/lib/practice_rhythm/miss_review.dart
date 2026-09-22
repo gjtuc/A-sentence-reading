@@ -1,13 +1,37 @@
 /// Missed-word review after replay (design/314) and rest-cover cap (design/320).
 library;
 
+import 'dart:math';
+
+import '../api/tts_models.dart';
 import '../practice_skill/skill_score.dart';
 
 const Duration kMissReviewGap = Duration(milliseconds: 400);
 const Duration kMissReviewTail = Duration(seconds: 3);
 const Duration kMissReviewScoreWait = Duration(seconds: 20);
 const Duration kMissReviewWordTimeout = Duration(seconds: 12);
+const Duration kMissReviewMicReady = Duration(milliseconds: 350);
+const Duration kMissReviewSpeakPad = Duration(seconds: 2);
+const Duration kMissReviewSttWait = Duration(seconds: 8);
+const int kMissReviewMaxTries = 5;
 const Duration kRestWatchdogSlack = Duration(seconds: 2);
+
+/// One play, one quiet speak window, and one STT wait.
+/// The speak window can be as long as the play timeout plus the 2s pad.
+Duration get kMissReviewAttemptBudget =>
+    kMissReviewWordTimeout +
+    kMissReviewMicReady +
+    kMissReviewWordTimeout +
+    kMissReviewSpeakPad +
+    kMissReviewSttWait;
+
+/// Mic stays closed during TTS. Recording is the time just heard, plus 2s.
+Duration missReviewSpeakWindow(Duration ttsHeard) {
+  final heard = ttsHeard < Duration.zero ? Duration.zero : ttsHeard;
+  return heard + kMissReviewSpeakPad;
+}
+
+enum MissReviewHear { matched, missed, skip }
 
 /// Hard cap on the black rest cover. Past this, force the next listen.
 Duration restCoverWatchdogLimit({
@@ -18,7 +42,8 @@ Duration restCoverWatchdogLimit({
     if (scheduledRest <= Duration.zero) return kRestWatchdogSlack;
     return scheduledRest + kRestWatchdogSlack;
   }
-  final reviewMax = kMissReviewWordTimeout * reviewWordN;
+  final reviewMax =
+      kMissReviewAttemptBudget * kMissReviewMaxTries * reviewWordN;
   final tail = missReviewTail(scheduledRest: scheduledRest, elapsed: reviewMax);
   return reviewMax + tail + kRestWatchdogSlack;
 }
@@ -29,6 +54,59 @@ int missReviewTier(int applied) {
   if (n < 0) return 0;
   if (n > 9) return 9;
   return n;
+}
+
+/// True when the heard take covers every content word in [word].
+bool missReviewHeardMatches({required String word, required String? heard}) {
+  final ref = contentWords(word);
+  if (ref.isEmpty) return false;
+  final have = contentWords(heard).toSet();
+  for (final token in ref) {
+    if (!have.contains(token)) return false;
+  }
+  return true;
+}
+
+/// Voice and rate for one review play.
+///
+/// The first play follows [randomAuto]. A retry always draws the lower
+/// random tier and does not repeat the voice and rate just heard.
+({String voice, double rate}) drawMissReviewPlayback({
+  required bool randomAuto,
+  required int reviewTier,
+  required String fallbackVoice,
+  required double fallbackRate,
+  List<String> voiceIds = const [],
+  String? avoidVoice,
+  double? avoidRate,
+  Random? random,
+  int redraws = 8,
+}) {
+  if (!randomAuto) {
+    final voice = fallbackVoice.trim().isEmpty
+        ? kTtsDefaultVoice
+        : fallbackVoice.trim();
+    return (voice: voice, rate: clampSpeakingRate(fallbackRate));
+  }
+  final rng = random ?? Random();
+  ({String voice, double rate})? last;
+  for (var i = 0; i < redraws; i++) {
+    final picked = pickTtsPlaybackParams(
+      mode: kTtsModeRandomAuto,
+      voice: fallbackVoice,
+      speakingRate: kTtsRateDefault,
+      voiceIds: voiceIds,
+      skillTier: reviewTier,
+      applyDensityRateBias: false,
+      random: rng,
+    );
+    last = (voice: picked.voice, rate: picked.speakingRate);
+    final sameVoice = avoidVoice != null && picked.voice == avoidVoice;
+    final sameRate = avoidRate != null &&
+        (picked.speakingRate - avoidRate).abs() < 0.001;
+    if (!(sameVoice && sameRate)) return last;
+  }
+  return last!;
 }
 
 /// Printed tokens for the red-miss spans. Invalid ranges are dropped.

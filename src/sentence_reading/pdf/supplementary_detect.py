@@ -1,5 +1,10 @@
 """
-design/152 · 222 · 229 · 235 — SI vs main from document head text (+ densified detect).
+design/152 · 222 · 229 · 235 · 363 — SI vs main.
+
+design/363 — two signals, either is enough. A cover phrase *above the title*,
+or an SI token in the filename. A mention of supplementary material in the body
+is not a cover: main papers print that after the title, and it is very hard for
+them to print it above.
 """
 
 from __future__ import annotations
@@ -13,16 +18,38 @@ DocRole = Literal["main", "supplementary"]
 
 _HEAD_CHARS = 8000
 
-# Journal SI cover lines (first pages).
-_SI_HEAD = re.compile(
-    r"(?im)"
-    r"(?:^|\n)\s*("
-    r"supplementary\s+(?:information|materials?|data)"
-    r"|supporting\s+information"
-    r"|electronic\s+supplementary"
-    r"|esi\b"
-    r")"
+# design/363 — the cover line, and only as its own line. A sentence that merely
+# mentions Supporting Information does not match.
+_COVER_LINE = re.compile(
+    r"(?i)^\s*(?:the\s+)?("
+    r"supporting\s+information"
+    r"|supporting\s+online\s+materials?"
+    r"|supporting\s+materials?"
+    r"|supplementary\s+information"
+    r"|supplementary\s+materials?"
+    r"|electronic\s+supplementary\s+information"
+    r")\b"
 )
+
+# Leading journal furniture. Skipped when looking for the cover line and the title.
+_CHROME_LINE = re.compile(
+    r"(?i)^\s*("
+    r"s\s*[-–—]?\s*\d{1,3}"
+    r"|access"
+    r"|metrics\s*&\s*more"
+    r"|article\s+recommendations"
+    r"|read\s+online"
+    r"|cite\s+this\s*:"
+    r"|article"
+    r"|research"
+    r"|https?://\S+"
+    r"|doi:\s*\S+"
+    r"|www\.\S+"
+    r"|in\s+the\s+format\s+provided\s+by\s+the"
+    r"|authors\s+and\s+unedited"
+    r")\s*$"
+)
+_ABSTRACT_LINE = re.compile(r"(?i)^\s*(abstract|conspectus)\b")
 
 # Filename hints (ACS …_si_001.pdf, Elsevier mmc1, Wiley suppmat).
 # design/281 — do NOT match bare "sup"/"supp" inside "supported"/"support".
@@ -43,28 +70,6 @@ _SI_FILENAME = re.compile(
 # Page label "S-1" / "S1" near head (common SI cover).
 _SI_PAGE_LABEL = re.compile(r"(?im)(?:^|\n)\s*S\s*[-–—]?\s*\d{1,3}\b")
 
-# design/255 — Table S1, Figure S1, Scheme S1 in SI head
-_SI_TABLE_FIG = re.compile(r"(?im)\b(?:Table|Fig(?:ure)?|Scheme)\s*S\d+\b")
-
-# design/229 — ACS article chrome near a Supporting Information *badge* (not SI cover).
-_ACS_CHROME = (
-    re.compile(r"(?im)(?:^|\n)\s*ACCESS\b"),
-    re.compile(r"(?im)Metrics\s*&\s*More"),
-    re.compile(r"(?im)Article\s+Recommendations"),
-    # ACS extracts often use Latin small letter dotless i (U+0131).
-    re.compile(r"(?im)(?:^|\n)\s*s[iı]\b"),
-)
-
-# design/229 · 235 — ABSTRACT (articles) or CONSPECTUS (Accounts).
-_ABSTRACT_SOON = re.compile(
-    r"(?im)(?:ABSTRACT\s*:|(?:^|\n)\s*ABSTRACT\b|CONSPECTUS\s*:|(?:^|\n)\s*CONSPECTUS\b)"
-)
-
-# design/235 — RSC main-article ESI availability footnote (not ESI cover title).
-_ESI_AVAILABLE_FOOTNOTE = re.compile(
-    r"(?is)(?:[†*‡]\s*)?Electronic\s+supplementary\s+information"
-    r"(?:\s*\(\s*ESI\s*\))?\s+available\b"
-)
 
 # Strip BOM / bidi / zero-width before matching (ZWSP was failing live SI heads).
 _FORMAT_CF = {"Cf", "Cc"}
@@ -106,22 +111,42 @@ def filename_looks_like_si(filename: str | None) -> bool:
     return bool(_SI_FILENAME.search(base))
 
 
-def _is_acs_main_si_badge(head: str, match: re.Match[str]) -> bool:
-    """True when SI phrase is an ACS main-article badge, not an SI cover."""
-    start = max(0, match.start() - 400)
-    end = min(len(head), match.end() + 250)
-    window = head[start:end]
-    chrome_hits = sum(1 for pat in _ACS_CHROME if pat.search(window))
-    after = head[match.end() : match.end() + 300]
-    abstract_soon = bool(_ABSTRACT_SOON.search(after))
-    return chrome_hits >= 2 and abstract_soon
+def _is_chrome_line(line: str) -> bool:
+    s = (line or "").strip()
+    if not s:
+        return True
+    if len(s) <= 2:
+        return True
+    if _CHROME_LINE.match(s):
+        return True
+    # ACS extracts a lone "sı" / "si" badge next to ACCESS.
+    if re.fullmatch(r"(?i)s[iı]", s):
+        return True
+    # "Cite This: ACS Catal. 2022, 12, 8352" — the rest of the line is the journal.
+    if re.match(r"(?i)^cite\s+this\b", s):
+        return True
+    return False
 
 
-def _is_esi_availability_footnote(head: str, match: re.Match[str]) -> bool:
-    """True when marker sits inside RSC 'ESI available' author footnote."""
-    start = max(0, match.start() - 80)
-    end = min(len(head), match.end() + 160)
-    return bool(_ESI_AVAILABLE_FOOTNOTE.search(head[start:end]))
+def cover_phrase_above_title(text: str) -> bool:
+    """True when a cover phrase is printed before the paper's title (design/363).
+
+    Walk the head from the top. Skip journal furniture. The first real line is
+    either the cover (`Supporting Information` then the title) or the title
+    itself (the cover, if any, is then a badge above the abstract). A cover
+    line sitting on top of `ABSTRACT` with no title in between is that badge.
+    """
+    cover_seen = False
+    for raw in (text or "").splitlines():
+        if _is_chrome_line(raw):
+            continue
+        if _COVER_LINE.match(raw):
+            cover_seen = True
+            continue
+        if _ABSTRACT_LINE.match(raw):
+            return False
+        return cover_seen
+    return cover_seen
 
 
 def detect_doc_role_detailed(
@@ -149,7 +174,7 @@ def detect_doc_role_detailed(
     head_len = len(head)
     fn_hint = filename_looks_like_si(filename)
     page_label = bool(_SI_PAGE_LABEL.search(head[:1200])) if head_len else False
-    marker_m = _SI_HEAD.search(head) if head_len else None
+    cover_hit = cover_phrase_above_title(head) if head_len else False
 
     if not head.strip():
         # design/280 — Info.Title may still yield a title while extract text is empty.
@@ -173,108 +198,25 @@ def detect_doc_role_detailed(
             stripped_format=stripped,
         )
 
-    if marker_m is not None:
-        # design/280 — clear SI filenames must not be vetoed as ACS/ESI main chrome.
-        if (not fn_hint) and _is_acs_main_si_badge(head, marker_m):
-            return DocRoleDetectResult(
-                role="main",
-                reason="head_marker_acs_chrome_veto",
-                head_len=head_len,
-                marker_hit=True,
-                filename_si_hint=fn_hint,
-                page_label_hit=page_label,
-                stripped_format=stripped,
-            )
-        if (not fn_hint) and _is_esi_availability_footnote(head, marker_m):
-            return DocRoleDetectResult(
-                role="main",
-                reason="head_marker_esi_footnote_veto",
-                head_len=head_len,
-                marker_hit=True,
-                filename_si_hint=fn_hint,
-                page_label_hit=page_label,
-                stripped_format=stripped,
-            )
-        # design/281 — "…found in the Supporting Information" after ABSTRACT ≠ SI cover.
-        if (not fn_hint) and _ABSTRACT_SOON.search(head[: marker_m.start()]):
-            return DocRoleDetectResult(
-                role="main",
-                reason="head_marker_after_abstract_veto",
-                head_len=head_len,
-                marker_hit=True,
-                filename_si_hint=fn_hint,
-                page_label_hit=page_label,
-                stripped_format=stripped,
-            )
-        return DocRoleDetectResult(
-            role="supplementary",
-            reason="head_marker",
-            head_len=head_len,
-            marker_hit=True,
-            filename_si_hint=fn_hint,
-            page_label_hit=page_label,
-            stripped_format=stripped,
-        )
-
-    is_docx = (filename or "").strip().lower().endswith(".docx")
-    table_fig = bool(_SI_TABLE_FIG.search(head)) if head_len else False
-
-    # Secondary: ACS-style filename + S-n page label near cover (no journal SI phrase).
-    if fn_hint and page_label:
-        return DocRoleDetectResult(
-            role="supplementary",
-            reason="filename_si_and_page_label",
-            head_len=head_len,
-            marker_hit=False,
-            filename_si_hint=True,
-            page_label_hit=True,
-            stripped_format=stripped,
-        )
-
-    # design/255 — Docx files with SI filename hint (authors submit SI as Word, main as PDF)
-    if fn_hint and is_docx:
-        return DocRoleDetectResult(
-            role="supplementary",
-            reason="filename_si_and_docx",
-            head_len=head_len,
-            marker_hit=False,
-            filename_si_hint=True,
-            page_label_hit=page_label,
-            stripped_format=stripped,
-        )
-
-    # design/255 — Filename SI hint + Table S1 / Figure S1 in head
-    if fn_hint and table_fig:
-        return DocRoleDetectResult(
-            role="supplementary",
-            reason="filename_si_and_table_fig",
-            head_len=head_len,
-            marker_hit=False,
-            filename_si_hint=True,
-            page_label_hit=page_label,
-            stripped_format=stripped,
-        )
-
-    # design/255 — Content has both Table/Figure S1 and S-1 page label
-    if table_fig and page_label:
-        return DocRoleDetectResult(
-            role="supplementary",
-            reason="table_fig_and_page_label",
-            head_len=head_len,
-            marker_hit=False,
-            filename_si_hint=fn_hint,
-            page_label_hit=True,
-            stripped_format=stripped,
-        )
-
-    # design/280 — clear SI filename alone (after dual gates; ACS/ESI veto already applied).
+    # design/363 — either signal is enough. Filename first so a Nature SI whose
+    # cover line sits under the reprinted title is still SI.
     if fn_hint:
         return DocRoleDetectResult(
             role="supplementary",
             reason="filename_si",
             head_len=head_len,
-            marker_hit=False,
+            marker_hit=cover_hit,
             filename_si_hint=True,
+            page_label_hit=page_label,
+            stripped_format=stripped,
+        )
+    if cover_hit:
+        return DocRoleDetectResult(
+            role="supplementary",
+            reason="cover_above_title",
+            head_len=head_len,
+            marker_hit=True,
+            filename_si_hint=False,
             page_label_hit=page_label,
             stripped_format=stripped,
         )
@@ -284,7 +226,7 @@ def detect_doc_role_detailed(
         reason="default_main",
         head_len=head_len,
         marker_hit=False,
-        filename_si_hint=fn_hint,
+        filename_si_hint=False,
         page_label_hit=page_label,
         stripped_format=stripped,
     )

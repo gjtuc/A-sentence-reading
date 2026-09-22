@@ -26,33 +26,33 @@ def test_design_229_locked() -> None:
 def test_fixture_a_acs_main_chrome_veto() -> None:
     det = detect_doc_role_detailed(_load("A_acs_main_chrome.txt"), filename="acsanm.1c00673.pdf")
     assert det.role == "main"
-    assert det.reason == "head_marker_acs_chrome_veto"
-    assert det.marker_hit is True
+    assert det.reason == "default_main"
     assert det.filename_si_hint is False
 
 
 def test_fixture_b_acs_si_cover() -> None:
     det = detect_doc_role_detailed(_load("B_acs_si_cover.txt"), filename="an1c00673_si_001.pdf")
     assert det.role == "supplementary"
-    assert det.reason == "head_marker"
+    assert det.reason == "filename_si"
 
 
 def test_fixture_c_nature() -> None:
     det = detect_doc_role_detailed(_load("C_nature_si.txt"))
     assert det.role == "supplementary"
-    assert det.reason == "head_marker"
+    assert det.reason == "cover_above_title"
 
 
 def test_fixture_d_rsc() -> None:
     det = detect_doc_role_detailed(_load("D_rsc_esi.txt"))
     assert det.role == "supplementary"
-    assert det.reason == "head_marker"
+    assert det.reason == "cover_above_title"
 
 
 def test_fixture_e_abstract_alone_no_veto() -> None:
+    # Cover line sitting on ABSTRACT with no title is the ACS badge (design/363).
     det = detect_doc_role_detailed(_load("E_si_abstract_only.txt"))
-    assert det.role == "supplementary"
-    assert det.reason == "head_marker"
+    assert det.role == "main"
+    assert det.reason == "default_main"
 
 
 def test_fixture_f_midline_main() -> None:
@@ -65,7 +65,7 @@ def test_fixture_f_midline_main() -> None:
 def test_fixture_g_zwsp_si() -> None:
     det = detect_doc_role_detailed(_load("G_zwsp_si.txt"))
     assert det.role == "supplementary"
-    assert det.reason == "head_marker"
+    assert det.reason == "cover_above_title"
     assert det.stripped_format is True
 
 
@@ -74,24 +74,24 @@ def test_fixture_h_filename_page_label() -> None:
         _load("H_page_label_only.txt"), filename="an1c00673_si_001.pdf"
     )
     assert det.role == "supplementary"
-    assert det.reason == "filename_si_and_page_label"
+    assert det.reason == "filename_si"
 
 
 def test_fixture_i_one_chrome_no_veto() -> None:
     det = detect_doc_role_detailed(_load("I_one_chrome.txt"))
-    assert det.role == "supplementary"
-    assert det.reason == "head_marker"
+    assert det.role == "main"
+    assert det.reason == "default_main"
 
 
 def test_fixture_j_chrome_without_abstract_no_veto() -> None:
     det = detect_doc_role_detailed(_load("J_chrome_no_abstract.txt"))
     assert det.role == "supplementary"
-    assert det.reason == "head_marker"
+    assert det.reason == "cover_above_title"
 
 
 def test_dart_ports_veto_reason() -> None:
     dart = DART.read_text(encoding="utf-8")
-    assert "head_marker_acs_chrome_veto" in dart
-    assert "Metrics" in dart and "Article" in dart and "Recommendations" in dart
+    assert "cover_above_title" in dart
+    assert "metrics" in dart and "article" in dart and "recommendations" in dart
     cache = CACHE.read_text(encoding="utf-8")
     assert "kPdfAdvisoryCacheSchema" in cache

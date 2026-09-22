@@ -1,6 +1,7 @@
 /// design/151/163 — slot overlay editor with PDF background, union multi-select.
 library;
 
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -58,6 +59,14 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
   bool _resolvedHasSource = false;
   Offset? _dragStart;
   Offset? _dragEnd;
+  /// Crop drag that stays on the page until 본문/캡션에 추가.
+  NormRect? _pendingCrop;
+  static const String _cropHint = '이 영역을 본문 또는 캡션에 추가하세요.';
+  Offset _panAtStart = Offset.zero;
+  int _maxPointers = 0;
+  bool _atLeftEdge = false;
+  bool _atRightEdge = false;
+  Size _viewport = Size.zero;
   final TransformationController _transform = TransformationController();
   /// design/118 — pinch amplify base (layout edit same lock as reader).
   double _scaleAtGestureStart = 1.0;
@@ -81,9 +90,78 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
   void _onViewerInteractionStart(ScaleStartDetails details) {
     _scaleAtGestureStart = _transform.value.getMaxScaleOnAxis();
     _lastFocalPoint = details.localFocalPoint;
+    final t = _transform.value.getTranslation();
+    _panAtStart = Offset(t.x, t.y);
+    _maxPointers = details.pointerCount;
+    _capturePanEdges();
+  }
+
+  void _capturePanEdges() {
+    final w = _viewport.width;
+    final scale = _transform.value.getMaxScaleOnAxis();
+    if (w <= 0 || !scale.isFinite || scale <= 0) {
+      _atLeftEdge = false;
+      _atRightEdge = false;
+      return;
+    }
+    final edges = viewerContentEdges(
+      sceneLeft: _transform.toScene(Offset.zero).dx,
+      sceneRight: _transform.toScene(Offset(w, 0)).dx,
+      childWidth: w,
+      scale: scale,
+    );
+    _atLeftEdge = edges.left;
+    _atRightEdge = edges.right;
+  }
+
+  void _onViewerInteractionEnd(ScaleEndDetails details) {
+    final pointers = _maxPointers;
+    _maxPointers = 0;
+    if (_mode != _EditMode.pan || _loading) return;
+    final w = _viewport.width;
+    final scale = _transform.value.getMaxScaleOnAxis();
+    final t = _transform.value.getTranslation();
+    final dx = t.x - _panAtStart.dx;
+    final dy = t.y - _panAtStart.dy;
+    final v = details.velocity.pixelsPerSecond;
+    var pulledPastLeft = false;
+    var pulledPastRight = false;
+    if (w > 0 && scale.isFinite && scale > 0) {
+      final slop = 24.0 / scale;
+      final left = _transform.toScene(Offset.zero).dx;
+      final right = _transform.toScene(Offset(w, 0)).dx;
+      pulledPastLeft = left < -slop;
+      pulledPastRight = right > w + slop;
+    }
+    final turn = panEdgePageTurn(
+      atLeftEdge: _atLeftEdge,
+      atRightEdge: _atRightEdge,
+      dx: dx,
+      dy: dy,
+      vx: v.dx,
+      vy: v.dy,
+      pointerCount: pointers,
+      pulledPastLeft: pulledPastLeft,
+      pulledPastRight: pulledPastRight,
+    );
+    if (turn == PanEdgeTurn.none) return;
+    final delta = turn == PanEdgeTurn.next ? 1 : -1;
+    if (!_hasLayoutPage(_pageIndex + delta)) return;
+    _transform.value = Matrix4.identity();
+    unawaited(_changePage(delta));
+  }
+
+  bool _hasLayoutPage(int index) {
+    if (index < 0) return false;
+    final pages = _session?.layoutMap['pages'];
+    if (pages is! List || pages.isEmpty) return false;
+    return index < pages.length;
   }
 
   void _onViewerInteractionUpdate(ScaleUpdateDetails details) {
+    if (details.pointerCount > _maxPointers) {
+      _maxPointers = details.pointerCount;
+    }
     final scaleNow = _transform.value.getMaxScaleOnAxis();
     // Zoomed one-finger pan — amplify like reader (design/118).
     if (details.pointerCount == 1 && scaleNow > _zoomEps) {
@@ -229,6 +307,7 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
       _selectedBoxIds.clear();
       _dragStart = null;
       _dragEnd = null;
+      _pendingCrop = null;
     });
     final session = _session;
     if (session == null) return;
@@ -245,7 +324,9 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
     setState(() {
       _selectedSlotKey = key;
       _selectedBoxIds.clear();
-      _status = 'Select boxes → Add body/caption';
+      if (_pendingCrop == null) {
+        _status = 'Select boxes → Add body/caption';
+      }
     });
   }
 
@@ -265,13 +346,22 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
   }
 
   Future<void> _assignSelection({required bool caption}) async {
+    final pending = _pendingCrop;
+    if (pending != null) {
+      await _assignPendingCrop(caption: caption, rect: pending);
+      return;
+    }
     final session = _session;
     final slotKey = _selectedSlotKey;
     if (session == null || slotKey == null) return;
     final selected = _selectedBoxes();
     if (selected.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('박스를 선택하세요.')),
+        SnackBar(
+          content: Text(
+            _mode == _EditMode.crop ? '영역을 드래그하세요.' : '박스를 선택하세요.',
+          ),
+        ),
       );
       return;
     }
@@ -322,29 +412,70 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
     setState(() => _dragEnd = d.localPosition);
   }
 
-  void _onPanEnd(DragEndDetails d, Size size) {
-    final session = _session;
-    if (_mode != _EditMode.crop || session == null || _dragStart == null || _dragEnd == null) {
+  void _onPanEnd(DragEndDetails d, Size pageSize) {
+    if (_mode != _EditMode.crop || _dragStart == null || _dragEnd == null) {
       return;
     }
     final rect = normRectFromDrag(
       start: _dragStart!,
       end: _dragEnd!,
-      size: size,
+      size: pageSize,
     );
-    if (!rect.isValid || (rect.right - rect.left) < 0.02 || (rect.bottom - rect.top) < 0.02) {
-      setState(() {
-        _dragStart = null;
-        _dragEnd = null;
-      });
-      return;
-    }
-    session.addManualBox(pageIndex: _pageIndex, rect: rect);
     setState(() {
-      _boxes = _buildBoxViews(session.layoutMap, _pageIndex);
       _dragStart = null;
       _dragEnd = null;
-      _status = 'Manual crop added';
+      if (cropDragKept(rect, pageSize)) {
+        _pendingCrop = rect;
+        _status = _cropHint;
+      }
+    });
+  }
+
+  Future<void> _assignPendingCrop({
+    required bool caption,
+    required NormRect rect,
+  }) async {
+    final session = _session;
+    final slotKey = _selectedSlotKey;
+    if (session == null || slotKey == null) return;
+    final slot = session.slotByKey(slotKey);
+    if (slot == null) return;
+    final pagePng = await _pagePngFor(_pageIndex);
+    if (!mounted) return;
+    final id = session.addManualBox(
+      pageIndex: _pageIndex,
+      rect: rect,
+      kind: slot.isTable
+          ? (caption ? 'table_caption' : 'table_body')
+          : (caption ? 'figure_caption' : 'figure_body'),
+    );
+    setState(() {
+      if (caption) {
+        slot.captionBoxIds = [id];
+        slot.captionUnion = rect;
+      } else {
+        slot.bodyBoxIds = [id];
+        slot.bodyUnion = rect;
+      }
+      slot.status = 'user_confirmed';
+      session.dirty = true;
+      if (pagePng != null) {
+        slot.previewPng = composeSlotPng(
+          bodyPagePng: pagePng,
+          bodyRect: slot.bodyUnion,
+          captionPagePng: pagePng,
+          captionRect: slot.captionUnion,
+          isTable: slot.isTable,
+        );
+      }
+      if (identical(_pendingCrop, rect)) {
+        _pendingCrop = null;
+      }
+      _dragStart = null;
+      _dragEnd = null;
+      _selectedBoxIds.clear();
+      _boxes = _buildBoxViews(session.layoutMap, _pageIndex);
+      _status = caption ? 'Caption set for $slotKey' : 'Body set for $slotKey';
     });
   }
 
@@ -557,11 +688,6 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
                                   child: const Text('캡션에 추가'),
                                 ),
                               ),
-                              IconButton(
-                                tooltip: 'Clear selection',
-                                onPressed: () => setState(_selectedBoxIds.clear),
-                                icon: const Icon(Icons.deselect),
-                              ),
                             ],
                           ),
                         ),
@@ -574,23 +700,26 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
                                 constraints.maxWidth,
                                 constraints.maxHeight,
                               );
+                              _viewport = viewSize;
+                              var pageRect = fittedContainRect(viewSize, _pageAspect);
+                              if (pageRect.isEmpty) {
+                                pageRect = Offset.zero & viewSize;
+                              }
+                              final pageSize = pageRect.size;
                               final pageChild = LayoutOverlay(
                                 boxes: _boxes,
                                 pageIndex: _pageIndex,
                                 selectedIds: _selectedBoxIds,
                                 onBoxTap: _mode == _EditMode.select ? _onBoxTap : null,
                                 child: _pagePng != null
-                                    ? AspectRatio(
-                                        aspectRatio: _pageAspect,
-                                        // Light paper surface: PDF ink is black
-                                        // pixels; keep readable under dark Theme.
-                                        child: ColoredBox(
-                                          color: Colors.white,
-                                          child: Image.memory(
-                                            _pagePng!,
-                                            fit: BoxFit.contain,
-                                            gaplessPlayback: true,
-                                          ),
+                                    ? ColoredBox(
+                                        color: Colors.white,
+                                        child: Image.memory(
+                                          _pagePng!,
+                                          fit: BoxFit.fill,
+                                          gaplessPlayback: true,
+                                          width: pageSize.width,
+                                          height: pageSize.height,
                                         ),
                                       )
                                     : ColoredBox(
@@ -603,37 +732,38 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
                                         ),
                                       ),
                               );
-                              Widget stack = Stack(
+                              Widget page = Stack(
                                 fit: StackFit.expand,
                                 children: [
                                   pageChild,
                                   if (_dragStart != null && _dragEnd != null)
                                     Positioned.fromRect(
                                       rect: Rect.fromPoints(_dragStart!, _dragEnd!),
-                                      child: IgnorePointer(
-                                        child: DecoratedBox(
-                                          decoration: BoxDecoration(
-                                            border: Border.all(
-                                              color: Colors.red,
-                                              width: 2,
-                                            ),
-                                            color: Colors.red.withValues(alpha: 0.15),
-                                          ),
-                                        ),
-                                      ),
+                                      child: const IgnorePointer(child: _CropFrame()),
+                                    ),
+                                  if (_pendingCrop != null && _dragStart == null)
+                                    Positioned(
+                                      left: _pendingCrop!.left * pageSize.width,
+                                      top: _pendingCrop!.top * pageSize.height,
+                                      width: (_pendingCrop!.right - _pendingCrop!.left) *
+                                          pageSize.width,
+                                      height: (_pendingCrop!.bottom - _pendingCrop!.top) *
+                                          pageSize.height,
+                                      child: const IgnorePointer(child: _CropFrame()),
                                     ),
                                 ],
                               );
                               if (_mode == _EditMode.crop) {
-                                stack = GestureDetector(
-                                  onPanStart: (d) => _onPanStart(d, viewSize),
+                                page = GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onPanStart: (d) => _onPanStart(d, pageSize),
                                   onPanUpdate: _onPanUpdate,
-                                  onPanEnd: (d) => _onPanEnd(d, viewSize),
-                                  child: stack,
+                                  onPanEnd: (d) => _onPanEnd(d, pageSize),
+                                  child: page,
                                 );
                               }
-                              // design/198 — pinch+pan in Select/Pan (1.5 sens);
-                              // Crop keeps free pan for drawing a box.
+                              // design/198 — pinch+pan in Select/Pan (1.5 sens).
+                              // Crop draws on the page; the red rect stays after lift.
                               final allowZoom = _mode != _EditMode.crop;
                               return InteractiveViewer(
                                 transformationController: _transform,
@@ -647,7 +777,21 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
                                 onInteractionUpdate: allowZoom
                                     ? _onViewerInteractionUpdate
                                     : null,
-                                child: stack,
+                                onInteractionEnd: allowZoom
+                                    ? _onViewerInteractionEnd
+                                    : null,
+                                child: SizedBox(
+                                  width: viewSize.width,
+                                  height: viewSize.height,
+                                  child: Stack(
+                                    children: [
+                                      Positioned.fromRect(
+                                        rect: pageRect,
+                                        child: page,
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               );
                             },
                           ),
@@ -655,6 +799,22 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
                       ),
                     ],
                   ),
+      ),
+    );
+  }
+}
+
+class _CropFrame extends StatelessWidget {
+  const _CropFrame();
+
+  @override
+  Widget build(BuildContext context) {
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.fromBorderSide(
+          BorderSide(color: Colors.red, width: 2),
+        ),
+        color: Color(0x26FF0000),
       ),
     );
   }

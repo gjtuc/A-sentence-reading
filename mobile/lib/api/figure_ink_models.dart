@@ -19,7 +19,21 @@ const figureInkPalette = <String>[
 
 const String kDefaultFigureInkColor = '#E53935';
 
+/// Half of the previous 2px pen. Saved strokes also paint at this width.
+const double kFigureInkStrokeWidth = 1.0;
+
+/// Strokes stay see-through so the figure underneath remains readable.
+const double kFigureInkOpacity = 0.5;
+
 enum FigureInkTool { pen, eraser }
+
+/// Pen or eraser owns the finger. A cleared tool leaves pan and zoom on.
+bool figureInkCapturesPointer({
+  required bool inkMode,
+  required FigureInkTool? tool,
+}) {
+  return inkMode && tool != null;
+}
 
 Color figureInkColorValue(String raw) {
   final s = raw.trim();
@@ -31,6 +45,10 @@ Color figureInkColorValue(String raw) {
     }
   }
   return const Color(0xFFE53935);
+}
+
+Color figureInkStrokeColor(String raw) {
+  return figureInkColorValue(raw).withValues(alpha: kFigureInkOpacity);
 }
 
 /// Min distance from normalized point to an ink polyline (0–1 coords).

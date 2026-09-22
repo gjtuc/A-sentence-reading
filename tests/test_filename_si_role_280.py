@@ -28,7 +28,7 @@ def test_versions_280() -> None:
     assert "280-filename-si-role.md" in README.read_text(encoding="utf-8")
     dart = DETECT.read_text(encoding="utf-8")
     assert "filename_si" in dart
-    assert "!fnHint" in dart
+    assert "fnHint" in dart
     assert "kPdfAdvisoryCacheSchema" in CACHE.read_text(encoding="utf-8")
 
 def test_filename_si_alone_python() -> None:
@@ -55,10 +55,10 @@ def test_acs_chrome_veto_skipped_when_filename_si() -> None:
     head = FIXTURE_ACS_MAIN.read_text(encoding="utf-8")
     as_main = detect_doc_role_detailed(head, filename="an1c00673.pdf")
     assert as_main.role == "main"
-    assert as_main.reason == "head_marker_acs_chrome_veto"
+    assert as_main.reason == "default_main"
     as_si = detect_doc_role_detailed(head, filename="cs9b00733_si_001.pdf")
     assert as_si.role == "supplementary"
-    assert as_si.reason == "head_marker"
+    assert as_si.reason == "filename_si"
 
 
 def test_docx_reason_unchanged() -> None:
@@ -67,4 +67,4 @@ def test_docx_reason_unchanged() -> None:
         filename="paper-mmc1.docx",
     )
     assert det.role == "supplementary"
-    assert det.reason == "filename_si_and_docx"
+    assert det.reason == "filename_si"

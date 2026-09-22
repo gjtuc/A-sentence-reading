@@ -1637,18 +1637,39 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     try {
       for (var i = 0; i < words.length; i++) {
         if (!_reviewAlive(token)) return;
-        final played = await _playReviewWord(
-          token: token,
-          word: words[i],
-          reviewTier: reviewTier,
-          randomAuto: randomAuto,
-          voice: voice,
-          clientRate: clientRate,
-        );
-        if (!_reviewAlive(token)) return;
-        if (played && mounted) {
-          setState(() => _reviewWord = null);
+        String? avoidVoice;
+        double? avoidRate;
+        for (var attempt = 0; attempt < kMissReviewMaxTries; attempt++) {
+          if (!_reviewAlive(token)) return;
+          final draw = drawMissReviewPlayback(
+            randomAuto: randomAuto || attempt > 0,
+            reviewTier: reviewTier,
+            fallbackVoice: voice ?? widget.tts.voice,
+            fallbackRate: clientRate ?? kTtsRateDefault,
+            voiceIds:
+                widget.tts.voices.map((v) => v.id).toList(growable: false),
+            avoidVoice: attempt == 0 ? null : avoidVoice,
+            avoidRate: attempt == 0 ? null : avoidRate,
+          );
+          final played = await _playReviewWord(
+            token: token,
+            word: words[i],
+            playVoice: draw.voice,
+            playRate: draw.rate,
+          );
+          if (!_reviewAlive(token)) return;
+          if (!played.ok) break;
+          avoidVoice = draw.voice;
+          avoidRate = draw.rate;
+          final hear = await _hearReviewWord(
+            token: token,
+            word: words[i],
+            ttsHeard: played.heard,
+          );
+          if (!_reviewAlive(token)) return;
+          if (hear != MissReviewHear.missed) break;
         }
+        if (mounted) setState(() => _reviewWord = null);
         if (i + 1 < words.length) {
           await Future<void>.delayed(kMissReviewGap);
         }
@@ -1692,39 +1713,19 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     }
   }
 
-  Future<bool> _playReviewWord({
+  Future<({bool ok, Duration heard})> _playReviewWord({
     required int token,
     required String word,
-    required int reviewTier,
-    required bool randomAuto,
-    required String? voice,
-    required double? clientRate,
+    required String playVoice,
+    required double playRate,
   }) async {
-    if (!_reviewAlive(token)) return false;
+    const silent = (ok: false, heard: Duration.zero);
+    if (!_reviewAlive(token)) return silent;
     _clearFollowLight();
     if (mounted) setState(() => _reviewWord = word);
     try {
       await _player.stop();
       await _player.setVolume(_kFullTtsVolume);
-      late final String playVoice;
-      late final double playRate;
-      if (randomAuto) {
-        final picked = pickTtsPlaybackParams(
-          mode: kTtsModeRandomAuto,
-          voice: voice ?? widget.tts.voice,
-          speakingRate: kTtsRateDefault,
-          voiceIds: widget.tts.voices.map((v) => v.id).toList(growable: false),
-          skillTier: reviewTier,
-          applyDensityRateBias: false,
-        );
-        playVoice = picked.voice;
-        playRate = picked.speakingRate;
-      } else {
-        playVoice = (voice ?? widget.tts.voice).trim().isEmpty
-            ? widget.tts.voice
-            : voice!.trim();
-        playRate = clientRate ?? kTtsRateDefault;
-      }
       await _player.setPlaybackRate(clampSpeakingRate(playRate));
       final bytes = await widget.client
           .synthesizeTts(
@@ -1734,17 +1735,72 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             cacheId: _cacheId,
           )
           .timeout(kMissReviewWordTimeout);
-      if (!_reviewAlive(token) || bytes.isEmpty) return false;
+      if (!_reviewAlive(token) || bytes.isEmpty) return silent;
       if (mounted && _reviewWord != word) {
         setState(() => _reviewWord = word);
       }
       final done = _player.onPlayerComplete.first.timeout(kMissReviewWordTimeout);
+      final wall = Stopwatch()..start();
       await _player.play(BytesSource(bytes));
       await done;
-      return _reviewAlive(token);
+      wall.stop();
+      await _player.stop();
+      if (!_reviewAlive(token)) return silent;
+      return (ok: true, heard: wall.elapsed);
     } catch (_) {
       if (mounted) setState(() => _reviewWord = null);
-      return false;
+      return silent;
+    }
+  }
+
+  /// Record after TTS has stopped. The take must not contain the model voice.
+  Future<MissReviewHear> _hearReviewWord({
+    required int token,
+    required String word,
+    required Duration ttsHeard,
+  }) async {
+    if (!_skill.serverEnabled || !_skill.cloudSttEnabled) {
+      return MissReviewHear.skip;
+    }
+    if (!_reviewAlive(token)) return MissReviewHear.skip;
+    var started = false;
+    try {
+      await _player.stop();
+      var okMic = await _mic.invokeMethod<bool>('hasPermission') ?? false;
+      if (!okMic) {
+        okMic = await _mic.invokeMethod<bool>('requestPermission') ?? false;
+      }
+      if (!okMic || !_reviewAlive(token)) return MissReviewHear.skip;
+      await Future<void>.delayed(kMissReviewMicReady);
+      if (!_reviewAlive(token)) return MissReviewHear.skip;
+      final dir = await getTemporaryDirectory();
+      final path =
+          '${dir.path}${Platform.pathSeparator}asr_review_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      started = await _mic.invokeMethod<bool>('start', {'path': path}) ?? false;
+      if (!started || !_reviewAlive(token)) return MissReviewHear.skip;
+      await Future<void>.delayed(missReviewSpeakWindow(ttsHeard));
+      if (!_reviewAlive(token)) return MissReviewHear.skip;
+      final outPath = await _mic.invokeMethod<String>('stop');
+      started = false;
+      final filePath = (outPath == null || outPath.isEmpty) ? path : outPath;
+      final file = File(filePath);
+      if (!await file.exists()) return MissReviewHear.missed;
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) return MissReviewHear.missed;
+      final heard = await widget.client
+          .recognizePracticeTake(bytes: bytes, mime: 'audio/mp4')
+          .timeout(kMissReviewSttWait);
+      if (!_reviewAlive(token)) return MissReviewHear.skip;
+      if (missReviewHeardMatches(word: word, heard: heard)) {
+        return MissReviewHear.matched;
+      }
+      return MissReviewHear.missed;
+    } catch (_) {
+      return MissReviewHear.missed;
+    } finally {
+      if (started) {
+        unawaited(_mic.invokeMethod<String>('stop'));
+      }
     }
   }
 

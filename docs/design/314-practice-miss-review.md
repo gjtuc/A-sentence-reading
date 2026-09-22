@@ -28,13 +28,15 @@ No missed words: existing rest. Rest setting off and no misses: no rest.
 
 Do not write the chunk TTS cache. Send the printed word to `POST /api/tts`. Do not reimplement speak rules. Server synthesize rate stays 1.0. Client playback rate is the only speed.
 
-`random_auto`: draw each word from the snapshotted tier minus 2, clamped at 0, including that tier's locale weights. Do not save the tier. Do not apply density skew or the grooming scale.
+`random_auto`: the first play of each word is drawn from the snapshotted tier minus 2, clamped at 0, including that tier's locale weights. Do not save the tier. Do not apply density skew or the grooming scale.
 
-Fixed voice: use the voice and client rate just heard. Do not switch to a random tier.
+Fixed voice: the first play uses the voice and client rate just heard.
 
-Volume is full. Mic stays off. The speaking-block clock does not start.
+After the word finishes, the player stops and the mic stays closed through that playback. Then the mic records for the time just heard plus 2 seconds, with no TTS. Cloud STT decides the word. A match advances. A miss plays the word again, up to 5 tries, then advances. Each replay is a new draw from that same lower random tier, including after a fixed-voice first play, and is not the voice and rate just heard. The speaking-block clock does not start. STT off, or a mic that will not start, plays once and advances.
 
-A word whose audio fails or does not finish within 12 seconds is skipped. Do not estimate its length.
+Volume is full.
+
+A word whose audio fails or does not finish within 12 seconds is skipped. Do not estimate its length. An STT wait is capped at 8 seconds and counts as a miss.
 
 ## After the words
 

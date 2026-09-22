@@ -102,7 +102,7 @@ class FigureEditSession {
     return raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
   }
 
-  void addManualBox({
+  String addManualBox({
     required int pageIndex,
     required NormRect rect,
     String kind = 'figure_body',
@@ -111,7 +111,8 @@ class FigureEditSession {
     final id = 'user-crop-$manualBoxSeq';
     final pw = pageWidth(pageIndex);
     final ph = pageHeight(pageIndex);
-    boxes.add({
+    final next = boxes;
+    next.add({
       'id': id,
       'page_index': pageIndex,
       'kind': kind,
@@ -124,8 +125,9 @@ class FigureEditSession {
       },
       'text': '',
     });
-    layoutMap['boxes'] = boxes;
+    layoutMap['boxes'] = next;
     dirty = true;
+    return id;
   }
 
   int pageWidth(int pageIndex) {

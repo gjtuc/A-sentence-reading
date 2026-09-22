@@ -61,20 +61,21 @@ void main() {
     );
   });
 
-  test('watchdog covers twelve seconds per review word plus tail plus slack', () {
+  test('watchdog covers five tries per review word plus tail plus slack', () {
+    final one = kMissReviewAttemptBudget * kMissReviewMaxTries;
     expect(
       restCoverWatchdogLimit(
         scheduledRest: const Duration(seconds: 15),
         reviewWordN: 1,
       ),
-      const Duration(seconds: 17),
+      one + kMissReviewTail + kRestWatchdogSlack,
     );
     expect(
       restCoverWatchdogLimit(
         scheduledRest: const Duration(seconds: 15),
         reviewWordN: 2,
       ),
-      const Duration(seconds: 29),
+      one * 2 + kMissReviewTail + kRestWatchdogSlack,
     );
   });
 
@@ -93,5 +94,68 @@ void main() {
       expect(p.speakingRate, greaterThanOrEqualTo(band.$1));
       expect(p.speakingRate, lessThanOrEqualTo(band.$2));
     }
+  });
+
+  test('speak window is the time just heard plus two seconds', () {
+    expect(
+      missReviewSpeakWindow(const Duration(milliseconds: 800)),
+      const Duration(milliseconds: 2800),
+    );
+    expect(
+      missReviewSpeakWindow(Duration.zero),
+      kMissReviewSpeakPad,
+    );
+  });
+
+  test('a heard content word matches and a different word does not', () {
+    expect(
+      missReviewHeardMatches(word: 'catalyst', heard: 'The catalyst.'),
+      isTrue,
+    );
+    expect(
+      missReviewHeardMatches(word: 'catalyst', heard: 'vapor'),
+      isFalse,
+    );
+    expect(missReviewHeardMatches(word: 'catalyst', heard: ''), isFalse);
+  });
+
+  test('a retry draw is not the voice and rate just heard', () {
+    const voices = [
+      'en-US-Neural2-A',
+      'en-US-Neural2-D',
+      'en-GB-Neural2-B',
+    ];
+    final first = drawMissReviewPlayback(
+      randomAuto: true,
+      reviewTier: 2,
+      fallbackVoice: 'en-US-Neural2-D',
+      fallbackRate: 1,
+      voiceIds: voices,
+      random: Random(3),
+    );
+    final again = drawMissReviewPlayback(
+      randomAuto: true,
+      reviewTier: 2,
+      fallbackVoice: 'en-US-Neural2-D',
+      fallbackRate: 1,
+      voiceIds: voices,
+      avoidVoice: first.voice,
+      avoidRate: first.rate,
+      random: Random(3),
+    );
+    final same = again.voice == first.voice &&
+        (again.rate - first.rate).abs() < 0.001;
+    expect(same, isFalse);
+  });
+
+  test('fixed voice stays on the first play', () {
+    final play = drawMissReviewPlayback(
+      randomAuto: false,
+      reviewTier: 2,
+      fallbackVoice: 'en-US-Neural2-D',
+      fallbackRate: 0.9,
+    );
+    expect(play.voice, 'en-US-Neural2-D');
+    expect(play.rate, 0.9);
   });
 }

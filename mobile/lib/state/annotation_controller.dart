@@ -32,7 +32,8 @@ class AnnotationController extends ChangeNotifier {
   /// design/187 — device is SoT; cloud PUT refused / push no-op.
   bool localSot = false;
   bool figureInkMode = false;
-  FigureInkTool figureInkTool = FigureInkTool.pen;
+  /// Null while the ink menu is open but neither pen nor eraser is armed.
+  FigureInkTool? figureInkTool = FigureInkTool.pen;
   String figureInkColor = kDefaultFigureInkColor;
   Timer? _pushTimer;
 
@@ -450,7 +451,7 @@ class AnnotationController extends ChangeNotifier {
     required String figureKey,
     required List<List<double>> points,
     String? color,
-    double width = 2.0,
+    double width = kFigureInkStrokeWidth,
   }) async {
     final events = Map<String, List<AnnotationEvent>>.from(_paper.figures);
     final list = List<AnnotationEvent>.from(events[figureKey] ?? const []);
@@ -506,8 +507,7 @@ class AnnotationController extends ChangeNotifier {
   }
 
   void setFigureInkTool(FigureInkTool next) {
-    if (figureInkTool == next) return;
-    figureInkTool = next;
+    figureInkTool = figureInkTool == next ? null : next;
     notifyListeners();
   }
 

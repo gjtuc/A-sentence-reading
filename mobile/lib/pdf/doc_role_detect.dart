@@ -1,4 +1,4 @@
-/// design/228 · 229 · 235 — Dart port of supplementary_detect.py (advisory only).
+/// design/228 · 229 · 235 · 363 — Dart port of supplementary_detect.py (advisory only).
 library;
 
 class DocRoleDetectResult {
@@ -22,13 +22,40 @@ class DocRoleDetectResult {
   final bool strippedFormat;
 }
 
-final _siHead = RegExp(
-  r'(?:^|\n)\s*('
-  r'supplementary\s+(?:information|materials?|data)'
-  r'|supporting\s+information'
-  r'|electronic\s+supplementary'
-  r'|esi\b'
-  r')',
+// design/363 — the cover line, and only as its own line.
+final _coverLine = RegExp(
+  r'^\s*(?:the\s+)?('
+  r'supporting\s+information'
+  r'|supporting\s+online\s+materials?'
+  r'|supporting\s+materials?'
+  r'|supplementary\s+information'
+  r'|supplementary\s+materials?'
+  r'|electronic\s+supplementary\s+information'
+  r')\b',
+  caseSensitive: false,
+);
+
+final _chromeLine = RegExp(
+  r'^\s*('
+  r's\s*[-–—]?\s*\d{1,3}'
+  r'|access'
+  r'|metrics\s*&\s*more'
+  r'|article\s+recommendations'
+  r'|read\s+online'
+  r'|cite\s+this\s*:'
+  r'|article'
+  r'|research'
+  r'|https?://\S+'
+  r'|doi:\s*\S+'
+  r'|www\.\S+'
+  r'|in\s+the\s+format\s+provided\s+by\s+the'
+  r'|authors\s+and\s+unedited'
+  r')\s*$',
+  caseSensitive: false,
+);
+
+final _abstractLine = RegExp(
+  r'^\s*(abstract|conspectus)\b',
   caseSensitive: false,
 );
 
@@ -50,33 +77,6 @@ final _siFilename = RegExp(
 
 final _siPageLabel = RegExp(
   r'(?:^|\n)\s*S\s*[-–—]?\s*\d{1,3}\b',
-  caseSensitive: false,
-);
-
-// design/255 — Table S1, Figure S1, Scheme S1 in SI head
-final _siTableFig = RegExp(
-  r'\b(?:Table|Fig(?:ure)?|Scheme)\s*S\d+\b',
-  caseSensitive: false,
-);
-
-// design/229 — ACS article chrome near Supporting Information badge.
-final _acsChrome = <RegExp>[
-  RegExp(r'(?:^|\n)\s*ACCESS\b', caseSensitive: false),
-  RegExp(r'Metrics\s*&\s*More', caseSensitive: false),
-  RegExp(r'Article\s+Recommendations', caseSensitive: false),
-  RegExp(r'(?:^|\n)\s*s[iı]\b', caseSensitive: false),
-];
-
-// design/229 · 235 — ABSTRACT or CONSPECTUS soon after SI badge.
-final _abstractSoon = RegExp(
-  r'(?:ABSTRACT\s*:|(?:^|\n)\s*ABSTRACT\b|CONSPECTUS\s*:|(?:^|\n)\s*CONSPECTUS\b)',
-  caseSensitive: false,
-);
-
-// design/235 — RSC ESI availability footnote (not ESI cover).
-final _esiAvailableFootnote = RegExp(
-  r'(?:[†*‡]\s*)?Electronic\s+supplementary\s+information'
-  r'(?:\s*\(\s*ESI\s*\))?\s+available\b',
   caseSensitive: false,
 );
 
@@ -129,25 +129,28 @@ String normalizeDocRole(String? raw) {
   return 'main';
 }
 
-bool _isAcsMainSiBadge(String head, RegExpMatch match) {
-  final start = match.start - 400 < 0 ? 0 : match.start - 400;
-  final end = match.end + 250 > head.length ? head.length : match.end + 250;
-  final window = head.substring(start, end);
-  var chromeHits = 0;
-  for (final pat in _acsChrome) {
-    if (pat.hasMatch(window)) chromeHits++;
-  }
-  final afterEnd =
-      match.end + 300 > head.length ? head.length : match.end + 300;
-  final after = head.substring(match.end, afterEnd);
-  final abstractSoon = _abstractSoon.hasMatch(after);
-  return chromeHits >= 2 && abstractSoon;
+bool _isChromeLine(String line) {
+  final s = line.trim();
+  if (s.isEmpty) return true;
+  if (s.length <= 2) return true;
+  if (_chromeLine.hasMatch(s)) return true;
+  if (RegExp(r'^s[iı]$', caseSensitive: false).hasMatch(s)) return true;
+  if (RegExp(r'^cite\s+this\b', caseSensitive: false).hasMatch(s)) return true;
+  return false;
 }
 
-bool _isEsiAvailabilityFootnote(String head, RegExpMatch match) {
-  final start = match.start - 80 < 0 ? 0 : match.start - 80;
-  final end = match.end + 160 > head.length ? head.length : match.end + 160;
-  return _esiAvailableFootnote.hasMatch(head.substring(start, end));
+bool coverPhraseAboveTitle(String text) {
+  var coverSeen = false;
+  for (final raw in text.split('\n')) {
+    if (_isChromeLine(raw)) continue;
+    if (_coverLine.hasMatch(raw)) {
+      coverSeen = true;
+      continue;
+    }
+    if (_abstractLine.hasMatch(raw)) return false;
+    return coverSeen;
+  }
+  return coverSeen;
 }
 
 DocRoleDetectResult detectDocRoleDetailed(
@@ -167,7 +170,7 @@ DocRoleDetectResult detectDocRoleDetailed(
           head.length <= 1200 ? head : head.substring(0, 1200),
         )
       : false;
-  final markerMatch = headLen > 0 ? _siHead.firstMatch(head) : null;
+  final coverHit = headLen > 0 && coverPhraseAboveTitle(head);
   if (head.trim().isEmpty) {
     // design/280 — Info.Title may still yield a title while extract text is empty.
     if (fnHint) {
@@ -191,108 +194,26 @@ DocRoleDetectResult detectDocRoleDetailed(
       strippedFormat: stripped,
     );
   }
-  if (markerMatch != null) {
-    // design/280 — clear SI filenames must not be vetoed as ACS/ESI main chrome.
-    if (!fnHint && _isAcsMainSiBadge(head, markerMatch)) {
-      return DocRoleDetectResult(
-        role: 'main',
-        reason: 'head_marker_acs_chrome_veto',
-        headLen: headLen,
-        markerHit: true,
-        filenameSiHint: fnHint,
-        pageLabelHit: pageLabel,
-        strippedFormat: stripped,
-      );
-    }
-    if (!fnHint && _isEsiAvailabilityFootnote(head, markerMatch)) {
-      return DocRoleDetectResult(
-        role: 'main',
-        reason: 'head_marker_esi_footnote_veto',
-        headLen: headLen,
-        markerHit: true,
-        filenameSiHint: fnHint,
-        pageLabelHit: pageLabel,
-        strippedFormat: stripped,
-      );
-    }
-    // design/281 — mid-paper "Supporting Information" after ABSTRACT ≠ SI cover.
-    final beforeMarker = head.substring(0, markerMatch.start);
-    if (!fnHint && _abstractSoon.hasMatch(beforeMarker)) {
-      return DocRoleDetectResult(
-        role: 'main',
-        reason: 'head_marker_after_abstract_veto',
-        headLen: headLen,
-        markerHit: true,
-        filenameSiHint: fnHint,
-        pageLabelHit: pageLabel,
-        strippedFormat: stripped,
-      );
-    }
-    return DocRoleDetectResult(
-      role: 'supplementary',
-      reason: 'head_marker',
-      headLen: headLen,
-      markerHit: true,
-      filenameSiHint: fnHint,
-      pageLabelHit: pageLabel,
-      strippedFormat: stripped,
-    );
-  }
-  final isDocx = (filename ?? '').trim().toLowerCase().endsWith('.docx');
-  final tableFigHit = headLen > 0 && _siTableFig.hasMatch(head);
-
-  if (fnHint && pageLabel) {
-    return DocRoleDetectResult(
-      role: 'supplementary',
-      reason: 'filename_si_and_page_label',
-      headLen: headLen,
-      markerHit: false,
-      filenameSiHint: true,
-      pageLabelHit: true,
-      strippedFormat: stripped,
-    );
-  }
-  if (fnHint && isDocx) {
-    return DocRoleDetectResult(
-      role: 'supplementary',
-      reason: 'filename_si_and_docx',
-      headLen: headLen,
-      markerHit: false,
-      filenameSiHint: true,
-      pageLabelHit: pageLabel,
-      strippedFormat: stripped,
-    );
-  }
-  if (fnHint && tableFigHit) {
-    return DocRoleDetectResult(
-      role: 'supplementary',
-      reason: 'filename_si_and_table_fig',
-      headLen: headLen,
-      markerHit: false,
-      filenameSiHint: true,
-      pageLabelHit: pageLabel,
-      strippedFormat: stripped,
-    );
-  }
-  if (tableFigHit && pageLabel) {
-    return DocRoleDetectResult(
-      role: 'supplementary',
-      reason: 'table_fig_and_page_label',
-      headLen: headLen,
-      markerHit: false,
-      filenameSiHint: fnHint,
-      pageLabelHit: true,
-      strippedFormat: stripped,
-    );
-  }
-  // design/280 — clear SI filename alone (after dual gates; ACS/ESI veto already applied).
+  // design/363 — either signal is enough. Filename first so a Nature SI whose
+  // cover line sits under the reprinted title is still SI.
   if (fnHint) {
     return DocRoleDetectResult(
       role: 'supplementary',
       reason: 'filename_si',
       headLen: headLen,
-      markerHit: false,
+      markerHit: coverHit,
       filenameSiHint: true,
+      pageLabelHit: pageLabel,
+      strippedFormat: stripped,
+    );
+  }
+  if (coverHit) {
+    return DocRoleDetectResult(
+      role: 'supplementary',
+      reason: 'cover_above_title',
+      headLen: headLen,
+      markerHit: true,
+      filenameSiHint: false,
       pageLabelHit: pageLabel,
       strippedFormat: stripped,
     );
@@ -302,7 +223,7 @@ DocRoleDetectResult detectDocRoleDetailed(
     reason: 'default_main',
     headLen: headLen,
     markerHit: false,
-    filenameSiHint: fnHint,
+    filenameSiHint: false,
     pageLabelHit: pageLabel,
     strippedFormat: stripped,
   );

@@ -30,4 +30,32 @@ void main() {
   test('figureInkPalette has six colors', () {
     expect(figureInkPalette, hasLength(6));
   });
+
+  test('cleared ink tool leaves pan and zoom free', () {
+    expect(
+      figureInkCapturesPointer(inkMode: true, tool: FigureInkTool.pen),
+      isTrue,
+    );
+    expect(
+      figureInkCapturesPointer(inkMode: true, tool: FigureInkTool.eraser),
+      isTrue,
+    );
+    expect(
+      figureInkCapturesPointer(inkMode: true, tool: null),
+      isFalse,
+    );
+    expect(
+      figureInkCapturesPointer(inkMode: false, tool: FigureInkTool.pen),
+      isFalse,
+    );
+  });
+
+  test('figure ink is half width and half opacity', () {
+    expect(kFigureInkStrokeWidth, 1.0);
+    final color = figureInkStrokeColor('#E53935');
+    expect(color.a, closeTo(0.5, 0.01));
+    expect((color.r * 255).round(), 0xE5);
+    expect((color.g * 255).round(), 0x39);
+    expect((color.b * 255).round(), 0x35);
+  });
 }

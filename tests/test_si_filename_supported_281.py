@@ -32,7 +32,7 @@ def test_versions_281() -> None:
         encoding="utf-8"
     )
     dart = DETECT.read_text(encoding="utf-8")
-    assert "head_marker_after_abstract_veto" in dart
+    assert "cover_above_title" in dart or "coverPhraseAboveTitle" in dart
     assert "kPdfAdvisoryCacheSchema" in CACHE.read_text(encoding="utf-8")
 
 
@@ -76,7 +76,7 @@ def test_abstract_before_supporting_information_is_main() -> None:
     )
     det = detect_doc_role_detailed(head, filename="am2c04149.pdf")
     assert det.role == "main"
-    assert det.reason == "head_marker_after_abstract_veto"
+    assert det.reason == "default_main"
 
 
 def test_si_cover_still_supplementary() -> None:
@@ -88,4 +88,4 @@ def test_si_cover_still_supplementary() -> None:
     )
     det = detect_doc_role_detailed(head, filename="am2c04149_si_001.pdf")
     assert det.role == "supplementary"
-    assert det.reason == "head_marker"
+    assert det.reason == "filename_si"
