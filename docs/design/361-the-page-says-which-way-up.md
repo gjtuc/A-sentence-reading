@@ -18,6 +18,12 @@ one of them by "is there a numbered caption within 30pt" gave:
 Nothing was lost to the holding itself. But ten of the 15 turned out to be Wiley and
 ACS page badges, and **five were pages 23–27 of Advanced Energy Materials' Table 1**.
 
+The 6 with an unparseable caption are all Azure returning one region twice, as a
+`figure_body` and a `figure_caption` of identical size 0pt apart: `250x182` on
+`s41929-026-01513-y` page 1, `484x323` on `acsaem.9b01599` page 8, and four at
+`114x142`–`115x143` on `d3cy01612a` pages 1–2 — the author headshot size design/356
+measured. All correctly held, so every one of the 275 is accounted for.
+
 That table runs across pages 22–27. Each later page is headed by a 21-character
 `Table 1. (Continued)`. The slot took page 22 and the other five pages were filed as
 unclaimed bodies, so the reader saw **one sixth of Table 1** while `slot_census` said
@@ -137,8 +143,7 @@ is its own change.
 
 ## What is not locked
 
-The journal's running side-text comes along inside the clip, as it did before. The six
-held boxes beside a caption whose number did not parse are still unidentified.
+The journal's running side-text comes along inside the clip, as it did before.
 
 ## Test
 
