@@ -11,17 +11,21 @@ from typing import Any
 
 from sentence_reading.models import Figure
 from sentence_reading.pdf.caption_pairing import (
+    attach_continued_pages,
     fill_from_page_neighbours,
     pair_slot_captions,
     refill_empty_slots,
 )
 from sentence_reading.pdf.composite import (
     composite_figure_png,
+    composite_sideways_png,
     composite_table_png,
     placeholder_png,
     rect_from_dict,
     slot_missing_caption,
     slot_unnumbered_caption,
+    vstack_pngs,
+    zoom_for_area,
 )
 from sentence_reading.pdf.extract import (
     is_caption_only_figure_png,
@@ -135,6 +139,40 @@ def _orphan_table_png_until_next_caption(page, cap_rect) -> bytes | None:
     return _render_page_clip(page, clip)
 
 
+def _slot_body_pages(layout: LayoutMap, slot) -> list[int]:
+    """Every page this slot holds a body on, in page order (design/361)."""
+    ids = list(getattr(slot, "body_box_ids", None) or [])
+    if not ids and slot.body_box_id:
+        ids = [slot.body_box_id]
+    pages = set()
+    for bid in ids:
+        box = layout.box_by_id(bid)
+        if box is not None:
+            pages.add(box.page_index)
+    return sorted(pages)
+
+
+def _slot_page_rect(layout: LayoutMap, slot, page_index: int):
+    """Union of this slot's bodies on one page, whether it holds one or many."""
+    ids = list(getattr(slot, "body_box_ids", None) or [])
+    if not ids and slot.body_box_id:
+        ids = [slot.body_box_id]
+    rects = []
+    for bid in ids:
+        box = layout.box_by_id(bid)
+        if box is None or box.page_index != page_index:
+            continue
+        r = rect_from_dict(box.rect)
+        if r is not None:
+            rects.append(r)
+    if not rects:
+        return None
+    out = rects[0]
+    for r in rects[1:]:
+        out = out | r
+    return out
+
+
 def _slot_body_rect(layout: LayoutMap, slot, page_index: int):
     """Union of every panel this slot holds on `page_index` (design/338).
 
@@ -158,6 +196,51 @@ def _slot_body_rect(layout: LayoutMap, slot, page_index: int):
     for r in rects[1:]:
         out = out | r
     return out
+
+
+def _slot_caption_label(slot, caption: str) -> str:
+    if caption:
+        return caption
+    if getattr(slot, "unnumbered", False):
+        return slot_unnumbered_caption(slot.kind)
+    return f"Table {slot.n}" if slot.kind == "table" else f"Figure {slot.n}"
+
+
+def _slot_turn(layout: LayoutMap, page, page_index: int, cap_rect, body_rect) -> str:
+    """Does this slot's own region read sideways? (design/361)
+
+    The page majority answers most cases, but `1-s2.0-S0021951716000488` page 3 prints
+    upright prose above a sideways table, so the page is only 65% rotated. Asking the
+    caption's own box settles it, and the body's box when there is no caption.
+    """
+    from sentence_reading.pdf.page_turn import rect_turn
+
+    turn = layout.turn_of_page(page_index)
+    if turn:
+        return turn
+    for rect in (cap_rect, body_rect):
+        if rect is None:
+            continue
+        turn = rect_turn(page, rect, min_lines=2)
+        if turn:
+            return turn
+    return ""
+
+
+def _render_slot_page_png(
+    page, layout: LayoutMap, body_rect, cap_rect, page_index, kind, *, zoom=None
+):
+    """One page's strip of a slot, turned upright when that page is sideways."""
+    from sentence_reading.pdf.extract import _render_page_clip
+
+    turn = _slot_turn(layout, page, page_index, cap_rect, body_rect)
+    if turn:
+        return composite_sideways_png(page, body_rect, cap_rect, turn, zoom=zoom)
+    if zoom is not None and cap_rect is None and body_rect is not None:
+        return _render_page_clip(page, body_rect, zoom=zoom)
+    if kind == "table":
+        return composite_table_png(page, body_rect, cap_rect)
+    return composite_figure_png(page, body_rect, cap_rect)
 
 
 def _render_slot_png(
@@ -185,6 +268,38 @@ def _render_slot_png(
     if slot.status == "empty":
         label = slot_missing_caption(slot.kind, slot.n)
         return placeholder_png(label), label, page_index
+
+    # design/361 — a table the paper continues over later pages is one picture. Draw
+    # each page in page order and stack them, so the reader gets the whole table
+    # instead of its first sixth.
+    pages = _slot_body_pages(layout, slot) if getattr(slot, "continued", False) else []
+    if len(pages) > 1:
+        page_rects = {pg: _slot_page_rect(layout, slot, pg) for pg in pages}
+        zoom = zoom_for_area(list(page_rects.values()))
+        strips: list[bytes] = []
+        for pg in pages:
+            if not (0 <= pg < len(doc)):
+                continue
+            part = _render_slot_page_png(
+                doc[pg],
+                layout,
+                page_rects.get(pg),
+                cap_rect if cap_box is not None and cap_box.page_index == pg else None,
+                pg,
+                slot.kind,
+                zoom=zoom,
+            )
+            if part:
+                strips.append(part)
+        stacked = vstack_pngs(strips) if strips else None
+        if stacked:
+            return stacked, _slot_caption_label(slot, caption), pages[0]
+
+    turn = _slot_turn(layout, page, page_index, cap_rect, body_rect)
+    if turn:
+        sideways = composite_sideways_png(page, body_rect, cap_rect, turn)
+        if sideways:
+            return sideways, _slot_caption_label(slot, caption), page_index
 
     png = b""
     if slot.kind == "table":
@@ -288,6 +403,10 @@ def extract_figures_v2(pdf_path: Path, *, doc_role: str = "main") -> list[Figure
         # design/360 — last automatic try: the nearest unclaimed box of the kind the
         # caption names, on the caption's own page, in any direction.
         fill_from_page_neighbours(layout, plan)
+        # design/361 — a table the paper heads `Table 1 (Continued)` on later pages is
+        # one table. Join those pages before leftovers are counted, or five sixths of
+        # it is filed as an unclaimed body.
+        attach_continued_pages(layout, plan)
         append_unclaimed_body_slots(layout, plan, supplementary=supplementary)
         refresh_slot_statuses(plan)
         merged = slots_to_figures(doc, client, layout, plan)

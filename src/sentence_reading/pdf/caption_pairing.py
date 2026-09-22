@@ -313,6 +313,73 @@ def fill_from_page_neighbours(layout: LayoutMap, plan: SlotPlan) -> int:
     return filled
 
 
+# design/361 — the paper repeating its own number is the evidence. Advanced Energy
+# Materials prints Table 1 across pages 22–27 and heads each later page with a 21-char
+# `Table 1. (Continued)`; `1-s2.0-S0360319924023218` does the same over two pages with
+# 19 characters. Before this, the slot took page 22 and the other five pages became
+# unclaimed bodies, so the reader saw one sixth of Table 1 and every count said
+# `filled`. Four other papers repeat a caption number across pages without saying
+# `Continued` — a graphical-abstract label, a cross-reference Azure typed as a caption —
+# and must not be joined, which is why the word is required and not inferred from
+# adjacency alone.
+_CONTINUED = re.compile(r"\b(continued|continues|cont\.|cont'd)\b", re.IGNORECASE)
+CONTINUED_BODY_GAP_PT = 40.0
+
+
+def attach_continued_pages(layout: LayoutMap, plan: SlotPlan) -> int:
+    """Add the later pages of a figure or table that the paper says is continued.
+
+    Returns how many bodies were joined to an existing slot.
+    """
+    from sentence_reading.pdf.slot_plan import assign_body_to_slot
+
+    joined = 0
+    for cap in layout.boxes:
+        if cap.kind not in ("figure_caption", "table_caption"):
+            continue
+        text = cap.text or ""
+        if not _CONTINUED.search(text):
+            continue
+        ck = caption_key(text)
+        sk = slot_key_from_caption_key(ck) if ck else None
+        slot = plan.slot_by_key(sk) if sk else None
+        if slot is None or slot.status == "user_confirmed":
+            continue
+        held = slot.body_box_ids or ([slot.body_box_id] if slot.body_box_id else [])
+        if not held:
+            continue
+        first = layout.box_by_id(held[0])
+        if first is None or first.page_index >= cap.page_index:
+            continue
+        want = "figure_body" if slot.kind != "table" else "table_body"
+        best, best_gap = None, CONTINUED_BODY_GAP_PT
+        mine = None
+        for box in layout.boxes_on_page(cap.page_index):
+            if box.kind != want:
+                continue
+            gap = _rect_distance(cap, box)
+            if box.used_by_slot == slot.key and gap <= CONTINUED_BODY_GAP_PT:
+                mine = box
+            if box.used_by_slot:
+                continue
+            if gap <= best_gap:
+                best, best_gap = box, gap
+        if best is None:
+            # An earlier pass may already have handed this page's body to the slot.
+            # `1-s2.0-S0360319924023218` page 2 arrives that way, and it still needs
+            # the mark so the render path knows to draw both pages.
+            if mine is not None:
+                slot.continued = True
+            continue
+        assign_body_to_slot(plan, layout, slot.key, best.id)
+        cap.used_by_slot = slot.key
+        slot.continued = True
+        joined += 1
+    if joined:
+        refresh_slot_statuses(plan)
+    return joined
+
+
 def _slot_label_pattern(slot_key: str) -> re.Pattern[str] | None:
     m = re.match(r"^(fig|table):s(\d+)$", (slot_key or "").lower())
     if m:

@@ -56,7 +56,29 @@ def clamp_rect_x(rect, x0: float, x1: float):
     return r
 
 
-def vstack_pngs(strips: list[bytes]) -> bytes | None:
+# design/361 — the area the single-strip side cap already implies (6400^2). Six stacked
+# pages of Advanced Energy Materials' Table 1 come to 5960x22702 = 135 megapixels at the
+# usual 8x zoom, which is not a phone image.
+#
+# The budget is spent by *rendering* smaller, not by shrinking the finished canvas.
+# Resampling a table of 7pt type turns crisp glyph edges into grey ramps, and the PNG
+# came out at 4.4 MB — larger than the 3.8 MB original it was meant to reduce.
+VSTACK_MAX_PIXELS = 41_000_000
+
+
+def zoom_for_area(rects, *, budget: int = VSTACK_MAX_PIXELS, full: float = 8.0) -> float:
+    """The render zoom that keeps these clips inside the pixel budget together."""
+    area = 0.0
+    for r in rects:
+        if r is None:
+            continue
+        area += max(float(r.x1) - float(r.x0), 1.0) * max(float(r.y1) - float(r.y0), 1.0)
+    if area <= 0:
+        return full
+    return max(2.0, min(full, (budget / area) ** 0.5))
+
+
+def vstack_pngs(strips: list[bytes], *, max_pixels: int | None = None) -> bytes | None:
     """Stack PNG byte strips vertically; equalize width on white canvas."""
     from PIL import Image
 
@@ -71,7 +93,7 @@ def vstack_pngs(strips: list[bytes]) -> bytes | None:
             images.append(im)
         if not images:
             return None
-        if len(images) == 1:
+        if len(images) == 1 and not max_pixels:
             out = io.BytesIO()
             images[0].save(out, format="PNG")
             return out.getvalue()
@@ -84,8 +106,17 @@ def vstack_pngs(strips: list[bytes]) -> bytes | None:
             x_off = (max_w - im.width) // 2
             canvas.paste(im, (x_off, y))
             y += im.height
+        if max_pixels and max_w * total_h > max_pixels:
+            scale = (max_pixels / float(max_w * total_h)) ** 0.5
+            shrunk = canvas.resize(
+                (max(1, int(max_w * scale)), max(1, int(total_h * scale))),
+                Image.LANCZOS,
+            )
+            canvas.close()
+            canvas = shrunk
         out = io.BytesIO()
         canvas.save(out, format="PNG")
+        canvas.close()
         return out.getvalue()
     finally:
         for im in images:
@@ -180,6 +211,62 @@ def composite_table_png(page, body_rect, cap_rect) -> bytes | None:
         if png:
             strips.append(png)
     return vstack_pngs(strips)
+
+
+# design/361 — PIL's ROTATE_90 turns counter-clockwise, so a page whose baselines run
+# up the sheet (`cw`) needs ROTATE_270 to come up the right way round.
+_TURN_TO_PIL = {"cw": 270, "ccw": 90}
+
+
+def rotate_png(png: bytes, turn: str) -> bytes:
+    """Turn a rendered crop upright. Returns the input unchanged when turn is empty."""
+    deg = _TURN_TO_PIL.get(turn or "")
+    if not png or deg is None:
+        return png
+    from PIL import Image
+
+    im = None
+    try:
+        im = Image.open(io.BytesIO(png)).convert("RGB")
+        turned = im.rotate(deg, expand=True)
+        out = io.BytesIO()
+        turned.save(out, format="PNG")
+        turned.close()
+        return out.getvalue()
+    except Exception:  # noqa: BLE001
+        return png
+    finally:
+        if im is not None:
+            im.close()
+
+
+def composite_sideways_png(
+    page, body_rect, cap_rect, turn: str, *, zoom: float | None = None
+) -> bytes | None:
+    """One clip over caption and body, then turned upright (design/361).
+
+    The upright path clips caption and body separately and stacks them top to bottom.
+    On a sideways page that order is wrong: Advanced Energy Materials prints Table 1's
+    caption at `x 49..59` in the left margin and the table at `x 70..539`, so the
+    caption is to the *left* of the table, not above it. Cutting both in one clip and
+    turning it once puts the caption back on top without any rule about which side a
+    caption takes — the page already laid it out, we only re-orient it.
+    """
+    import fitz
+
+    from sentence_reading.pdf.extract import _render_page_clip
+
+    rects = [r for r in (body_rect, cap_rect) if r is not None]
+    if not rects:
+        return None
+    clip = fitz.Rect(rects[0])
+    for r in rects[1:]:
+        clip = clip | fitz.Rect(r)
+    kwargs = {} if zoom is None else {"zoom": zoom}
+    png = _render_page_clip(page, clip, **kwargs)
+    if not png:
+        return None
+    return rotate_png(png, turn)
 
 
 def placeholder_png(label: str, *, width: int = 480, height: int = 240) -> bytes:

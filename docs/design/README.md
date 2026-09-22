@@ -409,6 +409,7 @@
 | 358 | [358-look-where-the-caption-says.md](358-look-where-the-caption-says.md) | 캡션이 가리키는 쪽을 본다 — 그림은 위·표는 아래 · 몸통만으로 표 1을 만들지 않음 (0.3.354) |
 | 359 | [359-the-caption-is-the-column.md](359-the-caption-is-the-column.md) | 캡션의 x축이 곧 단이다 — 겹침 분모를 좁은 상자로(한 줄 캡션이 전폭 표를 되찾음) · 나란한 두 캡션 아래 합쳐진 상자를 단 경계에서 나눔 (0.3.355) |
 | 360 | [360-stop-guessing-what-a-picture-is.md](360-stop-guessing-what-a-picture-is.md) | 그림이 무엇인지 추정하지 않는다 — 모양으로 판단하던 검출기 둘(338·356) 삭제 · 캡션이 부르는 종류를 같은 페이지 사방에서 찾는 마지막 단계 · 그림 없는 캡션 64→3 (0.3.356) |
+| 361 | [361-the-page-says-which-way-up.md](361-the-page-says-which-way-up.md) | 페이지가 방향을 말한다 — 글줄 진행 벡터로 눕혀진 쪽 시계방향 교정(`/Rotate`는 0) · 논문이 `(Continued)`라 쓴 표를 한 칸에 이어붙여 6페이지 전부 렌더 · 화소 예산은 낮은 배율로 (0.3.357) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

@@ -42,6 +42,11 @@ class Slot:
     # design/324 — rescued body with no parsed caption number. Its `n` is a
     # carousel position, not a label the paper printed.
     unnumbered: bool = False
+    # design/361 — the paper printed `(Continued)` and carried this one over onto
+    # later pages. Only then does the render path draw more than one page. A slot
+    # that merely ends up holding bodies on two pages is not evidence of that: the
+    # `Scheme N` / `Figure N` collision puts two different pictures in one slot.
+    continued: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         body_ids = self.body_box_ids or (
@@ -61,6 +66,7 @@ class Slot:
             "caption_box_ids": cap_ids,
             "caption_text": self.caption_text,
             "unnumbered": bool(self.unnumbered),
+            "continued": bool(self.continued),
         }
 
     @classmethod
@@ -94,6 +100,7 @@ class Slot:
             body_box_ids=body_ids,
             caption_box_ids=cap_ids,
             unnumbered=bool(raw.get("unnumbered")),
+            continued=bool(raw.get("continued")),
         )
 
 

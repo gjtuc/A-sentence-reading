@@ -96,6 +96,17 @@ class LayoutMap:
     def boxes_on_page(self, page_index: int) -> list[LayoutBox]:
         return [b for b in self.boxes if b.page_index == page_index]
 
+    def turn_of_page(self, page_index: int) -> str:
+        """design/361 — `"cw"`, `"ccw"`, or `""` for a page printed sideways.
+
+        Empty for a map stored before design/361, so an old cache reads as upright
+        rather than raising.
+        """
+        for p in self.pages:
+            if int(p.get("page_index", -1)) == int(page_index):
+                return str(p.get("turn") or "")
+        return ""
+
     def unused_boxes(self, kind: str | None = None) -> list[LayoutBox]:
         out: list[LayoutBox] = []
         for b in self.boxes:
@@ -158,6 +169,8 @@ def build_layout_map_from_result(result, doc) -> LayoutMap:
     """Map Azure prebuilt-layout result + PyMuPDF doc pages → LayoutMap."""
     import fitz
 
+    from sentence_reading.pdf.page_turn import page_turn
+
     pages: list[dict[str, Any]] = []
     for i in range(len(doc)):
         page = doc[i]
@@ -166,6 +179,9 @@ def build_layout_map_from_result(result, doc) -> LayoutMap:
                 "page_index": i,
                 "width_pt": float(page.rect.width),
                 "height_pt": float(page.rect.height),
+                # design/361 — which way this page's own baselines run. Recorded here
+                # because this is the one loop that already has the PyMuPDF page.
+                "turn": page_turn(page),
             }
         )
 
