@@ -56,13 +56,22 @@ int missReviewTier(int applied) {
   return n;
 }
 
-/// True when the heard take covers every content word in [word].
-bool missReviewHeardMatches({required String word, required String? heard}) {
-  final ref = contentWords(word);
+/// True when every spoken piece of [expected] was heard, including function words.
+bool missReviewHeardMatches({required String expected, required String? heard}) {
+  final ref = tokenizeSkill(expected);
   if (ref.isEmpty) return false;
-  final have = contentWords(heard).toSet();
+  final have = <String, int>{};
+  for (final token in tokenizeSkill(heard)) {
+    have[token] = (have[token] ?? 0) + 1;
+  }
   for (final token in ref) {
-    if (!have.contains(token)) return false;
+    final left = have[token] ?? 0;
+    if (left <= 0) return false;
+    if (left == 1) {
+      have.remove(token);
+    } else {
+      have[token] = left - 1;
+    }
   }
   return true;
 }

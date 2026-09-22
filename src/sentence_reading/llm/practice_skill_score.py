@@ -159,3 +159,84 @@ def content_word_coverage(expected_spoken: str | None, heard: str | None) -> dic
         "hit_n": hit,
         "list_v": CONTENT_WORD_LIST_V,
     }
+
+
+def spoken_slot_coverage(
+    display: str | None,
+    spoken: str | None,
+    spans: list[dict],
+    heard: str | None,
+) -> dict:
+    """One printed token is one slot. Every spoken piece of that token must be heard."""
+    slots = _spoken_slots(display or "", spoken or "", spans)
+    if not slots:
+        return {
+            "ok": False,
+            "error": "empty_slot_ref",
+            "accuracy": None,
+            "ref_n": 0,
+            "hit_n": 0,
+            "list_v": 2,
+            "missed": [],
+        }
+    have = Counter(tokenize_skill(heard))
+    hit = 0
+    missed: list[dict[str, int]] = []
+    for start, end, tokens in slots:
+        if _take_spoken_slot(tokens, have):
+            hit += 1
+        else:
+            missed.append({"start": start, "end": end})
+    acc = hit / float(len(slots))
+    return {
+        "ok": True,
+        "accuracy": round(acc, 4),
+        "ref_n": len(slots),
+        "hit_n": hit,
+        "list_v": 2,
+        "missed": missed,
+    }
+
+
+def _spoken_slots(
+    display: str, spoken: str, spans: list[dict]
+) -> list[tuple[int, int, list[str]]]:
+    if not display or not spoken:
+        return []
+    scored = []
+    for span in spans:
+        weight = int(span.get("weight") or 0)
+        start = int(span.get("start") or 0)
+        end = int(span.get("end") or 0)
+        if weight > 0 and 0 <= start < end <= len(display):
+            scored.append((start, end, weight))
+    if not scored:
+        return []
+    cursor = 0
+    out: list[tuple[int, int, list[str]]] = []
+    for start, end, weight in scored:
+        while cursor < len(spoken) and spoken[cursor] in " \n\t\r":
+            cursor += 1
+        piece_end = cursor + weight
+        if piece_end > len(spoken):
+            return []
+        tokens = tokenize_skill(spoken[cursor:piece_end])
+        cursor = piece_end
+        if not tokens:
+            return []
+        out.append((start, end, tokens))
+    return out
+
+
+def _take_spoken_slot(tokens: list[str], have: Counter) -> bool:
+    ok = True
+    for token in tokens:
+        left = have.get(token, 0)
+        if left <= 0:
+            ok = False
+            continue
+        if left == 1:
+            del have[token]
+        else:
+            have[token] = left - 1
+    return ok

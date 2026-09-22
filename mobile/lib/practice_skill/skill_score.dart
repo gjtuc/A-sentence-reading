@@ -1,7 +1,10 @@
 /// design/212 — content-word multiset coverage (mirrors practice_skill_score.py).
 library;
 
+import '../practice_rhythm/follow_span.dart';
+
 const int kContentWordListV = 1;
+const int kSpokenSlotListV = 2;
 
 const Set<String> kFunctionWords = {
   'a', 'an', 'the', 'and', 'or', 'but', 'if', 'in', 'on', 'at', 'to', 'for',
@@ -152,4 +155,108 @@ List<MissedWordSpan> missedContentSpans({
     if (missed.isEmpty) break;
   }
   return spans;
+}
+
+/// One printed word is one score slot, including function words.
+///
+/// A printed token spoken as several pieces (`CVD` → `c v d`, `Pt` →
+/// `platinum`) is still one slot. Any missing piece fails the whole slot.
+SkillScoreResult spokenSlotCoverage({
+  required String display,
+  required String spoken,
+  required List<FollowSpan> spans,
+  required String? heard,
+}) {
+  final slots = _spokenSlots(display: display, spoken: spoken, spans: spans);
+  if (slots.isEmpty) {
+    return const SkillScoreResult(
+      ok: false,
+      error: 'empty_slot_ref',
+      listV: kSpokenSlotListV,
+    );
+  }
+  final have = <String, int>{};
+  for (final token in tokenizeSkill(heard)) {
+    have[token] = (have[token] ?? 0) + 1;
+  }
+  var hit = 0;
+  final missed = <MissedWordSpan>[];
+  for (final slot in slots) {
+    if (_takeSpokenSlot(slot.tokens, have)) {
+      hit += 1;
+    } else {
+      missed.add(MissedWordSpan(slot.start, slot.end));
+    }
+  }
+  final acc = hit / slots.length;
+  return SkillScoreResult(
+    ok: true,
+    accuracy: (acc * 10000).round() / 10000.0,
+    refN: slots.length,
+    hitN: hit,
+    listV: kSpokenSlotListV,
+    missedSpans: missed,
+  );
+}
+
+class _SpokenSlot {
+  const _SpokenSlot(this.start, this.end, this.tokens);
+
+  final int start;
+  final int end;
+  final List<String> tokens;
+}
+
+List<_SpokenSlot> _spokenSlots({
+  required String display,
+  required String spoken,
+  required List<FollowSpan> spans,
+}) {
+  if (display.isEmpty || spoken.isEmpty) return const [];
+  final scored = [
+    for (final span in spans)
+      if (span.weight > 0 &&
+          span.start >= 0 &&
+          span.end > span.start &&
+          span.end <= display.length)
+        span,
+  ];
+  if (scored.isEmpty) return const [];
+  var cursor = 0;
+  final out = <_SpokenSlot>[];
+  for (final span in scored) {
+    while (cursor < spoken.length && _skillSpace(spoken, cursor)) {
+      cursor += 1;
+    }
+    final end = cursor + span.weight;
+    if (end > spoken.length) return const [];
+    final tokens = tokenizeSkill(spoken.substring(cursor, end));
+    cursor = end;
+    if (tokens.isEmpty) return const [];
+    out.add(_SpokenSlot(span.start, span.end, tokens));
+  }
+  return out;
+}
+
+bool _skillSpace(String text, int index) {
+  final ch = text[index];
+  return ch == ' ' || ch == '\n' || ch == '\t' || ch == '\r';
+}
+
+/// Every spoken piece must be heard. Pieces that were heard stay consumed.
+bool _takeSpokenSlot(List<String> tokens, Map<String, int> have) {
+  var ok = true;
+  for (final token in tokens) {
+    final left = have[token] ?? 0;
+    if (left <= 0) {
+      ok = false;
+      continue;
+    }
+    if (left == 1) {
+      have.remove(token);
+    } else {
+      have[token] = left - 1;
+    }
+  }
+  return ok;
 }

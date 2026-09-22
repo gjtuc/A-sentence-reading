@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sentence_reading/practice_rhythm/follow_span.dart';
 import 'package:sentence_reading/practice_skill/chunk_density.dart';
 import 'package:sentence_reading/practice_skill/skill_adapt.dart';
 import 'package:sentence_reading/practice_skill/skill_score.dart';
@@ -109,27 +110,127 @@ void main() {
     }
   });
 
-  test('replay miss spans skip function words and consume leftover bags', () {
-    final missed = missedContentSpans(
-      display: 'The catalyst is stable',
-      expectedSpoken: 'The catalyst is stable',
+  test('a printed word is one slot even when spoken as letters', () {
+    const display = 'CVD is a technique for semiconductor.';
+    const spoken = 'c v d is a technique for semiconductor.';
+    final spans = [
+      const FollowSpan(start: 0, end: 3, weight: 5),
+      FollowSpan(
+        start: display.indexOf('is'),
+        end: display.indexOf('is') + 2,
+        weight: 2,
+      ),
+      FollowSpan(
+        start: display.indexOf('a '),
+        end: display.indexOf('a ') + 1,
+        weight: 1,
+      ),
+      FollowSpan(
+        start: display.indexOf('technique'),
+        end: display.indexOf('technique') + 'technique'.length,
+        weight: 'technique'.length,
+      ),
+      FollowSpan(
+        start: display.indexOf('for'),
+        end: display.indexOf('for') + 3,
+        weight: 3,
+      ),
+      FollowSpan(
+        start: display.indexOf('semiconductor'),
+        end: display.indexOf('semiconductor') + 'semiconductor'.length,
+        weight: 'semiconductor'.length,
+      ),
+    ];
+    final missedC = spokenSlotCoverage(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'v d is a technique for semiconductor',
+    );
+    expect(missedC.ok, isTrue);
+    expect(missedC.refN, 6);
+    expect(missedC.hitN, 5);
+    expect(missedC.accuracy, closeTo(5 / 6, 0.0001));
+    expect(missedC.missedSpans, hasLength(1));
+    expect(missedC.missedSpans.single.start, 0);
+    expect(missedC.missedSpans.single.end, 3);
+
+    final all = spokenSlotCoverage(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: spoken,
+    );
+    expect(all.hitN, 6);
+    expect(all.missedSpans, isEmpty);
+  });
+
+  test('a renamed symbol lights the printed token', () {
+    const display = 'Pt particle is a hard';
+    const spoken = 'platinum particle is a hard';
+    final spans = [
+      const FollowSpan(start: 0, end: 2, weight: 8),
+      FollowSpan(
+        start: display.indexOf('particle'),
+        end: display.indexOf('particle') + 'particle'.length,
+        weight: 'particle'.length,
+      ),
+      FollowSpan(
+        start: display.indexOf('is'),
+        end: display.indexOf('is') + 2,
+        weight: 2,
+      ),
+      FollowSpan(
+        start: display.indexOf('a '),
+        end: display.indexOf('a ') + 1,
+        weight: 1,
+      ),
+      FollowSpan(
+        start: display.indexOf('hard'),
+        end: display.indexOf('hard') + 4,
+        weight: 4,
+      ),
+    ];
+    final missed = spokenSlotCoverage(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'particle is a hard',
+    );
+    expect(missed.refN, 5);
+    expect(missed.hitN, 4);
+    expect(display.substring(missed.missedSpans.single.start, missed.missedSpans.single.end), 'Pt');
+  });
+
+  test('replay misses include function words from the spoken slots', () {
+    const display = 'The catalyst is stable';
+    const spoken = 'The catalyst is stable';
+    final spans = [
+      const FollowSpan(start: 0, end: 3, weight: 3),
+      FollowSpan(
+        start: display.indexOf('catalyst'),
+        end: display.indexOf('catalyst') + 8,
+        weight: 8,
+      ),
+      FollowSpan(
+        start: display.indexOf('is'),
+        end: display.indexOf('is') + 2,
+        weight: 2,
+      ),
+      FollowSpan(
+        start: display.indexOf('stable'),
+        end: display.indexOf('stable') + 6,
+        weight: 6,
+      ),
+    ];
+    final missed = spokenSlotCoverage(
+      display: display,
+      spoken: spoken,
+      spans: spans,
       heard: 'stable',
     );
-    expect(missed, hasLength(1));
-    expect(missed.single.start, 'The catalyst is stable'.indexOf('catalyst'));
-    expect(
-      missed.single.end,
-      'The catalyst is stable'.indexOf('catalyst') + 'catalyst'.length,
-    );
-
-    const dup = 'bag bag';
-    final oneLeft = missedContentSpans(
-      display: dup,
-      expectedSpoken: dup,
-      heard: 'bag',
-    );
-    expect(oneLeft, hasLength(1));
-    expect(oneLeft.single.start, 0);
-    expect(oneLeft.single.end, 3);
+    expect(missed.missedSpans, hasLength(3));
+    expect(missed.hitN, 1);
+    expect(missed.refN, 4);
   });
 }

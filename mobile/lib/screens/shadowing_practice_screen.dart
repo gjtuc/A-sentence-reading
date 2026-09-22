@@ -1791,7 +1791,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           .recognizePracticeTake(bytes: bytes, mime: 'audio/mp4')
           .timeout(kMissReviewSttWait);
       if (!_reviewAlive(token)) return MissReviewHear.skip;
-      if (missReviewHeardMatches(word: word, heard: heard)) {
+      final spokenForm = await _skill.ensureSpoken(word);
+      if (!_reviewAlive(token)) return MissReviewHear.skip;
+      final expected = (spokenForm == null || spokenForm.trim().isEmpty)
+          ? word
+          : spokenForm;
+      if (missReviewHeardMatches(expected: expected, heard: heard)) {
         return MissReviewHear.matched;
       }
       return MissReviewHear.missed;

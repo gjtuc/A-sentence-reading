@@ -109,14 +109,23 @@ void main() {
 
   test('a heard content word matches and a different word does not', () {
     expect(
-      missReviewHeardMatches(word: 'catalyst', heard: 'The catalyst.'),
+      missReviewHeardMatches(expected: 'catalyst', heard: 'The catalyst.'),
       isTrue,
     );
     expect(
-      missReviewHeardMatches(word: 'catalyst', heard: 'vapor'),
+      missReviewHeardMatches(expected: 'catalyst', heard: 'vapor'),
       isFalse,
     );
-    expect(missReviewHeardMatches(word: 'catalyst', heard: ''), isFalse);
+    expect(missReviewHeardMatches(expected: 'catalyst', heard: ''), isFalse);
+    expect(
+      missReviewHeardMatches(expected: 'c v d', heard: 'v d'),
+      isFalse,
+    );
+    expect(
+      missReviewHeardMatches(expected: 'c v d', heard: 'c v d'),
+      isTrue,
+    );
+    expect(missReviewHeardMatches(expected: 'is', heard: 'is'), isTrue);
   });
 
   test('a retry draw is not the voice and rate just heard', () {

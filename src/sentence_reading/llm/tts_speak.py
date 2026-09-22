@@ -1305,6 +1305,10 @@ def align_display_to_spoken(display: str) -> list[dict[str, int]]:
         spans.append({"start": start, "end": end, "weight": max(weight, 1)})
         cursor = matched
     _skip_ws()
+    # A final period is not a word. Leaving it unmatched dropped every span.
+    while cursor < len(full) and not (full[cursor].isalnum() or full[cursor] == "'"):
+        cursor += 1
+        _skip_ws()
     if cursor != len(full):
         return []
     return spans
