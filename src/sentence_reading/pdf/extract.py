@@ -260,13 +260,18 @@ def _is_caption_line(s: str, *, fig_scheme: bool, table: bool) -> bool:
 
 
 def _slot_sort_key(slot_key: str) -> tuple[int, int]:
-    """fig:3 → (0, 3); table:2 → (1, 2) — slot plan carousel order."""
+    """fig:3 → (0, 3); scheme:1 → (1, 1); table:2 → (2, 2) — carousel order.
+
+    design/362 — `Scheme` is its own run, between the figures and the tables, the
+    same order design/92 sorts captions by.
+    """
+    from sentence_reading.pdf.slot_plan import SLOT_KIND_ORDER
+
     raw = (slot_key or "").strip().lower()
-    m = re.match(r"^(fig|table):(\d+)$", raw)
+    m = re.match(r"^(fig|scheme|table):(\d+)$", raw)
     if not m:
-        return (2, 10**9)
-    kind_ord = 1 if m.group(1) == "table" else 0
-    return (kind_ord, int(m.group(2)))
+        return (3, 10**9)
+    return (SLOT_KIND_ORDER.get(m.group(1), 3), int(m.group(2)))
 
 
 def _caption_sort_key(caption: str) -> tuple:

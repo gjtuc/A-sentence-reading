@@ -22,6 +22,7 @@ from sentence_reading.pdf.composite import (
     composite_table_png,
     placeholder_png,
     rect_from_dict,
+    slot_kind_word,
     slot_missing_caption,
     slot_unnumbered_caption,
     vstack_pngs,
@@ -203,7 +204,7 @@ def _slot_caption_label(slot, caption: str) -> str:
         return caption
     if getattr(slot, "unnumbered", False):
         return slot_unnumbered_caption(slot.kind)
-    return f"Table {slot.n}" if slot.kind == "table" else f"Figure {slot.n}"
+    return f"{slot_kind_word(slot.kind)} {slot.n}"
 
 
 def _slot_turn(layout: LayoutMap, page, page_index: int, cap_rect, body_rect) -> str:
@@ -317,7 +318,7 @@ def _render_slot_png(
     else:
         png = composite_figure_png(page, body_rect, cap_rect) or b""
         if (
-            slot.kind == "fig"
+            slot.kind in ("fig", "scheme")
             and body_rect is None
             and cap_rect is not None
             and (not png or is_caption_only_figure_png(png))
@@ -345,10 +346,8 @@ def _render_slot_png(
         if getattr(slot, "unnumbered", False):
             # design/324 — rescued body; its number is a position, not a label.
             caption = slot_unnumbered_caption(slot.kind)
-        elif slot.kind == "table":
-            caption = f"Table {slot.n}"
         else:
-            caption = f"Figure {slot.n}"
+            caption = f"{slot_kind_word(slot.kind)} {slot.n}"
     return png, caption, page_index
 
 

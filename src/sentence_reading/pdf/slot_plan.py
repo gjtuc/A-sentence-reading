@@ -136,20 +136,31 @@ class SlotPlan:
         return [s.key for s in self.slots]
 
 
+# design/362 — `Scheme` counts separately from `Figure` in every journal that prints
+# both, so `Scheme 1` and `Figure 1` are two different pictures. Folding scheme into
+# fig stacked them in one slot: `d4se00467a`, the d-band review and Adv. Mater. 2024
+# each showed one composite of two unrelated images.
+SLOT_KINDS = ("fig", "scheme", "table")
+# design/92 — carousel order: all figures, then schemes, then tables.
+SLOT_KIND_ORDER = {"fig": 0, "scheme": 1, "table": 2}
+
+
 def is_supplementary_label(key: str) -> bool:
-    """True for fig:s* / table:s* slot keys."""
-    return bool(re.match(r"^(?:fig|table):s\d+", (key or "").strip().lower()))
+    """True for fig:s* / scheme:s* / table:s* slot keys."""
+    return bool(
+        re.match(r"^(?:fig|scheme|table):s\d+", (key or "").strip().lower())
+    )
 
 
 def slot_key_from_caption_key(ckey: str, *, supplementary: bool = False) -> str | None:
-    """fig:3a → fig:3; fig:s2 → fig:s2 when supplementary."""
+    """fig:3a → fig:3; fig:s2 → fig:s2 when supplementary; scheme:1 → scheme:1."""
     if not ckey:
         return None
     parts = ckey.split(":", 1)
     if len(parts) != 2:
         return None
     kind, num = parts[0], parts[1]
-    if kind not in ("fig", "table", "scheme"):
+    if kind not in SLOT_KINDS:
         return None
     num_lower = num.lower()
     if num_lower.startswith("s"):
@@ -158,27 +169,30 @@ def slot_key_from_caption_key(ckey: str, *, supplementary: bool = False) -> str 
         m = re.match(r"^s(\d+)", num_lower)
         if not m:
             return None
-        slot_kind = "table" if kind == "table" else "fig"
-        return f"{slot_kind}:s{int(m.group(1))}"
+        return f"{kind}:s{int(m.group(1))}"
     if is_supplementary_label(ckey):
         return None
     m = re.match(r"^(\d+)", num)
     if not m:
         return None
-    slot_kind = "table" if kind == "table" else "fig"
-    return f"{slot_kind}:{int(m.group(1))}"
+    return f"{kind}:{int(m.group(1))}"
 
 
 def _slot_n_from_key(key: str) -> int:
-    m = re.match(r"^(?:fig|table):s?(\d+)$", (key or "").lower())
+    m = re.match(r"^(?:fig|scheme|table):s?(\d+)$", (key or "").lower())
     return int(m.group(1)) if m else 0
+
+
+def slot_body_kind(slot_kind: str) -> str:
+    """Which Azure box kind holds this slot's picture. A scheme is drawn, not tabled."""
+    return "table_body" if slot_kind == "table" else "figure_body"
 
 
 def _scan_max_numbers(
     layout: LayoutMap, *, supplementary: bool = False
-) -> tuple[int, int]:
-    max_fig = 0
-    max_table = 0
+) -> dict[str, int]:
+    """Highest number each kind's captions printed. Zero when the kind has none."""
+    tops = dict.fromkeys(SLOT_KINDS, 0)
     for box in layout.boxes:
         if not box.text:
             continue
@@ -188,12 +202,10 @@ def _scan_max_numbers(
         sk = slot_key_from_caption_key(ckey, supplementary=supplementary)
         if not sk:
             continue
-        n = _slot_n_from_key(sk)
-        if sk.startswith("fig:"):
-            max_fig = max(max_fig, n)
-        elif sk.startswith("table:"):
-            max_table = max(max_table, n)
-    return max_fig, max_table
+        kind = sk.split(":", 1)[0]
+        if kind in tops:
+            tops[kind] = max(tops[kind], _slot_n_from_key(sk))
+    return tops
 
 
 def build_slot_plan(layout: LayoutMap, *, supplementary: bool = False) -> SlotPlan:
@@ -204,19 +216,15 @@ def build_slot_plan(layout: LayoutMap, *, supplementary: bool = False) -> SlotPl
     Table 1. Unlabelled real figures still reach the carousel as unnumbered
     leftovers when this kind has no caption list at all.
     """
-    max_fig, max_table = _scan_max_numbers(layout, supplementary=supplementary)
+    tops = _scan_max_numbers(layout, supplementary=supplementary)
 
     slots: list[Slot] = []
-    if supplementary:
-        for n in range(1, max(max_fig, 0) + 1):
-            slots.append(Slot(key=f"fig:s{n}", kind="fig", n=n, status="empty"))
-        for n in range(1, max(max_table, 0) + 1):
-            slots.append(Slot(key=f"table:s{n}", kind="table", n=n, status="empty"))
-    else:
-        for n in range(1, max(max_fig, 0) + 1):
-            slots.append(Slot(key=f"fig:{n}", kind="fig", n=n, status="empty"))
-        for n in range(1, max(max_table, 0) + 1):
-            slots.append(Slot(key=f"table:{n}", kind="table", n=n, status="empty"))
+    mark = "s" if supplementary else ""
+    for kind in SLOT_KINDS:
+        for n in range(1, max(tops.get(kind, 0), 0) + 1):
+            slots.append(
+                Slot(key=f"{kind}:{mark}{n}", kind=kind, n=n, status="empty")
+            )
     return SlotPlan(slots=slots)
 
 
@@ -399,7 +407,8 @@ def split_shared_column_bodies(layout: LayoutMap, plan: SlotPlan) -> int:
     cannot also become an unnumbered carousel entry.
     """
     parts_made = 0
-    for fig, slot_kind in ((True, "fig"), (False, "table")):
+    for slot_kind in SLOT_KINDS:
+        fig = slot_kind != "table"
         per_page: dict[int, list[tuple[Slot, LayoutBox]]] = {}
         for slot in plan.slots:
             if slot.kind != slot_kind or slot.unnumbered:
@@ -505,8 +514,8 @@ def append_unclaimed_body_slots(
             assign_body_boxes_to_slot(plan, layout, key, [box.id])
             added += 1
     if added:
-        # design/92 — carousel stays all figures, then all tables, by number.
-        plan.slots.sort(key=lambda s: (0 if s.kind == "fig" else 1, s.n))
+        # design/92 — carousel stays all figures, then schemes, then tables, by number.
+        plan.slots.sort(key=lambda s: (SLOT_KIND_ORDER.get(s.kind, 3), s.n))
     # design/357 — how many were held back because the caption list was complete. If a
     # paper ever shows 7 figures while holding 10 bodies, these two numbers say so.
     plan.held_by_caption_list_n = held

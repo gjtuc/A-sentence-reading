@@ -380,17 +380,33 @@ def attach_continued_pages(layout: LayoutMap, plan: SlotPlan) -> int:
     return joined
 
 
+_SUPP_WORD = r"(?:Supplementary|Supplemental|Supporting)"
+_KIND_WORDS = {
+    "fig": r"(?:Figures?|Figs?)",
+    "scheme": r"Scheme",
+    "table": r"Table",
+}
+
+
 def _slot_label_pattern(slot_key: str) -> re.Pattern[str] | None:
-    m = re.match(r"^(fig|table):s(\d+)$", (slot_key or "").lower())
+    """What a box's text must begin with to be this slot's caption.
+
+    design/362 — a supplementary number is printed two ways. ACS, RSC and Elsevier
+    put the `S` on the number (`Figure S1`); Nature puts it in the word in front
+    (`Supplementary Fig. 1`). Both name `fig:s1`, so accept either — and accept the
+    bare number only when that word is there, or `Supplementary Table 1` would be
+    handed to the main paper's `table:1`.
+    """
+    m = re.match(r"^(fig|scheme|table):s(\d+)$", (slot_key or "").lower())
     if m:
-        kind, num = m.group(1), m.group(2)
-        if kind == "table":
-            return re.compile(rf"^\s*Table\.?\s*S\s*{num}\b", re.IGNORECASE)
-        return re.compile(rf"^\s*(?:Figures?|Figs?)\.?\s*S\s*{num}\b", re.IGNORECASE)
-    m = re.match(r"^(fig|table):(\d+)$", (slot_key or "").lower())
+        word = _KIND_WORDS[m.group(1)]
+        num = m.group(2)
+        return re.compile(
+            rf"^\s*(?:{_SUPP_WORD}\s+{word}\.?\s*S?\s*{num}|{word}\.?\s*S\s*{num})\b",
+            re.IGNORECASE,
+        )
+    m = re.match(r"^(fig|scheme|table):(\d+)$", (slot_key or "").lower())
     if not m:
         return None
-    kind, num = m.group(1), m.group(2)
-    if kind == "table":
-        return re.compile(rf"^\s*Table\.?\s*{num}\b", re.IGNORECASE)
-    return re.compile(rf"^\s*(?:Figures?|Figs?)\.?\s*{num}\b", re.IGNORECASE)
+    word = _KIND_WORDS[m.group(1)]
+    return re.compile(rf"^\s*{word}\.?\s*{m.group(2)}\b", re.IGNORECASE)

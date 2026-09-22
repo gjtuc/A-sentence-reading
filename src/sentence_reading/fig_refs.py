@@ -10,15 +10,32 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# 본문·캡션 공통 — Fig. 2 / Figure S1 / Scheme 1a / Table 3
+# design/362 — two house styles name the same thing. ACS, RSC and Elsevier write
+# `Figure S1`; Nature writes `Supplementary Fig. 1`. The word in front carries the
+# same `S` the number would have carried, so read it. Measured over 88 papers, no
+# main-paper caption prints any word in front of its number, so honouring this word
+# cannot move a main figure into a supplementary slot.
+_SUPP_WORD = r"(?:Supplementary|Supplemental|Supporting)"
+_KIND_WORD = r"(?:Figures?|Figs?|Scheme|Table)"
+
+# 본문·캡션 공통 — Fig. 2 / Figure S1 / Supplementary Fig. 1 / Scheme 1a / Table 3
 # (?-i:[a-z]) — lowercase compound only; not Figure 6C panel (design/164).
 _KIND_NUM = re.compile(
-    r"\b((?:Figures?|Figs?|Scheme|Table)\.?\s*(S?\d+(?-i:[a-z])?))\b",
+    rf"\b((?:{_SUPP_WORD}\s+)?{_KIND_WORD}\.?\s*(S?\d+(?-i:[a-z])?))\b",
     re.IGNORECASE,
 )
 # design/164 — Figure 6C / Figure 6(C) / Table 3B (panel within one figure)
 _KIND_PANEL = re.compile(
-    r"\b((?:Figures?|Figs?|Scheme|Table)\.?\s*(S?\d+)\s*(?:\(([A-Za-z])\)|([A-Z])))\b",
+    rf"\b((?:{_SUPP_WORD}\s+)?{_KIND_WORD}\.?\s*(S?\d+)\s*(?:\(([A-Za-z])\)|([A-Z])))\b",
+    re.IGNORECASE,
+)
+# Re-parse of a matched token. Group 1 is the supplementary word when printed.
+_TOKEN_NUM = re.compile(
+    rf"(?:({_SUPP_WORD})\s+)?({_KIND_WORD})\.?\s*(S?\d+(?-i:[a-z])?)",
+    re.IGNORECASE,
+)
+_TOKEN_PANEL = re.compile(
+    rf"(?:({_SUPP_WORD})\s+)?({_KIND_WORD})\.?\s*(S?\d+)\s*(?:\(([A-Za-z])\)|([A-Z]))",
     re.IGNORECASE,
 )
 _BARE_S = re.compile(r"\b(S\d+[a-z]?)\b", re.IGNORECASE)
@@ -60,39 +77,38 @@ def _base_display_label(kind_raw: str, num: str) -> str:
     return f"Table {num}"
 
 
+def _supp_num(supp_word: str | None, num: str) -> str:
+    """`S` the number, when the label printed the word `Supplementary` (design/362)."""
+    n = (num or "").lower()
+    if supp_word and not n.startswith("s"):
+        return f"s{n}"
+    return n
+
+
 def _norm_key(raw: str) -> str | None:
     m = _KIND_NUM.search(raw or "")
     if not m:
         return None
-    token = m.group(1)
-    parts = re.match(
-        r"(Figures?|Figs?|Scheme|Table)\.?\s*(S?\d+(?-i:[a-z])?)",
-        token,
-        re.IGNORECASE,
-    )
+    parts = _TOKEN_NUM.match(m.group(1))
     if not parts:
         return None
-    kind = _kind_token(parts.group(1))
-    num = parts.group(2).lower()
+    kind = _kind_token(parts.group(2))
+    num = _supp_num(parts.group(1), parts.group(3))
     return f"{kind}:{num}"
 
 
 def _panel_parse(m: re.Match[str]) -> tuple[str, str] | None:
     """Return (base_display_label, base_key) for a panel ref match."""
     full = m.group(1)
-    inner = re.match(
-        r"(Figures?|Figs?|Scheme|Table)\.?\s*(S?\d+)\s*(?:\(([A-Za-z])\)|([A-Z]))",
-        full,
-        re.IGNORECASE,
-    )
+    inner = _TOKEN_PANEL.match(full)
     if not inner:
         return None
-    paren = inner.group(3)
-    upper = inner.group(4)
+    paren = inner.group(4)
+    upper = inner.group(5)
     if upper and not upper.isupper():
         return None
-    kind_raw = inner.group(1)
-    num = inner.group(2)
+    kind_raw = inner.group(2)
+    num = _supp_num(inner.group(1), inner.group(3)).upper()
     kind = _kind_token(kind_raw)
     base_key = _base_key_from_num(kind, num)
     if not base_key:
@@ -192,22 +208,37 @@ def _figure_slot_key(fig: Any) -> str:
     return str(sk or "").strip().lower()
 
 
+def _slot_wants(want: str) -> list[str]:
+    if want.startswith("scheme:"):
+        return [want, want.replace("scheme:", "fig:", 1)]
+    return [want]
+
+
+def _figure_caption_key(fig: Any) -> str | None:
+    cap = getattr(fig, "caption", None)
+    if cap is None and isinstance(fig, dict):
+        cap = fig.get("caption") or ""
+    return caption_key(str(cap or ""))
+
+
 def _index_for_key(figures: list[Any], want: str) -> int | None:
-    want_slot = want.replace("scheme:", "fig:")
+    # design/362 — `Scheme 1` now has its own slot. Papers ingested before that
+    # stored their schemes under `fig:N`, so fall back to that key — but only after
+    # no slot answers to `scheme:1`, or a paper holding both would hand `Scheme 1`
+    # the picture that belongs to `Figure 1`.
+    for slot_want in _slot_wants(want):
+        for i, fig in enumerate(figures or []):
+            if _figure_slot_key(fig) == slot_want:
+                return i
     for i, fig in enumerate(figures or []):
-        sk = _figure_slot_key(fig)
-        if sk and sk == want_slot:
-            return i
-        cap = getattr(fig, "caption", None)
-        if cap is None and isinstance(fig, dict):
-            cap = fig.get("caption") or ""
-        key = caption_key(str(cap or ""))
+        key = _figure_caption_key(fig)
+        if not key:
+            continue
         if key == want:
             return i
-        if key:
-            base = _base_key_from_num(key.split(":", 1)[0], key.split(":", 1)[1])
-            if base and base == want:
-                return i
+        base = _base_key_from_num(*key.split(":", 1))
+        if base and base == want:
+            return i
     return None
 
 

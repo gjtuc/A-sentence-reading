@@ -292,10 +292,17 @@ def placeholder_png(label: str, *, width: int = 480, height: int = 240) -> bytes
     return out.getvalue()
 
 
-def slot_missing_caption(kind: str, n: int) -> str:
+def slot_kind_word(kind: str) -> str:
+    """The word the paper printed for this kind (design/362)."""
     if kind == "table":
-        return f"Table {n} (missing)"
-    return f"Figure {n} (missing)"
+        return "Table"
+    if kind == "scheme":
+        return "Scheme"
+    return "Figure"
+
+
+def slot_missing_caption(kind: str, n: int) -> str:
+    return f"{slot_kind_word(kind)} {n} (missing)"
 
 
 def slot_unnumbered_caption(kind: str) -> str:
@@ -304,7 +311,11 @@ def slot_unnumbered_caption(kind: str) -> str:
     It must not borrow the next integer: asserting `Figure 4` in a paper that
     prints three figures invents a label (design/124 — no success theatre).
     """
-    return "번호 없는 표" if kind == "table" else "번호 없는 그림"
+    if kind == "table":
+        return "번호 없는 표"
+    if kind == "scheme":
+        return "번호 없는 반응식"
+    return "번호 없는 그림"
 
 
 def rect_from_dict(d: dict | None):
