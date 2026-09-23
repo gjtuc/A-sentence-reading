@@ -33,6 +33,10 @@ _MAX_FILENAME = 180
 _MAX_JOB_ID = 32
 _MAX_EVENTS_KEEP = 10_000
 _MAX_BODY_BYTES = 4_000_000
+# Who uploaded which file. Keep about 3 months, then drop.
+_DEFAULT_RETENTION_DAYS = 90
+_ROTATE_MIN_INTERVAL_SEC = 6 * 3600
+_LAST_ROTATE_MONO = 0.0
 
 _CACHE_ID_RE = re.compile(r"^[A-Za-z0-9._\-]+$")
 _JOB_ID_RE = re.compile(r"^job_[A-Za-z0-9._\-]+$")
@@ -43,6 +47,19 @@ def upload_audit_enabled() -> bool:
     load_asr_env()
     raw = (os.environ.get("ASR_UPLOAD_AUDIT_LOG") or "1").strip().lower()
     return raw not in ("0", "false", "off", "no")
+
+
+def retention_days() -> int:
+    """Keep upload audit rows this many days. 0 turns the age filter off."""
+    load_asr_env()
+    raw = (
+        os.environ.get("ASR_UPLOAD_AUDIT_RETENTION_DAYS") or str(_DEFAULT_RETENTION_DAYS)
+    ).strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = _DEFAULT_RETENTION_DAYS
+    return max(0, min(n, 365))
 
 
 def local_events_path() -> Path:
@@ -133,6 +150,7 @@ def append_event(event: dict[str, Any]) -> dict[str, Any] | None:
         with _LOCK:
             events = _parse_events(_pull_events_raw())
             events.append(event)
+            events, _dropped = _jl.filter_retained(events, keep_days=retention_days())
             events = _jl.trim_jsonl_events(
                 events,
                 max_keep=_MAX_EVENTS_KEEP,
@@ -143,6 +161,55 @@ def append_event(event: dict[str, Any]) -> dict[str, Any] | None:
     except Exception:  # noqa: BLE001
         log.warning("upload_audit append failed", exc_info=True)
         return None
+
+
+def rotate_events(
+    *,
+    keep_days: int | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Drop upload audit rows older than keep_days. Never raises."""
+    global _LAST_ROTATE_MONO
+    days = retention_days() if keep_days is None else int(keep_days)
+    out: dict[str, Any] = {
+        "ok": False,
+        "before": 0,
+        "after": 0,
+        "dropped": 0,
+        "skipped": 0,
+        "keep_days": days,
+    }
+    if not upload_audit_enabled():
+        out["skipped"] = 1
+        return out
+    now_m = time.monotonic()
+    if (
+        not force
+        and _LAST_ROTATE_MONO > 0
+        and (now_m - _LAST_ROTATE_MONO) < _ROTATE_MIN_INTERVAL_SEC
+    ):
+        out["skipped"] = 1
+        out["ok"] = True
+        return out
+    try:
+        with _LOCK:
+            events = _parse_events(_pull_events_raw())
+            before = len(events)
+            kept, dropped = _jl.filter_retained(events, keep_days=days)
+            if len(kept) > _MAX_EVENTS_KEEP:
+                dropped += len(kept) - _MAX_EVENTS_KEEP
+                kept = kept[-_MAX_EVENTS_KEEP:]
+            if dropped == 0 and not force:
+                _LAST_ROTATE_MONO = now_m
+                out.update(ok=True, before=before, after=before, dropped=0)
+                return out
+            _push_events_raw(_jl.encode_jsonl_events(kept))
+            _LAST_ROTATE_MONO = now_m
+            out.update(ok=True, before=before, after=len(kept), dropped=dropped)
+            return out
+    except Exception:  # noqa: BLE001
+        log.warning("upload_audit rotate failed", exc_info=True)
+        return out
 
 
 def record_upload(

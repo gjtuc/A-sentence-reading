@@ -169,3 +169,35 @@ def test_rate_limit(err_tmp, monkeypatch):
         codes.append(r.status_code)
     assert codes.count(200) == 3
     assert 429 in codes
+
+
+def test_error_log_drops_rows_older_than_three_days(err_tmp, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.delenv("ASR_ERROR_LOG_RETENTION_DAYS", raising=False)
+
+    old = (datetime.now(timezone.utc) - timedelta(days=10)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    (err_tmp / "events.jsonl").write_text(
+        '{"id":"err_old","ts":"%s","kind":"hang","message":"old"}\n'
+        '{"id":"err_recent","ts":"%s","kind":"hang","message":"recent"}\n'
+        % (old, recent),
+        encoding="utf-8",
+    )
+    errlog.append_event(
+        {
+            "id": "err_new",
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "kind": "hang",
+            "message": "new",
+        }
+    )
+    raw = (err_tmp / "events.jsonl").read_text(encoding="utf-8")
+    assert "err_old" not in raw
+    assert "err_recent" in raw
+    assert "err_new" in raw
+    assert errlog.retention_days() == 3

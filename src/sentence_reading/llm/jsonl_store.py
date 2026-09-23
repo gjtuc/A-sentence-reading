@@ -50,6 +50,8 @@ def filter_retained(
             dropped += 1
             continue
         ts = parse_event_ts(ev.get("ts"))
+        if ts is None:
+            ts = parse_event_ts(ev.get("at"))
         if ts is not None and ts < cutoff:
             dropped += 1
             continue

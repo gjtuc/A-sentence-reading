@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 
@@ -225,3 +226,97 @@ def synthesize_mp3(
         pass
     _try_gcs_put(key, audio)
     return audio
+
+
+_TTS_CACHE_KEEP_DAYS = 7
+
+
+def tts_cache_retention_days() -> int:
+    """Shared spoken MP3s are deleted after this many days. 0 keeps them."""
+    load_asr_env()
+    raw = (os.environ.get("ASR_TTS_CACHE_RETENTION_DAYS") or str(_TTS_CACHE_KEEP_DAYS)).strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = _TTS_CACHE_KEEP_DAYS
+    return max(0, min(n, 365))
+
+
+def expired_tts_cache_names(
+    items: list[tuple[str, datetime | None]],
+    *,
+    now: datetime,
+    keep_days: int,
+) -> list[str]:
+    """MP3 names whose created time is older than keep_days. Unknown age stays."""
+    if keep_days <= 0:
+        return []
+    cutoff = now - timedelta(days=keep_days)
+    out: list[str] = []
+    for name, created in items:
+        base = str(name or "").replace("\\", "/").rsplit("/", 1)[-1]
+        if not base.endswith(".mp3"):
+            continue
+        if created is None:
+            continue
+        stamp = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
+        if stamp < cutoff:
+            out.append(str(name))
+    return out
+
+
+def purge_expired_tts_cache(*, now: datetime | None = None) -> dict[str, int | bool]:
+    """Drop shared spoken MP3s older than a week. Never raises."""
+    moment = now or datetime.now(timezone.utc)
+    days = tts_cache_retention_days()
+    out: dict[str, int | bool] = {
+        "ok": True,
+        "keep_days": days,
+        "gcs_deleted": 0,
+        "local_deleted": 0,
+    }
+    if days <= 0:
+        return out
+    root = tts_cache_dir()
+    if root.is_dir():
+        local_items: list[tuple[str, datetime | None]] = []
+        for path in root.glob("*.mp3"):
+            try:
+                stamp = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            except OSError:
+                continue
+            local_items.append((path.name, stamp))
+        for name in expired_tts_cache_names(local_items, now=moment, keep_days=days):
+            try:
+                (root / name).unlink()
+                out["local_deleted"] = int(out["local_deleted"]) + 1
+            except OSError:
+                out["ok"] = False
+    try:
+        from sentence_reading.llm.gcs_sync import (
+            _storage_client,
+            delete_bytes,
+            gcs_client_ready,
+            gcs_config,
+            object_name,
+        )
+
+        prefix = object_name("tts_cache")
+        ready, _msg = gcs_client_ready()
+        if prefix and ready:
+            cfg = gcs_config()
+            blobs = _storage_client().bucket(cfg.bucket).list_blobs(
+                prefix=prefix.rstrip("/") + "/"
+            )
+            pairs: list[tuple[str, datetime | None]] = []
+            for blob in blobs:
+                name = str(getattr(blob, "name", "") or "")
+                created = getattr(blob, "time_created", None)
+                if name:
+                    pairs.append((name, created))
+            for name in expired_tts_cache_names(pairs, now=moment, keep_days=days):
+                if delete_bytes(name):
+                    out["gcs_deleted"] = int(out["gcs_deleted"]) + 1
+    except Exception:  # noqa: BLE001
+        out["ok"] = False
+    return out

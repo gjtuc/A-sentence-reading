@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.362",
+    version="0.3.363",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1633,10 +1633,17 @@ async def _evidence_rotate_loop() -> None:
             raise
         try:
             from sentence_reading.llm import evidence_bus as eb
+            from sentence_reading.llm import error_logs as errlog
             from sentence_reading.llm import ops_events as oev
+            from sentence_reading.llm import upload_audit_log as ual
 
             eb.rotate_events(force=False)
             oev.rotate_events(force=False)
+            errlog.rotate_events(force=False)
+            ual.rotate_events(force=False)
+            from sentence_reading.llm.tts import purge_expired_tts_cache
+
+            purge_expired_tts_cache()
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001

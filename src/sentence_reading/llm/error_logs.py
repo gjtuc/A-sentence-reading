@@ -38,6 +38,10 @@ _MAX_TITLE = 240
 _MAX_CACHE_ID = 64
 _MAX_EVENTS_KEEP = 2_000
 _MAX_BODY_BYTES = 4_000_000
+# Admin triage rows keep an email. Drop them after 3 days.
+_DEFAULT_RETENTION_DAYS = 3
+_ROTATE_MIN_INTERVAL_SEC = 6 * 3600
+_LAST_ROTATE_MONO = 0.0
 
 # WHY: catch common secret shapes in free-text message/stack.
 _SECRET_PATTERNS: list[re.Pattern[str]] = [
@@ -57,6 +61,17 @@ def cloud_error_logs_enabled() -> bool:
     load_asr_env()
     raw = (os.environ.get("ASR_CLOUD_ERROR_LOGS") or "1").strip().lower()
     return raw not in ("0", "false", "off", "no")
+
+
+def retention_days() -> int:
+    """Keep admin error rows this many days. 0 turns the age filter off."""
+    load_asr_env()
+    raw = (os.environ.get("ASR_ERROR_LOG_RETENTION_DAYS") or str(_DEFAULT_RETENTION_DAYS)).strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = _DEFAULT_RETENTION_DAYS
+    return max(0, min(n, 365))
 
 
 def _env_int(name: str, default: int, *, lo: int, hi: int) -> int:
@@ -211,10 +226,11 @@ def _parse_events(raw: bytes) -> list[dict[str, Any]]:
 
 
 def append_event(event: dict[str, Any]) -> dict[str, Any]:
-    """Append one event; trim old lines. Returns the stored event."""
+    """Append one event; drop rows older than 3 days, then trim. Returns the stored event."""
     with _LOCK:
         events = _parse_events(_pull_events_raw())
         events.append(event)
+        events, _dropped = _jl.filter_retained(events, keep_days=retention_days())
         events = _jl.trim_jsonl_events(
             events,
             max_keep=_MAX_EVENTS_KEEP,
@@ -222,6 +238,55 @@ def append_event(event: dict[str, Any]) -> dict[str, Any]:
         )
         _push_events_raw(_jl.encode_jsonl_events(events))
         return event
+
+
+def rotate_events(
+    *,
+    keep_days: int | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Drop admin error rows older than keep_days. Never raises."""
+    global _LAST_ROTATE_MONO
+    days = retention_days() if keep_days is None else int(keep_days)
+    out: dict[str, Any] = {
+        "ok": False,
+        "before": 0,
+        "after": 0,
+        "dropped": 0,
+        "skipped": 0,
+        "keep_days": days,
+    }
+    if not cloud_error_logs_enabled():
+        out["skipped"] = 1
+        return out
+    now_m = time.monotonic()
+    if (
+        not force
+        and _LAST_ROTATE_MONO > 0
+        and (now_m - _LAST_ROTATE_MONO) < _ROTATE_MIN_INTERVAL_SEC
+    ):
+        out["skipped"] = 1
+        out["ok"] = True
+        return out
+    try:
+        with _LOCK:
+            events = _parse_events(_pull_events_raw())
+            before = len(events)
+            kept, dropped = _jl.filter_retained(events, keep_days=days)
+            if len(kept) > _MAX_EVENTS_KEEP:
+                dropped += len(kept) - _MAX_EVENTS_KEEP
+                kept = kept[-_MAX_EVENTS_KEEP:]
+            if dropped == 0 and not force:
+                _LAST_ROTATE_MONO = now_m
+                out.update(ok=True, before=before, after=before, dropped=0)
+                return out
+            _push_events_raw(_jl.encode_jsonl_events(kept))
+            _LAST_ROTATE_MONO = now_m
+            out.update(ok=True, before=before, after=len(kept), dropped=dropped)
+            return out
+    except Exception:  # noqa: BLE001
+        log.warning("error_logs rotate failed", exc_info=True)
+        return out
 
 
 def list_events(*, limit: int = 50) -> list[dict[str, Any]]:

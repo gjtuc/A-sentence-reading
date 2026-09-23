@@ -36,6 +36,13 @@ def main() -> int:
         from sentence_reading.llm import ops_events as oev
 
         out["ops_events"] = oev.rotate_events(keep_days=args.days, force=args.force)
+    if not args.ops_only and not args.evidence_only:
+        from sentence_reading.llm import error_logs as errlog
+        from sentence_reading.llm import upload_audit_log as ual
+
+        # Own windows: error logs 3 days, upload audit 90 days.
+        out["error_logs"] = errlog.rotate_events(force=args.force)
+        out["upload_audit"] = ual.rotate_events(force=args.force)
     print(json.dumps(out, ensure_ascii=False))
     ok = all(bool(v.get("ok")) for v in out.values()) if out else False
     return 0 if ok else 1

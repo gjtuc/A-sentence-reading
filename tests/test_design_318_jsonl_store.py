@@ -57,3 +57,15 @@ def test_trim_count_then_half_on_bytes() -> None:
     huge = jl.trim_jsonl_events(rows, max_keep=100, max_body_bytes=80)
     assert huge == rows[len(rows) // 2 :]
     assert jl.encode_jsonl_events([]) == b""
+
+
+def test_filter_retained_uses_at_when_ts_missing() -> None:
+    now = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    rows = [
+        {"id": "old", "at": "2026-01-01T00:00:00Z"},
+        {"id": "new", "at": "2026-05-20T00:00:00Z"},
+        {"id": "notime"},
+    ]
+    kept, dropped = jl.filter_retained(rows, keep_days=90, now=now)
+    assert [r["id"] for r in kept] == ["new", "notime"]
+    assert dropped == 1

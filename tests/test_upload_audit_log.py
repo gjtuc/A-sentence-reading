@@ -69,3 +69,33 @@ def test_status_flag():
 
     st = TestClient(app).get("/api/status").json()
     assert st.get("upload_audit_log") is True
+
+
+def test_upload_audit_keeps_three_months_and_drops_older(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.delenv("ASR_UPLOAD_AUDIT_RETENTION_DAYS", raising=False)
+
+    old = (datetime.now(timezone.utc) - timedelta(days=120)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    recent = (datetime.now(timezone.utc) - timedelta(days=40)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    (tmp_path / "events.jsonl").write_text(
+        '{"id":"upl_old","at":"%s","uid":"user_old","cache_id":"cache_old","filename":"old.pdf"}\n'
+        '{"id":"upl_recent","at":"%s","uid":"user_recent","cache_id":"cache_recent","filename":"recent.pdf"}\n'
+        % (old, recent),
+        encoding="utf-8",
+    )
+    ev = ual.record_upload(
+        uid="user_new",
+        cache_id="cache_new",
+        filename="new.pdf",
+    )
+    assert ev is not None
+    raw = (tmp_path / "events.jsonl").read_text(encoding="utf-8")
+    assert "upl_old" not in raw
+    assert "upl_recent" in raw
+    assert "cache_new" in raw
+    assert ual.retention_days() == 90
