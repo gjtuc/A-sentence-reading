@@ -284,7 +284,7 @@ _SlotBuild _spokenSlots({
   required List<FollowSpan> spans,
 }) {
   final spanN = spans.length;
-  final posSpanN = spans.where((s) => s.weight > 0).length;
+  final posSpanN = spans.where((s) => s.weight > 0 && s.end > s.start).length;
   if (display.isEmpty) {
     return _SlotBuild(
       slots: const [],

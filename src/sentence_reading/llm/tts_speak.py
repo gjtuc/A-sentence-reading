@@ -1271,88 +1271,230 @@ def _match_spoken_slice(full: str, cursor: int, piece: str) -> int | None:
     return i
 
 
-def align_display_report(display: str) -> dict[str, object]:
+def _char_class(ch: str) -> str:
+    if ch.isdigit():
+        return "digit"
+    if ch.isalpha():
+        return "upper" if ch.isupper() else "lower"
+    if ch.isspace():
+        return "space"
+    if ch in "-‐‑‒–—―":
+        return "dash"
+    if ch in ".,;:!?":
+        return "punct"
+    if ch in "()[]{}":
+        return "paren"
+    if ch == "'":
+        return "apos"
+    return "symbol"
+
+
+def _token_shape(token: str) -> str:
+    has_digit = any(ch.isdigit() for ch in token)
+    has_alpha = any(ch.isalpha() for ch in token)
+    if has_digit and has_alpha:
+        return "alnum"
+    if has_digit:
+        return "digits"
+    if "'" in token:
+        return "apos"
+    if has_alpha:
+        return "letters"
+    return "other"
+
+
+def _gap_shape(gap: str) -> str:
+    kinds = {_char_class(ch) for ch in gap if not ch.isspace()}
+    if not kinds:
+        return "space" if gap else "none"
+    if len(kinds) == 1:
+        return next(iter(kinds))
+    return "mixed"
+
+
+def _differ_at(full: str, cursor: int, piece: str) -> tuple[int, str, str]:
+    piece_n = re.sub(r"\s+", " ", piece).strip()
+    i = cursor
+    pi = 0
+    while pi < len(piece_n) and i < len(full):
+        if piece_n[pi].isspace():
+            if not full[i].isspace():
+                return pi, _char_class(full[i]), "space"
+            while pi < len(piece_n) and piece_n[pi].isspace():
+                pi += 1
+            while i < len(full) and full[i].isspace():
+                i += 1
+            continue
+        if full[i] != piece_n[pi]:
+            return pi, _char_class(full[i]), _char_class(piece_n[pi])
+        i += 1
+        pi += 1
+    if pi != len(piece_n):
+        nxt = _char_class(piece_n[pi]) if pi < len(piece_n) else "end"
+        return pi, "end", nxt
+    return -1, "none", "none"
+
+
+def _align_report(
+    *,
+    code: str,
+    spans: list[dict[str, int]],
+    token_i: int,
+    cursor: int,
+    display_chars: int,
+    spoken_chars: int,
+    token_len: int = -1,
+    piece_len: int = -1,
+    differ_at: int = -1,
+    token_shape: str = "none",
+    piece_class: str = "none",
+    full_class: str = "none",
+    gap_len: int = -1,
+    gap_shape: str = "none",
+    matched_n: int = 0,
+    tail_n: int = 0,
+) -> dict[str, object]:
+    return {
+        "code": code,
+        "spans": spans,
+        "token_i": token_i,
+        "cursor": cursor,
+        "display_chars": display_chars,
+        "spoken_chars": spoken_chars,
+        "token_len": token_len,
+        "piece_len": piece_len,
+        "differ_at": differ_at,
+        "token_shape": token_shape,
+        "piece_class": piece_class,
+        "full_class": full_class,
+        "gap_len": gap_len,
+        "gap_shape": gap_shape,
+        "matched_n": matched_n,
+        "tail_n": tail_n,
+    }
+
+
+def _keep_matched_spans(
+    spans: list[dict[str, int]], full: str, cursor: int
+) -> list[dict[str, int]]:
+    """Matched words stay. A zero-width tail weight keeps the audio clock honest."""
+    kept = list(spans)
+    remain = len(full) - cursor
+    if remain > 0:
+        kept.append({"start": 0, "end": 0, "weight": remain})
+    return kept
+
+
+def align_display_report(
+    display: str, *, spoken: str | None = None
+) -> dict[str, object]:
     """Why printed words did or did not line up with the spoken form.
 
     Counts and a short code only. No sentence text.
     ``code`` is ``ok``, ``empty_display``, ``empty_spoken``,
     ``token_unmatched``, or ``trailing_residue``.
+    A failed code still keeps spans for the words that already matched.
+    ``spoken``, when passed, is the same string the caller will play.
     """
     raw = (display or "").strip()
     if not raw:
-        return {
-            "code": "empty_display",
-            "spans": [],
-            "token_i": -1,
-            "cursor": 0,
-            "display_chars": 0,
-            "spoken_chars": 0,
-        }
-    full = spoken_text_for_tts(raw)
+        return _align_report(
+            code="empty_display",
+            spans=[],
+            token_i=-1,
+            cursor=0,
+            display_chars=0,
+            spoken_chars=0,
+        )
+    full = spoken if spoken is not None else spoken_text_for_tts(raw)
     if not full.strip():
-        return {
-            "code": "empty_spoken",
-            "spans": [],
-            "token_i": -1,
-            "cursor": 0,
-            "display_chars": len(raw),
-            "spoken_chars": len(full),
-        }
+        return _align_report(
+            code="empty_spoken",
+            spans=[],
+            token_i=-1,
+            cursor=0,
+            display_chars=len(raw),
+            spoken_chars=len(full),
+        )
     dropped = _paren_drop_ranges(raw)
     word = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?")
+    matches = list(word.finditer(raw))
     spans: list[dict[str, int]] = []
     cursor = 0
     token_i = -1
+    prev_end = 0
 
     def _skip_ws() -> None:
         nonlocal cursor
         while cursor < len(full) and full[cursor].isspace():
             cursor += 1
 
-    for token_i, m in enumerate(word.finditer(raw)):
+    def _matched_n() -> int:
+        return sum(1 for span in spans if int(span.get("weight") or 0) > 0 and int(span.get("end") or 0) > int(span.get("start") or 0))
+
+    for token_i, m in enumerate(matches):
         start, end = m.start(), m.end()
         inside = any(a <= start and end <= b for a, b in dropped)
         if inside:
             spans.append({"start": start, "end": end, "weight": 0})
+            prev_end = end
             continue
         token = m.group(0)
         piece = spoken_text_for_tts(_ROMAN_SPOKEN.get(token, token))
         _skip_ws()
         matched = _match_spoken_slice(full, cursor, piece)
         if matched is None:
-            return {
-                "code": "token_unmatched",
-                "spans": [],
-                "token_i": token_i,
-                "cursor": cursor,
-                "display_chars": len(raw),
-                "spoken_chars": len(full),
-            }
+            differ_at, full_class, piece_class = _differ_at(full, cursor, piece)
+            piece_n = re.sub(r"\s+", " ", piece).strip()
+            return _align_report(
+                code="token_unmatched",
+                spans=_keep_matched_spans(spans, full, cursor),
+                token_i=token_i,
+                cursor=cursor,
+                display_chars=len(raw),
+                spoken_chars=len(full),
+                token_len=len(token),
+                piece_len=len(piece_n),
+                differ_at=differ_at,
+                token_shape=_token_shape(token),
+                piece_class=piece_class,
+                full_class=full_class,
+                gap_len=max(0, start - prev_end),
+                gap_shape=_gap_shape(raw[prev_end:start]),
+                matched_n=_matched_n(),
+                tail_n=len(matches) - token_i,
+            )
         weight = matched - cursor
         spans.append({"start": start, "end": end, "weight": max(weight, 1)})
         cursor = matched
+        prev_end = end
     _skip_ws()
     # A final period is not a word. Leaving it unmatched dropped every span.
     while cursor < len(full) and not (full[cursor].isalnum() or full[cursor] == "'"):
         cursor += 1
         _skip_ws()
     if cursor != len(full):
-        return {
-            "code": "trailing_residue",
-            "spans": [],
-            "token_i": token_i,
-            "cursor": cursor,
-            "display_chars": len(raw),
-            "spoken_chars": len(full),
-        }
-    return {
-        "code": "ok",
-        "spans": spans,
-        "token_i": token_i,
-        "cursor": cursor,
-        "display_chars": len(raw),
-        "spoken_chars": len(full),
-    }
+        return _align_report(
+            code="trailing_residue",
+            spans=_keep_matched_spans(spans, full, cursor),
+            token_i=token_i,
+            cursor=cursor,
+            display_chars=len(raw),
+            spoken_chars=len(full),
+            matched_n=_matched_n(),
+            tail_n=0,
+            full_class=_char_class(full[cursor]) if cursor < len(full) else "end",
+        )
+    return _align_report(
+        code="ok",
+        spans=spans,
+        token_i=token_i,
+        cursor=cursor,
+        display_chars=len(raw),
+        spoken_chars=len(full),
+        matched_n=_matched_n(),
+        tail_n=0,
+    )
 
 
 def align_display_to_spoken(display: str) -> list[dict[str, int]]:

@@ -194,7 +194,38 @@ def test_align_display_report_is_counts_and_code_only() -> None:
         "cursor",
         "display_chars",
         "spoken_chars",
+        "token_len",
+        "piece_len",
+        "differ_at",
+        "token_shape",
+        "piece_class",
+        "full_class",
+        "gap_len",
+        "gap_shape",
+        "matched_n",
+        "tail_n",
     }
+
+
+def test_unmatched_token_keeps_earlier_words() -> None:
+    from sentence_reading.llm.tts_speak import align_display_report
+
+    report = align_display_report("the Pt particle grows")
+    assert report["code"] == "token_unmatched"
+    kept = [
+        s
+        for s in report["spans"]
+        if s["weight"] > 0 and s["end"] > s["start"]
+    ]
+    assert kept
+    assert kept[0]["start"] == 0
+    assert report["matched_n"] == len(kept)
+    assert report["tail_n"] >= 1
+    assert report["token_shape"] in {"letters", "digits", "alnum", "apos", "other"}
+    assert "text" not in report
+    blob = str({k: v for k, v in report.items() if k != "spans"})
+    assert "Pt" not in blob
+    assert "platinum" not in blob
 
 
 def test_spoken_align_evidence_omits_sentence_text(monkeypatch) -> None:
@@ -223,3 +254,5 @@ def test_spoken_align_evidence_omits_sentence_text(monkeypatch) -> None:
     assert captured["details"]["phase"] == "server_align"
     assert captured["details"]["span_n"] == len(spans)
     assert captured["details"]["spoken_chars"] == len("c v d is a technique")
+    assert captured["details"]["token_shape"] == "none"
+    assert captured["details"]["tail_n"] == 0

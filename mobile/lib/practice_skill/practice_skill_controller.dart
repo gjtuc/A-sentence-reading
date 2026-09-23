@@ -21,6 +21,16 @@ class SpokenAlignMark {
     this.cursor = -1,
     this.displayChars = -1,
     this.spokenChars = -1,
+    this.tokenLen = -1,
+    this.pieceLen = -1,
+    this.differAt = -1,
+    this.tokenShape = 'none',
+    this.pieceClass = 'none',
+    this.fullClass = 'none',
+    this.gapLen = -1,
+    this.gapShape = 'none',
+    this.matchedN = -1,
+    this.tailN = -1,
   });
 
   final String code;
@@ -28,6 +38,34 @@ class SpokenAlignMark {
   final int cursor;
   final int displayChars;
   final int spokenChars;
+  final int tokenLen;
+  final int pieceLen;
+  final int differAt;
+  final String tokenShape;
+  final String pieceClass;
+  final String fullClass;
+  final int gapLen;
+  final String gapShape;
+  final int matchedN;
+  final int tailN;
+
+  Map<String, Object?> get details => {
+        'align_code': code,
+        'align_token_i': tokenI,
+        'align_cursor': cursor,
+        'align_display_chars': displayChars,
+        'align_spoken_chars': spokenChars,
+        'token_len': tokenLen,
+        'piece_len': pieceLen,
+        'differ_at': differAt,
+        'token_shape': tokenShape,
+        'piece_class': pieceClass,
+        'full_class': fullClass,
+        'gap_len': gapLen,
+        'gap_shape': gapShape,
+        'matched_n': matchedN,
+        'tail_n': tailN,
+      };
 }
 
 class SpokenCache {
@@ -80,6 +118,9 @@ class SpokenCache {
     _align.clear();
   }
 }
+
+int _scoreableSpans(List<FollowSpan> spans) =>
+    spans.where((s) => s.weight > 0 && s.end > s.start).length;
 
 class PracticeSkillController {
   PracticeSkillController({
@@ -160,14 +201,10 @@ class PracticeSkillController {
           'sentence_id_h16': skillSentenceIdH16(_sentenceId),
           'focus_elapsed_ms': _focusElapsedMs,
           'span_n': cachedSpans.length,
-          'pos_span_n': cachedSpans.where((s) => s.weight > 0).length,
-          'align_code': cached.code,
-          'align_token_i': cached.tokenI,
-          'align_cursor': cached.cursor,
+          'pos_span_n': _scoreableSpans(cachedSpans),
           'display_chars': chunkDisplay.length,
           'spoken_chars': hit.length,
-          'align_display_chars': cached.displayChars,
-          'align_spoken_chars': cached.spokenChars,
+          ...cached.details,
         },
       );
       return hit;
@@ -203,8 +240,19 @@ class PracticeSkillController {
           cursor: r.alignCursor,
           displayChars: r.alignDisplayChars,
           spokenChars: r.alignSpokenChars,
+          tokenLen: r.alignTokenLen,
+          pieceLen: r.alignPieceLen,
+          differAt: r.alignDifferAt,
+          tokenShape: r.alignTokenShape,
+          pieceClass: r.alignPieceClass,
+          fullClass: r.alignFullClass,
+          gapLen: r.alignGapLen,
+          gapShape: r.alignGapShape,
+          matchedN: r.alignMatchedN,
+          tailN: r.alignTailN,
         ),
       );
+      final mark = spokenCache.peekAlign(chunkDisplay);
       await evidence.emit(
         kind: 'practice_skill_spoken',
         cacheId: _cacheId,
@@ -219,14 +267,10 @@ class PracticeSkillController {
           'sentence_id_h16': skillSentenceIdH16(_sentenceId),
           'focus_elapsed_ms': _focusElapsedMs,
           'span_n': r.spans.length,
-          'pos_span_n': r.spans.where((s) => s.weight > 0).length,
-          'align_code': r.alignCode,
-          'align_token_i': r.alignTokenI,
-          'align_cursor': r.alignCursor,
+          'pos_span_n': _scoreableSpans(r.spans),
           'display_chars': chunkDisplay.length,
           'spoken_chars': r.spoken.length,
-          'align_display_chars': r.alignDisplayChars,
-          'align_spoken_chars': r.alignSpokenChars,
+          ...mark.details,
         },
       );
       return r.spoken;
@@ -415,12 +459,9 @@ class PracticeSkillController {
         'walk_i': diag.walkI,
         'piece_weight': diag.pieceWeight,
         'remain': diag.remain,
-        'align_token_i': align.tokenI,
-        'align_cursor': align.cursor,
-        'align_display_chars': align.displayChars,
-        'align_spoken_chars': align.spokenChars,
         'list_v': score.listV,
         'chunk_index': _chunkIndex,
+        ...align.details,
       },
     );
     if (!score.ok || score.accuracy == null) {
@@ -474,10 +515,47 @@ class PracticeSkillController {
         'speak_norm': spokenCache.speakNorm.replaceAll('.', '_'),
         'take_bytes': takeBytes.length,
         'focus_elapsed_ms': _focusElapsedMs,
+        'align_code': align.code,
+        'tail_n': align.tailN,
+        'matched_n': align.matchedN,
       },
     );
     // design/215 — adapt only on focus-block epoch resolve, not per take.
     return score;
+  }
+
+  /// design/364 — speak-window clock. Numbers only, for a short recording.
+  Future<void> noteSpeakWindow({
+    required int wallMs,
+    required int callMs,
+    required int playerMs,
+    required int padMs,
+    required int fileMs,
+    required int fileBytes,
+    required int audioBytes,
+    required int tooShort,
+    required String playCode,
+  }) async {
+    await evidence.emit(
+      kind: 'practice_skill_speak_window',
+      cacheId: _cacheId,
+      ok: tooShort == 0 && playCode == 'played',
+      code: tooShort == 1 ? 'too_short' : playCode,
+      details: {
+        'phase': 'speak_window',
+        'wall_ms': wallMs,
+        'call_ms': callMs,
+        'player_ms': playerMs,
+        'pad_ms': padMs,
+        'file_ms': fileMs,
+        'file_bytes': fileBytes,
+        'audio_bytes': audioBytes,
+        'too_short': tooShort,
+        'play_code': playCode,
+        'chunk_index': _chunkIndex,
+        'focus_elapsed_ms': _focusElapsedMs,
+      },
+    );
   }
 
   Future<void> onFocusBlockDone(List<String> baseChunks) async {

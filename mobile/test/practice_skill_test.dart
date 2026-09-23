@@ -276,4 +276,23 @@ void main() {
     expect(outOfRange.slotCode, 'span_out_of_range');
     expect(outOfRange.posSpanN, 1);
   });
+
+  test('words before a broken pairing still score', () {
+    const display = 'Alpha beta gamma';
+    final scored = diagnoseSpokenSlots(
+      display: display,
+      spoken: 'alpha beta GAMMA leftover',
+      spans: const [
+        FollowSpan(start: 0, end: 5, weight: 5),
+        FollowSpan(start: 6, end: 10, weight: 4),
+        FollowSpan(start: 0, end: 0, weight: 16),
+      ],
+      heard: 'alpha beta',
+    );
+    expect(scored.slotCode, 'ok');
+    expect(scored.score.ok, isTrue);
+    expect(scored.score.refN, 2);
+    expect(scored.score.hitN, 2);
+    expect(scored.posSpanN, 2);
+  });
 }

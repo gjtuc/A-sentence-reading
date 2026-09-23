@@ -2588,6 +2588,16 @@ throw AsrApiException(
       alignCursor: (map['align_cursor'] as num?)?.toInt() ?? -1,
       alignDisplayChars: (map['align_display_chars'] as num?)?.toInt() ?? -1,
       alignSpokenChars: (map['align_spoken_chars'] as num?)?.toInt() ?? -1,
+      alignTokenLen: (map['align_token_len'] as num?)?.toInt() ?? -1,
+      alignPieceLen: (map['align_piece_len'] as num?)?.toInt() ?? -1,
+      alignDifferAt: (map['align_differ_at'] as num?)?.toInt() ?? -1,
+      alignTokenShape: _alignCode('${map['align_token_shape'] ?? 'none'}'),
+      alignPieceClass: _alignCode('${map['align_piece_class'] ?? 'none'}'),
+      alignFullClass: _alignCode('${map['align_full_class'] ?? 'none'}'),
+      alignGapLen: (map['align_gap_len'] as num?)?.toInt() ?? -1,
+      alignGapShape: _alignCode('${map['align_gap_shape'] ?? 'none'}'),
+      alignMatchedN: (map['align_matched_n'] as num?)?.toInt() ?? -1,
+      alignTailN: (map['align_tail_n'] as num?)?.toInt() ?? -1,
     );
   }
 
@@ -3500,6 +3510,16 @@ class SpokenTextResult {
     this.alignCursor = -1,
     this.alignDisplayChars = -1,
     this.alignSpokenChars = -1,
+    this.alignTokenLen = -1,
+    this.alignPieceLen = -1,
+    this.alignDifferAt = -1,
+    this.alignTokenShape = 'none',
+    this.alignPieceClass = 'none',
+    this.alignFullClass = 'none',
+    this.alignGapLen = -1,
+    this.alignGapShape = 'none',
+    this.alignMatchedN = -1,
+    this.alignTailN = -1,
   });
   final String spoken;
   final String speakNormVersion;
@@ -3509,6 +3529,16 @@ class SpokenTextResult {
   final int alignCursor;
   final int alignDisplayChars;
   final int alignSpokenChars;
+  final int alignTokenLen;
+  final int alignPieceLen;
+  final int alignDifferAt;
+  final String alignTokenShape;
+  final String alignPieceClass;
+  final String alignFullClass;
+  final int alignGapLen;
+  final String alignGapShape;
+  final int alignMatchedN;
+  final int alignTailN;
 }
 
 String _alignCode(String raw) {

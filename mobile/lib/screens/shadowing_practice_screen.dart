@@ -89,6 +89,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   StreamSubscription<Duration>? _followDurSub;
   int _followGen = 0;
   ({int start, int end})? _follow;
+  int _lastPlayerMs = -1;
+  int _lastAudioBytes = -1;
   late final FocusPracticeController _focus;
   late final bool _ownsFocus;
   final ShadowingDiskStore _disk = ShadowingDiskStore();
@@ -1008,10 +1010,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       } else {
         _clearFollowLight();
       }
+      final playerSw = Stopwatch()..start();
       try {
         await _player.play(BytesSource(bytes));
         await done;
       } finally {
+        playerSw.stop();
+        _lastPlayerMs = playerSw.elapsedMilliseconds;
+        _lastAudioBytes = bytes.length;
         _clearFollowLight();
       }
       asrEvidenceBus?.record(
@@ -1252,9 +1258,27 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     var cloudOk = false;
     Future<({String display, List<MissedWordSpan> spans})?>? scoreFuture;
     final wall = Stopwatch()..start();
+    var callMs = -1;
+    var padMs = 0;
+    var playCode = 'played';
+    var fileMs = -1;
+    var tooShortFlag = 0;
     try {
-      await _playCachedChunkTts(phase: 'tts_speak');
+      final callSw = Stopwatch()..start();
+      try {
+        await _playCachedChunkTts(phase: 'tts_speak');
+        callSw.stop();
+        callMs = callSw.elapsedMilliseconds;
+      } catch (_) {
+        callSw.stop();
+        callMs = callSw.elapsedMilliseconds;
+        playCode = 'play_threw';
+        rethrow;
+      }
+      final padSw = Stopwatch()..start();
       await Future<void>.delayed(_pad);
+      padSw.stop();
+      padMs = padSw.elapsedMilliseconds;
     } finally {
       wall.stop();
       _focus.endSpeak(cacheId: _cacheId);
@@ -1340,6 +1364,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             if (tooShort) {
               signal = GroomingSignal.takeTooShort;
               code = 'too_short';
+              tooShortFlag = 1;
             } else {
               signal = GroomingSignal.clean;
               code = 'ok';
@@ -1382,6 +1407,29 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           }
         }
       }
+      if (takeOk && (_lastTakePath ?? '').isNotEmpty) {
+        try {
+          final probe = AudioPlayer();
+          try {
+            await probe.setSource(DeviceFileSource(_lastTakePath!));
+            final d = await probe.getDuration();
+            fileMs = d?.inMilliseconds ?? -1;
+          } finally {
+            await probe.dispose();
+          }
+        } catch (_) {}
+      }
+      await _skill.noteSpeakWindow(
+        wallMs: wall.elapsedMilliseconds,
+        callMs: callMs,
+        playerMs: _lastPlayerMs,
+        padMs: padMs,
+        fileMs: fileMs,
+        fileBytes: takeByteLen,
+        audioBytes: _lastAudioBytes,
+        tooShort: tooShortFlag,
+        playCode: playCode,
+      );
     }
     var takeDurMs = 0;
     if (takeOk && (_lastTakePath ?? '').isNotEmpty) {

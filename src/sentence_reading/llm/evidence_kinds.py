@@ -147,6 +147,7 @@ ALLOWED_KINDS = frozenset(
         "practice_skill_spoken",
         "practice_skill_stt",
         "practice_skill_align",
+        "practice_skill_speak_window",
         "practice_skill_scored",
         "practice_skill_unscored",
         "practice_skill_adapt",
