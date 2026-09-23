@@ -233,4 +233,47 @@ void main() {
     expect(missed.hitN, 1);
     expect(missed.refN, 4);
   });
+
+  test('empty pairing reports the walk step that failed', () {
+    final none = diagnoseSpokenSlots(
+      display: 'Alpha beta',
+      spoken: 'alpha beta',
+      spans: const [],
+      heard: 'alpha',
+    );
+    expect(none.slotCode, 'no_spans');
+    expect(none.score.ok, isFalse);
+    expect(none.score.error, 'no_spans');
+    expect(none.spanN, 0);
+
+    final zero = diagnoseSpokenSlots(
+      display: 'Alpha beta',
+      spoken: 'alpha beta',
+      spans: const [FollowSpan(start: 0, end: 5, weight: 0)],
+      heard: 'alpha',
+    );
+    expect(zero.slotCode, 'weight_zero');
+    expect(zero.posSpanN, 0);
+
+    final past = diagnoseSpokenSlots(
+      display: 'Alpha',
+      spoken: 'alpha',
+      spans: const [FollowSpan(start: 0, end: 5, weight: 40)],
+      heard: 'alpha',
+    );
+    expect(past.slotCode, 'walk_past_end');
+    expect(past.walkI, 0);
+    expect(past.pieceWeight, 40);
+    expect(past.remain, 5);
+    expect(past.score.error, 'walk_past_end');
+
+    final outOfRange = diagnoseSpokenSlots(
+      display: 'Alpha',
+      spoken: 'alpha',
+      spans: const [FollowSpan(start: 0, end: 99, weight: 5)],
+      heard: 'alpha',
+    );
+    expect(outOfRange.slotCode, 'span_out_of_range');
+    expect(outOfRange.posSpanN, 1);
+  });
 }

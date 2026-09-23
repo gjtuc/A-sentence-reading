@@ -2583,6 +2583,11 @@ throw AsrApiException(
       spoken: spoken,
       speakNormVersion: '${map['speak_norm_version'] ?? 'v6'}',
       spans: _followSpans(map['spans']),
+      alignCode: _alignCode('${map['align_code'] ?? 'unknown'}'),
+      alignTokenI: (map['align_token_i'] as num?)?.toInt() ?? -1,
+      alignCursor: (map['align_cursor'] as num?)?.toInt() ?? -1,
+      alignDisplayChars: (map['align_display_chars'] as num?)?.toInt() ?? -1,
+      alignSpokenChars: (map['align_spoken_chars'] as num?)?.toInt() ?? -1,
     );
   }
 
@@ -3490,10 +3495,26 @@ class SpokenTextResult {
     required this.spoken,
     required this.speakNormVersion,
     this.spans = const [],
+    this.alignCode = 'unknown',
+    this.alignTokenI = -1,
+    this.alignCursor = -1,
+    this.alignDisplayChars = -1,
+    this.alignSpokenChars = -1,
   });
   final String spoken;
   final String speakNormVersion;
   final List<FollowSpan> spans;
+  final String alignCode;
+  final int alignTokenI;
+  final int alignCursor;
+  final int alignDisplayChars;
+  final int alignSpokenChars;
+}
+
+String _alignCode(String raw) {
+  final s = raw.trim().toLowerCase();
+  if (RegExp(r'^[a-z][a-z0-9_]{0,63}$').hasMatch(s)) return s;
+  return 'unknown';
 }
 
 List<FollowSpan> _followSpans(Object? raw) {

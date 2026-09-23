@@ -1271,25 +1271,45 @@ def _match_spoken_slice(full: str, cursor: int, piece: str) -> int | None:
     return i
 
 
-def align_display_to_spoken(display: str) -> list[dict[str, int]]:
-    """Printed-word spans for follow light. Empty list means do not light."""
+def align_display_report(display: str) -> dict[str, object]:
+    """Why printed words did or did not line up with the spoken form.
+
+    Counts and a short code only. No sentence text.
+    ``code`` is ``ok``, ``empty_display``, ``empty_spoken``,
+    ``token_unmatched``, or ``trailing_residue``.
+    """
     raw = (display or "").strip()
     if not raw:
-        return []
+        return {
+            "code": "empty_display",
+            "spans": [],
+            "token_i": -1,
+            "cursor": 0,
+            "display_chars": 0,
+            "spoken_chars": 0,
+        }
     full = spoken_text_for_tts(raw)
     if not full.strip():
-        return []
+        return {
+            "code": "empty_spoken",
+            "spans": [],
+            "token_i": -1,
+            "cursor": 0,
+            "display_chars": len(raw),
+            "spoken_chars": len(full),
+        }
     dropped = _paren_drop_ranges(raw)
     word = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?")
     spans: list[dict[str, int]] = []
     cursor = 0
+    token_i = -1
 
     def _skip_ws() -> None:
         nonlocal cursor
         while cursor < len(full) and full[cursor].isspace():
             cursor += 1
 
-    for m in word.finditer(raw):
+    for token_i, m in enumerate(word.finditer(raw)):
         start, end = m.start(), m.end()
         inside = any(a <= start and end <= b for a, b in dropped)
         if inside:
@@ -1300,7 +1320,14 @@ def align_display_to_spoken(display: str) -> list[dict[str, int]]:
         _skip_ws()
         matched = _match_spoken_slice(full, cursor, piece)
         if matched is None:
-            return []
+            return {
+                "code": "token_unmatched",
+                "spans": [],
+                "token_i": token_i,
+                "cursor": cursor,
+                "display_chars": len(raw),
+                "spoken_chars": len(full),
+            }
         weight = matched - cursor
         spans.append({"start": start, "end": end, "weight": max(weight, 1)})
         cursor = matched
@@ -1310,8 +1337,29 @@ def align_display_to_spoken(display: str) -> list[dict[str, int]]:
         cursor += 1
         _skip_ws()
     if cursor != len(full):
-        return []
-    return spans
+        return {
+            "code": "trailing_residue",
+            "spans": [],
+            "token_i": token_i,
+            "cursor": cursor,
+            "display_chars": len(raw),
+            "spoken_chars": len(full),
+        }
+    return {
+        "code": "ok",
+        "spans": spans,
+        "token_i": token_i,
+        "cursor": cursor,
+        "display_chars": len(raw),
+        "spoken_chars": len(full),
+    }
+
+
+def align_display_to_spoken(display: str) -> list[dict[str, int]]:
+    """Printed-word spans for follow light. Empty list means do not light."""
+    report = align_display_report(display)
+    spans = report["spans"]
+    return spans if isinstance(spans, list) else []
 
 
 def spoken_text_for_tts(

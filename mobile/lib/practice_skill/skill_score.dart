@@ -157,22 +157,50 @@ List<MissedWordSpan> missedContentSpans({
   return spans;
 }
 
+class SpokenSlotDiag {
+  const SpokenSlotDiag({
+    required this.score,
+    required this.slotCode,
+    required this.spanN,
+    required this.posSpanN,
+    required this.walkI,
+    required this.pieceWeight,
+    required this.remain,
+  });
+
+  final SkillScoreResult score;
+  final String slotCode;
+  final int spanN;
+  final int posSpanN;
+  final int walkI;
+  final int pieceWeight;
+  final int remain;
+}
+
 /// One printed word is one score slot, including function words.
 ///
 /// A printed token spoken as several pieces (`CVD` → `c v d`, `Pt` →
 /// `platinum`) is still one slot. Any missing piece fails the whole slot.
-SkillScoreResult spokenSlotCoverage({
+SpokenSlotDiag diagnoseSpokenSlots({
   required String display,
   required String spoken,
   required List<FollowSpan> spans,
   required String? heard,
 }) {
-  final slots = _spokenSlots(display: display, spoken: spoken, spans: spans);
-  if (slots.isEmpty) {
-    return const SkillScoreResult(
-      ok: false,
-      error: 'empty_slot_ref',
-      listV: kSpokenSlotListV,
+  final built = _spokenSlots(display: display, spoken: spoken, spans: spans);
+  if (built.slots.isEmpty) {
+    return SpokenSlotDiag(
+      score: SkillScoreResult(
+        ok: false,
+        error: built.code,
+        listV: kSpokenSlotListV,
+      ),
+      slotCode: built.code,
+      spanN: built.spanN,
+      posSpanN: built.posSpanN,
+      walkI: built.walkI,
+      pieceWeight: built.pieceWeight,
+      remain: built.remain,
     );
   }
   final have = <String, int>{};
@@ -181,22 +209,45 @@ SkillScoreResult spokenSlotCoverage({
   }
   var hit = 0;
   final missed = <MissedWordSpan>[];
-  for (final slot in slots) {
+  for (final slot in built.slots) {
     if (_takeSpokenSlot(slot.tokens, have)) {
       hit += 1;
     } else {
       missed.add(MissedWordSpan(slot.start, slot.end));
     }
   }
-  final acc = hit / slots.length;
-  return SkillScoreResult(
-    ok: true,
-    accuracy: (acc * 10000).round() / 10000.0,
-    refN: slots.length,
-    hitN: hit,
-    listV: kSpokenSlotListV,
-    missedSpans: missed,
+  final acc = hit / built.slots.length;
+  return SpokenSlotDiag(
+    score: SkillScoreResult(
+      ok: true,
+      accuracy: (acc * 10000).round() / 10000.0,
+      refN: built.slots.length,
+      hitN: hit,
+      listV: kSpokenSlotListV,
+      missedSpans: missed,
+    ),
+    slotCode: 'ok',
+    spanN: built.spanN,
+    posSpanN: built.posSpanN,
+    walkI: built.walkI,
+    pieceWeight: built.pieceWeight,
+    remain: built.remain,
   );
+}
+
+/// Score only. Diagnostics live on [diagnoseSpokenSlots].
+SkillScoreResult spokenSlotCoverage({
+  required String display,
+  required String spoken,
+  required List<FollowSpan> spans,
+  required String? heard,
+}) {
+  return diagnoseSpokenSlots(
+    display: display,
+    spoken: spoken,
+    spans: spans,
+    heard: heard,
+  ).score;
 }
 
 class _SpokenSlot {
@@ -207,12 +258,66 @@ class _SpokenSlot {
   final List<String> tokens;
 }
 
-List<_SpokenSlot> _spokenSlots({
+class _SlotBuild {
+  const _SlotBuild({
+    required this.slots,
+    required this.code,
+    required this.spanN,
+    required this.posSpanN,
+    required this.walkI,
+    required this.pieceWeight,
+    required this.remain,
+  });
+
+  final List<_SpokenSlot> slots;
+  final String code;
+  final int spanN;
+  final int posSpanN;
+  final int walkI;
+  final int pieceWeight;
+  final int remain;
+}
+
+_SlotBuild _spokenSlots({
   required String display,
   required String spoken,
   required List<FollowSpan> spans,
 }) {
-  if (display.isEmpty || spoken.isEmpty) return const [];
+  final spanN = spans.length;
+  final posSpanN = spans.where((s) => s.weight > 0).length;
+  if (display.isEmpty) {
+    return _SlotBuild(
+      slots: const [],
+      code: 'empty_display',
+      spanN: spanN,
+      posSpanN: posSpanN,
+      walkI: -1,
+      pieceWeight: 0,
+      remain: spoken.length,
+    );
+  }
+  if (spoken.isEmpty) {
+    return _SlotBuild(
+      slots: const [],
+      code: 'empty_spoken',
+      spanN: spanN,
+      posSpanN: posSpanN,
+      walkI: -1,
+      pieceWeight: 0,
+      remain: 0,
+    );
+  }
+  if (spans.isEmpty) {
+    return _SlotBuild(
+      slots: const [],
+      code: 'no_spans',
+      spanN: 0,
+      posSpanN: 0,
+      walkI: -1,
+      pieceWeight: 0,
+      remain: spoken.length,
+    );
+  }
   final scored = [
     for (final span in spans)
       if (span.weight > 0 &&
@@ -221,21 +326,61 @@ List<_SpokenSlot> _spokenSlots({
           span.end <= display.length)
         span,
   ];
-  if (scored.isEmpty) return const [];
+  if (scored.isEmpty) {
+    return _SlotBuild(
+      slots: const [],
+      code: posSpanN == 0 ? 'weight_zero' : 'span_out_of_range',
+      spanN: spanN,
+      posSpanN: posSpanN,
+      walkI: -1,
+      pieceWeight: 0,
+      remain: spoken.length,
+    );
+  }
   var cursor = 0;
   final out = <_SpokenSlot>[];
-  for (final span in scored) {
+  for (var i = 0; i < scored.length; i++) {
+    final span = scored[i];
     while (cursor < spoken.length && _skillSpace(spoken, cursor)) {
       cursor += 1;
     }
     final end = cursor + span.weight;
-    if (end > spoken.length) return const [];
+    final remain = spoken.length - cursor;
+    if (end > spoken.length) {
+      return _SlotBuild(
+        slots: const [],
+        code: 'walk_past_end',
+        spanN: spanN,
+        posSpanN: posSpanN,
+        walkI: i,
+        pieceWeight: span.weight,
+        remain: remain,
+      );
+    }
     final tokens = tokenizeSkill(spoken.substring(cursor, end));
     cursor = end;
-    if (tokens.isEmpty) return const [];
+    if (tokens.isEmpty) {
+      return _SlotBuild(
+        slots: const [],
+        code: 'empty_piece',
+        spanN: spanN,
+        posSpanN: posSpanN,
+        walkI: i,
+        pieceWeight: span.weight,
+        remain: spoken.length - cursor,
+      );
+    }
     out.add(_SpokenSlot(span.start, span.end, tokens));
   }
-  return out;
+  return _SlotBuild(
+    slots: out,
+    code: 'ok',
+    spanN: spanN,
+    posSpanN: posSpanN,
+    walkI: scored.length,
+    pieceWeight: 0,
+    remain: spoken.length - cursor,
+  );
 }
 
 bool _skillSpace(String text, int index) {

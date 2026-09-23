@@ -173,3 +173,53 @@ def test_follow_spans_cover_common_name_and_letters() -> None:
 
 def aside_text_index(text: str) -> int:
     return text.index("n")
+
+
+def test_align_display_report_is_counts_and_code_only() -> None:
+    from sentence_reading.llm.tts_speak import align_display_report
+
+    empty = align_display_report("   ")
+    assert empty["code"] == "empty_display"
+    assert empty["spans"] == []
+    assert "text" not in empty
+
+    period = align_display_report("CVD is a technique.")
+    assert period["code"] == "ok"
+    assert period["spans"]
+    assert period["cursor"] == period["spoken_chars"]
+    assert set(period) == {
+        "code",
+        "spans",
+        "token_i",
+        "cursor",
+        "display_chars",
+        "spoken_chars",
+    }
+
+
+def test_spoken_align_evidence_omits_sentence_text(monkeypatch) -> None:
+    captured: dict = {}
+
+    def _capture(kind, **kwargs):
+        captured["kind"] = kind
+        captured["code"] = kwargs.get("code")
+        captured["details"] = kwargs.get("details")
+
+    import sentence_reading.llm.evidence_bus as eb
+
+    monkeypatch.setattr(eb, "emit", _capture)
+    from sentence_reading.api.routes.tts import _emit_spoken_align
+    from sentence_reading.llm.tts_speak import align_display_report
+
+    raw = "CVD is a technique."
+    report = align_display_report(raw)
+    spans = report["spans"] if report["code"] == "ok" else []
+    _emit_spoken_align({"cache_id": "c1", "text": raw}, "c v d is a technique", report, spans)
+    blob = str(captured)
+    assert "CVD" not in blob
+    assert "technique" not in blob
+    assert captured["kind"] == "practice_skill_align"
+    assert captured["code"] == "ok"
+    assert captured["details"]["phase"] == "server_align"
+    assert captured["details"]["span_n"] == len(spans)
+    assert captured["details"]["spoken_chars"] == len("c v d is a technique")

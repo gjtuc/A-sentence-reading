@@ -14,10 +14,27 @@ import '../practice_rhythm/judgment_tier.dart';
 import 'skill_score.dart';
 import 'skill_store.dart';
 
+class SpokenAlignMark {
+  const SpokenAlignMark({
+    this.code = 'unknown',
+    this.tokenI = -1,
+    this.cursor = -1,
+    this.displayChars = -1,
+    this.spokenChars = -1,
+  });
+
+  final String code;
+  final int tokenI;
+  final int cursor;
+  final int displayChars;
+  final int spokenChars;
+}
+
 class SpokenCache {
   String speakNorm = 'v6';
   final Map<String, String> _map = {};
   final Map<String, List<FollowSpan>> _spans = {};
+  final Map<String, SpokenAlignMark> _align = {};
 
   void setSpeakNorm(String v) {
     final n = v.trim();
@@ -25,6 +42,7 @@ class SpokenCache {
     speakNorm = n;
     _map.clear();
     _spans.clear();
+    _align.clear();
   }
 
   String _key(String chunk) {
@@ -37,11 +55,15 @@ class SpokenCache {
   List<FollowSpan> peekSpans(String chunk) =>
       _spans[_key(chunk)] ?? const [];
 
+  SpokenAlignMark peekAlign(String chunk) =>
+      _align[_key(chunk)] ?? const SpokenAlignMark();
+
   void put(
     String chunk,
     String spoken, {
     String? version,
     List<FollowSpan> spans = const [],
+    SpokenAlignMark align = const SpokenAlignMark(),
   }) {
     if (version != null && version.trim().isNotEmpty) {
       setSpeakNorm(version.trim());
@@ -49,11 +71,13 @@ class SpokenCache {
     final key = _key(chunk);
     _map[key] = spoken;
     _spans[key] = spans;
+    _align[key] = align;
   }
 
   void clear() {
     _map.clear();
     _spans.clear();
+    _align.clear();
   }
 }
 
@@ -121,6 +145,8 @@ class PracticeSkillController {
     if (c == null || !serverEnabled) return null;
     final hit = spokenCache.peek(chunkDisplay);
     if (hit != null) {
+      final cached = spokenCache.peekAlign(chunkDisplay);
+      final cachedSpans = spokenCache.peekSpans(chunkDisplay);
       await evidence.emit(
         kind: 'practice_skill_spoken',
         cacheId: _cacheId,
@@ -133,6 +159,15 @@ class PracticeSkillController {
           'chunk_index': _chunkIndex,
           'sentence_id_h16': skillSentenceIdH16(_sentenceId),
           'focus_elapsed_ms': _focusElapsedMs,
+          'span_n': cachedSpans.length,
+          'pos_span_n': cachedSpans.where((s) => s.weight > 0).length,
+          'align_code': cached.code,
+          'align_token_i': cached.tokenI,
+          'align_cursor': cached.cursor,
+          'display_chars': chunkDisplay.length,
+          'spoken_chars': hit.length,
+          'align_display_chars': cached.displayChars,
+          'align_spoken_chars': cached.spokenChars,
         },
       );
       return hit;
@@ -162,6 +197,13 @@ class PracticeSkillController {
         r.spoken,
         version: r.speakNormVersion,
         spans: r.spans,
+        align: SpokenAlignMark(
+          code: r.alignCode,
+          tokenI: r.alignTokenI,
+          cursor: r.alignCursor,
+          displayChars: r.alignDisplayChars,
+          spokenChars: r.alignSpokenChars,
+        ),
       );
       await evidence.emit(
         kind: 'practice_skill_spoken',
@@ -176,6 +218,15 @@ class PracticeSkillController {
           'chunk_index': _chunkIndex,
           'sentence_id_h16': skillSentenceIdH16(_sentenceId),
           'focus_elapsed_ms': _focusElapsedMs,
+          'span_n': r.spans.length,
+          'pos_span_n': r.spans.where((s) => s.weight > 0).length,
+          'align_code': r.alignCode,
+          'align_token_i': r.alignTokenI,
+          'align_cursor': r.alignCursor,
+          'display_chars': chunkDisplay.length,
+          'spoken_chars': r.spoken.length,
+          'align_display_chars': r.alignDisplayChars,
+          'align_spoken_chars': r.alignSpokenChars,
         },
       );
       return r.spoken;
@@ -338,11 +389,39 @@ class PracticeSkillController {
       );
       return const SkillScoreResult(ok: false, error: 'empty_heard');
     }
-    final score = spokenSlotCoverage(
+    final diag = diagnoseSpokenSlots(
       display: chunkDisplay,
       spoken: spoken,
       spans: spokenCache.peekSpans(chunkDisplay),
       heard: heard,
+    );
+    final align = spokenCache.peekAlign(chunkDisplay);
+    final score = diag.score;
+    await evidence.emit(
+      kind: 'practice_skill_align',
+      cacheId: _cacheId,
+      ok: score.ok,
+      code: diag.slotCode,
+      details: {
+        'phase': 'align',
+        'slot_code': diag.slotCode,
+        'align_code': align.code,
+        'span_n': diag.spanN,
+        'pos_span_n': diag.posSpanN,
+        'slot_n': score.refN,
+        'display_chars': chunkDisplay.length,
+        'spoken_chars': spoken.length,
+        'heard_chars': heard.trim().length,
+        'walk_i': diag.walkI,
+        'piece_weight': diag.pieceWeight,
+        'remain': diag.remain,
+        'align_token_i': align.tokenI,
+        'align_cursor': align.cursor,
+        'align_display_chars': align.displayChars,
+        'align_spoken_chars': align.spokenChars,
+        'list_v': score.listV,
+        'chunk_index': _chunkIndex,
+      },
     );
     if (!score.ok || score.accuracy == null) {
       await evidence.emit(
