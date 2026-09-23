@@ -12,8 +12,8 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-_JOB_FILE_RE = re.compile(r"^([a-zA-Z0-9]{8,32})\.json$")
-_UPLOAD_FILE_RE = re.compile(r"^([a-zA-Z0-9]{8,32})\.(pdf|docx)$", re.I)
+_JOB_FILE_RE = re.compile(r"^(job_[a-f0-9]{12})\.json$")
+_UPLOAD_FILE_RE = re.compile(r"^(job_[a-f0-9]{12})\.(pdf|docx)$", re.I)
 _UID_SEG_RE = re.compile(r"^[a-zA-Z0-9_\-]{6,128}$")
 
 _ALLOWED_ARTIFACT_ROOTS = frozenset(

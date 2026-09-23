@@ -193,3 +193,35 @@ def test_status_flags() -> None:
     assert st.get("ingest_artifact_ttl") is True
     assert int(st.get("ingest_artifact_ttl_hours") or 0) == 168
     assert st.get("ingest_artifact_ttl_dry_run") is False
+
+
+def test_lists_job_prefixed_artifact_names(monkeypatch) -> None:
+    from sentence_reading.llm import ingest_artifact_ttl as ttl
+
+    class _Quiet:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    blobs = [
+        "users/u1/ingest_jobs/job_026a78ea1b16.json",
+        "users/u1/ingest_jobs/readme.json",
+        "users/u1/ingest_uploads/job_026a78ea1b16.pdf",
+        "users/u1/ingest_uploads/notes.docx",
+    ]
+    monkeypatch.setattr(
+        "sentence_reading.llm.ingest_jobs_gcs._with_uid",
+        lambda uid: _Quiet(),
+    )
+    monkeypatch.setattr(
+        "sentence_reading.llm.gcs_sync.object_name",
+        lambda *parts: "/".join(parts),
+    )
+    monkeypatch.setattr(
+        "sentence_reading.llm.gcs_sync.list_blobs_under",
+        lambda prefix: blobs,
+    )
+    assert ttl._list_uid_job_ids("u1") == ["job_026a78ea1b16"]
+    assert ttl._list_uid_upload_ids("u1") == [("job_026a78ea1b16", ".pdf")]
