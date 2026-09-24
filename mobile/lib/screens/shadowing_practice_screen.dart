@@ -977,15 +977,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   }
 
   Future<void> _playCachedChunkTts({required String phase}) async {
-    if (phase == 'tts_listen' || phase == 'tts_speak') {
-      final headset = await _mic.invokeMethod<bool>('hasHeadset') ?? false;
-      if (!headset) {
-        _lastPlayerMs = 0;
-        _lastAudioBytes = 0;
-        return;
-      }
-    }
     final text = _displayChunk();
+    var headset = true;
+    if (phase == 'tts_listen' || phase == 'tts_speak') {
+      headset = await _mic.invokeMethod<bool>('hasHeadset') ?? false;
+    }
     try {
       await _ensureChunkTts(text);
       final bytes = _chunkTtsBytes!;
@@ -1004,7 +1000,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         // EDGE: player rate unsupported on some devices — still play.
       }
       // Speak-along: lower TTS so the take is not drowned by speaker bleed.
-      final vol = phase == 'tts_speak' ? _kSpeakTtsVolume : _kFullTtsVolume;
+      final vol = !headset
+          ? 0.0
+          : (phase == 'tts_speak' ? _kSpeakTtsVolume : _kFullTtsVolume);
       try {
         await _player.setVolume(vol);
       } catch (_) {
