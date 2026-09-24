@@ -463,6 +463,9 @@ class PracticeSkillController {
         'remain': diag.remain,
         'list_v': score.listV,
         'chunk_index': _chunkIndex,
+        'spoken_line': spoken,
+        'slot_hits': diag.slotHits,
+        'slot_pieces': diag.slotPieces,
         ...align.details,
       },
     );
@@ -520,6 +523,9 @@ class PracticeSkillController {
         'align_code': align.code,
         'tail_n': align.tailN,
         'matched_n': align.matchedN,
+        'spoken_line': spoken,
+        'slot_hits': diag.slotHits,
+        'slot_pieces': diag.slotPieces,
       },
     );
     // design/215 — adapt only on focus-block epoch resolve, not per take.

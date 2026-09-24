@@ -184,3 +184,13 @@ def test_stt_heard_is_kept_and_other_prose_is_dropped() -> None:
     )
     assert out["stt_heard"] == "The catalyst was prepared."
     assert "note" not in out
+    scored = _safe_details(
+        {
+            "spoken_line": "the catalyst was prepared",
+            "slot_hits": "1010",
+            "slot_pieces": "the | catalyst was | prepared",
+        }
+    )
+    assert scored["spoken_line"] == "the catalyst was prepared"
+    assert scored["slot_hits"] == "1010"
+    assert "catalyst was" in scored["slot_pieces"]

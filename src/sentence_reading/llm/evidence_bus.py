@@ -183,7 +183,7 @@ def _safe_details(raw: Any) -> dict[str, Any]:
             out[k] = round(max(-1e12, min(val, 1e12)), 3)
         elif isinstance(val, str):
             s = val.strip()[:64]
-            if k == "stt_heard":
+            if k in ("stt_heard", "spoken_line", "slot_hits", "slot_pieces"):
                 heard = " ".join(val.split())[:400]
                 if heard:
                     out[k] = heard

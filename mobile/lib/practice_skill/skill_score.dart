@@ -166,6 +166,8 @@ class SpokenSlotDiag {
     required this.walkI,
     required this.pieceWeight,
     required this.remain,
+    this.slotHits = '',
+    this.slotPieces = '',
   });
 
   final SkillScoreResult score;
@@ -175,6 +177,8 @@ class SpokenSlotDiag {
   final int walkI;
   final int pieceWeight;
   final int remain;
+  final String slotHits;
+  final String slotPieces;
 }
 
 /// One printed word is one score slot, including function words.
@@ -209,8 +213,13 @@ SpokenSlotDiag diagnoseSpokenSlots({
   }
   var hit = 0;
   final missed = <MissedWordSpan>[];
+  final marks = StringBuffer();
+  final pieces = <String>[];
   for (final slot in built.slots) {
-    if (_takeSpokenSlot(slot.tokens, have)) {
+    final ok = _takeSpokenSlot(slot.tokens, have);
+    marks.write(ok ? '1' : '0');
+    pieces.add(slot.tokens.join(' '));
+    if (ok) {
       hit += 1;
     } else {
       missed.add(MissedWordSpan(slot.start, slot.end));
@@ -232,6 +241,8 @@ SpokenSlotDiag diagnoseSpokenSlots({
     walkI: built.walkI,
     pieceWeight: built.pieceWeight,
     remain: built.remain,
+    slotHits: marks.toString(),
+    slotPieces: pieces.join(' | '),
   );
 }
 

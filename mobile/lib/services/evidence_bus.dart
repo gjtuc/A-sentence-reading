@@ -144,7 +144,10 @@ class EvidenceBus {
         out[key] = v;
       } else if (v is String) {
         final s = v.trim();
-        if (key == 'stt_heard') {
+        if (key == 'stt_heard' ||
+            key == 'spoken_line' ||
+            key == 'slot_hits' ||
+            key == 'slot_pieces') {
           final heard = s.replaceAll(RegExp(r'\s+'), ' ');
           if (heard.isNotEmpty) {
             out[key] = heard.length > 400 ? heard.substring(0, 400) : heard;
