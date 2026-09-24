@@ -295,4 +295,44 @@ void main() {
     expect(scored.score.hitN, 2);
     expect(scored.posSpanN, 2);
   });
+
+  test('marks between words do not shift the next slot', () {
+    const display = 'Consequently, the single cell; performance. Done.';
+    const spoken = 'Consequently, the single cell; performance. Done.';
+    final words = [
+      'Consequently',
+      'the',
+      'single',
+      'cell',
+      'performance',
+      'Done',
+    ];
+    final spans = [
+      for (final word in words)
+        FollowSpan(
+          start: display.indexOf(word),
+          end: display.indexOf(word) + word.length,
+          weight: word.length,
+        ),
+    ];
+    final all = spokenSlotCoverage(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: spoken,
+    );
+    expect(all.ok, isTrue);
+    expect(all.refN, 6);
+    expect(all.hitN, 6);
+    expect(all.missedSpans, isEmpty);
+
+    final missed = spokenSlotCoverage(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'Consequently the single cell performance',
+    );
+    expect(missed.hitN, 5);
+    expect(missed.missedSpans.single.start, display.indexOf('Done'));
+  });
 }

@@ -50,6 +50,20 @@ def test_cvd_counts_as_one_spoken_slot():
     assert scored["missed"] == [{"start": 0, "end": 3}]
 
 
+def test_marks_between_words_do_not_shift_the_next_slot():
+    from sentence_reading.llm.practice_skill_score import spoken_slot_coverage
+    from sentence_reading.llm.tts_speak import align_display_to_spoken
+
+    display = "Consequently, the single cell; performance. Done."
+    spoken = spoken_text_for_tts(display)
+    spans = align_display_to_spoken(display)
+    scored = spoken_slot_coverage(display, spoken, spans, spoken)
+    assert scored["ok"] is True
+    assert scored["ref_n"] == 6
+    assert scored["hit_n"] == 6
+    assert scored["missed"] == []
+
+
 def test_spoken_sot_and_version():
     display = "Ni catalyst"
     spoken = spoken_text_for_tts(display)

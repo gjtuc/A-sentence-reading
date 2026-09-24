@@ -352,9 +352,7 @@ _SlotBuild _spokenSlots({
   final out = <_SpokenSlot>[];
   for (var i = 0; i < scored.length; i++) {
     final span = scored[i];
-    while (cursor < spoken.length && _skillSpace(spoken, cursor)) {
-      cursor += 1;
-    }
+    cursor = _skipSpokenGap(spoken, cursor);
     final end = cursor + span.weight;
     final remain = spoken.length - cursor;
     if (end > spoken.length) {
@@ -397,6 +395,25 @@ _SlotBuild _spokenSlots({
 bool _skillSpace(String text, int index) {
   final ch = text[index];
   return ch == ' ' || ch == '\n' || ch == '\t' || ch == '\r';
+}
+
+/// Same gap the length counter already skipped: spaces, then any mark that is
+/// not a letter, digit, or apostrophe. A comma, period, or semicolon must not
+/// become the first letters of the next slot.
+final RegExp _spokenWordChar = RegExp(r"[\p{L}\p{N}']", unicode: true);
+
+int _skipSpokenGap(String spoken, int cursor) {
+  while (cursor < spoken.length && _skillSpace(spoken, cursor)) {
+    cursor += 1;
+  }
+  while (cursor < spoken.length &&
+      !_spokenWordChar.hasMatch(spoken[cursor])) {
+    cursor += 1;
+    while (cursor < spoken.length && _skillSpace(spoken, cursor)) {
+      cursor += 1;
+    }
+  }
+  return cursor;
 }
 
 /// Every spoken piece must be heard. Pieces that were heard stay consumed.

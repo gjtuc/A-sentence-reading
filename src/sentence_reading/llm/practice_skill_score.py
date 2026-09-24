@@ -215,8 +215,7 @@ def _spoken_slots(
     cursor = 0
     out: list[tuple[int, int, list[str]]] = []
     for start, end, weight in scored:
-        while cursor < len(spoken) and spoken[cursor] in " \n\t\r":
-            cursor += 1
+        cursor = _skip_spoken_gap(spoken, cursor)
         piece_end = cursor + weight
         if piece_end > len(spoken):
             return []
@@ -226,6 +225,18 @@ def _spoken_slots(
             return []
         out.append((start, end, tokens))
     return out
+
+
+def _skip_spoken_gap(spoken: str, cursor: int) -> int:
+    """Skip the same marks the aligner skipped before measuring the next word."""
+    n = len(spoken)
+    while cursor < n and spoken[cursor] in " \n\t\r":
+        cursor += 1
+    while cursor < n and not (spoken[cursor].isalnum() or spoken[cursor] == "'"):
+        cursor += 1
+        while cursor < n and spoken[cursor] in " \n\t\r":
+            cursor += 1
+    return cursor
 
 
 def _take_spoken_slot(tokens: list[str], have: Counter) -> bool:
