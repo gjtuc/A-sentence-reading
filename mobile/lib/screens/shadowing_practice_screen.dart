@@ -1105,6 +1105,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       await _advanceToNextChunk(token: token, withRest: false);
       return;
     }
+    if (_chunks.isNotEmpty && _chunkIndex >= _chunks.length - 1) {
+      await _focus.noteFullSentenceRead();
+    }
 
     setState(() => _rhythmPhase = RhythmPhase.replay);
     await _playMyTakePhase();

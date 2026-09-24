@@ -1,8 +1,6 @@
 /// Month calendar heatmap for focus practice blocks + streak summary.
 library;
 
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../api/focus_practice_models.dart';
@@ -115,17 +113,17 @@ class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
                   ),
             ),
             const SizedBox(height: 12),
-            const Text(
-              '0원',
+            Text(
+              '${focus.sentencesRead}',
               textAlign: TextAlign.center,
-              style: TextStyle(
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 22,
                 fontWeight: FontWeight.w600,
               ),
             ),
             const Text(
-              '쌓인 기부금',
+              '읽은 문장 수',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white54, fontSize: 12),
             ),
@@ -232,7 +230,7 @@ class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
             ),
             const SizedBox(height: 8),
             Text(
-              '색과 동전은 그날 완료한 ${kFocusPracticeBlockDuration.inMinutes}분 블록 수입니다.',
+              '색과 종이의 줄은 그날 완료한 ${kFocusPracticeBlockDuration.inMinutes}분 블록 수입니다.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white38, fontSize: 11),
             ),
@@ -284,7 +282,7 @@ class _DayCell extends StatelessWidget {
               ),
             ),
             if (blocks > 0)
-              _CoinPile(dayKey: dayKey!, blocks: blocks),
+              _PageLines(lines: blocks),
           ],
         ),
       ),
@@ -292,141 +290,60 @@ class _DayCell extends StatelessWidget {
   }
 }
 
-/// Visible coins stop at four. The green cell keeps darkening after that.
-const int _kMaxVisibleCoins = 4;
+/// Up to three lines fit on the tiny page. More blocks only deepen the green.
+const int _kMaxPageLines = 3;
 
-int _dayPileSeed(String dayKey) {
-  var h = 2166136261;
-  for (final c in dayKey.codeUnits) {
-    h ^= c;
-    h = (h * 16777619) & 0x7fffffff;
-  }
-  return h;
-}
+class _PageLines extends StatelessWidget {
+  const _PageLines({required this.lines});
 
-class _CoinPile extends StatelessWidget {
-  const _CoinPile({required this.dayKey, required this.blocks});
-
-  final String dayKey;
-  final int blocks;
+  final int lines;
 
   @override
   Widget build(BuildContext context) {
-    final shown = blocks < _kMaxVisibleCoins ? blocks : _kMaxVisibleCoins;
-    final seed = _dayPileSeed(dayKey);
-    return SizedBox(
-      height: 26,
-      width: 30,
-      child: Stack(
-        alignment: Alignment.bottomCenter,
-        children: [
-          for (var i = 0; i < shown; i++)
-            Positioned(
-              bottom: i * 3.4,
-              left: 0,
-              right: 0,
-              child: Transform.translate(
-                offset: Offset(_coinDx(seed, i), 0),
-                child: Transform.rotate(
-                  angle: _coinAngle(seed, i),
-                  child: const Center(child: _Coin(size: 13)),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-double _coinDx(int seed, int index) {
-  final v = (seed >> (index * 4)) & 7;
-  return (v - 3) * 0.65;
-}
-
-double _coinAngle(int seed, int index) {
-  final v = (seed >> (10 + index * 3)) & 7;
-  return (v - 3) * 0.06;
-}
-
-class _Coin extends StatelessWidget {
-  const _Coin({required this.size});
-
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
+    final shown = lines < _kMaxPageLines ? lines : _kMaxPageLines;
     return CustomPaint(
-      size: Size(size, size),
-      painter: const _MintedCoinPainter(),
+      size: const Size(28, 22),
+      painter: _OpenPagePainter(lines: shown),
     );
   }
 }
 
-/// Rim, thickness, inner ring, and a top highlight. Those four read at this size.
-class _MintedCoinPainter extends CustomPainter {
-  const _MintedCoinPainter();
+class _OpenPagePainter extends CustomPainter {
+  const _OpenPagePainter({required this.lines});
+
+  final int lines;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final ink = Paint()
+      ..color = const Color(0xFFF4F1E8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8
+      ..strokeJoin = StrokeJoin.round;
     final w = size.width;
-    final face = Rect.fromLTWH(0, 0, w, w * 0.82);
-    final edge = Rect.fromLTWH(0, w * 0.18, w, w * 0.82);
-    canvas.drawOval(edge, Paint()..color = const Color(0xFF6A420C));
-    canvas.drawOval(
-      Rect.fromLTWH(w * 0.05, w * 0.24, w * 0.9, w * 0.68),
-      Paint()..color = const Color(0xFFC8962E),
-    );
-    canvas.drawOval(
-      face,
-      Paint()
-        ..shader = const RadialGradient(
-          center: Alignment(-0.32, -0.5),
-          radius: 0.95,
-          colors: [
-            Color(0xFFFFF8D6),
-            Color(0xFFF3CC62),
-            Color(0xFFE0A428),
-            Color(0xFFB67A14),
-          ],
-          stops: [0, 0.42, 0.72, 1],
-        ).createShader(face),
-    );
-    canvas.drawOval(
-      face.deflate(w * 0.02),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = w * 0.07
-        ..color = const Color(0xFF8A5C12),
-    );
-    canvas.drawOval(
-      face.deflate(w * 0.16),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = w * 0.035
-        ..color = const Color(0xAAFFF3C2),
-    );
-    final center = face.center;
-    final reed = Paint()
-      ..color = const Color(0x99604010)
-      ..strokeWidth = 0.45
+    final h = size.height;
+    final mid = w * 0.48;
+    final page = Path()
+      ..moveTo(1, 2)
+      ..lineTo(mid, 3.5)
+      ..lineTo(w - 1, 1.5)
+      ..lineTo(w - 2, h - 2)
+      ..lineTo(mid, h - 3.5)
+      ..lineTo(1.5, h - 1)
+      ..close();
+    canvas.drawPath(page, ink);
+    canvas.drawLine(Offset(mid, 3.5), Offset(mid, h - 3.5), ink);
+    final line = Paint()
+      ..color = const Color(0xFFE7E2D6)
+      ..strokeWidth = 0.7
       ..strokeCap = StrokeCap.round;
-    for (var i = 0; i < 12; i++) {
-      final a = i * math.pi * 2 / 12;
-      final inner = w * 0.34;
-      final outer = w * 0.40;
-      canvas.drawLine(
-        center + Offset(math.cos(a) * inner, math.sin(a) * inner * 0.82),
-        center + Offset(math.cos(a) * outer, math.sin(a) * outer * 0.82),
-        reed,
-      );
+    for (var i = 0; i < lines; i++) {
+      final y = 7.0 + i * 4.2;
+      canvas.drawLine(Offset(4, y), Offset(mid - 3, y + 0.4), line);
     }
-    canvas.drawOval(
-      Rect.fromCircle(center: Offset(w * 0.36, w * 0.24), radius: w * 0.11),
-      Paint()..color = const Color(0xF2FFF9DE),
-    );
   }
 
   @override
-  bool shouldRepaint(covariant _MintedCoinPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _OpenPagePainter oldDelegate) =>
+      oldDelegate.lines != lines;
 }

@@ -75,6 +75,7 @@ class FocusPracticeHistory {
     this.version = 2,
     this.days = const {},
     this.bestStreak = 0,
+    this.sentencesRead = 0,
     this.updatedAtMs = 0,
   });
 
@@ -82,18 +83,22 @@ class FocusPracticeHistory {
   /// day key → blocks completed that day.
   final Map<String, int> days;
   final int bestStreak;
+  /// Full sentences finished, not prefix chunks.
+  final int sentencesRead;
   /// design/250 — sync stamp (ms epoch).
   final int updatedAtMs;
 
   FocusPracticeHistory copyWith({
     Map<String, int>? days,
     int? bestStreak,
+    int? sentencesRead,
     int? updatedAtMs,
   }) {
     return FocusPracticeHistory(
       version: version,
       days: days ?? this.days,
       bestStreak: bestStreak ?? this.bestStreak,
+      sentencesRead: sentencesRead ?? this.sentencesRead,
       updatedAtMs: updatedAtMs ?? this.updatedAtMs,
     );
   }
@@ -145,9 +150,13 @@ FocusPracticeHistory parseFocusPracticeHistory(String? raw) {
       final updated = updatedRaw is int
           ? updatedRaw
           : int.tryParse('$updatedRaw') ?? 0;
+      final readRaw = decoded['sentences_read'];
+      var read = readRaw is int ? readRaw : int.tryParse('$readRaw') ?? 0;
+      if (read < 0) read = 0;
       return FocusPracticeHistory(
         days: days,
         bestStreak: best,
+        sentencesRead: read,
         updatedAtMs: updated < 0 ? 0 : updated,
       );
     }
@@ -178,6 +187,7 @@ String serializeFocusPracticeHistory(FocusPracticeHistory h) {
     'version': 2,
     'days': days,
     'best_streak': h.bestStreak < 0 ? 0 : h.bestStreak,
+    'sentences_read': h.sentencesRead < 0 ? 0 : h.sentencesRead,
     'updated_at_ms': h.updatedAtMs < 0 ? 0 : h.updatedAtMs,
   });
 }

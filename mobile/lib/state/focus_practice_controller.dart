@@ -45,6 +45,7 @@ class FocusPracticeController extends ChangeNotifier {
   FocusPracticeDayState get dayState => _day;
   bool get daySuccess => _day.success;
   int get blocksCompletedToday => _day.blocksCompleted;
+  int get sentencesRead => _history.sentencesRead;
 
   int get currentStreak => computeFocusCurrentStreak(
         _history.days,
@@ -229,6 +230,13 @@ class FocusPracticeController extends ChangeNotifier {
       }
     }
     notifyListeners();
+  }
+
+  Future<void> noteFullSentenceRead() async {
+    final next = _history.sentencesRead + 1;
+    _history = _history.copyWith(sentencesRead: next);
+    notifyListeners();
+    await _persist();
   }
 
   void _addElapsed(Duration delta, {String? cacheId}) {
