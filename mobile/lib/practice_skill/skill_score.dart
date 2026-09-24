@@ -212,9 +212,7 @@ SpokenSlotDiag diagnoseSpokenSlots({
   for (final token in tokenizeSkill(canonicalizeSoundAlikes(heard))) {
     have[token] = (have[token] ?? 0) + 1;
   }
-  final heardPhoneWords = [
-    for (final phone in heardPhones) phone.trim(),
-  ];
+  final heardPhoneWords = _sliceHeardPhones(built.slots, heardPhones);
   var hit = 0;
   final missed = <MissedWordSpan>[];
   final marks = StringBuffer();
@@ -460,6 +458,28 @@ final RegExp _theirPhrase = RegExp(
 );
 const Set<String> _theirWords = {'their', 'there', "they're"};
 final RegExp _phoneStress = RegExp("[ˈˌ.ːˑ]");
+
+List<String> _sliceHeardPhones(List<_SpokenSlot> slots, List<String> heardPhones) {
+  final cleaned = [
+    for (final phone in heardPhones) phone.trim(),
+  ].where((phone) => phone.isNotEmpty).toList();
+  if (cleaned.length != 1 || slots.length <= 1) return cleaned;
+  final flat = _phonePieces(cleaned.single);
+  if (flat.length < 2) return cleaned;
+  var index = 0;
+  final out = <String>[];
+  for (final slot in slots) {
+    final count = _phonePieces(slot.phone).length;
+    if (count <= 0 || index >= flat.length) {
+      out.add('');
+      continue;
+    }
+    final end = index + count > flat.length ? flat.length : index + count;
+    out.add(flat.sublist(index, end).join(' '));
+    index = end;
+  }
+  return out;
+}
 
 String canonicalizeSoundAlikes(String? text) {
   var folded = (text ?? '').replaceAll(_theirPhrase, 'their');

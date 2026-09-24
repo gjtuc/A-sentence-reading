@@ -13,13 +13,20 @@ RUN apt-get update \
         libglib2.0-0 \
         libgomp1 \
         espeak-ng \
+        ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md ./
 COPY src ./src
 
 RUN pip install --upgrade pip \
-    && pip install .
+    && pip install . \
+    && pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu \
+    && pip install transformers==4.46.3
+
+ENV HF_HOME=/opt/hf \
+    TRANSFORMERS_OFFLINE=0
+RUN python -c "from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor; n='facebook/wav2vec2-lv-60-espeak-cv-ft'; Wav2Vec2Processor.from_pretrained(n); Wav2Vec2ForCTC.from_pretrained(n)"
 
 # Cloud Run injects PORT; ASR_SERVICE_ROLE=worker → ingest worker (design/173c).
 EXPOSE 8080

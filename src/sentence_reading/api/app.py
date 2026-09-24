@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.372",
+    version="0.3.373",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -2977,6 +2977,7 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
     from sentence_reading.stt.compare import diff_tokens
     from sentence_reading.stt.recognize import recognize_english_audio
     from sentence_reading.llm.phone_match import espeak_ipa_words
+    from sentence_reading.llm.hear_waveform import hear_phones
 
     if not gemini_available():
         return {"ok": False, "error": "gemini_unavailable"}
@@ -2999,10 +3000,17 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
         }
     if not result.get("ok"):
         return result
+    heard_text = result.get("heard") or ""
+    waveform = ""
+    try:
+        waveform = hear_phones(data)
+    except Exception:
+        waveform = ""
+    phones = waveform or " | ".join(espeak_ipa_words(heard_text))
     out: dict = {
         "ok": True,
-        "heard": result.get("heard") or "",
-        "heard_phones": " | ".join(espeak_ipa_words(result.get("heard") or "")),
+        "heard": heard_text,
+        "heard_phones": phones,
         "engine": result.get("engine") or "gemini",
     }
     exp = expected if isinstance(expected, str) else ""

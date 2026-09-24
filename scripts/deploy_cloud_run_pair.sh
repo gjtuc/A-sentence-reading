@@ -51,6 +51,8 @@ _log "design/291: pair start ver=${_local_ver} head12=${_head12}"
 _log "phase=a start api_source"
 unset ASR_DEPLOY_IMAGE || true
 export ASR_CLOUD_RUN_SERVICE="$API_SERVICE"
+# The phoneme model needs more than 2Gi. The worker script sets its own 2Gi.
+export ASR_CLOUD_RUN_MEMORY="${ASR_API_MEMORY:-8Gi}"
 
 if [[ "${ASR_PAIR_STAGED_SOURCE:-1}" == "1" ]]; then
   STAGE="$(bash scripts/stage_git_archive_for_ship.sh)"
