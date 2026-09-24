@@ -22,7 +22,7 @@ COPY src ./src
 RUN pip install --upgrade pip \
     && pip install . \
     && pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu \
-    && pip install transformers==4.46.3
+    && pip install transformers==4.46.3 phonemizer==3.3.0
 
 ENV HF_HOME=/opt/hf \
     TRANSFORMERS_OFFLINE=0
