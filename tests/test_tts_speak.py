@@ -204,6 +204,7 @@ def test_align_display_report_is_counts_and_code_only() -> None:
         "gap_shape",
         "matched_n",
         "tail_n",
+        "renamed_n",
     }
 
 
@@ -225,6 +226,19 @@ def test_unmatched_token_keeps_earlier_words() -> None:
     assert "text" not in report
     blob = str({k: v for k, v in report.items() if k != "spans"})
     assert "cat" not in blob
+
+
+def test_a_renamed_word_keeps_the_rest_of_the_sentence() -> None:
+    from sentence_reading.llm.tts_speak import align_display_report
+
+    report = align_display_report(
+        "size of approximately 1 nm, which is substantially smaller than"
+    )
+    assert report["code"] == "ok"
+    assert report["renamed_n"] >= 1
+    assert report["tail_n"] == 0
+    kept = [s for s in report["spans"] if s["weight"] > 0 and s["end"] > s["start"]]
+    assert len(kept) == 10
 
 
 def test_pt_case_does_not_drop_the_tail() -> None:

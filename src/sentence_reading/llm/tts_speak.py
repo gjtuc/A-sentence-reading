@@ -1271,6 +1271,18 @@ def _match_spoken_slice(full: str, cursor: int, piece: str) -> int | None:
     return i
 
 
+def _take_one_spoken_word(full: str, cursor: int) -> int | None:
+    """End of the spoken word at [cursor], or None when there is none left."""
+    i = cursor
+    n = len(full)
+    while i < n and full[i].isspace():
+        i += 1
+    start = i
+    while i < n and not full[i].isspace():
+        i += 1
+    return i if i > start else None
+
+
 def _char_class(ch: str) -> str:
     if ch.isdigit():
         return "digit"
@@ -1353,6 +1365,7 @@ def _align_report(
     gap_shape: str = "none",
     matched_n: int = 0,
     tail_n: int = 0,
+    renamed_n: int = 0,
 ) -> dict[str, object]:
     return {
         "code": code,
@@ -1371,6 +1384,7 @@ def _align_report(
         "gap_shape": gap_shape,
         "matched_n": matched_n,
         "tail_n": tail_n,
+        "renamed_n": renamed_n,
     }
 
 
@@ -1423,6 +1437,7 @@ def align_display_report(
     cursor = 0
     token_i = -1
     prev_end = 0
+    renamed_n = 0
 
     def _skip_ws() -> None:
         nonlocal cursor
@@ -1453,6 +1468,13 @@ def align_display_report(
                 _skip_ws()
         matched = _match_spoken_slice(full, cursor, piece)
         if matched is None:
+            # The printed word is read as another word (`nm` -> nanometers,
+            # `1` -> one). Take the next spoken word so the rest of the
+            # sentence keeps its light, phones and score slots.
+            matched = _take_one_spoken_word(full, cursor)
+            if matched is not None:
+                renamed_n += 1
+        if matched is None:
             differ_at, full_class, piece_class = _differ_at(full, cursor, piece)
             return _align_report(
                 code="token_unmatched",
@@ -1471,6 +1493,7 @@ def align_display_report(
                 gap_shape=_gap_shape(raw[prev_end:start]),
                 matched_n=_matched_n(),
                 tail_n=len(matches) - token_i,
+                renamed_n=renamed_n,
             )
         weight = matched - cursor
         spans.append({"start": start, "end": end, "weight": max(weight, 1)})
@@ -1491,11 +1514,13 @@ def align_display_report(
             spoken_chars=len(full),
             matched_n=_matched_n(),
             tail_n=0,
+            renamed_n=renamed_n,
             full_class=_char_class(full[cursor]) if cursor < len(full) else "end",
         )
     return _align_report(
         code="ok",
         spans=spans,
+        renamed_n=renamed_n,
         token_i=token_i,
         cursor=cursor,
         display_chars=len(raw),

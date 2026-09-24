@@ -31,6 +31,7 @@ class SpokenAlignMark {
     this.gapShape = 'none',
     this.matchedN = -1,
     this.tailN = -1,
+    this.renamedN = -1,
     this.phoneCode = 'none',
     this.phoneWordN = -1,
     this.phoneIpaN = -1,
@@ -54,6 +55,7 @@ class SpokenAlignMark {
   final String gapShape;
   final int matchedN;
   final int tailN;
+  final int renamedN;
   final String phoneCode;
   final int phoneWordN;
   final int phoneIpaN;
@@ -77,6 +79,7 @@ class SpokenAlignMark {
         'gap_shape': gapShape,
         'matched_n': matchedN,
         'tail_n': tailN,
+        'renamed_n': renamedN,
         'phone_code': phoneCode,
         'phone_word_n': phoneWordN,
         'phone_ipa_n': phoneIpaN,
@@ -268,6 +271,7 @@ class PracticeSkillController {
           gapShape: r.alignGapShape,
           matchedN: r.alignMatchedN,
           tailN: r.alignTailN,
+          renamedN: r.alignRenamedN,
           phoneCode: r.phoneCode,
           phoneWordN: r.phoneWordN,
           phoneIpaN: r.phoneIpaN,

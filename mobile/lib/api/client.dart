@@ -2599,6 +2599,7 @@ throw AsrApiException(
       alignGapShape: _alignCode('${map['align_gap_shape'] ?? 'none'}'),
       alignMatchedN: (map['align_matched_n'] as num?)?.toInt() ?? -1,
       alignTailN: (map['align_tail_n'] as num?)?.toInt() ?? -1,
+      alignRenamedN: (map['align_renamed_n'] as num?)?.toInt() ?? -1,
       phoneCode: _alignCode('${map['phone_code'] ?? 'none'}'),
       phoneWordN: (map['phone_word_n'] as num?)?.toInt() ?? -1,
       phoneIpaN: (map['phone_ipa_n'] as num?)?.toInt() ?? -1,
@@ -3528,6 +3529,7 @@ class SpokenTextResult {
     this.alignGapShape = 'none',
     this.alignMatchedN = -1,
     this.alignTailN = -1,
+    this.alignRenamedN = -1,
     this.phoneCode = 'none',
     this.phoneWordN = -1,
     this.phoneIpaN = -1,
@@ -3553,6 +3555,7 @@ class SpokenTextResult {
   final String alignGapShape;
   final int alignMatchedN;
   final int alignTailN;
+  final int alignRenamedN;
   final String phoneCode;
   final int phoneWordN;
   final int phoneIpaN;
