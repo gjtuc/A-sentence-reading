@@ -185,4 +185,17 @@ void main() {
     expect(joined.pieces, 'c | n | t');
     expect(joined.hits, '111');
   });
+
+  test('a drill picks only the sounds that did not line up', () {
+    final drill = phoneDrillTargets(
+      target: 'p l æ t ɪ n ə m',
+      heard: 'p l e t n ə m',
+    );
+    expect(drill, contains('æ'));
+    expect(drill, contains('ɪ'));
+    expect(drill, isNot(contains('p')));
+
+    expect(phoneDrillTargets(target: 'p l æ t', heard: 'p l æ t'), isEmpty);
+    expect(phoneDrillTargets(target: 'p l æ t', heard: ''), isEmpty);
+  });
 }

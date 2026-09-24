@@ -34,7 +34,7 @@ import '../practice_rhythm/judgment_tier.dart';
 import '../practice_rhythm/phase_rail.dart';
 import '../practice_rhythm/follow_span.dart';
 import '../practice_rhythm/miss_review.dart';
-import '../practice_rhythm/replay_miss_text.dart';
+import '../practice_rhythm/word_phone_text.dart';
 import '../practice_rhythm/rhythm_theme.dart';
 import '../practice_skill/chunk_density.dart';
 import '../practice_skill/practice_skill_controller.dart';
@@ -125,6 +125,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   String? _reviewWord;
   String _reviewTargetPhone = '';
   String _reviewHeardPhone = '';
+  List<String> _reviewDrillPhones = const [];
   bool _missReviewActive = false;
   /// design/162 — session-only self-view mirror (not persisted).
   bool _mirrorEnabled = false;
@@ -1661,31 +1662,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     return mounted && token == _cycleToken && epoch == _restEpoch;
   }
 
-  String _practiceHint(String text) {
-    if (_replayMissChunk != _chunkIndex || _replayMisses.isEmpty) return '';
-    final phones = <String>[];
-    for (final span in _skill.spokenCache.peekSpans(text)) {
-      if (span.weight <= 0 || span.phone.trim().isEmpty) continue;
-      final marked = _replayMisses.any(
-        (miss) => miss.start < span.end && miss.end > span.start,
-      );
-      if (marked) phones.add(span.phone.trim());
-    }
-    if (phones.isEmpty) return '';
-    final heard = widget.client.lastHeardPhones.trim();
-    final target = 'You can also say  ${phones.join('   ')}';
-    if (heard.isEmpty) return target;
-    return '$target\nIt came out  $heard';
-  }
-
-  String _phoneLine(String text) {
-    final phones = [
-      for (final span in _skill.spokenCache.peekSpans(text))
-        if (span.weight > 0 && span.phone.trim().isNotEmpty) span.phone.trim(),
-    ];
-    return phones.join('   ');
-  }
-
   bool _reviewAlive(int token) =>
       mounted &&
       token == _cycleToken &&
@@ -1716,6 +1692,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     setState(() {
       _rhythmPhase = RhythmPhase.rest;
       _reviewWord = null;
+      _reviewDrillPhones = const [];
       _judgmentBurst = null;
     });
     try {
@@ -1890,10 +1867,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           .where((span) => span.phone.trim().isNotEmpty)
           .map((span) => span.phone.trim())
           .join(' ');
+      final heardPhone = widget.client.lastHeardPhones;
+      final drill = trace.matched
+          ? const <String>[]
+          : phoneDrillTargets(target: targetPhone, heard: heardPhone);
       if (mounted) {
         setState(() {
           _reviewTargetPhone = targetPhone;
-          _reviewHeardPhone = widget.client.lastHeardPhones;
+          _reviewHeardPhone = heardPhone;
+          _reviewDrillPhones = drill;
         });
       }
       await _skill.noteMissReview(
@@ -1904,6 +1886,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         hits: trace.hits,
         attempt: attempt,
         wordIndex: wordIndex,
+        drillPhones: drill.join(' '),
       );
       if (trace.matched) {
         return MissReviewHear.matched;
@@ -2389,45 +2372,18 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                                         _rhythmPhase == RhythmPhase.speak;
                                 return SingleChildScrollView(
                                   controller: _promptScroll,
-                                  child: Column(
-                                    children: [
-                                      ReplayMissText(
-                                        text: prompt.isEmpty ? '…' : prompt,
-                                        misses: _replayMissChunk == _chunkIndex
-                                            ? _replayMisses
-                                            : const [],
-                                        blink:
-                                            _rhythmPhase == RhythmPhase.replay,
-                                        follow: showFollow ? _follow : null,
-                                        style: _promptStyle(theme),
-                                      ),
-                                      if (_practiceHint(prompt).isNotEmpty) ...[
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          _practiceHint(prompt),
-                                          textAlign: TextAlign.center,
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(
-                                            color: kRhythmText.withValues(
-                                              alpha: 0.85,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                      if (_phoneLine(prompt).isNotEmpty) ...[
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          _phoneLine(prompt),
-                                          textAlign: TextAlign.center,
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(
-                                            color: kRhythmText.withValues(
-                                              alpha: 0.7,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ],
+                                  child: WordPhoneText(
+                                    text: prompt.isEmpty ? '…' : prompt,
+                                    spans: _skill.spokenCache.peekSpans(prompt),
+                                    style: _promptStyle(theme),
+                                    misses: _replayMissChunk == _chunkIndex
+                                        ? _replayMisses
+                                        : const [],
+                                    follow: showFollow ? _follow : null,
+                                    markAlpha:
+                                        _rhythmPhase == RhythmPhase.replay
+                                            ? 1.0
+                                            : 0.0,
                                   ),
                                 );
                               },
@@ -2559,6 +2515,25 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                                                   height: 1.25,
                                                 ),
                                               ),
+                                              if (_reviewDrillPhones.isNotEmpty)
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                    top: 10,
+                                                  ),
+                                                  child: Text(
+                                                    'This sound  ${_reviewDrillPhones.join('  ')}',
+                                                    textAlign:
+                                                        TextAlign.center,
+                                                    style: theme
+                                                        .textTheme.titleMedium
+                                                        ?.copyWith(
+                                                      color: kRhythmSpeak,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ),
                                               if (_reviewTargetPhone.isNotEmpty)
                                                 Text(
                                                   'You can also say  $_reviewTargetPhone',

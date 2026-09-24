@@ -119,6 +119,38 @@ class MissReviewTrace {
   final bool matched;
 }
 
+/// The sounds inside one word that did not line up with the target.
+///
+/// Empty when either side has no symbols, or when every sound already matches.
+/// The review then drills the whole word instead of one sound.
+List<String> phoneDrillTargets({
+  required String target,
+  required String heard,
+}) {
+  final want = _drillPieces(target);
+  final got = _drillPieces(heard);
+  if (want.isEmpty || got.isEmpty) return const [];
+  final left = [...got];
+  final out = <String>[];
+  for (final piece in want) {
+    final at = left.indexOf(piece);
+    if (at >= 0) {
+      left.removeAt(at);
+      continue;
+    }
+    if (!out.contains(piece)) out.add(piece);
+  }
+  return out;
+}
+
+List<String> _drillPieces(String ipa) {
+  final raw = ipa.replaceAll(RegExp("[ˈˌ.ːˑ]"), '');
+  return [
+    for (final piece in raw.split(RegExp(r'\s+')))
+      if (piece.isNotEmpty) piece,
+  ];
+}
+
 /// Voice and rate for one review play.
 ///
 /// The first play follows [randomAuto]. A retry always draws the lower

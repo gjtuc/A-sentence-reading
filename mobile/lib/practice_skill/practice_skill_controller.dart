@@ -616,6 +616,7 @@ class PracticeSkillController {
     required String hits,
     required int attempt,
     required int wordIndex,
+    String drillPhones = '',
   }) async {
     await evidence.emit(
       kind: 'practice_skill_review',
@@ -631,6 +632,10 @@ class PracticeSkillController {
         'spoken_line': expected,
         'slot_pieces': pieces,
         'slot_hits': hits,
+        'drill_phone_n': drillPhones.trim().isEmpty
+            ? 0
+            : drillPhones.trim().split(RegExp(r'\s+')).length,
+        if (drillPhones.trim().isNotEmpty) 'target_phones': drillPhones.trim(),
         if (heard != null && heard.trim().isNotEmpty) 'stt_heard': heard.trim(),
       },
     );
