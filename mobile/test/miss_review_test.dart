@@ -167,4 +167,22 @@ void main() {
     expect(play.voice, 'en-US-Neural2-D');
     expect(play.rate, 0.9);
   });
+
+  test('review trace keeps the heard line beside each expected piece', () {
+    final their = traceMissReview(
+      expected: 'Their',
+      heard: 'They are',
+    );
+    expect(their.matched, isFalse);
+    expect(their.pieces, 'their');
+    expect(their.hits, '0');
+
+    final joined = traceMissReview(
+      expected: 'C N T',
+      heard: 'CNT',
+    );
+    expect(joined.matched, isTrue);
+    expect(joined.pieces, 'c | n | t');
+    expect(joined.hits, '111');
+  });
 }

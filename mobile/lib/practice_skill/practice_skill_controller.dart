@@ -566,6 +566,35 @@ class PracticeSkillController {
     );
   }
 
+  /// Wrong-word review. Keeps the expected line, the heard line, and each piece.
+  Future<void> noteMissReview({
+    required String expected,
+    required String? heard,
+    required bool matched,
+    required String pieces,
+    required String hits,
+    required int attempt,
+    required int wordIndex,
+  }) async {
+    await evidence.emit(
+      kind: 'practice_skill_review',
+      cacheId: _cacheId,
+      ok: matched,
+      code: matched ? 'matched' : 'missed',
+      details: {
+        'phase': 'review',
+        'attempt': attempt,
+        'word_index': wordIndex,
+        'matched': matched ? 1 : 0,
+        'chunk_index': _chunkIndex,
+        'spoken_line': expected,
+        'slot_pieces': pieces,
+        'slot_hits': hits,
+        if (heard != null && heard.trim().isNotEmpty) 'stt_heard': heard.trim(),
+      },
+    );
+  }
+
   Future<void> onFocusBlockDone(List<String> baseChunks) async {
     if (!serverEnabled) return;
     await store.commitFocusBlockMean();

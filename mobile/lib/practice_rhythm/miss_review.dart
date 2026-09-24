@@ -58,22 +58,65 @@ int missReviewTier(int applied) {
 
 /// True when every spoken piece of [expected] was heard, including function words.
 bool missReviewHeardMatches({required String expected, required String? heard}) {
+  return traceMissReview(expected: expected, heard: heard).matched;
+}
+
+/// What the review compare saw: the expected pieces and a 1/0 for each.
+MissReviewTrace traceMissReview({
+  required String expected,
+  required String? heard,
+}) {
   final ref = tokenizeSkill(expected);
-  if (ref.isEmpty) return false;
   final have = <String, int>{};
   for (final token in tokenizeSkill(heard)) {
     have[token] = (have[token] ?? 0) + 1;
   }
+  if (ref.length >= 2 &&
+      ref.every((token) => token.length == 1 && _reviewLetter.hasMatch(token))) {
+    final joined = ref.join();
+    if ((have[joined] ?? 0) > 0) {
+      return MissReviewTrace(
+        pieces: ref.join(' | '),
+        hits: '1' * ref.length,
+        matched: true,
+      );
+    }
+  }
+  final marks = StringBuffer();
+  var matched = ref.isNotEmpty;
   for (final token in ref) {
     final left = have[token] ?? 0;
-    if (left <= 0) return false;
+    if (left <= 0) {
+      matched = false;
+      marks.write('0');
+      continue;
+    }
+    marks.write('1');
     if (left == 1) {
       have.remove(token);
     } else {
       have[token] = left - 1;
     }
   }
-  return true;
+  return MissReviewTrace(
+    pieces: ref.join(' | '),
+    hits: marks.toString(),
+    matched: matched,
+  );
+}
+
+final RegExp _reviewLetter = RegExp(r'^\p{L}$', unicode: true);
+
+class MissReviewTrace {
+  const MissReviewTrace({
+    required this.pieces,
+    required this.hits,
+    required this.matched,
+  });
+
+  final String pieces;
+  final String hits;
+  final bool matched;
 }
 
 /// Voice and rate for one review play.

@@ -1716,6 +1716,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             token: token,
             word: words[i],
             ttsHeard: played.heard,
+            attempt: attempt,
+            wordIndex: i,
           );
           if (!_reviewAlive(token)) return;
           if (hear != MissReviewHear.missed) break;
@@ -1809,6 +1811,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     required int token,
     required String word,
     required Duration ttsHeard,
+    required int attempt,
+    required int wordIndex,
   }) async {
     if (!_skill.serverEnabled || !_skill.cloudSttEnabled) {
       return MissReviewHear.skip;
@@ -1847,7 +1851,17 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       final expected = (spokenForm == null || spokenForm.trim().isEmpty)
           ? word
           : spokenForm;
-      if (missReviewHeardMatches(expected: expected, heard: heard)) {
+      final trace = traceMissReview(expected: expected, heard: heard);
+      await _skill.noteMissReview(
+        expected: expected,
+        heard: heard,
+        matched: trace.matched,
+        pieces: trace.pieces,
+        hits: trace.hits,
+        attempt: attempt,
+        wordIndex: wordIndex,
+      );
+      if (trace.matched) {
         return MissReviewHear.matched;
       }
       return MissReviewHear.missed;

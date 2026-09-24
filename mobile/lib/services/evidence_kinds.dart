@@ -143,6 +143,7 @@ const Set<String> kEvidenceAllowedKinds = {
   'practice_skill_align',
   'practice_skill_speak_window',
   'practice_skill_scored',
+  'practice_skill_review',
   'practice_skill_unscored',
   'practice_skill_adapt',
   'practice_skill_flush',
