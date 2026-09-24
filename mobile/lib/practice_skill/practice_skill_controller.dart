@@ -31,6 +31,12 @@ class SpokenAlignMark {
     this.gapShape = 'none',
     this.matchedN = -1,
     this.tailN = -1,
+    this.phoneCode = 'none',
+    this.phoneWordN = -1,
+    this.phoneIpaN = -1,
+    this.phoneWeightN = -1,
+    this.phoneFilledN = -1,
+    this.phoneEspeak = -1,
   });
 
   final String code;
@@ -48,6 +54,12 @@ class SpokenAlignMark {
   final String gapShape;
   final int matchedN;
   final int tailN;
+  final String phoneCode;
+  final int phoneWordN;
+  final int phoneIpaN;
+  final int phoneWeightN;
+  final int phoneFilledN;
+  final int phoneEspeak;
 
   Map<String, Object?> get details => {
         'align_code': code,
@@ -65,6 +77,12 @@ class SpokenAlignMark {
         'gap_shape': gapShape,
         'matched_n': matchedN,
         'tail_n': tailN,
+        'phone_code': phoneCode,
+        'phone_word_n': phoneWordN,
+        'phone_ipa_n': phoneIpaN,
+        'phone_weight_n': phoneWeightN,
+        'phone_filled_n': phoneFilledN,
+        'phone_espeak': phoneEspeak,
       };
 }
 
@@ -250,6 +268,12 @@ class PracticeSkillController {
           gapShape: r.alignGapShape,
           matchedN: r.alignMatchedN,
           tailN: r.alignTailN,
+          phoneCode: r.phoneCode,
+          phoneWordN: r.phoneWordN,
+          phoneIpaN: r.phoneIpaN,
+          phoneWeightN: r.phoneWeightN,
+          phoneFilledN: r.phoneFilledN,
+          phoneEspeak: r.phoneEspeak,
         ),
       );
       final mark = spokenCache.peekAlign(chunkDisplay);

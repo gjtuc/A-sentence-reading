@@ -2599,6 +2599,12 @@ throw AsrApiException(
       alignGapShape: _alignCode('${map['align_gap_shape'] ?? 'none'}'),
       alignMatchedN: (map['align_matched_n'] as num?)?.toInt() ?? -1,
       alignTailN: (map['align_tail_n'] as num?)?.toInt() ?? -1,
+      phoneCode: _alignCode('${map['phone_code'] ?? 'none'}'),
+      phoneWordN: (map['phone_word_n'] as num?)?.toInt() ?? -1,
+      phoneIpaN: (map['phone_ipa_n'] as num?)?.toInt() ?? -1,
+      phoneWeightN: (map['phone_weight_n'] as num?)?.toInt() ?? -1,
+      phoneFilledN: (map['phone_filled_n'] as num?)?.toInt() ?? -1,
+      phoneEspeak: (map['phone_espeak'] as num?)?.toInt() ?? -1,
     );
   }
 
@@ -3522,6 +3528,12 @@ class SpokenTextResult {
     this.alignGapShape = 'none',
     this.alignMatchedN = -1,
     this.alignTailN = -1,
+    this.phoneCode = 'none',
+    this.phoneWordN = -1,
+    this.phoneIpaN = -1,
+    this.phoneWeightN = -1,
+    this.phoneFilledN = -1,
+    this.phoneEspeak = -1,
   });
   final String spoken;
   final String speakNormVersion;
@@ -3541,6 +3553,12 @@ class SpokenTextResult {
   final String alignGapShape;
   final int alignMatchedN;
   final int alignTailN;
+  final String phoneCode;
+  final int phoneWordN;
+  final int phoneIpaN;
+  final int phoneWeightN;
+  final int phoneFilledN;
+  final int phoneEspeak;
 }
 
 String _alignCode(String raw) {

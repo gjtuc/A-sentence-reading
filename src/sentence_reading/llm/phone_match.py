@@ -86,15 +86,41 @@ def espeak_ipa_words(sentence: str) -> list[str]:
     raw = (done.stdout or "").replace("\n", " ").strip()
     if not raw:
         return []
-    return [part.strip() for part in raw.split("_") if part.strip()]
+    words: list[str] = []
+    for part in raw.split():
+        phones = part.replace("_", " ").strip()
+        if phones:
+            words.append(phones)
+    return words
 
 
 def assign_span_phones(spoken: str, weights: list[int]) -> list[str]:
-    """Phones for each spoken-slot weight, using the sentence eSpeak split."""
-    ipa_words = espeak_ipa_words(spoken)
+    phones, _report = phone_assign(spoken, weights)
+    return phones
+
+
+def phone_assign(spoken: str, weights: list[int]) -> tuple[list[str], dict[str, object]]:
+    """Phones per slot, plus why the line was kept or blanked."""
+    exe = shutil.which("espeak-ng") or shutil.which("espeak")
+    ipa_words = espeak_ipa_words(spoken) if exe else []
     words = list(_WORD.finditer(spoken or ""))
-    if not ipa_words or len(ipa_words) != len(words):
-        return [""] * len(weights)
+    report: dict[str, object] = {
+        "phone_code": "ok",
+        "phone_word_n": len(words),
+        "phone_ipa_n": len(ipa_words),
+        "phone_weight_n": len(weights),
+        "phone_filled_n": 0,
+        "phone_espeak": 1 if exe else 0,
+    }
+    if not exe:
+        report["phone_code"] = "espeak_missing"
+        return [""] * len(weights), report
+    if not ipa_words:
+        report["phone_code"] = "espeak_empty"
+        return [""] * len(weights), report
+    if len(ipa_words) != len(words):
+        report["phone_code"] = "count_mismatch"
+        return [""] * len(weights), report
     cursor = 0
     word_i = 0
     out: list[str] = []
@@ -107,7 +133,8 @@ def assign_span_phones(spoken: str, weights: list[int]) -> list[str]:
             word_i += 1
         out.append(" ".join(pieces))
         cursor = end
-    return out
+    report["phone_filled_n"] = sum(1 for item in out if item)
+    return out, report
 
 
 def _skip_gap(spoken: str, cursor: int) -> int:

@@ -210,7 +210,7 @@ def test_align_display_report_is_counts_and_code_only() -> None:
 def test_unmatched_token_keeps_earlier_words() -> None:
     from sentence_reading.llm.tts_speak import align_display_report
 
-    report = align_display_report("the Pt particle grows")
+    report = align_display_report("the cat sat", spoken="the cat")
     assert report["code"] == "token_unmatched"
     kept = [
         s
@@ -224,8 +224,18 @@ def test_unmatched_token_keeps_earlier_words() -> None:
     assert report["token_shape"] in {"letters", "digits", "alnum", "apos", "other"}
     assert "text" not in report
     blob = str({k: v for k, v in report.items() if k != "spans"})
-    assert "Pt" not in blob
-    assert "platinum" not in blob
+    assert "cat" not in blob
+
+
+def test_pt_case_does_not_drop_the_tail() -> None:
+    from sentence_reading.llm.tts_speak import align_display_report
+
+    report = align_display_report(
+        "Chemical vapor deposition of highly dispersed Pt nanoparticles"
+    )
+    assert report["code"] == "ok"
+    assert report["matched_n"] == 8
+    assert report["tail_n"] == 0
 
 
 def test_comma_between_words_does_not_drop_the_tail() -> None:
@@ -270,3 +280,15 @@ def test_spoken_align_evidence_omits_sentence_text(monkeypatch) -> None:
     assert captured["details"]["spoken_chars"] == len("c v d is a technique")
     assert captured["details"]["token_shape"] == "none"
     assert captured["details"]["tail_n"] == 0
+
+
+def test_phone_assign_records_a_count_mismatch(monkeypatch) -> None:
+    from sentence_reading.llm import phone_match as pm
+
+    monkeypatch.setattr(pm.shutil, "which", lambda _name: "espeak-ng")
+    monkeypatch.setattr(pm, "espeak_ipa_words", lambda _text: ["s əʊ", "f ɑː", "extra"])
+    phones, report = pm.phone_assign("So far", [2, 3])
+    assert report["phone_code"] == "count_mismatch"
+    assert report["phone_word_n"] == 2
+    assert report["phone_ipa_n"] == 3
+    assert phones == ["", ""]

@@ -1262,7 +1262,7 @@ def _match_spoken_slice(full: str, cursor: int, piece: str) -> int | None:
             while i < len(full) and full[i].isspace():
                 i += 1
             continue
-        if full[i] != piece_n[pi]:
+        if full[i].casefold() != piece_n[pi].casefold():
             return None
         i += 1
         pi += 1
