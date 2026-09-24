@@ -396,4 +396,21 @@ void main() {
     expect(scored.hitN, 1);
     expect(scored.missedSpans, isEmpty);
   });
+
+  test('a silent take scores every slot as missed', () {
+    final scored = spokenSlotCoverage(
+      display: 'Alpha beta',
+      spoken: 'alpha beta',
+      spans: const [
+        FollowSpan(start: 0, end: 5, weight: 5),
+        FollowSpan(start: 6, end: 10, weight: 4),
+      ],
+      heard: '',
+    );
+    expect(scored.ok, isTrue);
+    expect(scored.refN, 2);
+    expect(scored.hitN, 0);
+    expect(scored.accuracy, 0);
+    expect(scored.missedSpans, hasLength(2));
+  });
 }

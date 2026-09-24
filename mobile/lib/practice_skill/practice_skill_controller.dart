@@ -461,7 +461,6 @@ class PracticeSkillController {
           'chunk_index': _chunkIndex,
         },
       );
-      return const SkillScoreResult(ok: false, error: 'empty_heard');
     }
     final diag = diagnoseSpokenSlots(
       display: chunkDisplay,
