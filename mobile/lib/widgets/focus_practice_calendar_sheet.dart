@@ -1,6 +1,8 @@
 /// Month calendar heatmap for focus practice blocks + streak summary.
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../api/focus_practice_models.dart';
@@ -77,14 +79,24 @@ class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
     });
   }
 
+  String _difficultyAndRecognition() {
+    final sk = widget.skill;
+    final difficulty = (sk == null || !widget.skillFeatureOn)
+        ? '난이도 —'
+        : skillLadderLabelKo(tier: sk.state.tier, density: sk.state.density);
+    if (sk == null) return '$difficulty · 인식 —';
+    final todayKey = focusPracticeDayKey();
+    final mean = sk.dayMean(todayKey);
+    final n = sk.dayN(todayKey);
+    final recognition =
+        (mean == null || n < 3) ? '인식 —' : '인식 ${(mean * 100).round()}%';
+    return '$difficulty · $recognition';
+  }
+
   @override
   Widget build(BuildContext context) {
     final focus = widget.focus;
     final todayKey = focusPracticeDayKey();
-    final streak = focus.currentStreak;
-    final best = focus.bestStreak;
-    final todayBlocks = focus.blocksCompletedToday;
-    final milestones = focusStreakMilestonesHit(streak);
     final cells = focusMonthCellKeys(_month.year, _month.month);
     final title = '${_month.year}.${_month.month.toString().padLeft(2, '0')}';
 
@@ -103,47 +115,20 @@ class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
                   ),
             ),
             const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _StatChip(label: '연속', value: '$streak일'),
-                _StatChip(label: '최장', value: '$best일'),
-                _StatChip(label: '오늘', value: '$todayBlocks블록'),
-                _StatChip(
-                  label: '인식',
-                  value: () {
-                    final sk = widget.skill;
-                    if (sk == null) return '—';
-                    final m = sk.dayMean(todayKey);
-                    final n = sk.dayN(todayKey);
-                    if (m == null || n < 3) return '—';
-                    return '${(m * 100).round()}%';
-                  }(),
-                ),
-              ],
-            ),
-            if (milestones.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (final m in milestones)
-                    Chip(
-                      visualDensity: VisualDensity.compact,
-                      backgroundColor: const Color(0xFF2D5A3D),
-                      label: Text(
-                        m >= 10 ? '참 잘했어요 · $m일' : '$m일 연속',
-                        style: const TextStyle(
-                          color: Color(0xFF9BE9A8),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                ],
+            const Text(
+              '0원',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
               ),
-            ],
+            ),
+            const Text(
+              '쌓인 기부금',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white54, fontSize: 12),
+            ),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -236,16 +221,7 @@ class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
                   ),
                   const SizedBox(width: 10),
                   Text(
-                    () {
-                      final sk = widget.skill;
-                      if (sk == null || !widget.skillFeatureOn) {
-                        return '난이도 —';
-                      }
-                      return skillLadderLabelKo(
-                        tier: sk.state.tier,
-                        density: sk.state.density,
-                      );
-                    }(),
+                    _difficultyAndRecognition(),
                     style: const TextStyle(
                       color: Colors.white54,
                       fontSize: 11,
@@ -256,40 +232,13 @@ class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
             ),
             const SizedBox(height: 8),
             Text(
-              '색은 그날 완료한 ${kFocusPracticeBlockDuration.inMinutes}분 블록 수 · 연속은 하루 1블록 이상이면 이어집니다.',
+              '색과 동전은 그날 완료한 ${kFocusPracticeBlockDuration.inMinutes}분 블록 수입니다.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white38, fontSize: 11),
             ),
           ],
         ),
       ),
-    );
-  }
-}
-
-class _StatChip extends StatelessWidget {
-  const _StatChip({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        Text(
-          label,
-          style: const TextStyle(color: Colors.white54, fontSize: 12),
-        ),
-      ],
     );
   }
 }
@@ -308,14 +257,14 @@ class _DayCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (dayKey == null) {
-      return const SizedBox(height: 40);
+      return const SizedBox(height: 56);
     }
     final dayNum = int.tryParse(dayKey!.substring(8, 10)) ?? 0;
     final level = focusHeatLevel(blocks);
     return Padding(
       padding: const EdgeInsets.all(2),
       child: Container(
-        height: 40,
+        height: 56,
         decoration: BoxDecoration(
           color: focusHeatColor(level, dark: true),
           borderRadius: BorderRadius.circular(6),
@@ -335,16 +284,149 @@ class _DayCell extends StatelessWidget {
               ),
             ),
             if (blocks > 0)
-              Text(
-                '$blocks',
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 9,
-                ),
-              ),
+              _CoinPile(dayKey: dayKey!, blocks: blocks),
           ],
         ),
       ),
     );
   }
+}
+
+/// Visible coins stop at four. The green cell keeps darkening after that.
+const int _kMaxVisibleCoins = 4;
+
+int _dayPileSeed(String dayKey) {
+  var h = 2166136261;
+  for (final c in dayKey.codeUnits) {
+    h ^= c;
+    h = (h * 16777619) & 0x7fffffff;
+  }
+  return h;
+}
+
+class _CoinPile extends StatelessWidget {
+  const _CoinPile({required this.dayKey, required this.blocks});
+
+  final String dayKey;
+  final int blocks;
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = blocks < _kMaxVisibleCoins ? blocks : _kMaxVisibleCoins;
+    final seed = _dayPileSeed(dayKey);
+    return SizedBox(
+      height: 26,
+      width: 30,
+      child: Stack(
+        alignment: Alignment.bottomCenter,
+        children: [
+          for (var i = 0; i < shown; i++)
+            Positioned(
+              bottom: i * 3.4,
+              left: 0,
+              right: 0,
+              child: Transform.translate(
+                offset: Offset(_coinDx(seed, i), 0),
+                child: Transform.rotate(
+                  angle: _coinAngle(seed, i),
+                  child: const Center(child: _Coin(size: 13)),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+double _coinDx(int seed, int index) {
+  final v = (seed >> (index * 4)) & 7;
+  return (v - 3) * 0.65;
+}
+
+double _coinAngle(int seed, int index) {
+  final v = (seed >> (10 + index * 3)) & 7;
+  return (v - 3) * 0.06;
+}
+
+class _Coin extends StatelessWidget {
+  const _Coin({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size(size, size),
+      painter: const _MintedCoinPainter(),
+    );
+  }
+}
+
+/// Rim, thickness, inner ring, and a top highlight. Those four read at this size.
+class _MintedCoinPainter extends CustomPainter {
+  const _MintedCoinPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final face = Rect.fromLTWH(0, 0, w, w * 0.82);
+    final edge = Rect.fromLTWH(0, w * 0.18, w, w * 0.82);
+    canvas.drawOval(edge, Paint()..color = const Color(0xFF6A420C));
+    canvas.drawOval(
+      Rect.fromLTWH(w * 0.05, w * 0.24, w * 0.9, w * 0.68),
+      Paint()..color = const Color(0xFFC8962E),
+    );
+    canvas.drawOval(
+      face,
+      Paint()
+        ..shader = const RadialGradient(
+          center: Alignment(-0.32, -0.5),
+          radius: 0.95,
+          colors: [
+            Color(0xFFFFF8D6),
+            Color(0xFFF3CC62),
+            Color(0xFFE0A428),
+            Color(0xFFB67A14),
+          ],
+          stops: [0, 0.42, 0.72, 1],
+        ).createShader(face),
+    );
+    canvas.drawOval(
+      face.deflate(w * 0.02),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = w * 0.07
+        ..color = const Color(0xFF8A5C12),
+    );
+    canvas.drawOval(
+      face.deflate(w * 0.16),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = w * 0.035
+        ..color = const Color(0xAAFFF3C2),
+    );
+    final center = face.center;
+    final reed = Paint()
+      ..color = const Color(0x99604010)
+      ..strokeWidth = 0.45
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 12; i++) {
+      final a = i * math.pi * 2 / 12;
+      final inner = w * 0.34;
+      final outer = w * 0.40;
+      canvas.drawLine(
+        center + Offset(math.cos(a) * inner, math.sin(a) * inner * 0.82),
+        center + Offset(math.cos(a) * outer, math.sin(a) * outer * 0.82),
+        reed,
+      );
+    }
+    canvas.drawOval(
+      Rect.fromCircle(center: Offset(w * 0.36, w * 0.24), radius: w * 0.11),
+      Paint()..color = const Color(0xF2FFF9DE),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _MintedCoinPainter oldDelegate) => false;
 }
