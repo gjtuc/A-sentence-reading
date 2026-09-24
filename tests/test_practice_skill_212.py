@@ -64,6 +64,24 @@ def test_marks_between_words_do_not_shift_the_next_slot():
     assert scored["missed"] == []
 
 
+def test_letter_spelled_slot_matches_joined_word():
+    from sentence_reading.llm.practice_skill_score import spoken_slot_coverage
+
+    display = "CVD is ready"
+    spoken = "c v d is ready"
+    spans = [
+        {"start": 0, "end": 3, "weight": 5},
+        {"start": 4, "end": 6, "weight": 2},
+        {"start": 7, "end": 12, "weight": 5},
+    ]
+    joined = spoken_slot_coverage(display, spoken, spans, "cvd is ready")
+    assert joined["hit_n"] == 3
+    assert joined["missed"] == []
+    short = spoken_slot_coverage(display, spoken, spans, "cv is ready")
+    assert short["hit_n"] == 2
+    assert short["missed"] == [{"start": 0, "end": 3}]
+
+
 def test_spoken_sot_and_version():
     display = "Ni catalyst"
     spoken = spoken_text_for_tts(display)

@@ -240,6 +240,18 @@ def _skip_spoken_gap(spoken: str, cursor: int) -> int:
 
 
 def _take_spoken_slot(tokens: list[str], have: Counter) -> bool:
+    if (
+        len(tokens) >= 2
+        and all(len(token) == 1 and token.isalpha() for token in tokens)
+    ):
+        joined = "".join(tokens)
+        left = have.get(joined, 0)
+        if left > 0:
+            if left == 1:
+                del have[joined]
+            else:
+                have[joined] = left - 1
+            return True
     ok = True
     for token in tokens:
         left = have.get(token, 0)

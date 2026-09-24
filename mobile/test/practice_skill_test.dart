@@ -335,4 +335,54 @@ void main() {
     expect(missed.hitN, 5);
     expect(missed.missedSpans.single.start, display.indexOf('Done'));
   });
+
+  test('a letter-spelled slot also matches the joined word', () {
+    const display = 'CVD is a technique for semiconductor.';
+    const spoken = 'c v d is a technique for semiconductor.';
+    final spans = [
+      const FollowSpan(start: 0, end: 3, weight: 5),
+      FollowSpan(
+        start: display.indexOf('is'),
+        end: display.indexOf('is') + 2,
+        weight: 2,
+      ),
+      FollowSpan(
+        start: display.indexOf('a '),
+        end: display.indexOf('a ') + 1,
+        weight: 1,
+      ),
+      FollowSpan(
+        start: display.indexOf('technique'),
+        end: display.indexOf('technique') + 'technique'.length,
+        weight: 'technique'.length,
+      ),
+      FollowSpan(
+        start: display.indexOf('for'),
+        end: display.indexOf('for') + 3,
+        weight: 3,
+      ),
+      FollowSpan(
+        start: display.indexOf('semiconductor'),
+        end: display.indexOf('semiconductor') + 'semiconductor'.length,
+        weight: 'semiconductor'.length,
+      ),
+    ];
+    final joined = spokenSlotCoverage(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'cvd is a technique for semiconductor',
+    );
+    expect(joined.hitN, 6);
+    expect(joined.missedSpans, isEmpty);
+
+    final short = spokenSlotCoverage(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'cv is a technique for semiconductor',
+    );
+    expect(short.hitN, 5);
+    expect(short.missedSpans.single.start, 0);
+  });
 }

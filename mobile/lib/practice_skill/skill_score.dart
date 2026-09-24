@@ -401,6 +401,7 @@ bool _skillSpace(String text, int index) {
 /// not a letter, digit, or apostrophe. A comma, period, or semicolon must not
 /// become the first letters of the next slot.
 final RegExp _spokenWordChar = RegExp(r"[\p{L}\p{N}']", unicode: true);
+final RegExp _oneLetter = RegExp(r'^\p{L}$', unicode: true);
 
 int _skipSpokenGap(String spoken, int cursor) {
   while (cursor < spoken.length && _skillSpace(spoken, cursor)) {
@@ -418,6 +419,19 @@ int _skipSpokenGap(String spoken, int cursor) {
 
 /// Every spoken piece must be heard. Pieces that were heard stay consumed.
 bool _takeSpokenSlot(List<String> tokens, Map<String, int> have) {
+  if (tokens.length >= 2 &&
+      tokens.every((token) => token.length == 1 && _oneLetter.hasMatch(token))) {
+    final joined = tokens.join();
+    final left = have[joined] ?? 0;
+    if (left > 0) {
+      if (left == 1) {
+        have.remove(joined);
+      } else {
+        have[joined] = left - 1;
+      }
+      return true;
+    }
+  }
   var ok = true;
   for (final token in tokens) {
     final left = have[token] ?? 0;
