@@ -228,6 +228,20 @@ def test_unmatched_token_keeps_earlier_words() -> None:
     assert "platinum" not in blob
 
 
+def test_comma_between_words_does_not_drop_the_tail() -> None:
+    from sentence_reading.llm.tts_speak import align_display_report
+
+    report = align_display_report("ant is happy, for rabbits birthday.")
+    kept = [
+        s
+        for s in report["spans"]
+        if s["weight"] > 0 and s["end"] > s["start"]
+    ]
+    assert report["code"] == "ok"
+    assert report["tail_n"] == 0
+    assert len(kept) == 6
+
+
 def test_spoken_align_evidence_omits_sentence_text(monkeypatch) -> None:
     captured: dict = {}
 

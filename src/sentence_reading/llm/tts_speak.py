@@ -1441,11 +1441,19 @@ def align_display_report(
             continue
         token = m.group(0)
         piece = spoken_text_for_tts(_ROMAN_SPOKEN.get(token, token))
+        piece_n = re.sub(r"\s+", " ", piece).strip()
         _skip_ws()
+        # A comma or similar mark is not the next word. Skipping it lets the
+        # rest of a longer chunk stay in the score.
+        if piece_n and (piece_n[0].isalnum() or piece_n[0] == "'"):
+            while cursor < len(full) and not (
+                full[cursor].isalnum() or full[cursor] == "'"
+            ):
+                cursor += 1
+                _skip_ws()
         matched = _match_spoken_slice(full, cursor, piece)
         if matched is None:
             differ_at, full_class, piece_class = _differ_at(full, cursor, piece)
-            piece_n = re.sub(r"\s+", " ", piece).strip()
             return _align_report(
                 code="token_unmatched",
                 spans=_keep_matched_spans(spans, full, cursor),
