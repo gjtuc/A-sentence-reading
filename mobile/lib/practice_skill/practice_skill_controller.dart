@@ -386,6 +386,8 @@ class PracticeSkillController {
           'density': store.state.density,
           'tier': store.state.tier,
           'focus_elapsed_ms': _focusElapsedMs,
+          if (heard != null && heard.trim().isNotEmpty)
+            'stt_heard': heard.trim(),
         },
       );
     } catch (_) {

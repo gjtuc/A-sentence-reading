@@ -171,3 +171,16 @@ def test_pull_script_help() -> None:
     )
     assert proc.returncode == 0
     assert "evidence" in (proc.stdout + proc.stderr).lower()
+
+
+def test_stt_heard_is_kept_and_other_prose_is_dropped() -> None:
+    from sentence_reading.llm.evidence_bus import _safe_details
+
+    out = _safe_details(
+        {
+            "stt_heard": "The catalyst was prepared.",
+            "note": "The catalyst was prepared.",
+        }
+    )
+    assert out["stt_heard"] == "The catalyst was prepared."
+    assert "note" not in out

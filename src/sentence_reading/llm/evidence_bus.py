@@ -183,7 +183,11 @@ def _safe_details(raw: Any) -> dict[str, Any]:
             out[k] = round(max(-1e12, min(val, 1e12)), 3)
         elif isinstance(val, str):
             s = val.strip()[:64]
-            if s and re.match(r"^[a-z][a-z0-9_]{0,63}$", s):
+            if k == "stt_heard":
+                heard = " ".join(val.split())[:400]
+                if heard:
+                    out[k] = heard
+            elif s and re.match(r"^[a-z][a-z0-9_]{0,63}$", s):
                 out[k] = s
     return out
 

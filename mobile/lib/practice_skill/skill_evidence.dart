@@ -41,7 +41,13 @@ Map<String, Object?> skillSafeDetails(Map<String, Object?> raw) {
       out[key] = double.parse(v.toStringAsFixed(3));
     } else if (v is String) {
       final s = v.trim();
-      if (s.isNotEmpty && RegExp(r'^[a-z][a-z0-9_]{0,63}$').hasMatch(s)) {
+      if (key == 'stt_heard') {
+        final heard = s.replaceAll(RegExp(r'\s+'), ' ');
+        if (heard.isNotEmpty) {
+          out[key] = heard.length > 400 ? heard.substring(0, 400) : heard;
+        }
+      } else if (s.isNotEmpty &&
+          RegExp(r'^[a-z][a-z0-9_]{0,63}$').hasMatch(s)) {
         out[key] = s;
       }
     }
