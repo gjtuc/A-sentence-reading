@@ -190,6 +190,7 @@ SpokenSlotDiag diagnoseSpokenSlots({
   required String spoken,
   required List<FollowSpan> spans,
   required String? heard,
+  List<String> heardPhones = const [],
 }) {
   final built = _spokenSlots(display: display, spoken: spoken, spans: spans);
   if (built.slots.isEmpty) {
@@ -208,15 +209,19 @@ SpokenSlotDiag diagnoseSpokenSlots({
     );
   }
   final have = <String, int>{};
-  for (final token in tokenizeSkill(heard)) {
+  for (final token in tokenizeSkill(canonicalizeSoundAlikes(heard))) {
     have[token] = (have[token] ?? 0) + 1;
   }
+  final heardPhoneWords = [
+    for (final phone in heardPhones) phone.trim(),
+  ];
   var hit = 0;
   final missed = <MissedWordSpan>[];
   final marks = StringBuffer();
   final pieces = <String>[];
   for (final slot in built.slots) {
-    final ok = _takeSpokenSlot(slot.tokens, have);
+    final lexical = _takeSpokenSlot(slot.tokens, have);
+    final ok = lexical || phonesClose(slot.phone, heardPhoneWords);
     marks.write(ok ? '1' : '0');
     pieces.add(slot.tokens.join(' '));
     if (ok) {
@@ -262,11 +267,12 @@ SkillScoreResult spokenSlotCoverage({
 }
 
 class _SpokenSlot {
-  const _SpokenSlot(this.start, this.end, this.tokens);
+  const _SpokenSlot(this.start, this.end, this.tokens, this.phone);
 
   final int start;
   final int end;
   final List<String> tokens;
+  final String phone;
 }
 
 class _SlotBuild {
@@ -379,7 +385,7 @@ _SlotBuild _spokenSlots({
         remain: spoken.length - cursor,
       );
     }
-    out.add(_SpokenSlot(span.start, span.end, tokens));
+    out.add(_SpokenSlot(span.start, span.end, tokens, span.phone));
   }
   return _SlotBuild(
     slots: out,
@@ -446,4 +452,62 @@ bool _takeSpokenSlot(List<String> tokens, Map<String, int> have) {
     }
   }
   return ok;
+}
+
+final RegExp _theirPhrase = RegExp(
+  r"\bthey(?:'re| are)\b",
+  caseSensitive: false,
+);
+const Set<String> _theirWords = {'their', 'there', "they're"};
+final RegExp _phoneStress = RegExp("[ˈˌ.ːˑ]");
+
+String canonicalizeSoundAlikes(String? text) {
+  var folded = (text ?? '').replaceAll(_theirPhrase, 'their');
+  return folded.split(RegExp(r'\s+')).map((token) {
+    final key = token.replaceAll(RegExp(r"""[.,;:!?"']"""), '').toLowerCase();
+    if (_theirWords.contains(key)) return 'their';
+    return token;
+  }).join(' ');
+}
+
+List<String> _phonePieces(String ipa) {
+  final raw = ipa.replaceAll(_phoneStress, '');
+  return [
+    for (final piece in raw.split(RegExp(r'\s+')))
+      if (piece.isNotEmpty) piece,
+  ];
+}
+
+bool phonesClose(String target, List<String> heardWords) {
+  final left = _phonePieces(target);
+  if (left.length < 3) return false;
+  for (final heard in heardWords) {
+    final right = _phonePieces(heard);
+    if (right.isEmpty) continue;
+    if (_overlap(left, right) >= 0.72) return true;
+  }
+  return false;
+}
+
+double _overlap(List<String> left, List<String> right) {
+  final rows = left.length + 1;
+  final cols = right.length + 1;
+  final dist = List.generate(rows, (_) => List.filled(cols, 0));
+  for (var i = 0; i < rows; i++) {
+    dist[i][0] = i;
+  }
+  for (var j = 0; j < cols; j++) {
+    dist[0][j] = j;
+  }
+  for (var i = 1; i < rows; i++) {
+    for (var j = 1; j < cols; j++) {
+      final cost = left[i - 1] == right[j - 1] ? 0 : 1;
+      final del = dist[i - 1][j] + 1;
+      final ins = dist[i][j - 1] + 1;
+      final sub = dist[i - 1][j - 1] + cost;
+      dist[i][j] = del < ins ? (del < sub ? del : sub) : (ins < sub ? ins : sub);
+    }
+  }
+  final longest = left.length > right.length ? left.length : right.length;
+  return 1 - (dist[rows - 1][cols - 1] / longest);
 }

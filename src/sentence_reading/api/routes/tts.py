@@ -219,6 +219,16 @@ async def tts_spoken(request: Request, payload: dict = Body(...)) -> dict[str, A
         }
     report = align_display_report(raw, spoken=spoken)
     spans = report["spans"] if isinstance(report["spans"], list) else []
+    from sentence_reading.llm.phone_match import assign_span_phones
+
+    weights = [int(item.get("weight") or 0) for item in spans if isinstance(item, dict)]
+    phones = assign_span_phones(spoken, weights)
+    phone_i = 0
+    for item in spans:
+        if not isinstance(item, dict):
+            continue
+        item["phone"] = phones[phone_i] if phone_i < len(phones) else ""
+        phone_i += 1
     _emit_spoken_align(payload, spoken, report, spans)
     return {
         "ok": True,

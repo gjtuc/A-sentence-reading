@@ -440,6 +440,11 @@ class PracticeSkillController {
       spoken: spoken,
       spans: spokenCache.peekSpans(chunkDisplay),
       heard: heard,
+      heardPhones: (c.lastHeardPhones)
+          .split('|')
+          .map((part) => part.trim())
+          .where((part) => part.isNotEmpty)
+          .toList(growable: false),
     );
     final align = spokenCache.peekAlign(chunkDisplay);
     final score = diag.score;
@@ -466,6 +471,12 @@ class PracticeSkillController {
         'spoken_line': spoken,
         'slot_hits': diag.slotHits,
         'slot_pieces': diag.slotPieces,
+        'target_phones': spokenCache
+            .peekSpans(chunkDisplay)
+            .where((span) => span.weight > 0 && span.phone.trim().isNotEmpty)
+            .map((span) => span.phone.trim())
+            .join(' | '),
+        'heard_phones': c.lastHeardPhones,
         ...align.details,
       },
     );
@@ -526,6 +537,12 @@ class PracticeSkillController {
         'spoken_line': spoken,
         'slot_hits': diag.slotHits,
         'slot_pieces': diag.slotPieces,
+        'target_phones': spokenCache
+            .peekSpans(chunkDisplay)
+            .where((span) => span.weight > 0 && span.phone.trim().isNotEmpty)
+            .map((span) => span.phone.trim())
+            .join(' | '),
+        'heard_phones': c.lastHeardPhones,
       },
     );
     // design/215 — adapt only on focus-block epoch resolve, not per take.

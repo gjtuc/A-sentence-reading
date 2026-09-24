@@ -179,7 +179,9 @@ def spoken_slot_coverage(
             "list_v": 2,
             "missed": [],
         }
-    have = Counter(tokenize_skill(heard))
+    from sentence_reading.llm.phone_match import canonicalize_sound_alikes
+
+    have = Counter(tokenize_skill(canonicalize_sound_alikes(heard or "")))
     hit = 0
     missed: list[dict[str, int]] = []
     for start, end, tokens in slots:

@@ -123,6 +123,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   String? _heardVoice;
   double? _heardClientRate;
   String? _reviewWord;
+  String _reviewTargetPhone = '';
+  String _reviewHeardPhone = '';
   bool _missReviewActive = false;
   /// design/162 — session-only self-view mirror (not persisted).
   bool _mirrorEnabled = false;
@@ -1653,6 +1655,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     return mounted && token == _cycleToken && epoch == _restEpoch;
   }
 
+  String _phoneLine(String text) {
+    final phones = [
+      for (final span in _skill.spokenCache.peekSpans(text))
+        if (span.weight > 0 && span.phone.trim().isNotEmpty) span.phone.trim(),
+    ];
+    return phones.join('   ');
+  }
+
   bool _reviewAlive(int token) =>
       mounted &&
       token == _cycleToken &&
@@ -1852,6 +1862,17 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           ? word
           : spokenForm;
       final trace = traceMissReview(expected: expected, heard: heard);
+      final targetPhone = _skill.spokenCache
+          .peekSpans(word)
+          .where((span) => span.phone.trim().isNotEmpty)
+          .map((span) => span.phone.trim())
+          .join(' ');
+      if (mounted) {
+        setState(() {
+          _reviewTargetPhone = targetPhone;
+          _reviewHeardPhone = widget.client.lastHeardPhones;
+        });
+      }
       await _skill.noteMissReview(
         expected: expected,
         heard: heard,
@@ -2345,14 +2366,32 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                                         _rhythmPhase == RhythmPhase.speak;
                                 return SingleChildScrollView(
                                   controller: _promptScroll,
-                                  child: ReplayMissText(
-                                    text: prompt.isEmpty ? '…' : prompt,
-                                    misses: _replayMissChunk == _chunkIndex
-                                        ? _replayMisses
-                                        : const [],
-                                    blink: _rhythmPhase == RhythmPhase.replay,
-                                    follow: showFollow ? _follow : null,
-                                    style: _promptStyle(theme),
+                                  child: Column(
+                                    children: [
+                                      ReplayMissText(
+                                        text: prompt.isEmpty ? '…' : prompt,
+                                        misses: _replayMissChunk == _chunkIndex
+                                            ? _replayMisses
+                                            : const [],
+                                        blink:
+                                            _rhythmPhase == RhythmPhase.replay,
+                                        follow: showFollow ? _follow : null,
+                                        style: _promptStyle(theme),
+                                      ),
+                                      if (_phoneLine(prompt).isNotEmpty) ...[
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          _phoneLine(prompt),
+                                          textAlign: TextAlign.center,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                            color: kRhythmText.withValues(
+                                              alpha: 0.7,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                 );
                               },
@@ -2470,15 +2509,41 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                                           padding: const EdgeInsets.symmetric(
                                             horizontal: 28,
                                           ),
-                                          child: Text(
-                                            _reviewWord!,
-                                            textAlign: TextAlign.center,
-                                            style: theme.textTheme.headlineMedium
-                                                ?.copyWith(
-                                              color: kRhythmText,
-                                              fontWeight: FontWeight.w600,
-                                              height: 1.25,
-                                            ),
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                _reviewWord!,
+                                                textAlign: TextAlign.center,
+                                                style: theme
+                                                    .textTheme.headlineMedium
+                                                    ?.copyWith(
+                                                  color: kRhythmText,
+                                                  fontWeight: FontWeight.w600,
+                                                  height: 1.25,
+                                                ),
+                                              ),
+                                              if (_reviewTargetPhone.isNotEmpty)
+                                                Text(
+                                                  _reviewTargetPhone,
+                                                  textAlign: TextAlign.center,
+                                                  style: theme
+                                                      .textTheme.bodyMedium
+                                                      ?.copyWith(
+                                                    color: kRhythmText,
+                                                  ),
+                                                ),
+                                              if (_reviewHeardPhone.isNotEmpty)
+                                                Text(
+                                                  _reviewHeardPhone,
+                                                  textAlign: TextAlign.center,
+                                                  style: theme
+                                                      .textTheme.bodyMedium
+                                                      ?.copyWith(
+                                                    color: kReplayMiss,
+                                                  ),
+                                                ),
+                                            ],
                                           ),
                                         ),
                                       ),

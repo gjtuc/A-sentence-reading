@@ -385,4 +385,15 @@ void main() {
     expect(short.hitN, 5);
     expect(short.missedSpans.single.start, 0);
   });
+
+  test('they are counts as their', () {
+    final scored = spokenSlotCoverage(
+      display: 'Their',
+      spoken: 'Their',
+      spans: const [FollowSpan(start: 0, end: 5, weight: 5)],
+      heard: 'they are',
+    );
+    expect(scored.hitN, 1);
+    expect(scored.missedSpans, isEmpty);
+  });
 }

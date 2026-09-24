@@ -66,9 +66,9 @@ MissReviewTrace traceMissReview({
   required String expected,
   required String? heard,
 }) {
-  final ref = tokenizeSkill(expected);
+  final ref = tokenizeSkill(canonicalizeSoundAlikes(expected));
   final have = <String, int>{};
-  for (final token in tokenizeSkill(heard)) {
+  for (final token in tokenizeSkill(canonicalizeSoundAlikes(heard))) {
     have[token] = (have[token] ?? 0) + 1;
   }
   if (ref.length >= 2 &&

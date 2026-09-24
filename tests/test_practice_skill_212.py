@@ -82,6 +82,19 @@ def test_letter_spelled_slot_matches_joined_word():
     assert short["missed"] == [{"start": 0, "end": 3}]
 
 
+def test_they_are_counts_as_their():
+    from sentence_reading.llm.phone_match import phones_close
+    from sentence_reading.llm.practice_skill_score import spoken_slot_coverage
+
+    display = "Their"
+    spoken = "Their"
+    spans = [{"start": 0, "end": 5, "weight": 5}]
+    scored = spoken_slot_coverage(display, spoken, spans, "they are")
+    assert scored["hit_n"] == 1
+    assert phones_close("k æ t ə l ɪ s t", "d ɒ g") is False
+    assert phones_close("ə", "eɪ") is False
+
+
 def test_spoken_sot_and_version():
     display = "Ni catalyst"
     spoken = spoken_text_for_tts(display)

@@ -8,11 +8,13 @@ class FollowSpan {
     required this.start,
     required this.end,
     required this.weight,
+    this.phone = '',
   });
 
   final int start;
   final int end;
   final int weight;
+  final String phone;
 }
 
 /// Media-time position picks the printed span. Weight 0 spans are skipped.

@@ -147,7 +147,9 @@ class EvidenceBus {
         if (key == 'stt_heard' ||
             key == 'spoken_line' ||
             key == 'slot_hits' ||
-            key == 'slot_pieces') {
+            key == 'slot_pieces' ||
+            key == 'target_phones' ||
+            key == 'heard_phones') {
           final heard = s.replaceAll(RegExp(r'\s+'), ' ');
           if (heard.isNotEmpty) {
             out[key] = heard.length > 400 ? heard.substring(0, 400) : heard;

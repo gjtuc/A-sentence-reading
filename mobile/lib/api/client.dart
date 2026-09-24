@@ -536,6 +536,7 @@ class AsrClient {
   final AsrConfig _config;
   final http.Client _http;
   final SessionStore _sessions;
+  String lastHeardPhones = '';
 
   /// Test / UI access to the same store the client mutates.
   SessionStore get sessionStore => _sessions;
@@ -2622,6 +2623,7 @@ throw AsrApiException(
     final map = _decodeObject(res, 'stt/recognize');
     if (map['ok'] != true) return null;
     final heard = '${map['heard'] ?? ''}'.trim();
+    lastHeardPhones = '${map['heard_phones'] ?? ''}'.trim();
     return heard.isEmpty ? null : heard;
   }
 
@@ -3559,7 +3561,12 @@ List<FollowSpan> _followSpans(Object? raw) {
     final s = start.toInt();
     final e = end.toInt();
     if (s < 0 || e < s) continue;
-    out.add(FollowSpan(start: s, end: e, weight: weight.toInt()));
+    out.add(FollowSpan(
+      start: s,
+      end: e,
+      weight: weight.toInt(),
+      phone: '${item['phone'] ?? ''}',
+    ));
   }
   return out;
 }

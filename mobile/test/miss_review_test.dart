@@ -173,9 +173,9 @@ void main() {
       expected: 'Their',
       heard: 'They are',
     );
-    expect(their.matched, isFalse);
+    expect(their.matched, isTrue);
     expect(their.pieces, 'their');
-    expect(their.hits, '0');
+    expect(their.hits, '1');
 
     final joined = traceMissReview(
       expected: 'C N T',
