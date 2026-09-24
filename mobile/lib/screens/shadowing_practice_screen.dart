@@ -977,6 +977,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   }
 
   Future<void> _playCachedChunkTts({required String phase}) async {
+    if (phase == 'tts_listen' || phase == 'tts_speak') {
+      final headset = await _mic.invokeMethod<bool>('hasHeadset') ?? false;
+      if (!headset) {
+        _lastPlayerMs = 0;
+        _lastAudioBytes = 0;
+        return;
+      }
+    }
     final text = _displayChunk();
     try {
       await _ensureChunkTts(text);

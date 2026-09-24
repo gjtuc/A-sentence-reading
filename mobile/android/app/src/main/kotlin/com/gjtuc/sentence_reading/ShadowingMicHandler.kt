@@ -2,6 +2,9 @@ package com.gjtuc.sentence_reading
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.Context
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.MediaRecorder
 import android.os.Build
 import androidx.core.app.ActivityCompat
@@ -102,7 +105,25 @@ internal class ShadowingMicHandler(
                 }
                 result.success(path)
             }
+            "hasHeadset" -> result.success(hasHeadset())
             else -> result.notImplemented()
+        }
+    }
+
+    private fun hasHeadset(): Boolean {
+        val manager = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val outputs = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        return outputs.any { device ->
+            when (device.type) {
+                AudioDeviceInfo.TYPE_WIRED_HEADSET,
+                AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+                AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+                AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                AudioDeviceInfo.TYPE_USB_HEADSET,
+                AudioDeviceInfo.TYPE_BLE_HEADSET,
+                -> true
+                else -> false
+            }
         }
     }
 
