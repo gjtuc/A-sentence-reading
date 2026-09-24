@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import '../practice_skill/skill_score.dart';
 import 'rhythm_theme.dart';
 
-const Color kReplayMiss = Color(0xFFFF4D4D);
+const Color kPracticeMark = Color(0x66F5C16C);
 
 class ReplayMissText extends StatefulWidget {
   const ReplayMissText({
@@ -83,9 +83,13 @@ class _ReplayMissTextState extends State<ReplayMissText>
     return AnimatedBuilder(
       animation: _blink,
       builder: (context, _) {
-        final color = Color.lerp(kRhythmText, kReplayMiss, _blink.value)!;
+        final wash = Color.lerp(
+          const Color(0x33F5C16C),
+          kPracticeMark,
+          _blink.value,
+        )!;
         return Text.rich(
-          TextSpan(children: _spans(color)),
+          TextSpan(children: _spans(wash)),
           textAlign: TextAlign.center,
           style: widget.style,
         );
@@ -110,7 +114,7 @@ class _ReplayMissTextState extends State<ReplayMissText>
     ];
   }
 
-  List<InlineSpan> _spans(Color missColor) {
+  List<InlineSpan> _spans(Color wash) {
     final out = <InlineSpan>[];
     var cursor = 0;
     for (final span in widget.misses) {
@@ -121,7 +125,7 @@ class _ReplayMissTextState extends State<ReplayMissText>
       out.add(
         TextSpan(
           text: widget.text.substring(span.start, span.end),
-          style: widget.style.copyWith(color: missColor),
+          style: widget.style.copyWith(backgroundColor: wash),
         ),
       );
       cursor = span.end;

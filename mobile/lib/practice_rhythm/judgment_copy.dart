@@ -6,11 +6,11 @@ import 'dart:math';
 import 'judgment_tier.dart';
 
 const List<String> kJudgmentCopyGood = [
-  'Nice try!',
-  'Keep going!',
+  'You can say it like this!',
+  'Try this sound!',
+  'Another way works too!',
   'Almost there!',
-  'Solid!',
-  'You got this!',
+  'Have another go!',
 ];
 
 const List<String> kJudgmentCopyGreat = [

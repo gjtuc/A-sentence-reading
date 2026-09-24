@@ -1655,6 +1655,23 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     return mounted && token == _cycleToken && epoch == _restEpoch;
   }
 
+  String _practiceHint(String text) {
+    if (_replayMissChunk != _chunkIndex || _replayMisses.isEmpty) return '';
+    final phones = <String>[];
+    for (final span in _skill.spokenCache.peekSpans(text)) {
+      if (span.weight <= 0 || span.phone.trim().isEmpty) continue;
+      final marked = _replayMisses.any(
+        (miss) => miss.start < span.end && miss.end > span.start,
+      );
+      if (marked) phones.add(span.phone.trim());
+    }
+    if (phones.isEmpty) return '';
+    final heard = widget.client.lastHeardPhones.trim();
+    final target = 'You can also say  ${phones.join('   ')}';
+    if (heard.isEmpty) return target;
+    return '$target\nIt came out  $heard';
+  }
+
   String _phoneLine(String text) {
     final phones = [
       for (final span in _skill.spokenCache.peekSpans(text))
@@ -2378,6 +2395,19 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                                         follow: showFollow ? _follow : null,
                                         style: _promptStyle(theme),
                                       ),
+                                      if (_practiceHint(prompt).isNotEmpty) ...[
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          _practiceHint(prompt),
+                                          textAlign: TextAlign.center,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                            color: kRhythmText.withValues(
+                                              alpha: 0.85,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                       if (_phoneLine(prompt).isNotEmpty) ...[
                                         const SizedBox(height: 6),
                                         Text(
@@ -2525,7 +2555,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                                               ),
                                               if (_reviewTargetPhone.isNotEmpty)
                                                 Text(
-                                                  _reviewTargetPhone,
+                                                  'You can also say  $_reviewTargetPhone',
                                                   textAlign: TextAlign.center,
                                                   style: theme
                                                       .textTheme.bodyMedium
@@ -2535,12 +2565,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                                                 ),
                                               if (_reviewHeardPhone.isNotEmpty)
                                                 Text(
-                                                  _reviewHeardPhone,
+                                                  'It came out  $_reviewHeardPhone',
                                                   textAlign: TextAlign.center,
                                                   style: theme
                                                       .textTheme.bodyMedium
                                                       ?.copyWith(
-                                                    color: kReplayMiss,
+                                                    color: kRhythmText
+                                                        .withValues(alpha: 0.75),
                                                   ),
                                                 ),
                                             ],
