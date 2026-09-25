@@ -36,6 +36,8 @@ import '../practice_rhythm/follow_span.dart';
 import '../practice_rhythm/miss_review.dart';
 import '../practice_rhythm/word_phone_text.dart';
 import '../practice_rhythm/rhythm_theme.dart';
+import '../practice_sample/sample_round_sheet.dart';
+import '../practice_sample/sample_rounds.dart';
 import '../practice_skill/chunk_density.dart';
 import '../practice_skill/practice_skill_controller.dart';
 import '../practice_skill/skill_score.dart';
@@ -60,6 +62,7 @@ class ShadowingPracticeScreen extends StatefulWidget {
     required this.shadowing,
     required this.tts,
     this.focus,
+    this.sampleRound,
   });
 
   final AsrClient client;
@@ -67,6 +70,9 @@ class ShadowingPracticeScreen extends StatefulWidget {
   final ShadowingController shadowing;
   final TtsController tts;
   final FocusPracticeController? focus;
+
+  /// design/364 — sample round 1..10; holds the ladder for this screen only.
+  final int? sampleRound;
 
   @override
   State<ShadowingPracticeScreen> createState() =>
@@ -191,7 +197,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       cloudStt: widget.shadowing.skillCloudSttEnabled,
       skillEvidence: true,
     );
-    unawaited(_skill.bindUid(widget.shadowing.boundUid).then((_) {
+    unawaited(_skill.bindUid(widget.shadowing.boundUid).then((_) async {
+      // The bind drops any pin left by a kill, so the round pins after it.
+      final round = widget.sampleRound;
+      if (round != null) {
+        await _skill.store.pinLadder(
+          tier: sampleRoundTier(round),
+          density: kSampleRoundDensity,
+        );
+      }
       widget.tts.setSkillTier(_skill.tier);
     }));
     unawaited(_loadJudgmentCheersPref());
@@ -298,6 +312,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     unawaited(_mic.invokeMethod<String>('stop'));
     unawaited(_persistPracticeCursor());
     unawaited(_skill.flushEvidence(cacheId: _cacheId));
+    if (widget.sampleRound != null) {
+      unawaited(_skill.store.unpinLadder());
+    }
     super.dispose();
   }
 
@@ -1602,6 +1619,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       chunkIndex: scoredChunk,
       focusElapsedMs: _focus.displayElapsed.inMilliseconds,
     );
+    // The voice and rate are the ones the player actually used, so a saved take
+    // says what was heard rather than what was asked for.
+    _skill.setSampleTag(
+      round: widget.sampleRound,
+      sentenceId: _sentenceId,
+      chunkIndex: scoredChunk,
+      voice: _heardVoice ?? '',
+      rate: _heardClientRate ?? 0,
+    );
     final scored = await _skill.onTakeReady(
       chunkDisplay: chunkDisplay,
       takeBytes: bytes,
@@ -1610,6 +1636,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     );
     if (!mounted || scored == null) {
       return (display: chunkDisplay, spans: const <MissedWordSpan>[]);
+    }
+    final round = widget.sampleRound;
+    if (round != null) {
+      // Counted in takes, not in "opened it": a round abandoned after two
+      // sentences must not read as collected.
+      unawaited(
+        noteSampleRoundTake(widget.shadowing.boundUid, round),
+      );
     }
     if (scoredChunk == _chunkIndex) {
       setState(() {

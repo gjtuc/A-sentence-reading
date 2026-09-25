@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.397",
+    version="0.3.398",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -2996,9 +2996,106 @@ def _emit_hear_row(route: str, report: dict) -> None:
         return
 
 
+async def _keep_sample_take(
+    *,
+    data: bytes,
+    mime: str,
+    expected: str,
+    heard: str,
+    phones: str,
+    hear_report: dict,
+    sample_round: int,
+    sample_line: str,
+    sample_chunk: int,
+    skill_tier: int,
+    skill_density: int,
+    tts_voice: str,
+    tts_rate: float,
+) -> None:
+    """design/364 — keep sample-round audio so new scoring can be re-run on it.
+
+    Only sample rounds are kept. Every practice take would be a storage and a
+    privacy surface for data no calibration run needs.
+    """
+    from sentence_reading.llm.sample_takes_gcs import (
+        sample_round_ok,
+        save_sample_take,
+    )
+
+    try:
+        round_n = int(sample_round or 0)
+    except (TypeError, ValueError):
+        return
+    if not sample_round_ok(round_n):
+        return
+    meta = {
+        "expected": expected or "",
+        "heard": heard or "",
+        "heard_phones": phones or "",
+        "chunk_index": int(sample_chunk),
+        "skill_tier": int(skill_tier),
+        "skill_density": int(skill_density),
+        "tts_voice": (tts_voice or "").strip(),
+        "tts_rate": float(tts_rate or 0.0),
+        "app_version": app.version,
+        "hear": {
+            k: v
+            for k, v in (hear_report or {}).items()
+            if isinstance(v, (int, float, str))
+        },
+    }
+    try:
+        report = await asyncio.to_thread(
+            save_sample_take,
+            round_n=round_n,
+            line_id=sample_line,
+            audio=data,
+            mime=mime,
+            meta=meta,
+        )
+    except Exception as exc:  # noqa: BLE001
+        report = {
+            "take_saved": 0,
+            "take_bytes": len(data or b""),
+            "take_code": "call_raised",
+            "take_detail": type(exc).__name__.lower(),
+        }
+    try:
+        from sentence_reading.llm.evidence_bus import emit as eb_emit
+
+        eb_emit(
+            "practice_sample_take",
+            source="server",
+            route="stt_recognize",
+            ok=int(report.get("take_saved") or 0) == 1,
+            code=str(report.get("take_code") or "none"),
+            details={
+                "phase": "sample_take",
+                "round": round_n,
+                "chunk_index": int(sample_chunk),
+                "skill_tier": int(skill_tier),
+                "skill_density": int(skill_density),
+                **{
+                    k: v
+                    for k, v in report.items()
+                    if k in ("take_saved", "take_bytes", "take_code")
+                },
+            },
+        )
+    except Exception:  # noqa: BLE001
+        return
+
+
 @app.post("/api/stt/recognize")
 async def stt_recognize(request: Request, file: UploadFile = File(...),
     expected: str = Form(""),
+    sample_round: int = Form(0),
+    sample_line: str = Form(""),
+    sample_chunk: int = Form(-1),
+    skill_tier: int = Form(-1),
+    skill_density: int = Form(0),
+    tts_voice: str = Form(""),
+    tts_rate: float = Form(0.0),
 ) -> dict:
     """연습 오디오 → 영어 전사 (+선택 compare). 점수 없음 (design/38)."""
     denied = _paid_access_denied(request)
@@ -3044,6 +3141,21 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
     hear_report["hear_mime_ok"] = 1 if "mp4" in (mime or "").lower() else 0
     _emit_hear_row("stt_recognize", hear_report)
     phones = waveform or " | ".join(espeak_ipa_words(heard_text))
+    await _keep_sample_take(
+        data=data,
+        mime=mime,
+        expected=expected if isinstance(expected, str) else "",
+        heard=heard_text,
+        phones=phones,
+        hear_report=hear_report,
+        sample_round=sample_round,
+        sample_line=sample_line,
+        sample_chunk=sample_chunk,
+        skill_tier=skill_tier,
+        skill_density=skill_density,
+        tts_voice=tts_voice,
+        tts_rate=tts_rate,
+    )
     out: dict = {
         "ok": True,
         "heard": heard_text,

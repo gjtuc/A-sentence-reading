@@ -493,6 +493,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           bookmarks: widget.bookmarks,
           annotations: widget.annotations,
           shadowing: widget.shadowing,
+          tts: widget.tts,
           onOpened: _goReader,
           onOpenSettings: _openSettings,
         );

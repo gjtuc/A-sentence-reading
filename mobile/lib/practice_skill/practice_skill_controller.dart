@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import '../api/client.dart';
+import '../api/sample_take_tag.dart';
 import '../practice_rhythm/follow_span.dart';
 import 'chunk_density.dart';
 import 'skill_adapt.dart';
@@ -286,6 +287,35 @@ class PracticeSkillController {
     _focusElapsedMs = focusElapsedMs;
   }
 
+  /// design/364 — set per take; null leaves the audio unsaved, as before.
+  ///
+  /// The voice and rate belong here rather than on the server side because only
+  /// the client knows which voice the random pick actually played.
+  SampleTakeTag? sampleTag;
+
+  void setSampleTag({
+    required int? round,
+    required String sentenceId,
+    required int chunkIndex,
+    required String voice,
+    required double rate,
+  }) {
+    if (round == null) {
+      sampleTag = null;
+      return;
+    }
+    final tag = SampleTakeTag(
+      round: round,
+      lineId: sentenceId,
+      chunkIndex: chunkIndex,
+      tier: store.state.tier,
+      density: store.state.density,
+      voice: voice,
+      rate: rate,
+    );
+    sampleTag = tag.isValid ? tag : null;
+  }
+
   Future<void> bindUid(String? uid) async {
     await store.bindUid(uid);
     await evidence.bindUid(uid);
@@ -540,6 +570,7 @@ class PracticeSkillController {
       heard = await c.recognizePracticeTake(
         bytes: takeBytes,
         mime: mime,
+        sampleTag: sampleTag,
       );
       sttSw.stop();
       await evidence.emit(

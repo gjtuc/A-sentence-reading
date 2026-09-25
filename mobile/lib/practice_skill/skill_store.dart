@@ -7,7 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/focus_practice_models.dart';
 import '../api/practice_cloud_hooks.dart';
+import 'chunk_density.dart';
 import 'skill_adapt.dart';
+import 'skill_ladder.dart';
 
 const String kSkillPrefsKeyBase = 'asr.practice_skill.v1';
 
@@ -38,11 +40,20 @@ class SkillState {
     this.epochMeans = const [],
     this.epochTargetN = kSkillEpochMinN,
     this.updatedAtMs = 0,
+    this.pinned = false,
+    this.savedTier = -1,
+    this.savedDensity = 0,
   });
 
   final int version;
   final int tier; // 0..5
   final int density; // -2..2
+  /// design/364 — hold this rung; the epoch must not move it.
+  final bool pinned;
+
+  /// Rung to come back to when the pin is lifted (-1 = nothing held).
+  final int savedTier;
+  final int savedDensity;
   final Map<String, SkillDayAgg> days;
   final double blockSum;
   final int blockN;
@@ -64,6 +75,9 @@ class SkillState {
     List<double>? epochMeans,
     int? epochTargetN,
     int? updatedAtMs,
+    bool? pinned,
+    int? savedTier,
+    int? savedDensity,
   }) {
     return SkillState(
       version: version ?? this.version,
@@ -76,6 +90,9 @@ class SkillState {
       epochMeans: epochMeans ?? this.epochMeans,
       epochTargetN: epochTargetN ?? this.epochTargetN,
       updatedAtMs: updatedAtMs ?? this.updatedAtMs,
+      pinned: pinned ?? this.pinned,
+      savedTier: savedTier ?? this.savedTier,
+      savedDensity: savedDensity ?? this.savedDensity,
     );
   }
 
@@ -88,6 +105,9 @@ class SkillState {
         'cooldown_blocks': cooldownBlocks,
         'epoch_means': epochMeans,
         'epoch_target_n': epochTargetN,
+        'pinned': pinned,
+        'saved_tier': savedTier,
+        'saved_density': savedDensity,
         'updated_at_ms': updatedAtMs < 0 ? 0 : updatedAtMs,
         'days': {
           for (final e in days.entries)
@@ -131,6 +151,9 @@ class SkillState {
       cooldownBlocks: (m['cooldown_blocks'] as num?)?.toInt() ?? 0,
       epochMeans: means,
       epochTargetN: target,
+      pinned: m['pinned'] == true,
+      savedTier: ((m['saved_tier'] as num?)?.toInt() ?? -1).clamp(-1, 9),
+      savedDensity: ((m['saved_density'] as num?)?.toInt() ?? 0).clamp(-2, 2),
       updatedAtMs: (() {
         final u = (m['updated_at_ms'] as num?)?.toInt() ?? 0;
         return u < 0 ? 0 : u;
@@ -173,6 +196,12 @@ class SkillStore {
     } catch (_) {
       state = SkillState(epochTargetN: rollSkillEpochTarget());
     }
+    // design/364 — a pin is only good while the sample round is on screen. One
+    // that survived a kill would silently hold every later paper on that rung,
+    // so every bind drops it; a starting round re-pins right after this.
+    if (state.pinned) {
+      await unpinLadder();
+    }
   }
 
   Future<void> _persist() async {
@@ -185,6 +214,17 @@ class SkillStore {
   }
 
   Future<void> addScored(double accuracy, {String? dayKey}) async {
+    // design/364 — a pinned sweep deliberately runs rungs the speaker cannot
+    // reach. Folding a 20% hard round into the day would report a skill drop
+    // that did not happen, so only the block accumulator sees it.
+    if (state.pinned) {
+      state = state.copyWith(
+        blockSum: state.blockSum + accuracy,
+        blockN: state.blockN + 1,
+      );
+      await _persist();
+      return;
+    }
     final day = dayKey ?? focusPracticeDayKey();
     final days = Map<String, SkillDayAgg>.from(state.days);
     days[day] = (days[day] ?? const SkillDayAgg()).add(accuracy);
@@ -192,6 +232,42 @@ class SkillStore {
       days: days,
       blockSum: state.blockSum + accuracy,
       blockN: state.blockN + 1,
+    );
+    await _persist();
+  }
+
+  /// Hold [tier]/[density] until [unpinLadder], remembering the current rung.
+  Future<void> pinLadder({required int tier, required int density}) async {
+    final keepTier = state.pinned ? state.savedTier : state.tier;
+    final keepDensity = state.pinned ? state.savedDensity : state.density;
+    state = state.copyWith(
+      pinned: true,
+      savedTier: keepTier,
+      savedDensity: keepDensity,
+      tier: clampSkillTier(tier),
+      density: clampChunkDensity(density),
+      cooldownBlocks: 0,
+      epochMeans: const [],
+      blockSum: 0,
+      blockN: 0,
+    );
+    await _persist();
+  }
+
+  /// Put the remembered rung back and drop everything the sweep accumulated.
+  Future<void> unpinLadder() async {
+    if (!state.pinned) return;
+    final back = state.savedTier;
+    state = state.copyWith(
+      pinned: false,
+      tier: back < 0 ? state.tier : clampSkillTier(back),
+      density: back < 0 ? state.density : clampChunkDensity(state.savedDensity),
+      savedTier: -1,
+      savedDensity: 0,
+      cooldownBlocks: 0,
+      epochMeans: const [],
+      blockSum: 0,
+      blockN: 0,
     );
     await _persist();
   }

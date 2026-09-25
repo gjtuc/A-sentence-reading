@@ -10,11 +10,16 @@ import '../api/paper_models.dart';
 import '../state/annotation_controller.dart';
 import '../state/auth_controller.dart';
 import '../state/bookmark_controller.dart';
+import '../practice_sample/sample_round_sheet.dart';
+import '../practice_sample/sample_rounds.dart';
+import '../practice_sample/sample_seed.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
+import '../state/tts_controller.dart';
 import '../widgets/library_card_hold.dart';
 import '../widgets/upload_queue_sheet.dart';
 import 'pdf_import_screen.dart';
+import 'shadowing_practice_screen.dart';
 import '../widgets/upload_status_bar.dart';
 
 /// Authenticated paper list → open · PDF upload queue (design/62 · 70 · 221 · 224).
@@ -26,6 +31,7 @@ class LibraryScreen extends StatefulWidget {
     required this.bookmarks,
     this.annotations,
     this.shadowing,
+    this.tts,
     this.onOpened,
     this.onOpenSettings,
   });
@@ -35,6 +41,9 @@ class LibraryScreen extends StatefulWidget {
   final BookmarkController bookmarks;
   final AnnotationController? annotations;
   final ShadowingController? shadowing;
+
+  /// design/364 — the sample row launches practice straight from the list.
+  final TtsController? tts;
 
   /// Called after a successful open (e.g. show reader surface).
   final VoidCallback? onOpened;
@@ -100,7 +109,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void _selectFromMenu(String id) {
     setState(() {
       _selecting = true;
-      _selected.add(id);
+      if (!isSampleCacheId(id)) _selected.add(id);
     });
   }
 
@@ -357,6 +366,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   void _toggleSelected(String id) {
+    // design/364 — the sample row has no server document, so a delete would
+    // 404 forever and the purge worker would keep re-reporting the failure.
+    if (isSampleCacheId(id)) return;
     setState(() {
       if (_selected.contains(id)) {
         _selected.remove(id);
@@ -564,6 +576,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _open(entry) async {
+    if (isSampleCacheId(entry.id)) {
+      await _openSample(entry);
+      return;
+    }
     final o = await widget.library.open(entry);
     if (!mounted) return;
     if (o == null) {
@@ -575,6 +591,53 @@ class _LibraryScreenState extends State<LibraryScreen> {
       SnackBar(content: Text('열림: ${o.title.isEmpty ? o.sessionId : o.title}')),
     );
     widget.onOpened?.call();
+  }
+
+  /// design/364 — pick a difficulty round, then practise it directly.
+  ///
+  /// The reader is skipped: the sample has no paper to read, and the round has
+  /// to hold the ladder for exactly as long as the practice screen is up.
+  Future<void> _openSample(PaperEntry entry) async {
+    final shadowing = widget.shadowing;
+    final tts = widget.tts;
+    if (shadowing == null || tts == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('연습을 열 수 없습니다.')),
+      );
+      return;
+    }
+    if (!shadowing.serverAvailable || !shadowing.enabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('연습이 꺼져 있습니다. 설정에서 켜 주세요.')),
+      );
+      return;
+    }
+    final rounds = await loadSampleRounds(shadowing.boundUid);
+    if (!mounted) return;
+    final round = await showSampleRoundSheet(context, rounds: rounds);
+    if (round == null || !mounted) return;
+    final o = await widget.library.open(entry);
+    if (!mounted) return;
+    if (o == null) {
+      final msg = widget.library.error ?? '표본을 열 수 없습니다.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      return;
+    }
+    await shadowing.recordPracticePressed();
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ShadowingPracticeScreen(
+          client: widget.auth.client,
+          library: widget.library,
+          shadowing: shadowing,
+          tts: tts,
+          sampleRound: round,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    setState(() {});
   }
 
   Future<void> _maybeAutoOpenFromQueue() async {
@@ -926,7 +989,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       leading: _selecting
                           ? Checkbox(
                               value: selected,
-                              onChanged: _deleting
+                              onChanged: _deleting || isSampleCacheId(e.id)
                                   ? null
                                   : (_) => _toggleSelected(e.id),
                             )

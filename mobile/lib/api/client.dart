@@ -19,6 +19,7 @@ import '../services/evidence_bus.dart';
 import 'auth_models.dart';
 import 'paper_models.dart';
 import 'reading_models.dart';
+import 'sample_take_tag.dart';
 import 'session_store.dart';
 import 'tts_models.dart';
 import '../practice_rhythm/follow_span.dart';
@@ -2694,12 +2695,17 @@ throw AsrApiException(
   Future<String?> recognizePracticeTake({
     required List<int> bytes,
     required String mime,
+    SampleTakeTag? sampleTag,
   }) async {
     if (bytes.isEmpty) return null;
     final headers = await _headers();
     headers.remove('Content-Type');
     final req = http.MultipartRequest('POST', _uri('/api/stt/recognize'));
     req.headers.addAll(headers);
+    if (sampleTag != null) {
+      // design/364 — the server keeps the audio only for tagged sample rounds.
+      req.fields.addAll(sampleTag.formFields());
+    }
     req.files.add(http.MultipartFile.fromBytes(
       'file',
       bytes,

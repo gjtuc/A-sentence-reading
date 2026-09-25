@@ -50,7 +50,9 @@ SkillAdaptApply resolveSkillAdaptApply({
   required SkillAdaptDecision decision,
 }) {
   final densityBefore = state.density;
-  if (decision.reason == 'epoch_wait' || decision.reason == 'cooldown') {
+  if (decision.reason == 'epoch_wait' ||
+      decision.reason == 'cooldown' ||
+      decision.reason == 'pinned') {
     return SkillAdaptApply(
       tier: state.tier,
       density: state.density,
@@ -96,6 +98,11 @@ SkillAdaptDecision decideSkillAdapt({
   required SkillState state,
   required List<String> baseChunks,
 }) {
+  // design/364 — a sample sweep asks for one rung and must stay on it. Left
+  // adapting, an easy round would climb and a hard one fall mid-measurement.
+  if (state.pinned) {
+    return const SkillAdaptDecision(reason: 'pinned');
+  }
   if (state.cooldownBlocks > 0) {
     return const SkillAdaptDecision(reason: 'cooldown');
   }

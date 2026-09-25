@@ -40,6 +40,8 @@ import '../mate_fetch/orchestrator.dart';
 import '../mate_fetch/validate.dart';
 import '../pdf/doc_role_detect.dart';
 import '../pdf/advisory_title.dart';
+import '../practice_sample/sample_corpus.dart';
+import '../practice_sample/sample_seed.dart';
 import '../api/library_soft_delete_store.dart';
 import '../platform/saf_tree_channel.dart';
 import '../api/upload_notify.dart';
@@ -166,8 +168,36 @@ class LibraryController extends ChangeNotifier {
     _bulkHandoffAttempted = false;
     _clearPendingEnrichState();
     if (_diskUid != null) {
+      unawaited(_ensureSampleRowThenRefresh());
       unawaited(_maybeDocumentsMirrorRestore());
     }
+  }
+
+  /// design/364 — the sample row is written locally, so 보관함 needs a reload
+  /// once it lands. A bind that already had it does not refresh.
+  Future<void> _ensureSampleRowThenRefresh() async {
+    bool wrote;
+    try {
+      wrote = await ensureSampleRow(
+        paperDisk: _paperDisk,
+        shadowDisk: _shadowDisk,
+      );
+    } catch (_) {
+      return;
+    }
+    if (!wrote) return;
+    asrEvidenceBus?.record(
+      'practice_sample_seed',
+      severity: 'lifecycle',
+      cacheId: kSampleCacheId,
+      stage: 'write',
+      ok: true,
+      details: {
+        'sentence_n': sampleAllLines.length,
+        'seed_version': kSampleSeedVersion,
+      },
+    );
+    await refresh(trigger: 'sample_seed');
   }
 
   Future<void> _maybeDocumentsMirrorRestore() async {
@@ -5236,6 +5266,9 @@ class LibraryController extends ChangeNotifier {
   }) async {
     final id = cacheId.trim();
     if (id.isEmpty) return;
+    // design/364 — the sample plan is written on disk and the server has no
+    // such paper, so asking it would only raise a banner on a working row.
+    if (isSampleCacheId(id)) return;
     // design/258 — soft-hidden papers must not keep the library banner.
     if (_isSoftHideAbandoned(id)) return;
     final trig = trigger.trim().isEmpty ? 'unspecified' : trigger.trim();
