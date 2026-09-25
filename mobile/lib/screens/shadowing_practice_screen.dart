@@ -41,6 +41,7 @@ import '../practice_skill/practice_skill_controller.dart';
 import '../practice_skill/skill_score.dart';
 import '../services/evidence_bus.dart';
 import '../services/shadowing_disk_store.dart';
+import '../services/tts_audio_cache.dart';
 import '../services/shadowing_cloud_migrate.dart';
 import '../state/focus_practice_controller.dart';
 import '../state/library_controller.dart';
@@ -94,6 +95,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   late final FocusPracticeController _focus;
   late final bool _ownsFocus;
   final ShadowingDiskStore _disk = ShadowingDiskStore();
+  final TtsAudioCache _ttsAudio = TtsAudioCache();
   final PracticeBookmarkController _practiceBookmarks =
       PracticeBookmarkController();
 
@@ -883,15 +885,27 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       practiceDensity: _skill.density,
       applyDensityRateBias: bias,
     );
-    final audio = widget.client.synthesizeTts(
+    final audioKey = ttsAudioKey(
       text: text,
       voice: params.voice,
-      speakingRate: kTtsRateDefault,
-      // design/343 — this paper's own compound names.
-      cacheId: _cacheId,
+      rate: kTtsRateDefault,
+      speakNorm: _skill.spokenCache.speakNorm,
     );
+    final cachedAudio = await _ttsAudio.read(audioKey);
+    final audio = cachedAudio != null
+        ? Future<Uint8List>.value(cachedAudio)
+        : widget.client.synthesizeTts(
+            text: text,
+            voice: params.voice,
+            speakingRate: kTtsRateDefault,
+            // design/343 — this paper's own compound names.
+            cacheId: _cacheId,
+          );
     final results = await Future.wait<Object?>([spoken, audio]);
     final bytes = results[1]! as List<int>;
+    if (cachedAudio == null) {
+      unawaited(_ttsAudio.write(audioKey, bytes));
+    }
     _chunkTtsBytes = Uint8List.fromList(bytes);
     _chunkTtsParams = params;
   }
@@ -1791,14 +1805,24 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       await _player.stop();
       await _player.setVolume(_kFullTtsVolume);
       await _player.setPlaybackRate(clampSpeakingRate(playRate));
-      final bytes = await widget.client
-          .synthesizeTts(
-            text: word,
-            voice: playVoice,
-            speakingRate: kTtsRateDefault,
-            cacheId: _cacheId,
-          )
-          .timeout(kMissReviewWordTimeout);
+      final wordKey = ttsAudioKey(
+        text: word,
+        voice: playVoice,
+        rate: kTtsRateDefault,
+        speakNorm: _skill.spokenCache.speakNorm,
+      );
+      var bytes = await _ttsAudio.read(wordKey) ?? Uint8List(0);
+      if (bytes.isEmpty) {
+        bytes = await widget.client
+            .synthesizeTts(
+              text: word,
+              voice: playVoice,
+              speakingRate: kTtsRateDefault,
+              cacheId: _cacheId,
+            )
+            .timeout(kMissReviewWordTimeout);
+        unawaited(_ttsAudio.write(wordKey, bytes));
+      }
       if (!_reviewAlive(token) || bytes.isEmpty) return silent;
       if (mounted && _reviewWord != word) {
         setState(() => _reviewWord = word);
