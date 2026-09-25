@@ -120,18 +120,49 @@ class SpokenCache {
   /// design/383 — rows saved on the phone skip the server round trip. A row
   /// made under another speak-norm version cannot be trusted, and [_key]
   /// already carries that version.
+  /// Where the last [loadFromDisk] answer came from, for the evidence row:
+  /// `memory`, `disk`, `disk_no_phones`, `disk_miss`, or `memory_no_phones`.
+  String lastSource = 'none';
+
+  int phoneSpanN(String chunk) {
+    var n = 0;
+    for (final span in peekSpans(chunk)) {
+      if (span.phone.trim().isNotEmpty) n += 1;
+    }
+    return n;
+  }
+
+  bool _rowHasPhones(List<FollowSpan> spans) {
+    if (spans.isEmpty) return true;
+    return spans.any((span) => span.phone.trim().isNotEmpty);
+  }
+
   Future<String?> loadFromDisk(String chunk) async {
     final key = _key(chunk);
-    if (_map.containsKey(key)) return _map[key];
+    if (_map.containsKey(key)) {
+      // A row kept in memory from before the symbols existed would otherwise be
+      // served for the rest of the session, so it is dropped here too.
+      if (!_rowHasPhones(_spans[key] ?? const [])) {
+        lastSource = 'memory_no_phones';
+        _map.remove(key);
+        _spans.remove(key);
+        _align.remove(key);
+        return null;
+      }
+      lastSource = 'memory';
+      return _map[key];
+    }
     await disk.load();
     final row = disk.peek(key);
-    if (row == null) return null;
-    // A row saved before the symbols existed has spans with no phones. Serving
-    // it would leave the words bare forever, so let the caller fetch once.
-    if (row.spans.isNotEmpty &&
-        !row.spans.any((span) => span.phone.trim().isNotEmpty)) {
+    if (row == null) {
+      lastSource = 'disk_miss';
       return null;
     }
+    if (!_rowHasPhones(row.spans)) {
+      lastSource = 'disk_no_phones';
+      return null;
+    }
+    lastSource = 'disk';
     _map[key] = row.spoken;
     _spans[key] = row.spans;
     return row.spoken;
@@ -249,8 +280,20 @@ class PracticeSkillController {
     if (c == null || !serverEnabled || !cloudSttEnabled) return;
     if (_phonesWarmed) return;
     _phonesWarmed = true;
+    await evidence.emit(
+      kind: 'practice_skill_spoken',
+      cacheId: _cacheId,
+      ok: true,
+      code: 'phones_warm_start',
+      details: {'phase': 'spoken', 'warm_start': 1},
+    );
     final sw = Stopwatch()..start();
-    final ok = await c.warmPhonemeModel();
+    var ok = false;
+    try {
+      ok = await c.warmPhonemeModel();
+    } catch (_) {
+      ok = false;
+    }
     sw.stop();
     await evidence.emit(
       kind: 'practice_skill_spoken',
@@ -289,6 +332,8 @@ class PracticeSkillController {
           'focus_elapsed_ms': _focusElapsedMs,
           'span_n': cachedSpans.length,
           'pos_span_n': _scoreableSpans(cachedSpans),
+          'phone_span_n': spokenCache.phoneSpanN(chunkDisplay),
+          'cache_source': spokenCache.lastSource,
           'display_chars': chunkDisplay.length,
           'spoken_chars': hit.length,
           ...cached.details,
@@ -296,6 +341,19 @@ class PracticeSkillController {
       );
       return hit;
     }
+    await evidence.emit(
+      kind: 'practice_skill_spoken',
+      cacheId: _cacheId,
+      ok: true,
+      code: 'cache_miss',
+      details: {
+        'phase': 'spoken',
+        'cache_hit': 0,
+        'cache_source': spokenCache.lastSource,
+        'chunk_index': _chunkIndex,
+        'display_chars': chunkDisplay.length,
+      },
+    );
     final sw = Stopwatch()..start();
     try {
       final r = await c.fetchSpokenText(chunkDisplay, cacheId: _cacheId);
@@ -687,6 +745,9 @@ class PracticeSkillController {
     required int attempt,
     required int wordIndex,
     String drillPhones = '',
+    String targetPhones = '',
+    String heardPhones = '',
+    String drillReason = 'none',
   }) async {
     await evidence.emit(
       kind: 'practice_skill_review',
@@ -705,6 +766,13 @@ class PracticeSkillController {
         'drill_phone_n': drillPhones.trim().isEmpty
             ? 0
             : drillPhones.trim().split(RegExp(r'\s+')).length,
+        'target_phone_n': targetPhones.trim().isEmpty
+            ? 0
+            : targetPhones.trim().split(RegExp(r'\s+')).length,
+        'heard_phone_n': heardPhones.trim().isEmpty
+            ? 0
+            : heardPhones.trim().split(RegExp(r'\s+')).length,
+        'drill_reason': drillReason,
         if (drillPhones.trim().isNotEmpty) 'target_phones': drillPhones.trim(),
         if (heard != null && heard.trim().isNotEmpty) 'stt_heard': heard.trim(),
       },

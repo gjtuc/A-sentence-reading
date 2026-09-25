@@ -1097,6 +1097,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       _replayMisses = const [];
       _replayMissChunk = -1;
     });
+    _noteCycleStep('listen_enter', token: token);
     // design/245 — prepare MediaRecorder while listen TTS plays (no start yet).
     unawaited(_primeMicForUpcomingSpeak());
     try {
@@ -1110,8 +1111,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
     // design/259 — keep Listen UI through mic ready-beat; Speak chrome in
     // `_revealSpeakUi` together with beginSpeak / 「말하는 중」.
+    _noteCycleStep('speak_enter', token: token);
     final speakResult = await _runSpeakPhase(token: token);
+    _noteCycleStep(
+      'speak_done',
+      token: token,
+      extra: {'speak_ok': speakResult.ok ? 1 : 0, 'speak_code': speakResult.code},
+    );
     if (!alive()) {
+      _noteCycleStep('cycle_dropped_after_speak', token: token);
       return;
     }
     _grooming.onOutcome(
@@ -1134,27 +1142,44 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     }
 
     setState(() => _rhythmPhase = RhythmPhase.replay);
+    _noteCycleStep('replay_enter', token: token);
     await _playMyTakePhase();
-    if (!alive()) return;
+    if (!alive()) {
+      _noteCycleStep('cycle_dropped_after_replay', token: token);
+      return;
+    }
     if (mounted) setState(() => _rhythmPhase = RhythmPhase.idle);
     if (!alive()) return;
 
     var reviewWords = const <String>[];
     final score = speakResult.score;
+    var reviewReason = score == null ? 'no_score_future' : 'ok';
     if (score != null) {
       try {
         final snap = await score.timeout(kMissReviewScoreWait);
-        if (snap != null) {
+        if (snap == null) {
+          reviewReason = 'score_null';
+        } else {
           reviewWords = missReviewWords(
             display: snap.display,
             spans: snap.spans,
           );
+          if (reviewWords.isEmpty) reviewReason = 'no_missed_words';
         }
       } catch (_) {
         reviewWords = const [];
+        reviewReason = 'score_timeout';
       }
     }
-    if (!alive()) return;
+    _noteCycleStep(
+      'review_plan',
+      token: token,
+      extra: {'review_word_n': reviewWords.length, 'review_reason': reviewReason},
+    );
+    if (!alive()) {
+      _noteCycleStep('cycle_dropped_before_review', token: token);
+      return;
+    }
 
     if (_autoAdvance) {
       await _advanceToNextChunk(
@@ -1163,6 +1188,31 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         reviewWords: reviewWords,
       );
     }
+  }
+
+  /// One row per stage boundary. A stalled cycle shows its last stage instead of
+  /// stopping the log with no trace.
+  void _noteCycleStep(
+    String step, {
+    required int token,
+    Map<String, Object?> extra = const {},
+  }) {
+    asrEvidenceBus?.record(
+      'shadowing_loop_event',
+      cacheId: _cacheId,
+      ok: true,
+      details: {
+        'phase': 'cycle_step',
+        'step': step,
+        'chunk_index': _chunkIndex,
+        'chunk_n': _chunks.length,
+        'token_live': token == _cycleToken ? 1 : 0,
+        'session_active': _focus.sessionActive ? 1 : 0,
+        'paused': _focus.paused ? 1 : 0,
+        'rhythm_phase': _rhythmPhase.name,
+        ...extra,
+      },
+    );
   }
 
   /// design/245 — build+prepare recorder during listen so Speak start is cheap.
@@ -1692,7 +1742,22 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     required String? voice,
     required double? clientRate,
   }) async {
-    if (words.isEmpty || !_reviewAlive(token)) return;
+    if (words.isEmpty || !_reviewAlive(token)) {
+      _noteCycleStep(
+        'review_skipped',
+        token: token,
+        extra: {
+          'review_word_n': words.length,
+          'review_reason': words.isEmpty ? 'no_words' : 'not_alive',
+        },
+      );
+      return;
+    }
+    _noteCycleStep(
+      'review_enter',
+      token: token,
+      extra: {'review_word_n': words.length},
+    );
     _missReviewActive = true;
     final clock = Stopwatch()..start();
     final epoch = ++_restEpoch;
@@ -1712,7 +1777,19 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     });
     try {
       for (var i = 0; i < words.length; i++) {
-        if (!_reviewAlive(token)) return;
+        if (!_reviewAlive(token)) {
+          _noteCycleStep(
+            'review_word_dropped',
+            token: token,
+            extra: {'word_index': i},
+          );
+          return;
+        }
+        _noteCycleStep(
+          'review_word_enter',
+          token: token,
+          extra: {'word_index': i, 'review_word_n': words.length},
+        );
         String? avoidVoice;
         double? avoidRate;
         for (var attempt = 0; attempt < kMissReviewMaxTries; attempt++) {
@@ -1744,7 +1821,30 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             attempt: attempt,
             wordIndex: i,
           );
-          if (!_reviewAlive(token)) return;
+          if (!_reviewAlive(token)) {
+            _noteCycleStep(
+              'review_hear_dropped',
+              token: token,
+              extra: {'word_index': i, 'attempt': attempt},
+            );
+            return;
+          }
+          _noteCycleStep(
+            'review_hear',
+            token: token,
+            extra: {
+              'word_index': i,
+              'attempt': attempt,
+              'hear': hear.name,
+              'target_phone_n': _reviewTargetPhone.trim().isEmpty
+                  ? 0
+                  : _reviewTargetPhone.trim().split(RegExp(r'\s+')).length,
+              'heard_phone_n': _reviewHeardPhone.trim().isEmpty
+                  ? 0
+                  : _reviewHeardPhone.trim().split(RegExp(r'\s+')).length,
+              'drill_n': _reviewDrillPhones.length,
+            },
+          );
           if (hear != MissReviewHear.missed) break;
         }
         if (mounted) setState(() => _reviewWord = null);
@@ -1893,6 +1993,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       final drill = trace.matched
           ? const <String>[]
           : phoneDrillTargets(target: targetPhone, heard: heardPhone);
+      final drillReason = trace.matched
+          ? 'matched'
+          : targetPhone.trim().isEmpty
+              ? 'no_target_phones'
+              : heardPhone.trim().isEmpty
+                  ? 'no_heard_phones'
+                  : drill.isEmpty
+                      ? 'phones_all_match'
+                      : 'ok';
       if (mounted) {
         setState(() {
           _reviewTargetPhone = targetPhone;
@@ -1909,6 +2018,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         attempt: attempt,
         wordIndex: wordIndex,
         drillPhones: drill.join(' '),
+        targetPhones: targetPhone,
+        heardPhones: heardPhone,
+        drillReason: drillReason,
       );
       if (trace.matched) {
         return MissReviewHear.matched;
