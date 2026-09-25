@@ -648,6 +648,9 @@ class PracticeSkillController {
         'spoken_line': spoken,
         'slot_hits': diag.slotHits,
         'slot_pieces': diag.slotPieces,
+        // A hit mark does not say which side passed the slot. Without this the
+        // sound compare could be handing out marks unnoticed.
+        'sound_pass_n': diag.soundPassN,
         'target_phones': spokenCache
             .peekSpans(chunkDisplay)
             .where((span) => span.weight > 0 && span.phone.trim().isNotEmpty)
@@ -714,6 +717,7 @@ class PracticeSkillController {
         'spoken_line': spoken,
         'slot_hits': diag.slotHits,
         'slot_pieces': diag.slotPieces,
+        'sound_pass_n': diag.soundPassN,
         'target_phones': spokenCache
             .peekSpans(chunkDisplay)
             .where((span) => span.weight > 0 && span.phone.trim().isNotEmpty)

@@ -495,4 +495,33 @@ void main() {
     expect(phonesClose('dɪspˈɜːʃən', const ['d ɪ s p ɜ ʃ ə n']), isTrue);
     expect(phonesClose('dɪspˈɜːʃən', const ['k ɑː b ə n']), isFalse);
   });
+
+  test('a slot the sound let through is counted apart from the word', () {
+    const display = 'Alpha dispersion';
+    const spoken = 'Alpha dispersion';
+    const spans = [
+      FollowSpan(start: 0, end: 5, weight: 5, phone: 'ˈælfə'),
+      FollowSpan(start: 6, end: 16, weight: 10, phone: 'dɪspˈɜːʃən'),
+    ];
+    // The transcript missed the second word, but the recorded sounds carry it.
+    final bySound = diagnoseSpokenSlots(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'Alpha',
+      heardPhones: const ['æ l f ə d ɪ s p ɜ ʃ ə n'],
+    );
+    expect(bySound.slotHits, '11');
+    expect(bySound.soundPassN, 1);
+
+    // Nothing to fall back on, so the word stays missed and the count is 0.
+    final byWord = diagnoseSpokenSlots(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'Alpha dispersion',
+    );
+    expect(byWord.slotHits, '11');
+    expect(byWord.soundPassN, 0);
+  });
 }

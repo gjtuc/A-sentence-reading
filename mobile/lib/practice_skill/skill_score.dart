@@ -183,6 +183,7 @@ class SpokenSlotDiag {
     required this.remain,
     this.slotHits = '',
     this.slotPieces = '',
+    this.soundPassN = 0,
   });
 
   final SkillScoreResult score;
@@ -194,6 +195,12 @@ class SpokenSlotDiag {
   final int remain;
   final String slotHits;
   final String slotPieces;
+
+  /// Slots that only the sound let through, the word itself having missed.
+  ///
+  /// The hit marks alone cannot say which side passed a slot, so a compare that
+  /// is too generous would be invisible.
+  final int soundPassN;
 }
 
 /// One printed word is one score slot, including function words.
@@ -229,12 +236,15 @@ SpokenSlotDiag diagnoseSpokenSlots({
   }
   final heardPhoneWords = _sliceHeardPhones(built.slots, heardPhones);
   var hit = 0;
+  var soundPassN = 0;
   final missed = <MissedWordSpan>[];
   final marks = StringBuffer();
   final pieces = <String>[];
   for (final slot in built.slots) {
     final lexical = _takeSpokenSlot(slot.tokens, have);
-    final ok = lexical || phonesClose(slot.phone, heardPhoneWords);
+    final bySound = !lexical && phonesClose(slot.phone, heardPhoneWords);
+    if (bySound) soundPassN += 1;
+    final ok = lexical || bySound;
     marks.write(ok ? '1' : '0');
     pieces.add(slot.tokens.join(' '));
     if (ok) {
@@ -266,6 +276,7 @@ SpokenSlotDiag diagnoseSpokenSlots({
     remain: built.remain,
     slotHits: marks.toString(),
     slotPieces: pieces.join(' | '),
+    soundPassN: soundPassN,
   );
 }
 
