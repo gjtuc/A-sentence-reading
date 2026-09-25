@@ -1,8 +1,6 @@
 /// Follow-light span on the printed chunk (design/313).
 library;
 
-import 'package:flutter/painting.dart';
-
 class FollowSpan {
   const FollowSpan({
     required this.start,
@@ -41,42 +39,31 @@ FollowSpan? activeFollowSpan(
   return last;
 }
 
-/// Scroll offset that brings [start, end) into view. Null if already visible.
+/// The share of the audio in which the prompt finishes its walk down.
 ///
-/// Uses layout only. The caller must pass the player media clock, not a
+/// The bottom line has to be on screen before the voice reaches it, not as it
+/// arrives, so the walk ends a little early.
+const double kPromptScrollLead = 0.85;
+
+/// One glide between two position ticks, so the walk reads as continuous.
+const Duration kPromptScrollStep = Duration(milliseconds: 240);
+
+/// Where the prompt stands when the audio is [position] into [duration].
+///
+/// Null while there is nothing to move: a sentence that already fits the screen
+/// is left where it is. The caller must pass the player media clock, not a
 /// rate-adjusted wall clock (design/313).
-double? followRevealOffset({
-  required String text,
-  required TextStyle style,
-  required int start,
-  required int end,
-  required double maxWidth,
-  required double viewportHeight,
-  required double currentOffset,
+double? promptScrollTarget({
+  required Duration position,
+  required Duration duration,
+  required double maxScrollExtent,
+  double lead = kPromptScrollLead,
 }) {
-  if (maxWidth <= 0 || viewportHeight <= 0) return null;
-  if (start < 0 || end <= start || end > text.length) return null;
-  final painter = TextPainter(
-    text: TextSpan(text: text, style: style),
-    textDirection: TextDirection.ltr,
-    textAlign: TextAlign.center,
-  )..layout(maxWidth: maxWidth);
-  final boxes = painter.getBoxesForSelection(
-    TextSelection(baseOffset: start, extentOffset: end),
-  );
-  if (boxes.isEmpty) return null;
-  final top = boxes.first.top;
-  final bottom = boxes.last.bottom;
-  const pad = 8.0;
-  if (top >= currentOffset + pad &&
-      bottom <= currentOffset + viewportHeight - pad) {
-    return null;
-  }
-  final maxExtent =
-      painter.height > viewportHeight ? painter.height - viewportHeight : 0.0;
-  var target = top - pad;
-  if (target < 0) target = 0;
-  if (target > maxExtent) target = maxExtent;
-  if ((target - currentOffset).abs() < 1) return null;
-  return target;
+  if (maxScrollExtent <= 0 || lead <= 0) return null;
+  final total = duration.inMilliseconds * lead;
+  if (total <= 0) return null;
+  final at = position.inMilliseconds / total;
+  if (at <= 0) return 0;
+  if (at >= 1) return maxScrollExtent;
+  return maxScrollExtent * at;
 }

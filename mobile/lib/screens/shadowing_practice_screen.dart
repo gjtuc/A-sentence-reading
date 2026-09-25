@@ -88,7 +88,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   final _promptScroll = ScrollController();
   StreamSubscription<Duration>? _followPosSub;
   StreamSubscription<Duration>? _followDurSub;
+  StreamSubscription<Duration>? _scrollPosSub;
+  StreamSubscription<Duration>? _scrollDurSub;
   int _followGen = 0;
+  int _scrollGen = 0;
   ({int start, int end})? _follow;
   int _lastPlayerMs = -1;
   int _lastAudioBytes = -1;
@@ -286,6 +289,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _followGen++;
     unawaited(_followPosSub?.cancel());
     unawaited(_followDurSub?.cancel());
+    _clearPromptScroll();
     _promptScroll.dispose();
     _restWatchdog?.cancel();
     _restWatchdog = null;
@@ -930,8 +934,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     );
   }
 
-  double _promptMaxWidth = 0;
-
   void _armFollowLight({
     required String text,
     required int token,
@@ -956,7 +958,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       final next = hit == null ? null : (start: hit.start, end: hit.end);
       if (next?.start == _follow?.start && next?.end == _follow?.end) return;
       setState(() => _follow = next);
-      _queueFollowScroll(text);
     });
     _followDurSub = _player.onDurationChanged.listen((d) {
       if (gen != _followGen) return;
@@ -964,32 +965,53 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     });
   }
 
-  void _queueFollowScroll(String text) {
-    final span = _follow;
-    if (span == null || !_promptScroll.hasClients) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_promptScroll.hasClients) return;
-      final width = _promptMaxWidth > 0
-          ? _promptMaxWidth
-          : MediaQuery.sizeOf(context).width;
-      final target = followRevealOffset(
-        text: text,
-        style: _promptStyle(Theme.of(context)),
-        start: span.start,
-        end: span.end,
-        maxWidth: width,
-        viewportHeight: _promptScroll.position.viewportDimension,
-        currentOffset: _promptScroll.offset,
+  /// Walk a sentence taller than the screen down while the audio runs.
+  ///
+  /// Every phase plays the sentence from the start, so the prompt goes back to
+  /// the top here. The walk follows the player clock rather than text metrics:
+  /// the symbols above each word make the drawn height much taller than the
+  /// plain paragraph a `TextPainter` measures, which left the last lines off
+  /// screen.
+  void _armPromptScroll({required int token, required int chunk}) {
+    _clearPromptScroll();
+    if (_promptScroll.hasClients && _promptScroll.offset != 0) {
+      _promptScroll.jumpTo(0);
+    }
+    final gen = ++_scrollGen;
+    Duration? mediaDur;
+    _scrollDurSub = _player.onDurationChanged.listen((d) {
+      if (gen != _scrollGen) return;
+      mediaDur = d;
+    });
+    _scrollPosSub = _player.onPositionChanged.listen((pos) {
+      if (!mounted || gen != _scrollGen) return;
+      if (token != _cycleToken || chunk != _chunkIndex) return;
+      if (!_promptScroll.hasClients) return;
+      final dur = mediaDur;
+      if (dur == null) return;
+      final target = promptScrollTarget(
+        position: pos,
+        duration: dur,
+        maxScrollExtent: _promptScroll.position.maxScrollExtent,
       );
       if (target == null) return;
+      if ((target - _promptScroll.offset).abs() < 0.5) return;
       unawaited(
         _promptScroll.animateTo(
           target,
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
+          duration: kPromptScrollStep,
+          curve: Curves.linear,
         ),
       );
     });
+  }
+
+  void _clearPromptScroll() {
+    _scrollGen++;
+    unawaited(_scrollPosSub?.cancel());
+    unawaited(_scrollDurSub?.cancel());
+    _scrollPosSub = null;
+    _scrollDurSub = null;
   }
 
   Future<void> _playCachedChunkTts({required String phase}) async {
@@ -1034,6 +1056,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       } else {
         _clearFollowLight();
       }
+      _armPromptScroll(token: _cycleToken, chunk: _chunkIndex);
       final playerSw = Stopwatch()..start();
       try {
         await _player.play(BytesSource(bytes));
@@ -1043,6 +1066,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         _lastPlayerMs = playerSw.elapsedMilliseconds;
         _lastAudioBytes = bytes.length;
         _clearFollowLight();
+        _clearPromptScroll();
       }
       asrEvidenceBus?.record(
         'shadowing_loop_event',
@@ -1640,8 +1664,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         await _player.setVolume(_kFullTtsVolume);
       } catch (_) {}
       final done = _player.onPlayerComplete.first;
-      await _player.play(DeviceFileSource(path));
-      await done;
+      _armPromptScroll(token: _cycleToken, chunk: _chunkIndex);
+      try {
+        await _player.play(DeviceFileSource(path));
+        await done;
+      } finally {
+        _clearPromptScroll();
+      }
       asrEvidenceBus?.record(
         'shadowing_loop_event',
         cacheId: _cacheId,
@@ -2609,9 +2638,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                         Expanded(
                           flex: immersive && showMirror ? 2 : 3,
                           child: Center(
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                _promptMaxWidth = constraints.maxWidth;
+                            child: Builder(
+                              builder: (context) {
                                 final showFollow =
                                     _rhythmPhase == RhythmPhase.listen ||
                                         _rhythmPhase == RhythmPhase.speak;

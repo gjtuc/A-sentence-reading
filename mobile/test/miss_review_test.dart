@@ -266,4 +266,36 @@ void main() {
     );
     expect(missReviewHeardPhoneWords(''), isEmpty);
   });
+
+  test('a long sentence walks down and lands before the audio ends', () {
+    const dur = Duration(seconds: 10);
+    double? at(int ms) => promptScrollTarget(
+          position: Duration(milliseconds: ms),
+          duration: dur,
+          maxScrollExtent: 400,
+        );
+    expect(at(0), 0);
+    // 8.5s of a 10s read is the whole way down, so the bottom line is on
+    // screen before the voice arrives there.
+    expect(at(8500), 400);
+    expect(at(10000), 400);
+    expect(at(4250), closeTo(200, 0.01));
+    // A sentence that already fits is left where it is.
+    expect(
+      promptScrollTarget(
+        position: const Duration(seconds: 5),
+        duration: dur,
+        maxScrollExtent: 0,
+      ),
+      isNull,
+    );
+    expect(
+      promptScrollTarget(
+        position: const Duration(seconds: 5),
+        duration: Duration.zero,
+        maxScrollExtent: 400,
+      ),
+      isNull,
+    );
+  });
 }
