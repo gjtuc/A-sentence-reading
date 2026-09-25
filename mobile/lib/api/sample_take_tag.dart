@@ -13,6 +13,7 @@ class SampleTakeTag {
     required this.density,
     this.voice = '',
     this.rate = 0,
+    this.expected = '',
   });
 
   final int round;
@@ -27,6 +28,13 @@ class SampleTakeTag {
   final String voice;
   final double rate;
 
+  /// The chunk the speaker was asked to say.
+  ///
+  /// Travels with the take so a later scoring run reads the target off the
+  /// sidecar instead of mapping an id back through a corpus that has since
+  /// been edited.
+  final String expected;
+
   bool get isValid => round >= 1 && round <= 10 && lineId.trim().isNotEmpty;
 
   Map<String, String> formFields() => {
@@ -37,5 +45,6 @@ class SampleTakeTag {
         'skill_density': '$density',
         'tts_voice': voice.trim(),
         'tts_rate': rate.toStringAsFixed(3),
+        'sample_expected': expected.trim(),
       };
 }

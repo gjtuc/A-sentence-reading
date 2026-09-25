@@ -153,6 +153,9 @@ ALLOWED_KINDS = frozenset(
         "practice_skill_unscored",
         "practice_skill_adapt",
         "practice_skill_flush",
+        # design/364 — fixed sample row and the takes kept for calibration
+        "practice_sample_seed",
+        "practice_sample_take",
         # design/250 — practice focus/skill cloud sync
         "practice_focus_sync",
         "practice_skill_sync",

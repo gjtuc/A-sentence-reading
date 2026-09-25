@@ -1,6 +1,6 @@
 # 364 — A fixed sample row, one rung at a time
 
-**Version:** 0.3.398 · Status: **locked**
+**Version:** 0.3.399 · Status: **locked**
 Groundwork for calibrating the sound compare added in [212](212-practice-skill-ladder.md) · uses the ladder from [244](244-skill-ladder-position.md) and the phone stream from [169g](169g-causal-handoff-evidence.md)
 
 ## Why
@@ -88,6 +88,12 @@ The sidecar carries what is needed to score the take again later: `expected`,
 `tts_voice` and `tts_rate` are filled by the client, not the server, because the
 random pick happens on the phone — only it knows which voice was actually played.
 
+`expected` arrives as its own `sample_expected` field. The route's existing
+`expected` is optional and practice does not send it, so the first live takes
+landed with an empty answer key; reading the target back through `line_id` works
+only while the corpus is untouched. A separate field also keeps the take off the
+`diff_tokens` compare branch that `expected` triggers.
+
 **Untagged takes are not kept.** `sample_round` defaults to `0` and
 `sample_round_ok` refuses it. Keeping every practice take would be storage and a
 privacy surface for data no calibration run needs.
@@ -116,10 +122,18 @@ the chunk plan (`status: 'ok'`), and the disk index entry, then triggers one
 `kSampleSeedVersion` and the sentence count, so a later corpus edit rewrites the row
 and an unchanged one does not refresh.
 
-### 5. Progress is counted in takes
+### 5. Progress is chunk coverage, not a tally
 
-`sample_rounds.dart`. A round is done at `sampleRoundTarget` takes, not at "opened
-it once" — a round abandoned after two sentences must not read as collected.
+`sample_rounds.dart`, prefs `asr.sample_rounds.v2`. A round is done when every
+asked-for chunk has a recorded take.
+
+`sampleRoundTarget` sums `chunks.length` over the round's lines, not the line count.
+A sentence is read one growing chunk at a time, so the first version — fifteen takes
+for fifteen lines — marked round 1 collected after five sentences of the fifteen.
+
+Coverage is keyed `sent_f07:1`, so a chunk retried five times is one chunk collected.
+`v1` is abandoned rather than migrated: its counts cannot say which chunks they came
+from.
 
 ## Evidence
 
@@ -129,6 +143,11 @@ it once" — a round abandoned after two sentences must not read as collected.
 
 Both carry integers and one snake code, so the sanitizer in design/169g passes them
 without a free-text allowance.
+
+**Both kinds must stay in `ALLOWED_KINDS`.** `_normalize` returns `None` for a kind
+outside the list, so the first live round saved 23 takes to GCS while emitting no
+row at all — the writes were fine and the only way to see them was to list the
+bucket. A kind absent from that list fails silently in both directions.
 
 ## Not in this design
 

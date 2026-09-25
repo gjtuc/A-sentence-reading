@@ -1627,6 +1627,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       chunkIndex: scoredChunk,
       voice: _heardVoice ?? '',
       rate: _heardClientRate ?? 0,
+      expected: chunkDisplay,
     );
     final scored = await _skill.onTakeReady(
       chunkDisplay: chunkDisplay,
@@ -1639,10 +1640,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     }
     final round = widget.sampleRound;
     if (round != null) {
-      // Counted in takes, not in "opened it": a round abandoned after two
-      // sentences must not read as collected.
+      // Coverage, not a tally: a chunk said five times is one chunk collected,
+      // so a round abandoned partway cannot read as done.
       unawaited(
-        noteSampleRoundTake(widget.shadowing.boundUid, round),
+        noteSampleRoundTake(
+          widget.shadowing.boundUid,
+          round,
+          lineId: _sentenceId,
+          chunkIndex: scoredChunk,
+        ),
       );
     }
     if (scoredChunk == _chunkIndex) {

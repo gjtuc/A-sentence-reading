@@ -1,4 +1,4 @@
-/// design/364 — how many sample takes each difficulty round has collected.
+/// design/364 — which chunks of each difficulty round have been recorded.
 library;
 
 import 'dart:convert';
@@ -7,7 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'sample_corpus.dart';
 
-const String kSampleRoundsPrefsKeyBase = 'asr.sample_rounds.v1';
+/// v2 holds coverage. v1 counted takes and called a round done at a third of it.
+const String kSampleRoundsPrefsKeyBase = 'asr.sample_rounds.v2';
 
 String sampleRoundsPrefsKey(String? uid) {
   final u = (uid ?? '').trim();
@@ -15,19 +16,27 @@ String sampleRoundsPrefsKey(String? uid) {
   return '$kSampleRoundsPrefsKeyBase.$u';
 }
 
-/// Takes needed before a round counts as done (twelve fixed + three fresh).
-int sampleRoundTarget(int round) => sampleLinesForRound(round).length;
-
-/// Takes per round, keyed by round number.
+/// Chunks the round asks for, summed over its lines.
 ///
-/// A round is counted in takes rather than in "opened it once", so a round
-/// abandoned after two sentences does not read as collected.
+/// A sentence is read one growing chunk at a time, so counting sentences would
+/// report a round collected while most of it was still unspoken.
+int sampleRoundTarget(int round) =>
+    sampleLinesForRound(round).fold(0, (n, line) => n + line.chunks.length);
+
+/// Key for one asked-for chunk, e.g. `sent_f07:1`.
+String sampleChunkKey({required String lineId, required int chunkIndex}) =>
+    '${lineId.trim()}:$chunkIndex';
+
+/// Chunks already recorded, per round.
+///
+/// Coverage rather than a take count: saying one chunk five times is one chunk
+/// collected, and a round abandoned early cannot read as done.
 class SampleRounds {
-  const SampleRounds({this.takes = const {}});
+  const SampleRounds({this.covered = const {}});
 
-  final Map<int, int> takes;
+  final Map<int, Set<String>> covered;
 
-  int takesFor(int round) => takes[round] ?? 0;
+  int takesFor(int round) => covered[round]?.length ?? 0;
 
   bool isDone(int round) => takesFor(round) >= sampleRoundTarget(round);
 
@@ -39,30 +48,40 @@ class SampleRounds {
     return n;
   }
 
-  SampleRounds addTake(int round) {
-    if (round < 1 || round > kSampleRoundCount) return this;
-    final next = Map<int, int>.from(takes);
-    next[round] = (next[round] ?? 0) + 1;
-    return SampleRounds(takes: next);
+  SampleRounds addChunk(int round, String key) {
+    final k = key.trim();
+    if (round < 1 || round > kSampleRoundCount || k.isEmpty) return this;
+    if (covered[round]?.contains(k) ?? false) return this;
+    final next = <int, Set<String>>{
+      for (final e in covered.entries) e.key: Set<String>.from(e.value),
+    };
+    (next[round] ??= <String>{}).add(k);
+    return SampleRounds(covered: next);
   }
 
   Map<String, dynamic> toJson() => {
-        'takes': {for (final e in takes.entries) '${e.key}': e.value},
+        'covered': {
+          for (final e in covered.entries)
+            '${e.key}': (e.value.toList()..sort()),
+        },
       };
 
   static SampleRounds fromJson(Map<String, dynamic>? m) {
-    final raw = m?['takes'];
+    final raw = m?['covered'];
     if (raw is! Map) return const SampleRounds();
-    final out = <int, int>{};
+    final out = <int, Set<String>>{};
     for (final e in raw.entries) {
       final r = int.tryParse('${e.key}');
-      final v = e.value;
       if (r == null || r < 1 || r > kSampleRoundCount) continue;
-      final n = v is num ? v.toInt() : int.tryParse('$v');
-      if (n == null || n <= 0) continue;
-      out[r] = n;
+      final v = e.value;
+      if (v is! List) continue;
+      final keys = <String>{
+        for (final k in v)
+          if ('$k'.trim().isNotEmpty) '$k'.trim(),
+      };
+      if (keys.isNotEmpty) out[r] = keys;
     }
-    return SampleRounds(takes: out);
+    return SampleRounds(covered: out);
   }
 }
 
@@ -78,9 +97,17 @@ Future<SampleRounds> loadSampleRounds(String? uid) async {
   return const SampleRounds();
 }
 
-Future<SampleRounds> noteSampleRoundTake(String? uid, int round) async {
+Future<SampleRounds> noteSampleRoundTake(
+  String? uid,
+  int round, {
+  required String lineId,
+  required int chunkIndex,
+}) async {
   final cur = await loadSampleRounds(uid);
-  final next = cur.addTake(round);
+  final next = cur.addChunk(
+    round,
+    sampleChunkKey(lineId: lineId, chunkIndex: chunkIndex),
+  );
   if (next.takesFor(round) == cur.takesFor(round)) return cur;
   try {
     final prefs = await SharedPreferences.getInstance();

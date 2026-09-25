@@ -299,6 +299,7 @@ class PracticeSkillController {
     required int chunkIndex,
     required String voice,
     required double rate,
+    required String expected,
   }) {
     if (round == null) {
       sampleTag = null;
@@ -312,6 +313,7 @@ class PracticeSkillController {
       density: store.state.density,
       voice: voice,
       rate: rate,
+      expected: expected,
     );
     sampleTag = tag.isValid ? tag : null;
   }

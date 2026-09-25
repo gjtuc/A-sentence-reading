@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.398",
+    version="0.3.399",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -3092,6 +3092,7 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
     sample_round: int = Form(0),
     sample_line: str = Form(""),
     sample_chunk: int = Form(-1),
+    sample_expected: str = Form(""),
     skill_tier: int = Form(-1),
     skill_density: int = Form(0),
     tts_voice: str = Form(""),
@@ -3141,10 +3142,15 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
     hear_report["hear_mime_ok"] = 1 if "mp4" in (mime or "").lower() else 0
     _emit_hear_row("stt_recognize", hear_report)
     phones = waveform or " | ".join(espeak_ipa_words(heard_text))
+    # `expected` is optional on this route and practice does not send it, so a
+    # sample take carries its own target or the sidecar has no answer key.
+    _sample_expected = sample_expected if isinstance(sample_expected, str) else ""
+    if not _sample_expected.strip() and isinstance(expected, str):
+        _sample_expected = expected
     await _keep_sample_take(
         data=data,
         mime=mime,
-        expected=expected if isinstance(expected, str) else "",
+        expected=_sample_expected,
         heard=heard_text,
         phones=phones,
         hear_report=hear_report,

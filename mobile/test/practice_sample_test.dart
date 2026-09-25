@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:sentence_reading/api/sample_take_tag.dart';
 import 'package:sentence_reading/practice_sample/sample_corpus.dart';
 import 'package:sentence_reading/practice_sample/sample_round_sheet.dart';
 import 'package:sentence_reading/practice_sample/sample_rounds.dart';
@@ -145,21 +146,63 @@ void main() {
     expect(afterRestart.state.tier, 2);
   });
 
-  test('a round counts as done only once its takes are in', () async {
+  test('a round is done only when every asked-for chunk is recorded', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
-    expect(sampleRoundTarget(1), 15);
+    final want = sampleRoundTarget(1);
+    // Chunks, not sentences: counting sentences called a round collected while
+    // two thirds of it was still unspoken.
+    expect(want, greaterThan(sampleLinesForRound(1).length));
+    expect(
+      want,
+      sampleLinesForRound(1).fold<int>(0, (n, l) => n + l.chunks.length),
+    );
+
     var rounds = await loadSampleRounds('u1');
     expect(rounds.isDone(1), isFalse);
-    for (var i = 0; i < sampleRoundTarget(1) - 1; i++) {
-      rounds = await noteSampleRoundTake('u1', 1);
-    }
+
+    // A retry of the same chunk is still one chunk collected.
+    rounds = await noteSampleRoundTake('u1', 1,
+        lineId: 'sent_f01', chunkIndex: 0);
+    rounds = await noteSampleRoundTake('u1', 1,
+        lineId: 'sent_f01', chunkIndex: 0);
+    expect(rounds.takesFor(1), 1);
     expect(rounds.isDone(1), isFalse);
-    expect(rounds.doneCount, 0);
-    rounds = await noteSampleRoundTake('u1', 1);
+
+    for (final line in sampleLinesForRound(1)) {
+      for (var c = 0; c < line.chunks.length; c++) {
+        rounds = await noteSampleRoundTake('u1', 1,
+            lineId: 'sent_${line.id}', chunkIndex: c);
+      }
+    }
+    expect(rounds.takesFor(1), want);
     expect(rounds.isDone(1), isTrue);
     expect(rounds.doneCount, 1);
+
     // A round outside 1..10 must not create a phantom entry.
-    rounds = await noteSampleRoundTake('u1', 44);
+    rounds = await noteSampleRoundTake('u1', 44,
+        lineId: 'sent_f01', chunkIndex: 0);
     expect(rounds.takesFor(44), 0);
+  });
+
+  test('a sample tag carries the target chunk to the server', () {
+    const tag = SampleTakeTag(
+      round: 3,
+      lineId: 'sent_f07',
+      chunkIndex: 1,
+      tier: 2,
+      density: 0,
+      voice: 'en-US-Neural2-D',
+      rate: 0.72,
+      expected: 'The thickness of the third layer',
+    );
+    final f = tag.formFields();
+    expect(f['sample_round'], '3');
+    expect(f['sample_line'], 'sent_f07');
+    expect(f['sample_chunk'], '1');
+    // Without this the sidecar has no answer key, and a corpus edit would make
+    // the line id unusable for scoring an old take.
+    expect(f['sample_expected'], 'The thickness of the third layer');
+    expect(f['tts_voice'], 'en-US-Neural2-D');
+    expect(f['tts_rate'], '0.720');
   });
 }

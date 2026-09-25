@@ -148,3 +148,54 @@ def test_a_missing_uid_stops_the_write(monkeypatch):
     )
     assert out["take_saved"] == 0
     assert out["take_code"] == "no_uid"
+
+
+def test_the_sample_rows_survive_the_evidence_allowlist():
+    """A kind outside the allowlist is dropped with no row and no error."""
+    from sentence_reading.llm.evidence_kinds import ALLOWED_KINDS
+
+    assert "practice_sample_take" in ALLOWED_KINDS
+    assert "practice_sample_seed" in ALLOWED_KINDS
+
+
+def test_the_sidecar_keeps_the_target_chunk(monkeypatch):
+    """Without the target the sidecar has no answer key to score against."""
+    import json
+
+    written: dict[str, bytes] = {}
+
+    monkeypatch.setattr(st, "gcs_client_ready", lambda: (True, "ok"))
+    monkeypatch.setattr(st, "personal_object_name", lambda *parts: "/".join(parts))
+
+    def keep(name, data, *, content_type="application/octet-stream"):
+        written[name] = data
+        return True
+
+    monkeypatch.setattr(st, "upload_bytes", keep)
+    out = st.save_sample_take(
+        round_n=2,
+        line_id="sent_f07",
+        audio=b"audio-bytes",
+        mime="audio/mp4",
+        meta={"expected": "The thickness of the third layer", "skill_tier": 1},
+    )
+    assert out["take_code"] == "ok"
+    side = [v for k, v in written.items() if k.endswith(".json")]
+    assert len(side) == 1
+    payload = json.loads(side[0])
+    assert payload["expected"] == "The thickness of the third layer"
+    assert payload["round"] == 2
+    assert payload["line_id"] == "sent_f07"
+    assert payload["skill_tier"] == 1
+
+
+def test_recognize_takes_the_target_from_its_own_field():
+    """Practice never sends `expected`, so the sample carries its own."""
+    import inspect
+
+    from sentence_reading.api import app as app_mod
+
+    params = inspect.signature(app_mod.stt_recognize).parameters
+    assert "sample_expected" in params
+    assert "sample_round" in params
+    assert "sample_line" in params
