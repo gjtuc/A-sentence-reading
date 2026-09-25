@@ -132,3 +132,29 @@ def test_a_wrong_word_is_still_missed_with_the_number_rule() -> None:
     out = spoken_slot_coverage(display, spoken, spans, "approximately two meters")
     assert out["hit_n"] == 1
     assert len(out["missed"]) == 2
+
+
+def test_one_word_symbols_are_cut_into_single_sounds() -> None:
+    from sentence_reading.llm.phone_match import phones_close, split_phone_units
+
+    # eSpeak hands back a whole word as one run. The waveform model hands back
+    # one sound at a time, so a run has to be cut before the two can be compared.
+    assert split_phone_units("dɪspˈɜːʃən") == ["d", "ɪ", "s", "p", "ɜ", "ʃ", "ə", "n"]
+    assert split_phone_units("d ɪ s p ɜ ʃ ə n") == split_phone_units("dɪspˈɜːʃən")
+    assert split_phone_units("") == []
+    assert phones_close("dɪspˈɜːʃən", "d ɪ s p ɜ ʃ ə n") is True
+    assert phones_close("dɪspˈɜːʃən", "k ɑː b ə n") is False
+
+
+def test_a_spoken_abbreviation_does_not_shift_the_line() -> None:
+    from sentence_reading.llm.tts_speak import align_display_report
+
+    # `voice_definitions` reads `(CV)` aloud, so the aside drop must not hide it
+    # from the aligner. It used to, and every later word took the wrong sound.
+    display = "The area measured by cyclic voltammetry (CV) is small."
+    report = align_display_report(display)
+    assert report["code"] == "ok"
+    assert report["renamed_n"] == 0
+    # A plain aside is still skipped.
+    aside = align_display_report("The area is small (data not shown).")
+    assert aside["code"] == "ok"

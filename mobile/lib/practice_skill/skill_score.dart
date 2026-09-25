@@ -540,13 +540,46 @@ List<String> _tokenForms(String token) {
   return [token, '${token}s'];
 }
 
-List<String> _phonePieces(String ipa) {
-  final raw = ipa.replaceAll(_phoneStress, '');
-  return [
-    for (final piece in raw.split(RegExp(r'\s+')))
-      if (piece.isNotEmpty) piece,
-  ];
+/// One sound per item.
+///
+/// eSpeak writes a whole word as one run (`dɪspˈɜːʃən`) while the waveform model
+/// writes one sound at a time. Comparing the two needs both sides cut the same
+/// way, so a run is opened at every base letter and the marks that belong to it
+/// are carried along.
+List<String> phoneUnits(String ipa) {
+  final units = <String>[];
+  var tied = false;
+  for (final ch in ipa.replaceAll(_phoneStress, '').split('')) {
+    if (ch.trim().isEmpty) {
+      tied = false;
+      continue;
+    }
+    if (_phoneTie.contains(ch)) {
+      if (units.isNotEmpty) {
+        units[units.length - 1] += ch;
+        tied = true;
+      }
+      continue;
+    }
+    if (_phoneMark.hasMatch(ch)) {
+      if (units.isNotEmpty) units[units.length - 1] += ch;
+      continue;
+    }
+    if (tied && units.isNotEmpty) {
+      units[units.length - 1] += ch;
+      tied = false;
+      continue;
+    }
+    units.add(ch);
+  }
+  return units;
 }
+
+const String _phoneTie = '\u0361\u035c\u200d';
+final RegExp _phoneMark =
+    RegExp(r'[\u0300-\u036f\u1dc0-\u1dff\u20d0-\u20f0ʰʲʷⁿˠˤ]', unicode: true);
+
+List<String> _phonePieces(String ipa) => phoneUnits(ipa);
 
 bool phonesClose(String target, List<String> heardWords) {
   final left = _phonePieces(target);

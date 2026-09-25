@@ -238,4 +238,32 @@ void main() {
     expect(phoneDrillTargets(target: 'p l æ t', heard: 'p l æ t'), isEmpty);
     expect(phoneDrillTargets(target: 'p l æ t', heard: ''), isEmpty);
   });
+
+  test('a sentence answered to a one-word ask is thrown away', () {
+    expect(
+      missReviewHeardTooLong(
+        expected: 'iijima',
+        heard: 'The purpose of this study is to examine the relationship',
+      ),
+      isTrue,
+    );
+    // A wrong answer of about the right length is a real attempt.
+    expect(
+      missReviewHeardTooLong(expected: 'displays', heard: 'This place'),
+      isFalse,
+    );
+    expect(
+      missReviewHeardTooLong(expected: 'c v d', heard: 'C B D'),
+      isFalse,
+    );
+    expect(missReviewHeardTooLong(expected: 'the', heard: null), isFalse);
+  });
+
+  test('heard symbols split into the groups the server sent', () {
+    expect(
+      missReviewHeardPhoneWords('ð ə | d ɪ s p'),
+      ['ð ə', 'd ɪ s p'],
+    );
+    expect(missReviewHeardPhoneWords(''), isEmpty);
+  });
 }

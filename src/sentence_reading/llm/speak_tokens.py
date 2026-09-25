@@ -539,21 +539,38 @@ def voice_definitions(text: str) -> str:
     """
 
     def _sub(m: re.Match[str]) -> str:
-        acr = m.group(1)
-        if not any(c.isupper() for c in acr):
-            return m.group(0)
-        before = text[: m.start()]
-        words = re.findall(r"[A-Za-z][A-Za-z\-]*", before)[-8:]
-        flat: list[str] = []
-        for w in words:
-            flat.extend(p for p in w.split("-") if p)
-        if not _initials_match(flat, acr):
+        if not _defines_acronym(text, m):
             return m.group(0)
         # Hand back a bare comma plus the abbreviation; `freeze` runs next and
         # will letter-spell it once, so no later pass can lowercase it.
-        return f", {acr}"
+        return f", {m.group(1)}"
 
     return _DEF_PAREN.sub(_sub, text)
+
+
+def _defines_acronym(text: str, m: re.Match[str]) -> bool:
+    acr = m.group(1)
+    if not any(c.isupper() for c in acr):
+        return False
+    before = text[: m.start()]
+    words = re.findall(r"[A-Za-z][A-Za-z\-]*", before)[-8:]
+    flat: list[str] = []
+    for w in words:
+        flat.extend(p for p in w.split("-") if p)
+    return _initials_match(flat, acr)
+
+
+def definition_paren_spans(text: str) -> list[tuple[int, int]]:
+    """Ranges of `(ABBR)` that speech reads aloud instead of dropping.
+
+    The aside drop and this pass disagree on purpose, so anything that lines
+    printed words up with the spoken form has to ask which one won.
+    """
+    return [
+        (m.start(), m.end())
+        for m in _DEF_PAREN.finditer(text or "")
+        if _defines_acronym(text or "", m)
+    ]
 
 
 _UNIT_WORD: list[tuple[re.Pattern[str], str]] = [

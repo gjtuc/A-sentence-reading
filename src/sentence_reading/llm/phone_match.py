@@ -9,8 +9,13 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import unicodedata
 
 _STRESS = re.compile(r"[ˈˌ.ːˑ]")
+# A tie joins two letters into one sound. A trailing mark colours the sound
+# before it, so neither may open a new one.
+_PHONE_TIE = "\u0361\u035c\u200d"
+_PHONE_TRAIL = "ʰʲʷⁿˠˤ"
 _THEIR_PHRASE = re.compile(r"\bthey(?:'re| are)\b", re.IGNORECASE)
 _THEIR_WORD = {"their", "there", "they're"}
 _WORD = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?")
@@ -47,9 +52,39 @@ NUMBER_WORD_DIGITS = {
 }
 
 
+def split_phone_units(ipa: str) -> list[str]:
+    """One sound per item.
+
+    eSpeak writes a whole word as one run (`dɪspˈɜːʃən`) while the waveform
+    model writes one sound at a time. Comparing the two needs both sides cut
+    the same way, so a run is opened at every base letter and the marks that
+    belong to it are carried along.
+    """
+    units: list[str] = []
+    tied = False
+    for ch in _STRESS.sub("", ipa or ""):
+        if ch.isspace():
+            tied = False
+            continue
+        if ch in _PHONE_TIE:
+            if units:
+                units[-1] += ch
+                tied = True
+            continue
+        if unicodedata.combining(ch) or ch in _PHONE_TRAIL:
+            if units:
+                units[-1] += ch
+            continue
+        if tied and units:
+            units[-1] += ch
+            tied = False
+            continue
+        units.append(ch)
+    return units
+
+
 def normalize_phones(ipa: str) -> list[str]:
-    raw = _STRESS.sub("", ipa or "")
-    return [piece for piece in raw.split() if piece]
+    return split_phone_units(ipa)
 
 
 def overlap_ratio(left: list[str], right: list[str]) -> float:

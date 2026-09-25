@@ -482,4 +482,17 @@ void main() {
       isFalse,
     );
   });
+
+  test('a word run is cut into single sounds before it is compared', () {
+    // eSpeak hands back a whole word as one run while the waveform model hands
+    // back one sound at a time. Nothing lined up until both were cut alike.
+    expect(
+      phoneUnits('dɪspˈɜːʃən'),
+      ['d', 'ɪ', 's', 'p', 'ɜ', 'ʃ', 'ə', 'n'],
+    );
+    expect(phoneUnits('d ɪ s p ɜ ʃ ə n'), phoneUnits('dɪspˈɜːʃən'));
+    expect(phoneUnits(''), isEmpty);
+    expect(phonesClose('dɪspˈɜːʃən', const ['d ɪ s p ɜ ʃ ə n']), isTrue);
+    expect(phonesClose('dɪspˈɜːʃən', const ['k ɑː b ə n']), isFalse);
+  });
 }

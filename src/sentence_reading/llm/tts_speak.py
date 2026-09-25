@@ -19,6 +19,7 @@ from sentence_reading.llm.tts_speak_lexicon import (
 )
 from sentence_reading.llm.speak_tokens import (
     freeze,
+    definition_paren_spans,
     protect_variable_exponents,
     resolve_variable_exponents,
     restore,
@@ -1244,6 +1245,16 @@ def _paren_drop_ranges(text: str) -> list[tuple[int, int]]:
         else:
             dropped.append((i, j))
         i = j
+    # `voice_definitions` runs before the drop, so `cyclic voltammetry (CV)` is
+    # read as "cyclic voltammetry, C V". Those letters are in the spoken line and
+    # a caller that skipped them would shift every later word.
+    spoken = definition_paren_spans(s)
+    if spoken:
+        dropped = [
+            (a, b)
+            for a, b in dropped
+            if not any(c <= a and b <= d for c, d in spoken)
+        ]
     return dropped
 
 

@@ -35,7 +35,12 @@ Duration missReviewSpeakWindow(Duration ttsHeard) {
   return heard + kMissReviewSpeakPad;
 }
 
-enum MissReviewHear { matched, missed, skip }
+enum MissReviewHear { matched, missed, blank, skip }
+
+/// Consecutive takes with nothing to compare before the word is let go.
+///
+/// A word the recognizer never returns text for used to burn all five tries.
+const int kMissReviewBlankStop = 2;
 
 /// Hard cap on the black rest cover. Past this, force the next listen.
 Duration restCoverWatchdogLimit({
@@ -63,6 +68,23 @@ int missReviewTier(int applied) {
 /// True when every spoken piece of [expected] was heard, including function words.
 bool missReviewHeardMatches({required String expected, required String? heard}) {
   return traceMissReview(expected: expected, heard: heard).matched;
+}
+
+/// The heard symbols grouped the way the server sent them, one group per word.
+List<String> missReviewHeardPhoneWords(String heardPhones) => [
+      for (final part in heardPhones.split('|'))
+        if (part.trim().isNotEmpty) part.trim(),
+    ];
+
+/// True when the transcript is far longer than the word that was asked for.
+///
+/// The review plays one word. A whole sentence coming back is the recognizer
+/// writing the paper from memory, so it says nothing about what was spoken.
+bool missReviewHeardTooLong({required String expected, required String? heard}) {
+  final want = tokenizeSkill(expected).length;
+  final got = tokenizeSkill(heard ?? '').length;
+  if (want <= 0 || got <= 0) return false;
+  return got > want + 3 && got > want * 3;
 }
 
 /// What the review compare saw: the expected pieces and a 1/0 for each.
@@ -143,13 +165,7 @@ List<String> phoneDrillTargets({
   return out;
 }
 
-List<String> _drillPieces(String ipa) {
-  final raw = ipa.replaceAll(RegExp("[ˈˌ.ːˑ]"), '');
-  return [
-    for (final piece in raw.split(RegExp(r'\s+')))
-      if (piece.isNotEmpty) piece,
-  ];
-}
+List<String> _drillPieces(String ipa) => phoneUnits(ipa);
 
 /// Voice and rate for one review play.
 ///

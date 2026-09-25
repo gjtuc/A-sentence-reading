@@ -1824,6 +1824,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         );
         String? avoidVoice;
         double? avoidRate;
+        var blankRun = 0;
         for (var attempt = 0; attempt < kMissReviewMaxTries; attempt++) {
           if (!_reviewAlive(token)) return;
           final draw = drawMissReviewPlayback(
@@ -1880,9 +1881,26 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
               'hear_code': widget.client.lastHearCode,
               'hear_detail': widget.client.lastHearDetail,
               'waveform_phones': widget.client.lastWaveformPhones,
+              'blank_run': blankRun,
             },
           );
-          if (hear != MissReviewHear.missed) break;
+          blankRun = hear == MissReviewHear.blank ? blankRun + 1 : 0;
+          if (blankRun >= kMissReviewBlankStop) {
+            _noteCycleStep(
+              'review_word_let_go',
+              token: token,
+              extra: {
+                'word_index': i,
+                'attempt': attempt,
+                'blank_run': blankRun,
+              },
+            );
+            break;
+          }
+          if (hear != MissReviewHear.missed &&
+              hear != MissReviewHear.blank) {
+            break;
+          }
         }
         if (mounted) setState(() => _reviewWord = null);
         if (i + 1 < words.length) {
@@ -2058,20 +2076,33 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           ? item.phone.trim()
           : _skill.spokenCache
               .phonesForWordIn(sentence: chunkDisplay, word: item.printed);
-      final trace = traceMissReview(expected: word, heard: heard);
+      final invented = missReviewHeardTooLong(expected: word, heard: heard);
+      final trace = traceMissReview(
+        expected: word,
+        heard: invented ? null : heard,
+      );
       final heardPhone = widget.client.lastHeardPhones;
-      final drill = trace.matched
+      // The speak phase passes a slot on the word or on its sound. The review
+      // asks for the same word, so it passes on the same two grounds.
+      final bySound = !trace.matched &&
+          phonesClose(targetPhone, missReviewHeardPhoneWords(heardPhone));
+      final matched = trace.matched || bySound;
+      final drill = matched
           ? const <String>[]
           : phoneDrillTargets(target: targetPhone, heard: heardPhone);
       final drillReason = trace.matched
           ? 'matched'
-          : targetPhone.trim().isEmpty
-              ? 'no_target_phones'
-              : heardPhone.trim().isEmpty
-                  ? 'no_heard_phones'
-                  : drill.isEmpty
-                      ? 'phones_all_match'
-                      : 'ok';
+          : bySound
+              ? 'matched_by_sound'
+              : invented
+                  ? 'heard_too_long'
+                  : targetPhone.trim().isEmpty
+                      ? 'no_target_phones'
+                      : heardPhone.trim().isEmpty
+                          ? 'no_heard_phones'
+                          : drill.isEmpty
+                              ? 'phones_all_match'
+                              : 'ok';
       if (mounted) {
         setState(() {
           _reviewTargetPhone = targetPhone;
@@ -2082,7 +2113,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       await _skill.noteMissReview(
         expected: word,
         heard: heard,
-        matched: trace.matched,
+        matched: matched,
         pieces: trace.pieces,
         hits: trace.hits,
         attempt: attempt,
@@ -2093,8 +2124,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         drillReason: drillReason,
         sourceChunk: chunkDisplay,
       );
-      if (trace.matched) {
+      if (matched) {
         return MissReviewHear.matched;
+      }
+      // Nothing came back to compare. Saying the word again would only repeat
+      // the same silence, so the loop is told to let it go.
+      if (heard == null || heard.trim().isEmpty || invented) {
+        return MissReviewHear.blank;
       }
       return MissReviewHear.missed;
     } catch (_) {
