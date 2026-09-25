@@ -2606,6 +2606,7 @@ throw AsrApiException(
       phoneWeightN: (map['phone_weight_n'] as num?)?.toInt() ?? -1,
       phoneFilledN: (map['phone_filled_n'] as num?)?.toInt() ?? -1,
       phoneEspeak: (map['phone_espeak'] as num?)?.toInt() ?? -1,
+      phonePairs: '${map['phone_pairs'] ?? ''}',
     );
   }
 
@@ -3536,6 +3537,7 @@ class SpokenTextResult {
     this.phoneWeightN = -1,
     this.phoneFilledN = -1,
     this.phoneEspeak = -1,
+    this.phonePairs = '',
   });
   final String spoken;
   final String speakNormVersion;
@@ -3562,6 +3564,7 @@ class SpokenTextResult {
   final int phoneWeightN;
   final int phoneFilledN;
   final int phoneEspeak;
+  final String phonePairs;
 }
 
 String _alignCode(String raw) {

@@ -190,6 +190,7 @@ def _safe_details(raw: Any) -> dict[str, Any]:
                 "slot_pieces",
                 "target_phones",
                 "heard_phones",
+                "phone_pairs",
             ):
                 heard = " ".join(val.split())[:400]
                 if heard:

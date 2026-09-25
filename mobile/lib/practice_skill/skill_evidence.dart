@@ -46,7 +46,8 @@ Map<String, Object?> skillSafeDetails(Map<String, Object?> raw) {
           key == 'slot_hits' ||
           key == 'slot_pieces' ||
           key == 'target_phones' ||
-          key == 'heard_phones') {
+          key == 'heard_phones' ||
+          key == 'phone_pairs') {
         final heard = s.replaceAll(RegExp(r'\s+'), ' ');
         if (heard.isNotEmpty) {
           out[key] = heard.length > 400 ? heard.substring(0, 400) : heard;

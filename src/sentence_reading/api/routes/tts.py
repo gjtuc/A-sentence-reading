@@ -158,6 +158,7 @@ def _emit_spoken_align(
             "phone_weight_n": _phone_num("phone_weight_n"),
             "phone_filled_n": _phone_num("phone_filled_n"),
             "phone_espeak": _phone_num("phone_espeak"),
+            "phone_pairs": str((phone_report or {}).get("phone_pairs") or "")[:400],
         },
     )
 
@@ -277,4 +278,5 @@ async def tts_spoken(request: Request, payload: dict = Body(...)) -> dict[str, A
         "phone_weight_n": phone_report.get("phone_weight_n"),
         "phone_filled_n": phone_report.get("phone_filled_n"),
         "phone_espeak": phone_report.get("phone_espeak"),
+        "phone_pairs": phone_report.get("phone_pairs"),
     }

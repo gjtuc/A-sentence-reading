@@ -38,6 +38,7 @@ class SpokenAlignMark {
     this.phoneWeightN = -1,
     this.phoneFilledN = -1,
     this.phoneEspeak = -1,
+    this.phonePairs = '',
   });
 
   final String code;
@@ -62,6 +63,7 @@ class SpokenAlignMark {
   final int phoneWeightN;
   final int phoneFilledN;
   final int phoneEspeak;
+  final String phonePairs;
 
   Map<String, Object?> get details => {
         'align_code': code,
@@ -86,6 +88,7 @@ class SpokenAlignMark {
         'phone_weight_n': phoneWeightN,
         'phone_filled_n': phoneFilledN,
         'phone_espeak': phoneEspeak,
+        'phone_pairs': phonePairs,
       };
 }
 
@@ -278,6 +281,7 @@ class PracticeSkillController {
           phoneWeightN: r.phoneWeightN,
           phoneFilledN: r.phoneFilledN,
           phoneEspeak: r.phoneEspeak,
+          phonePairs: r.phonePairs,
         ),
       );
       final mark = spokenCache.peekAlign(chunkDisplay);

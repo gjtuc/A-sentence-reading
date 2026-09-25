@@ -296,6 +296,23 @@ def test_spoken_align_evidence_omits_sentence_text(monkeypatch) -> None:
     assert captured["details"]["tail_n"] == 0
 
 
+def test_phone_pairs_show_a_merged_word(monkeypatch) -> None:
+    from sentence_reading.llm import phone_match as pm
+
+    monkeypatch.setattr(pm.shutil, "which", lambda _name: "espeak-ng")
+    monkeypatch.setattr(
+        pm,
+        "espeak_ipa_words",
+        lambda _text: ["f j uː l", "s ɛ l", "h ɐ v b ɪ n"],
+    )
+    phones, report = pm.phone_assign("Fuel cell have been", [4, 4, 4, 4])
+    assert report["phone_code"] == "count_mismatch"
+    pairs = str(report["phone_pairs"])
+    assert "Fuel=f j uː l" in pairs
+    assert "been=" in pairs
+    assert phones == ["", "", "", ""]
+
+
 def test_phone_assign_records_a_count_mismatch(monkeypatch) -> None:
     from sentence_reading.llm import phone_match as pm
 

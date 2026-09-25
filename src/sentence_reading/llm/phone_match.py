@@ -111,6 +111,9 @@ def phone_assign(spoken: str, weights: list[int]) -> tuple[list[str], dict[str, 
         "phone_weight_n": len(weights),
         "phone_filled_n": 0,
         "phone_espeak": 1 if exe else 0,
+        # word=phones pairs, kept even when the line is dropped, so a merged
+        # pair like `have been` is visible instead of just a count.
+        "phone_pairs": _pair_words(words, ipa_words),
     }
     if not exe:
         report["phone_code"] = "espeak_missing"
@@ -135,6 +138,19 @@ def phone_assign(spoken: str, weights: list[int]) -> tuple[list[str], dict[str, 
         cursor = end
     report["phone_filled_n"] = sum(1 for item in out if item)
     return out, report
+
+
+def _pair_words(words: list, ipa_words: list[str]) -> str:
+    """`word=phones` for each printed word, with a blank when eSpeak ran short."""
+    out: list[str] = []
+    for i, word in enumerate(words):
+        text = word.group(0) if hasattr(word, "group") else str(word)
+        phones = ipa_words[i] if i < len(ipa_words) else ""
+        out.append(f"{text}={phones}")
+    extra = ipa_words[len(words):]
+    for phones in extra:
+        out.append(f"?={phones}")
+    return " | ".join(out)
 
 
 def _skip_gap(spoken: str, cursor: int) -> int:
