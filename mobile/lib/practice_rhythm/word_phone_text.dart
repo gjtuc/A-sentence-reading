@@ -24,29 +24,50 @@ class WordPhone {
 }
 
 /// Printed words in order, each carrying the phones of the span that covers it.
+///
+/// A hyphen joins two spoken words (`multi-walled`, `fuel-cell`), and each half
+/// has its own phones, so the halves are split apart. The hyphen stays with the
+/// first half so the printed line still reads the same.
 List<WordPhone> wordPhonesFor({
   required String text,
   required List<FollowSpan> spans,
 }) {
   final out = <WordPhone>[];
-  final words = RegExp(r"\S+").allMatches(text);
-  for (final word in words) {
-    var phone = '';
-    for (final span in spans) {
-      if (span.phone.trim().isEmpty) continue;
-      if (span.start < word.end && span.end > word.start) {
-        phone = span.phone.trim();
-        break;
+  for (final run in RegExp(r"\S+").allMatches(text)) {
+    for (final piece in _hyphenPieces(text, run.start, run.end)) {
+      var phone = '';
+      for (final span in spans) {
+        if (span.phone.trim().isEmpty) continue;
+        if (span.start < piece.end && span.end > piece.start) {
+          phone = span.phone.trim();
+          break;
+        }
       }
+      out.add(WordPhone(
+        start: piece.start,
+        end: piece.end,
+        word: text.substring(piece.start, piece.end),
+        phone: phone,
+      ));
     }
-    out.add(WordPhone(
-      start: word.start,
-      end: word.end,
-      word: text.substring(word.start, word.end),
-      phone: phone,
-    ));
   }
   return out;
+}
+
+List<({int start, int end})> _hyphenPieces(String text, int start, int end) {
+  final out = <({int start, int end})>[];
+  var from = start;
+  for (var i = start; i < end; i++) {
+    final ch = text[i];
+    final isHyphen = ch == '-' || ch == '\u2010' || ch == '\u2011';
+    if (!isHyphen) continue;
+    // A leading or trailing hyphen is not a join, and neither is `--`.
+    if (i == from || i + 1 >= end) continue;
+    out.add((start: from, end: i + 1));
+    from = i + 1;
+  }
+  if (from < end) out.add((start: from, end: end));
+  return out.isEmpty ? [(start: start, end: end)] : out;
 }
 
 class WordPhoneText extends StatelessWidget {
