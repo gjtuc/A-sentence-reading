@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/api/tts_models.dart';
+import 'package:sentence_reading/practice_rhythm/follow_span.dart';
 import 'package:sentence_reading/practice_rhythm/miss_review.dart';
 import 'package:sentence_reading/practice_skill/skill_score.dart';
 
@@ -23,7 +24,46 @@ void main() {
         MissedWordSpan(text.indexOf('rose'), text.indexOf('rose') + 4),
       ],
     );
-    expect(words, ['catalyst', 'rose']);
+    expect(words.map((w) => w.printed), ['catalyst', 'rose']);
+  });
+
+  test('a review asks for the word the model reads, not the printed letters', () {
+    const text = 'a 1 nm film';
+    final words = missReviewWords(
+      display: text,
+      spans: [
+        const MissedWordSpan(0, 1, spoken: 'a', phone: 'ɐ'),
+        const MissedWordSpan(2, 3, spoken: 'one', phone: 'wˈʌn'),
+        const MissedWordSpan(4, 6, spoken: 'nanometers', phone: 'nˈænoːmiːtɚz'),
+      ],
+    );
+    expect(words.map((w) => w.printed), ['a', '1', 'nm']);
+    expect(words.map((w) => w.ask), ['a', 'one', 'nanometers']);
+    expect(words[2].phone, 'nˈænoːmiːtɚz');
+  });
+
+  test('a missed slot carries its spoken form and its symbols', () {
+    const display = 'The 1 nm film';
+    const spoken = 'The one nanometers film';
+    final spans = [
+      const FollowSpan(start: 0, end: 3, weight: 3, phone: 'ð ə'),
+      const FollowSpan(start: 4, end: 5, weight: 3, phone: 'w ʌ n'),
+      const FollowSpan(start: 6, end: 8, weight: 10, phone: 'n æ n'),
+      const FollowSpan(start: 9, end: 13, weight: 4, phone: 'f ɪ l m'),
+    ];
+    final diag = diagnoseSpokenSlots(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'The film',
+    );
+    final words = missReviewWords(
+      display: display,
+      spans: diag.score.missedSpans,
+    );
+    expect(words.map((w) => w.printed), ['1', 'nm']);
+    expect(words.map((w) => w.ask), ['one', 'nanometers']);
+    expect(words[1].phone, 'n æ n');
   });
 
   test('review tail pads a short drill and adds 3s only when longer', () {

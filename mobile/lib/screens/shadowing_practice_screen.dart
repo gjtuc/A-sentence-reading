@@ -1152,7 +1152,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     // The mark and the accuracy only draw in the replay phase, so the score is
     // awaited here rather than after it ends. Otherwise a score that lands
     // late is never seen.
-    var reviewWords = const <String>[];
+    var reviewWords = const <MissReviewItem>[];
     final score = speakResult.score;
     var reviewReason = score == null ? 'no_score_future' : 'ok';
     final waited = Stopwatch()..start();
@@ -1766,7 +1766,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   Future<void> _runMissReview({
     required int token,
-    required List<String> words,
+    required List<MissReviewItem> words,
     required String sourceChunk,
     required Duration scheduledRest,
     required int reviewTier,
@@ -1838,7 +1838,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           );
           final played = await _playReviewWord(
             token: token,
-            word: words[i],
+            item: words[i],
             sourceChunk: sourceChunk,
             playVoice: draw.voice,
             playRate: draw.rate,
@@ -1849,7 +1849,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           avoidRate = draw.rate;
           final hear = await _hearReviewWord(
             token: token,
-            word: words[i],
+            item: words[i],
             sourceChunk: sourceChunk,
             ttsHeard: played.heard,
             attempt: attempt,
@@ -1930,7 +1930,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   Future<({bool ok, Duration heard})> _playReviewWord({
     required int token,
-    required String word,
+    required MissReviewItem item,
     required String sourceChunk,
     required String playVoice,
     required double playRate,
@@ -1938,16 +1938,16 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     const silent = (ok: false, heard: Duration.zero);
     if (!_reviewAlive(token)) return silent;
     _clearFollowLight();
-    // The word shows before the take, so its symbols are filled here rather
-    // than after the user speaks.
+    final word = item.ask;
+    // The score already cut this slot's symbols. Searching the sentence for the
+    // printed text instead lands inside another word when it is one letter.
     final from = sourceChunk.isEmpty ? _displayChunk() : sourceChunk;
-    final shown = _skill.spokenCache.phonesForWordIn(
-      sentence: from,
-      word: word,
-    );
+    final shown = item.phone.trim().isNotEmpty
+        ? item.phone.trim()
+        : _skill.spokenCache.phonesForWordIn(sentence: from, word: item.printed);
     if (mounted) {
       setState(() {
-        _reviewWord = word;
+        _reviewWord = item.printed;
         _reviewTargetPhone = shown;
         _reviewHeardPhone = '';
         _reviewDrillPhones = const [];
@@ -1960,9 +1960,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         'shown_phone_n': shown.trim().isEmpty
             ? 0
             : shown.trim().split(RegExp(r'\s+')).length,
+        'phone_from_slot': item.phone.trim().isEmpty ? 0 : 1,
+        'ask_renamed': item.ask.toLowerCase() == item.printed.toLowerCase()
+            ? 0
+            : 1,
         'source_span_n': _skill.spokenCache.peekSpans(from).length,
         'source_phone_span_n': _skill.spokenCache.phoneSpanN(from),
-        'source_has_word': from.contains(word.trim()) ? 1 : 0,
+        'source_has_word': from.contains(item.printed.trim()) ? 1 : 0,
         'source_from_display': sourceChunk.isEmpty ? 1 : 0,
       },
     );
@@ -2009,12 +2013,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   /// Record after TTS has stopped. The take must not contain the model voice.
   Future<MissReviewHear> _hearReviewWord({
     required int token,
-    required String word,
+    required MissReviewItem item,
     required String sourceChunk,
     required Duration ttsHeard,
     required int attempt,
     required int wordIndex,
   }) async {
+    final word = item.ask;
     if (!_skill.serverEnabled || !_skill.cloudSttEnabled) {
       return MissReviewHear.skip;
     }
@@ -2047,13 +2052,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           .recognizePracticeTake(bytes: bytes, mime: 'audio/mp4')
           .timeout(kMissReviewSttWait);
       if (!_reviewAlive(token)) return MissReviewHear.skip;
-      // The chunk already holds this word's spoken form and phones, so the
-      // review does not ask the server for one word.
+      // The score already cut this slot's symbols, so nothing is asked again.
       final chunkDisplay = sourceChunk.isEmpty ? _displayChunk() : sourceChunk;
-      final targetPhone = _skill.spokenCache.phonesForWordIn(
-        sentence: chunkDisplay,
-        word: word,
-      );
+      final targetPhone = item.phone.trim().isNotEmpty
+          ? item.phone.trim()
+          : _skill.spokenCache
+              .phonesForWordIn(sentence: chunkDisplay, word: item.printed);
       final trace = traceMissReview(expected: word, heard: heard);
       final heardPhone = widget.client.lastHeardPhones;
       final drill = trace.matched
@@ -2144,7 +2148,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   Future<void> _advanceToNextChunk({
     required int token,
     bool withRest = true,
-    List<String> reviewWords = const [],
+    List<MissReviewItem> reviewWords = const [],
     String reviewChunk = '',
   }) async {
     if (!mounted || token != _cycleToken) return;
@@ -2153,7 +2157,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
     final restN = _chunks.length;
     final restK = _chunkIndex + 1;
-    final words = withRest ? reviewWords : const <String>[];
+    final words = withRest ? reviewWords : const <MissReviewItem>[];
     final scheduledRest = withRest && _blankRestEnabled
         ? blankRestDuration(chunkCountN: restN, step1Based: restK)
         : Duration.zero;

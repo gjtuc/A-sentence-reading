@@ -197,18 +197,39 @@ List<String> _drillPieces(String ipa) {
   return last!;
 }
 
-/// Printed tokens for the red-miss spans. Invalid ranges are dropped.
-List<String> missReviewWords({
+/// One missed word: what is printed, what the model says, and its symbols.
+class MissReviewItem {
+  const MissReviewItem({
+    required this.printed,
+    required this.spoken,
+    required this.phone,
+  });
+
+  final String printed;
+  final String spoken;
+  final String phone;
+
+  /// What the review plays and compares. The speak phase scored the spoken
+  /// form, so a printed `nm` is asked for as `nanometers`, not as two letters.
+  String get ask => spoken.trim().isEmpty ? printed : spoken.trim();
+}
+
+/// Missed words for the red-miss spans. Invalid ranges are dropped.
+List<MissReviewItem> missReviewWords({
   required String display,
   required List<MissedWordSpan> spans,
 }) {
-  final out = <String>[];
+  final out = <MissReviewItem>[];
   for (final span in spans) {
     if (span.start < 0 || span.end <= span.start) continue;
     if (span.end > display.length) continue;
     final word = display.substring(span.start, span.end).trim();
     if (word.isEmpty) continue;
-    out.add(word);
+    out.add(MissReviewItem(
+      printed: word,
+      spoken: span.spoken,
+      phone: span.phone,
+    ));
   }
   return out;
 }

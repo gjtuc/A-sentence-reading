@@ -173,7 +173,7 @@ class SpokenCache {
   String phonesForWordIn({required String sentence, required String word}) {
     final target = word.trim();
     if (target.isEmpty) return '';
-    final at = sentence.indexOf(target);
+    final at = _wordStartIn(sentence, target);
     if (at < 0) return '';
     final end = at + target.length;
     final out = <String>[];
@@ -183,6 +183,26 @@ class SpokenCache {
     }
     return out.join(' ');
   }
+
+  /// Where [word] stands on its own in [sentence], or -1.
+  ///
+  /// A plain search finds `a` inside `catalysts`, so a one-letter word used to
+  /// take another word's symbols.
+  static int _wordStartIn(String sentence, String word) {
+    var from = 0;
+    while (from <= sentence.length - word.length) {
+      final at = sentence.indexOf(word, from);
+      if (at < 0) return -1;
+      final before = at == 0 ? '' : sentence[at - 1];
+      final afterAt = at + word.length;
+      final after = afterAt >= sentence.length ? '' : sentence[afterAt];
+      if (!_wordChar.hasMatch(before) && !_wordChar.hasMatch(after)) return at;
+      from = at + 1;
+    }
+    return -1;
+  }
+
+  static final RegExp _wordChar = RegExp(r"[A-Za-z0-9']");
 
   List<FollowSpan> peekSpans(String chunk) =>
       _spans[_key(chunk)] ?? const [];

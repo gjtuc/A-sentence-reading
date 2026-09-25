@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/practice_rhythm/follow_span.dart';
 import 'package:sentence_reading/practice_skill/chunk_density.dart';
+import 'package:sentence_reading/practice_skill/practice_skill_controller.dart';
 import 'package:sentence_reading/practice_skill/skill_adapt.dart';
 import 'package:sentence_reading/practice_skill/skill_score.dart';
 import 'package:sentence_reading/practice_skill/skill_store.dart';
@@ -412,5 +413,21 @@ void main() {
     expect(scored.hitN, 0);
     expect(scored.accuracy, 0);
     expect(scored.missedSpans, hasLength(2));
+  });
+
+  test('a one-letter word takes its own symbols, not another word\'s', () {
+    final cache = SpokenCache();
+    const display = 'a catalyst';
+    cache.put(
+      display,
+      'a catalyst',
+      spans: const [
+        FollowSpan(start: 0, end: 1, weight: 1, phone: 'ei'),
+        FollowSpan(start: 2, end: 10, weight: 8, phone: 'k t l'),
+      ],
+    );
+    expect(cache.phonesForWordIn(sentence: display, word: 'a'), 'ei');
+    expect(cache.phonesForWordIn(sentence: display, word: 'catalyst'), 'k t l');
+    expect(cache.phonesForWordIn(sentence: display, word: 'zz'), '');
   });
 }

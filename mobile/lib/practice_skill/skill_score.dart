@@ -46,10 +46,25 @@ List<String> contentWords(String? text) {
 }
 
 class MissedWordSpan {
-  const MissedWordSpan(this.start, this.end);
+  const MissedWordSpan(
+    this.start,
+    this.end, {
+    this.spoken = '',
+    this.phone = '',
+  });
 
   final int start;
   final int end;
+
+  /// What the model reads for this printed word (`nm` -> `nanometers`, `1` ->
+  /// `one`). The speak phase scores this form, so the review has to ask for the
+  /// same sound instead of the printed letters.
+  final String spoken;
+
+  /// Symbols for this slot, already cut by the server. Looking them up again by
+  /// searching the sentence for the printed text lands inside another word when
+  /// the word is one letter.
+  final String phone;
 }
 
 class SkillScoreResult {
@@ -225,7 +240,12 @@ SpokenSlotDiag diagnoseSpokenSlots({
     if (ok) {
       hit += 1;
     } else {
-      missed.add(MissedWordSpan(slot.start, slot.end));
+      missed.add(MissedWordSpan(
+        slot.start,
+        slot.end,
+        spoken: slot.tokens.join(' '),
+        phone: slot.phone,
+      ));
     }
   }
   final acc = hit / built.slots.length;
