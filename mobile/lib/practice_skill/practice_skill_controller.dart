@@ -750,7 +750,11 @@ class PracticeSkillController {
     String targetPhones = '',
     String heardPhones = '',
     String drillReason = 'none',
+    String sourceChunk = '',
   }) async {
+    final sourceSpans = sourceChunk.trim().isEmpty
+        ? const <FollowSpan>[]
+        : spokenCache.peekSpans(sourceChunk);
     await evidence.emit(
       kind: 'practice_skill_review',
       cacheId: _cacheId,
@@ -775,6 +779,13 @@ class PracticeSkillController {
             ? 0
             : heardPhones.trim().split(RegExp(r'\s+')).length,
         'drill_reason': drillReason,
+        // A blank symbol has two causes, and these tell them apart: the source
+        // sentence carried no symbols at all, or the word did not land on a span.
+        'source_span_n': sourceSpans.length,
+        'source_phone_span_n':
+            sourceSpans.where((s) => s.phone.trim().isNotEmpty).length,
+        'source_has_word':
+            sourceChunk.contains(expected.trim()) ? 1 : 0,
         if (drillPhones.trim().isNotEmpty) 'target_phones': drillPhones.trim(),
         if (heard != null && heard.trim().isNotEmpty) 'stt_heard': heard.trim(),
       },

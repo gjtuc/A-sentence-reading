@@ -16,6 +16,8 @@ _THEIR_WORD = {"their", "there", "they're"}
 _WORD = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?")
 _OVERLAP_MIN = 0.72
 _MIN_PHONES = 3
+_WORD_IPA: dict[str, str] = {}
+_WORD_IPA_MAX = 20000
 
 
 def canonicalize_sound_alikes(text: str) -> str:
@@ -67,12 +69,7 @@ def phones_close(target: str, heard: str) -> bool:
     return overlap_ratio(left, right) >= _OVERLAP_MIN
 
 
-def espeak_ipa_words(sentence: str) -> list[str]:
-    """One IPA string per word, from one eSpeak call on the whole sentence."""
-    exe = shutil.which("espeak-ng") or shutil.which("espeak")
-    text = (sentence or "").strip()
-    if not exe or not text:
-        return []
+def _espeak_ipa(exe: str, text: str) -> list[str]:
     try:
         done = subprocess.run(
             [exe, "-v", "en-us", "-q", "--ipa=3", text],
@@ -86,12 +83,42 @@ def espeak_ipa_words(sentence: str) -> list[str]:
     raw = (done.stdout or "").replace("\n", " ").strip()
     if not raw:
         return []
-    words: list[str] = []
+    out: list[str] = []
     for part in raw.split():
         phones = part.replace("_", " ").strip()
         if phones:
-            words.append(phones)
-    return words
+            out.append(phones)
+    return out
+
+
+def espeak_ipa_words(sentence: str) -> list[str]:
+    """One IPA string per word, from one eSpeak call on the whole sentence."""
+    exe = shutil.which("espeak-ng") or shutil.which("espeak")
+    text = (sentence or "").strip()
+    if not exe or not text:
+        return []
+    return _espeak_ipa(exe, text)
+
+
+def espeak_ipa_per_word(exe: str, words: list[str]) -> list[str]:
+    """IPA for each word on its own, so a merged pair cannot shift the line.
+
+    eSpeak runs a whole clause through its phrase rules, and it joins
+    unstressed helpers (`have been` -> one token). One word per call keeps the
+    count equal to the printed words. Repeat words come from the cache, so a
+    paper pays for its vocabulary once.
+    """
+    out: list[str] = []
+    for word in words:
+        key = word.casefold()
+        hit = _WORD_IPA.get(key)
+        if hit is None:
+            pieces = _espeak_ipa(exe, word)
+            hit = " ".join(pieces).strip()
+            if len(_WORD_IPA) < _WORD_IPA_MAX:
+                _WORD_IPA[key] = hit
+        out.append(hit)
+    return out
 
 
 def assign_span_phones(spoken: str, weights: list[int]) -> list[str]:
@@ -104,15 +131,25 @@ def phone_assign(spoken: str, weights: list[int]) -> tuple[list[str], dict[str, 
     exe = shutil.which("espeak-ng") or shutil.which("espeak")
     ipa_words = espeak_ipa_words(spoken) if exe else []
     words = list(_WORD.finditer(spoken or ""))
+    code = "ok"
+    repair_n = 0
+    if exe and len(ipa_words) != len(words) and words:
+        # A merged pair shifted every later word. Ask per word instead of
+        # dropping the whole line's symbols.
+        ipa_words = espeak_ipa_per_word(exe, [w.group(0) for w in words])
+        repair_n = len(words)
+        code = "repaired"
     report: dict[str, object] = {
-        "phone_code": "ok",
+        "phone_code": code,
         "phone_word_n": len(words),
         "phone_ipa_n": len(ipa_words),
         "phone_weight_n": len(weights),
         "phone_filled_n": 0,
+        "phone_repair_n": repair_n,
+        "phone_blank_word_n": sum(1 for item in ipa_words if not item),
         "phone_espeak": 1 if exe else 0,
-        # word=phones pairs, kept even when the line is dropped, so a merged
-        # pair like `have been` is visible instead of just a count.
+        # word=phones pairs, so a merged pair like `have been` is visible in the
+        # log instead of just a count.
         "phone_pairs": _pair_words(words, ipa_words),
     }
     if not exe:

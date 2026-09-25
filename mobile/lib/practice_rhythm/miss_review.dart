@@ -13,6 +13,10 @@ const Duration kMissReviewWordTimeout = Duration(seconds: 12);
 const Duration kMissReviewMicReady = Duration(milliseconds: 350);
 const Duration kMissReviewSpeakPad = Duration(seconds: 2);
 const Duration kMissReviewSttWait = Duration(seconds: 8);
+
+/// The mark and the accuracy only draw while the replay phase is on screen, so
+/// the phase stays this long counted from the end of the replay audio.
+const Duration kReplayMarkHold = Duration(milliseconds: 2200);
 const int kMissReviewMaxTries = 5;
 const Duration kRestWatchdogSlack = Duration(seconds: 2);
 

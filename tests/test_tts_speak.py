@@ -305,21 +305,49 @@ def test_phone_pairs_show_a_merged_word(monkeypatch) -> None:
         "espeak_ipa_words",
         lambda _text: ["f j uː l", "s ɛ l", "h ɐ v b ɪ n"],
     )
-    phones, report = pm.phone_assign("Fuel cell have been", [4, 4, 4, 4])
-    assert report["phone_code"] == "count_mismatch"
+    monkeypatch.setattr(
+        pm,
+        "espeak_ipa_per_word",
+        lambda _exe, words: [f"p_{w.lower()}" for w in words],
+    )
+    phones, report = pm.phone_assign("Fuel cell have been", [4, 5, 5, 4])
+    assert report["phone_code"] == "repaired"
+    assert report["phone_repair_n"] == 4
     pairs = str(report["phone_pairs"])
-    assert "Fuel=f j uː l" in pairs
-    assert "been=" in pairs
-    assert phones == ["", "", "", ""]
+    assert "Fuel=p_fuel" in pairs
+    assert "been=p_been" in pairs
+    assert phones == ["p_fuel", "p_cell", "p_have", "p_been"]
 
 
-def test_phone_assign_records_a_count_mismatch(monkeypatch) -> None:
+def test_a_merged_pair_does_not_blank_the_other_words(monkeypatch) -> None:
     from sentence_reading.llm import phone_match as pm
 
     monkeypatch.setattr(pm.shutil, "which", lambda _name: "espeak-ng")
     monkeypatch.setattr(pm, "espeak_ipa_words", lambda _text: ["s əʊ", "f ɑː", "extra"])
+    monkeypatch.setattr(
+        pm,
+        "espeak_ipa_per_word",
+        lambda _exe, words: ["s əʊ", ""],
+    )
     phones, report = pm.phone_assign("So far", [2, 3])
-    assert report["phone_code"] == "count_mismatch"
+    assert report["phone_code"] == "repaired"
     assert report["phone_word_n"] == 2
-    assert report["phone_ipa_n"] == 3
-    assert phones == ["", ""]
+    assert report["phone_ipa_n"] == 2
+    assert report["phone_blank_word_n"] == 1
+    assert phones == ["s əʊ", ""]
+
+def test_per_word_symbols_ask_espeak_once_for_a_repeat(monkeypatch) -> None:
+    from sentence_reading.llm import phone_match as pm
+
+    calls = []
+
+    def fake(_exe, text):
+        calls.append(text)
+        return [f"p_{text.lower()}"]
+
+    monkeypatch.setattr(pm, "_espeak_ipa", fake)
+    pm._WORD_IPA.clear()
+    out = pm.espeak_ipa_per_word("espeak-ng", ["cell", "Cell", "fuel"])
+    assert out == ["p_cell", "p_cell", "p_fuel"]
+    assert calls == ["cell", "fuel"]
+    pm._WORD_IPA.clear()

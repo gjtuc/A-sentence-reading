@@ -1148,12 +1148,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       _noteCycleStep('cycle_dropped_after_replay', token: token);
       return;
     }
-    if (mounted) setState(() => _rhythmPhase = RhythmPhase.idle);
-    if (!alive()) return;
 
+    // The mark and the accuracy only draw in the replay phase, so the score is
+    // awaited here rather than after it ends. Otherwise a score that lands
+    // late is never seen.
     var reviewWords = const <String>[];
     final score = speakResult.score;
     var reviewReason = score == null ? 'no_score_future' : 'ok';
+    final waited = Stopwatch()..start();
     if (score != null) {
       try {
         final snap = await score.timeout(kMissReviewScoreWait);
@@ -1171,10 +1173,38 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         reviewReason = 'score_timeout';
       }
     }
+    waited.stop();
+    if (!alive()) {
+      _noteCycleStep('cycle_dropped_after_replay', token: token);
+      return;
+    }
+    _noteCycleStep(
+      'score_seen',
+      token: token,
+      extra: {
+        'score_wait_ms': waited.elapsedMilliseconds,
+        'review_reason': reviewReason,
+        'miss_span_n': _replayMisses.length,
+        'miss_chunk_live': _replayMissChunk == _chunkIndex ? 1 : 0,
+      },
+    );
+    final hold = kReplayMarkHold - waited.elapsed;
+    if (hold > Duration.zero) {
+      await Future<void>.delayed(hold);
+    }
+    if (mounted) setState(() => _rhythmPhase = RhythmPhase.idle);
+    if (!alive()) {
+      _noteCycleStep('cycle_dropped_after_replay', token: token);
+      return;
+    }
     _noteCycleStep(
       'review_plan',
       token: token,
-      extra: {'review_word_n': reviewWords.length, 'review_reason': reviewReason},
+      extra: {
+        'review_word_n': reviewWords.length,
+        'review_reason': reviewReason,
+        'mark_hold_ms': hold > Duration.zero ? hold.inMilliseconds : 0,
+      },
     );
     if (!alive()) {
       _noteCycleStep('cycle_dropped_before_review', token: token);
@@ -1905,13 +1935,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     const silent = (ok: false, heard: Duration.zero);
     if (!_reviewAlive(token)) return silent;
     _clearFollowLight();
+    // The word shows before the take, so its symbols are filled here rather
+    // than after the user speaks.
+    final from = sourceChunk.isEmpty ? _displayChunk() : sourceChunk;
+    final shown = _skill.spokenCache.phonesForWordIn(
+      sentence: from,
+      word: word,
+    );
     if (mounted) {
-      // The word shows before the take, so its symbols are filled here rather
-      // than after the user speaks.
-      final shown = _skill.spokenCache.phonesForWordIn(
-        sentence: sourceChunk.isEmpty ? _displayChunk() : sourceChunk,
-        word: word,
-      );
       setState(() {
         _reviewWord = word;
         _reviewTargetPhone = shown;
@@ -1919,6 +1950,19 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         _reviewDrillPhones = const [];
       });
     }
+    _noteCycleStep(
+      'review_word_shown',
+      token: token,
+      extra: {
+        'shown_phone_n': shown.trim().isEmpty
+            ? 0
+            : shown.trim().split(RegExp(r'\s+')).length,
+        'source_span_n': _skill.spokenCache.peekSpans(from).length,
+        'source_phone_span_n': _skill.spokenCache.phoneSpanN(from),
+        'source_has_word': from.contains(word.trim()) ? 1 : 0,
+        'source_from_display': sourceChunk.isEmpty ? 1 : 0,
+      },
+    );
     try {
       await _player.stop();
       await _player.setVolume(_kFullTtsVolume);
@@ -2040,6 +2084,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         targetPhones: targetPhone,
         heardPhones: heardPhone,
         drillReason: drillReason,
+        sourceChunk: chunkDisplay,
       );
       if (trace.matched) {
         return MissReviewHear.matched;
