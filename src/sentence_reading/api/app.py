@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.391",
+    version="0.3.392",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -2969,10 +2969,31 @@ async def stt_compare(payload: dict = Body(...)) -> dict:
 @app.post("/api/stt/warm")
 async def stt_warm() -> dict:
     """Load the phoneme model before the first take so scoring does not wait."""
-    from sentence_reading.llm.hear_waveform import warm_model
+    from sentence_reading.llm.hear_waveform import warm_report
 
-    started = await asyncio.to_thread(warm_model)
-    return {"ok": True, "warm": 1 if started else 0}
+    report = await asyncio.to_thread(warm_report)
+    _emit_hear_row("stt_warm", report)
+    return {"ok": True, "warm": int(report.get("warm_ok") or 0), **report}
+
+
+def _emit_hear_row(route: str, report: dict) -> None:
+    """Numbers and one snake code, so a silent waveform answer has a reason."""
+    try:
+        from sentence_reading.llm.evidence_bus import emit as eb_emit
+    except Exception:  # noqa: BLE001
+        return
+    code = str(report.get("hear_code") or report.get("warm_detail") or "none")
+    try:
+        eb_emit(
+            "practice_skill_stt",
+            source="server",
+            route=route,
+            ok=code == "ok" or int(report.get("warm_ok") or 0) == 1,
+            code=code,
+            details={"phase": "server_hear", **report},
+        )
+    except Exception:  # noqa: BLE001
+        return
 
 
 @app.post("/api/stt/recognize")
@@ -2986,7 +3007,7 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
     from sentence_reading.stt.compare import diff_tokens
     from sentence_reading.stt.recognize import recognize_english_audio
     from sentence_reading.llm.phone_match import espeak_ipa_words
-    from sentence_reading.llm.hear_waveform import hear_phones
+    from sentence_reading.llm.hear_waveform import hear_phones_report
 
     if not gemini_available():
         return {"ok": False, "error": "gemini_unavailable"}
@@ -3011,10 +3032,17 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
         return result
     heard_text = result.get("heard") or ""
     waveform = ""
+    hear_report: dict = {"hear_code": "call_failed", "hear_detail": "none"}
     try:
-        waveform = hear_phones(data)
-    except Exception:
+        waveform, hear_report = await asyncio.to_thread(hear_phones_report, data)
+    except Exception as exc:  # noqa: BLE001
         waveform = ""
+        hear_report = {
+            "hear_code": "call_failed",
+            "hear_detail": type(exc).__name__.lower(),
+        }
+    hear_report["hear_mime_ok"] = 1 if "mp4" in (mime or "").lower() else 0
+    _emit_hear_row("stt_recognize", hear_report)
     phones = waveform or " | ".join(espeak_ipa_words(heard_text))
     out: dict = {
         "ok": True,
@@ -3022,6 +3050,8 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
         "heard_phones": phones,
         "engine": result.get("engine") or "gemini",
         "waveform_phones": 1 if waveform else 0,
+        "hear_code": str(hear_report.get("hear_code") or "none"),
+        "hear_detail": str(hear_report.get("hear_detail") or "none"),
         "filler_dropped": int(result.get("filler_dropped") or 0),
     }
     exp = expected if isinstance(expected, str) else ""

@@ -304,6 +304,7 @@ class PracticeSkillController {
         'phase': 'spoken',
         'warm_ms': sw.elapsedMilliseconds,
         'warm_ok': ok ? 1 : 0,
+        'warm_detail': c.lastWarmDetail,
       },
     );
   }
@@ -540,6 +541,8 @@ class PracticeSkillController {
           'tier': store.state.tier,
           'focus_elapsed_ms': _focusElapsedMs,
           'waveform_phones': c.lastWaveformPhones,
+          'hear_code': c.lastHearCode,
+          'hear_detail': c.lastHearDetail,
           'filler_dropped': c.lastFillerDropped,
           if (heard != null && heard.trim().isNotEmpty)
             'stt_heard': heard.trim(),

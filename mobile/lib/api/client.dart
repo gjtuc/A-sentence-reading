@@ -540,6 +540,9 @@ class AsrClient {
   String lastHeardPhones = '';
   int lastWaveformPhones = -1;
   int lastFillerDropped = -1;
+  String lastHearCode = 'none';
+  String lastHearDetail = 'none';
+  String lastWarmDetail = 'none';
   final FigurePngCache _figurePng = FigurePngCache();
 
   /// Test / UI access to the same store the client mutates.
@@ -2671,15 +2674,18 @@ throw AsrApiException(
     );
   }
 
-  /// Ask the server to load the phoneme model before the first take.
+  /// Ask the server to load the phoneme model before the first take. `ok` only
+  /// says the call went through, so the answer is the `warm` flag.
   Future<bool> warmPhonemeModel() async {
     try {
       final res = await _http
           .post(_uri('/api/stt/warm'), headers: await _headers(jsonBody: true))
           .timeout(const Duration(seconds: 120));
       final map = _decodeObject(res, 'stt/warm');
-      return map['ok'] == true;
-    } catch (_) {
+      lastWarmDetail = '${map['warm_detail'] ?? 'none'}'.trim();
+      return ((map['warm'] as num?)?.toInt() ?? 0) == 1;
+    } catch (e) {
+      lastWarmDetail = 'call_failed';
       return false;
     }
   }
@@ -2708,6 +2714,8 @@ throw AsrApiException(
     lastHeardPhones = '${map['heard_phones'] ?? ''}'.trim();
     lastWaveformPhones = (map['waveform_phones'] as num?)?.toInt() ?? -1;
     lastFillerDropped = (map['filler_dropped'] as num?)?.toInt() ?? -1;
+    lastHearCode = '${map['hear_code'] ?? 'none'}'.trim();
+    lastHearDetail = '${map['hear_detail'] ?? 'none'}'.trim();
     return heard.isEmpty ? null : heard;
   }
 

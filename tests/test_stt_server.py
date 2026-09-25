@@ -187,3 +187,31 @@ def test_a_stock_sentence_is_not_treated_as_speech() -> None:
     assert looks_like_filler("") is False
     assert looks_like_filler("Chemical vapor deposition") is False
     assert looks_like_filler("deposition") is False
+
+def test_a_silent_waveform_answer_names_the_step(monkeypatch) -> None:
+    from sentence_reading.llm import hear_waveform as hw
+
+    phones, report = hw.hear_phones_report(b"")
+    assert phones == ""
+    assert report["hear_code"] == "no_audio"
+
+    monkeypatch.setattr(hw.shutil, "which", lambda _name: None)
+    phones, report = hw.hear_phones_report(b"abcd" * 100)
+    assert phones == ""
+    assert report["hear_code"] == "ffmpeg_missing"
+    assert report["ffmpeg"] == 0
+
+
+def test_a_refused_recording_reports_the_ffmpeg_line(monkeypatch) -> None:
+    from sentence_reading.llm import hear_waveform as hw
+
+    monkeypatch.setattr(hw.shutil, "which", lambda _name: "ffmpeg")
+
+    def boom(_data):
+        raise hw._DecodeError("moov atom not found")
+
+    monkeypatch.setattr(hw, "_pcm16k", boom)
+    phones, report = hw.hear_phones_report(b"abcd" * 100)
+    assert phones == ""
+    assert report["hear_code"] == "decode_failed"
+    assert report["hear_detail"] == "moov_atom_not_found"

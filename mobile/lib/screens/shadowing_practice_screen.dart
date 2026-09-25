@@ -1877,6 +1877,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                   ? 0
                   : _reviewHeardPhone.trim().split(RegExp(r'\s+')).length,
               'drill_n': _reviewDrillPhones.length,
+              'hear_code': widget.client.lastHearCode,
+              'hear_detail': widget.client.lastHearDetail,
+              'waveform_phones': widget.client.lastWaveformPhones,
             },
           );
           if (hear != MissReviewHear.missed) break;
