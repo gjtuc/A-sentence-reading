@@ -126,9 +126,31 @@ class SpokenCache {
     await disk.load();
     final row = disk.peek(key);
     if (row == null) return null;
+    // A row saved before the symbols existed has spans with no phones. Serving
+    // it would leave the words bare forever, so let the caller fetch once.
+    if (row.spans.isNotEmpty &&
+        !row.spans.any((span) => span.phone.trim().isNotEmpty)) {
+      return null;
+    }
     _map[key] = row.spoken;
     _spans[key] = row.spans;
     return row.spoken;
+  }
+
+  /// Phones for the words of [word] as they sit inside [sentence]. The sentence
+  /// already carries them, so a single word never needs its own server call.
+  String phonesForWordIn({required String sentence, required String word}) {
+    final target = word.trim();
+    if (target.isEmpty) return '';
+    final at = sentence.indexOf(target);
+    if (at < 0) return '';
+    final end = at + target.length;
+    final out = <String>[];
+    for (final span in peekSpans(sentence)) {
+      if (span.phone.trim().isEmpty) continue;
+      if (span.start < end && span.end > at) out.add(span.phone.trim());
+    }
+    return out.join(' ');
   }
 
   List<FollowSpan> peekSpans(String chunk) =>

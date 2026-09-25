@@ -1881,17 +1881,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           .recognizePracticeTake(bytes: bytes, mime: 'audio/mp4')
           .timeout(kMissReviewSttWait);
       if (!_reviewAlive(token)) return MissReviewHear.skip;
-      final spokenForm = await _skill.ensureSpoken(word);
-      if (!_reviewAlive(token)) return MissReviewHear.skip;
-      final expected = (spokenForm == null || spokenForm.trim().isEmpty)
-          ? word
-          : spokenForm;
-      final trace = traceMissReview(expected: expected, heard: heard);
-      final targetPhone = _skill.spokenCache
-          .peekSpans(word)
-          .where((span) => span.phone.trim().isNotEmpty)
-          .map((span) => span.phone.trim())
-          .join(' ');
+      // The chunk already holds this word's spoken form and phones, so the
+      // review does not ask the server for one word.
+      final chunkDisplay = _displayChunk();
+      final targetPhone = _skill.spokenCache.phonesForWordIn(
+        sentence: chunkDisplay,
+        word: word,
+      );
+      final trace = traceMissReview(expected: word, heard: heard);
       final heardPhone = widget.client.lastHeardPhones;
       final drill = trace.matched
           ? const <String>[]
@@ -1904,7 +1901,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         });
       }
       await _skill.noteMissReview(
-        expected: expected,
+        expected: word,
         heard: heard,
         matched: trace.matched,
         pieces: trace.pieces,
