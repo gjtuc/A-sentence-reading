@@ -1809,6 +1809,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           final played = await _playReviewWord(
             token: token,
             word: words[i],
+            sourceChunk: sourceChunk,
             playVoice: draw.voice,
             playRate: draw.rate,
           );
@@ -1897,13 +1898,27 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   Future<({bool ok, Duration heard})> _playReviewWord({
     required int token,
     required String word,
+    required String sourceChunk,
     required String playVoice,
     required double playRate,
   }) async {
     const silent = (ok: false, heard: Duration.zero);
     if (!_reviewAlive(token)) return silent;
     _clearFollowLight();
-    if (mounted) setState(() => _reviewWord = word);
+    if (mounted) {
+      // The word shows before the take, so its symbols are filled here rather
+      // than after the user speaks.
+      final shown = _skill.spokenCache.phonesForWordIn(
+        sentence: sourceChunk.isEmpty ? _displayChunk() : sourceChunk,
+        word: word,
+      );
+      setState(() {
+        _reviewWord = word;
+        _reviewTargetPhone = shown;
+        _reviewHeardPhone = '';
+        _reviewDrillPhones = const [];
+      });
+    }
     try {
       await _player.stop();
       await _player.setVolume(_kFullTtsVolume);
@@ -2179,6 +2194,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           setState(() => _status = '이 논문 연습을 끝까지 돌았습니다.');
         }
         // Still show section cue if we landed on empty next section.
+        if (!await reviewOnce()) return;
         if (maybeSectionChange && mounted && token == _cycleToken) {
           final next = _session ?? session;
           await _showSectionCueIfChanged(
@@ -2187,7 +2203,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             token: token,
           );
         }
-        if (!await reviewOnce()) return;
         if (mounted && _rhythmPhase == RhythmPhase.rest) {
           setState(() => _rhythmPhase = RhythmPhase.idle);
         }
@@ -2206,16 +2221,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     // After cursor move — rematch for next Listen (design/274).
     _flushPendingDensityRematch();
 
-    if (maybeSectionChange) {
-      final next = _session ?? session;
-      await _showSectionCueIfChanged(
-        previousKey: prevSection,
-        session: next,
-        token: token,
-      );
-      if (!mounted || token != _cycleToken) return;
-    }
-
     if (words.isNotEmpty) {
       if (!await reviewOnce()) return;
     } else if (withRest && _blankRestEnabled && canContinue) {
@@ -2226,6 +2231,18 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       );
       if (!mounted || token != _cycleToken) return;
       if (!_focus.sessionActive || _focus.paused) return;
+    }
+
+    // The cue names the section the next sentence belongs to, so it comes after
+    // the review and rest that close out the sentence just finished.
+    if (maybeSectionChange) {
+      final next = _session ?? session;
+      await _showSectionCueIfChanged(
+        previousKey: prevSection,
+        session: next,
+        token: token,
+      );
+      if (!mounted || token != _cycleToken) return;
     }
 
     await _runCycle();
