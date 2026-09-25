@@ -2610,6 +2610,19 @@ throw AsrApiException(
     );
   }
 
+  /// Ask the server to load the phoneme model before the first take.
+  Future<bool> warmPhonemeModel() async {
+    try {
+      final res = await _http
+          .post(_uri('/api/stt/warm'), headers: await _headers(jsonBody: true))
+          .timeout(const Duration(seconds: 120));
+      final map = _decodeObject(res, 'stt/warm');
+      return map['ok'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// design/212 — POST /api/stt/recognize (interim cloud). Returns heard only.
   Future<String?> recognizePracticeTake({
     required List<int> bytes,

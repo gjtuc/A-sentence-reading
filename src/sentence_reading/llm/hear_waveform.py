@@ -85,3 +85,11 @@ def _pcm16k(data: bytes):
         raw = raw[: len(raw) - (len(raw) % 4)]
     clone = bytearray(raw)
     return torch.frombuffer(clone, dtype=torch.float32)
+
+def warm_model() -> bool:
+    """True when the model is in memory. Safe to call more than once."""
+    try:
+        _load()
+    except Exception:
+        return False
+    return _MODEL is not None

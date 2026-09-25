@@ -849,6 +849,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   Future<void> _prefetchSpoken() async {
     if (_chunks.isEmpty) return;
+    unawaited(_skill.warmPhonemeModel());
     final i = _chunkIndex.clamp(0, _chunks.length - 1);
     await _skill.ensureSpoken(_displayChunk(i));
   }

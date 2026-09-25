@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.382",
+    version="0.3.383",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -2964,6 +2964,15 @@ async def stt_compare(payload: dict = Body(...)) -> dict:
         assert "grade" not in result
         assert "accuracy" not in result
     return result
+
+
+@app.post("/api/stt/warm")
+async def stt_warm() -> dict:
+    """Load the phoneme model before the first take so scoring does not wait."""
+    from sentence_reading.llm.hear_waveform import warm_model
+
+    started = await asyncio.to_thread(warm_model)
+    return {"ok": True, "warm": 1 if started else 0}
 
 
 @app.post("/api/stt/recognize")

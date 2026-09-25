@@ -1,6 +1,7 @@
 /// design/212 — spoken-form cache + practice skill controller (+213 evidence).
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -13,6 +14,7 @@ import 'skill_evidence.dart';
 import '../practice_rhythm/judgment_tier.dart';
 import 'skill_score.dart';
 import 'skill_store.dart';
+import 'spoken_disk_cache.dart';
 
 class SpokenAlignMark {
   const SpokenAlignMark({
@@ -97,6 +99,7 @@ class SpokenCache {
   final Map<String, String> _map = {};
   final Map<String, List<FollowSpan>> _spans = {};
   final Map<String, SpokenAlignMark> _align = {};
+  final SpokenDiskCache disk = SpokenDiskCache();
 
   void setSpeakNorm(String v) {
     final n = v.trim();
@@ -113,6 +116,20 @@ class SpokenCache {
   }
 
   String? peek(String chunk) => _map[_key(chunk)];
+
+  /// design/383 — rows saved on the phone skip the server round trip. A row
+  /// made under another speak-norm version cannot be trusted, and [_key]
+  /// already carries that version.
+  Future<String?> loadFromDisk(String chunk) async {
+    final key = _key(chunk);
+    if (_map.containsKey(key)) return _map[key];
+    await disk.load();
+    final row = disk.peek(key);
+    if (row == null) return null;
+    _map[key] = row.spoken;
+    _spans[key] = row.spans;
+    return row.spoken;
+  }
 
   List<FollowSpan> peekSpans(String chunk) =>
       _spans[_key(chunk)] ?? const [];
@@ -134,6 +151,7 @@ class SpokenCache {
     _map[key] = spoken;
     _spans[key] = spans;
     _align[key] = align;
+    unawaited(disk.put(key, spoken, spans));
   }
 
   void clear() {
@@ -160,6 +178,7 @@ class PracticeSkillController {
   bool serverEnabled = true;
   bool cloudSttEnabled = true;
   bool evidenceEnabled = true;
+  bool _phonesWarmed = false;
   AsrClient? _client;
   String _cacheId = '';
   String _sentenceId = '';
@@ -202,13 +221,35 @@ class PracticeSkillController {
   int get tier => store.state.tier;
   int get density => store.state.density;
 
+  /// design/383 — load the phoneme model while the first sentence plays.
+  Future<void> warmPhonemeModel() async {
+    final c = _client;
+    if (c == null || !serverEnabled || !cloudSttEnabled) return;
+    if (_phonesWarmed) return;
+    _phonesWarmed = true;
+    final sw = Stopwatch()..start();
+    final ok = await c.warmPhonemeModel();
+    sw.stop();
+    await evidence.emit(
+      kind: 'practice_skill_spoken',
+      cacheId: _cacheId,
+      ok: ok,
+      code: ok ? 'phones_warm' : 'phones_warm_fail',
+      details: {
+        'phase': 'spoken',
+        'warm_ms': sw.elapsedMilliseconds,
+        'warm_ok': ok ? 1 : 0,
+      },
+    );
+  }
+
   List<String> chunksFor(List<String> base) =>
       effectiveChunks(base, store.state.density);
 
   Future<String?> ensureSpoken(String chunkDisplay) async {
     final c = _client;
     if (c == null || !serverEnabled) return null;
-    final hit = spokenCache.peek(chunkDisplay);
+    final hit = await spokenCache.loadFromDisk(chunkDisplay);
     if (hit != null) {
       final cached = spokenCache.peekAlign(chunkDisplay);
       final cachedSpans = spokenCache.peekSpans(chunkDisplay);
