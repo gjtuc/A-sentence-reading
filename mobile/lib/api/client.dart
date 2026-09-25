@@ -22,6 +22,7 @@ import 'reading_models.dart';
 import 'session_store.dart';
 import 'tts_models.dart';
 import '../practice_rhythm/follow_span.dart';
+import '../services/figure_png_cache.dart';
 import 'oauth_models.dart';
 import 'access_models.dart';
 import 'ingest_models.dart';
@@ -537,6 +538,7 @@ class AsrClient {
   final http.Client _http;
   final SessionStore _sessions;
   String lastHeardPhones = '';
+  final FigurePngCache _figurePng = FigurePngCache();
 
   /// Test / UI access to the same store the client mutates.
   SessionStore get sessionStore => _sessions;
@@ -626,7 +628,38 @@ class AsrClient {
   }
 
   /// GET /api/status — health / version probe for the home shell.
-  Future<AsrStatus> fetchStatus() async {
+  /// Screens ask for this on their own, so a burst of opens used to wake the
+  /// server once per screen. Calls inside [kStatusShareWindow] share one answer.
+  static const Duration kStatusShareWindow = Duration(seconds: 10);
+  Future<AsrStatus>? _statusInFlight;
+  AsrStatus? _statusLast;
+  DateTime? _statusAt;
+
+  Future<AsrStatus> fetchStatus({bool fresh = false}) async {
+    if (!fresh) {
+      final last = _statusLast;
+      final at = _statusAt;
+      if (last != null &&
+          at != null &&
+          DateTime.now().difference(at) < kStatusShareWindow) {
+        return last;
+      }
+      final pending = _statusInFlight;
+      if (pending != null) return pending;
+    }
+    final call = _fetchStatusOnce();
+    _statusInFlight = call;
+    try {
+      final st = await call;
+      _statusLast = st;
+      _statusAt = DateTime.now();
+      return st;
+    } finally {
+      if (_statusInFlight == call) _statusInFlight = null;
+    }
+  }
+
+  Future<AsrStatus> _fetchStatusOnce() async {
     try {
       final res = await _http
           .get(_uri('/api/status'), headers: await _headers())
@@ -2253,6 +2286,31 @@ throw AsrApiException(
       throw AsrApiException('figure id is empty', 400);
     }
     final src = evidenceSource.trim();
+    final diskName = figurePngName(cacheId: cid, figureId: fid);
+    final onDisk = await _figurePng.read(diskName);
+    if (onDisk != null) {
+      asrEvidenceBus?.record(
+        'figure_png_done',
+        severity: 'boundary',
+        cacheId: cid,
+        stage: 'ok',
+        ok: true,
+        details: {
+          if (index >= 0) 'index': index,
+          'elapsed_ms': 0,
+          'bytes_n': onDisk.length,
+          'outcome': 'ok',
+          'from_disk': 1,
+          if (src.isNotEmpty) 'source': src,
+        },
+      );
+      return (
+        dataUrl: 'data:image/png;base64,${base64Encode(onDisk)}',
+        bytesN: onDisk.length,
+        elapsedMs: 0,
+        reason: 'ok',
+      );
+    }
     asrEvidenceBus?.record(
       'figure_png_req',
       severity: 'lifecycle',
@@ -2313,6 +2371,7 @@ throw AsrApiException(
       }
       final b64 = base64Encode(bytes);
       final dataUrl = 'data:image/png;base64,$b64';
+      unawaited(_figurePng.write(diskName, bytes));
       asrEvidenceBus?.record(
         'figure_png_done',
         severity: 'boundary',
