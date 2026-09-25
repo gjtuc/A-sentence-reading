@@ -489,7 +489,7 @@ class PracticeSkillController {
         'slot_n': score.refN,
         'display_chars': chunkDisplay.length,
         'spoken_chars': spoken.length,
-        'heard_chars': heard.trim().length,
+        'heard_chars': (heard ?? '').trim().length,
         'walk_i': diag.walkI,
         'piece_weight': diag.pieceWeight,
         'remain': diag.remain,
