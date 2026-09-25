@@ -21,16 +21,30 @@ _WORD_IPA_MAX = 20000
 
 
 def canonicalize_sound_alikes(text: str) -> str:
-    """Fold their / there / they're / they are into one written form."""
+    """Fold their / there / they're / they are, and number words, into one form."""
     folded = _THEIR_PHRASE.sub("their", text or "")
     parts = []
     for token in folded.split():
         key = token.strip(".,;:!?\"'").lower()
         if key in _THEIR_WORD:
             parts.append("their")
+        elif key in NUMBER_WORD_DIGITS:
+            parts.append(NUMBER_WORD_DIGITS[key])
         else:
             parts.append(token)
     return " ".join(parts)
+
+
+# A printed `1` is read and heard as `one`, so both sides fold to the digit.
+NUMBER_WORD_DIGITS = {
+    "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4",
+    "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
+    "ten": "10", "eleven": "11", "twelve": "12", "thirteen": "13",
+    "fourteen": "14", "fifteen": "15", "sixteen": "16", "seventeen": "17",
+    "eighteen": "18", "nineteen": "19", "twenty": "20", "thirty": "30",
+    "forty": "40", "fifty": "50", "sixty": "60", "seventy": "70",
+    "eighty": "80", "ninety": "90",
+}
 
 
 def normalize_phones(ipa: str) -> list[str]:

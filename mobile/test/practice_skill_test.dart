@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/practice_rhythm/follow_span.dart';
+import 'package:sentence_reading/practice_rhythm/miss_review.dart';
 import 'package:sentence_reading/practice_skill/chunk_density.dart';
 import 'package:sentence_reading/practice_skill/practice_skill_controller.dart';
 import 'package:sentence_reading/practice_skill/skill_adapt.dart';
@@ -429,5 +430,56 @@ void main() {
     expect(cache.phonesForWordIn(sentence: display, word: 'a'), 'ei');
     expect(cache.phonesForWordIn(sentence: display, word: 'catalyst'), 'k t l');
     expect(cache.phonesForWordIn(sentence: display, word: 'zz'), '');
+  });
+
+  test('a digit slot accepts the spoken number and a plural unit', () {
+    const display = 'approximately 1 nm';
+    const spoken = 'approximately 1 nanometers';
+    const spans = [
+      FollowSpan(start: 0, end: 13, weight: 13),
+      FollowSpan(start: 14, end: 15, weight: 1),
+      FollowSpan(start: 16, end: 18, weight: 10),
+    ];
+    final diag = diagnoseSpokenSlots(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'approximately one nanometer',
+    );
+    expect(diag.slotCode, 'ok');
+    expect(diag.slotHits, '111');
+    expect(diag.score.missedSpans, isEmpty);
+  });
+
+  test('a different number is still a miss', () {
+    const display = 'approximately 1 nm';
+    const spoken = 'approximately 1 nanometers';
+    const spans = [
+      FollowSpan(start: 0, end: 13, weight: 13),
+      FollowSpan(start: 14, end: 15, weight: 1),
+      FollowSpan(start: 16, end: 18, weight: 10),
+    ];
+    final diag = diagnoseSpokenSlots(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'approximately two meters',
+    );
+    expect(diag.slotHits, '100');
+  });
+
+  test('a review asks one and the digit slot takes it', () {
+    expect(
+      traceMissReview(expected: '1', heard: 'One').matched,
+      isTrue,
+    );
+    expect(
+      traceMissReview(expected: 'nanometers', heard: 'nanometer').matched,
+      isTrue,
+    );
+    expect(
+      traceMissReview(expected: '1', heard: 'two').matched,
+      isFalse,
+    );
   });
 }

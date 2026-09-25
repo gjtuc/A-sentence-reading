@@ -102,3 +102,33 @@ def test_spoken_sot_and_version():
     assert speak_norm_version()
     # Idempotent
     assert spoken_text_for_tts(spoken) == spoken
+
+def test_a_digit_slot_accepts_the_spoken_number() -> None:
+    from sentence_reading.llm.practice_skill_score import spoken_slot_coverage
+
+    display = "approximately 1 nm"
+    spoken = "approximately 1 nanometers"
+    spans = [
+        {"start": 0, "end": 13, "weight": 13},
+        {"start": 14, "end": 15, "weight": 1},
+        {"start": 16, "end": 18, "weight": 10},
+    ]
+    out = spoken_slot_coverage(display, spoken, spans, "approximately one nanometer")
+    assert out["ok"] is True
+    assert out["hit_n"] == 3
+    assert out["missed"] == []
+
+
+def test_a_wrong_word_is_still_missed_with_the_number_rule() -> None:
+    from sentence_reading.llm.practice_skill_score import spoken_slot_coverage
+
+    display = "approximately 1 nm"
+    spoken = "approximately 1 nanometers"
+    spans = [
+        {"start": 0, "end": 13, "weight": 13},
+        {"start": 14, "end": 15, "weight": 1},
+        {"start": 16, "end": 18, "weight": 10},
+    ]
+    out = spoken_slot_coverage(display, spoken, spans, "approximately two meters")
+    assert out["hit_n"] == 1
+    assert len(out["missed"]) == 2

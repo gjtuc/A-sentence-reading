@@ -458,16 +458,7 @@ bool _takeSpokenSlot(List<String> tokens, Map<String, int> have) {
   }
   var ok = true;
   for (final token in tokens) {
-    final left = have[token] ?? 0;
-    if (left <= 0) {
-      ok = false;
-      continue;
-    }
-    if (left == 1) {
-      have.remove(token);
-    } else {
-      have[token] = left - 1;
-    }
+    if (takeSkillToken(token, have) == 0) ok = false;
   }
   return ok;
 }
@@ -506,8 +497,47 @@ String canonicalizeSoundAlikes(String? text) {
   return folded.split(RegExp(r'\s+')).map((token) {
     final key = token.replaceAll(RegExp(r"""[.,;:!?"']"""), '').toLowerCase();
     if (_theirWords.contains(key)) return 'their';
+    final digit = kNumberWordDigits[key];
+    if (digit != null) return digit;
     return token;
   }).join(' ');
+}
+
+/// A printed `1` is read and heard as `one`, so both sides fold to the digit.
+/// Compounds are folded token by token, which is enough for the numbers a paper
+/// spells out beside a unit.
+const Map<String, String> kNumberWordDigits = {
+  'zero': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4',
+  'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9',
+  'ten': '10', 'eleven': '11', 'twelve': '12', 'thirteen': '13',
+  'fourteen': '14', 'fifteen': '15', 'sixteen': '16', 'seventeen': '17',
+  'eighteen': '18', 'nineteen': '19', 'twenty': '20', 'thirty': '30',
+  'forty': '40', 'fifty': '50', 'sixty': '60', 'seventy': '70',
+  'eighty': '80', 'ninety': '90',
+};
+
+/// The same word with or without a trailing `s`. `1 nm` is read as
+/// `nanometers` while a speaker says `nanometer`, and neither is a mistake.
+int takeSkillToken(String token, Map<String, int> have) {
+  for (final form in _tokenForms(token)) {
+    final left = have[form] ?? 0;
+    if (left <= 0) continue;
+    if (left == 1) {
+      have.remove(form);
+    } else {
+      have[form] = left - 1;
+    }
+    return 1;
+  }
+  return 0;
+}
+
+List<String> _tokenForms(String token) {
+  if (token.length < 3) return [token];
+  if (token.endsWith('s')) {
+    return [token, token.substring(0, token.length - 1)];
+  }
+  return [token, '${token}s'];
 }
 
 List<String> _phonePieces(String ipa) {

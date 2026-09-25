@@ -89,18 +89,14 @@ MissReviewTrace traceMissReview({
   final marks = StringBuffer();
   var matched = ref.isNotEmpty;
   for (final token in ref) {
-    final left = have[token] ?? 0;
-    if (left <= 0) {
+    // Same rule as the speak phase: a digit folds with its number word and a
+    // trailing `s` is not a mistake.
+    if (takeSkillToken(token, have) == 0) {
       matched = false;
       marks.write('0');
       continue;
     }
     marks.write('1');
-    if (left == 1) {
-      have.remove(token);
-    } else {
-      have[token] = left - 1;
-    }
   }
   return MissReviewTrace(
     pieces: ref.join(' | '),

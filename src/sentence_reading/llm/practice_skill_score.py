@@ -256,12 +256,32 @@ def _take_spoken_slot(tokens: list[str], have: Counter) -> bool:
             return True
     ok = True
     for token in tokens:
-        left = have.get(token, 0)
-        if left <= 0:
+        if not take_skill_token(token, have):
             ok = False
+    return ok
+
+
+def _token_forms(token: str) -> list[str]:
+    """The same word with or without a trailing `s`.
+
+    `1 nm` is read as `nanometers` while a speaker says `nanometer`, and neither
+    is a mistake.
+    """
+    if len(token) < 3:
+        return [token]
+    if token.endswith("s"):
+        return [token, token[:-1]]
+    return [token, token + "s"]
+
+
+def take_skill_token(token: str, have: Counter) -> bool:
+    for form in _token_forms(token):
+        left = have.get(form, 0)
+        if left <= 0:
             continue
         if left == 1:
-            del have[token]
+            del have[form]
         else:
-            have[token] = left - 1
-    return ok
+            have[form] = left - 1
+        return True
+    return False
