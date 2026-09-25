@@ -539,6 +539,8 @@ class PracticeSkillController {
           'density': store.state.density,
           'tier': store.state.tier,
           'focus_elapsed_ms': _focusElapsedMs,
+          'waveform_phones': c.lastWaveformPhones,
+          'filler_dropped': c.lastFillerDropped,
           if (heard != null && heard.trim().isNotEmpty)
             'stt_heard': heard.trim(),
         },

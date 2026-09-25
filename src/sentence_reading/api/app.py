@@ -282,7 +282,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.388",
+    version="0.3.389",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -3021,6 +3021,8 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
         "heard": heard_text,
         "heard_phones": phones,
         "engine": result.get("engine") or "gemini",
+        "waveform_phones": 1 if waveform else 0,
+        "filler_dropped": int(result.get("filler_dropped") or 0),
     }
     exp = expected if isinstance(expected, str) else ""
     if exp.strip():

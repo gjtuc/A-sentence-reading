@@ -37,7 +37,29 @@ _SYSTEM = """You are a careful English speech transcriber for a researcher pract
 Transcribe the spoken English into plain text only.
 Output the transcript only — no quotes, no punctuation commentary, no translation, no confidence scores, no grading.
 If there is no intelligible speech, output an empty string.
+Never output a filler or practice sentence of your own. Silence, breathing, a cough
+or a single unclear syllable is an empty string, not a guessed sentence.
 """
+
+# Sentences the model falls back to when it hears almost nothing. They are not
+# speech the user produced, so they are dropped rather than scored.
+_FILLER_TRANSCRIPTS = (
+    "the quick brown fox jumps over the lazy dog",
+    "the purpose of this study is to investigate",
+    "the research was conducted by a team of scientists",
+    "thank you for watching",
+    "thanks for watching",
+    "please subscribe",
+)
+
+
+def looks_like_filler(text: str) -> bool:
+    """True when the transcript is one of the model's stock sentences."""
+    flat = re.sub(r"[^a-z ]+", " ", (text or "").lower())
+    flat = re.sub(r"\s+", " ", flat).strip()
+    if not flat:
+        return False
+    return any(flat.startswith(seed) or seed.startswith(flat) for seed in _FILLER_TRANSCRIPTS)
 
 
 def normalize_audio_mime(mime: str | None) -> str:
@@ -157,5 +179,13 @@ def recognize_english_audio(data: bytes, mime_type: str | None) -> dict[str, Any
         pass
 
     heard = _response_text(response)
+    filler = looks_like_filler(heard)
+    if filler:
+        heard = ""
     # WHY: 무음도 ok — 비교 단계에서 empty 처리
-    return {"ok": True, "heard": heard, "engine": "gemini"}
+    return {
+        "ok": True,
+        "heard": heard,
+        "engine": "gemini",
+        "filler_dropped": 1 if filler else 0,
+    }

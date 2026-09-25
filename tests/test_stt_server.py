@@ -177,3 +177,13 @@ def test_api_recognize_edges(monkeypatch: pytest.MonkeyPatch) -> None:
         files={"file": ("a.webm", b"x" * 10, "audio/webm")},
     )
     assert bad.json()["error"] == "too_large"
+
+def test_a_stock_sentence_is_not_treated_as_speech() -> None:
+    from sentence_reading.stt.recognize import looks_like_filler
+
+    assert looks_like_filler("The quick brown fox jumps over the lazy dog.") is True
+    assert looks_like_filler("the purpose of this study is to investigate") is True
+    assert looks_like_filler("Thanks for watching!") is True
+    assert looks_like_filler("") is False
+    assert looks_like_filler("Chemical vapor deposition") is False
+    assert looks_like_filler("deposition") is False

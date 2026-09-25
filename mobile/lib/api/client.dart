@@ -538,6 +538,8 @@ class AsrClient {
   final http.Client _http;
   final SessionStore _sessions;
   String lastHeardPhones = '';
+  int lastWaveformPhones = -1;
+  int lastFillerDropped = -1;
   final FigurePngCache _figurePng = FigurePngCache();
 
   /// Test / UI access to the same store the client mutates.
@@ -2704,6 +2706,8 @@ throw AsrApiException(
     if (map['ok'] != true) return null;
     final heard = '${map['heard'] ?? ''}'.trim();
     lastHeardPhones = '${map['heard_phones'] ?? ''}'.trim();
+    lastWaveformPhones = (map['waveform_phones'] as num?)?.toInt() ?? -1;
+    lastFillerDropped = (map['filler_dropped'] as num?)?.toInt() ?? -1;
     return heard.isEmpty ? null : heard;
   }
 

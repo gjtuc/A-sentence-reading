@@ -1186,6 +1186,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         token: token,
         withRest: true,
         reviewWords: reviewWords,
+        reviewChunk: _displayChunk(),
       );
     }
   }
@@ -1736,6 +1737,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   Future<void> _runMissReview({
     required int token,
     required List<String> words,
+    required String sourceChunk,
     required Duration scheduledRest,
     required int reviewTier,
     required bool randomAuto,
@@ -1817,6 +1819,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           final hear = await _hearReviewWord(
             token: token,
             word: words[i],
+            sourceChunk: sourceChunk,
             ttsHeard: played.heard,
             attempt: attempt,
             wordIndex: i,
@@ -1945,6 +1948,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   Future<MissReviewHear> _hearReviewWord({
     required int token,
     required String word,
+    required String sourceChunk,
     required Duration ttsHeard,
     required int attempt,
     required int wordIndex,
@@ -1983,7 +1987,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       if (!_reviewAlive(token)) return MissReviewHear.skip;
       // The chunk already holds this word's spoken form and phones, so the
       // review does not ask the server for one word.
-      final chunkDisplay = _displayChunk();
+      final chunkDisplay = sourceChunk.isEmpty ? _displayChunk() : sourceChunk;
       final targetPhone = _skill.spokenCache.phonesForWordIn(
         sentence: chunkDisplay,
         word: word,
@@ -2078,6 +2082,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     required int token,
     bool withRest = true,
     List<String> reviewWords = const [],
+    String reviewChunk = '',
   }) async {
     if (!mounted || token != _cycleToken) return;
     final session = _session;
@@ -2099,6 +2104,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       await _runMissReview(
         token: token,
         words: words,
+        sourceChunk: reviewChunk,
         scheduledRest: scheduledRest,
         reviewTier: reviewTier,
         randomAuto: reviewRandom,
