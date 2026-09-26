@@ -87,8 +87,9 @@ class _SampleRoundSheet extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
-                '같은 문장 ${kSampleFixedLines.length}개에 새 문장 3개. '
-                '난이도만 바뀝니다.',
+                '같은 문장 ${kSampleFixedLines.length}개에 새 문장 '
+                '$kSampleFreshPerRound개. 난이도만 바뀝니다. '
+                '한 판이 끝나면 저절로 멈춥니다.',
                 style: theme.textTheme.bodySmall,
               ),
             ),

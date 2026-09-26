@@ -131,193 +131,204 @@ const List<SampleLine> kSampleFixedLines = [
 ///
 /// Without these the hard rounds would measure recall of a memorised line
 /// instead of whether fast unfamiliar speech could be followed at all.
+///
+/// Replaced wholesale at seed version 2: the first set was spent in one sitting
+/// when a round had no end, so every line in it had already been read once.
 const List<SampleLine> kSampleFreshLines = [
   SampleLine(
     id: 'n01',
-    marked: 'Turnover frequencies reached 4.7 s⁻¹ | at 750 °C | and 1 bar.',
-    note: 'superscript_minus_one',
+    marked: 'A Tafel slope of 42 mV/dec | indicated a rate-determining | '
+        'first electron transfer.',
+    note: 'tafel_slope_per_decade',
   ),
   SampleLine(
     id: 'n02',
-    marked: 'High-resolution TEM revealed | 2.3 nm Pt–Co particles | '
-        'encapsulated by three graphitic layers.',
-    note: 'en_dash_alloy',
+    marked: 'The (111) reflection at 2θ = 43.6° | broadened as | '
+        'the crystallite size fell.',
+    note: 'two_theta_and_miller_index',
   ),
   SampleLine(
     id: 'n03',
-    marked: 'Chemisorption indicated 38 μmol/g | of accessible nickel | '
-        'on the reduced support.',
-    note: 'greek_mu_unit',
+    marked: 'Scherrer analysis gave | a crystallite size of 8.4 ± 0.6 nm | '
+        'for the calcined powder.',
+    note: 'plus_minus_tolerance',
   ),
   SampleLine(
     id: 'n04',
-    marked: 'Coke deposition fell | from 18.6 to 2.4 mg/g/h | '
-        'when 5 wt% Fe was added.',
-    note: 'compound_rate_and_wt_percent',
+    marked: 'Extended X-ray absorption fine structure | '
+        'resolved a Ni–O coordination number | of 4.2.',
+    note: 'long_technique_en_dash',
   ),
   SampleLine(
     id: 'n05',
-    marked: 'Dry reforming of methane (DRM) | converted 82% of the feed | '
-        'at 800 °C.',
-    note: 'defined_abbreviation_and_percent',
+    marked: 'A gas hourly space velocity of 24,000 mL/g/h | was held | '
+        'for the entire run.',
+    note: 'thousands_comma_and_stacked_unit',
   ),
   SampleLine(
     id: 'n06',
-    marked: 'The BET surface area | decreased from 142 to 97 m²/g | '
-        'after calcination.',
-    note: 'superscript_two_unit',
+    marked: 'Sulfur was kept below 50 ppm | to avoid | '
+        'irreversible poisoning.',
+    note: 'ppm_and_hard_word',
   ),
   SampleLine(
     id: 'n07',
-    marked: 'Single-atom catalysts (SAC) | anchored isolated nickel | '
-        'on nitrogen-doped carbon.',
-    note: 'defined_abbreviation_hyphenated',
+    marked: 'Ostwald ripening coarsened the particles, | '
+        'whereas encapsulation | suppressed coalescence.',
+    note: 'eponym_and_contrast_clause',
   ),
   SampleLine(
     id: 'n08',
-    marked: 'X-ray absorption near-edge structure | '
-        'confirmed an oxidation state | close to +2.',
-    note: 'plus_sign_charge',
+    marked: 'The kinetics followed | a Mars–van Krevelen mechanism | '
+        'rather than Langmuir–Hinshelwood.',
+    note: 'two_eponym_mechanisms',
   ),
   SampleLine(
     id: 'n09',
-    marked: 'Faradaic efficiency toward CO | exceeded 94% | at −0.8 V.',
-    note: 'unicode_minus_voltage',
+    marked: 'The area-specific resistance rose | to 0.31 Ω cm² | '
+        'after five hundred hours.',
+    note: 'ohm_cm_squared',
   ),
   SampleLine(
     id: 'n10',
-    marked: 'Oxygen reduction activity peaked | at 0.89 V | '
-        'versus the reversible hydrogen electrode.',
-    note: 'volt_and_long_noun_phrase',
+    marked: 'Diffraction used Cu Kα radiation | with λ = 1.5406 Å | '
+        'at room temperature.',
+    note: 'greek_lambda_and_angstrom',
   ),
   SampleLine(
     id: 'n11',
-    marked: 'Temperature-programmed reduction | showed two peaks, | '
-        'at 420 and 680 °C.',
-    note: 'hyphenated_technique',
+    marked: 'The adsorption enthalpy ΔH | was −78 kJ/mol | '
+        'on the stepped facet.',
+    note: 'delta_h_negative',
   ),
   SampleLine(
     id: 'n12',
-    marked: 'The lattice parameter contracted | by 0.9% | '
-        'upon alloying with iron.',
-    note: 'small_percent',
+    marked: 'Electrical conductivity reached | 3.6 × 10⁻² S/cm | '
+        'after carbonisation.',
+    note: 'scientific_notation_times',
   ),
   SampleLine(
     id: 'n13',
-    marked: 'Transmission electron microscopy (TEM) | '
-        'showed a narrow size distribution | near 3 nm.',
-    note: 'defined_abbreviation_long',
+    marked: 'Operando DRIFTS detected | a bridging carbonate band | '
+        'at 1580 cm⁻¹.',
+    note: 'wavenumber_inverse_cm',
   ),
   SampleLine(
     id: 'n14',
-    marked: 'Cyclic voltammetry at 50 mV/s | '
-        'revealed a quasi-reversible couple | on the platinum surface.',
-    note: 'rate_unit_per_second',
+    marked: 'Isotopic labelling with ¹³CH4 | '
+        'confirmed that lattice carbon | entered the product.',
+    note: 'isotope_superscript_prefix',
   ),
   SampleLine(
     id: 'n15',
-    marked: 'The specific capacitance retained 91% | after ten thousand | '
-        'charge–discharge cycles.',
-    note: 'en_dash_compound',
+    marked: 'The reverse water-gas shift (RWGS) | consumed hydrogen | '
+        'above 700 °C.',
+    note: 'defined_abbreviation_hyphen_chain',
   ),
   SampleLine(
     id: 'n16',
-    marked: 'Inductively coupled plasma analysis | gave a nickel loading | '
-        'of 11.3 wt%.',
-    note: 'weight_percent',
+    marked: 'NH3-TPD quantified | 0.42 mmol/g of | '
+        'moderately strong acid sites.',
+    note: 'formula_prefixed_technique',
   ),
   SampleLine(
     id: 'n17',
-    marked: 'Thermogravimetric analysis showed | 7.8% mass loss | '
-        'below 250 °C.',
-    note: 'long_technique_name',
+    marked: 'BJH analysis showed | a bimodal pore distribution | '
+        'centred near 4 and 19 nm.',
+    note: 'two_values_one_unit',
   ),
   SampleLine(
     id: 'n18',
-    marked: 'The apparent activation energy | decreased from 96 | '
-        'to 71 kJ/mol.',
-    note: 'energy_per_mole',
+    marked: 'Electrochemical impedance spectroscopy | '
+        'produced a depressed Nyquist semicircle | on the aged electrode.',
+    note: 'long_technique_and_eponym',
   ),
   SampleLine(
     id: 'n19',
-    marked: 'Density functional theory predicted | a carbon binding energy | '
-        'of −6.2 eV.',
-    note: 'unicode_minus_energy',
+    marked: 'Rietveld refinement converged | with χ² of 1.7 | '
+        'and a weighted R-factor of 4.9%.',
+    note: 'chi_squared_and_r_factor',
   ),
   SampleLine(
     id: 'n20',
-    marked: 'Raman spectra showed | a D-to-G band intensity ratio | of 1.08.',
-    note: 'letter_labels',
+    marked: 'Single-atom alloys (SAA) | dissociated methane | '
+        'without extensive coke formation.',
+    note: 'abbreviation_and_negation',
   ),
   SampleLine(
     id: 'n21',
-    marked: 'The Ni–Fe–Al catalyst | was prepared by | '
-        'solution combustion synthesis.',
-    note: 'triple_en_dash_elements',
+    marked: 'Multiwalled carbon nanotubes grew | '
+        'from coordinatively unsaturated | nickel step edges.',
+    note: 'hard_adjective_phrase',
   ),
   SampleLine(
     id: 'n22',
-    marked: 'The H2/CO ratio stayed | between 0.94 and 1.03 | '
-        'throughout the run.',
-    note: 'formula_slash_formula',
+    marked: 'The double-layer capacitance was | 28 μF/cm² | '
+        'in one molar potassium hydroxide.',
+    note: 'micro_farad_per_cm2',
   ),
   SampleLine(
     id: 'n23',
-    marked: 'Scanning transmission electron microscopy | '
-        'resolved individual platinum atoms | on ceria.',
-    note: 'four_word_technique',
+    marked: 'Selectivity toward ethylene | exceeded 71%, | '
+        'whereas methane stayed below 3%.',
+    note: 'two_percentages_contrast',
   ),
   SampleLine(
     id: 'n24',
-    marked: 'The catalyst sustained 120 hours on stream | '
-        'without measurable | carbon whisker growth.',
-    note: 'plain_numbers',
+    marked: 'Micrographs recorded at 200,000× | resolved lattice fringes | '
+        'across the shell.',
+    note: 'magnification_times_sign',
   ),
   SampleLine(
     id: 'n25',
-    marked: 'In situ synchrotron diffraction | '
-        'captured the reduction of NiO | to metallic nickel.',
-    note: 'latin_phrase_and_formula',
+    marked: 'Pyrolysis proceeded at 5 °C/min | under flowing argon | '
+        'to 900 °C.',
+    note: 'ramp_rate_per_minute',
   ),
   SampleLine(
     id: 'n26',
-    marked: 'CO2-assisted ethane activation | gave 63% ethylene selectivity | '
-        'over the bimetallic surface.',
-    note: 'formula_leading_hyphen',
+    marked: 'The isotherm showed type IV hysteresis, | consistent with | '
+        'high pore tortuosity.',
+    note: 'roman_numeral_type',
   ),
   SampleLine(
     id: 'n27',
-    marked: 'The bimetallic surface segregated iron | '
-        'under oxidising conditions | and reversed upon reduction.',
-    note: 'long_clause_pair',
+    marked: 'Density functional calculations placed | the d-band centre | '
+        'at −1.84 eV.',
+    note: 'd_band_and_negative_ev',
   ),
   SampleLine(
     id: 'n28',
-    marked: 'BaCoO3 doping enhanced | the oxygen reduction reaction | '
-        'at intermediate temperatures.',
-    note: 'formula_leading_word',
+    marked: 'The Sabatier principle predicts | an optimum binding strength, | '
+        'neither too weak nor too strong.',
+    note: 'eponym_and_long_clause',
   ),
   SampleLine(
     id: 'n29',
-    marked: 'Graphene encapsulation preserved 3 nm particles | '
-        'against sintering | for 500 hours.',
-    note: 'unit_mid_phrase',
+    marked: 'Anisotropic growth established | a percolating network | '
+        'above 12 vol%.',
+    note: 'vol_percent',
   ),
   SampleLine(
     id: 'n30',
-    marked: 'The Ni 2p3/2 peak appeared | at 852.6 eV | '
-        'after argon sputtering.',
-    note: 'orbital_fraction_label',
+    marked: 'The half-wave potential improved by 60 mV | '
+        'after cobalt substitution, | which lowered the overpotential.',
+    note: 'mv_and_overpotential',
   ),
 ];
+
+/// Fresh lines per round.
+const int kSampleFreshPerRound = 3;
+
+/// Sentences one round reads. The round ends here, so practice can stop.
+const int kSampleRoundLineCount = 12 + kSampleFreshPerRound;
 
 /// Fresh lines for one round, three per difficulty, never reused.
 List<SampleLine> sampleFreshForRound(int round) {
   final r = round.clamp(1, kSampleRoundCount);
-  const per = 3;
-  final start = (r - 1) * per;
+  final start = (r - 1) * kSampleFreshPerRound;
   if (start >= kSampleFreshLines.length) return const [];
-  final end = (start + per).clamp(0, kSampleFreshLines.length);
+  final end = (start + kSampleFreshPerRound).clamp(0, kSampleFreshLines.length);
   return kSampleFreshLines.sublist(start, end);
 }
 
@@ -327,7 +338,7 @@ List<SampleLine> sampleLinesForRound(int round) => [
       ...sampleFreshForRound(round),
     ];
 
-/// Every line the sample row holds, for the session and the chunk plan.
+/// Every line the sample row holds, for the chunk plan.
 List<SampleLine> get sampleAllLines => [
       ...kSampleFixedLines,
       ...kSampleFreshLines,

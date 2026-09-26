@@ -830,8 +830,19 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     unawaited(_persistPracticeCursor());
   }
 
+  /// design/364 — one cursor per round, not per row.
+  ///
+  /// All ten rounds share the sample cache id, so a single cursor made round 2
+  /// resume where round 1 stopped; it skipped the twelve fixed lines entirely
+  /// and that tier lost its comparison set.
+  String get _cursorId {
+    final round = widget.sampleRound;
+    if (round == null) return _cacheId;
+    return '$_cacheId#r$round';
+  }
+
   Future<void> _persistPracticeCursor() async {
-    final cid = _cacheId;
+    final cid = _cursorId;
     if (cid.isEmpty) return;
     try {
       String sectionLabel = '';
@@ -850,10 +861,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   }
 
   Future<void> _restorePracticeCursor(ReadingSession session) async {
-    final stored = await widget.library.loadPracticeProgressRow(_cacheId);
+    final stored = await widget.library.loadPracticeProgressRow(_cursorId);
     // First visit: seed from reading position; later opens use practice SoT.
+    // A sample round starts at its own first line instead: the reading position
+    // belongs to the shared row and would be clamped into the middle of the
+    // round, or onto its last line.
     final seeded = stored ??
-        PracticeProgressRow(sentenceIndex: session.sentenceIndex);
+        PracticeProgressRow(
+          sentenceIndex: widget.sampleRound == null ? session.sentenceIndex : 0,
+        );
     final clamped = clampPracticeProgress(
       raw: seeded,
       sentenceCount: session.sentenceCount,

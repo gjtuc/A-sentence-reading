@@ -200,6 +200,34 @@ class LibraryController extends ChangeNotifier {
     await refresh(trigger: 'sample_seed');
   }
 
+  /// design/364 — point the sample row at one round before it is opened.
+  ///
+  /// The session is the list practice walks, so this is what makes a round end.
+  Future<bool> pointSampleRowAtRound(int round) async {
+    bool wrote;
+    try {
+      wrote = await writeSampleRoundSession(
+        paperDisk: _paperDisk,
+        round: round,
+      );
+    } catch (_) {
+      return false;
+    }
+    asrEvidenceBus?.record(
+      'practice_sample_seed',
+      severity: 'lifecycle',
+      cacheId: kSampleCacheId,
+      stage: 'round',
+      ok: wrote,
+      details: {
+        'round': round,
+        'sentence_n': kSampleRoundLineCount,
+        'seed_version': kSampleSeedVersion,
+      },
+    );
+    return wrote;
+  }
+
   Future<void> _maybeDocumentsMirrorRestore() async {
     final n = await _documentsMirror.tryEmptyGateRestore();
     if (n > 0) {

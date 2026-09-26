@@ -1,6 +1,6 @@
 # 364 — A fixed sample row, one rung at a time
 
-**Version:** 0.3.399 · Status: **locked**
+**Version:** 0.3.400 · Status: **locked**
 Groundwork for calibrating the sound compare added in [212](212-practice-skill-ladder.md) · uses the ladder from [244](244-skill-ladder-position.md) and the phone stream from [169g](169g-causal-handoff-evidence.md)
 
 ## Why
@@ -43,6 +43,11 @@ variable left is the rung. Memorisation is accepted here.
 `kSampleFreshLines` — thirty lines (`n01`–`n30`), three per round, never reused.
 First-exposure difficulty stays real, which is what keeps a hard round failing once
 the fixed twelve are known by heart.
+
+The first set of thirty was spent in one sitting: with no round boundary, one sweep
+read all forty-two lines at tier 1, so no line was unseen any more. Seed version 2
+replaces all thirty. **A round with no end costs the whole fresh set**, which is why
+item 6 is locked rather than left to the speaker to stop at the right place.
 
 Vocabulary is drawn from the speaker's field (catalysis / materials) because that is
 where the recognizer already failed: `nm` had to be spoken as letters, `a` as "A".
@@ -121,6 +126,29 @@ the chunk plan (`status: 'ok'`), and the disk index entry, then triggers one
 `refresh(trigger: 'sample_seed')`. `sampleRowNeedsWrite` compares
 `kSampleSeedVersion` and the sentence count, so a later corpus edit rewrites the row
 and an unchanged one does not refresh.
+
+`sentenceCount` on the index entry is `kSampleRoundLineCount`, not the corpus size.
+The row label is read as a promise of how far the speaker has to go, and "42" sent
+them through the whole corpus looking for an end.
+
+### 6. A round ends by itself
+
+Two things made one round run the whole corpus at one tier.
+
+**The session held every line.** `sampleSessionJson({round})` now emits only that
+round's lines, and `pointSampleRowAtRound` rewrites it before the row is opened —
+unconditionally, because the seed check cannot tell round 3 from round 7. The chunk
+plan still holds all forty-two: it is a lookup the session indexes into. So
+"연습 문장 끝입니다" now arrives exactly at the end of the round.
+
+**The cursor was per row.** `loadPracticeProgressRow(_cacheId)` is one cursor per
+paper, and all ten rounds share the sample cache id, so round 2 resumed where round 1
+stopped — at `f12`, skipping the twelve fixed lines and costing tier 1 its comparison
+set entirely. `_cursorId` appends `#r{round}` for sample rounds, so each round keeps
+its own place and starts at its first line.
+
+Practising a round is not a paper read: there is no "carry on where you were across
+difficulties", because a round is one measurement block.
 
 ### 5. Progress is chunk coverage, not a tally
 

@@ -53,21 +53,51 @@ void main() {
     final plan = sampleChunkPlan();
     expect(plan['status'], 'ok');
     final sentences = plan['sentences'] as Map<String, dynamic>;
+    // The plan is a lookup over the whole corpus; the session picks from it.
     expect(sentences.length, sampleAllLines.length);
-    final session = sampleSessionJson();
-    final rows = session['sentences'] as List<dynamic>;
-    expect(rows.length, sampleAllLines.length);
-    for (final row in rows) {
-      final m = row as Map<String, dynamic>;
-      final sid = m['id'] as String;
-      // A plan row missing for a session sentence makes practice skip it.
-      expect(sentences.containsKey(sid), isTrue, reason: sid);
-      final chunks = (sentences[sid] as Map)['chunks'] as List<dynamic>;
-      expect(chunks.isNotEmpty, isTrue, reason: sid);
-      expect(chunks.last, m['text'], reason: sid);
-      // The title aligner rewrites `title` rows, which would break the match.
-      expect(m['section'], isNot('title'), reason: sid);
+    for (var r = 1; r <= kSampleRoundCount; r++) {
+      final session = sampleSessionJson(round: r);
+      final rows = session['sentences'] as List<dynamic>;
+      expect(rows.length, kSampleRoundLineCount, reason: 'round $r');
+      for (final row in rows) {
+        final m = row as Map<String, dynamic>;
+        final sid = m['id'] as String;
+        // A plan row missing for a session sentence makes practice skip it.
+        expect(sentences.containsKey(sid), isTrue, reason: sid);
+        final chunks = (sentences[sid] as Map)['chunks'] as List<dynamic>;
+        expect(chunks.isNotEmpty, isTrue, reason: sid);
+        expect(chunks.last, m['text'], reason: sid);
+        // The title aligner rewrites `title` rows, which would break the match.
+        expect(m['section'], isNot('title'), reason: sid);
+      }
     }
+  });
+
+  test('a round session holds only that round, so the round can end', () {
+    for (var r = 1; r <= kSampleRoundCount; r++) {
+      final session = sampleSessionJson(round: r);
+      expect(session['sample_round'], r);
+      final ids = [
+        for (final row in session['sentences'] as List<dynamic>)
+          (row as Map<String, dynamic>)['id'] as String,
+      ];
+      expect(ids, [
+        for (final line in sampleLinesForRound(r)) sampleSentenceId(line),
+      ], reason: 'round $r');
+      // The whole corpus in one session is a round with no end.
+      expect(ids.length, lessThan(sampleAllLines.length));
+      // Another round's fresh lines must not leak in.
+      for (var other = 1; other <= kSampleRoundCount; other++) {
+        if (other == r) continue;
+        for (final line in sampleFreshForRound(other)) {
+          expect(ids.contains(sampleSentenceId(line)), isFalse,
+              reason: 'round $r must not show ${line.id}');
+        }
+      }
+    }
+    // The row advertises one round, not the corpus, so the list is not a promise
+    // of forty-two sentences.
+    expect(sampleIndexEntry().sentenceCount, kSampleRoundLineCount);
   });
 
   test('rounds map onto the ten ladder tiers', () {

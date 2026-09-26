@@ -616,6 +616,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (!mounted) return;
     final round = await showSampleRoundSheet(context, rounds: rounds);
     if (round == null || !mounted) return;
+    // Narrow the session to this round before opening it, or practice walks
+    // every line the corpus has and the round never ends.
+    if (!await widget.library.pointSampleRowAtRound(round)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('난이도를 준비하지 못했습니다.')),
+      );
+      return;
+    }
+    if (!mounted) return;
     final o = await widget.library.open(entry);
     if (!mounted) return;
     if (o == null) {
