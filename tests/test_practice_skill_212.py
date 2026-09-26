@@ -158,3 +158,102 @@ def test_a_spoken_abbreviation_does_not_shift_the_line() -> None:
     # A plain aside is still skipped.
     aside = align_display_report("The area is small (data not shown).")
     assert aside["code"] == "ok"
+
+
+def test_design_365_a_spelling_variant_is_not_a_missed_word() -> None:
+    from sentence_reading.llm.practice_skill_score import spoken_slot_coverage
+
+    display = "Vanadium vapour was absorbed"
+    spoken = "Vanadium vapour was absorbed"
+    spans = [
+        {"start": 0, "end": 8, "weight": 8},
+        {"start": 9, "end": 15, "weight": 6},
+        {"start": 16, "end": 19, "weight": 3},
+        {"start": 20, "end": 28, "weight": 8},
+    ]
+    # The recognizer answers in American spelling; the speaker read it right.
+    out = spoken_slot_coverage(
+        display, spoken, spans, "Vanadium vapor was absorbed"
+    )
+    assert out["ok"] is True
+    assert out["hit_n"] == 4
+    assert out["missed"] == []
+
+
+def test_design_365_an_element_symbol_may_come_back_as_its_name() -> None:
+    from sentence_reading.llm.practice_skill_score import spoken_slot_coverage
+
+    display = "The Ni 2p peak"
+    spoken = "The Ni two p peak"
+    spans = [
+        {"start": 0, "end": 3, "weight": 3},
+        {"start": 4, "end": 6, "weight": 2},
+        {"start": 7, "end": 8, "weight": 3},
+        {"start": 8, "end": 9, "weight": 1},
+        {"start": 10, "end": 14, "weight": 4},
+    ]
+    # The voice says "nickel" and writes `2p` as one token; nothing was misread.
+    out = spoken_slot_coverage(display, spoken, spans, "The nickel 2p peak")
+    assert out["ok"] is True
+    assert out["hit_n"] == 5
+    assert out["missed"] == []
+
+
+def test_design_365_an_apostrophe_is_not_a_slot() -> None:
+    from sentence_reading.llm.practice_skill_score import spoken_slot_coverage
+
+    display = "Both catalysts' strengths"
+    spoken = "Both catalysts' strengths"
+    # The aligner really does hand the apostrophe its own one-character span.
+    spans = [
+        {"start": 0, "end": 4, "weight": 4},
+        {"start": 5, "end": 14, "weight": 9},
+        {"start": 14, "end": 15, "weight": 1},
+        {"start": 16, "end": 25, "weight": 9},
+    ]
+    out = spoken_slot_coverage(
+        display, spoken, spans, "Both catalysts strengths"
+    )
+    assert out["ok"] is True
+    # Three scorable slots, not four: the lone apostrophe capped this line at 3/4
+    # however it was read.
+    assert out["ref_n"] == 3
+    assert out["hit_n"] == 3
+
+
+def test_design_365_a_real_miss_still_misses() -> None:
+    from sentence_reading.llm.practice_skill_score import spoken_slot_coverage
+
+    display = "Vanadium vapour was absorbed"
+    spoken = "Vanadium vapour was absorbed"
+    spans = [
+        {"start": 0, "end": 8, "weight": 8},
+        {"start": 9, "end": 15, "weight": 6},
+        {"start": 16, "end": 19, "weight": 3},
+        {"start": 20, "end": 28, "weight": 8},
+    ]
+    # `paper` for `vapour` and `observed` for `absorbed` are real confusions.
+    out = spoken_slot_coverage(
+        display, spoken, spans, "Vanadium paper was observed"
+    )
+    assert out["hit_n"] == 2
+    assert len(out["missed"]) == 2
+
+
+def test_design_365_a_possessive_mark_is_not_a_sound() -> None:
+    from sentence_reading.llm.practice_skill_score import spoken_slot_coverage
+
+    display = "Both catalysts' strengths"
+    spoken = "Both catalysts' strengths"
+    # Here the apostrophe rides along inside the word span instead of getting one
+    # of its own, so the slot token is `catalysts'`.
+    spans = [
+        {"start": 0, "end": 4, "weight": 4},
+        {"start": 5, "end": 15, "weight": 10},
+        {"start": 16, "end": 25, "weight": 9},
+    ]
+    out = spoken_slot_coverage(
+        display, spoken, spans, "Both catalysts strengths"
+    )
+    assert out["ref_n"] == 3
+    assert out["hit_n"] == 3

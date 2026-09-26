@@ -233,6 +233,16 @@ SpokenSlotDiag diagnoseSpokenSlots({
   final have = <String, int>{};
   for (final token in tokenizeSkill(canonicalizeSoundAlikes(heard))) {
     have[token] = (have[token] ?? 0) + 1;
+    // design/365 — `Ni 2p` is read "nickel two pee" and comes back as one token
+    // `2p`, while the aligner made `2` and `p` two slots. Both pieces really
+    // were spoken, so both may be claimed from the joined token.
+    for (final piece in splitDigitLetterRun(token)) {
+      have[piece] = (have[piece] ?? 0) + 1;
+    }
+    final bare = stripApostrophes(token);
+    if (bare.isNotEmpty && bare != token) {
+      have[bare] = (have[bare] ?? 0) + 1;
+    }
   }
   final heardPhoneWords = _sliceHeardPhones(built.slots, heardPhones);
   var hit = 0;
@@ -241,7 +251,7 @@ SpokenSlotDiag diagnoseSpokenSlots({
   final marks = StringBuffer();
   final pieces = <String>[];
   for (final slot in built.slots) {
-    final lexical = _takeSpokenSlot(slot.tokens, have);
+    final lexical = _takeSpokenSlot(slot.matchTokens, have);
     final bySound = !lexical && phonesClose(slot.phone, heardPhoneWords);
     if (bySound) soundPassN += 1;
     final ok = lexical || bySound;
@@ -296,11 +306,15 @@ SkillScoreResult spokenSlotCoverage({
 }
 
 class _SpokenSlot {
-  const _SpokenSlot(this.start, this.end, this.tokens, this.phone);
+  const _SpokenSlot(
+      this.start, this.end, this.tokens, this.matchTokens, this.phone);
 
   final int start;
   final int end;
   final List<String> tokens;
+
+  /// [tokens] folded for the compare only. See design/365.
+  final List<String> matchTokens;
   final String phone;
 }
 
@@ -401,8 +415,17 @@ _SlotBuild _spokenSlots({
         remain: remain,
       );
     }
-    final tokens = tokenizeSkill(spoken.substring(cursor, end));
+    final piece = spoken.substring(cursor, end);
+    final tokens = tokenizeSkill(piece);
+    // design/365 — fold the slot side the same way as the heard side for the
+    // compare only, or a spoken `two` can only be claimed by a transcript that
+    // wrote the digit. The review still asks for the word the model reads.
+    final match = tokenizeSkill(canonicalizeSoundAlikes(piece));
     cursor = end;
+    if (tokens.isNotEmpty && !slotTokensScorable(tokens)) {
+      // Punctuation only: consume the piece, do not open a slot for it.
+      continue;
+    }
     if (tokens.isEmpty) {
       return _SlotBuild(
         slots: const [],
@@ -414,7 +437,13 @@ _SlotBuild _spokenSlots({
         remain: spoken.length - cursor,
       );
     }
-    out.add(_SpokenSlot(span.start, span.end, tokens, span.phone));
+    out.add(_SpokenSlot(
+      span.start,
+      span.end,
+      tokens,
+      match.isEmpty ? tokens : match,
+      span.phone,
+    ));
   }
   return _SlotBuild(
     slots: out,
@@ -503,6 +532,30 @@ List<String> _sliceHeardPhones(List<_SpokenSlot> slots, List<String> heardPhones
   return out;
 }
 
+final RegExp _digitLetterRun = RegExp(r'^(\d+)([a-z]+)$');
+final RegExp _letterDigitRun = RegExp(r'^([a-z]+)(\d+)$');
+
+/// design/365 — `2p` -> `2`, `p`; `co2` -> `co`, `2`. Empty for anything else.
+List<String> splitDigitLetterRun(String token) {
+  final a = _digitLetterRun.firstMatch(token);
+  if (a != null) return [a.group(1)!, a.group(2)!];
+  final b = _letterDigitRun.firstMatch(token);
+  if (b != null) return [b.group(1)!, b.group(2)!];
+  return const [];
+}
+
+/// A slot with no letter and no digit cannot be heard.
+///
+/// `catalysts'` left the apostrophe as its own slot, so that line could never
+/// score above two thirds no matter how it was read.
+/// design/365 — a possessive mark is not a sound. `catalysts'` -> `catalysts`.
+String stripApostrophes(String token) => token.replaceAll("'", '');
+
+final RegExp _slotHasSound = RegExp(r'[\p{L}\p{N}]', unicode: true);
+
+bool slotTokensScorable(List<String> tokens) =>
+    tokens.any((token) => _slotHasSound.hasMatch(token));
+
 String canonicalizeSoundAlikes(String? text) {
   var folded = (text ?? '').replaceAll(_theirPhrase, 'their');
   return folded.split(RegExp(r'\s+')).map((token) {
@@ -527,6 +580,94 @@ const Map<String, String> kNumberWordDigits = {
   'eighty': '80', 'ninety': '90',
 };
 
+/// design/365 — one pronunciation written two ways.
+///
+/// The transcript comes back in whatever orthography the recognizer prefers, so
+/// a correctly read `vapour` returns as `vapor` and the slot scores zero. The
+/// accent mix widens as the rung rises, so this worsens with difficulty.
+const List<List<String>> kSpellingPairs = [
+  ['vapour', 'vapor'],
+  ['vapours', 'vapors'],
+  ['sulphur', 'sulfur'],
+  ['sulphate', 'sulfate'],
+  ['sulphide', 'sulfide'],
+  ['aluminium', 'aluminum'],
+  ['caesium', 'cesium'],
+  ['colour', 'color'],
+  ['behaviour', 'behavior'],
+  ['favour', 'favor'],
+  ['neighbour', 'neighbor'],
+  ['fibre', 'fiber'],
+  ['fibres', 'fibers'],
+  ['centre', 'center'],
+  ['centred', 'centered'],
+  ['metre', 'meter'],
+  ['metres', 'meters'],
+  ['nanometre', 'nanometer'],
+  ['nanometres', 'nanometers'],
+  ['micrometre', 'micrometer'],
+  ['millimetre', 'millimeter'],
+  ['centimetre', 'centimeter'],
+  ['kilometre', 'kilometer'],
+  ['litre', 'liter'],
+  ['litres', 'liters'],
+  ['millilitre', 'milliliter'],
+  ['millilitres', 'milliliters'],
+  ['analyse', 'analyze'],
+  ['analysed', 'analyzed'],
+  ['analysing', 'analyzing'],
+  ['catalyse', 'catalyze'],
+  ['catalysed', 'catalyzed'],
+  ['ionisation', 'ionization'],
+  ['oxidising', 'oxidizing'],
+  ['oxidised', 'oxidized'],
+  ['carbonisation', 'carbonization'],
+  ['polarisation', 'polarization'],
+  ['isomerisation', 'isomerization'],
+  ['characterisation', 'characterization'],
+  ['utilise', 'utilize'],
+  ['labelling', 'labeling'],
+  ['modelling', 'modeling'],
+  ['programme', 'program'],
+  ['ageing', 'aging'],
+  ['grey', 'gray'],
+  ['practise', 'practice'],
+  ['licence', 'license'],
+  ['defence', 'defense'],
+];
+
+final Map<String, String> _spellingPartner = {
+  for (final pair in kSpellingPairs) ...{pair[0]: pair[1], pair[1]: pair[0]},
+};
+
+/// design/365 — an element symbol the voice reads as the element name.
+///
+/// The spoken text keeps `Ni` while the voice says "nickel", so the slot asks
+/// for a sound nothing in the transcript is spelled as. One-directional: a
+/// symbol accepts its name, not the other way round, because the reverse would
+/// let a short word through on a two-letter match.
+const Map<String, String> kElementSymbolNames = {
+  'ni': 'nickel',
+  'pt': 'platinum',
+  'fe': 'iron',
+  'co': 'cobalt',
+  'cu': 'copper',
+  'al': 'aluminium',
+  'ba': 'barium',
+  'ce': 'cerium',
+  'zn': 'zinc',
+  'mg': 'magnesium',
+  'mn': 'manganese',
+  'ti': 'titanium',
+  'zr': 'zirconium',
+  'ru': 'ruthenium',
+  'rh': 'rhodium',
+  'pd': 'palladium',
+  'ag': 'silver',
+  'au': 'gold',
+  'si': 'silicon',
+};
+
 /// The same word with or without a trailing `s`. `1 nm` is read as
 /// `nanometers` while a speaker says `nanometer`, and neither is a mistake.
 int takeSkillToken(String token, Map<String, int> have) {
@@ -544,11 +685,22 @@ int takeSkillToken(String token, Map<String, int> have) {
 }
 
 List<String> _tokenForms(String token) {
-  if (token.length < 3) return [token];
-  if (token.endsWith('s')) {
-    return [token, token.substring(0, token.length - 1)];
+  final out = <String>[token];
+  void add(String form) {
+    if (form.isNotEmpty && !out.contains(form)) out.add(form);
   }
-  return [token, '${token}s'];
+
+  final bare = stripApostrophes(token);
+  add(bare);
+  final element = kElementSymbolNames[bare];
+  if (element != null) add(element);
+  final partner = _spellingPartner[bare];
+  if (partner != null) add(partner);
+  for (final base in [bare, element, partner]) {
+    if (base == null || base.length < 3) continue;
+    add(base.endsWith('s') ? base.substring(0, base.length - 1) : '${base}s');
+  }
+  return out;
 }
 
 /// One sound per item.

@@ -524,4 +524,128 @@ void main() {
     expect(byWord.slotHits, '11');
     expect(byWord.soundPassN, 0);
   });
+
+  test('design/365 a spelling variant is not a missed word', () {
+    const display = 'Vanadium vapour was absorbed';
+    const spoken = 'Vanadium vapour was absorbed';
+    final spans = [
+      const FollowSpan(start: 0, end: 8, weight: 8),
+      const FollowSpan(start: 9, end: 15, weight: 6),
+      const FollowSpan(start: 16, end: 19, weight: 3),
+      const FollowSpan(start: 20, end: 28, weight: 8),
+    ];
+    // The recognizer answers in American spelling; the speaker read it right.
+    final out = diagnoseSpokenSlots(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'Vanadium vapor was absorbed',
+    );
+    expect(out.slotHits, '1111');
+    expect(out.score.hitN, 4);
+    expect(out.score.missedSpans, isEmpty);
+
+    // A real confusion still misses, so the fix did not just pass everything.
+    final real = diagnoseSpokenSlots(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'Vanadium paper was observed',
+    );
+    expect(real.score.hitN, 2);
+    expect(real.score.missedSpans, hasLength(2));
+  });
+
+  test('design/365 an element symbol may come back as its name', () {
+    const display = 'The Ni 2p peak';
+    const spoken = 'The Ni two p peak';
+    final spans = [
+      const FollowSpan(start: 0, end: 3, weight: 3),
+      const FollowSpan(start: 4, end: 6, weight: 2),
+      const FollowSpan(start: 7, end: 8, weight: 3),
+      const FollowSpan(start: 8, end: 9, weight: 1),
+      const FollowSpan(start: 10, end: 14, weight: 4),
+    ];
+    // The voice says "nickel" and the transcript writes `2p` as one token.
+    final out = diagnoseSpokenSlots(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'The nickel 2p peak',
+    );
+    expect(out.slotHits, '11111');
+    expect(out.score.missedSpans, isEmpty);
+  });
+
+  test('design/365 an apostrophe is not a slot', () {
+    const display = "Both catalysts' strengths";
+    const spoken = "Both catalysts' strengths";
+    // The aligner really does hand the apostrophe its own one-character span.
+    final spans = [
+      const FollowSpan(start: 0, end: 4, weight: 4),
+      const FollowSpan(start: 5, end: 14, weight: 9),
+      const FollowSpan(start: 14, end: 15, weight: 1),
+      const FollowSpan(start: 16, end: 25, weight: 9),
+    ];
+    final out = diagnoseSpokenSlots(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'Both catalysts strengths',
+    );
+    // Three scorable slots, not four: the lone apostrophe capped this line at
+    // three quarters however it was read.
+    expect(out.score.refN, 3);
+    expect(out.slotHits, '111');
+    expect(out.slotPieces.contains("'"), isFalse);
+  });
+
+  test('design/365 splitting a joined token does not invent words', () {
+    expect(splitDigitLetterRun('2p'), ['2', 'p']);
+    expect(splitDigitLetterRun('co2'), ['co', '2']);
+    expect(splitDigitLetterRun('nickel'), isEmpty);
+    expect(splitDigitLetterRun('0'), isEmpty);
+    expect(slotTokensScorable(["'"]), isFalse);
+    expect(slotTokensScorable(['p']), isTrue);
+  });
+  test('design/365 a possessive mark is not a sound', () {
+    const display = "Both catalysts' strengths";
+    const spoken = "Both catalysts' strengths";
+    // Here the apostrophe rides along inside the word span instead of getting
+    // one of its own, so the slot token is `catalysts'`.
+    final spans = [
+      const FollowSpan(start: 0, end: 4, weight: 4),
+      const FollowSpan(start: 5, end: 15, weight: 10),
+      const FollowSpan(start: 16, end: 25, weight: 9),
+    ];
+    final out = diagnoseSpokenSlots(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'Both catalysts strengths',
+    );
+    expect(out.score.refN, 3);
+    expect(out.slotHits, '111');
+  });
+
+  test('design/365 the review still asks for the word the voice reads', () {
+    const display = 'The 1 nm film';
+    const spoken = 'The one nanometers film';
+    final spans = [
+      const FollowSpan(start: 0, end: 3, weight: 3),
+      const FollowSpan(start: 4, end: 5, weight: 3),
+      const FollowSpan(start: 6, end: 8, weight: 10),
+      const FollowSpan(start: 9, end: 13, weight: 4),
+    ];
+    final out = diagnoseSpokenSlots(
+      display: display,
+      spoken: spoken,
+      spans: spans,
+      heard: 'The film',
+    );
+    // `one` may be claimed by a heard `1`, but the drill must not ask the
+    // reader for a digit.
+    expect(out.slotPieces, 'the | one | nanometers | film');
+    expect(out.score.missedSpans.map((s) => s.spoken), ['one', 'nanometers']);
+  });
 }

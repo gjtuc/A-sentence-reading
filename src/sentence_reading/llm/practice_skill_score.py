@@ -107,6 +107,116 @@ _FUNCTION_WORDS = frozenset(
 )
 
 
+#: design/365 — one pronunciation written two ways. The transcript comes back in
+#: whatever orthography the recognizer prefers, so a correctly read `vapour`
+#: returns as `vapor` and the slot scores zero. Mirrors `kSpellingPairs`.
+SPELLING_PAIRS: tuple[tuple[str, str], ...] = (
+    ("vapour", "vapor"),
+    ("vapours", "vapors"),
+    ("sulphur", "sulfur"),
+    ("sulphate", "sulfate"),
+    ("sulphide", "sulfide"),
+    ("aluminium", "aluminum"),
+    ("caesium", "cesium"),
+    ("colour", "color"),
+    ("behaviour", "behavior"),
+    ("favour", "favor"),
+    ("neighbour", "neighbor"),
+    ("fibre", "fiber"),
+    ("fibres", "fibers"),
+    ("centre", "center"),
+    ("centred", "centered"),
+    ("metre", "meter"),
+    ("metres", "meters"),
+    ("nanometre", "nanometer"),
+    ("nanometres", "nanometers"),
+    ("micrometre", "micrometer"),
+    ("millimetre", "millimeter"),
+    ("centimetre", "centimeter"),
+    ("kilometre", "kilometer"),
+    ("litre", "liter"),
+    ("litres", "liters"),
+    ("millilitre", "milliliter"),
+    ("millilitres", "milliliters"),
+    ("analyse", "analyze"),
+    ("analysed", "analyzed"),
+    ("analysing", "analyzing"),
+    ("catalyse", "catalyze"),
+    ("catalysed", "catalyzed"),
+    ("ionisation", "ionization"),
+    ("oxidising", "oxidizing"),
+    ("oxidised", "oxidized"),
+    ("carbonisation", "carbonization"),
+    ("polarisation", "polarization"),
+    ("isomerisation", "isomerization"),
+    ("characterisation", "characterization"),
+    ("utilise", "utilize"),
+    ("labelling", "labeling"),
+    ("modelling", "modeling"),
+    ("programme", "program"),
+    ("ageing", "aging"),
+    ("grey", "gray"),
+    ("practise", "practice"),
+    ("licence", "license"),
+    ("defence", "defense"),
+)
+
+_SPELLING_PARTNER: dict[str, str] = {}
+for _a, _b in SPELLING_PAIRS:
+    _SPELLING_PARTNER[_a] = _b
+    _SPELLING_PARTNER[_b] = _a
+
+#: design/365 — an element symbol the voice reads as the element name. The
+#: spoken text keeps `Ni` while the voice says "nickel". One-directional, or a
+#: two-letter match would let short words through. Mirrors
+#: `kElementSymbolNames`.
+ELEMENT_SYMBOL_NAMES: dict[str, str] = {
+    "ni": "nickel",
+    "pt": "platinum",
+    "fe": "iron",
+    "co": "cobalt",
+    "cu": "copper",
+    "al": "aluminium",
+    "ba": "barium",
+    "ce": "cerium",
+    "zn": "zinc",
+    "mg": "magnesium",
+    "mn": "manganese",
+    "ti": "titanium",
+    "zr": "zirconium",
+    "ru": "ruthenium",
+    "rh": "rhodium",
+    "pd": "palladium",
+    "ag": "silver",
+    "au": "gold",
+    "si": "silicon",
+}
+
+_DIGIT_LETTER_RUN = re.compile(r"^(\d+)([a-z]+)$")
+_LETTER_DIGIT_RUN = re.compile(r"^([a-z]+)(\d+)$")
+_SLOT_HAS_SOUND = re.compile(r"[^\W_]", re.UNICODE)
+
+
+def split_digit_letter_run(token: str) -> list[str]:
+    """design/365 — `2p` -> `2`, `p`; `co2` -> `co`, `2`. Empty otherwise."""
+    m = _DIGIT_LETTER_RUN.match(token) or _LETTER_DIGIT_RUN.match(token)
+    return [m.group(1), m.group(2)] if m else []
+
+
+def strip_apostrophes(token: str) -> str:
+    """design/365 — a possessive mark is not a sound. `catalysts'` -> `catalysts`."""
+    return token.replace("'", "")
+
+
+def slot_tokens_scorable(tokens: list[str]) -> bool:
+    """A slot with no letter and no digit cannot be heard.
+
+    `catalysts'` left the apostrophe as its own slot, so that line could never
+    score above two thirds no matter how it was read.
+    """
+    return any(_SLOT_HAS_SOUND.search(token) for token in tokens)
+
+
 def normalize_skill_text(text: str | None) -> str:
     if text is None:
         return ""
@@ -182,10 +292,19 @@ def spoken_slot_coverage(
     from sentence_reading.llm.phone_match import canonicalize_sound_alikes
 
     have = Counter(tokenize_skill(canonicalize_sound_alikes(heard or "")))
+    # design/365 — `Ni 2p` is read "nickel two pee" and comes back as one token
+    # `2p`, while the aligner made `2` and `p` two slots. Both pieces really were
+    # spoken, so both may be claimed from the joined token.
+    for token in list(have):
+        for piece in split_digit_letter_run(token):
+            have[piece] += have[token]
+        bare = strip_apostrophes(token)
+        if bare and bare != token:
+            have[bare] += have[token]
     hit = 0
     missed: list[dict[str, int]] = []
-    for start, end, tokens in slots:
-        if _take_spoken_slot(tokens, have):
+    for start, end, _tokens, match in slots:
+        if _take_spoken_slot(match, have):
             hit += 1
         else:
             missed.append({"start": start, "end": end})
@@ -202,7 +321,7 @@ def spoken_slot_coverage(
 
 def _spoken_slots(
     display: str, spoken: str, spans: list[dict]
-) -> list[tuple[int, int, list[str]]]:
+) -> list[tuple[int, int, list[str], list[str]]]:
     if not display or not spoken:
         return []
     scored = []
@@ -215,17 +334,27 @@ def _spoken_slots(
     if not scored:
         return []
     cursor = 0
-    out: list[tuple[int, int, list[str]]] = []
+    out: list[tuple[int, int, list[str], list[str]]] = []
     for start, end, weight in scored:
         cursor = _skip_spoken_gap(spoken, cursor)
         piece_end = cursor + weight
         if piece_end > len(spoken):
             return []
-        tokens = tokenize_skill(spoken[cursor:piece_end])
+        from sentence_reading.llm.phone_match import canonicalize_sound_alikes
+
+        piece = spoken[cursor:piece_end]
+        tokens = tokenize_skill(piece)
+        # design/365 — fold the slot side the same way as the heard side for the
+        # compare only, or a spoken `two` can only be claimed by a transcript
+        # that wrote the digit. The review still asks for the spoken word.
+        match = tokenize_skill(canonicalize_sound_alikes(piece))
         cursor = piece_end
+        if tokens and not slot_tokens_scorable(tokens):
+            # Punctuation only: consume the piece, do not open a slot for it.
+            continue
         if not tokens:
             return []
-        out.append((start, end, tokens))
+        out.append((start, end, tokens, match or tokens))
     return out
 
 
@@ -262,16 +391,31 @@ def _take_spoken_slot(tokens: list[str], have: Counter) -> bool:
 
 
 def _token_forms(token: str) -> list[str]:
-    """The same word with or without a trailing `s`.
+    """The same word with or without a trailing `s`, plus design/365 variants.
 
     `1 nm` is read as `nanometers` while a speaker says `nanometer`, and neither
-    is a mistake.
+    is a mistake. Nor is `vapor` for a correctly read `vapour`, or `nickel` for
+    the printed `Ni` the voice reads out as the element name. A possessive
+    apostrophe is not a sound at all, so `catalysts'` and `catalysts` are one
+    word.
     """
-    if len(token) < 3:
-        return [token]
-    if token.endswith("s"):
-        return [token, token[:-1]]
-    return [token, token + "s"]
+    out = [token]
+
+    def add(form: str | None) -> None:
+        if form and form not in out:
+            out.append(form)
+
+    bare = strip_apostrophes(token)
+    add(bare)
+    element = ELEMENT_SYMBOL_NAMES.get(bare)
+    add(element)
+    partner = _SPELLING_PARTNER.get(bare)
+    add(partner)
+    for base in (bare, element, partner):
+        if not base or len(base) < 3:
+            continue
+        add(base[:-1] if base.endswith("s") else base + "s")
+    return out
 
 
 def take_skill_token(token: str, have: Counter) -> bool:
