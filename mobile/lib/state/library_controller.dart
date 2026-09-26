@@ -305,6 +305,7 @@ class LibraryController extends ChangeNotifier {
         'can_merge_n': st.canMergeN,
         'skip_multi_main_n': st.skipMultiMainN,
         'skip_multi_si_n': st.skipMultiSiN,
+        'si_ambiguous_n': st.siAmbiguousN,
         'collapsed_n': collapsed.collapsedN,
         'trigger': trigger,
         'disk_index_n': next.length,
@@ -312,7 +313,10 @@ class LibraryController extends ChangeNotifier {
         'main_n_hint': mainNHint,
       },
     );
-    if (st.skipMultiMainN > 0 || st.skipMultiSiN > 0) {
+    // design/288 — only when pairing is really blocked. `skipMultiSiN` counts a
+    // key with zero SI, which is what every standalone paper looks like, so
+    // firing on it marked an ordinary library as an error on every publish.
+    if (st.skipMultiMainN > 0 || st.siAmbiguousN > 0) {
       asrEvidenceBus?.record(
         'pairing_skip_multi',
         severity: 'error',
@@ -322,6 +326,7 @@ class LibraryController extends ChangeNotifier {
         details: {
           'skip_multi_main_n': st.skipMultiMainN,
           'skip_multi_si_n': st.skipMultiSiN,
+          'si_ambiguous_n': st.siAmbiguousN,
           'keys_n': st.keysN,
           'trigger': trigger,
           'main_n_hint': mainNHint,
@@ -2323,6 +2328,9 @@ class LibraryController extends ChangeNotifier {
   }) async {
     final cid = cacheId.trim();
     if (cid.isEmpty || wantTr) return;
+    // design/364 — the sample row is English on purpose and has no translation
+    // to be missing, so "ready but no KO" is its normal state, not a mismatch.
+    if (isSampleCacheId(cid)) return;
     final raw = await _paperDisk.loadSessionJson(cid);
     if (raw == null) return;
     final sents = raw['sentences'];

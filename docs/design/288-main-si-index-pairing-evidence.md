@@ -41,7 +41,14 @@ Harmonize poll path: remote list publish without local merge; if any local-with-
 
 ### E4 — `pairing_skip_multi` (error)
 
-When `skip_multi_main_n>0` or `skip_multi_si_n>0` after pass → focused emit (`ok=false`, `code=pairing_skip_multi`).
+When `skip_multi_main_n>0` or `si_ambiguous_n>0` after pass → focused emit (`ok=false`, `code=pairing_skip_multi`).
+
+**Not `skip_multi_si_n>0`** (amended 0.3.401). That counter is "SI count ≠ 1", so it
+includes the zero case — an ordinary paper with no supplementary file. Firing on it
+made every publish of a plain library emit an error row, and the verdict it raised was
+`skip_multi_main_blocks_pair` even when no main was involved. `si_ambiguous_n` counts
+only keys with **two or more** SI, which is the case that genuinely cannot be paired.
+`skip_multi_si_n` stays in `library_pairing_pass` as a count.
 
 ### E5 — `figure_extract_done` (boundary)
 

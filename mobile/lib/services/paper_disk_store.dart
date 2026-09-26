@@ -189,13 +189,23 @@ class LocalPairingPassStats {
     this.canMergeN = 0,
     this.skipMultiMainN = 0,
     this.skipMultiSiN = 0,
+    this.siAmbiguousN = 0,
   });
 
   final int keysN;
   final int pairedN;
   final int canMergeN;
   final int skipMultiMainN;
+
+  /// Keys whose SI count is not exactly one — **including zero**, which is what
+  /// a paper with no supplementary file looks like.
   final int skipMultiSiN;
+
+  /// design/288 — keys with two or more SI, where pairing really is ambiguous.
+  ///
+  /// Split out because `skipMultiSiN` counts the ordinary standalone paper, so
+  /// raising an error on it reports every plain library as broken.
+  final int siAmbiguousN;
 }
 
 /// design/261 — Dart twin of server apply_pairing_pass (key-only, 1+1).
@@ -227,6 +237,7 @@ List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) =>
   final out = List<PaperEntry>.from(cleared);
   var skipMultiMain = 0;
   var skipMultiSi = 0;
+  var siAmbiguous = 0;
   var paired = 0;
   var canMergeN = 0;
   for (final idxs in byKey.values) {
@@ -243,6 +254,7 @@ List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) =>
     if (mainIs.length != 1 || siIs.length != 1) {
       if (mainIs.length != 1) skipMultiMain += 1;
       if (siIs.length != 1) skipMultiSi += 1;
+      if (siIs.length > 1) siAmbiguous += 1;
       continue;
     }
     final mi = mainIs.first;
@@ -313,6 +325,7 @@ List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) =>
       canMergeN: canMergeN,
       skipMultiMainN: skipMultiMain,
       skipMultiSiN: skipMultiSi,
+      siAmbiguousN: siAmbiguous,
     ),
   );
 }

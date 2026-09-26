@@ -153,4 +153,23 @@ void main() {
     final two = collapsePairedSetRows([mainPending, siPending]);
     expect(two.map((e) => e.id).toList(), ['main1', 'si1']);
   });
+
+  test('design/288 a paper with no SI is not an ambiguous pairing', () {
+    final alone = PaperEntry(id: 'p1', title: 'Paper A', docRole: 'main');
+    final other = PaperEntry(id: 'p2', title: 'Paper B', docRole: 'main');
+    final plain = applyLocalPairingPassDetailed([alone, other]).stats;
+    // Both keys have zero SI, which is what `skipMultiSiN` counts.
+    expect(plain.skipMultiSiN, 2);
+    expect(plain.skipMultiMainN, 0);
+    // Nothing here is ambiguous, so nothing may raise an error row.
+    expect(plain.siAmbiguousN, 0);
+
+    final si1 = PaperEntry(
+        id: 's1', title: 'Paper A SI', docRole: 'supplementary');
+    final si2 = PaperEntry(
+        id: 's2', title: 'Paper A SI', docRole: 'supplementary');
+    final twoSi = applyLocalPairingPassDetailed([alone, si1, si2]).stats;
+    expect(twoSi.siAmbiguousN, 1);
+    expect(twoSi.pairedN, 0);
+  });
 }

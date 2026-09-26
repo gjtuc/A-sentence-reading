@@ -133,3 +133,15 @@ def test_pair_index_verdicts_from_pass_skip_main() -> None:
         },
     ]
     assert "skip_multi_main_blocks_pair" in compute_pair_index_verdicts(events)
+
+
+def test_a_paper_with_no_supplementary_is_not_an_error() -> None:
+    """`skip_multi_si_n` counts the zero case: every standalone paper hits it."""
+    ctrl = CTRL.read_text(encoding="utf-8")
+    assert "st.skipMultiMainN > 0 || st.siAmbiguousN > 0" in ctrl
+    assert "st.skipMultiMainN > 0 || st.skipMultiSiN > 0" not in ctrl
+    assert "'si_ambiguous_n': st.siAmbiguousN" in ctrl
+    # The count itself stays on the lifecycle row (design/279 field list).
+    assert "'skip_multi_si_n': st.skipMultiSiN" in ctrl
+    design = DESIGN.read_text(encoding="utf-8")
+    assert "si_ambiguous_n" in design

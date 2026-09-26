@@ -129,6 +129,9 @@ because an unlabelled take is not a usable sample.
   such paper, so asking would only raise a banner on a working row.
 - `_open` routes to `_openSample`, which skips the reader entirely: there is no
   paper to read, and the pin has to last exactly as long as the practice screen.
+- `_emitTranslateOptoutMismatchIfNeeded` returns early. The row is English on
+  purpose and has no Korean to be missing, so design/256's "ready but empty KO"
+  check read every sentence as a silent mismatch and filed an error per open.
 
 The row is seeded by `ensureSampleRow` on uid bind, which writes `session.json`,
 the chunk plan (`status: 'ok'`), and the disk index entry, then triggers one

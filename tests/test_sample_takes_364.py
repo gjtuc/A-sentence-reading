@@ -189,6 +189,20 @@ def test_the_sidecar_keeps_the_target_chunk(monkeypatch):
     assert payload["skill_tier"] == 1
 
 
+def test_the_sample_row_is_exempt_from_the_translation_mismatch_check():
+    """English on purpose, so "ready but no KO" is its normal state."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    ctrl = (root / "mobile/lib/state/library_controller.dart").read_text(
+        encoding="utf-8"
+    )
+    decl = "Future<void> _emitTranslateOptoutMismatchIfNeeded("
+    assert decl in ctrl
+    body = ctrl.split(decl, 1)[1].split("translate_optout_mismatch", 1)[0]
+    assert "isSampleCacheId(cid)" in body
+
+
 def test_recognize_takes_the_target_from_its_own_field():
     """Practice never sends `expected`, so the sample carries its own."""
     import inspect
