@@ -103,6 +103,15 @@ only while the corpus is untouched. A separate field also keeps the take off the
 `sample_round_ok` refuses it. Keeping every practice take would be storage and a
 privacy surface for data no calibration run needs.
 
+**Takes recorded before 0.3.400 have no `expected`.** The client sent nothing and the
+route's `expected` was optional, so the sidecar has a `line_id` and no target text.
+Those takes are still usable, but only through the repo: `line_id` + `chunk_index`
+resolve against `sample_corpus.dart` **at commit `dc5a1b9`**, which is the last commit
+holding seed version 1. `r01` (44 takes, tier 0, the twelve fixed lines complete) and
+`r02` (94 takes, tier 1, the thirty seed-1 fresh lines) both need that commit, because
+`n01`–`n30` were replaced wholesale at seed version 2 and the ids now point at
+different sentences.
+
 `save_sample_take` never raises into the request path and returns one snake code for
 every skip: `bad_round`, `empty_audio`, `too_large`, `bad_line_id`, `gcs_unready`,
 `no_uid`, `audio_upload_failed`, `audio_upload_raised`, `meta_upload_failed`,
