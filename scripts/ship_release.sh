@@ -14,10 +14,17 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 _apk_running() {
-  # Best-effort: Windows tasklist / Unix pgrep.
-  if command -v tasklist >/dev/null 2>&1; then
-    tasklist 2>/dev/null | grep -qiE 'flutter|dart' || return 1
-    return 0
+  # design/291 refuses a ship that races a Gradle build. `tasklist` prints image
+  # names only, so matching `dart` there also matched the IDE analysis server and
+  # refused every ship with the editor open. Ask for command lines instead and
+  # match what design/290 P2 names: a Gradle / APK build.
+  if command -v powershell >/dev/null 2>&1; then
+    # `-notmatch Win32_Process` drops this query itself: its own command line
+    # carries the pattern, so without it the check always found a build.
+    powershell -NoProfile -Command \
+      "if (Get-CimInstance Win32_Process | Where-Object { \$_.CommandLine -match 'build_release_apk|flutter build apk|GradleDaemon' -and \$_.CommandLine -notmatch 'Win32_Process' }) { exit 0 } else { exit 1 }" \
+      >/dev/null 2>&1
+    return $?
   fi
   pgrep -f 'build_release_apk|flutter build apk' >/dev/null 2>&1
 }

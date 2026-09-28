@@ -34,3 +34,17 @@ def test_scripts_290() -> None:
     assert "ASR_SHIP_ALLOW_PARALLEL_APK" in release
     assert CHECK.is_file()
     assert "mismatch" in CHECK.read_text(encoding="utf-8")
+
+
+def test_parallel_apk_check_names_a_build_not_any_dart() -> None:
+    """The refusal must name a Gradle/APK build, not every dart process.
+
+    `tasklist` prints image names only, so matching `dart` there also matched the
+    IDE analysis server and refused every ship with the editor open.
+    """
+    release = SHIP_SH.read_text(encoding="utf-8")
+    assert "build_release_apk|flutter build apk|GradleDaemon" in release
+    assert "grep -qiE 'flutter|dart'" not in release
+    # The query's own command line carries the pattern, so it has to exclude
+    # itself or the check always finds a build.
+    assert "notmatch 'Win32_Process'" in release
