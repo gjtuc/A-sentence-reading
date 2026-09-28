@@ -244,7 +244,11 @@ SpokenSlotDiag diagnoseSpokenSlots({
       have[bare] = (have[bare] ?? 0) + 1;
     }
   }
-  final heardPhoneWords = _sliceHeardPhones(built.slots, heardPhones);
+  // design/366 — hand over the whole run of sounds. `phonesClose` walks it, so
+  // cutting it per word here only threw the tail away.
+  final heardPhoneWords = [
+    for (final phone in heardPhones) phone.trim(),
+  ].where((phone) => phone.isNotEmpty).toList();
   var hit = 0;
   var soundPassN = 0;
   final missed = <MissedWordSpan>[];
@@ -510,28 +514,6 @@ final RegExp _theirPhrase = RegExp(
 const Set<String> _theirWords = {'their', 'there', "they're"};
 final RegExp _phoneStress = RegExp("[ˈˌ.ːˑ]");
 
-List<String> _sliceHeardPhones(List<_SpokenSlot> slots, List<String> heardPhones) {
-  final cleaned = [
-    for (final phone in heardPhones) phone.trim(),
-  ].where((phone) => phone.isNotEmpty).toList();
-  if (cleaned.length != 1 || slots.length <= 1) return cleaned;
-  final flat = _phonePieces(cleaned.single);
-  if (flat.length < 2) return cleaned;
-  var index = 0;
-  final out = <String>[];
-  for (final slot in slots) {
-    final count = _phonePieces(slot.phone).length;
-    if (count <= 0 || index >= flat.length) {
-      out.add('');
-      continue;
-    }
-    final end = index + count > flat.length ? flat.length : index + count;
-    out.add(flat.sublist(index, end).join(' '));
-    index = end;
-  }
-  return out;
-}
-
 final RegExp _digitLetterRun = RegExp(r'^(\d+)([a-z]+)$');
 final RegExp _letterDigitRun = RegExp(r'^([a-z]+)(\d+)$');
 
@@ -744,15 +726,50 @@ final RegExp _phoneMark =
 
 List<String> _phonePieces(String ipa) => phoneUnits(ipa);
 
+/// Least overlap that counts as the same sound. See design/366 for the sweep.
+const double kPhoneOverlapMin = 0.72;
+
+/// Below this a target matches almost anything, so it is not judged by sound.
+const int kPhoneMinUnits = 3;
+
+/// True when [target] is heard anywhere in [heardWords].
+///
+/// design/366 — the waveform model returns one run of sounds for the whole take.
+/// Comparing a word against its own cut of that run assumed eSpeak and the model
+/// emit the same number of sounds per word. They do not, so the cut drifted
+/// further out of step with every word and a late word was compared against the
+/// wrong stretch. Walking the run instead lifted the pass rate on reads the
+/// words had already confirmed from 8% to 32% at this same threshold.
 bool phonesClose(String target, List<String> heardWords) {
   final left = _phonePieces(target);
-  if (left.length < 3) return false;
+  if (left.length < kPhoneMinUnits) return false;
+  final flat = <String>[];
   for (final heard in heardWords) {
-    final right = _phonePieces(heard);
-    if (right.isEmpty) continue;
-    if (_overlap(left, right) >= 0.72) return true;
+    flat.addAll(_phonePieces(heard));
   }
-  return false;
+  if (flat.isEmpty) return false;
+  return bestWindowOverlap(left, flat) >= kPhoneOverlapMin;
+}
+
+/// Best overlap of [left] against any stretch of [flat].
+///
+/// The stretch is tried one sound short through two sounds long: the model drops
+/// a sound less often than it splits one in two.
+double bestWindowOverlap(List<String> left, List<String> flat) {
+  final span = left.length;
+  final starts = flat.length - span + 1;
+  var best = 0.0;
+  for (var start = 0; start < (starts < 1 ? 1 : starts); start++) {
+    for (var width = span - 1; width <= span + 2; width++) {
+      if (width < 1) continue;
+      final end = start + width;
+      final right = flat.sublist(start, end > flat.length ? flat.length : end);
+      if (right.isEmpty) continue;
+      final got = _overlap(left, right);
+      if (got > best) best = got;
+    }
+  }
+  return best;
 }
 
 double _overlap(List<String> left, List<String> right) {

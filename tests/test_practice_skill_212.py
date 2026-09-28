@@ -257,3 +257,30 @@ def test_design_365_a_possessive_mark_is_not_a_sound() -> None:
     )
     assert out["ref_n"] == 3
     assert out["hit_n"] == 3
+
+
+def test_design_366_a_word_is_found_inside_the_whole_run() -> None:
+    from sentence_reading.llm.phone_match import phones_close
+
+    # The waveform model returns one run of sounds for the whole take.
+    run = "ð ə k æ t ə l ɪ s t d ɪ s p ɜ ʃ ə n w ɒ z h aɪ"
+    assert phones_close("dɪspˈɜːʃən", run) is True
+    # A word that was never read stays out, with the whole run to search.
+    assert phones_close("vənˈeɪdiəm", run) is False
+
+
+def test_design_366_a_short_target_is_not_judged_by_sound() -> None:
+    from sentence_reading.llm.phone_match import phones_close
+
+    # Two sounds match too much of anything to carry a slot.
+    assert phones_close("ðə", "ð ə k æ t") is False
+
+
+def test_design_366_the_window_allows_one_split_sound() -> None:
+    from sentence_reading.llm.phone_match import best_window_overlap
+
+    left = ["k", "æ", "t"]
+    # An extra sound inside the stretch still reads as the same word.
+    assert best_window_overlap(left, ["b", "k", "æ", "ə", "t", "s"]) >= 0.72
+    # A different word does not.
+    assert best_window_overlap(left, ["d", "ɒ", "g"]) < 0.72

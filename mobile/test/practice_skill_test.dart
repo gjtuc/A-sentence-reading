@@ -648,4 +648,27 @@ void main() {
     expect(out.slotPieces, 'the | one | nanometers | film');
     expect(out.score.missedSpans.map((s) => s.spoken), ['one', 'nanometers']);
   });
+  test('design/366 a word is found inside the whole run of sounds', () {
+    // The waveform model returns one run of sounds for the whole take.
+    const run = 'ð ə k æ t ə l ɪ s t d ɪ s p ɜ ʃ ə n w ɒ z h aɪ';
+    expect(phonesClose('dɪspˈɜːʃən', const [run]), isTrue);
+    // A word that was never read stays out, with the whole run to search.
+    expect(phonesClose('vənˈeɪdiəm', const [run]), isFalse);
+  });
+
+  test('design/366 a short target is not judged by sound', () {
+    expect(phonesClose('ðə', const ['ð ə k æ t']), isFalse);
+  });
+
+  test('design/366 the window allows one split sound', () {
+    const left = ['k', 'æ', 't'];
+    expect(
+      bestWindowOverlap(left, const ['b', 'k', 'æ', 'ə', 't', 's']),
+      greaterThanOrEqualTo(kPhoneOverlapMin),
+    );
+    expect(
+      bestWindowOverlap(left, const ['d', 'ɒ', 'g']),
+      lessThan(kPhoneOverlapMin),
+    );
+  });
 }

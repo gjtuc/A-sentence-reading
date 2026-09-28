@@ -109,13 +109,40 @@ def overlap_ratio(left: list[str], right: list[str]) -> float:
     return 1.0 - (dist[-1][-1] / float(longest))
 
 
+def best_window_overlap(left: list[str], flat: list[str]) -> float:
+    """Best overlap of `left` against any stretch of `flat`.
+
+    The stretch is tried one sound short through two sounds long: the model drops
+    a sound less often than it splits one in two.
+    """
+    span = len(left)
+    if not left or not flat:
+        return 0.0
+    best = 0.0
+    starts = max(1, len(flat) - span + 1)
+    for start in range(starts):
+        for width in range(max(1, span - 1), span + 3):
+            right = flat[start : start + width]
+            if not right:
+                continue
+            got = overlap_ratio(left, right)
+            if got > best:
+                best = got
+    return best
+
+
 def phones_close(target: str, heard: str) -> bool:
-    """True when two symbol strings are the same sound and long enough."""
+    """True when `target` is heard anywhere in `heard`.
+
+    design/366 — the waveform model returns one run of sounds for the whole take,
+    so a word has to be looked for inside that run. Comparing the run end to end
+    only worked when the take held one word.
+    """
     left = normalize_phones(target)
     right = normalize_phones(heard)
     if len(left) < _MIN_PHONES:
         return False
-    return overlap_ratio(left, right) >= _OVERLAP_MIN
+    return best_window_overlap(left, right) >= _OVERLAP_MIN
 
 
 def _espeak_ipa(exe: str, text: str) -> list[str]:
