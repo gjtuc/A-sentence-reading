@@ -14,15 +14,16 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 _apk_running() {
-  # design/291 refuses a ship that races a Gradle build. `tasklist` prints image
-  # names only, so matching `dart` there also matched the IDE analysis server and
-  # refused every ship with the editor open. Ask for command lines instead and
-  # match what design/290 P2 names: a Gradle / APK build.
+  # design/291 refuses a ship that races a Gradle build. Match a build launcher,
+  # never a long-lived helper: `tasklist` image names matched the IDE Dart
+  # analysis server, and `GradleDaemon` matched the idle daemon the last APK
+  # build left behind, which outlives that build by hours. Both refused every
+  # ship. `GradleWrapperMain` is the client that lives only while a build runs.
   if command -v powershell >/dev/null 2>&1; then
     # `-notmatch Win32_Process` drops this query itself: its own command line
     # carries the pattern, so without it the check always found a build.
     powershell -NoProfile -Command \
-      "if (Get-CimInstance Win32_Process | Where-Object { \$_.CommandLine -match 'build_release_apk|flutter build apk|GradleDaemon' -and \$_.CommandLine -notmatch 'Win32_Process' }) { exit 0 } else { exit 1 }" \
+      "if (Get-CimInstance Win32_Process | Where-Object { \$_.CommandLine -match 'build_release_apk|flutter build apk|GradleWrapperMain' -and \$_.CommandLine -notmatch 'Win32_Process' }) { exit 0 } else { exit 1 }" \
       >/dev/null 2>&1
     return $?
   fi

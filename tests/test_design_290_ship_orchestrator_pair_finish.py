@@ -36,14 +36,16 @@ def test_scripts_290() -> None:
     assert "mismatch" in CHECK.read_text(encoding="utf-8")
 
 
-def test_parallel_apk_check_names_a_build_not_any_dart() -> None:
-    """The refusal must name a Gradle/APK build, not every dart process.
+def test_parallel_apk_check_names_a_build_not_a_long_lived_helper() -> None:
+    """The refusal must name a build launcher, not a process that outlives one.
 
     `tasklist` prints image names only, so matching `dart` there also matched the
-    IDE analysis server and refused every ship with the editor open.
+    IDE analysis server. `GradleDaemon` then matched the idle daemon the previous
+    APK build leaves behind for hours. Either way every ship was refused.
     """
     release = SHIP_SH.read_text(encoding="utf-8")
-    assert "build_release_apk|flutter build apk|GradleDaemon" in release
+    # Pinning the whole pattern is what keeps a long-lived helper back out of it.
+    assert "build_release_apk|flutter build apk|GradleWrapperMain" in release
     assert "grep -qiE 'flutter|dart'" not in release
     # The query's own command line carries the pattern, so it has to exclude
     # itself or the check always finds a build.
