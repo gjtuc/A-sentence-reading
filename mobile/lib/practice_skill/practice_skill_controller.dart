@@ -122,7 +122,7 @@ class SpokenCache {
   /// made under another speak-norm version cannot be trusted, and [_key]
   /// already carries that version.
   /// Where the last [loadFromDisk] answer came from, for the evidence row:
-  /// `memory`, `disk`, `disk_no_phones`, `disk_miss`, or `memory_no_phones`.
+  /// `memory`, `disk`, or `disk_miss`.
   String lastSource = 'none';
 
   int phoneSpanN(String chunk) {
@@ -133,23 +133,14 @@ class SpokenCache {
     return n;
   }
 
-  bool _rowHasPhones(List<FollowSpan> spans) {
-    if (spans.isEmpty) return true;
-    return spans.any((span) => span.phone.trim().isNotEmpty);
-  }
+  // design/368 — a row used to be refused when it carried no symbols, because
+  // the server had failed to reach eSpeak and a phone-less row was a broken one.
+  // The server sends no symbols at all now, so refusing them would throw away
+  // every cached sentence and call the server for each one again.
 
   Future<String?> loadFromDisk(String chunk) async {
     final key = _key(chunk);
     if (_map.containsKey(key)) {
-      // A row kept in memory from before the symbols existed would otherwise be
-      // served for the rest of the session, so it is dropped here too.
-      if (!_rowHasPhones(_spans[key] ?? const [])) {
-        lastSource = 'memory_no_phones';
-        _map.remove(key);
-        _spans.remove(key);
-        _align.remove(key);
-        return null;
-      }
       lastSource = 'memory';
       return _map[key];
     }
@@ -157,10 +148,6 @@ class SpokenCache {
     final row = disk.peek(key);
     if (row == null) {
       lastSource = 'disk_miss';
-      return null;
-    }
-    if (!_rowHasPhones(row.spans)) {
-      lastSource = 'disk_no_phones';
       return null;
     }
     lastSource = 'disk';

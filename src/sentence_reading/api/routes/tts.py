@@ -67,7 +67,6 @@ def _emit_spoken_align(
     spoken: str,
     report: dict[str, object],
     spans: object,
-    phone_report: dict[str, object] | None = None,
 ) -> None:
     """Counts and a short code only. No sentence text."""
     try:
@@ -118,12 +117,6 @@ def _emit_spoken_align(
             return text
         return "none"
 
-    def _phone_num(key: str) -> int:
-        try:
-            return int((phone_report or {}).get(key) or 0)
-        except (TypeError, ValueError):
-            return 0
-
     eb_emit(
         "practice_skill_align",
         source="server",
@@ -152,15 +145,9 @@ def _emit_spoken_align(
             "matched_n": _num("matched_n", 0),
             "tail_n": _num("tail_n", 0),
             "renamed_n": _num("renamed_n", 0),
-            "phone_code": _snake((phone_report or {}).get("phone_code")),
-            "phone_word_n": _phone_num("phone_word_n"),
-            "phone_ipa_n": _phone_num("phone_ipa_n"),
-            "phone_weight_n": _phone_num("phone_weight_n"),
-            "phone_filled_n": _phone_num("phone_filled_n"),
-            "phone_repair_n": _phone_num("phone_repair_n"),
-            "phone_blank_word_n": _phone_num("phone_blank_word_n"),
-            "phone_espeak": _phone_num("phone_espeak"),
-            "phone_pairs": str((phone_report or {}).get("phone_pairs") or "")[:400],
+            # design/368 — the phone_* counts described eSpeak's reading of the
+            # spelling. There is no dictionary in this route any more.
+            "phone_code": "espeak_cut_368",
         },
     )
 
@@ -242,17 +229,10 @@ async def tts_spoken(request: Request, payload: dict = Body(...)) -> dict[str, A
         }
     report = align_display_report(raw, spoken=spoken)
     spans = report["spans"] if isinstance(report["spans"], list) else []
-    from sentence_reading.llm.phone_match import phone_assign
-
-    weights = [int(item.get("weight") or 0) for item in spans if isinstance(item, dict)]
-    phones, phone_report = phone_assign(spoken, weights)
-    phone_i = 0
-    for item in spans:
-        if not isinstance(item, dict):
-            continue
-        item["phone"] = phones[phone_i] if phone_i < len(phones) else ""
-        phone_i += 1
-    _emit_spoken_align(payload, spoken, report, spans, phone_report)
+    # design/368 — the spans no longer carry a `phone`. eSpeak read the spelling
+    # out of a dictionary, which is not the sound a voice makes, so the target
+    # sounds come from the native audio instead. See 368 for what replaces this.
+    _emit_spoken_align(payload, spoken, report, spans)
     return {
         "ok": True,
         "spoken": spoken,
@@ -274,13 +254,4 @@ async def tts_spoken(request: Request, payload: dict = Body(...)) -> dict[str, A
         "align_matched_n": report["matched_n"],
         "align_tail_n": report["tail_n"],
         "align_renamed_n": report["renamed_n"],
-        "phone_code": phone_report.get("phone_code"),
-        "phone_word_n": phone_report.get("phone_word_n"),
-        "phone_ipa_n": phone_report.get("phone_ipa_n"),
-        "phone_weight_n": phone_report.get("phone_weight_n"),
-        "phone_filled_n": phone_report.get("phone_filled_n"),
-        "phone_repair_n": phone_report.get("phone_repair_n"),
-        "phone_blank_word_n": phone_report.get("phone_blank_word_n"),
-        "phone_espeak": phone_report.get("phone_espeak"),
-        "phone_pairs": phone_report.get("phone_pairs"),
     }

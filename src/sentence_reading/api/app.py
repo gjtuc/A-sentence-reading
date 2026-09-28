@@ -3104,7 +3104,6 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
         return denied
     from sentence_reading.stt.compare import diff_tokens
     from sentence_reading.stt.recognize import recognize_english_audio
-    from sentence_reading.llm.phone_match import espeak_ipa_words
     from sentence_reading.llm.hear_waveform import hear_phones_report
 
     if not gemini_available():
@@ -3141,7 +3140,10 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
         }
     hear_report["hear_mime_ok"] = 1 if "mp4" in (mime or "").lower() else 0
     _emit_hear_row("stt_recognize", hear_report)
-    phones = waveform or " | ".join(espeak_ipa_words(heard_text))
+    # design/368 — this used to fall back to eSpeak reading the transcript aloud,
+    # which turned the sound compare into a spelling compare wearing a costume
+    # and gave no sign it had happened. An empty answer is the honest one.
+    phones = waveform
     # `expected` is optional on this route and practice does not send it, so a
     # sample take carries its own target or the sidecar has no answer key.
     _sample_expected = sample_expected if isinstance(sample_expected, str) else ""
