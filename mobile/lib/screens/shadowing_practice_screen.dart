@@ -922,10 +922,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       practiceDensity: _skill.density,
       applyDensityRateBias: bias,
     );
+    // design/367 — the rate is synthesized, so the grooming nudge has to be in
+    // the request. `_groomRateScale` is fixed for the cycle before this runs.
+    final rate = clampSpeakingRate(params.speakingRate * _groomRateScale);
     final audioKey = ttsAudioKey(
       text: text,
       voice: params.voice,
-      rate: kTtsRateDefault,
+      rate: rate,
       speakNorm: _skill.spokenCache.speakNorm,
     );
     final cachedAudio = await _ttsAudio.read(audioKey);
@@ -934,7 +937,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         : widget.client.synthesizeTts(
             text: text,
             voice: params.voice,
-            speakingRate: kTtsRateDefault,
+            speakingRate: rate,
             // design/343 — this paper's own compound names.
             cacheId: _cacheId,
           );
@@ -1058,18 +1061,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       final bytes = _chunkTtsBytes!;
       final params = _chunkTtsParams!;
       await _player.stop();
-      try {
-        final effective = clampSpeakingRate(
-          params.speakingRate * _groomRateScale,
-        );
-        await _player.setPlaybackRate(effective);
-        _heardSkillTier = widget.tts.skillTier;
-        _heardRandomAuto = widget.tts.mode == kTtsModeRandomAuto;
-        _heardVoice = params.voice;
-        _heardClientRate = effective;
-      } catch (_) {
-        // EDGE: player rate unsupported on some devices — still play.
-      }
+      // design/367 — the bytes already carry the rate. Nothing is stretched, so
+      // no player knob is touched and none can leak onto my own recording.
+      _heardSkillTier = widget.tts.skillTier;
+      _heardRandomAuto = widget.tts.mode == kTtsModeRandomAuto;
+      _heardVoice = params.voice;
+      _heardClientRate =
+          clampSpeakingRate(params.speakingRate * _groomRateScale);
       // Speak-along: lower TTS so the take is not drowned by speaker bleed.
       final vol = !headset
           ? 0.0
@@ -2076,11 +2074,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     try {
       await _player.stop();
       await _player.setVolume(_kFullTtsVolume);
-      await _player.setPlaybackRate(clampSpeakingRate(playRate));
+      // design/367 — the drill's rate goes into the request, not the player.
+      final wordRate = clampSpeakingRate(playRate);
       final wordKey = ttsAudioKey(
         text: word,
         voice: playVoice,
-        rate: kTtsRateDefault,
+        rate: wordRate,
         speakNorm: _skill.spokenCache.speakNorm,
       );
       var bytes = await _ttsAudio.read(wordKey) ?? Uint8List(0);
@@ -2089,7 +2088,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             .synthesizeTts(
               text: word,
               voice: playVoice,
-              speakingRate: kTtsRateDefault,
+              speakingRate: wordRate,
               cacheId: _cacheId,
             )
             .timeout(kMissReviewWordTimeout);

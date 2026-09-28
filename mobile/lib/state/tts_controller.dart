@@ -252,12 +252,9 @@ class TtsController extends ChangeNotifier {
   }
 
   Future<void> setRate(double value) async {
+    // design/367 — the rate goes to the synthesizer on the next play. Nothing is
+    // stretched here, so there is no player knob to set.
     rate = clampSpeakingRate(value);
-    try {
-      await _player.setPlaybackRate(rate);
-    } catch (_) {
-      // EDGE: player not ready
-    }
     try {
       final p = await _readyPrefs();
       await p.setDouble(kTtsRatePrefsKey, rate);
@@ -351,15 +348,14 @@ class TtsController extends ChangeNotifier {
       final Uint8List bytes = await _client.synthesizeTts(
         text: text,
         voice: params.voice,
-        // Server ignores rate for cache; always request native 1.0.
-        speakingRate: kTtsRateDefault,
+        // design/367 — ask for the rate; the voice speaks at it.
+        speakingRate: params.speakingRate,
         // design/343 — the open paper's own compound names.
         cacheId: _library.session?.cacheId,
       );
       if (bytes.isEmpty) {
         throw AsrApiException('empty audio body', 502);
       }
-      await _player.setPlaybackRate(clampSpeakingRate(params.speakingRate));
       await _player.play(BytesSource(bytes, mimeType: 'audio/mpeg'));
       playing = true;
     } on AsrApiException catch (e) {

@@ -19,6 +19,18 @@ from sentence_reading.llm.tts_speak_policy import speak_norm_version
 # 논문 영어 기본 — UI에서 변경 가능
 _DEFAULT_VOICE = "en-US-Neural2-D"
 _DEFAULT_RATE = 1.0
+
+# design/367 — 구글이 받아주는 범위는 0.25~4.0. 사다리는 0.50~2.00 안에 있다.
+TTS_RATE_MIN = 0.5
+TTS_RATE_MAX = 2.2
+
+
+def clamp_speaking_rate(rate: float | None) -> float:
+    try:
+        value = float(_DEFAULT_RATE if rate is None else rate)
+    except (TypeError, ValueError):
+        return _DEFAULT_RATE
+    return max(TTS_RATE_MIN, min(TTS_RATE_MAX, value))
 _VOICE_CHOICES = (
     ("en-US-Neural2-A", "en-US Neural2 A (여성)"),
     ("en-US-Neural2-C", "en-US Neural2 C (여성)"),
@@ -94,11 +106,12 @@ def tts_cache_dir() -> Path:
 
 
 def cache_key(text: str, voice: str, rate: float = 1.0) -> str:
-    # WHY: 배속은 클라이언트 — 캐시 키는 정속(1.0) 기준
+    # design/367: 배속이 합성에 들어가므로 키에도 들어간다. 랜덤 목소리 + 한두 번
+    # 읽고 버리는 문장이라 (문장, 목소리) 자체가 거의 겹치지 않고, 배속을 키에
+    # 넣어 잃는 히트는 사실상 없다.
     # design/205: speak_norm_version busts GCS when spoken rules change
-    _ = rate
     ver = speak_norm_version()
-    raw = f"{ver}|{voice}|1.00|{text}".encode("utf-8")
+    raw = f"{ver}|{voice}|{clamp_speaking_rate(rate):.2f}|{text}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:24]
 
 
@@ -151,8 +164,8 @@ def _language_code(voice_name: str) -> str:
     return "en-US"
 
 
-def _synthesize_uncached(plain: str, voice_name: str) -> bytes:
-    """Cloud TTS — 항상 정속(1.0)."""
+def _synthesize_uncached(plain: str, voice_name: str, rate: float) -> bytes:
+    """Cloud TTS. design/367 — the rate is synthesized, not stretched afterwards."""
     from google.cloud import texttospeech
 
     client = _client()
@@ -163,7 +176,7 @@ def _synthesize_uncached(plain: str, voice_name: str) -> bytes:
     )
     audio_config = texttospeech.AudioConfig(
         audio_encoding=texttospeech.AudioEncoding.MP3,
-        speaking_rate=1.0,
+        speaking_rate=clamp_speaking_rate(rate),
     )
     response = client.synthesize_speech(
         input=synthesis_input,
@@ -180,13 +193,15 @@ def synthesize_mp3(
     speaking_rate: float | None = None,
 ) -> bytes:
     """
-    plain text → MP3 bytes (정속 캐시).
-    speaking_rate 인자는 호환용으로 받지만 합성에는 쓰지 않음 —
-    배속은 프론트 WSOLA / playbackRate.
+    plain text → MP3 bytes.
+
+    design/367 — 배속은 구글이 그 속도로 발음해서 준다. 받은 정속 음성을 늘리는
+    방식은 음질을 깎고, 늘리는 손잡이가 플레이어에 남아 있으면 내 녹음 재생에까지
+    새어 나간다.
 
     캐시 순서: 로컬 디스크 → GCS download → Cloud 합성 → 로컬+GCS put.
     """
-    _ = speaking_rate  # API 호환 — 의도적 미사용
+    rate = clamp_speaking_rate(speaking_rate)
     plain = (text or "").strip()
     if not plain:
         raise ValueError("empty_text")
@@ -199,7 +214,7 @@ def synthesize_mp3(
     if not tts_available():
         raise RuntimeError("tts_credentials_missing")
 
-    key = cache_key(plain, voice_name, 1.0)
+    key = cache_key(plain, voice_name, rate)
     cache_path = tts_cache_dir() / f"{key}.mp3"
     try:
         if cache_path.is_file() and cache_path.stat().st_size > 0:
@@ -211,7 +226,7 @@ def synthesize_mp3(
     if remote:
         return remote
 
-    audio = _synthesize_uncached(plain, voice_name)
+    audio = _synthesize_uncached(plain, voice_name, rate)
     try:
         from sentence_reading.llm.usage_meter import record
 

@@ -412,6 +412,9 @@
 | 361 | [361-the-page-says-which-way-up.md](361-the-page-says-which-way-up.md) | 페이지가 방향을 말한다 — 글줄 진행 벡터로 눕혀진 쪽 시계방향 교정(`/Rotate`는 0) · 논문이 `(Continued)`라 쓴 표를 한 칸에 이어붙여 6페이지 전부 렌더 · 화소 예산은 낮은 배율로 (0.3.357) |
 | 362 | [362-two-label-styles.md](362-two-label-styles.md) | 라벨 두 표기법 · Scheme은 Figure가 아니다 — `Supplementary Fig. 1`도 `Figure S1`과 같은 칸으로 읽음(Nature 보충 52칸이 전부 빔) · 본문의 `Supplementary Fig. 13`이 만들던 허깨비 본문 칸 13개 제거 · `Scheme N`에 독립 칸 · 감사 도구가 `role`을 넘기지 않아 보충 13편을 본 논문으로 재던 것 수정 · 빈 칸 56→0 (0.3.358) |
 | 363 | [363-cover-above-title.md](363-cover-above-title.md) | 표지는 제목 위에 있다 — SI는 제목보다 위의 표지 문구이거나 파일 이름의 SI 토큰. 본문에서 supplementary를 찾는 규칙은 폐기 (0.3.359) |
+| 367 | [367-ask-google-for-the-speed.md](367-ask-google-for-the-speed.md) | 배속은 구글이 그 속도로 발음해서 준다 — 로컴 배속 제거 (0.3.404) |
+| 366 | [366-hear-the-word-inside-the-run.md](366-hear-the-word-inside-the-run.md) | 단어를 소리 전자 안에서 찾는다 — 단어별 자르기 폐기 (0.3.403) |
+| 365 | [365-score-the-sound-not-the-spelling.md](365-score-the-sound-not-the-spelling.md) | 처자가 아니라 소리를 채점한다 — vapour·Ni·2p (0.3.402) |
 | 262 | [262-documents-mirror.md](262-documents-mirror.md) | Documents/문장읽기 mirror design lock (impl 264/268–270) |
 | 264 | [264-documents-mirror-mes-channel.md](264-documents-mirror-mes-channel.md) | Documents mirror MES channel (0.3.265) |
 | 268 | [268-documents-mirror-write.md](268-documents-mirror-write.md) | Mirror write triggers (0.3.265) |

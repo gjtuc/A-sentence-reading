@@ -124,3 +124,35 @@ def test_html_asset_bust_tracks_app_version() -> None:
     with TestClient(app) as client:
         html = client.get("/").text
     assert f"app.js?v={app_version()}" in html
+def test_design_367_rate_is_synthesized_not_stretched() -> None:
+    """The speed comes from Google, so it is in the key and in the request."""
+    from sentence_reading.llm.tts import (
+        TTS_RATE_MAX,
+        TTS_RATE_MIN,
+        cache_key,
+        clamp_speaking_rate,
+    )
+
+    assert clamp_speaking_rate(None) == 1.0
+    assert clamp_speaking_rate("nope") == 1.0
+    assert clamp_speaking_rate(0.1) == TTS_RATE_MIN
+    assert clamp_speaking_rate(9.0) == TTS_RATE_MAX
+    # Same text and voice at two speeds is two different recordings.
+    slow = cache_key("a thin film", "en-US-Neural2-D", 0.75)
+    fast = cache_key("a thin film", "en-US-Neural2-D", 1.60)
+    assert slow != fast
+    assert slow == cache_key("a thin film", "en-US-Neural2-D", 0.75)
+
+    src = (ROOT / "src" / "sentence_reading" / "llm" / "tts.py").read_text(
+        encoding="utf-8"
+    )
+    assert "speaking_rate=clamp_speaking_rate(rate)" in src
+
+
+def test_design_367_no_local_playback_stretch_remains() -> None:
+    """A leftover player knob is how the rate leaked onto my own recording."""
+    for path in MOBILE.joinpath("lib").rglob("*.dart"):
+        text = path.read_text(encoding="utf-8")
+        assert "setPlaybackRate" not in text, f"local stretch back in {path}"
+    doc = ROOT / "docs" / "design" / "367-ask-google-for-the-speed.md"
+    assert doc.is_file()

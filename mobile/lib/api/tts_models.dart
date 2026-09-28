@@ -6,7 +6,7 @@ library;
 
 import 'dart:math';
 
-/// Server voices advertise 0.5–2.2; clamp before setPlaybackRate.
+/// Server voices advertise 0.5–2.2; clamp before asking for synthesis.
 const double kTtsRateMin = 0.5;
 const double kTtsRateMax = 2.2;
 const double kTtsRateDefault = 1.0;
