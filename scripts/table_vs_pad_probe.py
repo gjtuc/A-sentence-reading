@@ -58,6 +58,9 @@ MODES = [
     ("table", 10),
     ("table", 25),
 ]
+if '--sweep' in sys.argv:
+    # Is 25ms the limit, or is a word still short at 25 rescued by widening more?
+    MODES = [('pad', p) for p in (25, 40, 60, 80, 120)]
 
 
 def load_table(min_n: int = 2) -> tuple[dict[str, float], float]:
@@ -117,7 +120,7 @@ def main() -> int:
 
     print(f"\nreference {REF_VOICE}, reading {READ_VOICE}")
     print(f"threshold {_OVERLAP_MIN}, floor {_MIN_PHONES} sounds, "
-          f"{sum(len(r['cuts'][f'pad0']) for r in refs)} words per mode")
+          f"{sum(len(r['cuts'][f'{MODES[0][0]}{MODES[0][1]}']) for r in refs)} words per mode")
     print(f"\n{'mode':<10}{'judged':>8}{'correct pass':>14}{'wrong pass':>12}"
           f"{'ref len':>9}")
     summary, rows = {}, []
