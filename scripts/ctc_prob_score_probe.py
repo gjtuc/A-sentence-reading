@@ -41,6 +41,12 @@ import importlib  # noqa: E402
 
 wide = importlib.import_module("timing_spread_probe")
 
+SHOW = [
+    ("The light passes through the water without loss.", "loss", "lost"),
+    ("The single cell performance was stable for one hundred hours.",
+     "stable", "table"),
+]
+
 BREAK = 100
 PAD = 25
 
@@ -88,6 +94,74 @@ def sure_per_word(m, sheet, refs: list[list[str]]):
     ]
 
 
+def nm(sym: str) -> str:
+    """A console-safe name for a sound. The Windows console cannot print IPA."""
+    import unicodedata
+
+    return "-".join(
+        unicodedata.name(c, "U%04X" % ord(c)).split()[-1] for c in sym
+    )
+
+
+def _per_sound(m, sheet, refs, which: int):
+    """The certainty the alignment gave each single sound of one word."""
+    import torchaudio.functional as F
+
+    ids = {s: i for i, s in m.inv.items()}
+    flat, owner = [], []
+    for i, syms in enumerate(refs):
+        for s in syms:
+            if s in ids:
+                flat.append(ids[s])
+                owner.append(i)
+    targets = m.torch.tensor([flat], dtype=m.torch.int32)
+    aligned, score = F.forced_align(sheet.unsqueeze(0), targets, blank=m.pad)
+    spans = F.merge_tokens(aligned[0], score[0].exp(), blank=m.pad)
+    return [
+        (m.inv[flat[k]], float(spans[k].score))
+        for k in range(len(flat))
+        if owner[k] == which
+    ]
+
+
+def show(m, pick):
+    """Walk one word sound by sound, so the numbers can be read by hand."""
+    for sent, target, wrong in pick:
+        ssml, words = ssml_broken(sent, BREAK)
+        raw, times = synth_voice(ssml, REF_VOICE)
+        pcm, rate = pcm_from_wav(raw)
+        clean = cut_own(
+            m, m.run(pcm, rate), words, times, rate, PAD, len(pcm) / rate
+        )
+        refs = [list(syms) for _w, syms in clean]
+        said = sent.replace(target, wrong, 1)
+        raw2, _t = synth_voice(f"<speak>{said}</speak>", READ_VOICE)
+        pcm2, rate2 = pcm_from_wav(raw2)
+        sheet = logprobs(m, pcm2, rate2)
+        heard = m.run(pcm2, rate2)
+        sure = sure_per_word(m, sheet, refs)
+        run = units(s["sym"] for s in heard)
+
+        i = [w.lower() for w, _s in clean].index(target.lower())
+        ref = units(refs[i])
+        cert, f0, f1 = sure[i]
+        here = [s for s in heard if f0 <= (s["f0"] + s["f1"]) / 2 < f1]
+        over = max(0, len(here) - len(ref))
+        print(f"\n{target} read as {wrong}   in: {sent}")
+        print(f"  reference sounds ({len(ref)}): {' '.join(nm(u) for u in ref)}")
+        print(f"  take has there   ({len(here)}): "
+              f"{' '.join(nm(s['sym']) for s in here)}")
+        print(f"  frames {f0}..{f1} = {m.s(f0, rate2):.2f}s..{m.s(f1, rate2):.2f}s")
+        print("  sure of each reference sound, in order:")
+        for k, one in enumerate(_per_sound(m, sheet, refs, i)):
+            print(f"    {k + 1:>2}. {nm(one[0]):<14} {one[1]:.3f}")
+        print(f"  average sure         {cert:.3f}")
+        print(f"  said more than asked {over} -> minus {over / len(ref):.3f}")
+        print(f"  new score            {cert - over / len(ref):.3f}")
+        print(f"  today score          {best_window_overlap(ref, run):.3f}")
+    return 0
+
+
 def keep_line(correct: list[float], keep: float = 0.90) -> float:
     """The pass line that lets through `keep` of the correct readings."""
     if not correct:
@@ -99,6 +173,8 @@ def keep_line(correct: list[float], keep: float = 0.90) -> float:
 
 def main() -> int:
     m = wide.M()
+    if "--show" in sys.argv:
+        return show(m, SHOW)
     print(f"blank id {m.pad}, vocab {len(m.inv)}")
 
     rows = []
