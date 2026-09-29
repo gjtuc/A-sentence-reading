@@ -2691,7 +2691,9 @@ throw AsrApiException(
     }
   }
 
-  /// design/212 — POST /api/stt/recognize (interim cloud). Returns heard only.
+  /// design/370 — POST /api/stt/recognize. Returns the run of sounds the
+  /// waveform model heard. No transcript is made: a word is judged against the
+  /// native voice's own sounds, not against letters a model typed.
   Future<String?> recognizePracticeTake({
     required List<int> bytes,
     required String mime,
@@ -2716,13 +2718,12 @@ throw AsrApiException(
     final res = await http.Response.fromStream(streamed);
     final map = _decodeObject(res, 'stt/recognize');
     if (map['ok'] != true) return null;
-    final heard = '${map['heard'] ?? ''}'.trim();
     lastHeardPhones = '${map['heard_phones'] ?? ''}'.trim();
     lastWaveformPhones = (map['waveform_phones'] as num?)?.toInt() ?? -1;
-    lastFillerDropped = (map['filler_dropped'] as num?)?.toInt() ?? -1;
+    lastFillerDropped = -1;
     lastHearCode = '${map['hear_code'] ?? 'none'}'.trim();
     lastHearDetail = '${map['hear_detail'] ?? 'none'}'.trim();
-    return heard.isEmpty ? null : heard;
+    return lastHeardPhones.isEmpty ? null : lastHeardPhones;
   }
 
 

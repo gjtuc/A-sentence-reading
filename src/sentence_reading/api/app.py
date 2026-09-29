@@ -3098,16 +3098,16 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
     tts_voice: str = Form(""),
     tts_rate: float = Form(0.0),
 ) -> dict:
-    """연습 오디오 → 영어 전사 (+선택 compare). 점수 없음 (design/38)."""
+    """연습 오디오 → 발음 기호 (CTC). 전사·점수 없음 (design/370)."""
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
-    from sentence_reading.stt.compare import diff_tokens
-    from sentence_reading.stt.recognize import recognize_english_audio
     from sentence_reading.llm.hear_waveform import hear_phones_report
 
-    if not gemini_available():
-        return {"ok": False, "error": "gemini_unavailable"}
+    # design/370 — the sounds are what this route is for, and the waveform model
+    # needs nothing from Gemini to produce them. It used to run behind a Gemini
+    # gate and an early return, so a Gemini outage took the sounds down with it
+    # even though Gemini had no part in making them.
     try:
         data = await file.read()
     except Exception as exc:  # noqa: BLE001
@@ -3117,17 +3117,6 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
             "message": str(exc)[:200],
         }
     mime = file.content_type or "application/octet-stream"
-    try:
-        result = await asyncio.to_thread(recognize_english_audio, data, mime)
-    except Exception as exc:  # noqa: BLE001
-        return {
-            "ok": False,
-            "error": "recognize_failed",
-            "message": str(exc)[:200],
-        }
-    if not result.get("ok"):
-        return result
-    heard_text = result.get("heard") or ""
     waveform = ""
     hear_report: dict = {"hear_code": "call_failed", "hear_detail": "none"}
     try:
@@ -3153,7 +3142,9 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
         data=data,
         mime=mime,
         expected=_sample_expected,
-        heard=heard_text,
+        # design/370 — no transcript is made any more. The sidecar keeps the
+        # field so the 619 takes already in the bucket stay readable.
+        heard="",
         phones=phones,
         hear_report=hear_report,
         sample_round=sample_round,
@@ -3166,21 +3157,14 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
     )
     out: dict = {
         "ok": True,
-        "heard": heard_text,
         "heard_phones": phones,
-        "engine": result.get("engine") or "gemini",
+        "engine": "wav2vec2_ctc",
         "waveform_phones": 1 if waveform else 0,
         "hear_code": str(hear_report.get("hear_code") or "none"),
         "hear_detail": str(hear_report.get("hear_detail") or "none"),
-        "filler_dropped": int(result.get("filler_dropped") or 0),
     }
-    exp = expected if isinstance(expected, str) else ""
-    if exp.strip():
-        cmp = diff_tokens(exp, out["heard"])
-        if cmp.get("ok"):
-            assert "score" not in cmp
-        out["compare"] = cmp
     assert "score" not in out
+    assert "heard" not in out
     return out
 
 

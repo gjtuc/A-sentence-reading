@@ -554,22 +554,26 @@ class PracticeSkillController {
       return null;
     }
     final sttSw = Stopwatch()..start();
-    String? heard;
+    // design/370 — what comes back is the run of sounds the waveform model
+    // heard, not a transcript. This stage still reports, so the sensor keeps
+    // saying whether the recording could be read at all.
+    String? heardSounds;
     try {
-      heard = await c.recognizePracticeTake(
+      heardSounds = await c.recognizePracticeTake(
         bytes: takeBytes,
         mime: mime,
         sampleTag: sampleTag,
       );
       sttSw.stop();
+      final gotSounds = heardSounds != null && heardSounds.trim().isNotEmpty;
       await evidence.emit(
         kind: 'practice_skill_stt',
         cacheId: _cacheId,
-        ok: heard != null && heard.trim().isNotEmpty,
-        code: (heard != null && heard.trim().isNotEmpty) ? 'stt_ok' : 'stt_empty',
+        ok: gotSounds,
+        code: gotSounds ? 'stt_ok' : 'stt_empty',
         details: {
           'phase': 'stt',
-          'engine': 'gemini',
+          'engine': 'wav2vec2_ctc',
           'stt_ms': sttSw.elapsedMilliseconds,
           'take_bytes': takeBytes.length,
           'chunk_index': _chunkIndex,
@@ -583,9 +587,7 @@ class PracticeSkillController {
           'waveform_phones': c.lastWaveformPhones,
           'hear_code': c.lastHearCode,
           'hear_detail': c.lastHearDetail,
-          'filler_dropped': c.lastFillerDropped,
-          if (heard != null && heard.trim().isNotEmpty)
-            'stt_heard': heard.trim(),
+          if (gotSounds) 'heard_phones': heardSounds.trim(),
         },
       );
     } catch (_) {
@@ -597,7 +599,7 @@ class PracticeSkillController {
         code: 'stt_fail',
         details: {
           'phase': 'stt',
-          'engine': 'gemini',
+          'engine': 'wav2vec2_ctc',
           'stt_ms': sttSw.elapsedMilliseconds,
           'take_bytes': takeBytes.length,
           'chunk_index': _chunkIndex,
@@ -618,7 +620,7 @@ class PracticeSkillController {
       );
       return null;
     }
-    if (heard == null || heard.trim().isEmpty) {
+    if (heardSounds == null || heardSounds.trim().isEmpty) {
       await evidence.emit(
         kind: 'practice_skill_unscored',
         cacheId: _cacheId,
@@ -636,7 +638,6 @@ class PracticeSkillController {
       display: chunkDisplay,
       spoken: spoken,
       spans: spokenCache.peekSpans(chunkDisplay),
-      heard: heard,
       heardPhones: (c.lastHeardPhones)
           .split('|')
           .map((part) => part.trim())
@@ -659,7 +660,7 @@ class PracticeSkillController {
         'slot_n': score.refN,
         'display_chars': chunkDisplay.length,
         'spoken_chars': spoken.length,
-        'heard_chars': (heard ?? '').trim().length,
+        'heard_chars': (heardSounds ?? '').trim().length,
         'walk_i': diag.walkI,
         'piece_weight': diag.pieceWeight,
         'remain': diag.remain,
@@ -787,10 +788,7 @@ class PracticeSkillController {
   /// Wrong-word review. Keeps the expected line, the heard line, and each piece.
   Future<void> noteMissReview({
     required String expected,
-    required String? heard,
     required bool matched,
-    required String pieces,
-    required String hits,
     required int attempt,
     required int wordIndex,
     String drillPhones = '',
@@ -814,8 +812,6 @@ class PracticeSkillController {
         'matched': matched ? 1 : 0,
         'chunk_index': _chunkIndex,
         'spoken_line': expected,
-        'slot_pieces': pieces,
-        'slot_hits': hits,
         'drill_phone_n': drillPhones.trim().isEmpty
             ? 0
             : drillPhones.trim().split(RegExp(r'\s+')).length,
@@ -834,7 +830,7 @@ class PracticeSkillController {
         'source_has_word':
             sourceChunk.contains(expected.trim()) ? 1 : 0,
         if (drillPhones.trim().isNotEmpty) 'target_phones': drillPhones.trim(),
-        if (heard != null && heard.trim().isNotEmpty) 'stt_heard': heard.trim(),
+        if (heardPhones.trim().isNotEmpty) 'heard_phones': heardPhones.trim(),
       },
     );
   }

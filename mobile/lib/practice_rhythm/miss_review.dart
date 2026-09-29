@@ -65,81 +65,17 @@ int missReviewTier(int applied) {
   return n;
 }
 
-/// True when every spoken piece of [expected] was heard, including function words.
-bool missReviewHeardMatches({required String expected, required String? heard}) {
-  return traceMissReview(expected: expected, heard: heard).matched;
-}
-
 /// The heard symbols grouped the way the server sent them, one group per word.
 List<String> missReviewHeardPhoneWords(String heardPhones) => [
       for (final part in heardPhones.split('|'))
         if (part.trim().isNotEmpty) part.trim(),
     ];
 
-/// True when the transcript is far longer than the word that was asked for.
-///
-/// The review plays one word. A whole sentence coming back is the recognizer
-/// writing the paper from memory, so it says nothing about what was spoken.
-bool missReviewHeardTooLong({required String expected, required String? heard}) {
-  final want = tokenizeSkill(expected).length;
-  final got = tokenizeSkill(heard ?? '').length;
-  if (want <= 0 || got <= 0) return false;
-  return got > want + 3 && got > want * 3;
-}
-
-/// What the review compare saw: the expected pieces and a 1/0 for each.
-MissReviewTrace traceMissReview({
-  required String expected,
-  required String? heard,
-}) {
-  final ref = tokenizeSkill(canonicalizeSoundAlikes(expected));
-  final have = <String, int>{};
-  for (final token in tokenizeSkill(canonicalizeSoundAlikes(heard))) {
-    have[token] = (have[token] ?? 0) + 1;
-  }
-  if (ref.length >= 2 &&
-      ref.every((token) => token.length == 1 && _reviewLetter.hasMatch(token))) {
-    final joined = ref.join();
-    if ((have[joined] ?? 0) > 0) {
-      return MissReviewTrace(
-        pieces: ref.join(' | '),
-        hits: '1' * ref.length,
-        matched: true,
-      );
-    }
-  }
-  final marks = StringBuffer();
-  var matched = ref.isNotEmpty;
-  for (final token in ref) {
-    // Same rule as the speak phase: a digit folds with its number word and a
-    // trailing `s` is not a mistake.
-    if (takeSkillToken(token, have) == 0) {
-      matched = false;
-      marks.write('0');
-      continue;
-    }
-    marks.write('1');
-  }
-  return MissReviewTrace(
-    pieces: ref.join(' | '),
-    hits: marks.toString(),
-    matched: matched,
-  );
-}
-
-final RegExp _reviewLetter = RegExp(r'^\p{L}$', unicode: true);
-
-class MissReviewTrace {
-  const MissReviewTrace({
-    required this.pieces,
-    required this.hits,
-    required this.matched,
-  });
-
-  final String pieces;
-  final String hits;
-  final bool matched;
-}
+// design/370 — `missReviewHeardMatches`, `missReviewHeardTooLong`,
+// `traceMissReview` and the `MissReviewTrace` they filled compared the asked-for
+// word against a transcript. The review judges by sound now, so there is no
+// transcript to compare and no need for the length gate that caught a recognizer
+// writing the whole sentence from memory.
 
 /// The sounds inside one word that did not line up with the target.
 ///

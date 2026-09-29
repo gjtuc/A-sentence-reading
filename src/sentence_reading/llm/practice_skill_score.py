@@ -236,48 +236,27 @@ def tokenize_skill(text: str | None) -> list[str]:
     return n.split(" ")
 
 
-def content_words(text: str | None) -> list[str]:
-    return [w for w in tokenize_skill(text) if w and w not in _FUNCTION_WORDS]
+# design/370 - content_words and content_word_coverage were the design/212 v1
+# scorer. Both counted words in a transcript, which is the question this app
+# stopped asking. Nothing on the live path called either one.
 
 
-def content_word_coverage(expected_spoken: str | None, heard: str | None) -> dict:
-    """Order-insensitive multiset coverage of content words.
-
-    accuracy = covered / |ref|. Insertions in heard do not reduce score.
-    """
-    ref = content_words(expected_spoken)
-    hyp = content_words(heard)
-    if not ref:
-        return {
-            "ok": False,
-            "error": "empty_content_ref",
-            "accuracy": None,
-            "ref_n": 0,
-            "hit_n": 0,
-            "list_v": CONTENT_WORD_LIST_V,
-        }
-    need = Counter(ref)
-    have = Counter(hyp)
-    hit = 0
-    for w, n in need.items():
-        hit += min(n, have.get(w, 0))
-    acc = hit / float(len(ref))
-    return {
-        "ok": True,
-        "accuracy": round(acc, 4),
-        "ref_n": len(ref),
-        "hit_n": hit,
-        "list_v": CONTENT_WORD_LIST_V,
-    }
+SOUND_REF_MISSING = "sound_ref_missing"
 
 
 def spoken_slot_coverage(
     display: str | None,
     spoken: str | None,
     spans: list[dict],
-    heard: str | None,
+    heard_phones: str | None = None,
 ) -> dict:
-    """One printed token is one slot. Every spoken piece of that token must be heard."""
+    """One printed token is one slot, judged against the reference sounds.
+
+    design/370 — the transcript compare is gone. It asked whether a model typed
+    the same letters, which is a different question from whether the word was
+    pronounced. A slot now carries the sounds the native voice makes, and the
+    take carries the sounds the waveform model heard.
+    """
     slots = _spoken_slots(display or "", spoken or "", spans)
     if not slots:
         return {
@@ -289,22 +268,24 @@ def spoken_slot_coverage(
             "list_v": 2,
             "missed": [],
         }
-    from sentence_reading.llm.phone_match import canonicalize_sound_alikes
+    if not any(phone.strip() for _s, _e, _t, phone in slots):
+        # No reference to compare against. Saying "all wrong" would be a lie.
+        return {
+            "ok": False,
+            "error": SOUND_REF_MISSING,
+            "accuracy": None,
+            "ref_n": 0,
+            "hit_n": 0,
+            "list_v": 2,
+            "missed": [],
+        }
+    from sentence_reading.llm.phone_match import phones_close
 
-    have = Counter(tokenize_skill(canonicalize_sound_alikes(heard or "")))
-    # design/365 — `Ni 2p` is read "nickel two pee" and comes back as one token
-    # `2p`, while the aligner made `2` and `p` two slots. Both pieces really were
-    # spoken, so both may be claimed from the joined token.
-    for token in list(have):
-        for piece in split_digit_letter_run(token):
-            have[piece] += have[token]
-        bare = strip_apostrophes(token)
-        if bare and bare != token:
-            have[bare] += have[token]
+    heard = heard_phones or ""
     hit = 0
     missed: list[dict[str, int]] = []
-    for start, end, _tokens, match in slots:
-        if _take_spoken_slot(match, have):
+    for start, end, _tokens, phone in slots:
+        if phones_close(phone, heard):
             hit += 1
         else:
             missed.append({"start": start, "end": end})
@@ -321,7 +302,8 @@ def spoken_slot_coverage(
 
 def _spoken_slots(
     display: str, spoken: str, spans: list[dict]
-) -> list[tuple[int, int, list[str], list[str]]]:
+) -> list[tuple[int, int, list[str], str]]:
+    """Slots as `(start, end, tokens, reference sounds)`. design/370."""
     if not display or not spoken:
         return []
     scored = []
@@ -330,31 +312,25 @@ def _spoken_slots(
         start = int(span.get("start") or 0)
         end = int(span.get("end") or 0)
         if weight > 0 and 0 <= start < end <= len(display):
-            scored.append((start, end, weight))
+            scored.append((start, end, weight, str(span.get("phone") or "")))
     if not scored:
         return []
     cursor = 0
-    out: list[tuple[int, int, list[str], list[str]]] = []
-    for start, end, weight in scored:
+    out: list[tuple[int, int, list[str], str]] = []
+    for start, end, weight, phone in scored:
         cursor = _skip_spoken_gap(spoken, cursor)
         piece_end = cursor + weight
         if piece_end > len(spoken):
             return []
-        from sentence_reading.llm.phone_match import canonicalize_sound_alikes
-
         piece = spoken[cursor:piece_end]
         tokens = tokenize_skill(piece)
-        # design/365 — fold the slot side the same way as the heard side for the
-        # compare only, or a spoken `two` can only be claimed by a transcript
-        # that wrote the digit. The review still asks for the spoken word.
-        match = tokenize_skill(canonicalize_sound_alikes(piece))
         cursor = piece_end
         if tokens and not slot_tokens_scorable(tokens):
             # Punctuation only: consume the piece, do not open a slot for it.
             continue
         if not tokens:
             return []
-        out.append((start, end, tokens, match or tokens))
+        out.append((start, end, tokens, phone))
     return out
 
 

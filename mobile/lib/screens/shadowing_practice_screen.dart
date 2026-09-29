@@ -2150,7 +2150,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       if (!await file.exists()) return MissReviewHear.missed;
       final bytes = await file.readAsBytes();
       if (bytes.isEmpty) return MissReviewHear.missed;
-      final heard = await widget.client
+      await widget.client
           .recognizePracticeTake(bytes: bytes, mime: 'audio/mp4')
           .timeout(kMissReviewSttWait);
       if (!_reviewAlive(token)) return MissReviewHear.skip;
@@ -2160,33 +2160,25 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           ? item.phone.trim()
           : _skill.spokenCache
               .phonesForWordIn(sentence: chunkDisplay, word: item.printed);
-      final invented = missReviewHeardTooLong(expected: word, heard: heard);
-      final trace = traceMissReview(
-        expected: word,
-        heard: invented ? null : heard,
-      );
       final heardPhone = widget.client.lastHeardPhones;
-      // The speak phase passes a slot on the word or on its sound. The review
-      // asks for the same word, so it passes on the same two grounds.
-      final bySound = !trace.matched &&
+      // design/370 — the review passes on sound alone, the same ground the speak
+      // phase uses. It used to also pass when a transcript held the same letters,
+      // and it needed a length gate because a recognizer asked for one word would
+      // write the whole sentence from memory. Neither applies to a run of sounds.
+      final matched =
           phonesClose(targetPhone, missReviewHeardPhoneWords(heardPhone));
-      final matched = trace.matched || bySound;
       final drill = matched
           ? const <String>[]
           : phoneDrillTargets(target: targetPhone, heard: heardPhone);
-      final drillReason = trace.matched
-          ? 'matched'
-          : bySound
-              ? 'matched_by_sound'
-              : invented
-                  ? 'heard_too_long'
-                  : targetPhone.trim().isEmpty
-                      ? 'no_target_phones'
-                      : heardPhone.trim().isEmpty
-                          ? 'no_heard_phones'
-                          : drill.isEmpty
-                              ? 'phones_all_match'
-                              : 'ok';
+      final drillReason = matched
+          ? 'matched_by_sound'
+          : targetPhone.trim().isEmpty
+              ? 'no_target_phones'
+              : heardPhone.trim().isEmpty
+                  ? 'no_heard_phones'
+                  : drill.isEmpty
+                      ? 'phones_all_match'
+                      : 'ok';
       if (mounted) {
         setState(() {
           _reviewTargetPhone = targetPhone;
@@ -2196,10 +2188,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       }
       await _skill.noteMissReview(
         expected: word,
-        heard: heard,
         matched: matched,
-        pieces: trace.pieces,
-        hits: trace.hits,
         attempt: attempt,
         wordIndex: wordIndex,
         drillPhones: drill.join(' '),
@@ -2213,7 +2202,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       }
       // Nothing came back to compare. Saying the word again would only repeat
       // the same silence, so the loop is told to let it go.
-      if (heard == null || heard.trim().isEmpty || invented) {
+      if (heardPhone.trim().isEmpty) {
         return MissReviewHear.blank;
       }
       return MissReviewHear.missed;

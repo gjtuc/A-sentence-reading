@@ -99,78 +99,9 @@ class SkillScoreResult {
   }
 }
 
-SkillScoreResult contentWordCoverage(String? expectedSpoken, String? heard) {
-  final ref = contentWords(expectedSpoken);
-  final hyp = contentWords(heard);
-  if (ref.isEmpty) {
-    return const SkillScoreResult(
-      ok: false,
-      error: 'empty_content_ref',
-    );
-  }
-  final need = <String, int>{};
-  for (final w in ref) {
-    need[w] = (need[w] ?? 0) + 1;
-  }
-  final have = <String, int>{};
-  for (final w in hyp) {
-    have[w] = (have[w] ?? 0) + 1;
-  }
-  var hit = 0;
-  for (final e in need.entries) {
-    final h = have[e.key] ?? 0;
-    hit += h < e.value ? h : e.value;
-  }
-  final acc = hit / ref.length;
-  return SkillScoreResult(
-    ok: true,
-    accuracy: (acc * 10000).round() / 10000.0,
-    refN: ref.length,
-    hitN: hit,
-  );
-}
-
-/// Content words in [display] that the heard take did not cover.
-/// Same bag as [contentWordCoverage]. Function words are not marked.
-List<MissedWordSpan> missedContentSpans({
-  required String display,
-  required String? expectedSpoken,
-  required String? heard,
-}) {
-  final ref = contentWords(expectedSpoken);
-  final hyp = contentWords(heard);
-  if (ref.isEmpty || display.isEmpty) return const [];
-  final missed = <String, int>{};
-  for (final w in ref) {
-    missed[w] = (missed[w] ?? 0) + 1;
-  }
-  for (final w in hyp) {
-    final left = missed[w] ?? 0;
-    if (left <= 0) continue;
-    if (left == 1) {
-      missed.remove(w);
-    } else {
-      missed[w] = left - 1;
-    }
-  }
-  if (missed.isEmpty) return const [];
-  final spans = <MissedWordSpan>[];
-  final word = RegExp(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?", unicode: true);
-  for (final m in word.allMatches(display)) {
-    final key = normalizeSkillText(m.group(0));
-    if (key.isEmpty || kFunctionWords.contains(key)) continue;
-    final left = missed[key] ?? 0;
-    if (left <= 0) continue;
-    spans.add(MissedWordSpan(m.start, m.end));
-    if (left == 1) {
-      missed.remove(key);
-    } else {
-      missed[key] = left - 1;
-    }
-    if (missed.isEmpty) break;
-  }
-  return spans;
-}
+// design/370 - contentWordCoverage and missedContentSpans were the design/212
+// v1 scorer. Both counted words in a transcript, which is the question this
+// app stopped asking. Nothing on the live path called either one.
 
 class SpokenSlotDiag {
   const SpokenSlotDiag({
@@ -211,7 +142,6 @@ SpokenSlotDiag diagnoseSpokenSlots({
   required String display,
   required String spoken,
   required List<FollowSpan> spans,
-  required String? heard,
   List<String> heardPhones = const [],
 }) {
   final built = _spokenSlots(display: display, spoken: spoken, spans: spans);
@@ -230,35 +160,40 @@ SpokenSlotDiag diagnoseSpokenSlots({
       remain: built.remain,
     );
   }
-  final have = <String, int>{};
-  for (final token in tokenizeSkill(canonicalizeSoundAlikes(heard))) {
-    have[token] = (have[token] ?? 0) + 1;
-    // design/365 — `Ni 2p` is read "nickel two pee" and comes back as one token
-    // `2p`, while the aligner made `2` and `p` two slots. Both pieces really
-    // were spoken, so both may be claimed from the joined token.
-    for (final piece in splitDigitLetterRun(token)) {
-      have[piece] = (have[piece] ?? 0) + 1;
-    }
-    final bare = stripApostrophes(token);
-    if (bare.isNotEmpty && bare != token) {
-      have[bare] = (have[bare] ?? 0) + 1;
-    }
-  }
   // design/366 — hand over the whole run of sounds. `phonesClose` walks it, so
   // cutting it per word here only threw the tail away.
   final heardPhoneWords = [
     for (final phone in heardPhones) phone.trim(),
   ].where((phone) => phone.isNotEmpty).toList();
+  // design/370 — a slot is judged by sound alone now. The transcript compare is
+  // gone: it asked whether a model typed the same letters, which is a different
+  // question from whether the word was pronounced. With no reference sound there
+  // is nothing to compare against, and saying "all wrong" would be a lie, so the
+  // take goes back unscored and the caller records that.
+  final refN = built.slots.where((slot) => slot.phone.trim().isNotEmpty).length;
+  if (refN == 0) {
+    return SpokenSlotDiag(
+      score: SkillScoreResult(
+        ok: false,
+        error: kSoundRefMissing,
+        listV: kSpokenSlotListV,
+      ),
+      slotCode: kSoundRefMissing,
+      spanN: built.spanN,
+      posSpanN: built.posSpanN,
+      walkI: built.walkI,
+      pieceWeight: built.pieceWeight,
+      remain: built.remain,
+    );
+  }
   var hit = 0;
   var soundPassN = 0;
   final missed = <MissedWordSpan>[];
   final marks = StringBuffer();
   final pieces = <String>[];
   for (final slot in built.slots) {
-    final lexical = _takeSpokenSlot(slot.matchTokens, have);
-    final bySound = !lexical && phonesClose(slot.phone, heardPhoneWords);
-    if (bySound) soundPassN += 1;
-    final ok = lexical || bySound;
+    final ok = phonesClose(slot.phone, heardPhoneWords);
+    if (ok) soundPassN += 1;
     marks.write(ok ? '1' : '0');
     pieces.add(slot.tokens.join(' '));
     if (ok) {
@@ -299,26 +234,26 @@ SkillScoreResult spokenSlotCoverage({
   required String display,
   required String spoken,
   required List<FollowSpan> spans,
-  required String? heard,
+  List<String> heardPhones = const [],
 }) {
   return diagnoseSpokenSlots(
     display: display,
     spoken: spoken,
     spans: spans,
-    heard: heard,
+    heardPhones: heardPhones,
   ).score;
 }
 
 class _SpokenSlot {
-  const _SpokenSlot(
-      this.start, this.end, this.tokens, this.matchTokens, this.phone);
+  const _SpokenSlot(this.start, this.end, this.tokens, this.phone);
 
   final int start;
   final int end;
+
+  /// The printed words, for the review prompt and the evidence row.
   final List<String> tokens;
 
-  /// [tokens] folded for the compare only. See design/365.
-  final List<String> matchTokens;
+  /// The sounds the native voice makes here. This is what decides the slot.
   final String phone;
 }
 
@@ -421,10 +356,6 @@ _SlotBuild _spokenSlots({
     }
     final piece = spoken.substring(cursor, end);
     final tokens = tokenizeSkill(piece);
-    // design/365 — fold the slot side the same way as the heard side for the
-    // compare only, or a spoken `two` can only be claimed by a transcript that
-    // wrote the digit. The review still asks for the word the model reads.
-    final match = tokenizeSkill(canonicalizeSoundAlikes(piece));
     cursor = end;
     if (tokens.isNotEmpty && !slotTokensScorable(tokens)) {
       // Punctuation only: consume the piece, do not open a slot for it.
@@ -441,13 +372,7 @@ _SlotBuild _spokenSlots({
         remain: spoken.length - cursor,
       );
     }
-    out.add(_SpokenSlot(
-      span.start,
-      span.end,
-      tokens,
-      match.isEmpty ? tokens : match,
-      span.phone,
-    ));
+    out.add(_SpokenSlot(span.start, span.end, tokens, span.phone));
   }
   return _SlotBuild(
     slots: out,
@@ -469,7 +394,6 @@ bool _skillSpace(String text, int index) {
 /// not a letter, digit, or apostrophe. A comma, period, or semicolon must not
 /// become the first letters of the next slot.
 final RegExp _spokenWordChar = RegExp(r"[\p{L}\p{N}']", unicode: true);
-final RegExp _oneLetter = RegExp(r'^\p{L}$', unicode: true);
 
 int _skipSpokenGap(String spoken, int cursor) {
   while (cursor < spoken.length && _skillSpace(spoken, cursor)) {
@@ -485,205 +409,19 @@ int _skipSpokenGap(String spoken, int cursor) {
   return cursor;
 }
 
-/// Every spoken piece must be heard. Pieces that were heard stay consumed.
-bool _takeSpokenSlot(List<String> tokens, Map<String, int> have) {
-  if (tokens.length >= 2 &&
-      tokens.every((token) => token.length == 1 && _oneLetter.hasMatch(token))) {
-    final joined = tokens.join();
-    final left = have[joined] ?? 0;
-    if (left > 0) {
-      if (left == 1) {
-        have.remove(joined);
-      } else {
-        have[joined] = left - 1;
-      }
-      return true;
-    }
-  }
-  var ok = true;
-  for (final token in tokens) {
-    if (takeSkillToken(token, have) == 0) ok = false;
-  }
-  return ok;
-}
-
-final RegExp _theirPhrase = RegExp(
-  r"\bthey(?:'re| are)\b",
-  caseSensitive: false,
-);
-const Set<String> _theirWords = {'their', 'there', "they're"};
 final RegExp _phoneStress = RegExp("[ˈˌ.ːˑ]");
-
-final RegExp _digitLetterRun = RegExp(r'^(\d+)([a-z]+)$');
-final RegExp _letterDigitRun = RegExp(r'^([a-z]+)(\d+)$');
-
-/// design/365 — `2p` -> `2`, `p`; `co2` -> `co`, `2`. Empty for anything else.
-List<String> splitDigitLetterRun(String token) {
-  final a = _digitLetterRun.firstMatch(token);
-  if (a != null) return [a.group(1)!, a.group(2)!];
-  final b = _letterDigitRun.firstMatch(token);
-  if (b != null) return [b.group(1)!, b.group(2)!];
-  return const [];
-}
-
-/// A slot with no letter and no digit cannot be heard.
-///
-/// `catalysts'` left the apostrophe as its own slot, so that line could never
-/// score above two thirds no matter how it was read.
-/// design/365 — a possessive mark is not a sound. `catalysts'` -> `catalysts`.
-String stripApostrophes(String token) => token.replaceAll("'", '');
 
 final RegExp _slotHasSound = RegExp(r'[\p{L}\p{N}]', unicode: true);
 
 bool slotTokensScorable(List<String> tokens) =>
     tokens.any((token) => _slotHasSound.hasMatch(token));
 
-String canonicalizeSoundAlikes(String? text) {
-  var folded = (text ?? '').replaceAll(_theirPhrase, 'their');
-  return folded.split(RegExp(r'\s+')).map((token) {
-    final key = token.replaceAll(RegExp(r"""[.,;:!?"']"""), '').toLowerCase();
-    if (_theirWords.contains(key)) return 'their';
-    final digit = kNumberWordDigits[key];
-    if (digit != null) return digit;
-    return token;
-  }).join(' ');
-}
-
-/// A printed `1` is read and heard as `one`, so both sides fold to the digit.
-/// Compounds are folded token by token, which is enough for the numbers a paper
-/// spells out beside a unit.
-const Map<String, String> kNumberWordDigits = {
-  'zero': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4',
-  'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9',
-  'ten': '10', 'eleven': '11', 'twelve': '12', 'thirteen': '13',
-  'fourteen': '14', 'fifteen': '15', 'sixteen': '16', 'seventeen': '17',
-  'eighteen': '18', 'nineteen': '19', 'twenty': '20', 'thirty': '30',
-  'forty': '40', 'fifty': '50', 'sixty': '60', 'seventy': '70',
-  'eighty': '80', 'ninety': '90',
-};
-
-/// design/365 — one pronunciation written two ways.
-///
-/// The transcript comes back in whatever orthography the recognizer prefers, so
-/// a correctly read `vapour` returns as `vapor` and the slot scores zero. The
-/// accent mix widens as the rung rises, so this worsens with difficulty.
-const List<List<String>> kSpellingPairs = [
-  ['vapour', 'vapor'],
-  ['vapours', 'vapors'],
-  ['sulphur', 'sulfur'],
-  ['sulphate', 'sulfate'],
-  ['sulphide', 'sulfide'],
-  ['aluminium', 'aluminum'],
-  ['caesium', 'cesium'],
-  ['colour', 'color'],
-  ['behaviour', 'behavior'],
-  ['favour', 'favor'],
-  ['neighbour', 'neighbor'],
-  ['fibre', 'fiber'],
-  ['fibres', 'fibers'],
-  ['centre', 'center'],
-  ['centred', 'centered'],
-  ['metre', 'meter'],
-  ['metres', 'meters'],
-  ['nanometre', 'nanometer'],
-  ['nanometres', 'nanometers'],
-  ['micrometre', 'micrometer'],
-  ['millimetre', 'millimeter'],
-  ['centimetre', 'centimeter'],
-  ['kilometre', 'kilometer'],
-  ['litre', 'liter'],
-  ['litres', 'liters'],
-  ['millilitre', 'milliliter'],
-  ['millilitres', 'milliliters'],
-  ['analyse', 'analyze'],
-  ['analysed', 'analyzed'],
-  ['analysing', 'analyzing'],
-  ['catalyse', 'catalyze'],
-  ['catalysed', 'catalyzed'],
-  ['ionisation', 'ionization'],
-  ['oxidising', 'oxidizing'],
-  ['oxidised', 'oxidized'],
-  ['carbonisation', 'carbonization'],
-  ['polarisation', 'polarization'],
-  ['isomerisation', 'isomerization'],
-  ['characterisation', 'characterization'],
-  ['utilise', 'utilize'],
-  ['labelling', 'labeling'],
-  ['modelling', 'modeling'],
-  ['programme', 'program'],
-  ['ageing', 'aging'],
-  ['grey', 'gray'],
-  ['practise', 'practice'],
-  ['licence', 'license'],
-  ['defence', 'defense'],
-];
-
-final Map<String, String> _spellingPartner = {
-  for (final pair in kSpellingPairs) ...{pair[0]: pair[1], pair[1]: pair[0]},
-};
-
-/// design/365 — an element symbol the voice reads as the element name.
-///
-/// The spoken text keeps `Ni` while the voice says "nickel", so the slot asks
-/// for a sound nothing in the transcript is spelled as. One-directional: a
-/// symbol accepts its name, not the other way round, because the reverse would
-/// let a short word through on a two-letter match.
-const Map<String, String> kElementSymbolNames = {
-  'ni': 'nickel',
-  'pt': 'platinum',
-  'fe': 'iron',
-  'co': 'cobalt',
-  'cu': 'copper',
-  'al': 'aluminium',
-  'ba': 'barium',
-  'ce': 'cerium',
-  'zn': 'zinc',
-  'mg': 'magnesium',
-  'mn': 'manganese',
-  'ti': 'titanium',
-  'zr': 'zirconium',
-  'ru': 'ruthenium',
-  'rh': 'rhodium',
-  'pd': 'palladium',
-  'ag': 'silver',
-  'au': 'gold',
-  'si': 'silicon',
-};
-
-/// The same word with or without a trailing `s`. `1 nm` is read as
-/// `nanometers` while a speaker says `nanometer`, and neither is a mistake.
-int takeSkillToken(String token, Map<String, int> have) {
-  for (final form in _tokenForms(token)) {
-    final left = have[form] ?? 0;
-    if (left <= 0) continue;
-    if (left == 1) {
-      have.remove(form);
-    } else {
-      have[form] = left - 1;
-    }
-    return 1;
-  }
-  return 0;
-}
-
-List<String> _tokenForms(String token) {
-  final out = <String>[token];
-  void add(String form) {
-    if (form.isNotEmpty && !out.contains(form)) out.add(form);
-  }
-
-  final bare = stripApostrophes(token);
-  add(bare);
-  final element = kElementSymbolNames[bare];
-  if (element != null) add(element);
-  final partner = _spellingPartner[bare];
-  if (partner != null) add(partner);
-  for (final base in [bare, element, partner]) {
-    if (base == null || base.length < 3) continue;
-    add(base.endsWith('s') ? base.substring(0, base.length - 1) : '${base}s');
-  }
-  return out;
-}
+// design/370 - the whole design/365 word fold lived here: spelling pairs
+// (vapour/vapor), element symbols read as names (Ni -> nickel), digit-letter
+// splits (2p -> 2, p), possessive marks, number words, their/there/they're,
+// and the plural tolerance. Every one of them existed to forgive the
+// orthography a recognizer happened to type. A sound has no orthography, so
+// all of it is gone with the transcript. See design/365 for what it did.
 
 /// One sound per item.
 ///
@@ -725,6 +463,9 @@ final RegExp _phoneMark =
     RegExp(r'[\u0300-\u036f\u1dc0-\u1dff\u20d0-\u20f0ʰʲʷⁿˠˤ]', unicode: true);
 
 List<String> _phonePieces(String ipa) => phoneUnits(ipa);
+
+/// No slot carried a reference sound, so the take cannot be judged. design/370.
+const String kSoundRefMissing = 'sound_ref_missing';
 
 /// Least overlap that counts as the same sound. See design/366 for the sweep.
 const double kPhoneOverlapMin = 0.72;

@@ -55,15 +55,19 @@ void main() {
       display: display,
       spoken: spoken,
       spans: spans,
-      heard: 'The film',
+      // design/370 - `film` is the only word whose sounds come back.
+      heardPhones: const ['f ɪ l m'],
     );
     final words = missReviewWords(
       display: display,
       spans: diag.score.missedSpans,
     );
-    expect(words.map((w) => w.printed), ['1', 'nm']);
-    expect(words.map((w) => w.ask), ['one', 'nanometers']);
-    expect(words[1].phone, 'n æ n');
+    // `The` is two sounds, under kPhoneMinUnits, so sound cannot clear it and it
+    // joins the review. design/366 counts that cost: short words are unreachable
+    // this way until a reference long enough to judge them exists.
+    expect(words.map((w) => w.printed), ['The', '1', 'nm']);
+    expect(words.map((w) => w.ask), ['the', 'one', 'nanometers']);
+    expect(words[2].phone, 'n æ n');
   });
 
   test('review tail pads a short drill and adds 3s only when longer', () {
@@ -147,27 +151,6 @@ void main() {
     );
   });
 
-  test('a heard content word matches and a different word does not', () {
-    expect(
-      missReviewHeardMatches(expected: 'catalyst', heard: 'The catalyst.'),
-      isTrue,
-    );
-    expect(
-      missReviewHeardMatches(expected: 'catalyst', heard: 'vapor'),
-      isFalse,
-    );
-    expect(missReviewHeardMatches(expected: 'catalyst', heard: ''), isFalse);
-    expect(
-      missReviewHeardMatches(expected: 'c v d', heard: 'v d'),
-      isFalse,
-    );
-    expect(
-      missReviewHeardMatches(expected: 'c v d', heard: 'c v d'),
-      isTrue,
-    );
-    expect(missReviewHeardMatches(expected: 'is', heard: 'is'), isTrue);
-  });
-
   test('a retry draw is not the voice and rate just heard', () {
     const voices = [
       'en-US-Neural2-A',
@@ -208,24 +191,6 @@ void main() {
     expect(play.rate, 0.9);
   });
 
-  test('review trace keeps the heard line beside each expected piece', () {
-    final their = traceMissReview(
-      expected: 'Their',
-      heard: 'They are',
-    );
-    expect(their.matched, isTrue);
-    expect(their.pieces, 'their');
-    expect(their.hits, '1');
-
-    final joined = traceMissReview(
-      expected: 'C N T',
-      heard: 'CNT',
-    );
-    expect(joined.matched, isTrue);
-    expect(joined.pieces, 'c | n | t');
-    expect(joined.hits, '111');
-  });
-
   test('a drill picks only the sounds that did not line up', () {
     final drill = phoneDrillTargets(
       target: 'p l æ t ɪ n ə m',
@@ -237,26 +202,6 @@ void main() {
 
     expect(phoneDrillTargets(target: 'p l æ t', heard: 'p l æ t'), isEmpty);
     expect(phoneDrillTargets(target: 'p l æ t', heard: ''), isEmpty);
-  });
-
-  test('a sentence answered to a one-word ask is thrown away', () {
-    expect(
-      missReviewHeardTooLong(
-        expected: 'iijima',
-        heard: 'The purpose of this study is to examine the relationship',
-      ),
-      isTrue,
-    );
-    // A wrong answer of about the right length is a real attempt.
-    expect(
-      missReviewHeardTooLong(expected: 'displays', heard: 'This place'),
-      isFalse,
-    );
-    expect(
-      missReviewHeardTooLong(expected: 'c v d', heard: 'C B D'),
-      isFalse,
-    );
-    expect(missReviewHeardTooLong(expected: 'the', heard: null), isFalse);
   });
 
   test('heard symbols split into the groups the server sent', () {
@@ -298,4 +243,10 @@ void main() {
       isNull,
     );
   });
+
+  // design/370 - three tests were removed here. They asserted that a transcript
+  // held the same letters as the word asked for, that the trace listed those
+  // letters, and that a sentence answered to a one-word ask was thrown away.
+  // The review judges by sound now, so there is no transcript to compare and
+  // nothing for the length gate to catch.
 }

@@ -133,50 +133,48 @@ def test_recognize_success_mocked(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_api_recognize_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """design/370 — the route answers with sounds, and Gemini is not in the path.
+
+    This test used to drive the old contract: a Gemini gate that refused the
+    whole route, a transcript in `heard`, and a `compare` block. All three are
+    gone, so what is checked here is that sounds come back even when Gemini is
+    down, and that no transcript or score rides along.
+    """
+    client = TestClient(app)
     monkeypatch.setattr(
         "sentence_reading.api.app.gemini_available", lambda: False
     )
-    client = TestClient(app)
+    monkeypatch.setattr(
+        "sentence_reading.llm.hear_waveform.hear_phones_report",
+        lambda data: ("d i f I l m", {"hear_code": "ok", "hear_detail": "none"}),
+    )
     r = client.post(
         "/api/stt/recognize",
-        files={"file": ("a.webm", b"abc", "audio/webm")},
+        files={"file": ("a.m4a", b"abc", "audio/mp4")},
         data={"expected": "hi"},
     )
-    assert r.json()["error"] == "gemini_unavailable"
-
-    monkeypatch.setattr(
-        "sentence_reading.api.app.gemini_available", lambda: True
-    )
-
-    def fake(data: bytes, mime: str | None) -> dict:
-        return {"ok": True, "heard": "the cat", "engine": "gemini"}
-
-    monkeypatch.setattr(
-        "sentence_reading.stt.recognize.recognize_english_audio", fake
-    )
-    ok = client.post(
-        "/api/stt/recognize",
-        files={"file": ("a.webm", b"abc", "audio/webm")},
-        data={"expected": "the cat sat"},
-    )
-    body = ok.json()
+    body = r.json()
     assert body["ok"] is True
-    assert body["heard"] == "the cat"
-    assert body["compare"]["ok"] is True
+    assert body["heard_phones"] == "d i f I l m"
+    assert body["engine"] == "wav2vec2_ctc"
+    assert body["waveform_phones"] == 1
+    # Nothing typed a transcript and nothing decided a pass, so neither is here.
+    assert "heard" not in body
     assert "score" not in body
-    assert "score" not in body["compare"]
+    assert "compare" not in body
 
-    def boom(data: bytes, mime: str | None) -> dict:
-        return {"ok": False, "error": "too_large", "max_bytes": 1}
-
+    # A model that hears nothing must say so rather than invent a stand-in.
     monkeypatch.setattr(
-        "sentence_reading.stt.recognize.recognize_english_audio", boom
+        "sentence_reading.llm.hear_waveform.hear_phones_report",
+        lambda data: ("", {"hear_code": "empty_logits", "hear_detail": "none"}),
     )
-    bad = client.post(
+    empty = client.post(
         "/api/stt/recognize",
-        files={"file": ("a.webm", b"x" * 10, "audio/webm")},
-    )
-    assert bad.json()["error"] == "too_large"
+        files={"file": ("a.m4a", b"x" * 10, "audio/mp4")},
+    ).json()
+    assert empty["heard_phones"] == ""
+    assert empty["waveform_phones"] == 0
+    assert empty["hear_code"] == "empty_logits"
 
 def test_a_stock_sentence_is_not_treated_as_speech() -> None:
     from sentence_reading.stt.recognize import looks_like_filler
