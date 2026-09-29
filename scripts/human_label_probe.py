@@ -52,6 +52,11 @@ def said_set(text: str) -> set[str]:
     return out
 
 
+def safe(word: str) -> str:
+    """Paper tokens carry degree and minus signs; cp949 cannot print them."""
+    return word.encode("ascii", "replace").decode()
+
+
 def auc(good: list[dict], bad: list[dict], way: str) -> float:
     """Chance that a said word outscores an unsaid one. 0.5 is a coin flip."""
     ranked = sorted(x[way] for x in good)
@@ -112,7 +117,7 @@ def main() -> int:
 
     print("\nwhat is left in the unsaid pile that still scores high")
     left = collections.Counter(
-        x["word"].lower() for x in bad if x["full"] > 0.85
+        safe(x["word"]).lower() for x in bad if x["full"] > 0.85
     )
     print(f"  {sum(1 for x in bad if x['full'] > 0.85)} words above 0.85: "
           + ", ".join(f"{w} {n}" for w, n in left.most_common(12)))
