@@ -13,7 +13,17 @@ RUN apt-get update \
         libglib2.0-0 \
         libgomp1 \
         ffmpeg \
+        espeak-ng \
     && rm -rf /var/lib/apt/lists/*
+# design/371 — `espeak-ng` is back, and not because anything reads a dictionary
+# again. `Wav2Vec2Processor.from_pretrained` for this model builds a
+# `Wav2Vec2PhonemeCTCTokenizer`, whose constructor builds an eSpeak backend for
+# the text-to-phoneme direction we never call. Without the binary it raises
+# `espeak not installed on your system`, which fails the model prefetch below
+# and would leave the waveform pass dead at `load_failed` on every take.
+# design/368 removed this line and never rebuilt the image, so nothing broke
+# live; the next build would have. Removing it for real means decoding from
+# `vocab.json` instead of the tokenizer — see `scripts/ctc_reference_probe.py`.
 
 COPY pyproject.toml README.md ./
 COPY src ./src
