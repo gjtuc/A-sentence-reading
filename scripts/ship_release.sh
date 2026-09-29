@@ -14,20 +14,26 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 _apk_running() {
-  # design/291 refuses a ship that races a Gradle build. Match a build launcher,
-  # never a long-lived helper: `tasklist` image names matched the IDE Dart
-  # analysis server, and `GradleDaemon` matched the idle daemon the last APK
-  # build left behind, which outlives that build by hours. Both refused every
-  # ship. `GradleWrapperMain` is the client that lives only while a build runs.
+  # design/369 — ask the build, do not guess. Two earlier versions of this check
+  # read the process list and both refused every ship: matching image names
+  # caught the IDE Dart analysis server, and matching `GradleDaemon` caught the
+  # idle daemon a finished build leaves behind for hours. `build_release_apk.ps1`
+  # writes its own PID to this file, so the only question left is whether that
+  # process is alive. A dead PID means a crashed build, which must not block a
+  # ship, so it is ignored.
+  local lock="$ROOT/.cache/apk_build.lock"
+  [[ -f "$lock" ]] || return 1
+  local pid
+  pid="$(head -n 1 "$lock" | tr -cd '0-9')"
+  [[ -n "$pid" ]] || return 1
   if command -v powershell >/dev/null 2>&1; then
-    # `-notmatch Win32_Process` drops this query itself: its own command line
-    # carries the pattern, so without it the check always found a build.
+    # A recycled PID must not refuse a ship, so the name has to fit too.
     powershell -NoProfile -Command \
-      "if (Get-CimInstance Win32_Process | Where-Object { \$_.CommandLine -match 'build_release_apk|flutter build apk|GradleWrapperMain' -and \$_.CommandLine -notmatch 'Win32_Process' }) { exit 0 } else { exit 1 }" \
+      "\$p = Get-Process -Id $pid -ErrorAction SilentlyContinue; if (\$p -and \$p.ProcessName -match 'powershell|pwsh') { exit 0 } else { exit 1 }" \
       >/dev/null 2>&1
     return $?
   fi
-  pgrep -f 'build_release_apk|flutter build apk' >/dev/null 2>&1
+  kill -0 "$pid" >/dev/null 2>&1
 }
 
 if [[ -z "${ASR_SHIP_ALLOW_PARALLEL_APK:-}" ]] && _apk_running; then

@@ -19,6 +19,7 @@ $GradleProps = Join-Path $Mobile "android\gradle.properties"
 $ApkOut = Join-Path $Mobile "build\app\outputs\flutter-apk\app-release.apk"
 $ApkCopy = Join-Path $Root "data\sentence-reading-latest.apk"
 $Gradlew = Join-Path $Mobile "android\gradlew.bat"
+$LockFile = Join-Path $Root ".cache\apk_build.lock"
 $CacheRoot = Join-Path $Root ".cache\apk-tooling"
 $PubCache = Join-Path $CacheRoot "pub-cache"
 $GradleHome = Join-Path $CacheRoot "gradle-user-home"
@@ -141,9 +142,36 @@ function Invoke-FlutterApk {
 }
 
 function Test-ApkBuildAlreadyRunning {
+  if (Test-ApkBuildLockLive) { return $true }
   $hit = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -match 'flutter(\.bat)?\s+build\s+apk' }
   return $null -ne $hit
+}
+
+# design/369 — a ship has to know whether an APK build is running, and it must
+# not guess from process names. design/291 matched image names and caught the IDE
+# Dart analysis server; narrowing it to `GradleDaemon` then caught the idle
+# daemon a finished build leaves behind for hours. Both refused every ship. The
+# build states its own PID here instead. A reader that finds a dead PID ignores
+# the file, so a crashed build cannot block ships either, and cleanup is a
+# courtesy rather than something correctness depends on.
+function New-ApkBuildLock {
+  New-Item -ItemType Directory -Force -Path (Split-Path $LockFile) | Out-Null
+  Set-Content -LiteralPath $LockFile -Encoding ASCII -Value @("$PID", (Get-Date -Format o))
+  Write-Host "design/369: apk build lock pid=$PID"
+}
+
+function Remove-ApkBuildLock {
+  Remove-Item -LiteralPath $LockFile -ErrorAction SilentlyContinue
+}
+
+function Test-ApkBuildLockLive {
+  if (-not (Test-Path -LiteralPath $LockFile)) { return $false }
+  $first = (Get-Content -LiteralPath $LockFile -TotalCount 1) -replace '\D', ''
+  if ([string]::IsNullOrWhiteSpace($first)) { return $false }
+  $other = Get-Process -Id ([int]$first) -ErrorAction SilentlyContinue
+  # A recycled PID must not refuse a build, so the name has to fit too.
+  return ($null -ne $other) -and ($other.ProcessName -match 'powershell|pwsh')
 }
 
 function Test-FreshApk([datetime]$started) {
@@ -225,6 +253,7 @@ if ($WarmCaches) {
   }
 }
 
+New-ApkBuildLock
 $started = Get-Date
 $script:ApkStarted = $started
 Write-Host "flutter build apk --release ..."
@@ -264,6 +293,8 @@ if (-not $ok -and $script:UsedSameDrive -and (Test-KernelSnapshotFail $r1.Log)) 
   Write-Host $r3.Log
   $ok = Test-ApkOk $r3 $started
 }
+
+Remove-ApkBuildLock
 
 if (-not $ok) {
   Write-Error "APK build failed"

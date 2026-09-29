@@ -36,17 +36,25 @@ def test_scripts_290() -> None:
     assert "mismatch" in CHECK.read_text(encoding="utf-8")
 
 
-def test_parallel_apk_check_names_a_build_not_a_long_lived_helper() -> None:
-    """The refusal must name a build launcher, not a process that outlives one.
+def test_parallel_apk_check_asks_the_build_instead_of_the_process_list() -> None:
+    """design/369 — the refusal reads a PID the build wrote, not a name it guessed.
 
-    `tasklist` prints image names only, so matching `dart` there also matched the
-    IDE analysis server. `GradleDaemon` then matched the idle daemon the previous
-    APK build leaves behind for hours. Either way every ship was refused.
+    Two earlier versions scanned the process list and both refused every ship:
+    image names matched the IDE Dart analysis server, and `GradleDaemon` matched
+    the idle daemon a finished build leaves behind for hours.
     """
-    release = SHIP_SH.read_text(encoding="utf-8")
-    # Pinning the whole pattern is what keeps a long-lived helper back out of it.
-    assert "build_release_apk|flutter build apk|GradleWrapperMain" in release
-    assert "grep -qiE 'flutter|dart'" not in release
-    # The query's own command line carries the pattern, so it has to exclude
-    # itself or the check always finds a build.
-    assert "notmatch 'Win32_Process'" in release
+    from sentence_reading.llm.evidence_floor import code_only
+
+    # Comments name the two guesses that failed, so only code is searched here.
+    release = code_only(SHIP_SH.read_text(encoding="utf-8"), ".sh")
+    assert ".cache/apk_build.lock" in release
+    assert "Get-Process -Id" in release
+    # Every process-list guess has to be gone, or the old refusal comes back.
+    for guess in ("Win32_Process", "GradleDaemon", "GradleWrapperMain", "tasklist"):
+        assert guess not in release, f"still guessing from {guess}"
+
+    build = (ROOT / "scripts" / "build_release_apk.ps1").read_text(encoding="utf-8")
+    assert "New-ApkBuildLock" in build
+    assert "Remove-ApkBuildLock" in build
+    # A crashed build must not block ships forever, so a dead PID is ignored.
+    assert "Test-ApkBuildLockLive" in build

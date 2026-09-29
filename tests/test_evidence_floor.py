@@ -219,3 +219,39 @@ def test_emit_checkpoint_tokens(ev_tmp) -> None:
     assert d["in_n"] == 3
     assert rows[0].get("job_id") == "job_abcd1234ef00"
     assert rows[0].get("trace_id") == "tr_0123456789abcdef"
+def test_design_369_a_frozen_name_in_a_comment_does_not_count() -> None:
+    """A hollow sensor used to satisfy the floor. Prose is not an emit."""
+    from sentence_reading.llm.evidence_floor import code_only
+
+    # A name left behind in a comment answered "yes, it is still there".
+    assert "practice_skill_stt" not in code_only(
+        '"practice_skill_spoken" // practice_skill_stt', ".dart"
+    )
+    assert "practice_skill_stt" not in code_only(
+        "x = 1  # practice_skill_stt", ".py"
+    )
+    assert "practice_skill_stt" not in code_only(
+        "a /* practice_skill_stt */ b", ".dart"
+    )
+    # A docstring is prose too.
+    assert "practice_skill_stt" not in code_only(
+        'def f():\n    """practice_skill_stt"""\n    return 1\n', ".py"
+    )
+    # A real emit still counts.
+    assert "practice_skill_stt" in code_only(
+        'eb_emit("practice_skill_stt", ok=True)', ".py"
+    )
+    # A `#` or `//` inside a string is not a comment, or a URL would blank the
+    # rest of its line and the floor would report a missing marker that is there.
+    kept = code_only("u = 'https://a.b/practice_skill_stt'", ".py")
+    assert "practice_skill_stt" in kept
+    # Positions have to survive so offsets elsewhere still line up.
+    src = "x = 1  # practice_skill_stt\ny = 2\n"
+    assert len(code_only(src, ".py")) == len(src)
+
+
+def test_design_369_the_floor_still_passes_on_this_tree() -> None:
+    """The tightened check must not refuse the sensors that are really there."""
+    from sentence_reading.llm.evidence_floor import verify_evidence_floor
+
+    assert verify_evidence_floor() == []

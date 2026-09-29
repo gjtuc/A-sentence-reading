@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -355,9 +356,11 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "sweep_decision",
             "mem_lease_age_sec",
             "gcs_lease_age_sec",
-            # design/284
+            # design/284 — `app.py` calls the helper; the kind itself is emitted
+            # inside `ingest_lease_obs.py` and is pinned in that file's markers.
+            # design/369 found this entry only satisfied by an `app.py` comment,
+            # so it was never watching anything here. Coverage is unchanged.
             "maybe_emit_lease_dual",
-            "ingest_lease_dual",
             # design/286
             "false_worker_lost_guard",
             "false_worker_lost_suspect",
@@ -738,6 +741,112 @@ FROZEN_EMIT_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+_LINE_COMMENT = {
+    ".py": ("#",),
+    ".sh": ("#",),
+    ".ps1": ("#",),
+    ".dart": ("//",),
+}
+_BLOCK_COMMENT = {
+    ".dart": (("/*", "*/"),),
+    ".ps1": (("<#", "#>"),),
+}
+
+
+def _blank_docstrings(text: str) -> str:
+    """Blank every docstring. Prose is prose whether it is `#` or `\"\"\"`."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return text
+    lines = text.splitlines(keepends=True)
+    holders = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+    for node in ast.walk(tree):
+        if not isinstance(node, holders):
+            continue
+        body = getattr(node, "body", None)
+        if not body:
+            continue
+        first = body[0]
+        if not isinstance(first, ast.Expr):
+            continue
+        if not isinstance(first.value, ast.Constant):
+            continue
+        if not isinstance(first.value.value, str):
+            continue
+        for i in range(first.lineno - 1, (first.end_lineno or first.lineno)):
+            if i < len(lines):
+                lines[i] = "".join(c if c == "\n" else " " for c in lines[i])
+    return "".join(lines)
+
+
+def code_only(text: str, suffix: str) -> str:
+    """[text] with comments blanked out, keeping every line and column in place.
+
+    design/369 — every check below asks whether a name appears in a file, and a
+    name left behind in a comment answered yes. That is how a sensor could be
+    hollowed out while the floor still reported OK. Quotes are tracked so a `#`
+    or `//` inside a string, such as a URL, is not mistaken for a comment.
+
+    Known limit: this cannot prove the emit is ever reached. A name inside a
+    branch that never runs still passes. Only live evidence answers that, which
+    is what `scripts/pull_evidence.py` is for.
+    """
+    line_marks = _LINE_COMMENT.get(suffix, ())
+    block_marks = _BLOCK_COMMENT.get(suffix, ())
+    if not line_marks and not block_marks:
+        return text
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    quote = ""
+    while i < n:
+        ch = text[i]
+        if quote:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if text.startswith(quote, i):
+                out.append(text[i + 1 : i + len(quote)])
+                i += len(quote)
+                quote = ""
+                continue
+            i += 1
+            continue
+        # A triple quote has to be tried before the single one it starts with.
+        for mark in ('"""', "'''", '"', "'"):
+            if text.startswith(mark, i):
+                quote = mark
+                break
+        if quote:
+            out.append(text[i : i + len(quote)])
+            i += len(quote)
+            continue
+        hit_block = False
+        for open_mark, close_mark in block_marks:
+            if text.startswith(open_mark, i):
+                end = text.find(close_mark, i + len(open_mark))
+                end = n if end < 0 else end + len(close_mark)
+                out.append("".join(c if c == "\n" else " " for c in text[i:end]))
+                i = end
+                hit_block = True
+                break
+        if hit_block:
+            continue
+        if any(text.startswith(mark, i) for mark in line_marks):
+            end = text.find("\n", i)
+            end = n if end < 0 else end
+            out.append(" " * (end - i))
+            i = end
+            continue
+        out.append(ch)
+        i += 1
+    stripped = "".join(out)
+    return _blank_docstrings(stripped) if suffix == ".py" else stripped
+
+
 def verify_evidence_floor(*, root: Path | None = None) -> list[str]:
     """Return error codes; empty list means OK."""
     base = root or ROOT
@@ -750,8 +859,11 @@ def verify_evidence_floor(*, root: Path | None = None) -> list[str]:
     if not kinds_dart.is_file():
         return ["evidence_kinds_dart_missing"]
 
-    py_text = kinds_py.read_text(encoding="utf-8")
-    dart_text = kinds_dart.read_text(encoding="utf-8")
+    # design/369 — comments are blanked first. A frozen name surviving only in a
+    # comment used to satisfy the floor, which let a sensor be hollowed out while
+    # the check still passed.
+    py_text = code_only(kinds_py.read_text(encoding="utf-8"), ".py")
+    dart_text = code_only(kinds_dart.read_text(encoding="utf-8"), ".dart")
     for kind in sorted(FROZEN_KINDS):
         if f'"{kind}"' not in py_text and f"'{kind}'" not in py_text:
             errs.append(f"kind_missing_py:{kind}")
@@ -763,7 +875,7 @@ def verify_evidence_floor(*, root: Path | None = None) -> list[str]:
         if not path.is_file():
             errs.append(f"marker_file_missing:{rel}")
             continue
-        text = path.read_text(encoding="utf-8")
+        text = code_only(path.read_text(encoding="utf-8"), path.suffix)
         for marker in markers:
             if marker not in text:
                 errs.append(f"marker_missing:{rel}:{marker}")
