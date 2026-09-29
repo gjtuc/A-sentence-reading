@@ -32,6 +32,7 @@ from __future__ import annotations
 import collections
 import json
 import pathlib
+import re
 import statistics as stat
 import sys
 import time
@@ -55,10 +56,17 @@ import importlib  # noqa: E402
 wide = importlib.import_module("timing_spread_probe")
 
 TAKES = pathlib.Path(".cache/takes")
-REFS = pathlib.Path(".cache/human_refs.json")
+REFS = pathlib.Path(".cache/human_refs_tokens.json")
 OUT = pathlib.Path(".cache/human_takes.json")
 BREAK = 100
 PAD = 25
+
+# Every run of non-space characters, not only the letters. The broken-up reading
+# used to be rebuilt out of letter words alone while the natural reading said the
+# whole line, so the sounds of `(111)` and `2 theta = 43.6` had no slot of their
+# own and were forced onto whichever word would take them. One sentence handed
+# the word `The` seventy sounds.
+_TOKEN = re.compile(r"\S+")
 
 
 def units(syms) -> list[str]:
@@ -67,6 +75,97 @@ def units(syms) -> list[str]:
 
 def bare(word: str) -> str:
     return word.strip(".,;:()[]\"'").lower()
+
+
+def ssml_every(sentence: str, ms: int) -> tuple[str, list[str]]:
+    """A mark around every token the voice will read, numbers included."""
+    from xml.sax.saxutils import escape
+
+    tokens = _TOKEN.findall(sentence)
+    parts = ["<speak>"]
+    for i, token in enumerate(tokens):
+        parts.append(
+            f'<mark name="w{i}"/>{escape(token)}<mark name="e{i}"/>'
+            f'<break time="{ms}ms"/> '
+        )
+    parts.append("</speak>")
+    return "".join(parts), tokens
+
+
+def cut_tokens(m, heard, tokens, times, rate, pad_ms, total):
+    """Each token's own window. A token the voice says nothing for gets nothing."""
+    pad = pad_ms / 1000.0
+    out = []
+    for i, token in enumerate(tokens):
+        start = times.get(f"w{i}")
+        if start is None:
+            out.append((token, []))
+            continue
+        # A closing mark can collapse into the next opening one. Fall back to
+        # where the next token starts, not to the end of the line.
+        stop = times.get(f"e{i}")
+        if stop is None:
+            stop = min(
+                (times[f"w{j}"] for j in range(i + 1, len(tokens))
+                 if f"w{j}" in times),
+                default=total,
+            )
+        lo, hi = start - pad, stop + pad
+        out.append((token, [
+            s["sym"] for s in heard
+            if lo <= (m.s(s["f0"], rate) + m.s(s["f1"], rate)) / 2 < hi
+        ]))
+    return out
+
+
+def hand_out_loose(refs: list[list[str]], take: list[str]) -> list[list[str]]:
+    """Give sounds to tokens in order, and let a sound go to nobody.
+
+    `hand_out` has to place every sound, which is right when both readings say
+    the same thing. Here the natural reading holds sounds no token owns, and
+    forcing those onto a neighbour is what bloated the references.
+    """
+    from sentence_reading.llm.phone_match import overlap_ratio
+
+    n, wide_n = len(refs), len(take)
+    neg = float("-inf")
+    best = [[neg] * (wide_n + 1) for _ in range(n + 1)]
+    back: list[list[tuple[str, int] | None]] = [
+        [None] * (wide_n + 1) for _ in range(n + 1)
+    ]
+    for j in range(wide_n + 1):
+        best[0][j] = 0.0
+        back[0][j] = ("skip", j - 1) if j else None
+    for i in range(1, n + 1):
+        ref = refs[i - 1]
+        widest = len(ref) + 2 if ref else 0
+        for j in range(wide_n + 1):
+            if j and best[i][j - 1] > best[i][j]:
+                best[i][j] = best[i][j - 1]
+                back[i][j] = ("skip", j - 1)
+            for width in range(0, min(widest, j) + 1):
+                k = j - width
+                if best[i - 1][k] == neg:
+                    continue
+                got = best[i - 1][k]
+                if width:
+                    got += overlap_ratio(ref, take[k:j])
+                if got > best[i][j]:
+                    best[i][j] = got
+                    back[i][j] = ("take", k)
+    out: list[list[str]] = [[] for _ in range(n)]
+    i, j = n, wide_n
+    while i > 0:
+        move = back[i][j]
+        if move is None:
+            break
+        kind, k = move
+        if kind == "skip":
+            j = k
+        else:
+            out[i - 1] = take[k:j]
+            i, j = i - 1, k
+    return out
 
 
 def sidecars() -> list[dict]:
@@ -94,14 +193,14 @@ def build_refs(m, sents: list[str]) -> dict[str, list]:
             flat_raw, times0 = synth_voice(f"<speak>{sent}</speak>", REF_VOICE)
             pcm0, rate0 = pcm_from_wav(flat_raw)
             heard0 = m.run(pcm0, rate0)
-            ssml, words = ssml_broken(sent, BREAK)
+            ssml, words = ssml_every(sent, BREAK)
             raw, times = synth_voice(ssml, REF_VOICE)
             pcm, rate = pcm_from_wav(raw)
-            clean = cut_own(
+            clean = cut_tokens(
                 m, m.run(pcm, rate), words, times, rate, PAD, len(pcm) / rate
             )
             natural_run = [s["sym"] for s in heard0]
-            given = hand_out([list(u) for _w, u in clean], natural_run)
+            given = hand_out_loose([list(u) for _w, u in clean], natural_run)
             cache[sent] = [[w, given[i]] for i, (w, _u) in enumerate(clean)]
         except Exception as exc:  # noqa: BLE001
             print(f"  skip ({type(exc).__name__}) {sent[:40]}")
