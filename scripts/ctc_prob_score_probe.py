@@ -89,7 +89,7 @@ def sure_per_word(m, sheet, refs: list[list[str]]):
         bag[owner[k]].append(float(span.score))
         edge[owner[k]] += [int(span.start), int(span.end)]
     return [
-        (sum(b) / len(b), min(e), max(e)) if b else None
+        (sum(b) / len(b), min(e), max(e), list(b)) if b else None
         for b, e in zip(bag, edge)
     ]
 
@@ -144,9 +144,9 @@ def show(m, pick):
 
         i = [w.lower() for w, _s in clean].index(target.lower())
         ref = units(refs[i])
-        cert, f0, f1 = sure[i]
+        cert, f0, f1, _c = sure[i]
         here = [s for s in heard if f0 <= (s["f0"] + s["f1"]) / 2 < f1]
-        over = max(0, len(here) - len(ref))
+        over = max(0, len(here) - len(_c))
         print(f"\n{target} read as {wrong}   in: {sent}")
         print(f"  reference sounds ({len(ref)}): {' '.join(nm(u) for u in ref)}")
         print(f"  take has there   ({len(here)}): "
@@ -156,8 +156,8 @@ def show(m, pick):
         for k, one in enumerate(_per_sound(m, sheet, refs, i)):
             print(f"    {k + 1:>2}. {nm(one[0]):<14} {one[1]:.3f}")
         print(f"  average sure         {cert:.3f}")
-        print(f"  said more than asked {over} -> minus {over / len(ref):.3f}")
-        print(f"  new score            {cert - over / len(ref):.3f}")
+        print(f"  said more than asked {over} -> minus {over / len(_c):.3f}")
+        print(f"  new score            {cert - over / len(_c):.3f}")
         print(f"  today score          {best_window_overlap(ref, run):.3f}")
     return 0
 
@@ -200,24 +200,31 @@ def main() -> int:
                 ref = units(refs[i])
                 if len(ref) < _MIN_PHONES or sure[i] is None:
                     continue
-                cert, f0, f1 = sure[i]
-                # What the take actually has where the word landed. Sounds over
-                # and above the reference are the "said more than asked" term.
-                said = units(
-                    s["sym"] for s in heard
+                cert, f0, f1, certs = sure[i]
+                # Count in the sounds the model itself emits, the same ones the
+                # certainty belongs to. The live scorer splits those further, so
+                # mixing the two conventions would divide by the wrong number.
+                here = [
+                    s for s in heard
                     if f0 <= (s["f0"] + s["f1"]) / 2 < f1
-                )
-                extra = max(0, len(said) - len(ref))
+                ]
+                extra = max(0, len(here) - len(certs))
+                low = sorted(certs)
                 rows.append(
                     {
                         "sent": sent,
                         "word": name,
-                        "n": len(ref),
+                        "n": len(certs),
+                        "n_units": len(ref),
                         "bad": 1 if name.lower() == target.lower() else 0,
                         "overlap": best_window_overlap(ref, run),
                         "sure": cert,
-                        "full": cert - extra / len(ref),
+                        "full": cert - extra / len(certs),
+                        "worst": low[0],
+                        "low2": sum(low[:2]) / len(low[:2]),
+                        "strict": 0.0 if extra else cert,
                         "extra": extra,
+                        "certs": [round(c, 4) for c in certs],
                     }
                 )
         print(f"read {sent[:44]}")
@@ -227,7 +234,7 @@ def main() -> int:
     print(f"\n{len(rows)} judged words: {len(good)} read right, {len(bad)} read wrong")
 
     report = {"rows": rows, "ways": {}}
-    for way in ("overlap", "sure", "full"):
+    for way in ("overlap", "sure", "full", "worst", "low2", "strict"):
         line = keep_line([r[way] for r in good])
         caught = sum(1 for r in bad if r[way] < line)
         kept = sum(1 for r in good if r[way] >= line)
