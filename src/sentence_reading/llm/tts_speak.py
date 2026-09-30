@@ -1411,7 +1411,7 @@ def _keep_matched_spans(
 
 
 def align_display_report(
-    display: str, *, spoken: str | None = None
+    display: str, *, spoken: str | None = None, with_spoken_range: bool = False
 ) -> dict[str, object]:
     """Why printed words did or did not line up with the spoken form.
 
@@ -1420,6 +1420,14 @@ def align_display_report(
     ``token_unmatched``, or ``trailing_residue``.
     A failed code still keeps spans for the words that already matched.
     ``spoken``, when passed, is the same string the caller will play.
+
+    ``with_spoken_range`` adds ``spoken_lo``/``spoken_hi`` to each span: the
+    slice of the spoken string that printed word consumed. Only the walk knows
+    it, because whitespace and punctuation move the cursor without being
+    weighed, so the slice cannot be recovered from ``weight`` afterwards.
+    design/371 needs it to hand each word the sounds of the tokens it was read
+    as. Off by default so the wire format does not grow for callers that only
+    want the highlight.
     """
     raw = (display or "").strip()
     if not raw:
@@ -1462,7 +1470,13 @@ def align_display_report(
         start, end = m.start(), m.end()
         inside = any(a <= start and end <= b for a, b in dropped)
         if inside:
-            spans.append({"start": start, "end": end, "weight": 0})
+            span = {"start": start, "end": end, "weight": 0}
+            if with_spoken_range:
+                # Nothing is spoken for a dropped parenthetical, so it owns an
+                # empty slice rather than the cursor's neighbourhood.
+                span["spoken_lo"] = cursor
+                span["spoken_hi"] = cursor
+            spans.append(span)
             prev_end = end
             continue
         token = m.group(0)
@@ -1507,7 +1521,11 @@ def align_display_report(
                 renamed_n=renamed_n,
             )
         weight = matched - cursor
-        spans.append({"start": start, "end": end, "weight": max(weight, 1)})
+        span = {"start": start, "end": end, "weight": max(weight, 1)}
+        if with_spoken_range:
+            span["spoken_lo"] = cursor
+            span["spoken_hi"] = matched
+        spans.append(span)
         cursor = matched
         prev_end = end
     _skip_ws()

@@ -22,6 +22,14 @@ _MODEL = None
 _NAME = "facebook/wav2vec2-lv-60-espeak-cv-ft"
 _LOAD_FAIL = ""
 
+# Total convolution stride is 320 samples at 16 kHz, so a frame is 20 ms. The
+# reference cut needs this to turn a mark time into a frame number.
+FRAME_MS = 20
+_FRAME_READY = False
+_EXTRACTOR = None
+_INV: dict[int, str] = {}
+_PAD = 0
+
 
 def hear_phones(data: bytes) -> str:
     """Space-separated phones from the recording. Empty when the model cannot run."""
@@ -184,6 +192,100 @@ def _pcm16k(data: bytes):
         raw = raw[: len(raw) - (len(raw) % 4)]
     clone = bytearray(raw)
     return torch.frombuffer(clone, dtype=torch.float32)
+
+
+def _load_frames() -> None:
+    """The model and its symbol table, without the tokenizer.
+
+    `Wav2Vec2Processor` builds a phoneme tokenizer that wants eSpeak on the box,
+    and its `batch_decode` throws away the frame each symbol landed on. The
+    reference cut needs those frames, so the symbol table is read out of
+    `vocab.json` instead. The collapse below is the library's own: group runs of
+    one id, drop the blank. This vocab has no word delimiter, so the two paths
+    produce the same symbols in the same order.
+    """
+    global _FRAME_READY, _EXTRACTOR, _INV, _PAD
+    if _FRAME_READY:
+        return
+    with _LOCK:
+        if _FRAME_READY:
+            return
+        import json as _json
+        import pathlib as _pathlib
+
+        from huggingface_hub import hf_hub_download
+        from transformers import Wav2Vec2FeatureExtractor
+
+        _EXTRACTOR = Wav2Vec2FeatureExtractor.from_pretrained(_NAME)
+        vocab = _json.loads(
+            _pathlib.Path(hf_hub_download(_NAME, "vocab.json")).read_text(
+                encoding="utf-8"
+            )
+        )
+        cfg = _json.loads(
+            _pathlib.Path(
+                hf_hub_download(_NAME, "tokenizer_config.json")
+            ).read_text(encoding="utf-8")
+        )
+        _INV = {int(i): s for s, i in vocab.items()}
+        _PAD = int(vocab[str(cfg.get("pad_token") or "<pad>")])
+        _FRAME_READY = True
+
+
+def _load_ctc() -> None:
+    """Only the acoustic model. The text path's processor is not needed here."""
+    global _READY, _MODEL, _LOAD_FAIL
+    if _MODEL is not None:
+        return
+    with _LOCK:
+        if _MODEL is not None:
+            return
+        try:
+            from transformers import Wav2Vec2ForCTC
+
+            _MODEL = Wav2Vec2ForCTC.from_pretrained(_NAME)
+            _MODEL.eval()
+        except Exception as exc:  # noqa: BLE001
+            _LOAD_FAIL = type(exc).__name__
+            _MODEL = None
+            raise
+        _LOAD_FAIL = ""
+
+
+def phone_frames(pcm) -> list[dict[str, object]]:
+    """Each symbol the model emits, with the frames it was emitted on.
+
+    `pcm` is mono float32 at 16 kHz. `f0` and `f1` are frame numbers; multiply
+    by `FRAME_MS` for milliseconds.
+    """
+    from itertools import groupby
+
+    import torch
+
+    _load_frames()
+    _load_ctc()
+    if _MODEL is None or _EXTRACTOR is None:
+        return []
+    with _LOCK:
+        values = _EXTRACTOR(
+            pcm, sampling_rate=16000, return_tensors="pt"
+        ).input_values
+        with torch.no_grad():
+            ids = _MODEL(values).logits.argmax(dim=-1)[0].tolist()
+    out: list[dict[str, object]] = []
+    frame = 0
+    for tid, group in groupby(ids):
+        n = sum(1 for _ in group)
+        f0, frame = frame, frame + n
+        if tid == _PAD:
+            continue
+        out.append({"sym": _INV.get(int(tid), ""), "f0": f0, "f1": frame})
+    return [one for one in out if one["sym"]]
+
+
+def phones_of(frames: list[dict[str, object]]) -> str:
+    """The same space-joined string the text path returns."""
+    return " ".join(str(one["sym"]) for one in frames)
 
 
 def warm_model() -> bool:
