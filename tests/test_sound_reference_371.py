@@ -279,3 +279,29 @@ def test_design_371_the_key_moves_with_the_cutting_rule():
     finally:
         sr.SKIP_COST = old
     assert before != after
+
+
+def test_design_371_a_failed_build_reports_a_status_number(monkeypatch, tmp_path):
+    # The class name cannot separate a voice we may not use from an SSML we built
+    # wrong, and the message may not go into evidence because it can echo the
+    # paper back. A number carries the difference and nothing else.
+    from sentence_reading.llm import sound_reference as sr
+
+    monkeypatch.setenv("ASR_SOUND_REF_DIR", str(tmp_path))
+
+    class Denied(Exception):
+        code = 403
+
+    def boom(spoken, **kw):
+        raise Denied("nope")
+
+    monkeypatch.setattr(sr, "build", boom)
+    sr._run_build("the film", "en-US-Neural2-C", "k403")
+    got = sr.build_report()
+    assert got["sound_ref_status"] == 403
+    assert got["sound_ref_fail"] == "denied"
+
+    monkeypatch.setattr(sr, "build", lambda spoken, **kw: [["f"]])
+    sr._run_build("the film", "en-US-Neural2-C", "kok")
+    # A success clears it, or a long-healed failure would still be accused.
+    assert sr.build_report()["sound_ref_status"] == 0

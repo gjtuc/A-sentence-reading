@@ -429,6 +429,7 @@ _BUILD_FAIL = ""
 _BUILD_OK = 0
 _BUILD_BAD = 0
 _BUILD_RUN = 0
+_BUILD_STATUS = 0
 
 
 def _pool() -> ThreadPoolExecutor:
@@ -439,18 +440,24 @@ def _pool() -> ThreadPoolExecutor:
 
 
 def _run_build(spoken: str, voice: str, key: str) -> None:
-    global _BUILD_FAIL, _BUILD_OK, _BUILD_BAD, _BUILD_RUN
+    global _BUILD_FAIL, _BUILD_OK, _BUILD_BAD, _BUILD_RUN, _BUILD_STATUS
     try:
         _write_cache(key, build(spoken, voice=voice))
         _BUILD_OK += 1
         _BUILD_FAIL = ""
         _BUILD_RUN = 0
+        _BUILD_STATUS = 0
     except Exception as exc:  # noqa: BLE001
         # A failed build must not take the request down with it. The next call
         # finds the cache still empty and asks again.
         _BUILD_BAD += 1
         _BUILD_RUN += 1
         _BUILD_FAIL = re.sub(r"[^a-z0-9]+", "_", type(exc).__name__.lower())[:40]
+        # The class name alone cannot tell a voice we are not allowed to use from
+        # an SSML we built wrong. The status number can, and unlike the message it
+        # cannot carry a line of the paper into the evidence stream.
+        status = getattr(exc, "code", None)
+        _BUILD_STATUS = status if isinstance(status, int) else 0
     finally:
         with _PENDING_LOCK:
             _PENDING.discard(key)
@@ -498,4 +505,5 @@ def build_report() -> dict[str, object]:
         "sound_ref_waiting": waiting,
         "sound_ref_fail": _BUILD_FAIL or "none",
         "sound_ref_run": _BUILD_RUN,
+        "sound_ref_status": _BUILD_STATUS,
     }
