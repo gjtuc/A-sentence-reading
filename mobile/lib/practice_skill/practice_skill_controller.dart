@@ -138,6 +138,26 @@ class SpokenCache {
   // The server sends no symbols at all now, so refusing them would throw away
   // every cached sentence and call the server for each one again.
 
+  /// Chunks already asked a second time, so a server that can never build a
+  /// reference costs one extra call each rather than one per sentence shown.
+  final Set<String> _asked = {};
+
+  /// design/371 — a row with no reference sound cannot be scored, and the server
+  /// builds the reference in the background, so the first answer for a sentence
+  /// is phone-less by design. Pinning it would mean the sentence never scores.
+  /// Ask once more; the build takes about eight seconds, so the reading after
+  /// this one gets the sounds. A row that already has them caches normally.
+  bool lacksSound(String chunk) {
+    final key = _key(chunk);
+    if (_asked.contains(key)) return false;
+    // No spans at all is an alignment failure, not a missing reference, and
+    // asking again would not produce any.
+    if (peekSpans(chunk).isEmpty) return false;
+    if (phoneSpanN(chunk) > 0) return false;
+    _asked.add(key);
+    return true;
+  }
+
   Future<String?> loadFromDisk(String chunk) async {
     final key = _key(chunk);
     if (_map.containsKey(key)) {
@@ -355,7 +375,9 @@ class PracticeSkillController {
     final c = _client;
     if (c == null || !serverEnabled) return null;
     final hit = await spokenCache.loadFromDisk(chunkDisplay);
-    if (hit != null) {
+    // design/371 — a cached row with no reference sound is asked for again, once.
+    final soundless = hit != null && spokenCache.lacksSound(chunkDisplay);
+    if (hit != null && !soundless) {
       final cached = spokenCache.peekAlign(chunkDisplay);
       final cachedSpans = spokenCache.peekSpans(chunkDisplay);
       await evidence.emit(
@@ -385,7 +407,7 @@ class PracticeSkillController {
       kind: 'practice_skill_spoken',
       cacheId: _cacheId,
       ok: true,
-      code: 'cache_miss',
+      code: soundless ? 'sound_retry' : 'cache_miss',
       details: {
         'phase': 'spoken',
         'cache_hit': 0,
@@ -482,7 +504,9 @@ class PracticeSkillController {
           'sentence_id_h16': skillSentenceIdH16(_sentenceId),
         },
       );
-      return null;
+      // The retry was for the sounds only. Losing the spoken text as well would
+      // stop the sentence from being played at all.
+      return hit;
     }
   }
 

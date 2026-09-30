@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/practice_rhythm/follow_span.dart';
 import 'package:sentence_reading/practice_skill/chunk_density.dart';
+import 'package:sentence_reading/practice_skill/practice_skill_controller.dart';
 import 'package:sentence_reading/practice_skill/skill_adapt.dart';
 import 'package:sentence_reading/practice_skill/skill_score.dart';
 import 'package:sentence_reading/practice_skill/skill_store.dart';
@@ -295,5 +296,38 @@ void main() {
       const ['f', 'i', 'l', 'm'],
       const ['f', 'i', 'l', 'l', 'm'],
     ), greaterThanOrEqualTo(kPhoneOverlapMin));
+  });
+
+  test('design/371 a cached row with no reference sound is asked again, once', () {
+    final cache = SpokenCache();
+    const chunk = 'The film grew.';
+    // What the server sends while the reference is still being built.
+    cache.put(chunk, 'The film grew.', spans: const [
+      FollowSpan(start: 0, end: 3, weight: 3),
+      FollowSpan(start: 4, end: 8, weight: 4),
+    ]);
+    expect(cache.phoneSpanN(chunk), 0);
+    expect(cache.lacksSound(chunk), isTrue);
+    // Asked once. A server that can never build a reference must not cost a
+    // call every time the sentence is shown.
+    expect(cache.lacksSound(chunk), isFalse);
+  });
+
+  test('design/371 a row that carries the sounds stays cached', () {
+    final cache = SpokenCache();
+    const chunk = 'The film grew.';
+    cache.put(chunk, 'The film grew.', spans: const [
+      FollowSpan(start: 4, end: 8, weight: 4, phone: 'f i l m'),
+    ]);
+    expect(cache.phoneSpanN(chunk), 1);
+    expect(cache.lacksSound(chunk), isFalse);
+  });
+
+  test('design/371 a row with no spans at all is not asked again', () {
+    final cache = SpokenCache();
+    const chunk = 'The film grew.';
+    // No spans is an alignment failure. Asking again produces none either.
+    cache.put(chunk, 'The film grew.', spans: const []);
+    expect(cache.lacksSound(chunk), isFalse);
   });
 }
