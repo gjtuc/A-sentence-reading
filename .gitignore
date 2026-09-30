@@ -89,3 +89,5 @@ scripts/*.dartfrag
 
 # local canvas scratch
 /canvases/
+# design/371 - reference sounds are rebuilt from the voice, and GCS holds them
+data/sound_ref/

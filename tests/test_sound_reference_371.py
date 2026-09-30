@@ -219,10 +219,32 @@ def test_design_371_a_reference_for_another_sentence_is_not_used(tmp_path, monke
 
     from sentence_reading.api.app import app
 
+    from sentence_reading.llm import sound_reference as sr
+
     _seed(tmp_path, monkeypatch, "The film grew at five hundred degrees.")
+    # A real build would reach a voice and the model on a background thread and
+    # go on running through the rest of the suite. Only the asking is under test.
+    asked: list[str] = []
+    monkeypatch.setattr(sr, "build", lambda spoken, **kw: asked.append(spoken))
     other = "A thin layer forms on the surface of the gold."
     got = TestClient(app).post("/api/tts/spoken", json={"text": other}).json()
     assert got["ok"] is True
     # Content-addressed, so a different sentence misses and is asked for.
     assert got["sound_ref_code"] in ("queued", "building", "busy")
     assert got["sound_ref_n"] == 0
+
+
+def test_design_371_a_build_that_keeps_failing_stops_being_asked_for(
+        tmp_path, monkeypatch):
+    from sentence_reading.llm import sound_reference as sr
+
+    # A failed build still costs a synthesis call, so a voice we cannot use would
+    # bill us once per sentence opened, forever.
+    monkeypatch.setattr(sr, "_BUILD_RUN", sr.BUILD_GIVE_UP)
+    monkeypatch.setenv("ASR_SOUND_REF", "1")
+    monkeypatch.setenv("ASR_SOUND_REF_DIR", str(tmp_path))
+    assert sr.request_build("the film grew") == "sunk"
+    monkeypatch.setattr(sr, "_BUILD_RUN", sr.BUILD_GIVE_UP - 1)
+    asked: list[str] = []
+    monkeypatch.setattr(sr, "build", lambda spoken, **kw: asked.append(spoken))
+    assert sr.request_build("the film grew") == "queued"

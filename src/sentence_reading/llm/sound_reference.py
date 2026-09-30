@@ -47,6 +47,7 @@ from sentence_reading.llm.tts_speak_policy import speak_norm_version
 # around a mark when a sound is sorted into its window.
 BREAK_MS = 100
 PAD_MS = 25
+BUILD_GIVE_UP = 5
 
 # Every run of non-space characters, so a number or a unit gets its own window.
 # Matching letters alone left the sounds of `2.3` and `(111)` with no owner, and
@@ -397,6 +398,7 @@ _POOL: ThreadPoolExecutor | None = None
 _BUILD_FAIL = ""
 _BUILD_OK = 0
 _BUILD_BAD = 0
+_BUILD_RUN = 0
 
 
 def _pool() -> ThreadPoolExecutor:
@@ -407,15 +409,17 @@ def _pool() -> ThreadPoolExecutor:
 
 
 def _run_build(spoken: str, voice: str, key: str) -> None:
-    global _BUILD_FAIL, _BUILD_OK, _BUILD_BAD
+    global _BUILD_FAIL, _BUILD_OK, _BUILD_BAD, _BUILD_RUN
     try:
         _write_cache(key, build(spoken, voice=voice))
         _BUILD_OK += 1
         _BUILD_FAIL = ""
+        _BUILD_RUN = 0
     except Exception as exc:  # noqa: BLE001
         # A failed build must not take the request down with it. The next call
         # finds the cache still empty and asks again.
         _BUILD_BAD += 1
+        _BUILD_RUN += 1
         _BUILD_FAIL = re.sub(r"[^a-z0-9]+", "_", type(exc).__name__.lower())[:40]
     finally:
         with _PENDING_LOCK:
@@ -434,6 +438,11 @@ def request_build(spoken: str, *, voice: str | None = None) -> str:
         return "empty"
     if not enabled():
         return "off"
+    # A build that fails costs a synthesis call, so a voice we are not allowed to
+    # use would bill us once for every sentence anyone ever opens. After a few
+    # failures in a row, stop asking until a success or a restart clears it.
+    if _BUILD_RUN >= BUILD_GIVE_UP:
+        return "sunk"
     key = cache_key(text, voice or reference_voice())
     with _PENDING_LOCK:
         if key in _PENDING:
@@ -458,4 +467,5 @@ def build_report() -> dict[str, object]:
         "sound_ref_bad": _BUILD_BAD,
         "sound_ref_waiting": waiting,
         "sound_ref_fail": _BUILD_FAIL or "none",
+        "sound_ref_run": _BUILD_RUN,
     }
