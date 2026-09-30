@@ -30,12 +30,20 @@ class DocumentsMirrorStore {
   String? lastError;
   bool lastRestoreAttempted = false;
 
+  /// design/372 - whether the mirror is marked as not-media. Reported rather
+  /// than assumed, because a mirror the scanner can still read puts every figure
+  /// of every paper back in the gallery.
+  bool lastHideOk = false;
+  bool _hideTried = false;
+
   void attachPaperDisk(PaperDiskStore store) => _paperDisk = store;
   void attachShadowDisk(ShadowingDiskStore store) => _shadowDisk = store;
 
   void bindUid(String? uid) {
     _uid = figureCacheSafeToken(uid ?? '', maxLen: 80);
     lastError = null;
+    _hideTried = false;
+    lastHideOk = false;
   }
 
   bool get isBound => _uid.isNotEmpty;
@@ -50,6 +58,14 @@ class DocumentsMirrorStore {
     final ok = await _channel.ensureUidRoot(_uid);
     if (!ok) {
       lastError = 'Documents/문장읽기 폴더를 만들지 못했습니다.';
+      return ok;
+    }
+    // design/372 - ensureUidRoot already leaves the marker, so this is only for
+    // what the scanner indexed before the marker existed. Once per bind: a
+    // rescan on every mirrored paper would be work for nothing.
+    if (!_hideTried) {
+      _hideTried = true;
+      lastHideOk = await _channel.hideFromGallery();
     }
     return ok;
   }

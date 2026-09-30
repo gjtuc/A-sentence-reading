@@ -2,6 +2,7 @@ package com.gjtuc.sentence_reading
 
 import android.app.Activity
 import android.content.Intent
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -19,6 +20,7 @@ class DocumentsMirrorHandler(
 ) : MethodChannel.MethodCallHandler {
     companion object {
         const val CHANNEL = "asr/documents_mirror"
+        private const val NOMEDIA_NAME = ".nomedia"
         private const val ROOT_NAME = "문장읽기"
     }
 
@@ -44,6 +46,9 @@ class DocumentsMirrorHandler(
                         result.error("mkdir", "cannot create root", null)
                         return
                     }
+                    // design/372 - before anything can be written, so there is no
+                    // window where a figure lands in a scanned directory.
+                    ensureNoMedia()
                     result.success(mapOf("path" to root.absolutePath, "ok" to true))
                 } catch (e: Exception) {
                     result.error("io", e.message, null)
@@ -145,6 +150,17 @@ class DocumentsMirrorHandler(
                     result.error("io", e.message, null)
                 }
             }
+            "hideFromGallery" -> {
+                if (!hasManagePermission()) {
+                    result.error("no_permission", "MANAGE_EXTERNAL_STORAGE required", null)
+                    return
+                }
+                try {
+                    result.success(hideFromGallery())
+                } catch (e: Exception) {
+                    result.error("io", e.message, null)
+                }
+            }
             else -> result.notImplemented()
         }
     }
@@ -175,6 +191,47 @@ class DocumentsMirrorHandler(
             }
         }
         return true
+    }
+
+    /**
+     * design/372 - keep mirrored figures out of gallery apps.
+     *
+     * The mirror has to live in public storage or it would not survive the
+     * uninstall design/262 exists for, and public storage is what the media
+     * scanner reads. An empty `.nomedia` marker makes the scanner skip this tree
+     * and everything under it, which is the whole mirror, so a figure added later
+     * is covered without another call.
+     *
+     * Nothing here deletes a MediaStore row. Deleting through MediaStore deletes
+     * the file it points at, which would throw away the very figures the mirror
+     * is keeping. A rescan is asked for instead: a directory holding `.nomedia`
+     * has its indexed children dropped, and the files stay.
+     */
+    private fun ensureNoMedia(): Boolean {
+        val root = documentsRoot()
+        if (!root.exists() && !root.mkdirs()) return false
+        val flag = File(root, NOMEDIA_NAME)
+        if (flag.exists()) return false
+        return flag.createNewFile()
+    }
+
+    private fun hideFromGallery(): Map<String, Any> {
+        val root = documentsRoot()
+        val created = ensureNoMedia()
+        val flag = File(root, NOMEDIA_NAME)
+        if (flag.isFile) {
+            MediaScannerConnection.scanFile(
+                activity,
+                arrayOf(root.absolutePath),
+                null,
+                null,
+            )
+        }
+        return mapOf(
+            "ok" to flag.isFile,
+            "created" to created,
+            "path" to flag.absolutePath,
+        )
     }
 
     private fun documentsRoot(): File {

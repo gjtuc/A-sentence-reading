@@ -3533,6 +3533,10 @@ class LibraryController extends ChangeNotifier {
         'trigger': trigger,
         'disk_merged': diskMerged,
         'disk_sent_n': diskSentN,
+        // design/372 - a mirror the media scanner can still read puts every
+        // figure of every paper back in the gallery, and nothing on screen
+        // would say so.
+        'nomedia_ok': _documentsMirror.lastHideOk ? 1 : 0,
       },
     );
     if (!ok && (_documentsMirror.lastError ?? '').isNotEmpty) {

@@ -49,6 +49,23 @@ class DocumentsMirrorChannel {
     }
   }
 
+  /// design/372 - write the .nomedia marker and ask for a rescan.
+  ///
+  /// Returns whether the marker is there afterwards, not whether this call was
+  /// the one that made it, so a second call on an already-hidden mirror is still
+  /// a success.
+  Future<bool> hideFromGallery() async {
+    if (kIsWeb) return false;
+    try {
+      final v = await _channel.invokeMethod<dynamic>('hideFromGallery');
+      return v is Map && v['ok'] == true;
+    } on PlatformException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<bool> uidRootExists(String uid) async {
     if (kIsWeb) return false;
     try {
