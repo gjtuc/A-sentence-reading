@@ -93,6 +93,26 @@ or read `nomedia_ok` off `documents_mirror_done` in the evidence stream.
 A gallery app that caches its own thumbnails may hold the old ones until it refreshes;
 the MediaStore entry is gone either way.
 
+## Measured on the device
+
+0.3.413 on `R3CN20QX4BH`, after one launch:
+
+| Checked | Result |
+|---|---|
+| `Documents/문장읽기/.nomedia` | present |
+| PNG files still in the mirror | **17** (none lost) |
+| `content://media/external/images/media` rows under `Documents` | **0** of 25,305 |
+| `content://media/external/file` rows under the mirror | **0** |
+
+So the figures are on the phone, the app still reads them, and no media app can see
+them.
+
+The marker comes back **42 bytes** holding the mirror's own path. Nothing in this repo
+writes that -- `ensureNoMedia` only calls `createNewFile()`, which makes an empty
+file, and a `.nomedia` created by hand over adb stays 0 bytes because no scan runs on
+it. The device's scanner appears to record the path it excluded. It does not matter:
+`.nomedia` works by existing, not by what is in it. Do not fix the size.
+
 ## Docs
 
 `docs/design/262-documents-mirror.md` . `docs/design/268-documents-mirror-write.md`
