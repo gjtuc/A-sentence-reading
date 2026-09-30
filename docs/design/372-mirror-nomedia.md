@@ -41,6 +41,17 @@ which a figure lands in a directory the scanner would read. Every mirror write g
 through `ensureReady` -> `ensureUidRoot`, so this cannot be forgotten by a later
 caller.
 
+### Marked on bind, not only when a paper is mirrored
+
+The first attempt wrote the marker from `ensureUidRoot` alone and left it there.
+On the phone no marker appeared: `ensureReady` is reached only by `mirrorPaper` and
+by the restore, and a launch whose papers are already mirrored calls neither. Every
+figure written by an earlier build would have stayed in the gallery forever.
+
+`bindUid` now calls `hideFromGalleryOnce()` directly. It asks for no permission --
+without `MANAGE_EXTERNAL_STORAGE` the mirror could never have been written, so there
+is nothing in the gallery to hide and nothing worth a dialog on every launch.
+
 ### Never delete a MediaStore row
 
 `ContentResolver.delete` on a `MediaStore` uri deletes **the file it points at**.

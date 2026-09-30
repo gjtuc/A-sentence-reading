@@ -60,14 +60,23 @@ class DocumentsMirrorStore {
       lastError = 'Documents/문장읽기 폴더를 만들지 못했습니다.';
       return ok;
     }
-    // design/372 - ensureUidRoot already leaves the marker, so this is only for
-    // what the scanner indexed before the marker existed. Once per bind: a
-    // rescan on every mirrored paper would be work for nothing.
-    if (!_hideTried) {
-      _hideTried = true;
-      lastHideOk = await _channel.hideFromGallery();
-    }
+    await hideFromGalleryOnce();
     return ok;
+  }
+
+  /// design/372 - mark the mirror as not-media, once per bind.
+  ///
+  /// Called on bind and not only from [ensureReady], because a launch that
+  /// mirrors no paper never reaches [ensureReady] at all, and a mirror written by
+  /// a build older than this one would then sit in the gallery forever.
+  ///
+  /// Asks for no permission. Without it the mirror could never have been written,
+  /// so there is nothing in the gallery to hide and nothing to prompt about.
+  Future<bool> hideFromGalleryOnce() async {
+    if (!isBound || _hideTried) return lastHideOk;
+    _hideTried = true;
+    lastHideOk = await _channel.hideFromGallery();
+    return lastHideOk;
   }
 
   Future<bool> mirrorPaper(String cacheId) async {

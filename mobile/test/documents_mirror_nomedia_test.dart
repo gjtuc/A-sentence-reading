@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sentence_reading/platform/documents_mirror_channel.dart';
+import 'package:sentence_reading/services/documents_mirror_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -60,5 +61,30 @@ void main() {
       (call) async => {'ok': false, 'created': false},
     );
     expect(await DocumentsMirrorChannel().hideFromGallery(), isFalse);
+  });
+
+  test('design/372 the mirror is marked once per bind', () async {
+    var calls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls += 1;
+      return {'ok': true, 'created': calls == 1, 'path': '/x/.nomedia'};
+    });
+    final store = DocumentsMirrorStore();
+    // Not bound yet: nothing to mark, and asking would reach for a uid that is
+    // not there.
+    expect(await store.hideFromGalleryOnce(), isFalse);
+    expect(calls, 0);
+
+    store.bindUid('116191504131668885631');
+    expect(await store.hideFromGalleryOnce(), isTrue);
+    // A rescan per launch is enough. Per mirrored paper would be work for
+    // nothing, because the marker written on bind already stops new indexing.
+    expect(await store.hideFromGalleryOnce(), isTrue);
+    expect(calls, 1);
+
+    // A new sign-in is a new tree to check.
+    store.bindUid('999888777666555444');
+    expect(await store.hideFromGalleryOnce(), isTrue);
+    expect(calls, 2);
   });
 }

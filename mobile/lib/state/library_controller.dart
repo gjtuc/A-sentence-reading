@@ -171,6 +171,9 @@ class LibraryController extends ChangeNotifier {
     if (_diskUid != null) {
       unawaited(_ensureSampleRowThenRefresh());
       unawaited(_maybeDocumentsMirrorRestore());
+      // design/372 - a launch that mirrors no paper still has to mark the tree,
+      // or figures written by an older build stay in the gallery.
+      unawaited(_documentsMirror.hideFromGalleryOnce());
     }
   }
 
