@@ -248,3 +248,34 @@ def test_design_371_a_build_that_keeps_failing_stops_being_asked_for(
     asked: list[str] = []
     monkeypatch.setattr(sr, "build", lambda spoken, **kw: asked.append(spoken))
     assert sr.request_build("the film grew") == "queued"
+
+
+def test_design_371_a_stencil_that_misheard_does_not_cost_the_word_its_sounds():
+    # Read alone, the model heard 	hin as the sounds of 	hen. Matching on
+    # identity with free skips left the word with one sound out of three, which
+    # put it under design/366's floor and stopped it being judged at all.
+    out = hand_out([["d", "e", "n"]], ["th", "i", "n"])
+    assert out == [["th", "i", "n"]]
+
+
+def test_design_371_a_sound_the_stencil_missed_still_goes_to_its_word():
+    # The isolated reading of ilm dropped the closing m, but the straight
+    # reading has it, and it belongs to ilm rather than to nobody.
+    out = hand_out([["f", "i", "l"], ["g", "r", "u"]],
+                   ["f", "i", "l", "m", "g", "r", "u"])
+    assert out == [["f", "i", "l", "m"], ["g", "r", "u"]]
+
+
+def test_design_371_the_key_moves_with_the_cutting_rule():
+    # A reference built under an older skip cost is a different reference, and
+    # GCS keeps them for months.
+    import sentence_reading.llm.sound_reference as sr
+
+    before = sr.cache_key("the film grew", "en-US-Neural2-D")
+    old = sr.SKIP_COST
+    try:
+        sr.SKIP_COST = old + 0.1
+        after = sr.cache_key("the film grew", "en-US-Neural2-D")
+    finally:
+        sr.SKIP_COST = old
+    assert before != after

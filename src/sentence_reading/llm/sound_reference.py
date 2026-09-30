@@ -36,6 +36,7 @@ import re
 import threading
 import wave
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -45,6 +46,13 @@ from sentence_reading.llm.tts_speak_policy import speak_norm_version
 
 # The break the stencil reading puts after every token, and the slack allowed
 # around a mark when a sound is sorted into its window.
+# What abandoning one sound of the straight reading costs, against the overlap a
+# token gains by refusing it. A three-sound token gains 1 - 3/4 = 0.25 by
+# refusing a fourth, so at 0.3 it takes the sound; a two-sound token gains
+# 1 - 2/3 = 0.333 by refusing a third, so it still lets that one go. Two sounds
+# is not enough evidence to force a third in. Free skips were the bug: the
+# stencil comes from the token read alone, which is the less reliable reading.
+SKIP_COST = 0.3
 BREAK_MS = 100
 PAD_MS = 25
 BUILD_GIVE_UP = 5
@@ -69,7 +77,11 @@ def reference_voice() -> str:
 
 
 def cache_key(spoken: str, voice: str) -> str:
-    raw = f"{speak_norm_version()}|{voice}|{BREAK_MS}|{PAD_MS}|{spoken}"
+    # Every number that changes the sounds is in the key, or GCS would keep
+    # serving a reference built by an older rule.
+    raw = (
+        f"{speak_norm_version()}|{voice}|{BREAK_MS}|{PAD_MS}|{SKIP_COST}|{spoken}"
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 
@@ -98,6 +110,20 @@ def ssml_marked(spoken: str) -> tuple[str, list[tuple[int, int, str]]]:
     return "".join(parts), spots
 
 
+@lru_cache(maxsize=1)
+def _voice_client():
+    """One client for the life of the process, as the read-aloud path does.
+
+    Building one discovers credentials and opens a gRPC channel. A reference
+    build never closes it, so making a new one per build would leave a channel
+    behind for every sentence the instance ever saw.
+    """
+    from google.cloud import texttospeech_v1beta1 as tts
+
+    load_asr_env()
+    return tts.TextToSpeechClient()
+
+
 def synth_marked(ssml: str, voice: str) -> tuple[bytes, dict[str, float]]:
     """LINEAR16 at 16 kHz plus {mark name: seconds}.
 
@@ -106,8 +132,7 @@ def synth_marked(ssml: str, voice: str) -> tuple[bytes, dict[str, float]]:
     """
     from google.cloud import texttospeech_v1beta1 as tts
 
-    load_asr_env()
-    client = tts.TextToSpeechClient()
+    client = _voice_client()
     request = tts.SynthesizeSpeechRequest(
         input=tts.SynthesisInput(ssml=ssml),
         voice=tts.VoiceSelectionParams(
@@ -188,7 +213,12 @@ def hand_out(stencil: list[list[str]], natural: list[str]) -> list[list[str]]:
     even though the widths differ between the two readings.
 
     Letting a sound go unclaimed is what keeps a punctuation-only token or a
-    breath from bloating its neighbour.
+    breath from bloating its neighbour, but it cannot be free. The stencil comes
+    from the token read alone, and reading a word alone is the less reliable of
+    the two: the model heard an isolated 	hin as \u00f0 \u025b n, so matching on
+    identity alone dropped the real \u03b8 \u026a and left the word with one sound.
+    A skip costs more than the best a better-fitting run could gain, so a sound
+    is only ever abandoned when no token wants it at all.
     """
     from sentence_reading.llm.phone_match import overlap_ratio
 
@@ -199,14 +229,14 @@ def hand_out(stencil: list[list[str]], natural: list[str]) -> list[list[str]]:
         [None] * (wide + 1) for _ in range(n + 1)
     ]
     for j in range(wide + 1):
-        best[0][j] = 0.0
+        best[0][j] = -SKIP_COST * j
         back[0][j] = ("skip", j - 1) if j else None
     for i in range(1, n + 1):
         want = stencil[i - 1]
         widest = len(want) + 2 if want else 0
         for j in range(wide + 1):
-            if j and best[i][j - 1] > best[i][j]:
-                best[i][j] = best[i][j - 1]
+            if j and best[i][j - 1] - SKIP_COST > best[i][j]:
+                best[i][j] = best[i][j - 1] - SKIP_COST
                 back[i][j] = ("skip", j - 1)
             for width in range(0, min(widest, j) + 1):
                 k = j - width
