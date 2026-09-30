@@ -176,20 +176,17 @@ class LibraryController extends ChangeNotifier {
 
   /// design/364 — the sample row is written locally, so 보관함 needs a reload
   /// once it lands. A bind that already had it does not refresh.
-  /// design/364 - flip the row in or out of the list. Saved, then republished,
-  /// because the filter runs where the list is published and not in the screen.
-  Future<void> setSampleRowHidden(bool hidden) async {
-    if (sampleRowHidden == hidden) return;
-    sampleRowHidden = hidden;
-    notifyListeners();
-    await saveSampleRowHidden(hidden);
-    await refresh(trigger: 'sample_hide');
+  /// design/364 - the server decides, because nobody reading papers has a reason
+  /// to choose. Republished rather than only notified, because the filter runs
+  /// where the list is published and not in the screen.
+  Future<void> setSampleRowShown(bool shown) async {
+    if (sampleRowShown == shown) return;
+    sampleRowShown = shown;
+    if (papers.isEmpty) return;
+    await refresh(trigger: 'sample_flag');
   }
 
   Future<void> _ensureSampleRowThenRefresh() async {
-    // Read the preference before the row can be published, or a hidden row
-    // shows for the first frames of every sign-in.
-    sampleRowHidden = await loadSampleRowHidden();
     bool wrote;
     try {
       wrote = await ensureSampleRow(
@@ -302,7 +299,7 @@ class LibraryController extends ChangeNotifier {
     // is on screen. The recorded takes are in GCS and are not touched.
     filtered = withoutHiddenSample(
       filtered,
-      hidden: sampleRowHidden,
+      hidden: !sampleRowShown,
       idOf: (e) => e.id,
     );
     // design/240 — adjacent mates; design/261 — local pairing + one set row.
@@ -587,9 +584,11 @@ class LibraryController extends ChangeNotifier {
 
   List<PaperEntry> papers = const [];
 
-  /// design/364 - keep the sample row out of the list. A view choice; the
-  /// recorded takes are untouched and the switch brings the row back.
-  bool sampleRowHidden = false;
+  /// design/364 - whether the calibration sample row is in the list. Off until
+  /// /api/status says otherwise, so a phone that cannot reach the server, or
+  /// one talking to a build that never heard of the flag, shows no row. The
+  /// recorded takes in GCS are untouched either way.
+  bool sampleRowShown = false;
   ReadingSession? session;
   bool loading = false;
   bool opening = false;

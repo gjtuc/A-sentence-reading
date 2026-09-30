@@ -158,6 +158,7 @@ from sentence_reading.llm.tts_speak_policy import speak_norm_version
 from sentence_reading.llm.practice_skill import (
     practice_skill_enabled,
     practice_stt_cloud_enabled,
+    sample_row_enabled,
 )
 from sentence_reading.llm.practice_skill_evidence import (
     practice_skill_evidence_enabled,
@@ -282,7 +283,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.410",
+    version="0.3.411",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -2025,6 +2026,9 @@ def status(request: Request) -> dict:
         "mobile_practice_stt_cloud": practice_stt_cloud_enabled(),
         "practice_skill_evidence": practice_skill_evidence_enabled(),
         "mobile_practice_skill_evidence": practice_skill_evidence_enabled(),
+        # design/364 - calibration sample row; hidden unless ASR_SAMPLE_ROW=1.
+        "sample_row": sample_row_enabled(),
+        "mobile_sample_row": sample_row_enabled(),
         "usage_meter": True,
         # design/28 · 139 — Fig. chips; kill ASR_FIG_REF_HINTS=0.
         "fig_ref_hints": _fig_ref_hints_enabled(),

@@ -68,6 +68,10 @@ logs/
 # data/ investigation dumps and local runtime buses
 data/_*
 data/evidence/
+# design/371 - probe outputs. Rebuilt by the script that reads them.
+data/ctc_ref_probe.json
+data/mark_shift_report.json
+data/stt_hear_codes.jsonl
 data/ops_events/
 data/usage/
 data/section_*.json

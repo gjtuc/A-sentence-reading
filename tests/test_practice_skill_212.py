@@ -163,3 +163,29 @@ def test_marks_between_words_do_not_shift_the_next_slot() -> None:
     assert out["ok"] is True
     assert out["ref_n"] == 6
     assert out["hit_n"] == 6
+
+
+def test_design_364_the_sample_row_is_hidden_unless_asked_for(monkeypatch):
+    from sentence_reading.llm.practice_skill import sample_row_enabled
+
+    # The row is a tool for measuring a scoring change and it cannot be deleted
+    # from the library, so a missing env must not put it in front of every paper.
+    monkeypatch.delenv("ASR_SAMPLE_ROW", raising=False)
+    assert sample_row_enabled() is False
+    monkeypatch.setenv("ASR_SAMPLE_ROW", "1")
+    assert sample_row_enabled() is True
+    monkeypatch.setenv("ASR_SAMPLE_ROW", "0")
+    assert sample_row_enabled() is False
+
+
+def test_design_364_status_advertises_the_sample_row_flag(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from sentence_reading.api.app import app
+
+    monkeypatch.delenv("ASR_SAMPLE_ROW", raising=False)
+    got = TestClient(app).get("/api/status").json()
+    # The phone reads this key and nothing else, so losing it silently hides the
+    # row for good with no way to bring it back.
+    assert got["mobile_sample_row"] is False
+    assert got["sample_row"] is False

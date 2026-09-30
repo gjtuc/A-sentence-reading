@@ -74,7 +74,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// design/214 — English judgment cheers in practice (default on).
   bool _judgmentCheers = true;
   bool _blankRest = true;
-  bool _sampleHidden = false;
   LaunchDest _launchDest = LaunchDest.library;
 
   @override
@@ -87,7 +86,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _reload();
     unawaited(_loadJudgmentCheersPref());
     unawaited(_loadBlankRestPref());
-    _loadSampleHidden();
     unawaited(_loadLaunchDestPref());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.shadowing.applyAutoOffIfStale();
@@ -100,17 +98,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => _judgmentCheers = on);
   }
 
-  /// design/364 — read it from the controller, which loaded it before the list
-  /// was published. Reading the preference again here could disagree with what
-  /// the library is actually showing.
-  void _loadSampleHidden() {
-    _sampleHidden = widget.library.sampleRowHidden;
-  }
-
-  Future<void> _setSampleHidden(bool on) async {
-    setState(() => _sampleHidden = on);
-    await widget.library.setSampleRowHidden(on);
-  }
 
   Future<void> _setJudgmentCheers(bool on) async {
     setState(() => _judgmentCheers = on);
@@ -1035,19 +1022,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 widget.shadowing.error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
-            // design/364 — the sample row has no server document, so it cannot be
-            // deleted. Hiding it is the only way to get it out of the list once
-            // the rounds are recorded.
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('발음 표본 숨기기'),
-              subtitle: const Text(
-                '보관함 목록에서만 감춥니다. 녹음한 소리는 서버에 그대로 '
-                '남고, 다시 끄면 라운드 진행도 그대로 돌아옵니다.',
-              ),
-              value: _sampleHidden,
-              onChanged: (v) => unawaited(_setSampleHidden(v)),
-            ),
             const SizedBox(height: 8),
             Text(
               '앱을 열면',

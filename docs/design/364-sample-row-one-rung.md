@@ -175,28 +175,43 @@ Coverage is keyed `sent_f07:1`, so a chunk retried five times is one chunk colle
 `v1` is abandoned rather than migrated: its counts cannot say which chunks they came
 from.
 
-### 7. The row can be hidden, not deleted
+### 7. The row is hidden, and the server brings it back
 
-`mobile/lib/practice_sample/sample_hidden.dart`, pref `asr.sample_row_hidden.v1`.
+`src/sentence_reading/llm/practice_skill.py::sample_row_enabled` ->
+`/api/status` `mobile_sample_row` -> `LibraryController.sampleRowShown`.
+Env `ASR_SAMPLE_ROW`, **missing means hidden**.
 
-Once the ten rounds are recorded there is still a reason to want the row out of the
-library, and the four guards in item 4 mean it cannot be deleted. `_publishPapers`
-drops it through `withoutHiddenSample` when the preference is set, next to the
-soft-hide filter it belongs with. Filtering where the list is published rather than
-in the screen keeps the count, the empty-list message and the reorder indexes
-agreeing with what is on screen.
+The four guards in item 4 mean the row cannot be deleted, and `bindUid` seeds it
+again on every sign-in, so once the rounds are recorded it sits in front of every
+paper forever. It was briefly a settings switch, which was wrong: the row exists to
+measure a scoring change, so the person reading papers has nothing to decide and
+nothing to do with the answer either way. It is hidden always and the flag brings it
+back for as long as a calibration round needs it.
 
-The preference is read in `_ensureSampleRowThenRefresh` before the row can be
-published. Reading it any later shows a hidden row for the first frames of every
-sign-in. The settings switch reads it back off the controller rather than off
-`SharedPreferences`, so the screen cannot disagree with the list it describes.
+`_publishPapers` drops it through `withoutHiddenSample`, next to the soft-hide
+filter it belongs with. Filtering where the list is published rather than in the
+screen keeps the count, the empty-list message and the reorder indexes agreeing with
+what is on screen.
+
+`sampleRowShown` starts **false** and only `/api/status` raises it, which is
+fail-closed in the two ways that matter: a phone that cannot reach the server, and a
+phone talking to a build that never heard of the key, both show no row. The seed is
+left running while hidden, so raising the flag is the only step needed -- the row and
+its round progress are already on disk.
+
+Flipping it needs no deploy, which is the point. Same image, new revision:
+
+    gcloud run services update asr-sentence-reading --region asia-northeast3 \
+      --update-env-vars ASR_SAMPLE_ROW=1
+
+and `--remove-env-vars ASR_SAMPLE_ROW` to put it away. `gcloud run deploy` is
+still forbidden by design/155; this is not that command and the hook does not match
+it.
 
 Hiding is a view choice and nothing else. The 619 takes under
 `{prefix}/users/{uid}/sample_takes/` are not touched, and nothing else touches them
 either: the bucket has no lifecycle configuration and no code path deletes that
-prefix, so the audio outlives any number of hides. Turning the switch back off
-brings the row back with its round progress intact, which is the only way back --
-a row that is not in the list cannot be opened.
+prefix, so the audio outlives any number of hides.
 
 ## Evidence
 

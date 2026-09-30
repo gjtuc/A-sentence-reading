@@ -26,3 +26,14 @@ def practice_stt_cloud_enabled() -> bool:
     if not practice_skill_enabled():
         return False
     return _env_bool("ASR_PRACTICE_STT_CLOUD", True)
+
+
+def sample_row_enabled() -> bool:
+    """design/364 - whether the phone shows the calibration sample row.
+
+    Missing env means hidden. The row is a tool for measuring a scoring change,
+    not a feature anyone reads with, and it cannot be deleted from the library,
+    so leaving it on would put a row nobody wants in front of every paper.
+    ASR_SAMPLE_ROW=1 brings it back for as long as a calibration round needs it.
+    """
+    return _env_bool("ASR_SAMPLE_ROW", False)

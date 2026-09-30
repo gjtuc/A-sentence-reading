@@ -141,6 +141,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       // speak-norm pin for skill spoken cache is applied in practice screen
       _shadowing.setLocalSot(st.shadowingLocalSot);
       _library.setShadowingLocalSot(st.shadowingLocalSot);
+      unawaited(_library.setSampleRowShown(st.mobileSampleRow));
       _citePanel.setServerAvailable(st.mobileCiteRefPanel);
       _citePanel.setThisPaperServerAvailable(st.mobileThisPaperPanel);
       _bookmarks.setServerAvailable(st.bookmarksSync);

@@ -68,6 +68,9 @@ class AsrStatus {
     this.mobilePracticeSkill = true,
     this.mobilePracticeSttCloud = true,
     this.mobilePracticeSkillEvidence = true,
+    // design/364 - missing key means hidden. The calibration row is a tool, not
+    // something to read with, and it cannot be deleted from the library.
+    this.mobileSampleRow = false,
     this.ttsSpeakNorm = 'v6',
     // design/83 — missing key → on (fail-closed; require login).
     this.mobileLoginRequired = true,
@@ -309,6 +312,7 @@ class AsrStatus {
       bookmarksLocalSot: json['bookmarks_local_sot'] == true,
       annotationsLocalSot: json['annotations_local_sot'] == true,
       shadowingLocalSot: json['shadowing_local_sot'] == true,
+      mobileSampleRow: json['mobile_sample_row'] == true,
       notesLocalSot: json['notes_local_sot'] == true,
       mobileApkUrl: '${json['mobile_apk_url'] ?? ''}'.trim(),
       // design/169 — missing → off; explicit true enables EvidenceBus flush.
@@ -382,6 +386,9 @@ class AsrStatus {
   final bool bookmarksLocalSot;
   final bool annotationsLocalSot;
   final bool shadowingLocalSot;
+
+  /// design/364 - show the calibration sample row in the library.
+  final bool mobileSampleRow;
   final bool notesLocalSot;
   /// design/161 — public GCS APK URL when configured on server.
   final String mobileApkUrl;
