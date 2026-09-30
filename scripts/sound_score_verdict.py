@@ -35,6 +35,9 @@ REF_GOOD = {"ready"}
 # is handing out two-sound words and that is a fault.
 NOT_SCORED = {"sound_ref_missing", "sound_too_short", "no_spans", "walk_past_end"}
 
+# Judged slots below which passing nothing is just one short hurried take.
+NOTHING_PASSED_MIN = 5
+
 
 def _ascii(text: object) -> str:
     return str(text).encode("ascii", "replace").decode("ascii")
@@ -100,6 +103,31 @@ def _words_off_the_sheet(rows: list[dict]) -> tuple[collections.Counter, int, in
             word = pieces[i].strip() if i < len(pieces) else ""
             off[word or "?"] += 1
     return off, off_n, slot_n
+
+
+def _stale_rows(rows: list[dict]) -> tuple[int, int]:
+    """Cached sentences holding sounds design/373 says cannot be scored against.
+
+    Split by what the phone did with them: kept and compared against, or asked
+    for again. A build older than the one that writes `stale_span_n` reports
+    neither, which is why a clean window is not proof on its own.
+    """
+    kept = retried = 0
+    for row in rows:
+        if row.get("kind") != "practice_skill_spoken":
+            continue
+        det = row.get("details") or {}
+        try:
+            n = int(det.get("stale_span_n") or 0)
+        except (TypeError, ValueError):
+            continue
+        if n <= 0:
+            continue
+        if str(row.get("code")) == "cache_hit":
+            kept += 1
+        else:
+            retried += 1
+    return kept, retried
 
 
 def main() -> int:
@@ -187,10 +215,17 @@ def main() -> int:
         print(f"  takes {len(client)}   with a per-word verdict {len(scored)}")
         if not scored:
             faults.append("nothing_scored")
-        sound_pass = sum(int((r.get("details") or {}).get("sound_pass_n") or 0) for r in scored)
-        print(f"  slots the sound compare passed: {sound_pass}")
-
         off, off_n, slot_n = _words_off_the_sheet(client)
+        asked = slot_n - off_n
+        sound_pass = sum(int((r.get("details") or {}).get("sound_pass_n") or 0) for r in scored)
+        print(f"  slots the sound compare passed: {sound_pass} of {asked} asked")
+        # design/373 - not one word passing is what a broken compare looks like,
+        # and it is the one result reading badly cannot produce: a misread word
+        # still shares sounds with the printed one somewhere. Under five slots a
+        # single hurried take could do it, so the count decides, not the share.
+        if asked >= NOTHING_PASSED_MIN and not sound_pass:
+            faults.append(f"nothing_passed:{asked}")
+
         share = (100.0 * off_n / slot_n) if slot_n else 0.0
         print("== words the scorer could not ask about (left the sheet)")
         print(f"  {off_n} of {slot_n} slots ({share:.1f}%)")
@@ -216,6 +251,17 @@ def main() -> int:
                     "own line" if n >= 40 else "still the fixed line",
                 )
             )
+
+    print("== reference sounds by a reader we do not score against")
+    kept, retried = _stale_rows(rows)
+    if not kept and not retried:
+        print("  none")
+    else:
+        print(f"  rows kept and scored against: {kept}   rows asked again: {retried}")
+    # A row the phone kept is a row it scored against, so every word of that
+    # sentence fails however it is read. Asking again is the fix working.
+    if kept:
+        faults.append(f"stale_ref_kept:{kept}")
 
     print("== verdict")
     if not server and not client:

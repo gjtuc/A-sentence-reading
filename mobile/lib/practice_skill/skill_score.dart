@@ -503,6 +503,20 @@ final RegExp _phoneMark =
 
 List<String> _phonePieces(String ipa) => phoneUnits(ipa);
 
+/// Symbols the waveform model can never write, so a reference carrying one was
+/// not read by it. design/373.
+///
+/// The model reads sounds out of audio, and its whole vocabulary is 392 tokens
+/// with no stress marks and no ties -- it holds `eɪ` as a single token and
+/// never writes `ˈ` at all. eSpeak, which design/368 cut out, wrote both,
+/// because it was reading a spelling out of a dictionary. So a cached row
+/// holding one of these is a reading by the voice the scorer no longer compares
+/// against, and no take, however good, can match it.
+bool soundsFromOtherReader(String phone) => _otherReader.hasMatch(phone);
+
+final RegExp _otherReader =
+    RegExp(r'[\u02c8\u02cc\u200d\u0361\u035c]', unicode: true);
+
 /// No slot carried a reference sound, so the take cannot be judged. design/370.
 const String kSoundRefMissing = 'sound_ref_missing';
 

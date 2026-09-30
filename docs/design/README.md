@@ -414,6 +414,7 @@
 | 363 | [363-cover-above-title.md](363-cover-above-title.md) | 표지는 제목 위에 있다 — SI는 제목보다 위의 표지 문구이거나 파일 이름의 SI 토큰. 본문에서 supplementary를 찾는 규칙은 폐기 (0.3.359) |
 | 371 | [371-sound-reference.md](371-sound-reference.md) | 목소리를 SSML 표식으로 단어마다 잘라 기준 소리를 우리가 만들어 저장 · 경계는 표식만 정한다(소리로 경계를 정하지 않는다) · 최솟값이 이웃 오독을 잡는 것 증명, 통과선은 전사 라벨에 맞추지 않는다 |
 | 372 | [372-mirror-nomedia.md](372-mirror-nomedia.md) | 반사 그림이 갤러리에 보이는 것을 `.nomedia` 표시로 막는다 · 공용 폴더는 design/262가 재설치를 버터기 위해 선택한 것이라 오혈 아니다 · MediaStore 행을 지우면 파일이 지워진다 |
+| 373 | [373-one-reader-only.md](373-one-reader-only.md) | 기준 소리가 옛 eSpeak 읽기면 어떻게 읽어도 전부 틀린다 · 소리가 **있는지**가 아니라 **누가 읽었는지**로 재요청한다 · 판독기에 `nothing_passed`·`stale_ref_kept` 추가 (0.3.414) |
 | 370 | [370-a-transcript-is-not-a-pronunciation.md](370-a-transcript-is-not-a-pronunciation.md) | 전사문 채점 제거 — 단어는 원어민 목소리의 소리로만 판정. 기준 소리 없으면 `sound_ref_missing`(채점 안 됨). design/365 철자 보정층 전부 삭제 |
 | 369 | [369-ask-the-build-not-the-guess.md](369-ask-the-build-not-the-guess.md) | 배포 가드 둘 정상화 — APK 락 파일·주석은 센서가 아니다 |
 | 368 | [368-a-dictionary-is-not-a-voice.md](368-a-dictionary-is-not-a-voice.md) | eSpeak 사전 발음 전원 제거 — 목표 소리는 목소리에서 오게 한다 |

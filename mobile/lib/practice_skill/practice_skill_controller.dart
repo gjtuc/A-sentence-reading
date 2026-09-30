@@ -125,6 +125,19 @@ class SpokenCache {
   /// `memory`, `disk`, or `disk_miss`.
   String lastSource = 'none';
 
+  /// design/373 -- spans holding sounds from a reader the scorer cannot
+  /// compare against. A row written before design/371 carries eSpeak's reading
+  /// of the spelling, which is a full reference as far as [phoneSpanN] can tell,
+  /// so without this the row is kept forever and every word of the sentence
+  /// fails no matter how it is read.
+  int staleSpanN(String chunk) {
+    var n = 0;
+    for (final span in peekSpans(chunk)) {
+      if (soundsFromOtherReader(span.phone)) n += 1;
+    }
+    return n;
+  }
+
   int phoneSpanN(String chunk) {
     var n = 0;
     for (final span in peekSpans(chunk)) {
@@ -153,7 +166,9 @@ class SpokenCache {
     // No spans at all is an alignment failure, not a missing reference, and
     // asking again would not produce any.
     if (peekSpans(chunk).isEmpty) return false;
-    if (phoneSpanN(chunk) > 0) return false;
+    // design/373 -- a row can be full of sounds and still be unusable, so
+    // having them is not enough; they have to be the ones we score against.
+    if (phoneSpanN(chunk) > 0 && staleSpanN(chunk) == 0) return false;
     _asked.add(key);
     return true;
   }
@@ -395,6 +410,9 @@ class PracticeSkillController {
           'span_n': cachedSpans.length,
           'pos_span_n': _scoreableSpans(cachedSpans),
           'phone_span_n': spokenCache.phoneSpanN(chunkDisplay),
+          // design/373 -- always written, so a row kept by this path can be told
+          // apart from one that had nothing to keep.
+          'stale_span_n': spokenCache.staleSpanN(chunkDisplay),
           'cache_source': spokenCache.lastSource,
           'display_chars': chunkDisplay.length,
           'spoken_chars': hit.length,
@@ -412,6 +430,7 @@ class PracticeSkillController {
         'phase': 'spoken',
         'cache_hit': 0,
         'cache_source': spokenCache.lastSource,
+        'stale_span_n': spokenCache.staleSpanN(chunkDisplay),
         'chunk_index': _chunkIndex,
         'display_chars': chunkDisplay.length,
       },

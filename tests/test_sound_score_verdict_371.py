@@ -156,3 +156,80 @@ def test_design_371_a_named_version_must_carry_the_line(tmp_path) -> None:
     # Asking about a version and getting rows with no line means that build did
     # not ship what it claimed.
     assert _run(mod, rows, tmp_path, "--expect-version", "0.3.409") == 1
+
+
+def _spoken(code, **details):
+    base = {"phase": "spoken", "cache_hit": 1 if code == "cache_hit" else 0}
+    base.update(details)
+    return {
+        "kind": "practice_skill_spoken",
+        "source": "mobile",
+        "app_version": "0.3.414",
+        "details": base,
+        "code": code,
+    }
+
+
+def test_design_373_a_window_where_no_word_passed_is_a_fault(tmp_path) -> None:
+    mod = _mod()
+    # What the phone reported after reading the title four times: every slot
+    # answered, every slot wrong. Reading badly does not do this -- a misread
+    # word still shares sounds with the printed one -- so it can only be the
+    # compare. The reader used to call this window clean.
+    rows = [
+        _client(slot_hits="1111", slot_pieces="a | b | c | d", sound_pass_n=0),
+        _client(slot_hits="11111111", sound_pass_n=0),
+    ]
+    assert _run(mod, rows, tmp_path) == 1
+
+
+def test_design_373_one_short_take_passing_nothing_is_not_a_fault(tmp_path) -> None:
+    mod = _mod()
+    # Three words missed is a person mumbling, not a broken compare, and calling
+    # it a fault would send someone chasing every hurried take.
+    rows = [_client(sound_pass_n=0)]
+    assert _run(mod, rows, tmp_path) == 0
+
+
+def test_design_373_words_that_left_the_sheet_are_not_counted_as_asked(
+    tmp_path,
+) -> None:
+    mod = _mod()
+    # A reference too short to tell words apart leaves a `-`. Those slots were
+    # never asked about, so they cannot be evidence that asking is broken.
+    rows = [_client(slot_hits="----1", slot_pieces="a | b | c | d | e", sound_pass_n=0)]
+    assert _run(mod, rows, tmp_path) == 0
+
+
+def test_design_373_a_stale_row_the_phone_kept_is_a_fault(tmp_path) -> None:
+    mod = _mod()
+    # Keeping the row means scoring against it, which fails every word of that
+    # sentence however it is read.
+    rows = [
+        _server(sound_ref_fail="none", sound_ref_run=0),
+        _client(),
+        _spoken("cache_hit", stale_span_n=3),
+    ]
+    assert _run(mod, rows, tmp_path) == 1
+
+
+def test_design_373_asking_for_the_row_again_is_the_fix_working(tmp_path) -> None:
+    mod = _mod()
+    rows = [
+        _server(sound_ref_fail="none", sound_ref_run=0),
+        _client(),
+        _spoken("sound_retry", stale_span_n=3),
+    ]
+    assert _run(mod, rows, tmp_path) == 0
+
+
+def test_design_373_a_clean_row_says_nothing_either_way(tmp_path) -> None:
+    mod = _mod()
+    # A build older than the one that writes the count reports no stale rows,
+    # which is why a quiet section is not proof on its own.
+    rows = [
+        _server(sound_ref_fail="none", sound_ref_run=0),
+        _client(),
+        _spoken("cache_hit", stale_span_n=0),
+    ]
+    assert _run(mod, rows, tmp_path) == 0

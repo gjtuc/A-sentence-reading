@@ -481,4 +481,59 @@ void main() {
     expect(out.score.accuracy, isNull);
     expect(out.wordScores, isEmpty);
   });
+
+  test('design/373 a stress mark means the sounds came from another reader', () {
+    // The waveform model has no stress mark anywhere in its 392 tokens, so one
+    // appearing can only have come from the dictionary reader design/368 cut.
+    expect(soundsFromOtherReader('kˈɛmɪkə‍l'), isTrue);
+    expect(soundsFromOtherReader('k ɛ m ɪ k ə l'), isFalse);
+  });
+
+  test('design/373 a tie between two halves of a vowel is the same tell', () {
+    // The model writes `eɪ` as one token with nothing between the letters.
+    // eSpeak joined them, and a joined pair can never equal an unjoined one.
+    expect(soundsFromOtherReader('vˈe‍ɪp'), isTrue);
+    expect(soundsFromOtherReader('v eɪ p'), isFalse);
+    expect(soundsFromOtherReader('dˌɛp'), isTrue);
+  });
+
+  test('design/373 a cached row full of the wrong reading is asked again', () {
+    final cache = SpokenCache();
+    const chunk = 'Chemical vapor deposition';
+    // Exactly what the phone had on disk: three words, every one with sounds,
+    // and every one unscoreable. design/371 alone kept this row forever.
+    cache.put(chunk, 'Chemical vapor deposition', spans: const [
+      FollowSpan(start: 0, end: 8, weight: 8, phone: 'kˈɛmɪkə‍l'),
+    ]);
+    expect(cache.phoneSpanN(chunk), 1);
+    expect(cache.staleSpanN(chunk), 1);
+    expect(cache.lacksSound(chunk), isTrue);
+    // Still once per run, so a server that cannot build one costs one call.
+    expect(cache.lacksSound(chunk), isFalse);
+  });
+
+  test('design/373 a row read by the model is left alone', () {
+    final cache = SpokenCache();
+    const chunk = 'Chemical vapor deposition';
+    cache.put(chunk, 'Chemical vapor deposition', spans: const [
+      FollowSpan(start: 0, end: 8, weight: 8, phone: 'k ɛ m ɪ k ə l'),
+    ]);
+    expect(cache.staleSpanN(chunk), 0);
+    expect(cache.lacksSound(chunk), isFalse);
+  });
+
+  test('design/373 one bad span in a row is enough to ask again', () {
+    final cache = SpokenCache();
+    const chunk = 'Chemical vapor deposition';
+    // A sentence is asked for as a whole, so a row half-written by each reader
+    // still has to be replaced; scoring the good half would report the rest as
+    // misread words the speaker never got wrong.
+    cache.put(chunk, 'Chemical vapor deposition', spans: const [
+      FollowSpan(start: 0, end: 8, weight: 8, phone: 'k ɛ m ɪ k ə l'),
+      FollowSpan(start: 9, end: 14, weight: 5, phone: 'vˈe‍ɪp'),
+    ]);
+    expect(cache.phoneSpanN(chunk), 2);
+    expect(cache.staleSpanN(chunk), 1);
+    expect(cache.lacksSound(chunk), isTrue);
+  });
 }
