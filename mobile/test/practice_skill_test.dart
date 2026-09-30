@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/practice_rhythm/follow_span.dart';
 import 'package:sentence_reading/practice_skill/chunk_density.dart';
 import 'package:sentence_reading/practice_skill/practice_skill_controller.dart';
+import 'package:sentence_reading/practice_skill/pass_line.dart';
 import 'package:sentence_reading/practice_skill/skill_adapt.dart';
 import 'package:sentence_reading/practice_skill/skill_score.dart';
 import 'package:sentence_reading/practice_skill/skill_store.dart';
@@ -329,5 +330,105 @@ void main() {
     // No spans is an alignment failure. Asking again produces none either.
     cache.put(chunk, 'The film grew.', spans: const []);
     expect(cache.lacksSound(chunk), isFalse);
+  });
+
+  test('design/371 a new account is judged by the fixed line', () {
+    const fresh = PassLine();
+    expect(fresh.warm, isFalse);
+    expect(fresh.lineOr(kPhoneOverlapMin), kPhoneOverlapMin);
+    // Still cold one word short of the warmup.
+    var cold = const PassLine();
+    for (var i = 0; i < kPassLineWarmup - 1; i++) {
+      cold = cold.after(0.8);
+    }
+    expect(cold.warm, isFalse);
+    expect(cold.lineOr(kPhoneOverlapMin), kPhoneOverlapMin);
+  });
+
+  test('design/371 a warm account is judged a little below its own average', () {
+    var line = const PassLine();
+    for (var i = 0; i < kPassLineWarmup; i++) {
+      line = line.after(0.8);
+    }
+    expect(line.warm, isTrue);
+    // Every word the same, so there is no spread and the line sits on the mean.
+    expect(line.avg, closeTo(0.8, 1e-9));
+    expect(line.spread, closeTo(0, 1e-9));
+    expect(line.lineOr(kPhoneOverlapMin), closeTo(0.8, 1e-9));
+  });
+
+  test('design/371 a reader who swings is not punished for swinging', () {
+    var tight = const PassLine();
+    var wide = const PassLine();
+    for (var i = 0; i < 400; i++) {
+      tight = tight.after(i.isEven ? 0.78 : 0.82);
+      wide = wide.after(i.isEven ? 0.60 : 1.00);
+    }
+    // Same average, so only the spread can move the line.
+    expect(wide.avg, closeTo(tight.avg, 0.02));
+    expect(wide.lineOr(0.72), lessThan(tight.lineOr(0.72)));
+  });
+
+  test('design/371 the early average is a plain mean, not one word repeated', () {
+    // Seeding the moving average with a single word would leave it steering the
+    // line for the next three hundred.
+    final line = const PassLine().after(0.2).after(0.8);
+    expect(line.avg, closeTo(0.5, 1e-9));
+  });
+
+  test('design/371 only a word that could be judged moves the average', () {
+    // Two sounds is under the floor, and an empty take has nothing in it. Both
+    // come back below every line rather than at zero, which is a real score.
+    expect(phoneOverlap('d i', const ['d i f i l m']), -1);
+    expect(phoneOverlap('f i l m', const []), -1);
+    final out = diagnoseSpokenSlots(
+      display: 'The film grew',
+      spoken: 'The film grew',
+      spans: _spans('The film grew', [
+        ['The', 4, 'd i'],
+        ['film', 5, 'f i l m'],
+        ['grew', 4, 'g r uu'],
+      ]),
+      heardPhones: const ['f i l m g r uu'],
+    );
+    // The is two sounds, so two words were judged, not three.
+    expect(out.wordScores, hasLength(2));
+    expect(out.wordScores.every((s) => s >= 0), isTrue);
+  });
+
+  test('design/371 the line the caller passes is what decides the slot', () {
+    final spans = _spans('The film grew', [
+      ['The', 4, 'd i'],
+      ['film', 5, 'f i l m'],
+      ['grew', 4, 'g r uu'],
+    ]);
+    // grew read as grow: some sounds land, not enough for the fixed line.
+    const heard = ['f i l m g r oo'];
+    final strict = diagnoseSpokenSlots(
+      display: 'The film grew', spoken: 'The film grew',
+      spans: spans, heardPhones: heard, passLine: 0.99,
+    );
+    final loose = diagnoseSpokenSlots(
+      display: 'The film grew', spoken: 'The film grew',
+      spans: spans, heardPhones: heard, passLine: 0.1,
+    );
+    expect(loose.score.hitN, greaterThan(strict.score.hitN));
+  });
+
+  test('design/371 the line does not follow a broken microphone down', () {
+    // Every word scoring 0.1 would otherwise teach the account that 0.1 is
+    // normal, and the app would pass everything while saying it was fine.
+    var line = const PassLine();
+    for (var i = 0; i < 400; i++) {
+      line = line.after(i.isEven ? 0.09 : 0.11);
+    }
+    expect(line.avg, closeTo(0.1, 0.01));
+    expect(line.lineOr(kPhoneOverlapMin), kPassLineFloor);
+    // A reader who is doing fine is still judged by their own average.
+    var fine = const PassLine();
+    for (var i = 0; i < 400; i++) {
+      fine = fine.after(i.isEven ? 0.78 : 0.82);
+    }
+    expect(fine.lineOr(kPhoneOverlapMin), greaterThan(kPassLineFloor));
   });
 }

@@ -667,6 +667,9 @@ class PracticeSkillController {
           .map((part) => part.trim())
           .where((part) => part.isNotEmpty)
           .toList(growable: false),
+      // design/371 - this account's own line, or the fixed one while it is still
+      // too new to have one.
+      passLine: store.state.line.lineOr(kPhoneOverlapMin),
     );
     final align = spokenCache.peekAlign(chunkDisplay);
     final score = diag.score;
@@ -696,6 +699,11 @@ class PracticeSkillController {
         // A hit mark does not say which side passed the slot. Without this the
         // sound compare could be handing out marks unnoticed.
         'sound_pass_n': diag.soundPassN,
+        // Which line judged this take. A line that drifts somewhere silly would
+        // otherwise look exactly like a reader who got worse.
+        'line_used': (store.state.line.lineOr(kPhoneOverlapMin) * 1000).round(),
+        'line_avg': (store.state.line.avg * 1000).round(),
+        'line_n': store.state.line.n,
         'target_phones': spokenCache
             .peekSpans(chunkDisplay)
             .where((span) => span.weight > 0 && span.phone.trim().isNotEmpty)
@@ -724,7 +732,7 @@ class PracticeSkillController {
       );
       return score;
     }
-    await store.addScored(score.accuracy!);
+    await store.addScored(score.accuracy!, wordScores: diag.wordScores);
     final acc = score.accuracy!;
     // design/214 — enum only (no cheer copy string).
     final judgmentTier = judgmentTierKey(judgmentTierFor(acc));

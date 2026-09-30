@@ -6,6 +6,7 @@ import 'package:sentence_reading/practice_sample/sample_corpus.dart';
 import 'package:sentence_reading/practice_sample/sample_round_sheet.dart';
 import 'package:sentence_reading/practice_sample/sample_rounds.dart';
 import 'package:sentence_reading/practice_sample/sample_seed.dart';
+import 'package:sentence_reading/practice_skill/pass_line.dart';
 import 'package:sentence_reading/practice_skill/skill_adapt.dart';
 import 'package:sentence_reading/practice_skill/skill_store.dart';
 
@@ -234,5 +235,47 @@ void main() {
     expect(f['sample_expected'], 'The thickness of the third layer');
     expect(f['tts_voice'], 'en-US-Neural2-D');
     expect(f['tts_rate'], '0.720');
+  });
+
+  test('design/371 the account learns its line from the words it read', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final store = SkillStore();
+    await store.bindUid('u1');
+    expect(store.state.line.n, 0);
+    await store.addScored(0.9, wordScores: const [0.8, 0.9, 1.0]);
+    expect(store.state.line.n, 3);
+    expect(store.state.line.avg, closeTo(0.9, 0.05));
+    // It survives a restart, or every session would start cold.
+    final again = SkillStore();
+    await again.bindUid('u1');
+    expect(again.state.line.n, 3);
+    expect(again.state.line.avg, closeTo(store.state.line.avg, 1e-6));
+  });
+
+  test('design/371 a pinned sweep does not drag the line down', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final store = SkillStore();
+    await store.bindUid('u1');
+    await store.pinLadder(tier: 9, density: 2);
+    // Rungs the speaker cannot reach on purpose. design/364 keeps these out of
+    // the day for the same reason.
+    await store.addScored(0.2, wordScores: const [0.1, 0.2, 0.1]);
+    expect(store.state.line.n, 0);
+    await store.unpinLadder();
+    await store.addScored(0.9, wordScores: const [0.9]);
+    expect(store.state.line.n, 1);
+  });
+
+  test('design/371 a stored line is not trusted outside 0..1', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final bad = SkillState.fromJson(<String, dynamic>{
+      'line_avg': 7.5,
+      'line_var': -3.0,
+      'line_n': -9,
+    });
+    expect(bad.line.avg, 1.0);
+    expect(bad.line.varp, 0.0);
+    expect(bad.line.n, 0);
+    expect(bad.line.lineOr(0.72), 0.72);
   });
 }

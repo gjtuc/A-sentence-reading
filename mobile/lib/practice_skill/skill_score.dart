@@ -115,6 +115,7 @@ class SpokenSlotDiag {
     this.slotHits = '',
     this.slotPieces = '',
     this.soundPassN = 0,
+    this.wordScores = const [],
   });
 
   final SkillScoreResult score;
@@ -132,6 +133,9 @@ class SpokenSlotDiag {
   /// The hit marks alone cannot say which side passed a slot, so a compare that
   /// is too generous would be invisible.
   final int soundPassN;
+
+  /// What each judged word scored, for the account to draw its next line from.
+  final List<double> wordScores;
 }
 
 /// One printed word is one score slot, including function words.
@@ -143,6 +147,7 @@ SpokenSlotDiag diagnoseSpokenSlots({
   required String spoken,
   required List<FollowSpan> spans,
   List<String> heardPhones = const [],
+  double passLine = kPhoneOverlapMin,
 }) {
   final built = _spokenSlots(display: display, spoken: spoken, spans: spans);
   if (built.slots.isEmpty) {
@@ -188,11 +193,16 @@ SpokenSlotDiag diagnoseSpokenSlots({
   }
   var hit = 0;
   var soundPassN = 0;
+  final scores = <double>[];
   final missed = <MissedWordSpan>[];
   final marks = StringBuffer();
   final pieces = <String>[];
   for (final slot in built.slots) {
-    final ok = phonesClose(slot.phone, heardPhoneWords);
+    final got = phoneOverlap(slot.phone, heardPhoneWords);
+    // -1 is "cannot be asked", which is not a score the account should learn a
+    // line from. Only words that were really judged move the average.
+    if (got >= 0) scores.add(got);
+    final ok = got >= passLine;
     if (ok) soundPassN += 1;
     marks.write(ok ? '1' : '0');
     pieces.add(slot.tokens.join(' '));
@@ -226,6 +236,7 @@ SpokenSlotDiag diagnoseSpokenSlots({
     slotHits: marks.toString(),
     slotPieces: pieces.join(' | '),
     soundPassN: soundPassN,
+    wordScores: scores,
   );
 }
 
@@ -481,15 +492,24 @@ const int kPhoneMinUnits = 3;
 /// further out of step with every word and a late word was compared against the
 /// wrong stretch. Walking the run instead lifted the pass rate on reads the
 /// words had already confirmed from 8% to 32% at this same threshold.
-bool phonesClose(String target, List<String> heardWords) {
+bool phonesClose(String target, List<String> heardWords) =>
+    phoneOverlap(target, heardWords) >= kPhoneOverlapMin;
+
+/// How much of [target] is heard in [heardWords], or -1 when it cannot be asked.
+///
+/// design/371 - the pass line is no longer a constant, so the caller needs the
+/// number and not just the verdict. A target too short to judge and a take with
+/// no sounds in it both come back below every line rather than at zero, because
+/// zero is a real score meaning nothing matched.
+double phoneOverlap(String target, List<String> heardWords) {
   final left = _phonePieces(target);
-  if (left.length < kPhoneMinUnits) return false;
+  if (left.length < kPhoneMinUnits) return -1;
   final flat = <String>[];
   for (final heard in heardWords) {
     flat.addAll(_phonePieces(heard));
   }
-  if (flat.isEmpty) return false;
-  return bestWindowOverlap(left, flat) >= kPhoneOverlapMin;
+  if (flat.isEmpty) return -1;
+  return bestWindowOverlap(left, flat);
 }
 
 /// Best overlap of [left] against any stretch of [flat].

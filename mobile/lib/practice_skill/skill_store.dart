@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/focus_practice_models.dart';
 import '../api/practice_cloud_hooks.dart';
 import 'chunk_density.dart';
+import 'pass_line.dart';
 import 'skill_adapt.dart';
 import 'skill_ladder.dart';
 
@@ -43,6 +44,7 @@ class SkillState {
     this.pinned = false,
     this.savedTier = -1,
     this.savedDensity = 0,
+    this.line = const PassLine(),
   });
 
   final int version;
@@ -64,6 +66,9 @@ class SkillState {
   /// design/250 — LWW stamp for live fields.
   final int updatedAtMs;
 
+  /// design/371 - where this account's pass line sits. Three numbers.
+  final PassLine line;
+
   SkillState copyWith({
     int? version,
     int? tier,
@@ -78,6 +83,7 @@ class SkillState {
     bool? pinned,
     int? savedTier,
     int? savedDensity,
+    PassLine? line,
   }) {
     return SkillState(
       version: version ?? this.version,
@@ -93,6 +99,7 @@ class SkillState {
       pinned: pinned ?? this.pinned,
       savedTier: savedTier ?? this.savedTier,
       savedDensity: savedDensity ?? this.savedDensity,
+      line: line ?? this.line,
     );
   }
 
@@ -108,6 +115,9 @@ class SkillState {
         'pinned': pinned,
         'saved_tier': savedTier,
         'saved_density': savedDensity,
+        'line_avg': line.avg,
+        'line_var': line.varp,
+        'line_n': line.n,
         'updated_at_ms': updatedAtMs < 0 ? 0 : updatedAtMs,
         'days': {
           for (final e in days.entries)
@@ -154,6 +164,11 @@ class SkillState {
       pinned: m['pinned'] == true,
       savedTier: ((m['saved_tier'] as num?)?.toInt() ?? -1).clamp(-1, 9),
       savedDensity: ((m['saved_density'] as num?)?.toInt() ?? 0).clamp(-2, 2),
+      line: PassLine(
+        avg: ((m['line_avg'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0),
+        varp: ((m['line_var'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0),
+        n: ((m['line_n'] as num?)?.toInt() ?? 0).clamp(0, 1 << 30),
+      ),
       updatedAtMs: (() {
         final u = (m['updated_at_ms'] as num?)?.toInt() ?? 0;
         return u < 0 ? 0 : u;
@@ -213,7 +228,17 @@ class SkillStore {
     asrSchedulePushSkill?.call(state.toJson());
   }
 
-  Future<void> addScored(double accuracy, {String? dayKey}) async {
+  /// design/371 - a pinned sweep runs rungs the speaker cannot reach on purpose,
+  /// so its words would drag the pass line down for every later paper. Same
+  /// reason design/364 keeps a pinned round out of the day.
+  Future<void> addScored(
+    double accuracy, {
+    String? dayKey,
+    List<double> wordScores = const [],
+  }) async {
+    if (!state.pinned && wordScores.isNotEmpty) {
+      state = state.copyWith(line: state.line.afterAll(wordScores));
+    }
     // design/364 — a pinned sweep deliberately runs rungs the speaker cannot
     // reach. Folding a 20% hard round into the day would report a skill drop
     // that did not happen, so only the block accumulator sees it.
