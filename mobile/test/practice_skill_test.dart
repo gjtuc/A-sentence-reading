@@ -145,11 +145,14 @@ void main() {
     );
     expect(all.score.ok, isTrue);
     // `The` is two units, under kPhoneMinUnits, so sound cannot judge it.
-    expect(all.score.refN, 3);
+    // design/371 - it leaves the sheet rather than counting against the reader:
+    // two words were asked about and both were right, so this is full marks.
+    expect(all.score.refN, 2);
     expect(all.score.hitN, 2);
-    expect(all.slotHits, '011');
+    expect(all.score.accuracy, 1.0);
+    expect(all.slotHits, '-11');
     expect(all.soundPassN, 2);
-    expect(all.score.missedSpans.single.spoken, 'the');
+    expect(all.score.missedSpans, isEmpty);
   });
 
   test('design/370 a silent take misses every slot it could judge', () {
@@ -166,8 +169,11 @@ void main() {
     );
     expect(out.score.ok, isTrue);
     expect(out.score.hitN, 0);
-    expect(out.slotHits, '000');
-    expect(out.score.missedSpans, hasLength(3));
+    // Saying nothing is a real answer worth zero, not an unanswerable question.
+    // Only the two-sound word leaves the sheet, and it leaves it either way.
+    expect(out.slotHits, '-00');
+    expect(out.score.accuracy, 0.0);
+    expect(out.score.missedSpans, hasLength(2));
   });
 
   test('design/370 the review asks for the printed word, not its sounds', () {
@@ -184,7 +190,7 @@ void main() {
     );
     // The reader has to be asked for a word they can say, not for symbols.
     expect(out.slotPieces, 'the | film | grew');
-    expect(out.score.missedSpans.map((s) => s.spoken).toList(), ['the', 'grew']);
+    expect(out.score.missedSpans.map((s) => s.spoken).toList(), ['grew']);
   });
 
   test('a printed word spoken as letters is still one slot', () {
@@ -218,7 +224,9 @@ void main() {
       heardPhones: const ['t e k n ii k'],
     );
     // Four printed words, four slots, even though one is read as three letters.
-    expect(out.score.refN, 4);
+    expect(out.slotPieces.split(' | '), hasLength(4));
+    // design/371 - two of them are too short to ask about, so two are scored.
+    expect(out.score.refN, 2);
     expect(out.score.hitN, 1);
     expect(
       display.substring(
@@ -380,7 +388,7 @@ void main() {
     // Two sounds is under the floor, and an empty take has nothing in it. Both
     // come back below every line rather than at zero, which is a real score.
     expect(phoneOverlap('d i', const ['d i f i l m']), -1);
-    expect(phoneOverlap('f i l m', const []), -1);
+    expect(phoneOverlap('f i l m', const []), 0.0);
     final out = diagnoseSpokenSlots(
       display: 'The film grew',
       spoken: 'The film grew',
@@ -430,5 +438,47 @@ void main() {
       fine = fine.after(i.isEven ? 0.78 : 0.82);
     }
     expect(fine.lineOr(kPhoneOverlapMin), greaterThan(kPassLineFloor));
+  });
+
+  test('design/371 a word too short to ask about does not count as wrong', () {
+    const display = 'The film';
+    // Two printed words. The first has two sounds, which match almost anything,
+    // so there is no honest way to ask whether it was said right.
+    final out = diagnoseSpokenSlots(
+      display: display,
+      spoken: display,
+      spans: _spans(display, [
+        ['The', 4, 'd i'],
+        ['film', 4, 'f i l m'],
+      ]),
+      heardPhones: const ['f i l m'],
+    );
+    // One question asked, one right. Not one right out of two.
+    expect(out.score.refN, 1);
+    expect(out.score.hitN, 1);
+    expect(out.score.accuracy, 1.0);
+    expect(out.slotHits, '-1');
+    // And it is not handed to the reader as something to practise.
+    expect(out.score.missedSpans, isEmpty);
+    // Nor does it teach the account a pass line it was never scored against.
+    expect(out.wordScores, hasLength(1));
+  });
+
+  test('design/371 a take nobody could be asked about is not scored at all', () {
+    const display = 'The a';
+    final out = diagnoseSpokenSlots(
+      display: display,
+      spoken: display,
+      spans: _spans(display, [
+        ['The', 4, 'd i'],
+        ['a', 1, 'a'],
+      ]),
+      heardPhones: const ['d i a'],
+    );
+    // Zero out of zero is not a score, and calling it all wrong would be a lie.
+    expect(out.score.ok, isFalse);
+    expect(out.slotCode, kSoundTooShort);
+    expect(out.score.accuracy, isNull);
+    expect(out.wordScores, isEmpty);
   });
 }

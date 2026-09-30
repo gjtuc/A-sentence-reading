@@ -192,6 +192,7 @@ SpokenSlotDiag diagnoseSpokenSlots({
     );
   }
   var hit = 0;
+  var judged = 0;
   var soundPassN = 0;
   final scores = <double>[];
   final missed = <MissedWordSpan>[];
@@ -199,9 +200,18 @@ SpokenSlotDiag diagnoseSpokenSlots({
   final pieces = <String>[];
   for (final slot in built.slots) {
     final got = phoneOverlap(slot.phone, heardPhoneWords);
-    // -1 is "cannot be asked", which is not a score the account should learn a
-    // line from. Only words that were really judged move the average.
-    if (got >= 0) scores.add(got);
+    if (got < 0) {
+      // design/371 - two sounds match almost anything, so this word cannot be
+      // asked about at all. It used to be marked wrong, which failed every 	he
+      // and  on every take, 3.6% of all words, and put them on the practice
+      // list forever. A question we cannot put leaves the sheet instead of being
+      // counted against the reader.
+      marks.write('-');
+      pieces.add(slot.tokens.join(' '));
+      continue;
+    }
+    judged += 1;
+    scores.add(got);
     final ok = got >= passLine;
     if (ok) soundPassN += 1;
     marks.write(ok ? '1' : '0');
@@ -217,12 +227,30 @@ SpokenSlotDiag diagnoseSpokenSlots({
       ));
     }
   }
-  final acc = hit / built.slots.length;
+  if (judged == 0) {
+    // Every word's reference was too short. Saying "all wrong" would be a lie.
+    return SpokenSlotDiag(
+      score: SkillScoreResult(
+        ok: false,
+        error: kSoundTooShort,
+        listV: kSpokenSlotListV,
+      ),
+      slotCode: kSoundTooShort,
+      spanN: built.spanN,
+      posSpanN: built.posSpanN,
+      walkI: built.walkI,
+      pieceWeight: built.pieceWeight,
+      remain: built.remain,
+      slotHits: marks.toString(),
+      slotPieces: pieces.join(' | '),
+    );
+  }
+  final acc = hit / judged;
   return SpokenSlotDiag(
     score: SkillScoreResult(
       ok: true,
       accuracy: (acc * 10000).round() / 10000.0,
-      refN: built.slots.length,
+      refN: judged,
       hitN: hit,
       listV: kSpokenSlotListV,
       missedSpans: missed,
@@ -478,6 +506,9 @@ List<String> _phonePieces(String ipa) => phoneUnits(ipa);
 /// No slot carried a reference sound, so the take cannot be judged. design/370.
 const String kSoundRefMissing = 'sound_ref_missing';
 
+/// Every slot's reference was too short to tell words apart. design/371.
+const String kSoundTooShort = 'sound_too_short';
+
 /// Least overlap that counts as the same sound. See design/366 for the sweep.
 const double kPhoneOverlapMin = 0.72;
 
@@ -498,9 +529,10 @@ bool phonesClose(String target, List<String> heardWords) =>
 /// How much of [target] is heard in [heardWords], or -1 when it cannot be asked.
 ///
 /// design/371 - the pass line is no longer a constant, so the caller needs the
-/// number and not just the verdict. A target too short to judge and a take with
-/// no sounds in it both come back below every line rather than at zero, because
-/// zero is a real score meaning nothing matched.
+/// number and not just the verdict. -1 means the question cannot be put at all,
+/// which happens only when the reference is too short to tell words apart. A
+/// take with nothing in it scores 0, because 0 is a real answer: none of the
+/// sounds were there.
 double phoneOverlap(String target, List<String> heardWords) {
   final left = _phonePieces(target);
   if (left.length < kPhoneMinUnits) return -1;
@@ -508,7 +540,6 @@ double phoneOverlap(String target, List<String> heardWords) {
   for (final heard in heardWords) {
     flat.addAll(_phonePieces(heard));
   }
-  if (flat.isEmpty) return -1;
   return bestWindowOverlap(left, flat);
 }
 

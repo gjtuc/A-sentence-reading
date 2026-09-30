@@ -62,12 +62,12 @@ void main() {
       display: display,
       spans: diag.score.missedSpans,
     );
-    // `The` is two sounds, under kPhoneMinUnits, so sound cannot clear it and it
-    // joins the review. design/366 counts that cost: short words are unreachable
-    // this way until a reference long enough to judge them exists.
-    expect(words.map((w) => w.printed), ['The', '1', 'nm']);
-    expect(words.map((w) => w.ask), ['the', 'one', 'nanometers']);
-    expect(words[2].phone, 'n æ n');
+    // design/371 - the two-sound word cannot be asked about, so it is not put on
+    // the review either. Telling the reader to practise a word the app cannot
+    // judge is asking them to fix something nobody measured.
+    expect(words.map((w) => w.printed), ['1', 'nm']);
+    expect(words.map((w) => w.ask), ['one', 'nanometers']);
+    expect(words[1].phone, 'n æ n');
   });
 
   test('review tail pads a short drill and adds 3s only when longer', () {
