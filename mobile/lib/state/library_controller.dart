@@ -42,6 +42,7 @@ import '../pdf/doc_role_detect.dart';
 import '../pdf/advisory_title.dart';
 import '../practice_sample/sample_corpus.dart';
 import '../practice_sample/sample_seed.dart';
+import '../practice_sample/sample_hidden.dart';
 import '../api/library_soft_delete_store.dart';
 import '../platform/saf_tree_channel.dart';
 import '../api/upload_notify.dart';
@@ -175,7 +176,20 @@ class LibraryController extends ChangeNotifier {
 
   /// design/364 — the sample row is written locally, so 보관함 needs a reload
   /// once it lands. A bind that already had it does not refresh.
+  /// design/364 - flip the row in or out of the list. Saved, then republished,
+  /// because the filter runs where the list is published and not in the screen.
+  Future<void> setSampleRowHidden(bool hidden) async {
+    if (sampleRowHidden == hidden) return;
+    sampleRowHidden = hidden;
+    notifyListeners();
+    await saveSampleRowHidden(hidden);
+    await refresh(trigger: 'sample_hide');
+  }
+
   Future<void> _ensureSampleRowThenRefresh() async {
+    // Read the preference before the row can be published, or a hidden row
+    // shows for the first frames of every sign-in.
+    sampleRowHidden = await loadSampleRowHidden();
     bool wrote;
     try {
       wrote = await ensureSampleRow(
@@ -279,9 +293,18 @@ class LibraryController extends ChangeNotifier {
     String trigger = 'publish',
   }) {
     final hidden = _softDelete.hiddenIds;
-    final filtered = hidden.isEmpty
+    var filtered = hidden.isEmpty
         ? next
         : next.where((e) => !hidden.contains(e.id)).toList(growable: false);
+    // design/364 - the sample row cannot be deleted, so this is the only way to
+    // get it out of the list. Filtering here rather than in the screen keeps the
+    // count, the empty-list message and the reorder indexes agreeing with what
+    // is on screen. The recorded takes are in GCS and are not touched.
+    filtered = withoutHiddenSample(
+      filtered,
+      hidden: sampleRowHidden,
+      idOf: (e) => e.id,
+    );
     // design/240 — adjacent mates; design/261 — local pairing + one set row.
     final paired = applyLocalPairingPassDetailed(filtered);
     final collapsed = collapsePairedSetRowsDetailed(paired.papers);
@@ -563,6 +586,10 @@ class LibraryController extends ChangeNotifier {
   VoidCallback? onSoftHideOpened;
 
   List<PaperEntry> papers = const [];
+
+  /// design/364 - keep the sample row out of the list. A view choice; the
+  /// recorded takes are untouched and the switch brings the row back.
+  bool sampleRowHidden = false;
   ReadingSession? session;
   bool loading = false;
   bool opening = false;

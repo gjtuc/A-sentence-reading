@@ -175,6 +175,29 @@ Coverage is keyed `sent_f07:1`, so a chunk retried five times is one chunk colle
 `v1` is abandoned rather than migrated: its counts cannot say which chunks they came
 from.
 
+### 7. The row can be hidden, not deleted
+
+`mobile/lib/practice_sample/sample_hidden.dart`, pref `asr.sample_row_hidden.v1`.
+
+Once the ten rounds are recorded there is still a reason to want the row out of the
+library, and the four guards in item 4 mean it cannot be deleted. `_publishPapers`
+drops it through `withoutHiddenSample` when the preference is set, next to the
+soft-hide filter it belongs with. Filtering where the list is published rather than
+in the screen keeps the count, the empty-list message and the reorder indexes
+agreeing with what is on screen.
+
+The preference is read in `_ensureSampleRowThenRefresh` before the row can be
+published. Reading it any later shows a hidden row for the first frames of every
+sign-in. The settings switch reads it back off the controller rather than off
+`SharedPreferences`, so the screen cannot disagree with the list it describes.
+
+Hiding is a view choice and nothing else. The 619 takes under
+`{prefix}/users/{uid}/sample_takes/` are not touched, and nothing else touches them
+either: the bucket has no lifecycle configuration and no code path deletes that
+prefix, so the audio outlives any number of hides. Turning the switch back off
+brings the row back with its round progress intact, which is the only way back --
+a row that is not in the list cannot be opened.
+
 ## Evidence
 
 - `practice_sample_seed` (client, `lifecycle`) — `sentence_n`, `seed_version`

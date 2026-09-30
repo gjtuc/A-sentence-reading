@@ -5,6 +5,7 @@ import 'package:sentence_reading/api/sample_take_tag.dart';
 import 'package:sentence_reading/practice_sample/sample_corpus.dart';
 import 'package:sentence_reading/practice_sample/sample_round_sheet.dart';
 import 'package:sentence_reading/practice_sample/sample_rounds.dart';
+import 'package:sentence_reading/practice_sample/sample_hidden.dart';
 import 'package:sentence_reading/practice_sample/sample_seed.dart';
 import 'package:sentence_reading/practice_skill/pass_line.dart';
 import 'package:sentence_reading/practice_skill/skill_adapt.dart';
@@ -277,5 +278,37 @@ void main() {
     expect(bad.line.varp, 0.0);
     expect(bad.line.n, 0);
     expect(bad.line.lineOr(0.72), 0.72);
+  });
+
+
+  test('design/364 hiding the sample row leaves every other row alone', () {
+    final rows = ['paper_a', kSampleCacheId, 'paper_b'];
+    final shown = withoutHiddenSample(
+      rows,
+      hidden: true,
+      idOf: (id) => id,
+    );
+    expect(shown, ['paper_a', 'paper_b']);
+  });
+
+  test('design/364 the sample row is in the list until it is hidden', () {
+    final rows = ['paper_a', kSampleCacheId];
+    // Shown by default, because a speaker who has recorded nothing has to be
+    // able to find it.
+    expect(
+      withoutHiddenSample(rows, hidden: false, idOf: (id) => id),
+      rows,
+    );
+  });
+
+  test('design/364 the hide preference round-trips and starts off', () async {
+    SharedPreferences.setMockInitialValues({});
+    expect(await loadSampleRowHidden(), isFalse);
+    await saveSampleRowHidden(true);
+    expect(await loadSampleRowHidden(), isTrue);
+    // Turning it back off has to bring the row back, or hiding would be the
+    // delete the row is not allowed to have.
+    await saveSampleRowHidden(false);
+    expect(await loadSampleRowHidden(), isFalse);
   });
 }
