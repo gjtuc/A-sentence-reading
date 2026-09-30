@@ -155,3 +155,74 @@ def test_design_371_the_range_is_off_unless_asked_for():
     assert [
         (s["start"], s["end"], s["weight"]) for s in plain["spans"]
     ] == [(s["start"], s["end"], s["weight"]) for s in marked["spans"]]
+
+def _seed(tmp_path, monkeypatch, display: str):
+    """Write the reference the route will look for, so no voice is needed."""
+    import json
+
+    from sentence_reading.llm import sound_reference as sr
+
+    monkeypatch.setenv("ASR_SOUND_REF_DIR", str(tmp_path))
+    monkeypatch.setenv("ASR_SOUND_REF", "1")
+    monkeypatch.setenv("ASR_ACCESS_GATE", "0")
+    spoken = spoken_text_for_tts(display)
+    words = []
+    for m in __import__("re").finditer(r"\S+", spoken):
+        words.append({"lo": m.start(), "hi": m.end(),
+                      "sounds": " ".join(list(m.group(0).lower()))[:40]})
+    got = {"voice": sr.reference_voice(), "words": words,
+           "natural_n": 0, "mark_n": len(words)}
+    key = sr.cache_key(spoken, sr.reference_voice())
+    (tmp_path / f"{key}.json").write_text(
+        json.dumps(got, ensure_ascii=False), encoding="utf-8"
+    )
+    return spoken
+
+
+def test_design_371_the_route_serves_a_cached_reference(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from sentence_reading.api.app import app
+
+    display = "The film grew at five hundred degrees."
+    _seed(tmp_path, monkeypatch, display)
+    got = TestClient(app).post("/api/tts/spoken", json={"text": display}).json()
+    assert got["ok"] is True
+    assert got["sound_ref_code"] == "ready"
+    assert got["sound_ref_n"] > 0
+    # The wire format keeps the four keys the client parses, and nothing else.
+    for span in got["spans"]:
+        assert sorted(span) == ["end", "phone", "start", "weight"]
+    # grew is spelled the same spoken and printed, so the seeded sounds land.
+    by = {display[s["start"]:s["end"]]: s["phone"] for s in got["spans"]}
+    assert by["grew"] == "g r e w"
+
+
+def test_design_371_the_kill_switch_leaves_the_old_behaviour(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from sentence_reading.api.app import app
+
+    display = "The film grew at five hundred degrees."
+    _seed(tmp_path, monkeypatch, display)
+    monkeypatch.setenv("ASR_SOUND_REF", "0")
+    monkeypatch.setenv("ASR_SOUND_REF_DIR", str(tmp_path / "empty"))
+    got = TestClient(app).post("/api/tts/spoken", json={"text": display}).json()
+    assert got["ok"] is True
+    assert got["sound_ref_code"] == "off"
+    # design/368 behaviour: the key is present and empty, never missing.
+    assert all(span["phone"] == "" for span in got["spans"])
+
+
+def test_design_371_a_reference_for_another_sentence_is_not_used(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from sentence_reading.api.app import app
+
+    _seed(tmp_path, monkeypatch, "The film grew at five hundred degrees.")
+    other = "A thin layer forms on the surface of the gold."
+    got = TestClient(app).post("/api/tts/spoken", json={"text": other}).json()
+    assert got["ok"] is True
+    # Content-addressed, so a different sentence misses and is asked for.
+    assert got["sound_ref_code"] in ("queued", "building", "busy")
+    assert got["sound_ref_n"] == 0

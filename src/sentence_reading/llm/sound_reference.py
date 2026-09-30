@@ -33,7 +33,9 @@ import io
 import json
 import os
 import re
+import threading
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -379,3 +381,81 @@ def strip_ranges(spans: list[dict[str, int]]) -> None:
     for span in spans:
         span.pop("spoken_lo", None)
         span.pop("spoken_hi", None)
+
+
+def enabled() -> bool:
+    """The kill switch. v1beta1 timepoints are a new API surface in production."""
+    load_asr_env()
+    return (os.environ.get("ASR_SOUND_REF") or "1").strip() not in ("0", "false")
+
+
+# One build at a time. The model already serializes behind its own lock, so a
+# second worker would only queue on it while holding a synthesis slot.
+_PENDING: set[str] = set()
+_PENDING_LOCK = threading.Lock()
+_POOL: ThreadPoolExecutor | None = None
+_BUILD_FAIL = ""
+_BUILD_OK = 0
+_BUILD_BAD = 0
+
+
+def _pool() -> ThreadPoolExecutor:
+    global _POOL
+    if _POOL is None:
+        _POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="soundref")
+    return _POOL
+
+
+def _run_build(spoken: str, voice: str, key: str) -> None:
+    global _BUILD_FAIL, _BUILD_OK, _BUILD_BAD
+    try:
+        _write_cache(key, build(spoken, voice=voice))
+        _BUILD_OK += 1
+        _BUILD_FAIL = ""
+    except Exception as exc:  # noqa: BLE001
+        # A failed build must not take the request down with it. The next call
+        # finds the cache still empty and asks again.
+        _BUILD_BAD += 1
+        _BUILD_FAIL = re.sub(r"[^a-z0-9]+", "_", type(exc).__name__.lower())[:40]
+    finally:
+        with _PENDING_LOCK:
+            _PENDING.discard(key)
+
+
+def request_build(spoken: str, *, voice: str | None = None) -> str:
+    """Ask for a reference in the background. Never blocks, never raises.
+
+    A build costs two synthesis calls and two model passes, about eight seconds,
+    which is far too long to hold a screen on. So the request path serves what is
+    cached and asks for what is not, and the reading after this one scores.
+    """
+    text = (spoken or "").strip()
+    if not text:
+        return "empty"
+    if not enabled():
+        return "off"
+    key = cache_key(text, voice or reference_voice())
+    with _PENDING_LOCK:
+        if key in _PENDING:
+            return "building"
+        _PENDING.add(key)
+    try:
+        _pool().submit(_run_build, text, voice or reference_voice(), key)
+    except RuntimeError:
+        with _PENDING_LOCK:
+            _PENDING.discard(key)
+        return "busy"
+    return "queued"
+
+
+def build_report() -> dict[str, object]:
+    """Counts for the evidence row, so a silent failure is visible."""
+    with _PENDING_LOCK:
+        waiting = len(_PENDING)
+    return {
+        "sound_ref_on": 1 if enabled() else 0,
+        "sound_ref_ok": _BUILD_OK,
+        "sound_ref_bad": _BUILD_BAD,
+        "sound_ref_waiting": waiting,
+        "sound_ref_fail": _BUILD_FAIL or "none",
+    }

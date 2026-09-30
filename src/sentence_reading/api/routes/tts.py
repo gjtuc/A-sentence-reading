@@ -62,11 +62,48 @@ def _paper_speak_terms(cache_id: object) -> dict[str, str] | None:
     return dict(terms) if isinstance(terms, dict) and terms else None
 
 
+def _attach_sound_ref(spoken: str, spans: list) -> tuple[str, int]:
+    """Fill `spans[].phone` from the cached reference, or ask for one.
+
+    Never raises and never blocks. A missing reference leaves every `phone`
+    empty, which is what the scorer already treats as `sound_ref_missing`, so
+    the worst case is the behaviour design/368 left behind.
+    """
+    from sentence_reading.llm.sound_reference import (
+        attach_sounds,
+        reference_for,
+        request_build,
+        strip_ranges,
+    )
+
+    code, filled = "none", 0
+    try:
+        got = reference_for(spoken, allow_build=False)
+        if got is None:
+            code = request_build(spoken)
+        else:
+            filled = attach_sounds(spans, got)
+            code = "ready" if filled else "empty"
+    except Exception as exc:  # noqa: BLE001
+        code = re.sub(r"[^a-z0-9]+", "_", type(exc).__name__.lower())[:40] or "failed"
+    finally:
+        # Every span carries the key even when there is no reference, so a
+        # half-written response cannot be mistaken for a scored one.
+        for span in spans if isinstance(spans, list) else []:
+            if isinstance(span, dict):
+                span.setdefault("phone", "")
+        if isinstance(spans, list):
+            strip_ranges([s for s in spans if isinstance(s, dict)])
+    return code, filled
+
+
 def _emit_spoken_align(
     payload: dict,
     spoken: str,
     report: dict[str, object],
     spans: object,
+    sound_code: str = "none",
+    sound_n: int = 0,
 ) -> None:
     """Counts and a short code only. No sentence text."""
     try:
@@ -148,8 +185,23 @@ def _emit_spoken_align(
             # design/368 — the phone_* counts described eSpeak's reading of the
             # spelling. There is no dictionary in this route any more.
             "phone_code": "espeak_cut_368",
+            # design/371 — how many printed words came back with a reference
+            # sound, and why the rest did not. `queued` and `building` mean the
+            # reading after this one scores; anything else is a fault.
+            "sound_ref_code": _snake(sound_code),
+            "sound_ref_n": int(sound_n),
+            **_sound_ref_counts(),
         },
     )
+
+
+def _sound_ref_counts() -> dict[str, object]:
+    try:
+        from sentence_reading.llm.sound_reference import build_report
+
+        return build_report()
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 @router.post("/api/tts")
@@ -227,17 +279,23 @@ async def tts_spoken(request: Request, payload: dict = Body(...)) -> dict[str, A
             "error": "empty_text",
             "message": "읽을 문장이 없습니다.",
         }
-    report = align_display_report(raw, spoken=spoken)
+    report = align_display_report(raw, spoken=spoken, with_spoken_range=True)
     spans = report["spans"] if isinstance(report["spans"], list) else []
-    # design/368 — the spans no longer carry a `phone`. eSpeak read the spelling
-    # out of a dictionary, which is not the sound a voice makes, so the target
-    # sounds come from the native audio instead. See 368 for what replaces this.
-    _emit_spoken_align(payload, spoken, report, spans)
+    # design/371 — the sounds a printed word is judged against. design/368 took
+    # them away from eSpeak, which read a spelling out of a dictionary rather
+    # than listening to a voice, and left the field empty. They come from the
+    # native audio now, built from the spoken form so a printed `nm` is asked
+    # for as `nanometers`. A build is far too slow to hold this call on, so the
+    # cache is served and a miss is asked for in the background.
+    sound_code, sound_n = _attach_sound_ref(spoken, spans)
+    _emit_spoken_align(payload, spoken, report, spans, sound_code, sound_n)
     return {
         "ok": True,
         "spoken": spoken,
         "speak_norm_version": speak_norm_version(),
         "spans": spans,
+        "sound_ref_code": sound_code,
+        "sound_ref_n": sound_n,
         "align_code": report["code"],
         "align_token_i": report["token_i"],
         "align_cursor": report["cursor"],
