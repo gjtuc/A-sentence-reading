@@ -216,16 +216,28 @@ def _load_frames() -> None:
         from huggingface_hub import hf_hub_download
         from transformers import Wav2Vec2FeatureExtractor
 
-        _EXTRACTOR = Wav2Vec2FeatureExtractor.from_pretrained(_NAME)
-        vocab = _json.loads(
-            _pathlib.Path(hf_hub_download(_NAME, "vocab.json")).read_text(
-                encoding="utf-8"
+        def _file(name: str) -> str:
+            # The image prefetches these at build time, so the cache holds them.
+            # Asking the hub first would add a network round trip to the first
+            # take of every cold instance and fail closed if egress is blocked.
+            try:
+                return hf_hub_download(_NAME, name, local_files_only=True)
+            except Exception:  # noqa: BLE001
+                return hf_hub_download(_NAME, name)
+
+        try:
+            _EXTRACTOR = Wav2Vec2FeatureExtractor.from_pretrained(
+                _NAME, local_files_only=True
             )
+        except Exception:  # noqa: BLE001
+            _EXTRACTOR = Wav2Vec2FeatureExtractor.from_pretrained(_NAME)
+        vocab = _json.loads(
+            _pathlib.Path(_file("vocab.json")).read_text(encoding="utf-8")
         )
         cfg = _json.loads(
-            _pathlib.Path(
-                hf_hub_download(_NAME, "tokenizer_config.json")
-            ).read_text(encoding="utf-8")
+            _pathlib.Path(_file("tokenizer_config.json")).read_text(
+                encoding="utf-8"
+            )
         )
         _INV = {int(i): s for s, i in vocab.items()}
         _PAD = int(vocab[str(cfg.get("pad_token") or "<pad>")])
@@ -243,7 +255,12 @@ def _load_ctc() -> None:
         try:
             from transformers import Wav2Vec2ForCTC
 
-            _MODEL = Wav2Vec2ForCTC.from_pretrained(_NAME)
+            try:
+                _MODEL = Wav2Vec2ForCTC.from_pretrained(
+                    _NAME, local_files_only=True
+                )
+            except Exception:  # noqa: BLE001
+                _MODEL = Wav2Vec2ForCTC.from_pretrained(_NAME)
             _MODEL.eval()
         except Exception as exc:  # noqa: BLE001
             _LOAD_FAIL = type(exc).__name__
