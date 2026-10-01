@@ -39,6 +39,7 @@ import '../practice_rhythm/rhythm_theme.dart';
 import '../practice_sample/sample_round_sheet.dart';
 import '../practice_sample/sample_rounds.dart';
 import '../practice_skill/chunk_density.dart';
+import '../practice_skill/pass_line.dart';
 import '../practice_skill/practice_skill_controller.dart';
 import '../practice_skill/skill_score.dart';
 import '../services/evidence_bus.dart';
@@ -2165,8 +2166,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       // phase uses. It used to also pass when a transcript held the same letters,
       // and it needed a length gate because a recognizer asked for one word would
       // write the whole sentence from memory. Neither applies to a run of sounds.
-      final matched =
-          phonesClose(targetPhone, missReviewHeardPhoneWords(heardPhone));
+      // design/375 — the account's own line, so a word the speak phase would
+      // have passed is not failed here.
+      final matched = phonesClose(
+        targetPhone,
+        missReviewHeardPhoneWords(heardPhone),
+        line: _skill.store.state.line.lineOr(kPassLineCold),
+      );
       final drill = matched
           ? const <String>[]
           : phoneDrillTargets(target: targetPhone, heard: heardPhone);

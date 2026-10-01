@@ -307,7 +307,7 @@ void main() {
     ), greaterThanOrEqualTo(kPhoneOverlapMin));
   });
 
-  test('design/371 a cached row with no reference sound is asked again, once', () {
+  test('design/374 a cached row with no reference sound is asked again', () {
     final cache = SpokenCache();
     const chunk = 'The film grew.';
     // What the server sends while the reference is still being built.
@@ -316,9 +316,14 @@ void main() {
       FollowSpan(start: 4, end: 8, weight: 4),
     ]);
     expect(cache.phoneSpanN(chunk), 0);
-    expect(cache.lacksSound(chunk), isTrue);
-    // Asked once. A server that can never build a reference must not cost a
-    // call every time the sentence is shown.
+    // design/371 allowed one. With design/373 also spending an ask to discover a
+    // stale row, one was not enough to outlast an eight-second build, and the
+    // sentence went unscored for the whole run.
+    for (var i = 0; i < kSoundAskMax; i++) {
+      expect(cache.lacksSound(chunk), isTrue);
+    }
+    // The cap is what stops a build stuck in the queue being asked about every
+    // time the sentence is shown.
     expect(cache.lacksSound(chunk), isFalse);
   });
 
@@ -508,8 +513,9 @@ void main() {
     expect(cache.phoneSpanN(chunk), 1);
     expect(cache.staleSpanN(chunk), 1);
     expect(cache.lacksSound(chunk), isTrue);
-    // Still once per run, so a server that cannot build one costs one call.
-    expect(cache.lacksSound(chunk), isFalse);
+    // And again, because the answer replacing it is still being built. Stopping
+    // here is what left every sentence after the first unscored. design/374.
+    expect(cache.lacksSound(chunk), isTrue);
   });
 
   test('design/373 a row read by the model is left alone', () {
@@ -535,5 +541,126 @@ void main() {
     expect(cache.phoneSpanN(chunk), 2);
     expect(cache.staleSpanN(chunk), 1);
     expect(cache.lacksSound(chunk), isTrue);
+  });
+
+  test('design/374 a server with no reference coming is not asked again', () {
+    final cache = SpokenCache();
+    const chunk = 'The film grew.';
+    // `empty` means the reference exists but claimed none of these words. Asking
+    // again cannot change that, and design/371 would still have spent a call.
+    cache.put(chunk, 'The film grew.', spans: const [
+      FollowSpan(start: 0, end: 3, weight: 3),
+    ], soundRefCode: 'empty');
+    expect(cache.refCode(chunk), 'empty');
+    expect(cache.lacksSound(chunk), isFalse);
+    expect(cache.askN(chunk), 0);
+  });
+
+  test('design/374 a build in flight earns another ask', () {
+    for (final code in kSoundRefComing) {
+      final cache = SpokenCache();
+      const chunk = 'The film grew.';
+      cache.put(chunk, 'The film grew.', spans: const [
+        FollowSpan(start: 0, end: 3, weight: 3),
+      ], soundRefCode: code);
+      expect(cache.lacksSound(chunk), isTrue, reason: code);
+    }
+  });
+
+  test('design/374 a named failure stops the asking', () {
+    final cache = SpokenCache();
+    const chunk = 'The film grew.';
+    // A voice we are not allowed to use fails the same way for every sentence,
+    // so one call is the whole budget it deserves.
+    cache.put(chunk, 'The film grew.', spans: const [
+      FollowSpan(start: 0, end: 3, weight: 3),
+    ], soundRefCode: 'permissiondenied');
+    expect(cache.lacksSound(chunk), isFalse);
+  });
+
+  test('design/374 a server too old to say keeps the budget', () {
+    final cache = SpokenCache();
+    const chunk = 'The film grew.';
+    // No code at all is not a refusal. Reading it as one would turn an old
+    // server into a phone that never scores anything.
+    cache.put(chunk, 'The film grew.', spans: const [
+      FollowSpan(start: 0, end: 3, weight: 3),
+    ]);
+    expect(cache.refCode(chunk), '');
+    expect(cache.lacksSound(chunk), isTrue);
+  });
+
+  test('design/374 a row that gained its sounds is not asked about again', () {
+    final cache = SpokenCache();
+    const chunk = 'The film grew.';
+    cache.put(chunk, 'The film grew.', spans: const [
+      FollowSpan(start: 0, end: 3, weight: 3),
+    ], soundRefCode: 'queued');
+    expect(cache.lacksSound(chunk), isTrue);
+    // The ask the server answered. Having the sounds ends it well short of the
+    // cap, which is the normal path and must not cost the remaining calls.
+    cache.put(chunk, 'The film grew.', spans: const [
+      FollowSpan(start: 0, end: 3, weight: 3, phone: 'd i'),
+    ], soundRefCode: 'ready');
+    expect(cache.lacksSound(chunk), isFalse);
+    expect(cache.askN(chunk), 1);
+  });
+
+  test('design/374 a new speak-norm starts the budget over', () {
+    final cache = SpokenCache();
+    const chunk = 'The film grew.';
+    cache.put(chunk, 'The film grew.', spans: const [
+      FollowSpan(start: 0, end: 3, weight: 3),
+    ], soundRefCode: 'permissiondenied');
+    expect(cache.lacksSound(chunk), isFalse);
+    // The rows are thrown away, so what the server said about them cannot keep
+    // deciding anything.
+    cache.setSpeakNorm('v11');
+    expect(cache.refCode(chunk), '');
+    expect(cache.askN(chunk), 0);
+  });
+
+  test('design/375 the cold line is the formula with the population numbers', () {
+    // Overlap over all 2,919 words of real reading the scorer could ask about,
+    // measured without looking at a label: scripts/token_units_probe.py.
+    const mean = 0.747;
+    const spread = 0.230;
+    const fromFormula = mean + kPassLineOffset * spread;
+    // The floor is for a broken microphone, and a whole population is not one.
+    expect(fromFormula, greaterThan(kPassLineFloor));
+    // Tying the constant to the measurement means moving it needs the
+    // measurement redone rather than a number someone liked better.
+    expect(kPassLineCold, closeTo(fromFormula, 0.005));
+  });
+
+  test('design/375 a fresh account is judged by the cold line', () {
+    const fresh = PassLine();
+    expect(fresh.warm, isFalse);
+    expect(fresh.lineOr(kPassLineCold), kPassLineCold);
+    // design/366's 0.72 answers how close two different words are allowed to
+    // sound. Used as a pass line it made the first forty words of an account the
+    // hardest it is ever judged, and it dropped 38% of correctly-read words.
+    expect(kPassLineCold, lessThan(kPhoneOverlapMin));
+  });
+
+  test('design/375 the review is judged by the line it is given', () {
+    const target = 'f i l';
+    const heard = ['d i f i n'];
+    // Two of three sounds line up, so the overlap is 0.667: above the cold line
+    // and below design/366's. The review has to agree with the speak phase, so
+    // the line comes from the caller rather than from a constant in here.
+    expect(phonesClose(target, heard, line: 0.72), isFalse);
+    expect(phonesClose(target, heard), isTrue);
+  });
+
+  test('design/375 a warm account still decides for itself', () {
+    // The cold line is a starting point, not a new fixed line. An account that
+    // has read enough is judged by its own average and spread, exactly as before.
+    var line = const PassLine();
+    for (var i = 0; i < kPassLineWarmup + 5; i++) {
+      line = line.after(0.90);
+    }
+    expect(line.warm, isTrue);
+    expect(line.lineOr(kPassLineCold), closeTo(0.90, 1e-6));
   });
 }

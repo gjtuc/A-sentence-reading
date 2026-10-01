@@ -2679,6 +2679,7 @@ throw AsrApiException(
       phoneFilledN: (map['phone_filled_n'] as num?)?.toInt() ?? -1,
       phoneEspeak: (map['phone_espeak'] as num?)?.toInt() ?? -1,
       phonePairs: '${map['phone_pairs'] ?? ''}',
+      soundRefCode: _alignCode('${map['sound_ref_code'] ?? ''}'),
     );
   }
 
@@ -3636,6 +3637,7 @@ class SpokenTextResult {
     this.phoneFilledN = -1,
     this.phoneEspeak = -1,
     this.phonePairs = '',
+    this.soundRefCode = '',
   });
   final String spoken;
   final String speakNormVersion;
@@ -3663,6 +3665,12 @@ class SpokenTextResult {
   final int phoneFilledN;
   final int phoneEspeak;
   final String phonePairs;
+
+  /// design/374 - what the server said about this sentence's reference sounds:
+  /// `queued` or `building` while it is coming, `ready` once it is there, and a
+  /// name for every way it is not coming. Empty means the server did not say,
+  /// which is a build older than 0.3.415 rather than an answer.
+  final String soundRefCode;
 }
 
 String _alignCode(String raw) {

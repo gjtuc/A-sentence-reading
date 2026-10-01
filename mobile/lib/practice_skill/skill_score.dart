@@ -2,6 +2,7 @@
 library;
 
 import '../practice_rhythm/follow_span.dart';
+import 'pass_line.dart';
 
 const int kContentWordListV = 1;
 const int kSpokenSlotListV = 2;
@@ -147,7 +148,7 @@ SpokenSlotDiag diagnoseSpokenSlots({
   required String spoken,
   required List<FollowSpan> spans,
   List<String> heardPhones = const [],
-  double passLine = kPhoneOverlapMin,
+  double passLine = kPassLineCold,
 }) {
   final built = _spokenSlots(display: display, spoken: spoken, spans: spans);
   if (built.slots.isEmpty) {
@@ -537,8 +538,16 @@ const int kPhoneMinUnits = 3;
 /// further out of step with every word and a late word was compared against the
 /// wrong stretch. Walking the run instead lifted the pass rate on reads the
 /// words had already confirmed from 8% to 32% at this same threshold.
-bool phonesClose(String target, List<String> heardWords) =>
-    phoneOverlap(target, heardWords) >= kPhoneOverlapMin;
+/// design/375 — [line] is the caller's, because the review has to pass on the
+/// same ground the speak phase does. Left to itself it uses the cold line rather
+/// than design/366's 0.72, which answers how close two different words may sound
+/// and is a stricter bar than any reading is judged by.
+bool phonesClose(
+  String target,
+  List<String> heardWords, {
+  double line = kPassLineCold,
+}) =>
+    phoneOverlap(target, heardWords) >= line;
 
 /// How much of [target] is heard in [heardWords], or -1 when it cannot be asked.
 ///

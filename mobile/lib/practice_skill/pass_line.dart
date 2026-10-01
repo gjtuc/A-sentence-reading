@@ -35,6 +35,22 @@ const double kPassLineOffset = -0.75;
 /// so it costs nothing and only catches the case where something is wrong.
 const double kPassLineFloor = 0.45;
 
+/// The line to judge by before the account has one of its own. design/375.
+///
+/// Not a number chosen on its own. It is [kPassLineOffset] spreads below the
+/// average — the same formula the account uses — with the population's numbers
+/// standing in for the account's: mean 0.747, spread 0.230 over all 2,919 words
+/// of real reading the scorer could ask about. Measured without looking at any
+/// label, so it is a description of how this scorer scores, not a fit to what
+/// anyone decided was right.
+///
+/// The 0.72 this replaces was design/366's answer to a different question — how
+/// close two different words are allowed to sound — and as a pass line it sent
+/// 38% of correctly-read words to practice. That made the first forty words of
+/// an account the hardest it would ever be judged, which is the wrong forty to
+/// be hardest on, and a reader who had just arrived said so.
+const double kPassLineCold = 0.57;
+
 /// Words needed before the account's own line is trusted.
 ///
 /// Under this the fixed line is used, because an average over a handful of words

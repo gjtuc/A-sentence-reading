@@ -10,6 +10,7 @@ import '../api/client.dart';
 import '../api/sample_take_tag.dart';
 import '../practice_rhythm/follow_span.dart';
 import 'chunk_density.dart';
+import 'pass_line.dart';
 import 'skill_adapt.dart';
 import 'skill_evidence.dart';
 import '../practice_rhythm/judgment_tier.dart';
@@ -95,6 +96,16 @@ class SpokenAlignMark {
       };
 }
 
+/// design/374 — answers that mean the reference is on its way, so the sentence
+/// is worth asking about again. Anything else the server says is final.
+const Set<String> kSoundRefComing = {'queued', 'building'};
+
+/// design/374 — re-asks allowed per sentence per run, on top of the first call.
+/// A build takes about eight seconds and a sentence stays on screen longer than
+/// that, so three covers the wait without letting a stuck queue be asked every
+/// time the sentence is shown.
+const int kSoundAskMax = 3;
+
 class SpokenCache {
   String speakNorm = 'v6';
   final Map<String, String> _map = {};
@@ -109,6 +120,8 @@ class SpokenCache {
     _map.clear();
     _spans.clear();
     _align.clear();
+    _askN.clear();
+    _refCode.clear();
   }
 
   String _key(String chunk) {
@@ -151,25 +164,45 @@ class SpokenCache {
   // The server sends no symbols at all now, so refusing them would throw away
   // every cached sentence and call the server for each one again.
 
-  /// Chunks already asked a second time, so a server that can never build a
-  /// reference costs one extra call each rather than one per sentence shown.
-  final Set<String> _asked = {};
+  /// design/374 - how many times each chunk has asked again this run, and what
+  /// the server last said about its reference.
+  final Map<String, int> _askN = {};
+  final Map<String, String> _refCode = {};
 
-  /// design/371 — a row with no reference sound cannot be scored, and the server
-  /// builds the reference in the background, so the first answer for a sentence
-  /// is phone-less by design. Pinning it would mean the sentence never scores.
-  /// Ask once more; the build takes about eight seconds, so the reading after
-  /// this one gets the sounds. A row that already has them caches normally.
+  int askN(String chunk) => _askN[_key(chunk)] ?? 0;
+
+  String refCode(String chunk) => _refCode[_key(chunk)] ?? '';
+
+  /// design/374 — whether to ask the server for this sentence again.
+  ///
+  /// The server builds a reference in the background, so the first answer for a
+  /// sentence is phone-less by design and the reading after it scores. design/371
+  /// allowed exactly one extra ask, which was enough until design/373 began
+  /// replacing rows written by the old reader: discovering a stale row spends the
+  /// one ask, the answer that replaces it is still being built, and the sentence
+  /// then has nothing to score against for the rest of the run. Every sentence
+  /// after the first came back unjudged.
+  ///
+  /// So the server decides rather than a count. It names what it is doing, and
+  /// only an answer saying the reference is coming earns another ask. A server
+  /// that will never have one is asked once and left alone, which is cheaper than
+  /// design/371 was. [kSoundAskMax] is there because a build stuck in the queue
+  /// keeps saying `queued`, and that must not cost a call every time the sentence
+  /// is shown.
   bool lacksSound(String chunk) {
     final key = _key(chunk);
-    if (_asked.contains(key)) return false;
     // No spans at all is an alignment failure, not a missing reference, and
     // asking again would not produce any.
     if (peekSpans(chunk).isEmpty) return false;
     // design/373 -- a row can be full of sounds and still be unusable, so
     // having them is not enough; they have to be the ones we score against.
     if (phoneSpanN(chunk) > 0 && staleSpanN(chunk) == 0) return false;
-    _asked.add(key);
+    final code = _refCode[key] ?? '';
+    // Empty is a server too old to say, not a refusal, so it keeps the budget.
+    if (code.isNotEmpty && !kSoundRefComing.contains(code)) return false;
+    final asked = _askN[key] ?? 0;
+    if (asked >= kSoundAskMax) return false;
+    _askN[key] = asked + 1;
     return true;
   }
 
@@ -239,6 +272,7 @@ class SpokenCache {
     String? version,
     List<FollowSpan> spans = const [],
     SpokenAlignMark align = const SpokenAlignMark(),
+    String soundRefCode = '',
   }) {
     if (version != null && version.trim().isNotEmpty) {
       setSpeakNorm(version.trim());
@@ -247,6 +281,9 @@ class SpokenCache {
     _map[key] = spoken;
     _spans[key] = spans;
     _align[key] = align;
+    // design/374 -- kept for the run only. It describes a build in flight, and a
+    // build is not in flight on the next launch.
+    if (soundRefCode.isNotEmpty) _refCode[key] = soundRefCode;
     unawaited(disk.put(key, spoken, spans));
   }
 
@@ -413,6 +450,9 @@ class PracticeSkillController {
           // design/373 -- always written, so a row kept by this path can be told
           // apart from one that had nothing to keep.
           'stale_span_n': spokenCache.staleSpanN(chunkDisplay),
+          // design/374 -- why this row was kept rather than asked about again.
+          'ask_n': spokenCache.askN(chunkDisplay),
+          'ref_code': spokenCache.refCode(chunkDisplay),
           'cache_source': spokenCache.lastSource,
           'display_chars': chunkDisplay.length,
           'spoken_chars': hit.length,
@@ -431,6 +471,8 @@ class PracticeSkillController {
         'cache_hit': 0,
         'cache_source': spokenCache.lastSource,
         'stale_span_n': spokenCache.staleSpanN(chunkDisplay),
+        'ask_n': spokenCache.askN(chunkDisplay),
+        'ref_code': spokenCache.refCode(chunkDisplay),
         'chunk_index': _chunkIndex,
         'display_chars': chunkDisplay.length,
       },
@@ -485,6 +527,7 @@ class PracticeSkillController {
           phoneEspeak: r.phoneEspeak,
           phonePairs: r.phonePairs,
         ),
+        soundRefCode: r.soundRefCode,
       );
       final mark = spokenCache.peekAlign(chunkDisplay);
       await evidence.emit(
@@ -688,7 +731,7 @@ class PracticeSkillController {
           .toList(growable: false),
       // design/371 - this account's own line, or the fixed one while it is still
       // too new to have one.
-      passLine: store.state.line.lineOr(kPhoneOverlapMin),
+      passLine: store.state.line.lineOr(kPassLineCold),
     );
     final align = spokenCache.peekAlign(chunkDisplay);
     final score = diag.score;
@@ -720,7 +763,7 @@ class PracticeSkillController {
         'sound_pass_n': diag.soundPassN,
         // Which line judged this take. A line that drifts somewhere silly would
         // otherwise look exactly like a reader who got worse.
-        'line_used': (store.state.line.lineOr(kPhoneOverlapMin) * 1000).round(),
+        'line_used': (store.state.line.lineOr(kPassLineCold) * 1000).round(),
         'line_avg': (store.state.line.avg * 1000).round(),
         'line_n': store.state.line.n,
         'target_phones': spokenCache
