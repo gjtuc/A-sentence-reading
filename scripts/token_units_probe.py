@@ -18,6 +18,14 @@ Heard token runs are cached per take, so only the first run pays for the model.
 
     python scripts/token_units_probe.py
     python scripts/token_units_probe.py --fresh
+
+Decoding the takes needs fmpeg on PATH, the same binary the server shells out
+to. Without it every take raises FileNotFoundError and the report reads as zero
+words rather than as a missing tool. There is one bundled with imageio_ffmpeg:
+
+    python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"
+
+Copy it somewhere on PATH named fmpeg.exe.
 """
 
 from __future__ import annotations
