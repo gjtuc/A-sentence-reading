@@ -38,6 +38,10 @@ NOT_SCORED = {"sound_ref_missing", "sound_too_short", "no_spans", "walk_past_end
 # Judged slots below which passing nothing is just one short hurried take.
 NOTHING_PASSED_MIN = 5
 
+# Under this many refusals the split between near and clear ones is noise, and a
+# single hurried take would raise it.
+NEAR_MIN = 10
+
 
 def _ascii(text: object) -> str:
     return str(text).encode("ascii", "replace").decode("ascii")
@@ -103,6 +107,40 @@ def _words_off_the_sheet(rows: list[dict]) -> tuple[collections.Counter, int, in
             word = pieces[i].strip() if i < len(pieces) else ""
             off[word or "?"] += 1
     return off, off_n, slot_n
+
+
+def _near_misses(rows: list[dict]) -> tuple[list[int], int]:
+    """How far under the line each refused word sat, over every scored take.
+
+    design/377 - a sheet of marks cannot tell a word refused by a hair from one
+    refused by a mile, and the two want opposite fixes: the first says the line is
+    in the wrong place, the second says the reading was wrong. `slot_scores`
+    carries the distance, so the question is answerable from the log.
+
+    Returns the shortfalls in hundredths and how many words were asked about.
+    """
+    short: list[int] = []
+    asked = 0
+    for row in rows:
+        det = row.get("details") or {}
+        scores = str(det.get("slot_scores") or "").split()
+        try:
+            line = int(det.get("line_used") or 0) / 10
+        except (TypeError, ValueError):
+            continue
+        if not scores or line <= 0:
+            continue
+        for field in scores:
+            if field == "-":
+                continue
+            try:
+                got = int(field)
+            except ValueError:
+                continue
+            asked += 1
+            if got < line:
+                short.append(round(line - got))
+    return short, asked
 
 
 def _stale_rows(rows: list[dict]) -> tuple[int, int]:
@@ -251,6 +289,25 @@ def main() -> int:
                     "own line" if n >= 40 else "still the fixed line",
                 )
             )
+
+    short, asked_n = _near_misses(client)
+    if asked_n:
+        print("== how close the refused words came")
+        hair = sum(1 for s in short if s <= 5)
+        close = sum(1 for s in short if 5 < s <= 15)
+        far = sum(1 for s in short if s > 15)
+        print(f"  refused {len(short)} of {asked_n} asked")
+        print(f"    within 0.05 of the line: {hair}")
+        print(f"    0.05 to 0.15 under:      {close}")
+        print(f"    more than 0.15 under:    {far}")
+        # A line sitting inside the spread of ordinary reading turns small
+        # differences into failures, and that shows up as most refusals being
+        # near ones rather than clear ones.
+        if len(short) >= NEAR_MIN and hair + close > far:
+            faults.append(f"line_inside_spread:{hair + close}_of_{len(short)}")
+    elif client:
+        print("== how close the refused words came")
+        print("  no build in this window recorded it (older than 0.3.417)")
 
     print("== reference sounds by a reader we do not score against")
     kept, retried = _stale_rows(rows)

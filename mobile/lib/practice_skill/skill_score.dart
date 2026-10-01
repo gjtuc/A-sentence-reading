@@ -117,6 +117,7 @@ class SpokenSlotDiag {
     this.slotPieces = '',
     this.soundPassN = 0,
     this.wordScores = const [],
+    this.slotScores = '',
   });
 
   final SkillScoreResult score;
@@ -137,6 +138,16 @@ class SpokenSlotDiag {
 
   /// What each judged word scored, for the account to draw its next line from.
   final List<double> wordScores;
+
+  /// How close each slot came, in hundredths, one field per slot in the order
+  /// [slotHits] uses, with `-` where the word could not be asked about.
+  ///
+  /// design/377 — the marks alone cannot say whether a word was refused by a
+  /// hair or by a mile, and those want different fixes. A reader asked why a
+  /// sentence came back evenly wrong and the log could not answer: rebuilding the
+  /// numbers afterwards needed the reference, the take, and this file's own unit
+  /// rules, which is too much to ask of anyone reading a log.
+  final String slotScores;
 }
 
 /// One printed word is one score slot, including function words.
@@ -199,6 +210,7 @@ SpokenSlotDiag diagnoseSpokenSlots({
   final missed = <MissedWordSpan>[];
   final marks = StringBuffer();
   final pieces = <String>[];
+  final closeness = <String>[];
   for (final slot in built.slots) {
     final got = phoneOverlap(slot.phone, heardPhoneWords);
     if (got < 0) {
@@ -209,10 +221,14 @@ SpokenSlotDiag diagnoseSpokenSlots({
       // counted against the reader.
       marks.write('-');
       pieces.add(slot.tokens.join(' '));
+      // design/377 -- a dash here too, so the two strings stay readable side by
+      // side. A 0 would claim the word was asked and scored nothing.
+      closeness.add('-');
       continue;
     }
     judged += 1;
     scores.add(got);
+    closeness.add('${(got * 100).round()}');
     final ok = got >= passLine;
     if (ok) soundPassN += 1;
     marks.write(ok ? '1' : '0');
@@ -244,6 +260,7 @@ SpokenSlotDiag diagnoseSpokenSlots({
       remain: built.remain,
       slotHits: marks.toString(),
       slotPieces: pieces.join(' | '),
+      slotScores: closeness.join(' '),
     );
   }
   final acc = hit / judged;
@@ -266,6 +283,7 @@ SpokenSlotDiag diagnoseSpokenSlots({
     slotPieces: pieces.join(' | '),
     soundPassN: soundPassN,
     wordScores: scores,
+    slotScores: closeness.join(' '),
   );
 }
 

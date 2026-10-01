@@ -44,6 +44,7 @@ Map<String, Object?> skillSafeDetails(Map<String, Object?> raw) {
       if (key == 'stt_heard' ||
           key == 'spoken_line' ||
           key == 'slot_hits' ||
+          key == 'slot_scores' ||
           key == 'slot_pieces' ||
           key == 'target_phones' ||
           key == 'heard_phones' ||

@@ -187,6 +187,9 @@ def _safe_details(raw: Any) -> dict[str, Any]:
                 "stt_heard",
                 "spoken_line",
                 "slot_hits",
+                # design/377 - digits and dashes, one field per slot. Carries no
+                # paper text; `slot_pieces` beside it already holds the words.
+                "slot_scores",
                 "slot_pieces",
                 "target_phones",
                 "heard_phones",

@@ -688,4 +688,84 @@ void main() {
     // says why rather than waiting for a reader to notice.
     expect(kPassLineCold, lessThan(ownLineAtWarmup + 0.02));
   });
+
+  test('design/377 the closeness string lines up with the hit marks', () {
+    const display = 'The film grew';
+    final spans = _spans(display, [
+      ['The', 4, 'd i'],
+      ['film', 5, 'f i l m'],
+      ['grew', 4, 'g r uu'],
+    ]);
+    final out = diagnoseSpokenSlots(
+      display: display,
+      spoken: display,
+      spans: spans,
+      heardPhones: const ['f i l m g r uu'],
+    );
+    final scores = out.slotScores.split(' ');
+    // One field per slot, in the same order, so the two strings can be read side
+    // by side in a log without counting characters.
+    expect(scores.length, out.slotHits.length);
+    // `The` is under kPhoneMinUnits, so it was never asked. A 0 there would say
+    // it was asked and scored nothing, which is a different claim.
+    expect(out.slotHits, '-11');
+    expect(scores.first, '-');
+    expect(scores[1], '100');
+    expect(scores[2], '100');
+  });
+
+  test('design/377 a refused word says how far under it sat', () {
+    const display = 'The film grew';
+    final spans = _spans(display, [
+      ['The', 4, 'd i'],
+      ['film', 5, 'f i l m'],
+      ['grew', 4, 'g r uu'],
+    ]);
+    // `grew` read as something else: its sounds are not in the take.
+    final out = diagnoseSpokenSlots(
+      display: display,
+      spoken: display,
+      spans: spans,
+      heardPhones: const ['f i l m b aa d'],
+      passLine: 0.6,
+    );
+    final scores = out.slotScores.split(' ');
+    expect(out.slotHits, '-10');
+    // The number is the distance the marks cannot carry: this is the whole point
+    // of the key, so a refusal by a hair reads differently from this one.
+    final grew = int.parse(scores[2]);
+    expect(grew, lessThan(60));
+    expect(grew, greaterThanOrEqualTo(0));
+  });
+
+  test('design/377 every mark that was asked carries a number', () {
+    const display = 'The film grew thin fast';
+    final spans = _spans(display, [
+      ['The', 4, 'd i'],
+      ['film', 5, 'f i l m'],
+      ['grew', 4, 'g r uu'],
+      ['thin', 5, 'th i n'],
+      ['fast', 4, 'f aa s t'],
+    ]);
+    final out = diagnoseSpokenSlots(
+      display: display,
+      spoken: display,
+      spans: spans,
+      heardPhones: const ['f i l m g r uu th i n f aa s t'],
+    );
+    final scores = out.slotScores.split(' ');
+    expect(scores.length, out.slotHits.length);
+    for (var i = 0; i < out.slotHits.length; i += 1) {
+      if (out.slotHits[i] == '-') {
+        expect(scores[i], '-');
+      } else {
+        // Hundredths, so the log never has to carry a decimal point.
+        final n = int.parse(scores[i]);
+        expect(n, inInclusiveRange(0, 100));
+        // And the number has to agree with the mark beside it, or one of them is
+        // lying and a reader cannot tell which.
+        expect(n >= 72, out.slotHits[i] == '1');
+      }
+    }
+  });
 }

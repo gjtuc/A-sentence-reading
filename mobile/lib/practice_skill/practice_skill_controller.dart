@@ -260,8 +260,7 @@ class SpokenCache {
 
   static final RegExp _wordChar = RegExp(r"[A-Za-z0-9']");
 
-  List<FollowSpan> peekSpans(String chunk) =>
-      _spans[_key(chunk)] ?? const [];
+  List<FollowSpan> peekSpans(String chunk) => _spans[_key(chunk)] ?? const [];
 
   SpokenAlignMark peekAlign(String chunk) =>
       _align[_key(chunk)] ?? const SpokenAlignMark();
@@ -758,6 +757,9 @@ class PracticeSkillController {
         'spoken_line': spoken,
         'slot_hits': diag.slotHits,
         'slot_pieces': diag.slotPieces,
+        // design/377 -- how close each slot came. Without it a hit mark cannot be
+        // told from a near miss, and the two want different fixes.
+        'slot_scores': diag.slotScores,
         // A hit mark does not say which side passed the slot. Without this the
         // sound compare could be handing out marks unnoticed.
         'sound_pass_n': diag.soundPassN,
@@ -832,6 +834,9 @@ class PracticeSkillController {
         'spoken_line': spoken,
         'slot_hits': diag.slotHits,
         'slot_pieces': diag.slotPieces,
+        // design/377 -- how close each slot came. Without it a hit mark cannot be
+        // told from a near miss, and the two want different fixes.
+        'slot_scores': diag.slotScores,
         'sound_pass_n': diag.soundPassN,
         'target_phones': spokenCache
             .peekSpans(chunkDisplay)
@@ -921,8 +926,7 @@ class PracticeSkillController {
         'source_span_n': sourceSpans.length,
         'source_phone_span_n':
             sourceSpans.where((s) => s.phone.trim().isNotEmpty).length,
-        'source_has_word':
-            sourceChunk.contains(expected.trim()) ? 1 : 0,
+        'source_has_word': sourceChunk.contains(expected.trim()) ? 1 : 0,
         if (drillPhones.trim().isNotEmpty) 'target_phones': drillPhones.trim(),
         if (heardPhones.trim().isNotEmpty) 'heard_phones': heardPhones.trim(),
       },
