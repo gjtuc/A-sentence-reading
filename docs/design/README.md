@@ -417,6 +417,7 @@
 | 373 | [373-one-reader-only.md](373-one-reader-only.md) | 기준 소리가 옛 eSpeak 읽기면 어떻게 읽어도 전부 틀린다 · 소리가 **있는지**가 아니라 **누가 읽었는지**로 재요청한다 · 판독기에 `nothing_passed`·`stale_ref_kept` 추가 (0.3.414) |
 | 374 | [374-the-server-says-when-to-ask-again.md](374-the-server-says-when-to-ask-again.md) | 기준 제작을 기다리는 동안 다시 물을지는 `sound_ref_code` 가 정한다 · design/371 의 「실행당 한 번」은 design/373 이 옛 행을 버리는 데 그 한 번을 써서 뒤 문장이 전부 채점 안 됐다 (0.3.415) |
 | 375 | [375-the-first-forty-words.md](375-the-first-forty-words.md) | 시작선을 계정선과 같은 공식으로 뽑는다 (모수 평균 0.747 − 0.75×0.230 = 0.57) · 고정 0.72 는 제대로 읽은 단어의 38%를 떨어뜨렸다 · 복습도 같은 선 · 소리 단위는 바꾸지 않는다(재보니 손해) (0.3.415) |
+| 376 | [376-the-drill-is-a-choice.md](376-the-drill-is-a-choice.md) | 틀린 단어 다시 읽기를 설정에서 끈다 · 끄기는 채점 뒤에 읽히므로 점수·등급은 그대로 · `asr.practice.miss_review`, 기본 켜짐 · 앱으로 돌아올 때 다시 읽는다 (0.3.416) |
 | 370 | [370-a-transcript-is-not-a-pronunciation.md](370-a-transcript-is-not-a-pronunciation.md) | 전사문 채점 제거 — 단어는 원어민 목소리의 소리로만 판정. 기준 소리 없으면 `sound_ref_missing`(채점 안 됨). design/365 철자 보정층 전부 삭제 |
 | 369 | [369-ask-the-build-not-the-guess.md](369-ask-the-build-not-the-guess.md) | 배포 가드 둘 정상화 — APK 락 파일·주석은 센서가 아니다 |
 | 368 | [368-a-dictionary-is-not-a-voice.md](368-a-dictionary-is-not-a-voice.md) | eSpeak 사전 발음 전원 제거 — 목표 소리는 목소리에서 오게 한다 |

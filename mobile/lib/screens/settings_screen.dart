@@ -22,6 +22,7 @@ import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
 import '../practice_rhythm/blank_rest.dart';
+import '../practice_rhythm/miss_review.dart';
 import '../practice_rhythm/judgment_prefs.dart';
 import 'error_logs_screen.dart';
 
@@ -74,6 +75,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// design/214 — English judgment cheers in practice (default on).
   bool _judgmentCheers = true;
   bool _blankRest = true;
+  bool _missReview = true;
   LaunchDest _launchDest = LaunchDest.library;
 
   @override
@@ -87,6 +89,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     unawaited(_loadJudgmentCheersPref());
     unawaited(_loadBlankRestPref());
     unawaited(_loadLaunchDestPref());
+    unawaited(_loadMissReviewPref());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.shadowing.applyAutoOffIfStale();
     });
@@ -125,6 +128,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _blankRest = on);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(kBlankRestPrefKey, on);
+  }
+
+  Future<void> _loadMissReviewPref() async {
+    final prefs = await SharedPreferences.getInstance();
+    final on = prefs.getBool(kMissReviewPrefKey) ?? true;
+    if (mounted) setState(() => _missReview = on);
+  }
+
+  Future<void> _setMissReview(bool on) async {
+    setState(() => _missReview = on);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kMissReviewPrefKey, on);
   }
 
   void _onAuthChanged() {
@@ -989,6 +1004,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             // Nested under shadowing master — indent + denser type (not peer switches).
             if (widget.shadowing.enabled) ...[
+              SwitchListTile(
+                contentPadding: const EdgeInsets.only(left: 28),
+                title: Text(
+                  '틀린 단어 다시 읽기',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                subtitle: Text(
+                  '끄면 채점은 그대로이고 다시 읽는 순서만 건너뜁니다',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                value: _missReview,
+                onChanged:
+                    !logged ? null : (v) => unawaited(_setMissReview(v)),
+              ),
               SwitchListTile(
                 contentPadding: const EdgeInsets.only(left: 28),
                 title: Text(

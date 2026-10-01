@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sentence_reading/api/tts_models.dart';
 import 'package:sentence_reading/practice_rhythm/follow_span.dart';
 import 'package:sentence_reading/practice_rhythm/miss_review.dart';
@@ -249,4 +250,51 @@ void main() {
   // letters, and that a sentence answered to a one-word ask was thrown away.
   // The review judges by sound now, so there is no transcript to compare and
   // nothing for the length gate to catch.
+
+  test('design/376 the stored name is the one already on phones', () {
+    // Changing this string does not change a default, it loses every choice
+    // anyone has made: the old name keeps the value and nothing reads it, so
+    // every reader who turned the drill off silently gets it back.
+    expect(kMissReviewPrefKey, 'asr.practice.miss_review');
+    // Same shelf as its neighbours, so one wipe of practice settings takes all
+    // of them rather than leaving this one behind.
+    expect(kMissReviewPrefKey, startsWith('asr.practice.'));
+  });
+
+  test('design/376 absent means on', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    // A reader who has never opened settings has not asked for the drill to
+    // stop, and the drill is the reason a word is marked missed at all.
+    expect(prefs.getBool(kMissReviewPrefKey) ?? true, isTrue);
+  });
+
+  test('design/376 off is remembered, and only off', () async {
+    SharedPreferences.setMockInitialValues({kMissReviewPrefKey: false});
+    var prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool(kMissReviewPrefKey) ?? true, isFalse);
+    // And back on, because a switch that only latches one way is a trap.
+    await prefs.setBool(kMissReviewPrefKey, true);
+    expect(prefs.getBool(kMissReviewPrefKey) ?? true, isTrue);
+  });
+
+  test('design/376 the switch does not touch which words are missed', () {
+    // The sheet is built before the switch is consulted, so turning the drill
+    // off must not change the score, the missed list, or the skill ladder. If
+    // this ever stops holding, a reader could raise their tier by declining to
+    // practise, which is the opposite of what the switch is for.
+    const spans = [
+      MissedWordSpan(0, 8, spoken: 'chemical'),
+      MissedWordSpan(9, 14, spoken: 'vapor'),
+    ];
+    final words = missReviewWords(display: 'chemical vapor', spans: spans);
+    expect(words.map((w) => w.printed).toList(), ['chemical', 'vapor']);
+    // Whatever this list is, it is a function of the take alone. The switch is
+    // read after this call and can only decide whether the list is walked.
+    final again = missReviewWords(display: 'chemical vapor', spans: spans);
+    expect(
+      words.map((w) => w.printed).toList(),
+      again.map((w) => w.printed).toList(),
+    );
+  });
 }

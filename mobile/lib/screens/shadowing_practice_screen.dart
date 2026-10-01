@@ -139,6 +139,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   String _reviewHeardPhone = '';
   List<String> _reviewDrillPhones = const [];
   bool _missReviewActive = false;
+
+  /// design/376 — the speaker's choice about the wrong-word drill. True until
+  /// the stored value is read, so a slow read cannot silently skip a drill.
+  bool _missReviewOn = true;
   /// design/162 — session-only self-view mirror (not persisted).
   bool _mirrorEnabled = false;
   /// design/176 — auto-advance after full listen→speak→my-take cycle.
@@ -211,6 +215,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     }));
     unawaited(_loadJudgmentCheersPref());
     unawaited(_loadBlankRestPref());
+    unawaited(_loadMissReviewPref());
     unawaited(_boot());
   }
 
@@ -224,6 +229,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     final prefs = await SharedPreferences.getInstance();
     final on = prefs.getBool(kBlankRestPrefKey) ?? true;
     if (mounted) setState(() => _blankRestEnabled = on);
+  }
+
+  Future<void> _loadMissReviewPref() async {
+    final prefs = await SharedPreferences.getInstance();
+    final on = prefs.getBool(kMissReviewPrefKey) ?? true;
+    if (mounted) setState(() => _missReviewOn = on);
   }
 
   void _onFocusBlockCompleted() {
@@ -332,6 +343,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     } else if (state == AppLifecycleState.resumed) {
       unawaited(_loadJudgmentCheersPref());
       unawaited(_loadBlankRestPref());
+      unawaited(_loadMissReviewPref());
     }
   }
 
@@ -1217,6 +1229,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         final snap = await score.timeout(kMissReviewScoreWait);
         if (snap == null) {
           reviewReason = 'score_null';
+        } else if (!_missReviewOn) {
+          // design/376 -- the speaker turned the drill off. The sheet is
+          // untouched: the words are still marked missed and still count, so the
+          // score and the skill ladder do not change with this switch.
+          reviewReason = 'review_off';
         } else {
           reviewWords = missReviewWords(
             display: snap.display,
@@ -2468,6 +2485,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _groomRateScale = 1.0;
     unawaited(_loadJudgmentCheersPref());
     unawaited(_loadBlankRestPref());
+    unawaited(_loadMissReviewPref());
     _focus.startSession(cacheId: _cacheId);
     setState(() {
       _status = '집중 시작. 말할 때만 시계가 갑니다.';

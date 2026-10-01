@@ -146,6 +146,13 @@ List<String> _drillPieces(String ipa) => phoneUnits(ipa);
 }
 
 /// One missed word: what is printed, what the model says, and its symbols.
+/// design/376 — whether a take that missed words goes on to re-read them.
+///
+/// On by default: the drill is the point of marking a word missed. Off leaves the
+/// marking alone — the word still shows as missed and still moves the score — and
+/// only skips the re-reading, which is the part that costs time.
+const String kMissReviewPrefKey = 'asr.practice.miss_review';
+
 class MissReviewItem {
   const MissReviewItem({
     required this.printed,

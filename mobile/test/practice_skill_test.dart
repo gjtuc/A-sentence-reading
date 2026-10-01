@@ -663,4 +663,29 @@ void main() {
     expect(line.warm, isTrue);
     expect(line.lineOr(kPassLineCold), closeTo(0.90, 1e-6));
   });
+
+  test('design/375 the warm-up length is a chosen number the measurement allows',
+      () {
+    // 40 was never measured. scripts/warmup_probe.py measured it after the fact,
+    // label-free: 2,924 judged words shuffled 400 ways, asking how far apart the
+    // lines sit at each n. There is no knee -- the disagreement falls smoothly
+    // from +-0.117 at n=5 to a floor of +-0.020 -- so no n is the right one and
+    // these bounds are the band where the answer stops being obviously wrong.
+    const agreeWithinFive = 28;
+    const agreeWithinThree = 86;
+    expect(kPassLineWarmup, greaterThanOrEqualTo(agreeWithinFive));
+    expect(kPassLineWarmup, lessThan(agreeWithinThree));
+  });
+
+  test('design/375 the handover is flat, which is why 40 need not be exact', () {
+    // The account's own line at the warm-up point, median over those 400
+    // orderings. It sits almost exactly on the cold line, so crossing over is
+    // not an event the reader can feel.
+    const ownLineAtWarmup = 0.574;
+    expect((ownLineAtWarmup - kPassLineCold).abs(), lessThan(0.02));
+    // Under design/371's 0.72 this gap was 0.15, and that cliff is the bug
+    // design/375 fixed. If anyone raises the cold line again, this fails and
+    // says why rather than waiting for a reader to notice.
+    expect(kPassLineCold, lessThan(ownLineAtWarmup + 0.02));
+  });
 }
