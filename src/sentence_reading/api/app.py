@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import tempfile
 import uuid
 import urllib.parse
@@ -283,7 +284,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.417",
+    version="0.3.418",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1111,6 +1112,83 @@ def _remember_session(session: PaperSession, *, cache_id: str | None = None) -> 
     return session_id
 
 
+_WARMING: set[str] = set()
+_WARM_LOCK = threading.Lock()
+
+
+def _warm_sound_refs(cache_id: str) -> None:
+    """design/378 - build this paper's reference sounds now, not at reading time.
+
+    The reference for a sentence was only ever built when a reader reached that
+    sentence, and a build is fifteen to thirty seconds through a single worker. So
+    the first pass through a new paper skipped scoring on whatever had not finished
+    yet, and the reader saw sentences come back unjudged for no reason they could
+    see. Nothing about that was one-off: every new paper did it again.
+
+    Analysis is the right moment because the reader is already waiting, and the
+    original design said so. This runs on a thread and never raises: a paper with
+    no references is the behaviour we already had, so a failure here costs nothing
+    that was not already being paid.
+    """
+    cid = (cache_id or "").strip()
+    if not cid:
+        return
+
+    # Re-analysing a paper lands here again. The build queue already refuses a
+    # duplicate key, so a second thread would build nothing -- it would just sit
+    # in the polling loop for as long as the paper is long.
+    with _WARM_LOCK:
+        if cid in _WARMING:
+            return
+        _WARMING.add(cid)
+
+    def run() -> None:
+        from sentence_reading.llm import ops_events as oev
+
+        try:
+            from sentence_reading.api.routes.tts import _paper_speak_terms
+            from sentence_reading.cache.paper_cache import load_cached_session
+            from sentence_reading.llm.sound_reference import warm_paper
+            from sentence_reading.llm.tts_speak import spoken_text_for_tts
+
+            loaded = load_cached_session(cid, load_images=False)
+            if not loaded:
+                return
+            terms = _paper_speak_terms(cid)
+            lines = []
+            for one in getattr(loaded[0], "sentences", []) or []:
+                raw = str(getattr(one, "text", "") or "").strip()
+                if raw:
+                    lines.append(spoken_text_for_tts(raw, terms=terms))
+            # A long paper is forty minutes of building, and the instance may
+            # not live that long. Say the count up front, or a warm that was cut
+            # off looks the same in the log as one that never started.
+            oev.emit(
+                "sound_ref_warm",
+                cache_id=cid,
+                stage="start",
+                details={"warm_n": len(lines)},
+            )
+            report = warm_paper(lines)
+        except Exception as exc:  # noqa: BLE001
+            slug = re.sub(r"[^a-z0-9]+", "_", type(exc).__name__.lower())[:40]
+            oev.emit(
+                "sound_ref_warm",
+                cache_id=cid,
+                stage="fail",
+                details={"warm_fail": slug or "failed"},
+            )
+            return
+        finally:
+            with _WARM_LOCK:
+                _WARMING.discard(cid)
+        oev.emit("sound_ref_warm", cache_id=cid, stage="done", details=report)
+
+    threading.Thread(
+        target=run, name=f"soundwarm-{cid[:8]}", daemon=True
+    ).start()
+
+
 def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
     from sentence_reading.llm import ops_events as oev
 
@@ -1143,6 +1221,9 @@ def _finish_job(job_id: str, data: dict, *, message: str = "완료") -> None:
         percent=100,
         message=message,
     )
+    # design/378 - the paper is cached by now, so its references can be built
+    # before anyone reads it rather than while they do.
+    _warm_sound_refs(cache_id)
     # design/168b — T1/T2/T7 log-only after terminal persist.
     try:
         from sentence_reading.llm.ingest_integrity import check_job, emit_violations
@@ -4850,6 +4931,12 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                         doc_role=str(info.get("doc_role") or "main"),
                     )
         session_id = _remember_session(session, cache_id=cache_id)
+        # design/378 - resume. A warm started at analysis time is forty minutes of
+        # building for a long paper, and the instance that started it may be gone.
+        # Papers analysed before design/378 never had one at all. Opening is the
+        # one moment we know someone is about to read this paper, and an already
+        # warm paper costs a cache read per sentence on a background thread.
+        _warm_sound_refs(cache_id)
         # design/129 — sentences/meta only; PNGs via /figures/window (fail-closed empty src).
         data = session.to_public_dict(
             include_images=False,

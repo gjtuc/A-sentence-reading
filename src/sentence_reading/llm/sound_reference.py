@@ -35,6 +35,7 @@ import os
 import re
 import threading
 import wave
+import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
@@ -492,6 +493,77 @@ def request_build(spoken: str, *, voice: str | None = None) -> str:
             _PENDING.discard(key)
         return "busy"
     return "queued"
+
+
+# design/378 - how long a whole paper's warm may run, and how long it waits for
+# the reader's own build to clear. A paper is a few hundred sentences at twenty
+# seconds each, so the cap is in hours, not minutes; it exists so a thread cannot
+# outlive the thing it was warming.
+WARM_BUDGET_S = 3 * 60 * 60
+WARM_POLL_S = 0.5
+WARM_WAIT_S = 120.0
+
+
+def _pending_n() -> int:
+    with _PENDING_LOCK:
+        return len(_PENDING)
+
+
+def warm_paper(lines: list[str], *, voice: str | None = None) -> dict[str, int]:
+    """Build every reference this paper will need, one at a time, yielding.
+
+    The reader must never wait behind this. There is one build worker, so handing
+    it three hundred sentences at once would put the sentence actually on screen
+    three hundred places back -- worse than building nothing. So this submits one
+    and waits for the queue to clear before submitting the next: a reader's own
+    request lands behind at most one build in flight rather than behind the paper.
+
+    Blocking is the point, so call it on a thread. It never raises.
+    """
+    done = ready = failed = skipped = 0
+    if not enabled():
+        return {"warm_n": 0, "warm_off": 1}
+    started = time.monotonic()
+    for text in lines:
+        line = (text or "").strip()
+        if not line:
+            continue
+        if time.monotonic() - started > WARM_BUDGET_S:
+            skipped += 1
+            continue
+        # Repeated failures already stop `request_build`; stop walking too, or a
+        # paper's worth of sentences each cost a synthesis call to learn that.
+        if _BUILD_RUN >= BUILD_GIVE_UP:
+            skipped += 1
+            continue
+        try:
+            if reference_for(line, voice=voice, allow_build=False) is not None:
+                ready += 1
+                continue
+        except Exception:  # noqa: BLE001
+            pass
+        # Yield to whatever the reader asked for.
+        waited = 0.0
+        while _pending_n() > 0 and waited < WARM_WAIT_S:
+            time.sleep(WARM_POLL_S)
+            waited += WARM_POLL_S
+        code = request_build(line, voice=voice)
+        if code in ("queued", "building"):
+            done += 1
+        else:
+            failed += 1
+        # And wait for it, so the next submission does not stack.
+        waited = 0.0
+        while _pending_n() > 0 and waited < WARM_WAIT_S:
+            time.sleep(WARM_POLL_S)
+            waited += WARM_POLL_S
+    return {
+        "warm_n": len(lines),
+        "warm_built": done,
+        "warm_ready": ready,
+        "warm_failed": failed,
+        "warm_skipped": skipped,
+    }
 
 
 def build_report() -> dict[str, object]:
