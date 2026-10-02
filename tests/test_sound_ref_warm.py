@@ -195,7 +195,7 @@ def test_warm_says_so_when_this_instance_has_no_copy(monkeypatch):
         rows.append((kind, kw))
         done.set()
 
-    monkeypatch.setattr("sentence_reading.llm.ops_events.emit", fake_emit)
+    monkeypatch.setattr("sentence_reading.llm.evidence_bus.emit", fake_emit)
     monkeypatch.setattr(
         "sentence_reading.cache.paper_cache.load_cached_session",
         lambda cid, **k: None,
@@ -241,7 +241,7 @@ def test_sound_warm_route_says_why_when_the_paper_is_gone(monkeypatch):
     monkeypatch.setattr(mod, "_paid_access_denied", lambda request: None)
     monkeypatch.setattr(mod, "_warm_sound_refs", lambda cid: warmed.append(cid))
     monkeypatch.setattr(
-        "sentence_reading.llm.ops_events.emit",
+        "sentence_reading.llm.evidence_bus.emit",
         lambda kind, **kw: rows.append((kind, kw)),
     )
     monkeypatch.setattr(
@@ -286,3 +286,103 @@ def test_sound_warm_route_keeps_the_paid_gate(monkeypatch):
 
     assert got is sentinel
     assert warmed == []
+
+
+def test_the_warm_kind_is_allowed_through_the_door(monkeypatch):
+    """design/383 - it was not, so every row from 0.3.418 on was dropped."""
+    from sentence_reading.llm.evidence_kinds import ALLOWED_KINDS
+
+    assert "sound_ref_warm" in ALLOWED_KINDS
+
+
+def test_warm_reads_the_sentences_the_caller_sent(monkeypatch):
+    """design/383 - a paper only the phone holds has to be warmed from its text."""
+    from sentence_reading.api import app as mod
+
+    seen: list[list[str]] = []
+    done = threading.Event()
+
+    def fake_warm(lines, **k):
+        seen.append(list(lines))
+        done.set()
+        return {"warm_n": len(lines)}
+
+    def no_session(cid, **k):
+        raise AssertionError("the paper must not be read when texts were sent")
+
+    monkeypatch.setattr(sr, "warm_paper", fake_warm)
+    monkeypatch.setattr(
+        "sentence_reading.cache.paper_cache.load_cached_session", no_session
+    )
+    monkeypatch.setattr(
+        "sentence_reading.api.routes.tts._paper_speak_terms", lambda cid: {}
+    )
+
+    mod._warm_sound_refs("cache-phone", texts=["One two three.", "  ", "Four five."])
+
+    assert done.wait(5.0), "the warm thread never ran"
+    assert len(seen[0]) == 2, seen
+
+
+def test_sound_warm_route_takes_the_sentences_over_the_paper(monkeypatch):
+    import asyncio
+    import json
+
+    from sentence_reading.api import app as mod
+
+    got: list[tuple[str, list[str] | None]] = []
+    monkeypatch.setattr(mod, "_paid_access_denied", lambda request: None)
+    monkeypatch.setattr(
+        mod, "_warm_sound_refs", lambda cid, texts=None: got.append((cid, texts))
+    )
+
+    def no_pull(cid):
+        raise AssertionError("GCS must not be touched when sentences came with it")
+
+    monkeypatch.setattr(
+        "sentence_reading.llm.papers_gcs.refresh_paper_for_open", no_pull
+    )
+
+    res = asyncio.run(
+        mod.cache_sound_warm(
+            object(), "cache-abc", {"texts": ["One two three.", "", "  Four.  "]}
+        )
+    )
+
+    assert got == [("cache-abc", ["One two three.", "Four."])]
+    body = json.loads(res.body)
+    assert body["warm"] == "started" and body["n"] == 2
+
+
+def test_sound_warm_route_still_falls_back_to_the_paper(monkeypatch):
+    """An older phone sends no sentences; that path is all design/378 ever had."""
+    import asyncio
+    import json
+
+    from sentence_reading.api import app as mod
+
+    got: list[tuple[str, list[str] | None]] = []
+    monkeypatch.setattr(mod, "_paid_access_denied", lambda request: None)
+    monkeypatch.setattr(
+        mod, "_warm_sound_refs", lambda cid, texts=None: got.append((cid, texts))
+    )
+    monkeypatch.setattr(
+        "sentence_reading.llm.papers_gcs.refresh_paper_for_open",
+        lambda cid: (True, "ok"),
+    )
+
+    res = asyncio.run(mod.cache_sound_warm(object(), "cache-abc", None))
+
+    assert got == [("cache-abc", None)]
+    assert json.loads(res.body)["warm"] == "started"
+
+
+def test_sound_warm_route_caps_what_it_will_take(monkeypatch):
+    from sentence_reading.api import app as mod
+
+    many = mod._warm_texts_from({"texts": ["a b c"] * (mod._WARM_TEXTS_MAX + 50)})
+    assert len(many) == mod._WARM_TEXTS_MAX
+    long_one = mod._warm_texts_from({"texts": ["x" * (mod._WARM_TEXT_CHARS + 500)]})
+    assert len(long_one[0]) == mod._WARM_TEXT_CHARS
+    assert mod._warm_texts_from(None) == []
+    assert mod._warm_texts_from({"texts": "not a list"}) == []

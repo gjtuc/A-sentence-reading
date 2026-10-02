@@ -1,6 +1,8 @@
 // design/383 — a paper opened from this phone's own disk never reaches /open,
 // so the server is never told to build its reference sounds. The phone has to
 // say so itself, and saying so must never be able to break opening the paper.
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -72,5 +74,36 @@ void main() {
     );
 
     expect(await client.askSoundWarm('abc'), 'http_404');
+  });
+
+  test('design/383 the sentences go with the ask, trimmed and without blanks',
+      () async {
+    final store = MemorySessionStore();
+    await store.writeToken('tok');
+    String sent = '';
+    final client = AsrClient(
+      httpClient: MockClient((request) async {
+        sent = request.body;
+        return http.Response(
+          '{"ok":true,"warm":"started","n":2}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+      sessionStore: store,
+    );
+
+    final code = await client.askSoundWarm(
+      'abc',
+      texts: ['  One two three.  ', '', '   ', 'Four five.'],
+    );
+
+    expect(code, 'started');
+    // A paper only this phone holds is not in the server's cache, so the cache
+    // id on its own warms nothing.
+    expect(
+      jsonDecode(sent),
+      {'texts': ['One two three.', 'Four five.']},
+    );
   });
 }

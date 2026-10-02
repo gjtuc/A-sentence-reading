@@ -3458,15 +3458,15 @@ class LibraryController extends ChangeNotifier {
   /// answer is recorded because a warm nobody asked for and a warm that was
   /// refused read the same way in the log otherwise — that is the mistake this
   /// is fixing.
-  Future<void> _askSoundWarm(String cacheId) async {
-    final code = await _client.askSoundWarm(cacheId);
+  Future<void> _askSoundWarm(String cacheId, List<String> texts) async {
+    final code = await _client.askSoundWarm(cacheId, texts: texts);
     asrEvidenceBus?.record(
       'sound_ref_warm',
       severity: 'lifecycle',
       cacheId: cacheId,
       stage: 'ask',
       ok: code == 'started',
-      details: {'warm_ask': code},
+      details: {'warm_ask': code, 'warm_sent_n': texts.length},
     );
   }
 
@@ -4508,9 +4508,12 @@ class LibraryController extends ChangeNotifier {
           },
         );
         // design/383 — the server never saw this open, so it does not know to
-        // build this paper's reference sounds. Tell it, and do not wait: the
-        // reader opens now and the building is minutes long.
-        unawaited(_askSoundWarm(entry.id));
+        // build this paper's reference sounds, and it may not even hold this
+        // paper. Send the sentences and do not wait: the reader opens now and
+        // the building is minutes long.
+        unawaited(
+          _askSoundWarm(entry.id, [for (final s in o.sentences) s.text]),
+        );
       } else {
         final wantTr = await _wantTranslate();
         o = await _client.openPaper(entry.id, translate: wantTr);

@@ -153,6 +153,10 @@ ALLOWED_KINDS = frozenset(
         "practice_skill_unscored",
         "practice_skill_adapt",
         "practice_skill_flush",
+        # design/378+383 - warming a paper's reference sounds. Left out of
+        # this list by design/378, so every warm row from 0.3.418 on was
+        # dropped at the door and the warm read as if it never ran.
+        "sound_ref_warm",
         # design/364 — fixed sample row and the takes kept for calibration
         "practice_sample_seed",
         "practice_sample_take",

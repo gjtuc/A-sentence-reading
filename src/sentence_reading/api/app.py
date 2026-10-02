@@ -284,7 +284,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.421",
+    version="0.3.422",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1116,7 +1116,7 @@ _WARMING: set[str] = set()
 _WARM_LOCK = threading.Lock()
 
 
-def _warm_sound_refs(cache_id: str) -> None:
+def _warm_sound_refs(cache_id: str, *, texts: list[str] | None = None) -> None:
     """design/378 - build this paper's reference sounds now, not at reading time.
 
     The reference for a sentence was only ever built when a reader reached that
@@ -1129,6 +1129,13 @@ def _warm_sound_refs(cache_id: str) -> None:
     original design said so. This runs on a thread and never raises: a paper with
     no references is the behaviour we already had, so a failure here costs nothing
     that was not already being paid.
+
+    design/383 - `texts` is the phone's own copy of the sentences. A paper that
+    lives only on the phone is not in this server's cache at all, and those are
+    the papers that most need warming. A reference is filed under the sentence,
+    not under the paper, so the sentences are the whole of what is needed. Both
+    paths run the same normalisation, or the warm would file its work under keys
+    the reader's own request never asks for.
     """
     cid = (cache_id or "").strip()
     if not cid:
@@ -1143,7 +1150,10 @@ def _warm_sound_refs(cache_id: str) -> None:
         _WARMING.add(cid)
 
     def run() -> None:
-        from sentence_reading.llm import ops_events as oev
+        # design/383 - `ops_events` keeps its own allow list and this kind was
+        # never on it, so every row below was dropped in silence. The evidence
+        # bus is where the other sound rows already live.
+        from sentence_reading.llm import evidence_bus as eb
 
         try:
             from sentence_reading.api.routes.tts import _paper_speak_terms
@@ -1151,48 +1161,67 @@ def _warm_sound_refs(cache_id: str) -> None:
             from sentence_reading.llm.sound_reference import warm_paper
             from sentence_reading.llm.tts_speak import spoken_text_for_tts
 
-            loaded = load_cached_session(cid, load_images=False)
-            if not loaded:
-                # design/383 - this instance has no copy of the paper, so there is
-                # nothing to walk. Say so: a silent return here is why a phone that
-                # opened from its own disk read the same in the log as a phone that
-                # never asked at all.
-                oev.emit(
-                    "sound_ref_warm",
-                    cache_id=cid,
-                    stage="skip",
-                    details={"warm_miss": "no_session"},
-                )
-                return
+            came_from = "phone"
+            raw_lines = list(texts or [])
+            if texts is None:
+                came_from = "paper"
+                loaded = load_cached_session(cid, load_images=False)
+                if not loaded:
+                    # design/383 - this instance has no copy of the paper and the
+                    # caller sent no sentences, so there is nothing to walk. Say
+                    # so: a silent return here is why a phone that opened from its
+                    # own disk read the same in the log as one that never asked.
+                    eb.emit(
+                        "sound_ref_warm",
+                        severity="lifecycle",
+                        cache_id=cid,
+                        stage="skip",
+                        ok=False,
+                        details={"warm_miss": "no_session"},
+                    )
+                    return
+                raw_lines = [
+                    str(getattr(one, "text", "") or "")
+                    for one in getattr(loaded[0], "sentences", []) or []
+                ]
             terms = _paper_speak_terms(cid)
             lines = []
-            for one in getattr(loaded[0], "sentences", []) or []:
-                raw = str(getattr(one, "text", "") or "").strip()
-                if raw:
-                    lines.append(spoken_text_for_tts(raw, terms=terms))
+            for raw in raw_lines:
+                one = str(raw or "").strip()
+                if one:
+                    lines.append(spoken_text_for_tts(one, terms=terms))
             # A long paper is forty minutes of building, and the instance may
             # not live that long. Say the count up front, or a warm that was cut
             # off looks the same in the log as one that never started.
-            oev.emit(
+            eb.emit(
                 "sound_ref_warm",
+                severity="lifecycle",
                 cache_id=cid,
                 stage="start",
-                details={"warm_n": len(lines)},
+                details={"warm_n": len(lines), "warm_from": came_from},
             )
             report = warm_paper(lines)
         except Exception as exc:  # noqa: BLE001
             slug = re.sub(r"[^a-z0-9]+", "_", type(exc).__name__.lower())[:40]
-            oev.emit(
+            eb.emit(
                 "sound_ref_warm",
+                severity="lifecycle",
                 cache_id=cid,
                 stage="fail",
+                ok=False,
                 details={"warm_fail": slug or "failed"},
             )
             return
         finally:
             with _WARM_LOCK:
                 _WARMING.discard(cid)
-        oev.emit("sound_ref_warm", cache_id=cid, stage="done", details=report)
+        eb.emit(
+            "sound_ref_warm",
+            severity="lifecycle",
+            cache_id=cid,
+            stage="done",
+            details=report,
+        )
 
     threading.Thread(
         target=run, name=f"soundwarm-{cid[:8]}", daemon=True
@@ -4906,16 +4935,43 @@ def cache_figure_png(request: Request, cache_id: str, figure_id: str) -> Respons
         },
     )
 
+_WARM_TEXTS_MAX = 600
+_WARM_TEXT_CHARS = 2000
+
+
+def _warm_texts_from(payload: object) -> list[str]:
+    """design/383 - the sentences the caller says it is about to read."""
+    raw = (payload or {}).get("texts") if isinstance(payload, dict) else None
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for one in raw[:_WARM_TEXTS_MAX]:
+        line = str(one or "").strip()[:_WARM_TEXT_CHARS]
+        if line:
+            out.append(line)
+    return out
+
+
 @app.post("/api/cache/papers/{cache_id}/sound-warm")
-async def cache_sound_warm(request: Request, cache_id: str) -> JSONResponse:
+async def cache_sound_warm(
+    request: Request,
+    cache_id: str,
+    payload: dict | None = Body(default=None),
+) -> JSONResponse:
     """design/383 - a paper opened from the phone's own disk still needs warming.
 
     design/185 opens a paper the phone already has from the phone's own disk, so
     `/open` is never called and the design/378 warm never fires - for exactly the
     papers that need it most, the old ones, whose references nothing ever built.
-    This is the one part of `/open` that matters here: pull the paper if this
-    instance does not have it, then warm. It answers before the building starts
-    and says only why, so the phone can fire it and walk away.
+
+    The phone sends the sentences because a paper on the phone may not be in this
+    server's cache at all; `7d506b60fb6b` was not, and that is the shape of an old
+    paper. A reference is filed under the sentence and the voice, never under the
+    paper, so the sentences are the whole of what warming needs. Without them this
+    falls back to the paper, which is all `/open` ever had.
+
+    Answers before the building starts and says only why, so the phone can fire
+    this and walk away.
     """
     denied = _paid_access_denied(request)
     if denied is not None:
@@ -4926,6 +4982,10 @@ async def cache_sound_warm(request: Request, cache_id: str) -> JSONResponse:
             status_code=400,
             content={"ok": False, "error": "bad_cache_id"},
         )
+    texts = _warm_texts_from(payload)
+    if texts:
+        _warm_sound_refs(cid, texts=texts)
+        return JSONResponse(content={"ok": True, "warm": "started", "n": len(texts)})
     try:
         from sentence_reading.llm.papers_gcs import refresh_paper_for_open
 
@@ -4933,13 +4993,15 @@ async def cache_sound_warm(request: Request, cache_id: str) -> JSONResponse:
     except Exception:  # noqa: BLE001
         refreshed, refresh_code = False, "gcs_pull_failed"
     if not refreshed:
-        from sentence_reading.llm import ops_events as oev
+        from sentence_reading.llm import evidence_bus as eb
 
         slug = re.sub(r"[^a-z0-9_]+", "_", str(refresh_code or "").lower())[:40]
-        oev.emit(
+        eb.emit(
             "sound_ref_warm",
+            severity="lifecycle",
             cache_id=cid,
             stage="skip",
+            ok=False,
             details={"warm_miss": slug or "no_paper"},
         )
         return JSONResponse(content={"ok": True, "warm": "no_paper"})

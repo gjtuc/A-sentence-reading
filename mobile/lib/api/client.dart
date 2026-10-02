@@ -2275,15 +2275,25 @@ throw AsrApiException(
   /// A paper opened from this phone's own disk never reaches `/open`, so the
   /// server has no way to know. Never throws: a warm we failed to ask for leaves
   /// the behaviour we already had, which is building at reading time.
-  Future<String> askSoundWarm(String cacheId) async {
+  Future<String> askSoundWarm(
+    String cacheId, {
+    List<String> texts = const [],
+  }) async {
     final id = cacheId.trim();
     if (id.isEmpty) return 'bad_cache_id';
+    // design/383 — the sentences go with the ask. A paper that lives only on
+    // this phone is not in the server's cache, so the cache id alone warms
+    // nothing; a reference is filed under the sentence, never under the paper.
+    final lines = [
+      for (final one in texts.take(600))
+        if (one.trim().isNotEmpty) one.trim(),
+    ];
     try {
       final res = await _http
           .post(
             _uri('/api/cache/papers/${Uri.encodeComponent(id)}/sound-warm'),
             headers: await _headers(jsonBody: true),
-            body: '{}',
+            body: jsonEncode({'texts': lines}),
           )
           .timeout(const Duration(seconds: 30));
       if (res.statusCode < 200 || res.statusCode >= 300) {
