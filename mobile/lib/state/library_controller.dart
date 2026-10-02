@@ -3452,6 +3452,24 @@ class LibraryController extends ChangeNotifier {
     );
   }
 
+  /// design/383 — ask the server to build this paper's reference sounds.
+  ///
+  /// Only the disk-open path needs this; `/open` already warms on its own. The
+  /// answer is recorded because a warm nobody asked for and a warm that was
+  /// refused read the same way in the log otherwise — that is the mistake this
+  /// is fixing.
+  Future<void> _askSoundWarm(String cacheId) async {
+    final code = await _client.askSoundWarm(cacheId);
+    asrEvidenceBus?.record(
+      'sound_ref_warm',
+      severity: 'lifecycle',
+      cacheId: cacheId,
+      stage: 'ask',
+      ok: code == 'started',
+      details: {'warm_ask': code},
+    );
+  }
+
   Map<String, Object?> _readerOpenExtraDetails({
     required PaperEntry entry,
     required ReadingSession o,
@@ -4489,6 +4507,10 @@ class LibraryController extends ChangeNotifier {
             ),
           },
         );
+        // design/383 — the server never saw this open, so it does not know to
+        // build this paper's reference sounds. Tell it, and do not wait: the
+        // reader opens now and the building is minutes long.
+        unawaited(_askSoundWarm(entry.id));
       } else {
         final wantTr = await _wantTranslate();
         o = await _client.openPaper(entry.id, translate: wantTr);

@@ -178,3 +178,111 @@ def test_finish_job_warm_ignores_a_blank_cache_id(monkeypatch):
     time.sleep(0.1)
 
     assert called == []
+
+
+def test_warm_says_so_when_this_instance_has_no_copy(monkeypatch):
+    """design/383 - silence here is what hid a whole broken path for a day.
+
+    A phone that opened a paper from its own disk and a phone that never asked at
+    all both left no row, so the log could not tell them apart.
+    """
+    from sentence_reading.api import app as mod
+
+    rows: list[tuple[str, dict]] = []
+    done = threading.Event()
+
+    def fake_emit(kind, **kw):
+        rows.append((kind, kw))
+        done.set()
+
+    monkeypatch.setattr("sentence_reading.llm.ops_events.emit", fake_emit)
+    monkeypatch.setattr(
+        "sentence_reading.cache.paper_cache.load_cached_session",
+        lambda cid, **k: None,
+    )
+
+    mod._warm_sound_refs("cache-gone")
+
+    assert done.wait(5.0), "the warm thread said nothing at all"
+    assert rows[0][0] == "sound_ref_warm"
+    assert rows[0][1]["stage"] == "skip"
+    assert rows[0][1]["details"]["warm_miss"] == "no_session"
+
+
+def test_sound_warm_route_warms_a_paper_this_instance_can_pull(monkeypatch):
+    """design/383 - the disk-open path reaches the warm through nothing else."""
+    import asyncio
+    import json
+
+    from sentence_reading.api import app as mod
+
+    warmed: list[str] = []
+    monkeypatch.setattr(mod, "_paid_access_denied", lambda request: None)
+    monkeypatch.setattr(mod, "_warm_sound_refs", lambda cid: warmed.append(cid))
+    monkeypatch.setattr(
+        "sentence_reading.llm.papers_gcs.refresh_paper_for_open",
+        lambda cid: (True, "ok"),
+    )
+
+    res = asyncio.run(mod.cache_sound_warm(object(), " cache-abc "))
+
+    assert warmed == ["cache-abc"]
+    assert json.loads(res.body)["warm"] == "started"
+
+
+def test_sound_warm_route_says_why_when_the_paper_is_gone(monkeypatch):
+    import asyncio
+    import json
+
+    from sentence_reading.api import app as mod
+
+    rows: list[tuple[str, dict]] = []
+    warmed: list[str] = []
+    monkeypatch.setattr(mod, "_paid_access_denied", lambda request: None)
+    monkeypatch.setattr(mod, "_warm_sound_refs", lambda cid: warmed.append(cid))
+    monkeypatch.setattr(
+        "sentence_reading.llm.ops_events.emit",
+        lambda kind, **kw: rows.append((kind, kw)),
+    )
+    monkeypatch.setattr(
+        "sentence_reading.llm.papers_gcs.refresh_paper_for_open",
+        lambda cid: (False, "gcs_pull_failed"),
+    )
+
+    res = asyncio.run(mod.cache_sound_warm(object(), "cache-abc"))
+
+    assert warmed == []
+    assert json.loads(res.body)["warm"] == "no_paper"
+    assert rows[0][1]["details"]["warm_miss"] == "gcs_pull_failed"
+
+
+def test_sound_warm_route_refuses_a_blank_cache_id(monkeypatch):
+    import asyncio
+
+    from sentence_reading.api import app as mod
+
+    warmed: list[str] = []
+    monkeypatch.setattr(mod, "_paid_access_denied", lambda request: None)
+    monkeypatch.setattr(mod, "_warm_sound_refs", lambda cid: warmed.append(cid))
+
+    res = asyncio.run(mod.cache_sound_warm(object(), "   "))
+
+    assert res.status_code == 400
+    assert warmed == []
+
+
+def test_sound_warm_route_keeps_the_paid_gate(monkeypatch):
+    """The warm costs synthesis calls, so it may not be the open door."""
+    import asyncio
+
+    from sentence_reading.api import app as mod
+
+    warmed: list[str] = []
+    sentinel = object()
+    monkeypatch.setattr(mod, "_paid_access_denied", lambda request: sentinel)
+    monkeypatch.setattr(mod, "_warm_sound_refs", lambda cid: warmed.append(cid))
+
+    got = asyncio.run(mod.cache_sound_warm(object(), "cache-abc"))
+
+    assert got is sentinel
+    assert warmed == []

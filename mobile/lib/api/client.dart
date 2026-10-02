@@ -2269,6 +2269,34 @@ throw AsrApiException(
     return _decodeObject(res, 'transfer-pack-delete');
   }
 
+  /// design/383 — POST /api/cache/papers/{id}/sound-warm — tell the server this
+  /// paper is being read now, so it can build the reference sounds.
+  ///
+  /// A paper opened from this phone's own disk never reaches `/open`, so the
+  /// server has no way to know. Never throws: a warm we failed to ask for leaves
+  /// the behaviour we already had, which is building at reading time.
+  Future<String> askSoundWarm(String cacheId) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) return 'bad_cache_id';
+    try {
+      final res = await _http
+          .post(
+            _uri('/api/cache/papers/${Uri.encodeComponent(id)}/sound-warm'),
+            headers: await _headers(jsonBody: true),
+            body: '{}',
+          )
+          .timeout(const Duration(seconds: 30));
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        return 'http_${res.statusCode}';
+      }
+      final code = '${_decodeObject(res, 'cache/sound-warm')['warm'] ?? ''}'
+          .trim();
+      return code.isEmpty ? 'no_code' : code;
+    } catch (_) {
+      return 'ask_failed';
+    }
+  }
+
   /// POST /api/cache/papers/{id}/open — start a reading session from cache.
   Future<ReadingSession> openPaper(
     String cacheId, {

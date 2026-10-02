@@ -284,7 +284,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.420",
+    version="0.3.421",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1153,6 +1153,16 @@ def _warm_sound_refs(cache_id: str) -> None:
 
             loaded = load_cached_session(cid, load_images=False)
             if not loaded:
+                # design/383 - this instance has no copy of the paper, so there is
+                # nothing to walk. Say so: a silent return here is why a phone that
+                # opened from its own disk read the same in the log as a phone that
+                # never asked at all.
+                oev.emit(
+                    "sound_ref_warm",
+                    cache_id=cid,
+                    stage="skip",
+                    details={"warm_miss": "no_session"},
+                )
                 return
             terms = _paper_speak_terms(cid)
             lines = []
@@ -4895,6 +4905,47 @@ def cache_figure_png(request: Request, cache_id: str, figure_id: str) -> Respons
             "X-Asr-Elapsed-Ms": str(elapsed_ms),
         },
     )
+
+@app.post("/api/cache/papers/{cache_id}/sound-warm")
+async def cache_sound_warm(request: Request, cache_id: str) -> JSONResponse:
+    """design/383 - a paper opened from the phone's own disk still needs warming.
+
+    design/185 opens a paper the phone already has from the phone's own disk, so
+    `/open` is never called and the design/378 warm never fires - for exactly the
+    papers that need it most, the old ones, whose references nothing ever built.
+    This is the one part of `/open` that matters here: pull the paper if this
+    instance does not have it, then warm. It answers before the building starts
+    and says only why, so the phone can fire it and walk away.
+    """
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    cid = (cache_id or "").strip()
+    if not cid:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "bad_cache_id"},
+        )
+    try:
+        from sentence_reading.llm.papers_gcs import refresh_paper_for_open
+
+        refreshed, refresh_code = refresh_paper_for_open(cid)
+    except Exception:  # noqa: BLE001
+        refreshed, refresh_code = False, "gcs_pull_failed"
+    if not refreshed:
+        from sentence_reading.llm import ops_events as oev
+
+        slug = re.sub(r"[^a-z0-9_]+", "_", str(refresh_code or "").lower())[:40]
+        oev.emit(
+            "sound_ref_warm",
+            cache_id=cid,
+            stage="skip",
+            details={"warm_miss": slug or "no_paper"},
+        )
+        return JSONResponse(content={"ok": True, "warm": "no_paper"})
+    _warm_sound_refs(cid)
+    return JSONResponse(content={"ok": True, "warm": "started"})
+
 
 @app.post("/api/cache/papers/{cache_id}/open")
 async def cache_open(request: Request, cache_id: str) -> JSONResponse:
