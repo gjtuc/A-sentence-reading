@@ -420,6 +420,7 @@
 | 376 | [376-the-drill-is-a-choice.md](376-the-drill-is-a-choice.md) | 틀린 단어 다시 읽기를 설정에서 끈다 · 끄기는 채점 뒤에 읽히므로 점수·등급은 그대로 · `asr.practice.miss_review`, 기본 켜짐 · 앱으로 돌아올 때 다시 읽는다 (0.3.416) |
 | 377 | [377-how-close-was-it.md](377-how-close-was-it.md) | `slot_scores` — 칸마다 겹침을 100분율로 적는다 (아깝게 떨어진 것과 한참 모자란 것이 같은 `0` 이었다) · 판독기가 `line_inside_spread` 를 올린다 · 반만 읽은 문장은 앞 0.641 / 뒤 0.374, 선 0.603 — 턱걸이였다 · `electrochemical` 은 0.003 차로 떨어졌다 (0.3.417) |
 | 378 | [378-warm-the-paper-not-the-reader.md](378-warm-the-paper-not-the-reader.md) | 기준 소리를 논문 분석할 때 미리 짓는다 (읽는 사람은 최대 한 개 뒤에 선다, 논문 뒤가 아니다) |
+| 379 | [379-the-ceiling-was-my-ruler.md](379-the-ceiling-was-my-ruler.md) | design/377 의 「채점 제한」은 측정 오류였다 (기준만 자르고 낭독은 안 자름) · 천장은 1.000, 다른 원어민 낭독은 0.92–0.97 · 통과 못 하는 단어는 없다 |
 | 370 | [370-a-transcript-is-not-a-pronunciation.md](370-a-transcript-is-not-a-pronunciation.md) | 전사문 채점 제거 — 단어는 원어민 목소리의 소리로만 판정. 기준 소리 없으면 `sound_ref_missing`(채점 안 됨). design/365 철자 보정층 전부 삭제 |
 | 369 | [369-ask-the-build-not-the-guess.md](369-ask-the-build-not-the-guess.md) | 배포 가드 둘 정상화 — APK 락 파일·주석은 센서가 아니다 |
 | 368 | [368-a-dictionary-is-not-a-voice.md](368-a-dictionary-is-not-a-voice.md) | eSpeak 사전 발음 전원 제거 — 목표 소리는 목소리에서 오게 한다 |

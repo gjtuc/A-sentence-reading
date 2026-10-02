@@ -52,7 +52,11 @@ def heard_of(text: str, voice: str) -> list[str]:
 
     raw, _t = sr.synth_marked(f"<speak>{escape(text)}</speak>", voice)
     pcm, _rate = sr.pcm_of(raw)
-    return [str(one["sym"]) for one in phone_frames(pcm)]
+    # design/379 - cut it the way the reference and the reader are cut. Leaving
+    # the model's own grouping in place put oʊ against o + ʊ and counted
+    # every diphthong in the sentence as a mistake, which is where this probe
+    # first reported a ceiling of 0.82 instead of 1.000.
+    return split_phone_units(" ".join(str(one["sym"]) for one in phone_frames(pcm)))
 
 
 def main() -> int:
