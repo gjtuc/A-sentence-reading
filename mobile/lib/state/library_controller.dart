@@ -21,6 +21,7 @@ import '../api/progress_store.dart';
 import '../api/reading_models.dart';
 import '../api/practice_bookmark_store.dart';
 import '../api/practice_progress_store.dart';
+import '../practice_skill/sound_warm_order.dart';
 import '../api/shadowing_chunk_plan.dart';
 import '../api/upload_draft_models.dart';
 import '../api/upload_draft_store.dart';
@@ -3454,11 +3455,14 @@ class LibraryController extends ChangeNotifier {
 
   /// design/383 — ask the server to build this paper's reference sounds.
   ///
-  /// Only the disk-open path needs this; `/open` already warms on its own. The
-  /// answer is recorded because a warm nobody asked for and a warm that was
-  /// refused read the same way in the log otherwise — that is the mistake this
-  /// is fixing.
-  Future<void> _askSoundWarm(String cacheId, List<String> texts) async {
+  /// design/385 — both open paths ask after the cursor is restored. `/open`
+  /// no longer starts its own walk from sentence 1: that walk would sit in
+  /// `_WARMING` and drop this rotated ask.
+  Future<void> _askSoundWarm(
+    String cacheId,
+    List<String> texts, {
+    int fromI = 0,
+  }) async {
     final code = await _client.askSoundWarm(cacheId, texts: texts);
     asrEvidenceBus?.record(
       'sound_ref_warm',
@@ -3466,7 +3470,11 @@ class LibraryController extends ChangeNotifier {
       cacheId: cacheId,
       stage: 'ask',
       ok: code == 'started',
-      details: {'warm_ask': code, 'warm_sent_n': texts.length},
+      details: {
+        'warm_ask': code,
+        'warm_sent_n': texts.length,
+        'warm_from_i': fromI,
+      },
     );
   }
 
@@ -4507,13 +4515,6 @@ class LibraryController extends ChangeNotifier {
             ),
           },
         );
-        // design/383 — the server never saw this open, so it does not know to
-        // build this paper's reference sounds, and it may not even hold this
-        // paper. Send the sentences and do not wait: the reader opens now and
-        // the building is minutes long.
-        unawaited(
-          _askSoundWarm(entry.id, [for (final s in o.sentences) s.text]),
-        );
       } else {
         final wantTr = await _wantTranslate();
         o = await _client.openPaper(entry.id, translate: wantTr);
@@ -4583,6 +4584,24 @@ class LibraryController extends ChangeNotifier {
         final lm = raw.layoutMode.trim();
         if (lm.isNotEmpty) readerLayoutMode = lm;
       }
+
+      // design/385 — walk from the sentence about to be read, not from 1.
+      // Practice cursor wins: that is the spoken sentence. Reader cursor is
+      // the fallback when practice has never been opened.
+      var from = o.sentenceIndex;
+      try {
+        final practice = await loadPracticeProgressRow(o.cacheId);
+        from = soundWarmStart(
+          readerIndex: o.sentenceIndex,
+          practiceIndex: practice?.sentenceIndex,
+          sentenceN: o.sentences.length,
+        );
+      } catch (_) {}
+      unawaited(_askSoundWarm(
+        o.cacheId,
+        soundWarmTexts([for (final s in o.sentences) s.text], from: from),
+        fromI: from,
+      ));
 
       session = o;
       // design/185 Phase 1 — shadow-copy session + figure PNGs to PaperDiskStore.

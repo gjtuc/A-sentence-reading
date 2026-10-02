@@ -422,6 +422,7 @@
 | 378 | [378-warm-the-paper-not-the-reader.md](378-warm-the-paper-not-the-reader.md) | 기준 소리를 논문 분석할 때 미리 짓는다 (읽는 사람은 최대 한 개 뒤에 선다, 논문 뒤가 아니다) |
 | 379 | [379-the-ceiling-was-my-ruler.md](379-the-ceiling-was-my-ruler.md) | design/377 의 「채점 제한」은 측정 오류였다 (기준만 자르고 낭독은 안 자름) · 천장은 1.000, 다른 원어민 낭독은 0.92–0.97 · 통과 못 하는 단어는 없다 |
 | 380 | [380-the-model-says-when-it-is-unsure.md](380-the-model-says-when-it-is-unsure.md) | 낭독 둘이 소리를 다르게 보는 자리는 모델이 헷갈리는 자리다 (같게 본 자리 0.90 vs 다르게 본 자리 0.43, 0.70 넘는 불일치 0/16) · phone_frames 가 확률을 버려서 0.35 찍은 소리가 0.97 소리와 같은 무게다 |
+| 385 | [385-warm-from-the-cursor.md](385-warm-from-the-cursor.md) | 미리 짓기는 지금 읽는 자리부터 한 바퀴 돈다 · 연습 커서가 있으면 그쪽 · `/open` 의 1번부터 걷기는 폰 요청을 `_WARMING` 으로 버려서 뺐다 (0.3.425) |
 | 384 | [384-which-sound-was-missing.md](384-which-sound-was-missing.md) | 틀린 단어 점수는 어느 소리가 빠졌는지 말하지 못 한다 · `slot_each` 로 소리별 확신도를 보내고, 틀린 단어 화면이 첫 시도부터 통과선 아래 기호를 강조한다 · 개수가 안 맞으면 안 칠한다 · 사다리·0.5배는 2차 |
 | 383 | [383-the-paper-the-server-never-saw.md](383-the-paper-the-server-never-saw.md) | 폰에 이미 내려와 있는 논문은 design/185 로 폰 디스크에서 열려서 `/open` 을 안 부른다 — design/378 미리 짓기가 가장 필요한 열 논문에서만 정확하게 안 걸렸다 · 얇은 `sound-warm` 주소를 폰이 쏘고 걷는다 · `load_cached_session` 이 빈 때 아무 말 없이 돌아가는 것이 진단을 하루 막았다 |
 | 382 | [382-the-longer-of-the-two-sides.md](382-the-longer-of-the-two-sides.md) | 분모를 기준과 읽은 것 중 긴 쪽으로 (사장님 식) · 619개 녹음에서 같은 keep 90%로 186 → 242개, 문턱 0.0005 얹으면 254개 · 창을 다음 단어 시작까지 넓혀야 뒤에 더 붙은 소리가 보인다 (15.4% → 30.7%) · 부분 점수는 오히려 나빠진다 (242 → 224 → 207) · 1% 문턱은 합성 음성에서만 되던 것 |

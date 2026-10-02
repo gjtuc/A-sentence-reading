@@ -284,7 +284,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.424",
+    version="0.3.425",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -5129,12 +5129,10 @@ async def cache_open(request: Request, cache_id: str) -> JSONResponse:
                         doc_role=str(info.get("doc_role") or "main"),
                     )
         session_id = _remember_session(session, cache_id=cache_id)
-        # design/378 - resume. A warm started at analysis time is forty minutes of
-        # building for a long paper, and the instance that started it may be gone.
-        # Papers analysed before design/378 never had one at all. Opening is the
-        # one moment we know someone is about to read this paper, and an already
-        # warm paper costs a cache read per sentence on a background thread.
-        _warm_sound_refs(cache_id)
+        # design/385 — do not start a walk from sentence 1 here. The phone
+        # asks after it restores the reading/practice cursor, and a walk
+        # already in _WARMING would drop that rotated ask. Analysis still
+        # warms from 1 in _finish_job: a new paper has no cursor yet.
         # design/129 — sentences/meta only; PNGs via /figures/window (fail-closed empty src).
         data = session.to_public_dict(
             include_images=False,
