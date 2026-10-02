@@ -546,6 +546,16 @@ class AsrClient {
   final http.Client _http;
   final SessionStore _sessions;
   String lastHeardPhones = '';
+  /// design/381 — each word's mean certainty in hundredths, in the order the
+  /// reference sounds were sent, with `-` where the word could not be asked
+  /// about. Reported only: nothing scores on it yet.
+  String lastSlotSure = '';
+
+  /// design/381 — each word's least certain sound, in ten-thousandths. A word
+  /// can average well while holding a sound the reader simply did not make, and
+  /// that is the case the counting rule cannot see at all.
+  String lastSlotFloor = '';
+  String lastSureCode = 'none';
   int lastWaveformPhones = -1;
   int lastFillerDropped = -1;
   String lastHearCode = 'none';
@@ -2706,12 +2716,20 @@ throw AsrApiException(
     required List<int> bytes,
     required String mime,
     SampleTakeTag? sampleTag,
+    String targetPhones = '',
   }) async {
     if (bytes.isEmpty) return null;
     final headers = await _headers();
     headers.remove('Content-Type');
     final req = http.MultipartRequest('POST', _uri('/api/stt/recognize'));
     req.headers.addAll(headers);
+    if (targetPhones.trim().isNotEmpty) {
+      // design/381 — the reference sounds this take will be judged against. The
+      // server has the model and the probabilities; sending the sounds rather
+      // than letting it rebuild them keeps its answer lined up with the slots
+      // here, in the same order, by construction.
+      req.fields['target_phones'] = targetPhones.trim();
+    }
     if (sampleTag != null) {
       // design/364 — the server keeps the audio only for tagged sample rounds.
       req.fields.addAll(sampleTag.formFields());
@@ -2731,6 +2749,9 @@ throw AsrApiException(
     lastFillerDropped = -1;
     lastHearCode = '${map['hear_code'] ?? 'none'}'.trim();
     lastHearDetail = '${map['hear_detail'] ?? 'none'}'.trim();
+    lastSlotSure = '${map['slot_sure'] ?? ''}'.trim();
+    lastSlotFloor = '${map['slot_floor'] ?? ''}'.trim();
+    lastSureCode = '${map['sure_code'] ?? 'none'}'.trim();
     return lastHeardPhones.isEmpty ? null : lastHeardPhones;
   }
 

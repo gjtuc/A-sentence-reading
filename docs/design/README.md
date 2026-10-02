@@ -422,6 +422,7 @@
 | 378 | [378-warm-the-paper-not-the-reader.md](378-warm-the-paper-not-the-reader.md) | 기준 소리를 논문 분석할 때 미리 짓는다 (읽는 사람은 최대 한 개 뒤에 선다, 논문 뒤가 아니다) |
 | 379 | [379-the-ceiling-was-my-ruler.md](379-the-ceiling-was-my-ruler.md) | design/377 의 「채점 제한」은 측정 오류였다 (기준만 자르고 낭독은 안 자름) · 천장은 1.000, 다른 원어민 낭독은 0.92–0.97 · 통과 못 하는 단어는 없다 |
 | 380 | [380-the-model-says-when-it-is-unsure.md](380-the-model-says-when-it-is-unsure.md) | 낭독 둘이 소리를 다르게 보는 자리는 모델이 헷갈리는 자리다 (같게 본 자리 0.90 vs 다르게 본 자리 0.43, 0.70 넘는 불일치 0/16) · phone_frames 가 확률을 버려서 0.35 찍은 소리가 0.97 소리와 같은 무게다 |
+| 381 | [381-the-model-says-how-sure-it-is.md](381-the-model-says-how-sure-it-is.md) | 모델이 어느 정도 확실한가를 점수로 삼는 2단계 (사장님 설계) · CTC 강제 정렬을 직접 구현해 torchaudio 와 1e-5 어긋남 없이 같다 · 한 번의 추론에서 확률표를 꺼낸다 · 평균만으로는 loss→lost 가 거꾸로 나온다 (0.785 vs 0.822), 최저 1% 문턱이 3/5 잡고 오판 0개 · 지금은 재서 적기만 한다 |
 | 370 | [370-a-transcript-is-not-a-pronunciation.md](370-a-transcript-is-not-a-pronunciation.md) | 전사문 채점 제거 — 단어는 원어민 목소리의 소리로만 판정. 기준 소리 없으면 `sound_ref_missing`(채점 안 됨). design/365 철자 보정층 전부 삭제 |
 | 369 | [369-ask-the-build-not-the-guess.md](369-ask-the-build-not-the-guess.md) | 배포 가드 둘 정상화 — APK 락 파일·주석은 센서가 아니다 |
 | 368 | [368-a-dictionary-is-not-a-voice.md](368-a-dictionary-is-not-a-voice.md) | eSpeak 사전 발음 전원 제거 — 목표 소리는 목소리에서 오게 한다 |

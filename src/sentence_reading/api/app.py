@@ -284,7 +284,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.418",
+    version="0.3.419",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -3171,6 +3171,43 @@ async def _keep_sample_take(
         return
 
 
+def _slot_certainty(sheet: object, target_phones: str) -> tuple[str, str, str]:
+    """design/381 - per-word certainty from the sheet, as two printable rows.
+
+    `slot_sure` is each word's mean certainty in hundredths; `slot_floor` is its
+    least certain sound in ten-thousandths, because that is where the interesting
+    numbers are -- a sound the reader simply did not make comes back near zero and
+    a mean cannot show it. Both use `-` for a word with no sound the model knows,
+    which is what the scorer already prints for a word it cannot ask about.
+
+    Never raises. A missing answer leaves the strings empty and the code says why,
+    which is the behaviour before design/381 either way.
+    """
+    groups_raw = [g.strip() for g in (target_phones or "").split("|")]
+    if not any(groups_raw):
+        return "", "", "no_target"
+    if sheet is None:
+        return "", "", "no_sheet"
+    try:
+        from sentence_reading.llm.hear_waveform import certainty_of
+
+        got = certainty_of(sheet, [g.split() for g in groups_raw])
+    except Exception as exc:  # noqa: BLE001
+        return "", "", re.sub(r"[^a-z0-9]+", "_", type(exc).__name__.lower())[:30]
+    if got is None:
+        return "", "", "no_align"
+    sure: list[str] = []
+    floor: list[str] = []
+    for one in got:
+        if not one:
+            sure.append("-")
+            floor.append("-")
+            continue
+        sure.append(f"{round(100 * sum(one) / len(one))}")
+        floor.append(f"{round(10000 * min(one))}")
+    return " ".join(sure), " ".join(floor), "ok"
+
+
 @app.post("/api/stt/recognize")
 async def stt_recognize(request: Request, file: UploadFile = File(...),
     expected: str = Form(""),
@@ -3182,12 +3219,20 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
     skill_density: int = Form(0),
     tts_voice: str = Form(""),
     tts_rate: float = Form(0.0),
+    # design/381 - the per-word reference sounds the phone already holds, joined
+    # by `|` in the order it will score them. Sending them rather than rebuilding
+    # them here keeps the answer lined up with the phone's own slots by
+    # construction, and costs a few hundred characters.
+    target_phones: str = Form(""),
 ) -> dict:
     """연습 오디오 → 발음 기호 (CTC). 전사·점수 없음 (design/370)."""
     denied = _paid_access_denied(request)
     if denied is not None:
         return denied
-    from sentence_reading.llm.hear_waveform import hear_phones_report
+    from sentence_reading.llm.hear_waveform import (
+        hear_phones_report,
+        hear_phones_sheet,
+    )
 
     # design/370 — the sounds are what this route is for, and the waveform model
     # needs nothing from Gemini to produce them. It used to run behind a Gemini
@@ -3204,8 +3249,16 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
     mime = file.content_type or "application/octet-stream"
     waveform = ""
     hear_report: dict = {"hear_code": "call_failed", "hear_detail": "none"}
+    sheet = None
     try:
-        waveform, hear_report = await asyncio.to_thread(hear_phones_report, data)
+        if (target_phones or "").strip():
+            waveform, sheet, hear_report = await asyncio.to_thread(
+                hear_phones_sheet, data
+            )
+        else:
+            waveform, hear_report = await asyncio.to_thread(
+                hear_phones_report, data
+            )
     except Exception as exc:  # noqa: BLE001
         waveform = ""
         hear_report = {
@@ -3240,6 +3293,7 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
         tts_voice=tts_voice,
         tts_rate=tts_rate,
     )
+    sure, floor, sure_code = _slot_certainty(sheet, target_phones)
     out: dict = {
         "ok": True,
         "heard_phones": phones,
@@ -3247,6 +3301,11 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
         "waveform_phones": 1 if waveform else 0,
         "hear_code": str(hear_report.get("hear_code") or "none"),
         "hear_detail": str(hear_report.get("hear_detail") or "none"),
+        # design/381 - how sure the model is about each reference sound, in the
+        # order the sounds were sent. Reported only; nothing scores on it yet.
+        "slot_sure": sure,
+        "slot_floor": floor,
+        "sure_code": sure_code,
     }
     assert "score" not in out
     assert "heard" not in out

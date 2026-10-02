@@ -39,6 +39,27 @@ def hear_phones(data: bytes) -> str:
 
 def hear_phones_report(data: bytes) -> tuple[str, dict[str, object]]:
     """Phones plus a short code for the step that stopped, for the evidence row."""
+    phones, _sheet, report = _hear(data, want_sheet=False)
+    return phones, report
+
+
+def hear_phones_sheet(
+    data: bytes,
+) -> tuple[str, object | None, dict[str, object]]:
+    """design/381 - the same single model pass, plus the probabilities.
+
+    The sheet is one row per 20 ms frame and one column per sound, log-softmaxed.
+    `argmax` throws it away, and design/380 measured what that costs: a sound the
+    model guessed at 0.35 counted against the reader exactly as hard as one it was
+    0.97 sure of. Scoring by certainty needs the sheet, and running the model a
+    second time to get it would double the wait on every take.
+    """
+    return _hear(data, want_sheet=True)
+
+
+def _hear(
+    data: bytes, *, want_sheet: bool
+) -> tuple[str, object | None, dict[str, object]]:
     report: dict[str, object] = {
         "hear_code": "ok",
         "hear_bytes": len(data or b""),
@@ -52,10 +73,10 @@ def hear_phones_report(data: bytes) -> tuple[str, dict[str, object]]:
     }
     if not data:
         report["hear_code"] = "no_audio"
-        return "", report
+        return "", None, report
     if not report["ffmpeg"]:
         report["hear_code"] = "ffmpeg_missing"
-        return "", report
+        return "", None, report
 
     clock = time.monotonic()
     try:
@@ -64,20 +85,20 @@ def hear_phones_report(data: bytes) -> tuple[str, dict[str, object]]:
         report["hear_code"] = "decode_failed"
         report["hear_detail"] = _snake(str(exc))
         report["decode_ms"] = int((time.monotonic() - clock) * 1000)
-        return "", report
+        return "", None, report
     except (OSError, subprocess.TimeoutExpired) as exc:
         report["hear_code"] = "decode_crashed"
         report["hear_detail"] = _snake(type(exc).__name__)
         report["decode_ms"] = int((time.monotonic() - clock) * 1000)
-        return "", report
+        return "", None, report
     report["decode_ms"] = int((time.monotonic() - clock) * 1000)
     if pcm is None:
         report["hear_code"] = "decode_empty"
-        return "", report
+        return "", None, report
     report["pcm_n"] = int(pcm.shape[0])
     if int(pcm.shape[0]) < 1600:
         report["hear_code"] = "too_short"
-        return "", report
+        return "", None, report
 
     clock = time.monotonic()
     try:
@@ -86,16 +107,17 @@ def hear_phones_report(data: bytes) -> tuple[str, dict[str, object]]:
         report["hear_code"] = "load_failed"
         report["hear_detail"] = _snake(type(exc).__name__)
         report["load_ms"] = int((time.monotonic() - clock) * 1000)
-        return "", report
+        return "", None, report
     report["load_ms"] = int((time.monotonic() - clock) * 1000)
     if _PROCESSOR is None or _MODEL is None:
         report["hear_code"] = "model_missing"
         report["hear_detail"] = _snake(_LOAD_FAIL or "none")
-        return "", report
+        return "", None, report
 
     import torch
 
     clock = time.monotonic()
+    sheet = None
     try:
         with _LOCK:
             values = _PROCESSOR(
@@ -105,17 +127,20 @@ def hear_phones_report(data: bytes) -> tuple[str, dict[str, object]]:
                 logits = _MODEL(values).logits
             ids = torch.argmax(logits, dim=-1)
             text = _PROCESSOR.batch_decode(ids)[0]
+            # design/381 - the same logits, before they are thrown away.
+            if want_sheet:
+                sheet = torch.log_softmax(logits, dim=-1)[0]
     except Exception as exc:  # noqa: BLE001
         report["hear_code"] = "infer_failed"
         report["hear_detail"] = _snake(type(exc).__name__)
         report["infer_ms"] = int((time.monotonic() - clock) * 1000)
-        return "", report
+        return "", None, report
     report["infer_ms"] = int((time.monotonic() - clock) * 1000)
     out = " ".join(str(text).split())
     report["phone_n"] = len(out.split())
     if not out:
         report["hear_code"] = "empty_text"
-    return out, report
+    return out, sheet, report
 
 
 class _DecodeError(Exception):
@@ -324,3 +349,46 @@ def warm_report() -> dict[str, object]:
         "warm_detail": _snake(_LOAD_FAIL or "none"),
         "ffmpeg": 1 if shutil.which("ffmpeg") else 0,
     }
+
+
+def certainty_of(
+    sheet: object, groups: list[list[str]]
+) -> list[list[float]] | None:
+    """design/381 - how sure the model is about each word's reference sounds.
+
+    `groups` is one list of the model's own symbols per printed word, which is
+    exactly what the reference builder stored. The answer is one list of
+    certainties per word in the same order, empty for a word with no sound the
+    model knows -- the same thing today's `-1` from `phoneOverlap` means.
+
+    Every sound comes back rather than the word's average, because a word can
+    average well while holding one sound that is simply not there.
+
+    No boundary is decided here (design/371). The words were already cut by the
+    builder from Google's marks; this only asks where each sound landed.
+    """
+    from sentence_reading.llm.sound_align import certainty_by_group
+
+    if sheet is None or not groups:
+        return None
+    _load_frames()
+    if not _INV:
+        return None
+    ids = {sym: tid for tid, sym in _INV.items()}
+    as_ids = [[ids[s] for s in group if s in ids] for group in groups]
+    wanted = sorted({tid for group in as_ids for tid in group} | {_PAD})
+    if len(wanted) <= 1:
+        return None
+    # Only the columns this sentence can use. The full sheet is hundreds of frames
+    # by four hundred sounds, and walking that from Python one cell at a time is
+    # far slower than the model pass that produced it.
+    column = {tid: i for i, tid in enumerate(wanted)}
+    try:
+        rows = sheet[:, wanted].tolist()
+    except Exception:  # noqa: BLE001
+        return None
+    return certainty_by_group(
+        rows,
+        [[column[tid] for tid in group] for group in as_ids],
+        blank=column[_PAD],
+    )

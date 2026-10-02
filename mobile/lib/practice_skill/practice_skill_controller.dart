@@ -648,6 +648,13 @@ class PracticeSkillController {
         bytes: takeBytes,
         mime: mime,
         sampleTag: sampleTag,
+        // design/381 - the same reference sounds the scorer will use, so the
+        // certainties come back in the order the slots are in.
+        targetPhones: spokenCache
+            .peekSpans(chunkDisplay)
+            .where((span) => span.weight > 0 && span.phone.trim().isNotEmpty)
+            .map((span) => span.phone.trim())
+            .join(' | '),
       );
       sttSw.stop();
       final gotSounds = heardSounds != null && heardSounds.trim().isNotEmpty;
@@ -774,6 +781,11 @@ class PracticeSkillController {
             .map((span) => span.phone.trim())
             .join(' | '),
         'heard_phones': c.lastHeardPhones,
+        // design/381 -- the model's own certainty, reported beside the score it
+        // is meant to replace, so the two can be compared on the same take.
+        'slot_sure': c.lastSlotSure,
+        'slot_floor': c.lastSlotFloor,
+        'sure_code': c.lastSureCode,
         ...align.details,
       },
     );
@@ -844,6 +856,11 @@ class PracticeSkillController {
             .map((span) => span.phone.trim())
             .join(' | '),
         'heard_phones': c.lastHeardPhones,
+        // design/381 -- the model's own certainty for the same slots, beside the
+        // closeness numbers it is meant to replace. One row, both rulers.
+        'slot_sure': c.lastSlotSure,
+        'slot_floor': c.lastSlotFloor,
+        'sure_code': c.lastSureCode,
       },
     );
     // design/215 — adapt only on focus-block epoch resolve, not per take.
