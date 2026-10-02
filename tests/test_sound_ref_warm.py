@@ -317,6 +317,12 @@ def test_warm_reads_the_sentences_the_caller_sent(monkeypatch):
     monkeypatch.setattr(
         "sentence_reading.api.routes.tts._paper_speak_terms", lambda cid: {}
     )
+    monkeypatch.setattr(
+        "sentence_reading.llm.evidence_bus.emit", lambda *a, **k: None
+    )
+    # A sibling test may still hold the paper id in `_WARMING`; this path must
+    # not look like a duplicate of a warm that already finished.
+    mod._WARMING.clear()
 
     mod._warm_sound_refs("cache-phone", texts=["One two three.", "  ", "Four five."])
 

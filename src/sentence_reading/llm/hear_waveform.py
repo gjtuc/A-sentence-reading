@@ -369,7 +369,7 @@ def _said_between(top: list[int], lo: int, hi: int) -> int:
 
 def sound_score_of(
     sheet: object, groups: list[list[str]]
-) -> list[dict[str, float] | None] | None:
+) -> list[dict[str, float | list[float]] | None] | None:
     """design/382 - each word's score: soft matches over the longer of two sides.
 
     Every reference sound is worth up to 1, earned by how sure the model is that
@@ -419,7 +419,7 @@ def sound_score_of(
         return None
     mine = [[k for k, w in enumerate(owner) if w == i]
             for i in range(len(groups))]
-    out: list[dict[str, float] | None] = []
+    out: list[dict[str, float | list[float]] | None] = []
     for i, keys in enumerate(mine):
         if not keys:
             out.append(None)
@@ -449,6 +449,10 @@ def sound_score_of(
             "n": float(n),
             "said": float(said),
             "sym": mean * n / max(n, said),
+            # design/384 - every sound on its own, in the order the reference
+            # stored them. The word's score cannot say which sound was missing,
+            # and that is the one thing a speaker re-reading the word needs.
+            "each": sure,
         })
     return out
 

@@ -136,3 +136,48 @@ class WordPhoneText extends StatelessWidget {
     return false;
   }
 }
+
+
+/// design/384 — one span per sound, the ones the model did not hear picked out.
+///
+/// The word's own score cannot say which sound was missing, so a speaker about
+/// to re-read the word had nothing to aim at. [sounds] is how sure the model was
+/// of each symbol in [phone], in the same order, and anything under [line] is
+/// drawn in [weak].
+///
+/// Returns one plain span when the two do not line up. A symbol the model's
+/// vocabulary does not carry is dropped before scoring, and painting through
+/// that gap would mark the wrong symbol — worse than marking none.
+List<TextSpan> reviewSoundSpans({
+  required String phone,
+  required List<double> sounds,
+  required double line,
+  required Color weak,
+  required Color strong,
+}) {
+  final symbols = [
+    for (final one in phone.trim().split(RegExp(r'\s+')))
+      if (one.isNotEmpty) one,
+  ];
+  if (symbols.isEmpty || symbols.length != sounds.length) {
+    return [TextSpan(text: phone.trim(), style: TextStyle(color: strong))];
+  }
+  final out = <TextSpan>[];
+  for (var i = 0; i < symbols.length; i++) {
+    final low = sounds[i] < line;
+    out.add(TextSpan(
+      text: symbols[i],
+      style: TextStyle(
+        color: low ? weak : strong,
+        fontWeight: low ? FontWeight.w700 : FontWeight.w400,
+        decoration: low ? TextDecoration.underline : TextDecoration.none,
+        decorationColor: weak,
+        decorationThickness: 2.5,
+      ),
+    ));
+    if (i + 1 < symbols.length) {
+      out.add(TextSpan(text: '  ', style: TextStyle(color: strong)));
+    }
+  }
+  return out;
+}

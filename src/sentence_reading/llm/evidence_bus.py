@@ -196,6 +196,8 @@ def _safe_details(raw: Any) -> dict[str, Any]:
                 "slot_said",
                 "slot_sure",
                 "slot_floor",
+                # design/384 - every sound on its own, words barred apart.
+                "slot_each",
                 "slot_pieces",
                 "target_phones",
                 "heard_phones",

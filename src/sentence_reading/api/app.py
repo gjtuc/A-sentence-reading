@@ -284,7 +284,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.422",
+    version="0.3.423",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -3222,10 +3222,20 @@ def _slot_certainty(sheet: object, target_phones: str) -> dict[str, str]:
     model knows, which is what the scorer already prints for a word it cannot
     ask about.
 
+    design/384 - `slot_each` is every sound on its own, words barred apart. A
+    word score cannot say *which* sound was missing, and that is the one thing a
+    speaker about to re-read the word needs to know.
+
     Never raises. A missing answer leaves the rows empty and the code says why,
     and the phone then falls back to the rule it shipped with.
     """
-    out = {"slot_sym": "", "slot_sure": "", "slot_floor": "", "slot_said": ""}
+    out = {
+        "slot_sym": "",
+        "slot_sure": "",
+        "slot_floor": "",
+        "slot_said": "",
+        "slot_each": "",
+    }
     groups_raw = [g.strip() for g in (target_phones or "").split("|")]
     if not any(groups_raw):
         return {**out, "sure_code": "no_target"}
@@ -3240,17 +3250,30 @@ def _slot_certainty(sheet: object, target_phones: str) -> dict[str, str]:
         return {**out, "sure_code": slug or "failed"}
     if got is None:
         return {**out, "sure_code": "no_align"}
-    rows: dict[str, list[str]] = {k: [] for k in out}
+    keys = ("slot_sym", "slot_sure", "slot_floor", "slot_said")
+    rows: dict[str, list[str]] = {k: [] for k in keys}
+    # design/384 - sounds inside a word are spaced, words are barred. A word the
+    # model knows no sound for is one dash, so the bars still count the words.
+    each: list[str] = []
     for one in got:
         if not one:
-            for key in rows:
+            for key in keys:
                 rows[key].append("-")
+            each.append("-")
             continue
         rows["slot_sym"].append(f"{round(100 * one['sym'])}")
         rows["slot_sure"].append(f"{round(100 * one['sure'])}")
         rows["slot_floor"].append(f"{round(10000 * one['low'])}")
         rows["slot_said"].append(f"{int(one['said'])}")
-    return {**{k: " ".join(v) for k, v in rows.items()}, "sure_code": "ok"}
+        # A producer that reported no per-sound values is a dash, like a word
+        # with no sound at all: the bars have to keep counting the words.
+        mine = one.get("each") or []
+        each.append(" ".join(f"{round(100 * v)}" for v in mine) or "-")
+    return {
+        **{k: " ".join(v) for k, v in rows.items()},
+        "slot_each": "|".join(each),
+        "sure_code": "ok",
+    }
 
 
 @app.post("/api/stt/recognize")

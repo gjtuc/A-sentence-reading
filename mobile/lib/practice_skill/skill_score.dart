@@ -52,6 +52,7 @@ class MissedWordSpan {
     this.end, {
     this.spoken = '',
     this.phone = '',
+    this.sounds = const [],
   });
 
   final int start;
@@ -66,6 +67,14 @@ class MissedWordSpan {
   /// searching the sentence for the printed text lands inside another word when
   /// the word is one letter.
   final String phone;
+
+  /// design/384 — how sure the model was of each symbol in [phone], same order.
+  ///
+  /// Empty when the server said nothing, or when it reported a different number
+  /// of sounds than [phone] holds. A sound the model's vocabulary does not carry
+  /// is dropped server-side, and lining the two up anyway would paint the wrong
+  /// symbol red — worse than painting none.
+  final List<double> sounds;
 }
 
 class SkillScoreResult {
@@ -164,6 +173,7 @@ SpokenSlotDiag diagnoseSpokenSlots({
   // probabilities. Empty, short, or long and the sounds are compared here the
   // way they shipped, so an old server or a failed alignment costs nothing.
   List<double> soundScores = const [],
+  List<List<double>> soundEach = const [],
 }) {
   final built = _spokenSlots(display: display, spoken: spoken, spans: spans);
   if (built.slots.isEmpty) {
@@ -249,11 +259,17 @@ SpokenSlotDiag diagnoseSpokenSlots({
     if (ok) {
       hit += 1;
     } else {
+      final heardEach = slotI < soundEach.length
+          ? soundEach[slotI]
+          : const <double>[];
       missed.add(MissedWordSpan(
         slot.start,
         slot.end,
         spoken: slot.tokens.join(' '),
         phone: slot.phone,
+        sounds: heardEach.length == phoneSymbols(slot.phone).length
+            ? heardEach
+            : const <double>[],
       ));
     }
   }
@@ -338,6 +354,44 @@ List<String> slotPhonesFor({
 /// [phoneOverlap] returns for it. A row that does not have one entry per slot is
 /// refused whole: a scorer that silently slid by one would judge every word by
 /// its neighbour's sounds.
+/// design/384 — one slot's symbols, split the way the server split them.
+///
+/// The ask goes out as whitespace-separated symbols and the server does a plain
+/// `split()`, so counting any other way would not line up with what comes back.
+/// [phoneUnits] merges tie bars and marks, which is right for comparing sounds
+/// and wrong for counting the server's columns.
+List<String> phoneSymbols(String ipa) => [
+      for (final one in ipa.trim().split(RegExp(r'\s+')))
+        if (one.isNotEmpty) one,
+    ];
+
+/// design/384 — the per-sound row: words barred apart, sounds inside spaced.
+///
+/// `95 88 11|76 80|-` is three words. A barred `-` is a word the model knows no
+/// sound for and comes back empty. Refuses the whole row when the word count
+/// does not match, exactly as [parseSlotScores] does: a row out of step would
+/// paint one word's sounds onto another.
+List<List<double>> parseSlotSounds(String row, {required int slotN}) {
+  final parts = row.trim().split('|');
+  if (parts.length != slotN) return const [];
+  final out = <List<double>>[];
+  for (final part in parts) {
+    final one = part.trim();
+    if (one == '-' || one.isEmpty) {
+      out.add(const <double>[]);
+      continue;
+    }
+    final sounds = <double>[];
+    for (final piece in one.split(RegExp(r'\s+'))) {
+      final n = int.tryParse(piece);
+      if (n == null || n < 0 || n > 100) return const [];
+      sounds.add(n / 100.0);
+    }
+    out.add(sounds);
+  }
+  return out;
+}
+
 List<double> parseSlotScores(String row, {required int slotN}) {
   final parts = row.trim().split(RegExp(r'\s+'))
       .where((one) => one.isNotEmpty)

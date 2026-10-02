@@ -564,6 +564,10 @@ class AsrClient {
   /// design/382 — how many sounds the reader made where the reference had its
   /// own. More than the reference means the divisor grew.
   String lastSlotSaid = '';
+
+  /// design/384 — every reference sound's certainty, words barred
+  /// apart and sounds inside a word spaced: `95 88 11|76 80|-`.
+  String lastSlotEach = '';
   String lastSureCode = 'none';
   int lastWaveformPhones = -1;
   int lastFillerDropped = -1;
@@ -2799,6 +2803,7 @@ throw AsrApiException(
     lastSlotSym = '${map['slot_sym'] ?? ''}'.trim();
     lastSlotSure = '${map['slot_sure'] ?? ''}'.trim();
     lastSlotSaid = '${map['slot_said'] ?? ''}'.trim();
+    lastSlotEach = '${map['slot_each'] ?? ''}'.trim();
     lastSlotFloor = '${map['slot_floor'] ?? ''}'.trim();
     lastSureCode = '${map['sure_code'] ?? 'none'}'.trim();
     return lastHeardPhones.isEmpty ? null : lastHeardPhones;

@@ -106,3 +106,54 @@ def test_a_real_sheet_lines_up_with_the_words_sent(monkeypatch):
     assert seen == [[["a", "b"], ["c"], ["d", "e", "f"]]]
     assert got["slot_sym"] == "100 100 100"
     assert got["slot_floor"] == "10000 10000 10000"
+
+
+def _rows_from(monkeypatch, got, asked="a b c | d | e f"):
+    """design/384 - the row building on its own, with the model stood in for."""
+    import sentence_reading.llm.hear_waveform as hw
+
+    monkeypatch.setattr(hw, "sound_score_of", lambda sheet, groups: got)
+    return _slot_certainty(FakeSheet([[0.0, 0.0]]), asked)
+
+
+def test_the_answer_carries_every_sound_on_its_own(monkeypatch):
+    """design/384 - the word score cannot say which sound was missing."""
+    got = _rows_from(monkeypatch, [
+        {"sure": 0.80, "low": 0.11, "n": 3.0, "said": 3.0, "sym": 0.80,
+         "each": [0.95, 0.88, 0.11]},
+        None,
+        {"sure": 0.76, "low": 0.72, "n": 2.0, "said": 3.0, "sym": 0.507,
+         "each": [0.80, 0.72]},
+    ])
+
+    assert got["sure_code"] == "ok"
+    # Words barred apart, sounds inside spaced, a dash for the word with none.
+    assert got["slot_each"] == "95 88 11|-|80 72"
+    # The bars count the words, so the rows stay readable side by side.
+    assert len(got["slot_each"].split("|")) == len(got["slot_sym"].split())
+
+
+def test_the_per_sound_row_counts_the_same_words_as_the_score_row(monkeypatch):
+    got = _rows_from(monkeypatch, [None, None], asked="a b c | d e f")
+
+    assert got["slot_each"] == "-|-"
+    assert got["slot_sym"] == "- -"
+
+
+def test_the_per_sound_row_survives_the_evidence_sanitizer(monkeypatch):
+    """A bar is not a letter, so the allow list has to carry this key."""
+    got = _rows_from(monkeypatch, [
+        {"sure": 0.80, "low": 0.11, "n": 3.0, "said": 3.0, "sym": 0.80,
+         "each": [0.95, 0.88, 0.11]},
+    ], asked="a b c")
+
+    kept = _safe_details({"slot_each": got["slot_each"]})
+
+    assert kept.get("slot_each") == "95 88 11"
+
+
+def test_a_failed_alignment_leaves_the_per_sound_row_empty(monkeypatch):
+    got = _rows_from(monkeypatch, None, asked="a b c")
+
+    assert got["sure_code"] == "no_align"
+    assert got["slot_each"] == ""

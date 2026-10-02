@@ -138,6 +138,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   String _reviewTargetPhone = '';
   String _reviewHeardPhone = '';
   List<String> _reviewDrillPhones = const [];
+
+  /// design/384 — how sure the model was of each sound of the word on screen.
+  ///
+  /// Set from the take that marked the word missed, so the speaker sees which
+  /// part to aim at on the *first* try rather than after missing again.
+  List<double> _reviewSounds = const [];
   bool _missReviewActive = false;
 
   /// design/376 — the speaker's choice about the wrong-word drill. True until
@@ -1906,6 +1912,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       _rhythmPhase = RhythmPhase.rest;
       _reviewWord = null;
       _reviewDrillPhones = const [];
+      _reviewSounds = const [];
       _judgmentBurst = null;
     });
     try {
@@ -2070,6 +2077,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         _reviewTargetPhone = shown;
         _reviewHeardPhone = '';
         _reviewDrillPhones = const [];
+        // design/384 - only when it lines up with the symbols being drawn.
+        _reviewSounds = item.sounds.length == phoneSymbols(shown).length
+            ? item.sounds
+            : const <double>[];
       });
     }
     _noteCycleStep(
@@ -2217,6 +2228,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           _reviewTargetPhone = targetPhone;
           _reviewHeardPhone = heardPhone;
           _reviewDrillPhones = drill;
+          // design/384 - this re-read's own sounds now, not the sentence's.
+          final mine = parseSlotSounds(widget.client.lastSlotEach, slotN: 1);
+          final got = mine.isEmpty ? const <double>[] : mine.first;
+          _reviewSounds = got.length == phoneSymbols(targetPhone).length
+              ? got
+              : _reviewSounds;
         });
       }
       await _skill.noteMissReview(
@@ -2866,7 +2883,35 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                                                   height: 1.25,
                                                 ),
                                               ),
-                                              if (_reviewDrillPhones.isNotEmpty)
+                                              if (_reviewSounds.isNotEmpty)
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                    top: 12,
+                                                  ),
+                                                  child: Text.rich(
+                                                    TextSpan(
+                                                      children:
+                                                          reviewSoundSpans(
+                                                        phone:
+                                                            _reviewTargetPhone,
+                                                        sounds: _reviewSounds,
+                                                        line: _skill.store.state
+                                                            .line
+                                                            .lineOr(
+                                                                kPassLineCold),
+                                                        weak: kRhythmSpeak,
+                                                        strong: kRhythmText,
+                                                      ),
+                                                    ),
+                                                    textAlign:
+                                                        TextAlign.center,
+                                                    style: theme
+                                                        .textTheme.titleMedium,
+                                                  ),
+                                                )
+                                              else if (_reviewDrillPhones
+                                                  .isNotEmpty)
                                                 Padding(
                                                   padding:
                                                       const EdgeInsets.only(

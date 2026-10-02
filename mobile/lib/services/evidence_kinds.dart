@@ -147,6 +147,9 @@ const Set<String> kEvidenceAllowedKinds = {
   'practice_skill_unscored',
   'practice_skill_adapt',
   'practice_skill_flush',
+  // design/378+383 - warming a paper's reference sounds. Left off this
+  // list so the phone's own warm_ask row was dropped before it left.
+  'sound_ref_warm',
   // design/250 — practice focus/skill cloud sync
   'practice_focus_sync',
   'practice_skill_sync',

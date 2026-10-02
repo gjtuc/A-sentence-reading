@@ -751,6 +751,7 @@ class PracticeSkillController {
       // too new to have one.
       passLine: store.state.line.lineOr(kPassLineCold),
       soundScores: slotSym,
+      soundEach: parseSlotSounds(c.lastSlotEach, slotN: slotSym.length),
     );
     final align = spokenCache.peekAlign(chunkDisplay);
     final score = diag.score;

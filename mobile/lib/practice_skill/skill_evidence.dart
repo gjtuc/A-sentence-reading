@@ -50,6 +50,8 @@ Map<String, Object?> skillSafeDetails(Map<String, Object?> raw) {
           key == 'slot_said' ||
           key == 'slot_sure' ||
           key == 'slot_floor' ||
+          // design/384 - every sound on its own, words barred apart.
+          key == 'slot_each' ||
           key == 'slot_pieces' ||
           key == 'target_phones' ||
           key == 'heard_phones' ||

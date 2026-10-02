@@ -158,11 +158,16 @@ class MissReviewItem {
     required this.printed,
     required this.spoken,
     required this.phone,
+    this.sounds = const [],
   });
 
   final String printed;
   final String spoken;
   final String phone;
+
+  /// design/384 — how sure the model was of each symbol in [phone], from the
+  /// take that marked this word missed. Empty when it cannot be lined up.
+  final List<double> sounds;
 
   /// What the review plays and compares. The speak phase scored the spoken
   /// form, so a printed `nm` is asked for as `nanometers`, not as two letters.
@@ -184,6 +189,7 @@ List<MissReviewItem> missReviewWords({
       printed: word,
       spoken: span.spoken,
       phone: span.phone,
+      sounds: span.sounds,
     ));
   }
   return out;
