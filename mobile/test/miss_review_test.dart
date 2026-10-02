@@ -107,7 +107,8 @@ void main() {
   });
 
   test('watchdog covers five tries per review word plus tail plus slack', () {
-    final one = kMissReviewAttemptBudget * kMissReviewMaxTries;
+    final one = kMissReviewAttemptBudget *
+        (kMissReviewMaxTries + kMissReviewSoundExtraAttempts);
     expect(
       restCoverWatchdogLimit(
         scheduledRest: const Duration(seconds: 15),

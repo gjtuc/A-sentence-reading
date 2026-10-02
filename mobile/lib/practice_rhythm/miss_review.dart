@@ -18,6 +18,14 @@ const Duration kMissReviewSttWait = Duration(seconds: 8);
 /// the phase stays this long counted from the end of the replay audio.
 const Duration kReplayMarkHold = Duration(milliseconds: 2200);
 const int kMissReviewMaxTries = 5;
+
+/// design/384 - a sound drill is two tries, then the speaker climbs back.
+const int kMissReviewSoundTries = 2;
+
+/// Extra attempts the rest watchdog must leave room for: a few sounds, two
+/// tries each, on top of the word tries. Without this the cover would close
+/// while the speaker was still inside a sound drill.
+const int kMissReviewSoundExtraAttempts = 8;
 const Duration kRestWatchdogSlack = Duration(seconds: 2);
 
 /// One play, one quiet speak window, and one STT wait.
@@ -51,8 +59,9 @@ Duration restCoverWatchdogLimit({
     if (scheduledRest <= Duration.zero) return kRestWatchdogSlack;
     return scheduledRest + kRestWatchdogSlack;
   }
-  final reviewMax =
-      kMissReviewAttemptBudget * kMissReviewMaxTries * reviewWordN;
+  final reviewMax = kMissReviewAttemptBudget *
+      (kMissReviewMaxTries + kMissReviewSoundExtraAttempts) *
+      reviewWordN;
   final tail = missReviewTail(scheduledRest: scheduledRest, elapsed: reviewMax);
   return reviewMax + tail + kRestWatchdogSlack;
 }
@@ -202,4 +211,57 @@ Duration missReviewTail({
 }) {
   if (elapsed >= scheduledRest) return kMissReviewTail;
   return scheduledRest - elapsed;
+}
+
+
+/// design/384 - narrow the unit only after the same sound is missed twice.
+///
+/// A word score cannot say which sound to aim at. After two word tries that
+/// both miss the same sound, this opens a drill for that sound. Passing it, or
+/// using both tries, climbs back: another waiting sound if there is one, else
+/// the word again.
+class MissReviewLadder {
+  MissReviewLadder({required this.soundN, required this.line})
+      : _streak = List<int>.filled(soundN < 0 ? 0 : soundN, 0);
+
+  final int soundN;
+  final double line;
+  final List<int> _streak;
+  int? drilling;
+  int drillTries = 0;
+
+  /// Call only after a missed word try. [sounds] must line up with [soundN]
+  /// or this returns null rather than open a drill on the wrong symbol.
+  int? afterWord(List<double> sounds) {
+    if (sounds.length != soundN || soundN <= 0) return null;
+    for (var i = 0; i < soundN; i++) {
+      _streak[i] = sounds[i] < line ? _streak[i] + 1 : 0;
+    }
+    return _openNext();
+  }
+
+  /// Call after a sound-drill try with that one sound's score.
+  int? afterSound(double score) {
+    final i = drilling;
+    if (i == null) return null;
+    drillTries += 1;
+    if (score >= line || drillTries >= kMissReviewSoundTries) {
+      _streak[i] = 0;
+      return _openNext();
+    }
+    return i;
+  }
+
+  int? _openNext() {
+    for (var i = 0; i < _streak.length; i++) {
+      if (_streak[i] >= kMissReviewSoundTries) {
+        if (drilling != i) drillTries = 0;
+        drilling = i;
+        return i;
+      }
+    }
+    drilling = null;
+    drillTries = 0;
+    return null;
+  }
 }

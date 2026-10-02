@@ -932,6 +932,8 @@ class PracticeSkillController {
     String heardPhones = '',
     String drillReason = 'none',
     String sourceChunk = '',
+    String reviewKind = 'word',
+    int soundI = -1,
   }) async {
     final sourceSpans = sourceChunk.trim().isEmpty
         ? const <FollowSpan>[]
@@ -943,6 +945,8 @@ class PracticeSkillController {
       code: matched ? 'matched' : 'missed',
       details: {
         'phase': 'review',
+        'review_kind': reviewKind,
+        if (soundI >= 0) 'drill_sound_i': soundI,
         'attempt': attempt,
         'word_index': wordIndex,
         'matched': matched ? 1 : 0,

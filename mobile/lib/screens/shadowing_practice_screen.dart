@@ -144,6 +144,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   /// Set from the take that marked the word missed, so the speaker sees which
   /// part to aim at on the *first* try rather than after missing again.
   List<double> _reviewSounds = const [];
+
+  /// design/384 - which sound the speaker is aiming at, when inside a drill.
+  int? _reviewFocusSound;
+  final Map<int, MissReviewLadder> _reviewLadders = {};
   bool _missReviewActive = false;
 
   /// design/376 — the speaker's choice about the wrong-word drill. True until
@@ -1898,6 +1902,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       extra: {'review_word_n': words.length},
     );
     _missReviewActive = true;
+    _reviewLadders.clear();
     final clock = Stopwatch()..start();
     final epoch = ++_restEpoch;
     _armRestWatchdog(
@@ -2009,6 +2014,17 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
               hear != MissReviewHear.blank) {
             break;
           }
+          if (hear == MissReviewHear.missed) {
+            await _maybeRunSoundDrills(
+              token: token,
+              item: words[i],
+              sourceChunk: sourceChunk,
+              wordIndex: i,
+              attempt: attempt,
+              playVoice: draw.voice,
+              playRate: draw.rate,
+            );
+          }
         }
         if (mounted) setState(() => _reviewWord = null);
         if (i + 1 < words.length) {
@@ -2060,6 +2076,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     required String sourceChunk,
     required String playVoice,
     required double playRate,
+    double playbackRate = 1.0,
   }) async {
     const silent = (ok: false, heard: Duration.zero);
     if (!_reviewAlive(token)) return silent;
@@ -2129,10 +2146,18 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       }
       final done = _player.onPlayerComplete.first.timeout(kMissReviewWordTimeout);
       final wall = Stopwatch()..start();
+      // design/384 - a sound drill plays the same bytes at half speed. The
+      // server is not asked again; the phone's player stretches what it has.
+      try {
+        await _player.setPlaybackRate(playbackRate);
+      } catch (_) {}
       await _player.play(BytesSource(bytes));
       await done;
       wall.stop();
       await _player.stop();
+      try {
+        await _player.setPlaybackRate(1);
+      } catch (_) {}
       if (!_reviewAlive(token)) return silent;
       return (ok: true, heard: wall.elapsed);
     } catch (_) {
@@ -2142,6 +2167,49 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   }
 
   /// Record after TTS has stopped. The take must not contain the model voice.
+  Future<void> _maybeRunSoundDrills({
+    required int token,
+    required MissReviewItem item,
+    required String sourceChunk,
+    required int wordIndex,
+    required int attempt,
+    required String playVoice,
+    required double playRate,
+  }) async {
+    final symbols = phoneSymbols(item.phone);
+    if (_reviewSounds.length != symbols.length || symbols.isEmpty) return;
+    final line = _skill.store.state.line.lineOr(kPassLineCold);
+    final lad = _reviewLadders.putIfAbsent(
+      wordIndex,
+      () => MissReviewLadder(soundN: symbols.length, line: line),
+    );
+    var soundI = lad.afterWord(_reviewSounds);
+    while (soundI != null && _reviewAlive(token)) {
+      if (mounted) setState(() => _reviewFocusSound = soundI);
+      final played = await _playReviewWord(
+        token: token,
+        item: item,
+        sourceChunk: sourceChunk,
+        playVoice: playVoice,
+        playRate: playRate,
+        playbackRate: 0.5,
+      );
+      if (!_reviewAlive(token) || !played.ok) break;
+      await _hearReviewWord(
+        token: token,
+        item: item,
+        sourceChunk: sourceChunk,
+        ttsHeard: played.heard,
+        attempt: attempt,
+        wordIndex: wordIndex,
+        soundI: soundI,
+      );
+      final score = soundI < _reviewSounds.length ? _reviewSounds[soundI] : 0.0;
+      soundI = lad.afterSound(score);
+    }
+    if (mounted) setState(() => _reviewFocusSound = null);
+  }
+
   Future<MissReviewHear> _hearReviewWord({
     required int token,
     required MissReviewItem item,
@@ -2149,6 +2217,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     required Duration ttsHeard,
     required int attempt,
     required int wordIndex,
+    int? soundI,
   }) async {
     final word = item.ask;
     if (!_skill.serverEnabled || !_skill.cloudSttEnabled) {
@@ -2207,10 +2276,18 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       // design/382 - the model's own score when it came back, the shipped
       // comparison when it did not. -1 is a word too short to ask about, and
       // that was never a reason to fail a re-read.
-      final matched = reviewSym.isEmpty
+      var matched = reviewSym.isEmpty
           ? phonesClose(targetPhone, missReviewHeardPhoneWords(heardPhone),
               line: line)
           : reviewSym.first < 0 || reviewSym.first >= line;
+      final mineEach = parseSlotSounds(widget.client.lastSlotEach, slotN: 1);
+      final gotEach = mineEach.isEmpty ? const <double>[] : mineEach.first;
+      // design/384 - a sound drill is judged on that one sound. Its score
+      // must not decide the word, and it must not move the account line
+      // (noteMissReview never does).
+      if (soundI != null) {
+        matched = soundI < gotEach.length && gotEach[soundI] >= line;
+      }
       final drill = matched
           ? const <String>[]
           : phoneDrillTargets(target: targetPhone, heard: heardPhone);
@@ -2229,11 +2306,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           _reviewHeardPhone = heardPhone;
           _reviewDrillPhones = drill;
           // design/384 - this re-read's own sounds now, not the sentence's.
-          final mine = parseSlotSounds(widget.client.lastSlotEach, slotN: 1);
-          final got = mine.isEmpty ? const <double>[] : mine.first;
-          _reviewSounds = got.length == phoneSymbols(targetPhone).length
-              ? got
+          final got = gotEach.length == phoneSymbols(targetPhone).length
+              ? gotEach
               : _reviewSounds;
+          _reviewSounds = got;
         });
       }
       await _skill.noteMissReview(
@@ -2246,6 +2322,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         heardPhones: heardPhone,
         drillReason: drillReason,
         sourceChunk: chunkDisplay,
+        reviewKind: soundI == null ? 'word' : 'sound',
+        soundI: soundI ?? -1,
       );
       if (matched) {
         return MissReviewHear.matched;
@@ -2872,15 +2950,47 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                                           child: Column(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
+                                              if (_reviewFocusSound != null &&
+                                                  _reviewFocusSound! >= 0 &&
+                                                  _reviewFocusSound! <
+                                                      phoneSymbols(
+                                                              _reviewTargetPhone)
+                                                          .length)
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                    bottom: 10,
+                                                  ),
+                                                  child: Text(
+                                                    phoneSymbols(
+                                                        _reviewTargetPhone)[
+                                                        _reviewFocusSound!],
+                                                    textAlign:
+                                                        TextAlign.center,
+                                                    style: theme
+                                                        .textTheme.displaySmall
+                                                        ?.copyWith(
+                                                      color: kRhythmSpeak,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      height: 1.1,
+                                                    ),
+                                                  ),
+                                                ),
                                               Text(
                                                 _reviewWord!,
                                                 textAlign: TextAlign.center,
                                                 style: theme
-                                                    .textTheme.headlineMedium
+                                                    .textTheme
+                                                    .headlineMedium
                                                     ?.copyWith(
                                                   color: kRhythmText,
                                                   fontWeight: FontWeight.w600,
                                                   height: 1.25,
+                                                  fontSize: _reviewFocusSound ==
+                                                          null
+                                                      ? null
+                                                      : 22,
                                                 ),
                                               ),
                                               if (_reviewSounds.isNotEmpty)
