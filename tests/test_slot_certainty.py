@@ -35,13 +35,20 @@ class FakeSheet:
         return self.rows
 
 
+ROWS = ("slot_sym", "slot_sure", "slot_floor", "slot_said")
+
+
 def test_no_reference_says_so():
-    assert _slot_certainty(None, "") == ("", "", "no_target")
-    assert _slot_certainty(None, "  |  ") == ("", "", "no_target")
+    for text in ("", "  |  "):
+        got = _slot_certainty(None, text)
+        assert got["sure_code"] == "no_target"
+        assert all(got[key] == "" for key in ROWS)
 
 
 def test_a_reference_without_a_sheet_says_so():
-    assert _slot_certainty(None, "a b c") == ("", "", "no_sheet")
+    got = _slot_certainty(None, "a b c")
+    assert got["sure_code"] == "no_sheet"
+    assert all(got[key] == "" for key in ROWS)
 
 
 def test_a_sheet_that_throws_does_not_take_the_take_down():
@@ -49,30 +56,37 @@ def test_a_sheet_that_throws_does_not_take_the_take_down():
         def __getitem__(self, key):
             raise RuntimeError("no")
 
-    sure, floor, code = _slot_certainty(Boom(), "a b c")
-    assert sure == ""
-    assert floor == ""
-    assert code != "ok"
+    got = _slot_certainty(Boom(), "a b c")
+    assert got["sure_code"] != "ok"
+    assert all(got[key] == "" for key in ROWS)
 
 
-def test_slot_sure_is_digits_and_dashes_only(monkeypatch):
+def test_the_rows_are_digits_and_dashes_only(monkeypatch):
     # Two words, the second one unaskable.
     monkeypatch.setattr(
-        "sentence_reading.llm.hear_waveform.certainty_of",
-        lambda sheet, groups: [[0.9, 0.8], []],
+        "sentence_reading.llm.hear_waveform.sound_score_of",
+        lambda sheet, groups: [
+            {"sure": 0.85, "low": 0.80, "n": 2.0, "said": 4.0, "sym": 0.425},
+            None,
+        ],
     )
-    sure, floor, code = _slot_certainty(FakeSheet([[0.0]]), "x y | z")
-    assert code == "ok"
-    assert sure == "85 -"
-    assert floor == "8000 -"
-    for field in (sure, floor):
-        assert set(field) <= set("0123456789 -")
+    got = _slot_certainty(FakeSheet([[0.0]]), "x y | z")
+    assert got["sure_code"] == "ok"
+    assert got["slot_sym"] == "42 -"
+    assert got["slot_sure"] == "85 -"
+    assert got["slot_floor"] == "8000 -"
+    assert got["slot_said"] == "4 -"
+    for key in ROWS:
+        assert set(got[key]) <= set("0123456789 -")
 
 
-def test_the_row_survives_sanitising():
-    out = _safe_details({"slot_sure": "85 90 -", "slot_floor": "8000 12 -"})
+def test_the_rows_survive_sanitising():
+    out = _safe_details({"slot_sym": "42 90 -", "slot_sure": "85 90 -",
+                         "slot_floor": "8000 12 -", "slot_said": "4 3 -"})
+    assert out["slot_sym"] == "42 90 -"
     assert out["slot_sure"] == "85 90 -"
     assert out["slot_floor"] == "8000 12 -"
+    assert out["slot_said"] == "4 3 -"
 
 
 def test_a_real_sheet_lines_up_with_the_words_sent(monkeypatch):
@@ -81,13 +95,14 @@ def test_a_real_sheet_lines_up_with_the_words_sent(monkeypatch):
 
     def fake(sheet, groups):
         seen.append(groups)
-        return [[1.0] for _ in groups]
+        return [{"sure": 1.0, "low": 1.0, "n": 1.0, "said": 1.0, "sym": 1.0}
+                for _ in groups]
 
     monkeypatch.setattr(
-        "sentence_reading.llm.hear_waveform.certainty_of", fake
+        "sentence_reading.llm.hear_waveform.sound_score_of", fake
     )
-    sure, floor, code = _slot_certainty(FakeSheet([[0.0]]), "a b | c | d e f")
-    assert code == "ok"
+    got = _slot_certainty(FakeSheet([[0.0]]), "a b | c | d e f")
+    assert got["sure_code"] == "ok"
     assert seen == [[["a", "b"], ["c"], ["d", "e", "f"]]]
-    assert sure == "100 100 100"
-    assert floor == "10000 10000 10000"
+    assert got["slot_sym"] == "100 100 100"
+    assert got["slot_floor"] == "10000 10000 10000"

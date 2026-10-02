@@ -80,8 +80,6 @@ def main() -> int:
 
     from sentence_reading.llm import hear_waveform as hw
     from sentence_reading.llm import sound_reference as sr
-    from sentence_reading.llm.phone_match import overlap_ratio
-    from sentence_reading.llm.sound_align import align
 
     voice = sr.reference_voice()
     hw._load_frames()
@@ -89,46 +87,27 @@ def main() -> int:
     print(f"voice {voice}   vocabulary {len(ids)}")
 
     def measure(text: str, groups: list[list[str]]):
-        """Per word: mean certainty, the owner's score, and the shipped rule."""
-        sheet = sheet_of(text, voice)
-        rows = sheet.tolist()
-        flat: list[int] = []
-        owner: list[int] = []
-        for i, group in enumerate(groups):
-            for sym in group:
-                if sym in ids:
-                    flat.append(ids[sym])
-                    owner.append(i)
-        spans = align(rows, flat, blank=hw._PAD)
-        if spans is None:
+        """Per word, from the shipped function -- not a copy of it.
+
+        A probe that reimplements the thing it is measuring can agree with itself
+        while the product does something else.
+        """
+        got = hw.sound_score_of(sheet_of(text, voice), groups)
+        if got is None:
             return None
         out = []
-        for i, group in enumerate(groups):
-            mine = [k for k, w in enumerate(owner) if w == i]
-            if not mine:
+        for i, one in enumerate(got):
+            if one is None:
                 out.append(None)
                 continue
-            sure = [spans[k][2] for k in mine]
-            # The window runs to where the NEXT word's first sound starts, not to
-            # where this word's last sound was emitted. A sound the reader added
-            # after the reference ran out sits in the gap between the two, and a
-            # window that stops at the reference's last sound cannot see it.
-            lo = spans[mine[0]][0]
-            after = [k for k, w in enumerate(owner) if w > i]
-            hi = spans[after[0]][0] - 1 if after else len(rows) - 1
-            said = said_in(rows, lo, hi, hw._PAD)
-            target = [flat[k] for k in mine]
             out.append({
-                "mean": sum(sure) / len(sure),
-                "low": min(sure),
-                "sym": sum(sure) / max(len(sure), len(said)),
-                "hard": overlap_ratio(
-                    [hw._INV.get(t, "?") for t in target],
-                    [hw._INV.get(t, "?") for t in said],
-                ),
-                "n": len(sure),
-                "said": len(said),
-                "each": [round(v, 3) for v in sure],
+                "mean": one["sure"],
+                "low": one["low"],
+                "sym": one["sym"],
+                "hard": one["n"] / max(one["n"], one["said"]),
+                "n": int(one["n"]),
+                "said": int(one["said"]),
+                "each": [],
             })
         return out
 
@@ -162,8 +141,6 @@ def main() -> int:
               f"{b['hard']:.3f}")
         print(f"{'':11s}   sounds {g['n']:2d}   said {g['said']:2d} right, "
               f"{b['said']:2d} wrong")
-        print(f"{'':11s}   right {g['each']}")
-        print(f"{'':11s}   wrong {b['each']}")
         rows_out.append((g, b))
         for i, (x, y) in enumerate(zip(good, bad)):
             if i != idx and x and y:
@@ -176,7 +153,7 @@ def main() -> int:
     print()
     for key, label in (("mean", "mean certainty (design/381)"),
                        ("sym", "owner's symmetric score"),
-                       ("hard", "shipped rule (hard match, same divisor)")):
+                       ("hard", "the divisor alone, nothing else")):
         right = [g[key] for g, _b in rows_out]
         wrong = [b[key] for _g, b in rows_out]
         split = min(right) > max(wrong)
@@ -187,7 +164,7 @@ def main() -> int:
     print("the words nobody touched -- a divisor that punishes sounds the model")
     print("imagines would show up here, on readings that are correct:")
     for key, label in (("mean", "mean certainty"), ("sym", "owner's score"),
-                       ("hard", "shipped rule")):
+                       ("hard", "the divisor alone")):
         vals = others[key]
         under = sum(1 for v in vals if v < 0.603)
         print(f"  {label:16s} {stat.mean(vals):.3f}   under the live line 0.603: "

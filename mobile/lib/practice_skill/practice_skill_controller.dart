@@ -648,13 +648,14 @@ class PracticeSkillController {
         bytes: takeBytes,
         mime: mime,
         sampleTag: sampleTag,
-        // design/381 - the same reference sounds the scorer will use, so the
-        // certainties come back in the order the slots are in.
-        targetPhones: spokenCache
-            .peekSpans(chunkDisplay)
-            .where((span) => span.weight > 0 && span.phone.trim().isNotEmpty)
-            .map((span) => span.phone.trim())
-            .join(' | '),
+        // design/382 - the scorer's own slots, so the answer lines up with them
+        // by construction. Asking with the spans would slide by one wherever a
+        // span opens no slot.
+        targetPhones: slotPhonesFor(
+          display: chunkDisplay,
+          spoken: spoken,
+          spans: spokenCache.peekSpans(chunkDisplay),
+        ).join(' | '),
       );
       sttSw.stop();
       final gotSounds = heardSounds != null && heardSounds.trim().isNotEmpty;
@@ -726,6 +727,17 @@ class PracticeSkillController {
         },
       );
     }
+    // design/382 - the score the reader is judged by now comes from the model's
+    // probabilities. One entry per slot or the whole row is refused, and the
+    // sounds are compared the way they shipped instead.
+    final slotSym = parseSlotScores(
+      c.lastSlotSym,
+      slotN: slotPhonesFor(
+        display: chunkDisplay,
+        spoken: spoken,
+        spans: spokenCache.peekSpans(chunkDisplay),
+      ).length,
+    );
     final diag = diagnoseSpokenSlots(
       display: chunkDisplay,
       spoken: spoken,
@@ -738,6 +750,7 @@ class PracticeSkillController {
       // design/371 - this account's own line, or the fixed one while it is still
       // too new to have one.
       passLine: store.state.line.lineOr(kPassLineCold),
+      soundScores: slotSym,
     );
     final align = spokenCache.peekAlign(chunkDisplay);
     final score = diag.score;
@@ -783,9 +796,12 @@ class PracticeSkillController {
         'heard_phones': c.lastHeardPhones,
         // design/381 -- the model's own certainty, reported beside the score it
         // is meant to replace, so the two can be compared on the same take.
+        'slot_sym': c.lastSlotSym,
         'slot_sure': c.lastSlotSure,
         'slot_floor': c.lastSlotFloor,
+        'slot_said': c.lastSlotSaid,
         'sure_code': c.lastSureCode,
+        'sym_used': slotSym.isEmpty ? 0 : 1,
         ...align.details,
       },
     );
@@ -856,11 +872,14 @@ class PracticeSkillController {
             .map((span) => span.phone.trim())
             .join(' | '),
         'heard_phones': c.lastHeardPhones,
-        // design/381 -- the model's own certainty for the same slots, beside the
-        // closeness numbers it is meant to replace. One row, both rulers.
+        // design/382 -- the score the words were judged by, beside the closeness
+        // numbers the shipped rule would have given them. One row, both rulers.
+        'slot_sym': c.lastSlotSym,
         'slot_sure': c.lastSlotSure,
         'slot_floor': c.lastSlotFloor,
+        'slot_said': c.lastSlotSaid,
         'sure_code': c.lastSureCode,
+        'sym_used': slotSym.isEmpty ? 0 : 1,
       },
     );
     // design/215 — adapt only on focus-block epoch resolve, not per take.

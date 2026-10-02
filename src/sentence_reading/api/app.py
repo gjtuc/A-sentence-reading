@@ -284,7 +284,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.419",
+    version="0.3.420",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -3171,41 +3171,47 @@ async def _keep_sample_take(
         return
 
 
-def _slot_certainty(sheet: object, target_phones: str) -> tuple[str, str, str]:
-    """design/381 - per-word certainty from the sheet, as two printable rows.
+def _slot_certainty(sheet: object, target_phones: str) -> dict[str, str]:
+    """design/381·382 - the per-word sound rows, ready to put in the answer.
 
-    `slot_sure` is each word's mean certainty in hundredths; `slot_floor` is its
-    least certain sound in ten-thousandths, because that is where the interesting
-    numbers are -- a sound the reader simply did not make comes back near zero and
-    a mean cannot show it. Both use `-` for a word with no sound the model knows,
-    which is what the scorer already prints for a word it cannot ask about.
+    `slot_sym` is the score the reader is judged by: every reference sound worth
+    up to 1 by how sure the model is of it, over the longer of the reference and
+    what the reader actually said (design/382). `slot_sure` is the plain mean and
+    `slot_floor` the least certain sound, both kept because they say *why* a word
+    scored what it did, and `slot_said` is how many sounds the reader made where
+    the reference had its own. Every row uses `-` for a word with no sound the
+    model knows, which is what the scorer already prints for a word it cannot
+    ask about.
 
-    Never raises. A missing answer leaves the strings empty and the code says why,
-    which is the behaviour before design/381 either way.
+    Never raises. A missing answer leaves the rows empty and the code says why,
+    and the phone then falls back to the rule it shipped with.
     """
+    out = {"slot_sym": "", "slot_sure": "", "slot_floor": "", "slot_said": ""}
     groups_raw = [g.strip() for g in (target_phones or "").split("|")]
     if not any(groups_raw):
-        return "", "", "no_target"
+        return {**out, "sure_code": "no_target"}
     if sheet is None:
-        return "", "", "no_sheet"
+        return {**out, "sure_code": "no_sheet"}
     try:
-        from sentence_reading.llm.hear_waveform import certainty_of
+        from sentence_reading.llm.hear_waveform import sound_score_of
 
-        got = certainty_of(sheet, [g.split() for g in groups_raw])
+        got = sound_score_of(sheet, [g.split() for g in groups_raw])
     except Exception as exc:  # noqa: BLE001
-        return "", "", re.sub(r"[^a-z0-9]+", "_", type(exc).__name__.lower())[:30]
+        slug = re.sub(r"[^a-z0-9]+", "_", type(exc).__name__.lower())[:30]
+        return {**out, "sure_code": slug or "failed"}
     if got is None:
-        return "", "", "no_align"
-    sure: list[str] = []
-    floor: list[str] = []
+        return {**out, "sure_code": "no_align"}
+    rows: dict[str, list[str]] = {k: [] for k in out}
     for one in got:
         if not one:
-            sure.append("-")
-            floor.append("-")
+            for key in rows:
+                rows[key].append("-")
             continue
-        sure.append(f"{round(100 * sum(one) / len(one))}")
-        floor.append(f"{round(10000 * min(one))}")
-    return " ".join(sure), " ".join(floor), "ok"
+        rows["slot_sym"].append(f"{round(100 * one['sym'])}")
+        rows["slot_sure"].append(f"{round(100 * one['sure'])}")
+        rows["slot_floor"].append(f"{round(10000 * one['low'])}")
+        rows["slot_said"].append(f"{int(one['said'])}")
+    return {**{k: " ".join(v) for k, v in rows.items()}, "sure_code": "ok"}
 
 
 @app.post("/api/stt/recognize")
@@ -3293,7 +3299,6 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
         tts_voice=tts_voice,
         tts_rate=tts_rate,
     )
-    sure, floor, sure_code = _slot_certainty(sheet, target_phones)
     out: dict = {
         "ok": True,
         "heard_phones": phones,
@@ -3301,11 +3306,9 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
         "waveform_phones": 1 if waveform else 0,
         "hear_code": str(hear_report.get("hear_code") or "none"),
         "hear_detail": str(hear_report.get("hear_detail") or "none"),
-        # design/381 - how sure the model is about each reference sound, in the
-        # order the sounds were sent. Reported only; nothing scores on it yet.
-        "slot_sure": sure,
-        "slot_floor": floor,
-        "sure_code": sure_code,
+        # design/381·382 - the model's own certainty per reference sound, and
+        # the score built from it, in the order the sounds were sent.
+        **_slot_certainty(sheet, target_phones),
     }
     assert "score" not in out
     assert "heard" not in out

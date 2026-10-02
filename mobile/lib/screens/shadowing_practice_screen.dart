@@ -2168,16 +2168,22 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       if (!await file.exists()) return MissReviewHear.missed;
       final bytes = await file.readAsBytes();
       if (bytes.isEmpty) return MissReviewHear.missed;
-      await widget.client
-          .recognizePracticeTake(bytes: bytes, mime: 'audio/mp4')
-          .timeout(kMissReviewSttWait);
-      if (!_reviewAlive(token)) return MissReviewHear.skip;
       // The score already cut this slot's symbols, so nothing is asked again.
       final chunkDisplay = sourceChunk.isEmpty ? _displayChunk() : sourceChunk;
       final targetPhone = item.phone.trim().isNotEmpty
           ? item.phone.trim()
           : _skill.spokenCache
               .phonesForWordIn(sentence: chunkDisplay, word: item.printed);
+      await widget.client
+          .recognizePracticeTake(
+            bytes: bytes,
+            mime: 'audio/mp4',
+            // design/382 - the review has to pass on the same ground the speak
+            // phase does, and the speak phase now asks the model how sure it is.
+            targetPhones: targetPhone,
+          )
+          .timeout(kMissReviewSttWait);
+      if (!_reviewAlive(token)) return MissReviewHear.skip;
       final heardPhone = widget.client.lastHeardPhones;
       // design/370 — the review passes on sound alone, the same ground the speak
       // phase uses. It used to also pass when a transcript held the same letters,
@@ -2185,11 +2191,15 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       // write the whole sentence from memory. Neither applies to a run of sounds.
       // design/375 — the account's own line, so a word the speak phase would
       // have passed is not failed here.
-      final matched = phonesClose(
-        targetPhone,
-        missReviewHeardPhoneWords(heardPhone),
-        line: _skill.store.state.line.lineOr(kPassLineCold),
-      );
+      final line = _skill.store.state.line.lineOr(kPassLineCold);
+      final reviewSym = parseSlotScores(widget.client.lastSlotSym, slotN: 1);
+      // design/382 - the model's own score when it came back, the shipped
+      // comparison when it did not. -1 is a word too short to ask about, and
+      // that was never a reason to fail a re-read.
+      final matched = reviewSym.isEmpty
+          ? phonesClose(targetPhone, missReviewHeardPhoneWords(heardPhone),
+              line: line)
+          : reviewSym.first < 0 || reviewSym.first >= line;
       final drill = matched
           ? const <String>[]
           : phoneDrillTargets(target: targetPhone, heard: heardPhone);

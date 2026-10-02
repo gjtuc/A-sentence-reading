@@ -192,6 +192,8 @@ def _safe_details(raw: Any) -> dict[str, Any]:
                 "slot_scores",
                 # design/381 - per-slot certainty from the model, digits and
                 # dashes. Carries no paper text.
+                "slot_sym",
+                "slot_said",
                 "slot_sure",
                 "slot_floor",
                 "slot_pieces",

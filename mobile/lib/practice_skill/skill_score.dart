@@ -160,6 +160,10 @@ SpokenSlotDiag diagnoseSpokenSlots({
   required List<FollowSpan> spans,
   List<String> heardPhones = const [],
   double passLine = kPassLineCold,
+  // design/382 — one score per slot from the server, which has the model's own
+  // probabilities. Empty, short, or long and the sounds are compared here the
+  // way they shipped, so an old server or a failed alignment costs nothing.
+  List<double> soundScores = const [],
 }) {
   final built = _spokenSlots(display: display, spoken: spoken, spans: spans);
   if (built.slots.isEmpty) {
@@ -211,8 +215,17 @@ SpokenSlotDiag diagnoseSpokenSlots({
   final marks = StringBuffer();
   final pieces = <String>[];
   final closeness = <String>[];
-  for (final slot in built.slots) {
-    final got = phoneOverlap(slot.phone, heardPhoneWords);
+  final fromServer = soundScores.length == built.slots.length;
+  for (var slotI = 0; slotI < built.slots.length; slotI++) {
+    final slot = built.slots[slotI];
+    // design/382 — the server scored the sounds with the probabilities it has.
+    // The too-short rule stays here either way: it is about the reference, not
+    // about the reading, and a word two sounds long matches almost anything.
+    final got = fromServer
+        ? (_phonePieces(slot.phone).length < kPhoneMinUnits
+            ? -1.0
+            : soundScores[slotI])
+        : phoneOverlap(slot.phone, heardPhoneWords);
     if (got < 0) {
       // design/371 - two sounds match almost anything, so this word cannot be
       // asked about at all. It used to be marked wrong, which failed every 	he
@@ -301,6 +314,48 @@ SkillScoreResult spokenSlotCoverage({
     heardPhones: heardPhones,
   ).score;
 }
+
+/// design/382 — the reference sounds, one entry per score slot, in slot order.
+///
+/// The server has to answer in the order the slots are in, and the only way to be
+/// sure of that is to ask with the slots themselves rather than with the spans
+/// they were built from: a punctuation-only piece opens no slot, and a span
+/// pointing outside the printed line opens none either. Slots whose reference is
+/// too short to ask about are sent anyway, because the next word's first sound is
+/// what ends this word's window and a gap in the lattice would lose it.
+List<String> slotPhonesFor({
+  required String display,
+  required String spoken,
+  required List<FollowSpan> spans,
+}) {
+  final built = _spokenSlots(display: display, spoken: spoken, spans: spans);
+  return [for (final slot in built.slots) slot.phone.trim()];
+}
+
+/// design/382 — the server's `slot_sym` row as numbers, one per slot.
+///
+/// `-` means the word could not be asked about, which is -1 here, the same thing
+/// [phoneOverlap] returns for it. A row that does not have one entry per slot is
+/// refused whole: a scorer that silently slid by one would judge every word by
+/// its neighbour's sounds.
+List<double> parseSlotScores(String row, {required int slotN}) {
+  final parts = row.trim().split(RegExp(r'\s+'))
+      .where((one) => one.isNotEmpty)
+      .toList();
+  if (parts.length != slotN) return const [];
+  final out = <double>[];
+  for (final one in parts) {
+    if (one == '-') {
+      out.add(-1);
+      continue;
+    }
+    final n = int.tryParse(one);
+    if (n == null || n < 0 || n > 100) return const [];
+    out.add(n / 100.0);
+  }
+  return out;
+}
+
 
 class _SpokenSlot {
   const _SpokenSlot(this.start, this.end, this.tokens, this.phone);

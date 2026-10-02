@@ -546,15 +546,24 @@ class AsrClient {
   final http.Client _http;
   final SessionStore _sessions;
   String lastHeardPhones = '';
-  /// design/381 — each word's mean certainty in hundredths, in the order the
-  /// reference sounds were sent, with `-` where the word could not be asked
-  /// about. Reported only: nothing scores on it yet.
+  /// design/382 — the score each word is judged by, in hundredths, in the order
+  /// the reference sounds were sent, with `-` where the word could not be asked
+  /// about. Every reference sound is worth up to 1 by how sure the model is of
+  /// it, over the longer of the reference and what the reader actually said.
+  String lastSlotSym = '';
+
+  /// design/381 — each word's plain mean certainty in hundredths. Not the
+  /// verdict; it says why a word scored what it did.
   String lastSlotSure = '';
 
   /// design/381 — each word's least certain sound, in ten-thousandths. A word
   /// can average well while holding a sound the reader simply did not make, and
   /// that is the case the counting rule cannot see at all.
   String lastSlotFloor = '';
+
+  /// design/382 — how many sounds the reader made where the reference had its
+  /// own. More than the reference means the divisor grew.
+  String lastSlotSaid = '';
   String lastSureCode = 'none';
   int lastWaveformPhones = -1;
   int lastFillerDropped = -1;
@@ -2749,7 +2758,9 @@ throw AsrApiException(
     lastFillerDropped = -1;
     lastHearCode = '${map['hear_code'] ?? 'none'}'.trim();
     lastHearDetail = '${map['hear_detail'] ?? 'none'}'.trim();
+    lastSlotSym = '${map['slot_sym'] ?? ''}'.trim();
     lastSlotSure = '${map['slot_sure'] ?? ''}'.trim();
+    lastSlotSaid = '${map['slot_said'] ?? ''}'.trim();
     lastSlotFloor = '${map['slot_floor'] ?? ''}'.trim();
     lastSureCode = '${map['sure_code'] ?? 'none'}'.trim();
     return lastHeardPhones.isEmpty ? null : lastHeardPhones;

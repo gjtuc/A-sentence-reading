@@ -351,6 +351,108 @@ def warm_report() -> dict[str, object]:
     }
 
 
+def _said_between(top: list[int], lo: int, hi: int) -> int:
+    """How many sounds the model reads off the audio there, CTC's own count.
+
+    Collapse repeats, drop the blank. The whole vocabulary is in play on purpose:
+    a sound the reference does not contain is exactly the sound this counts.
+    """
+    seen = 0
+    last = -1
+    for t in range(max(0, lo), min(len(top), hi)):
+        now = top[t]
+        if now != last and now != _PAD:
+            seen += 1
+        last = now
+    return seen
+
+
+def sound_score_of(
+    sheet: object, groups: list[list[str]]
+) -> list[dict[str, float] | None] | None:
+    """design/382 - each word's score: soft matches over the longer of two sides.
+
+    Every reference sound is worth up to 1, earned by how sure the model is that
+    it was pronounced there. The divisor is the longer of the reference and what
+    the reader actually said, so a reader who says every reference sound and then
+    one more scores 3/4 rather than 3/3. On 619 real recordings that divisor
+    caught 242 of 557 wrongly-read words against the shipped rule's 186, at the
+    same share of correctly-read words kept.
+
+    One entry per word in the order given, `None` for a word with no sound the
+    model knows -- the same thing `phoneOverlap` means by -1.
+
+    No boundary is decided here (design/371). The words were cut by the builder
+    from Google's marks; frame times only sort the reader's sounds into those
+    windows, which is the allowed direction.
+    """
+    from sentence_reading.llm.sound_align import align
+
+    if sheet is None or not groups:
+        return None
+    _load_frames()
+    if not _INV:
+        return None
+    ids = {sym: tid for tid, sym in _INV.items()}
+    as_ids = [[ids[s] for s in group if s in ids] for group in groups]
+    wanted = sorted({tid for group in as_ids for tid in group} | {_PAD})
+    if len(wanted) <= 1:
+        return None
+    column = {tid: i for i, tid in enumerate(wanted)}
+    flat: list[int] = []
+    owner: list[int] = []
+    for i, group in enumerate(as_ids):
+        for tid in group:
+            flat.append(column[tid])
+            owner.append(i)
+    try:
+        # Only the columns this sentence can use, for the alignment -- the full
+        # sheet is hundreds of frames by four hundred sounds and Python walks it
+        # far slower than the model pass that produced it. The free reading needs
+        # every column, so torch takes that argmax, not this.
+        rows = sheet[:, wanted].tolist()
+        top = [int(v) for v in sheet.argmax(dim=-1).tolist()]
+    except Exception:  # noqa: BLE001
+        return None
+    spans = align(rows, flat, blank=column[_PAD])
+    if spans is None:
+        return None
+    mine = [[k for k, w in enumerate(owner) if w == i]
+            for i in range(len(groups))]
+    out: list[dict[str, float] | None] = []
+    for i, keys in enumerate(mine):
+        if not keys:
+            out.append(None)
+            continue
+        sure = [spans[k][2] for k in keys]
+        lo = spans[keys[0]][0]
+        if i + 1 >= len(mine):
+            # Past the last word, the recording's own end: anything after the
+            # final reference sound belongs to the final word and nowhere else.
+            hi = len(top)
+        elif mine[i + 1]:
+            # design/382 - to where the next word's first sound starts, not to
+            # where this word's last sound was emitted. A sound the reader added
+            # after the reference ran out sits in the gap between the two, and a
+            # window that stops at the reference's last sound cannot see it.
+            hi = max(spans[keys[-1]][1], spans[mine[i + 1][0]][0])
+        else:
+            # The next word has no reference, so there is no boundary to stop at.
+            # Widening here would charge this word for that word's audio.
+            hi = spans[keys[-1]][1]
+        said = _said_between(top, lo, hi)
+        n = len(sure)
+        mean = sum(sure) / n
+        out.append({
+            "sure": mean,
+            "low": min(sure),
+            "n": float(n),
+            "said": float(said),
+            "sym": mean * n / max(n, said),
+        })
+    return out
+
+
 def certainty_of(
     sheet: object, groups: list[list[str]]
 ) -> list[list[float]] | None:

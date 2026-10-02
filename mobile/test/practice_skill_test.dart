@@ -768,4 +768,88 @@ void main() {
       }
     }
   });
+
+  test('design/382 the server score decides, and lines up with the slots', () {
+    const display = 'The film grew thin fast';
+    final spans = _spans(display, [
+      ['The', 4, 'd i'],
+      ['film', 5, 'f i l m'],
+      ['grew', 4, 'g r uu'],
+      ['thin', 5, 'th i n'],
+      ['fast', 4, 'f aa s t'],
+    ]);
+    // The is two sounds long, so it cannot be asked about however sure the
+    // model is. The rest are the server's own numbers, in slot order.
+    final out = diagnoseSpokenSlots(
+      display: display,
+      spoken: display,
+      spans: spans,
+      heardPhones: const ['f i l m g r uu th i n f aa s t'],
+      passLine: 0.60,
+      soundScores: parseSlotScores('99 91 40 88 20', slotN: 5),
+    );
+    expect(out.slotHits, '-1010');
+    expect(out.slotScores, '- 91 40 88 20');
+    expect(out.score.refN, 4);
+    expect(out.score.hitN, 2);
+  });
+
+  test('design/382 a row that does not fit the slots is refused whole', () {
+    const display = 'The film grew thin fast';
+    final spans = _spans(display, [
+      ['The', 4, 'd i'],
+      ['film', 5, 'f i l m'],
+      ['grew', 4, 'g r uu'],
+      ['thin', 5, 'th i n'],
+      ['fast', 4, 'f aa s t'],
+    ]);
+    // Four numbers for five slots. Sliding by one would judge every word by its
+    // neighbour's sounds, so the sounds are compared the way they shipped.
+    expect(parseSlotScores('99 91 40 88', slotN: 5), isEmpty);
+    expect(parseSlotScores('99 91 40 88 abc', slotN: 5), isEmpty);
+    expect(parseSlotScores('99 91 40 88 200', slotN: 5), isEmpty);
+    final shipped = diagnoseSpokenSlots(
+      display: display,
+      spoken: display,
+      spans: spans,
+      heardPhones: const ['f i l m g r uu th i n f aa s t'],
+    );
+    final refused = diagnoseSpokenSlots(
+      display: display,
+      spoken: display,
+      spans: spans,
+      heardPhones: const ['f i l m g r uu th i n f aa s t'],
+      soundScores: parseSlotScores('99 91 40 88', slotN: 5),
+    );
+    expect(refused.slotHits, shipped.slotHits);
+    expect(refused.slotScores, shipped.slotScores);
+  });
+
+  test('design/382 the slots we ask with are the slots we score', () {
+    const display = 'The film, grew thin.';
+    final spans = _spans(display, [
+      ['The', 4, 'd i'],
+      ['film,', 6, 'f i l m'],
+      ['grew', 5, 'g r uu'],
+      ['thin.', 5, 'th i n'],
+    ]);
+    final asked = slotPhonesFor(
+      display: display,
+      spoken: 'The film, grew thin.',
+      spans: spans,
+    );
+    final out = diagnoseSpokenSlots(
+      display: display,
+      spoken: 'The film, grew thin.',
+      spans: spans,
+      heardPhones: const ['f i l m g r uu th i n'],
+      soundScores: parseSlotScores(
+        List.filled(asked.length, '90').join(' '),
+        slotN: asked.length,
+      ),
+    );
+    // One number per slot, and every slot that was asked carries one.
+    expect(asked.length, out.slotScores.split(' ').length);
+    expect(asked.length, out.slotHits.length);
+  });
 }

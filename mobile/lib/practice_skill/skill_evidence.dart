@@ -46,6 +46,8 @@ Map<String, Object?> skillSafeDetails(Map<String, Object?> raw) {
           key == 'slot_hits' ||
           key == 'slot_scores' ||
           // design/381 - digits, dashes and spaces, one field per slot.
+          key == 'slot_sym' ||
+          key == 'slot_said' ||
           key == 'slot_sure' ||
           key == 'slot_floor' ||
           key == 'slot_pieces' ||
