@@ -202,10 +202,15 @@ def _safe_details(raw: Any) -> dict[str, Any]:
                 "slot_top",
                 "slot_pieces",
                 "target_phones",
+                # design/390 - the review's own answer key.
+                "ref_phones",
                 "heard_phones",
                 "phone_pairs",
             ):
-                heard = " ".join(val.split())[:400]
+                # design/390 - the per-sound rows of a long sentence ran past
+                # 400 and lost their last words.
+                cap = 2000 if k in ("slot_each", "slot_top") else 400
+                heard = " ".join(val.split())[:cap]
                 if heard:
                     out[k] = heard
             elif s and re.match(r"^[a-z][a-z0-9_]{0,63}$", s):

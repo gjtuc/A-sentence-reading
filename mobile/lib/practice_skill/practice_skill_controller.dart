@@ -586,6 +586,24 @@ class PracticeSkillController {
     }
   }
 
+  /// design/390 — a missed word's reference read on its own, as the review
+  /// plays it. A miss asks the server to build it; the next call finds it.
+  Future<({List<FollowSpan> spans, String code})> wordOwnSpans(
+    String ask,
+  ) async {
+    final c = _client;
+    if (c == null || !serverEnabled || ask.trim().isEmpty) {
+      return (spans: const <FollowSpan>[], code: 'off');
+    }
+    try {
+      final r = await c.fetchSpokenText(ask, cacheId: _cacheId);
+      if (r == null) return (spans: const <FollowSpan>[], code: 'null');
+      return (spans: r.spans, code: r.soundRefCode);
+    } catch (_) {
+      return (spans: const <FollowSpan>[], code: 'fail');
+    }
+  }
+
   Future<SkillScoreResult?> onTakeReady({
     required String chunkDisplay,
     required List<int> takeBytes,
@@ -960,6 +978,13 @@ class PracticeSkillController {
     String sourceChunk = '',
     String reviewKind = 'word',
     int soundI = -1,
+    String reviewRef = 'sentence',
+    String slotEach = '',
+    String slotTop = '',
+    String slotSaid = '',
+    double? score,
+    double line = -1,
+    double bar = -1,
   }) async {
     final sourceSpans = sourceChunk.trim().isEmpty
         ? const <FollowSpan>[]
@@ -996,6 +1021,15 @@ class PracticeSkillController {
         'source_has_word': sourceChunk.contains(expected.trim()) ? 1 : 0,
         if (drillPhones.trim().isNotEmpty) 'target_phones': drillPhones.trim(),
         if (heardPhones.trim().isNotEmpty) 'heard_phones': heardPhones.trim(),
+        // design/390 — which answer key judged this take, and what it scored.
+        'review_ref': reviewRef,
+        'ref_phones': targetPhones.trim(),
+        if (slotEach.trim().isNotEmpty) 'slot_each': slotEach.trim(),
+        if (slotTop.trim().isNotEmpty) 'slot_top': slotTop.trim(),
+        if (slotSaid.trim().isNotEmpty) 'slot_said': slotSaid.trim(),
+        'score_pct': score == null ? -1 : (score * 100).round(),
+        'line_pct': line < 0 ? -1 : (line * 100).round(),
+        'bar_pct': bar < 0 ? -1 : (bar * 100).round(),
       },
     );
   }

@@ -56,11 +56,16 @@ Map<String, Object?> skillSafeDetails(Map<String, Object?> raw) {
           key == 'slot_top' ||
           key == 'slot_pieces' ||
           key == 'target_phones' ||
+          // design/390 - the review's own answer key.
+          key == 'ref_phones' ||
           key == 'heard_phones' ||
           key == 'phone_pairs') {
         final heard = s.replaceAll(RegExp(r'\s+'), ' ');
+        // design/390 - the per-sound rows of a long sentence ran past 400 and
+        // lost their last words.
+        final cap = key == 'slot_each' || key == 'slot_top' ? 2000 : 400;
         if (heard.isNotEmpty) {
-          out[key] = heard.length > 400 ? heard.substring(0, 400) : heard;
+          out[key] = heard.length > cap ? heard.substring(0, cap) : heard;
         }
       } else if (s.isNotEmpty &&
           RegExp(r'^[a-z][a-z0-9_]{0,63}$').hasMatch(s)) {

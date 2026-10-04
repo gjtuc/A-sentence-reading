@@ -37,3 +37,13 @@ def test_slot_scores_is_capped_like_its_neighbours():
     out = _safe_details({"slot_scores": " ".join(["100"] * 300)})
     assert len(out["slot_scores"]) == 400
 
+
+def test_design_390_the_per_sound_rows_keep_a_long_sentence():
+    """A 17-word sentence's slot_top ran past 400 and lost its last words."""
+    row = "|".join(["100:98,99:95,95:93,94:0"] * 30)
+    out = _safe_details({"slot_top": row, "slot_each": row.replace(":", "")})
+    assert out["slot_top"] == row
+    assert len(out["slot_each"]) == len(row.replace(":", ""))
+    out = _safe_details({"ref_phones": "\u0251\u02d0 n t u\u02d0", "review_ref": "word"})
+    assert out == {"ref_phones": "\u0251\u02d0 n t u\u02d0", "review_ref": "word"}
+

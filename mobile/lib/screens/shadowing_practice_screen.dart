@@ -149,6 +149,10 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   /// design/388 — stage one's pairs for [_reviewSounds], same order.
   List<List<SoundTop>> _reviewTops = const [];
 
+  /// design/390 — `word` when the current review word is judged by its own
+  /// reference, `sentence` when that was late and the sentence's stood in.
+  String _reviewRef = 'sentence';
+
   /// design/384 - which sound the speaker is aiming at, when inside a drill.
   int? _reviewFocusSound;
   final Map<int, MissReviewLadder> _reviewLadders = {};
@@ -1256,6 +1260,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             spans: snap.spans,
           );
           if (reviewWords.isEmpty) reviewReason = 'no_missed_words';
+          // design/390 — start each word's own reference now, so it is built
+          // by the time the review reaches it.
+          for (final one in reviewWords) {
+            unawaited(_skill.wordOwnSpans(one.ask));
+          }
         }
       } catch (_) {
         reviewWords = const [];
@@ -1942,6 +1951,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           token: token,
           extra: {'word_index': i, 'review_word_n': words.length},
         );
+        final item = await _ownReviewItem(
+          token: token,
+          item: words[i],
+          wordIndex: i,
+        );
+        if (!_reviewAlive(token)) return;
         String? avoidVoice;
         double? avoidRate;
         var blankRun = 0;
@@ -1959,7 +1974,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           );
           final played = await _playReviewWord(
             token: token,
-            item: words[i],
+            item: item,
             sourceChunk: sourceChunk,
             playVoice: draw.voice,
             playRate: draw.rate,
@@ -1970,7 +1985,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           avoidRate = draw.rate;
           final hear = await _hearReviewWord(
             token: token,
-            item: words[i],
+            item: item,
             sourceChunk: sourceChunk,
             ttsHeard: played.heard,
             attempt: attempt,
@@ -2024,7 +2039,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           if (hear == MissReviewHear.missed) {
             await _maybeRunSoundDrills(
               token: token,
-              item: words[i],
+              item: item,
               sourceChunk: sourceChunk,
               wordIndex: i,
               attempt: attempt,
@@ -2075,6 +2090,41 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         setState(() => _reviewWord = null);
       }
     }
+  }
+
+  /// design/390 — the word's own reference, waited for up to
+  /// [kMissReviewRefWait]. Late, and the sentence's symbols judge it as before.
+  Future<MissReviewItem> _ownReviewItem({
+    required int token,
+    required MissReviewItem item,
+    required int wordIndex,
+  }) async {
+    final clock = Stopwatch()..start();
+    var code = 'none';
+    MissReviewItem? own;
+    while (_reviewAlive(token)) {
+      final got = await _skill.wordOwnSpans(item.ask);
+      code = got.code;
+      own = withOwnReference(item, got.spans);
+      if (own != null || !kSoundRefComing.contains(code)) break;
+      if (clock.elapsed + kMissReviewRefPoll > kMissReviewRefWait) break;
+      await Future<void>.delayed(kMissReviewRefPoll);
+    }
+    clock.stop();
+    _reviewRef = own == null ? 'sentence' : 'word';
+    _noteCycleStep(
+      'review_word_ref',
+      token: token,
+      extra: {
+        'word_index': wordIndex,
+        'review_ref': _reviewRef,
+        'ref_code': code,
+        'ref_wait_ms': clock.elapsedMilliseconds,
+        'ref_phone_n': phoneSymbols((own ?? item).phone).length,
+        'sentence_phone_n': phoneSymbols(item.phone).length,
+      },
+    );
+    return own ?? item;
   }
 
   Future<({bool ok, Duration heard})> _playReviewWord({
@@ -2367,6 +2417,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         sourceChunk: chunkDisplay,
         reviewKind: soundI == null ? 'word' : 'sound',
         soundI: soundI ?? -1,
+        reviewRef: _reviewRef,
+        slotEach: widget.client.lastSlotEach,
+        slotTop: widget.client.lastSlotTop,
+        slotSaid: widget.client.lastSlotSaid,
+        score: adjusted,
+        line: line,
+        bar: bar,
       );
       if (matched) {
         return MissReviewHear.matched;

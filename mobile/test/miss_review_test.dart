@@ -298,4 +298,60 @@ void main() {
       again.map((w) => w.printed).toList(),
     );
   });
+
+  test('design/390 the review judges onto by onto read alone', () {
+    // Inside the sentence, before CNT, the voice read the weak form.
+    const sentence = MissReviewItem(
+      printed: 'onto',
+      spoken: 'onto',
+      phone: 'ʌ n d ə',
+      share: 'ʌ=90,n=95,d=80,ə=85',
+      sounds: [0.1, 0.9, 0.0, 0.0],
+      tops: [[SoundTop(0.9, 0.1)], [], [], []],
+    );
+    final own = withOwnReference(sentence, const [
+      FollowSpan(
+        start: 0,
+        end: 4,
+        weight: 4,
+        phone: 'ɑː n t uː',
+        share: 'ɑː=88,n=97,t=91,uː=86',
+      ),
+    ]);
+    expect(own, isNotNull);
+    expect(own!.phone, 'ɑː n t uː');
+    expect(own.share, 'ɑː=88,n=97,t=91,uː=86');
+    expect(own.ask, 'onto');
+    // The sentence take's scores belong to the other symbols.
+    expect(own.sounds, isEmpty);
+    expect(own.tops, isEmpty);
+  });
+
+  test('design/390 a word read as several tokens joins them in order', () {
+    const item = MissReviewItem(printed: 'CVD', spoken: 'c v d', phone: 's i');
+    final own = withOwnReference(item, const [
+      FollowSpan(start: 0, end: 1, weight: 1, phone: 's iː', share: 's=99,iː=90'),
+      FollowSpan(start: 1, end: 2, weight: 1, phone: 'v iː', share: 'v=97,iː=91'),
+      FollowSpan(start: 2, end: 3, weight: 1, phone: 'd iː', share: 'd=96,iː=93'),
+    ]);
+    expect(own!.phone, 's iː v iː d iː');
+    expect(own.share, 's=99,iː=90,v=97,iː=91,d=96,iː=93');
+  });
+
+  test('design/390 no symbols yet leaves the sentence key in place', () {
+    const item = MissReviewItem(printed: 'onto', spoken: 'onto', phone: 'ʌ n d ə');
+    expect(
+      withOwnReference(item, const [FollowSpan(start: 0, end: 4, weight: 4)]),
+      isNull,
+    );
+  });
+
+  test('design/390 a spread that does not line up is not sent', () {
+    const item = MissReviewItem(printed: 'onto', spoken: 'onto', phone: '');
+    final own = withOwnReference(item, const [
+      FollowSpan(start: 0, end: 4, weight: 4, phone: 'ɑː n t uː', share: 'ɑː=88,n=97'),
+    ]);
+    expect(own!.phone, 'ɑː n t uː');
+    expect(own.share, '');
+  });
 }

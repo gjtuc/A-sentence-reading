@@ -5,6 +5,7 @@ import 'dart:math';
 
 import '../api/tts_models.dart';
 import '../practice_skill/skill_score.dart';
+import 'follow_span.dart';
 
 const Duration kMissReviewGap = Duration(milliseconds: 400);
 const Duration kMissReviewTail = Duration(seconds: 3);
@@ -189,6 +190,42 @@ class MissReviewItem {
   /// What the review plays and compares. The speak phase scored the spoken
   /// form, so a printed `nm` is asked for as `nanometers`, not as two letters.
   String get ask => spoken.trim().isEmpty ? printed : spoken.trim();
+}
+
+/// design/390 — how long a word waits for its own reference before the review
+/// falls back to the sentence's, and how often it asks.
+const Duration kMissReviewRefWait = Duration(seconds: 12);
+const Duration kMissReviewRefPoll = Duration(milliseconds: 1500);
+
+/// design/390 — [item] judged against the word read on its own.
+///
+/// The review plays the word alone, and alone it is read in its citation form.
+/// Inside the sentence `onto` before `CNT` was `ʌ n d ə`; alone it is `ɑ n t u`.
+/// Judging a copy of the second against the first failed a speaker for repeating
+/// exactly what they heard. [spans] are the word's own `/api/tts/spoken` spans.
+///
+/// The sentence take's per-sound scores belong to the sentence's symbols, so
+/// they are dropped. Null when the word's reference has no symbols yet.
+MissReviewItem? withOwnReference(MissReviewItem item, List<FollowSpan> spans) {
+  final phones = <String>[];
+  final shares = <String>[];
+  for (final span in spans) {
+    final phone = span.phone.trim();
+    if (phone.isEmpty) continue;
+    phones.add(phone);
+    shares.add(span.share.trim());
+  }
+  if (phones.isEmpty) return null;
+  final phone = phones.join(' ');
+  final share = shares.join(',');
+  final lined = shares.every((one) => one.isNotEmpty) &&
+      share.split(',').length == phoneSymbols(phone).length;
+  return MissReviewItem(
+    printed: item.printed,
+    spoken: item.spoken,
+    phone: phone,
+    share: lined ? share : '',
+  );
 }
 
 /// Missed words for the red-miss spans. Invalid ranges are dropped.
