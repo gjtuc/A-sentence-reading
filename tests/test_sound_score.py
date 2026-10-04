@@ -181,3 +181,23 @@ def test_the_score_never_leaves_zero_to_one():
                 continue
             assert 0.0 <= one["sym"] <= 1.0
             assert one["sym"] <= one["sure"] + 1e-9
+
+
+def test_a_sound_matches_only_when_every_kept_symbol_clears():
+    """design/386 — the native kept two symbols, so one of them is not enough."""
+    solo = hw.sound_score_of(sheet_for([A, A]), [["a"]])
+    both = hw.sound_score_of(sheet_for([A, A]), [["a"]], [[["a", "b"]]])
+    empty = hw.sound_score_of(sheet_for([A, A]), [["a"]], [[[]]])
+    assert solo is not None and both is not None and empty is not None
+    assert solo[0]["each"] == [1.0]
+    assert both[0]["each"] == [0.0]
+    assert both[0]["sym"] == 0.0
+    assert empty[0]["each"] == [0.0]
+
+
+def test_a_share_row_that_does_not_line_up_is_refused():
+    assert hw.parse_share_groups("a,b", [["a"]]) is None
+    assert hw.parse_share_groups("a,b c", [["a", "b"]]) == [[["a"], ["b", "c"]]]
+    assert hw.parse_share_groups("a,,c", [["a", "b", "c"]]) == [
+        [["a"], [], ["c"]]
+    ]

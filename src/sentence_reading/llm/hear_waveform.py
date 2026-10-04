@@ -25,6 +25,11 @@ _LOAD_FAIL = ""
 # Total convolution stride is 320 samples at 16 kHz, so a frame is 20 ms. The
 # reference cut needs this to turn a mark time into a frame number.
 FRAME_MS = 20
+# design/386 — a native sound keeps every symbol at or above this share of the
+# softmax, blank left out. The reader's sound matches only when it clears the
+# same line on every one of them. 0.30 is the owner's number; it is in the
+# reference cache key so an older reference is not scored as if it knew this.
+SHARE_MIN = 0.30
 _FRAME_READY = False
 _EXTRACTOR = None
 _INV: dict[int, str] = {}
@@ -313,7 +318,9 @@ def phone_frames(pcm) -> list[dict[str, object]]:
             pcm, sampling_rate=16000, return_tensors="pt"
         ).input_values
         with torch.no_grad():
-            ids = _MODEL(values).logits.argmax(dim=-1)[0].tolist()
+            logits = _MODEL(values).logits[0]
+        probs = torch.softmax(logits, dim=-1)
+        ids = logits.argmax(dim=-1).tolist()
     out: list[dict[str, object]] = []
     frame = 0
     for tid, group in groupby(ids):
@@ -321,8 +328,27 @@ def phone_frames(pcm) -> list[dict[str, object]]:
         f0, frame = frame, frame + n
         if tid == _PAD:
             continue
-        out.append({"sym": _INV.get(int(tid), ""), "f0": f0, "f1": frame})
-    return [one for one in out if one["sym"]]
+        sym = _INV.get(int(tid), "")
+        if not sym:
+            continue
+        # design/386 — every symbol this stretch gives at least SHARE_MIN,
+        # blank excluded. The winner alone cannot say the native was split.
+        avg = probs[f0:frame].mean(dim=0)
+        hot: list[tuple[float, str]] = []
+        for i, name in _INV.items():
+            if i == _PAD or not name:
+                continue
+            p = float(avg[i])
+            if p >= SHARE_MIN:
+                hot.append((p, name))
+        hot.sort(reverse=True)
+        out.append({
+            "sym": sym,
+            "f0": f0,
+            "f1": frame,
+            "share": [name for _p, name in hot],
+        })
+    return out
 
 
 def phones_of(frames: list[dict[str, object]]) -> str:
@@ -367,17 +393,59 @@ def _said_between(top: list[int], lo: int, hi: int) -> int:
     return seen
 
 
-def sound_score_of(
-    sheet: object, groups: list[list[str]]
-) -> list[dict[str, float | list[float]] | None] | None:
-    """design/382 - each word's score: soft matches over the longer of two sides.
+def _mean_prob(sheet: object, tid: int, lo: int, hi: int) -> float:
+    """Mean probability of one symbol over frames [lo, hi). The sheet is log-softmax."""
+    import math
 
-    Every reference sound is worth up to 1, earned by how sure the model is that
-    it was pronounced there. The divisor is the longer of the reference and what
-    the reader actually said, so a reader who says every reference sound and then
-    one more scores 3/4 rather than 3/3. On 619 real recordings that divisor
-    caught 242 of 557 wrongly-read words against the shipped rule's 186, at the
-    same share of correctly-read words kept.
+    col = [row[0] for row in sheet[:, [tid]].tolist()]
+    if hi <= lo:
+        return 0.0
+    total = 0.0
+    n = 0
+    for t in range(max(0, lo), min(hi, len(col))):
+        total += math.exp(col[t])
+        n += 1
+    return total / n if n else 0.0
+
+
+def parse_share_groups(
+    raw: str, groups: list[list[str]]
+) -> list[list[list[str]]] | None:
+    """design/386 — one required-symbol list per reference sound.
+
+    Words are barred apart, the same way `target_phones` is. Sounds inside a
+    word are comma-separated, symbols inside a sound are spaced. A sound with
+    no symbol at SHARE_MIN is an empty slot, and that sound cannot match.
+    A row that does not have one slot per reference sound is refused whole.
+    """
+    parts = [one.strip() for one in (raw or "").split("|")]
+    if len(parts) != len(groups):
+        return None
+    out: list[list[list[str]]] = []
+    for part, group in zip(parts, groups):
+        slots = part.split(",") if part else []
+        if len(slots) != len(group):
+            return None
+        out.append([slot.split() for slot in slots])
+    return out
+
+
+def sound_score_of(
+    sheet: object,
+    groups: list[list[str]],
+    shares: list[list[list[str]]] | None = None,
+) -> list[dict[str, float | list[float]] | None] | None:
+    """design/382·386 — matches over the longer of the two sides.
+
+    A reference sound matches when every symbol the native reading kept at
+    SHARE_MIN or above is also at SHARE_MIN on the reader, in the frames that
+    sound landed on. Blank is not a symbol. Without a share row, each stored
+    symbol is its own required set: that is an older reference, which only
+    kept the winner.
+
+    The divisor is the longer of the reference and what the reader actually
+    said, so a reader who says every reference sound and then one more scores
+    n/(n+1) rather than n/n.
 
     One entry per word in the order given, `None` for a word with no sound the
     model knows -- the same thing `phoneOverlap` means by -1.
@@ -401,10 +469,25 @@ def sound_score_of(
     column = {tid: i for i, tid in enumerate(wanted)}
     flat: list[int] = []
     owner: list[int] = []
-    for i, group in enumerate(as_ids):
-        for tid in group:
-            flat.append(column[tid])
+    # None means this reference has no share row, so the stored symbol is the
+    # whole of what the sound requires. An empty list means the native sound
+    # kept nothing at SHARE_MIN, and that sound does not match.
+    req_for: list[tuple[str, list[str] | None]] = []
+    for i, group in enumerate(groups):
+        word_share = shares[i] if shares is not None and i < len(shares) else None
+        slot_i = 0
+        for sym in group:
+            slot = (
+                word_share[slot_i]
+                if word_share is not None and slot_i < len(word_share)
+                else None
+            )
+            slot_i += 1
+            if sym not in ids:
+                continue
+            flat.append(column[ids[sym]])
             owner.append(i)
+            req_for.append((sym, slot))
     try:
         # Only the columns this sentence can use, for the alignment -- the full
         # sheet is hundreds of frames by four hundred sounds and Python walks it
@@ -424,7 +507,6 @@ def sound_score_of(
         if not keys:
             out.append(None)
             continue
-        sure = [spans[k][2] for k in keys]
         lo = spans[keys[0]][0]
         if i + 1 >= len(mine):
             # Past the last word, the recording's own end: anything after the
@@ -441,18 +523,29 @@ def sound_score_of(
             # Widening here would charge this word for that word's audio.
             hi = spans[keys[-1]][1]
         said = _said_between(top, lo, hi)
-        n = len(sure)
-        mean = sum(sure) / n
+        flags: list[float] = []
+        for k in keys:
+            sym, slot = req_for[k]
+            req = [sym] if slot is None else slot
+            lo_s, hi_s = spans[k][0], spans[k][1]
+            ok = bool(req)
+            for one in req:
+                tid = ids.get(one)
+                if tid is None or _mean_prob(sheet, tid, lo_s, hi_s) < SHARE_MIN:
+                    ok = False
+                    break
+            flags.append(1.0 if ok else 0.0)
+        n = len(flags)
+        mean = sum(flags) / n
         out.append({
             "sure": mean,
-            "low": min(sure),
+            "low": min(flags),
             "n": float(n),
             "said": float(said),
             "sym": mean * n / max(n, said),
-            # design/384 - every sound on its own, in the order the reference
-            # stored them. The word's score cannot say which sound was missing,
-            # and that is the one thing a speaker re-reading the word needs.
-            "each": sure,
+            # design/384·386 — 1 when that sound matched, 0 when it did not.
+            # The word score cannot say which sound was missing.
+            "each": flags,
         })
     return out
 

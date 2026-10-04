@@ -32,6 +32,7 @@ Map<String, Object?> encodeSpokenRow(String spoken, List<FollowSpan> spans) => {
             'b': span.end,
             'w': span.weight,
             if (span.phone.isNotEmpty) 'f': span.phone,
+            if (span.share.isNotEmpty) 'h': span.share,
           },
       ],
     };
@@ -54,6 +55,7 @@ SpokenDiskRow? decodeSpokenRow(Object? raw) {
         end: end.toInt(),
         weight: weight.toInt(),
         phone: '${item['f'] ?? ''}',
+        share: '${item['h'] ?? ''}',
       ));
     }
   }

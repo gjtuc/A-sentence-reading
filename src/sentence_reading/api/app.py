@@ -284,7 +284,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.425",
+    version="0.3.426",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -3210,7 +3210,9 @@ async def _keep_sample_take(
         return
 
 
-def _slot_certainty(sheet: object, target_phones: str) -> dict[str, str]:
+def _slot_certainty(
+    sheet: object, target_phones: str, target_shares: str = ""
+) -> dict[str, str]:
     """design/381·382 - the per-word sound rows, ready to put in the answer.
 
     `slot_sym` is the score the reader is judged by: every reference sound worth
@@ -3242,9 +3244,18 @@ def _slot_certainty(sheet: object, target_phones: str) -> dict[str, str]:
     if sheet is None:
         return {**out, "sure_code": "no_sheet"}
     try:
-        from sentence_reading.llm.hear_waveform import sound_score_of
+        from sentence_reading.llm.hear_waveform import (
+            parse_share_groups,
+            sound_score_of,
+        )
 
-        got = sound_score_of(sheet, [g.split() for g in groups_raw])
+        groups = [g.split() for g in groups_raw]
+        shares = parse_share_groups(target_shares, groups) if target_shares.strip() else None
+        got = (
+            sound_score_of(sheet, groups, shares)
+            if shares is not None
+            else sound_score_of(sheet, groups)
+        )
     except Exception as exc:  # noqa: BLE001
         slug = re.sub(r"[^a-z0-9]+", "_", type(exc).__name__.lower())[:30]
         return {**out, "sure_code": slug or "failed"}
@@ -3292,6 +3303,10 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
     # them here keeps the answer lined up with the phone's own slots by
     # construction, and costs a few hundred characters.
     target_phones: str = Form(""),
+    # design/386 — symbols the native sound kept at 30% or above, one slot per
+    # reference sound. Words barred apart like target_phones, sounds comma
+    # separated. Empty means the phone is still holding an older reference.
+    target_shares: str = Form(""),
 ) -> dict:
     """연습 오디오 → 발음 기호 (CTC). 전사·점수 없음 (design/370)."""
     denied = _paid_access_denied(request)
@@ -3370,7 +3385,7 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
         "hear_detail": str(hear_report.get("hear_detail") or "none"),
         # design/381·382 - the model's own certainty per reference sound, and
         # the score built from it, in the order the sounds were sent.
-        **_slot_certainty(sheet, target_phones),
+        **_slot_certainty(sheet, target_phones, target_shares),
     }
     assert "score" not in out
     assert "heard" not in out

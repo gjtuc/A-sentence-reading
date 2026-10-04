@@ -852,4 +852,39 @@ void main() {
     expect(asked.length, out.slotScores.split(' ').length);
     expect(asked.length, out.slotHits.length);
   });
+
+  test('design/386 a share row is sent only when it lines up', () {
+    const display = 'The film grew';
+    const spoken = display;
+    final spans = [
+      const FollowSpan(start: 0, end: 3, weight: 3, phone: 'd i', share: 'd,i'),
+      const FollowSpan(
+        start: 4,
+        end: 8,
+        weight: 4,
+        phone: 'f i l m',
+        share: 'f,i,l,m',
+      ),
+      const FollowSpan(
+        start: 9,
+        end: 13,
+        weight: 4,
+        phone: 'g r uu',
+        share: 'g,r,uu',
+      ),
+    ];
+    expect(
+      slotSharesFor(display: display, spoken: spoken, spans: spans),
+      ['d,i', 'f,i,l,m', 'g,r,uu'],
+    );
+    final missing = [
+      spans[0],
+      const FollowSpan(start: 4, end: 8, weight: 4, phone: 'f i l m'),
+      spans[2],
+    ];
+    expect(
+      slotSharesFor(display: display, spoken: spoken, spans: missing),
+      isEmpty,
+    );
+  });
 }

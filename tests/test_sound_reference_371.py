@@ -190,9 +190,9 @@ def test_design_371_the_route_serves_a_cached_reference(tmp_path, monkeypatch):
     assert got["ok"] is True
     assert got["sound_ref_code"] == "ready"
     assert got["sound_ref_n"] > 0
-    # The wire format keeps the four keys the client parses, and nothing else.
+    # The wire format keeps the keys the client parses, and nothing else.
     for span in got["spans"]:
-        assert sorted(span) == ["end", "phone", "start", "weight"]
+        assert sorted(span) == ["end", "phone", "share", "start", "weight"]
     # grew is spelled the same spoken and printed, so the seeded sounds land.
     by = {display[s["start"]:s["end"]]: s["phone"] for s in got["spans"]}
     assert by["grew"] == "g r e w"

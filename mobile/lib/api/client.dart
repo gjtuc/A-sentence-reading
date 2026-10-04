@@ -2768,6 +2768,7 @@ throw AsrApiException(
     required String mime,
     SampleTakeTag? sampleTag,
     String targetPhones = '',
+    String targetShares = '',
   }) async {
     if (bytes.isEmpty) return null;
     final headers = await _headers();
@@ -2780,6 +2781,9 @@ throw AsrApiException(
       // than letting it rebuild them keeps its answer lined up with the slots
       // here, in the same order, by construction.
       req.fields['target_phones'] = targetPhones.trim();
+    }
+    if (targetShares.trim().isNotEmpty) {
+      req.fields['target_shares'] = targetShares.trim();
     }
     if (sampleTag != null) {
       // design/364 — the server keeps the audio only for tagged sample rounds.
@@ -3771,6 +3775,7 @@ List<FollowSpan> _followSpans(Object? raw) {
       end: e,
       weight: weight.toInt(),
       phone: '${item['phone'] ?? ''}',
+      share: '${item['share'] ?? ''}',
     ));
   }
   return out;

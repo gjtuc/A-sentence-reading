@@ -2261,6 +2261,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             // design/382 - the review has to pass on the same ground the speak
             // phase does, and the speak phase now asks the model how sure it is.
             targetPhones: targetPhone,
+            targetShares: item.share.trim(),
           )
           .timeout(kMissReviewSttWait);
       if (!_reviewAlive(token)) return MissReviewHear.skip;

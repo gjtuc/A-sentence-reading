@@ -53,6 +53,7 @@ class MissedWordSpan {
     this.spoken = '',
     this.phone = '',
     this.sounds = const [],
+    this.share = '',
   });
 
   final int start;
@@ -75,6 +76,9 @@ class MissedWordSpan {
   /// is dropped server-side, and lining the two up anyway would paint the wrong
   /// symbol red — worse than painting none.
   final List<double> sounds;
+
+  /// design/386 — the share row for this slot. Empty on an older reference.
+  final String share;
 }
 
 class SkillScoreResult {
@@ -267,6 +271,7 @@ SpokenSlotDiag diagnoseSpokenSlots({
         slot.end,
         spoken: slot.tokens.join(' '),
         phone: slot.phone,
+        share: slot.share,
         sounds: heardEach.length == phoneSymbols(slot.phone).length
             ? heardEach
             : const <double>[],
@@ -348,6 +353,31 @@ List<String> slotPhonesFor({
   return [for (final slot in built.slots) slot.phone.trim()];
 }
 
+/// design/386 — the native share row, one entry per score slot.
+///
+/// Empty when any slot that has sounds is missing its share, or a share does
+/// not have one slot per sound. Sending a short row would line a sound up
+/// with its neighbour.
+List<String> slotSharesFor({
+  required String display,
+  required String spoken,
+  required List<FollowSpan> spans,
+}) {
+  final built = _spokenSlots(display: display, spoken: spoken, spans: spans);
+  final out = <String>[];
+  for (final slot in built.slots) {
+    final n = phoneSymbols(slot.phone).length;
+    final share = slot.share.trim();
+    if (n == 0) {
+      out.add('');
+      continue;
+    }
+    if (share.isEmpty || share.split(',').length != n) return const [];
+    out.add(share);
+  }
+  return out;
+}
+
 /// design/382 — the server's `slot_sym` row as numbers, one per slot.
 ///
 /// `-` means the word could not be asked about, which is -1 here, the same thing
@@ -412,7 +442,7 @@ List<double> parseSlotScores(String row, {required int slotN}) {
 
 
 class _SpokenSlot {
-  const _SpokenSlot(this.start, this.end, this.tokens, this.phone);
+  const _SpokenSlot(this.start, this.end, this.tokens, this.phone, this.share);
 
   final int start;
   final int end;
@@ -422,6 +452,9 @@ class _SpokenSlot {
 
   /// The sounds the native voice makes here. This is what decides the slot.
   final String phone;
+
+  /// design/386 — required symbols per sound. Empty when the reference is older.
+  final String share;
 }
 
 class _SlotBuild {
@@ -539,7 +572,7 @@ _SlotBuild _spokenSlots({
         remain: spoken.length - cursor,
       );
     }
-    out.add(_SpokenSlot(span.start, span.end, tokens, span.phone));
+    out.add(_SpokenSlot(span.start, span.end, tokens, span.phone, span.share));
   }
   return _SlotBuild(
     slots: out,

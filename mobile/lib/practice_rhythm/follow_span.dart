@@ -7,12 +7,17 @@ class FollowSpan {
     required this.end,
     required this.weight,
     this.phone = '',
+    this.share = '',
   });
 
   final int start;
   final int end;
   final int weight;
   final String phone;
+
+  /// design/386 — symbols the native sound kept, one slot per [phone] symbol,
+  /// slots comma-separated. Empty on a reference built before that.
+  final String share;
 }
 
 /// Media-time position picks the printed span. Weight 0 spans are skipped.

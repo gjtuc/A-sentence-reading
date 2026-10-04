@@ -147,6 +147,10 @@ class SpokenCache {
     var n = 0;
     for (final span in peekSpans(chunk)) {
       if (soundsFromOtherReader(span.phone)) n += 1;
+      // design/386 — a row of sounds with no share was built before the
+      // native's 30% symbols were stored. Scoring it would pretend the
+      // winner was the whole of the sound.
+      if (span.phone.trim().isNotEmpty && span.share.trim().isEmpty) n += 1;
     }
     return n;
   }
@@ -652,6 +656,11 @@ class PracticeSkillController {
         // by construction. Asking with the spans would slide by one wherever a
         // span opens no slot.
         targetPhones: slotPhonesFor(
+          display: chunkDisplay,
+          spoken: spoken,
+          spans: spokenCache.peekSpans(chunkDisplay),
+        ).join(' | '),
+        targetShares: slotSharesFor(
           display: chunkDisplay,
           spoken: spoken,
           spans: spokenCache.peekSpans(chunkDisplay),

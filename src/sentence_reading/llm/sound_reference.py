@@ -79,9 +79,13 @@ def reference_voice() -> str:
 
 def cache_key(spoken: str, voice: str) -> str:
     # Every number that changes the sounds is in the key, or GCS would keep
-    # serving a reference built by an older rule.
+    # serving a reference built by an older rule. SHARE_MIN changes which
+    # symbols a sound keeps, so a reference from before it is a different one.
+    from sentence_reading.llm.hear_waveform import SHARE_MIN
+
     raw = (
-        f"{speak_norm_version()}|{voice}|{BREAK_MS}|{PAD_MS}|{SKIP_COST}|{spoken}"
+        f"{speak_norm_version()}|{voice}|{BREAK_MS}|{PAD_MS}|{SKIP_COST}"
+        f"|{SHARE_MIN}|{spoken}"
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
@@ -205,7 +209,11 @@ def cut_marks(
     return out
 
 
-def hand_out(stencil: list[list[str]], natural: list[str]) -> list[list[str]]:
+def hand_out(
+    stencil: list[list[str]],
+    natural: list[str],
+    ranges: list[tuple[int, int]] | None = None,
+) -> list[list[str]]:
     """Give the straight reading's sounds to the tokens, in order.
 
     Each token takes a run of the natural reading, the runs stay in order and do
@@ -250,6 +258,8 @@ def hand_out(stencil: list[list[str]], natural: list[str]) -> list[list[str]]:
                     best[i][j] = got
                     back[i][j] = ("take", k)
     out: list[list[str]] = [[] for _ in range(n)]
+    if ranges is not None:
+        ranges[:] = [(-1, -1)] * n
     i, j = n, wide
     while i > 0:
         move = back[i][j]
@@ -260,6 +270,8 @@ def hand_out(stencil: list[list[str]], natural: list[str]) -> list[list[str]]:
             j = k
         else:
             out[i - 1] = natural[k:j]
+            if ranges is not None:
+                ranges[i - 1] = (k, j)
             i, j = i - 1, k
     return out
 
@@ -271,7 +283,9 @@ def build(spoken: str, *, voice: str | None = None) -> dict[str, object]:
     name = voice or reference_voice()
     straight, _t = synth_marked(f"<speak>{escape(spoken)}</speak>", name)
     pcm, _rate = pcm_of(straight)
-    natural = [str(one["sym"]) for one in phone_frames(pcm)]
+    frames = phone_frames(pcm)
+    natural = [str(one["sym"]) for one in frames]
+    natural_share = [list(one.get("share") or []) for one in frames]
 
     ssml, spots = ssml_marked(spoken)
     marked, times = synth_marked(ssml, name)
@@ -279,13 +293,23 @@ def build(spoken: str, *, voice: str | None = None) -> dict[str, object]:
     stencil = cut_marks(
         phone_frames(pcm2), spots, times, len(pcm2) / float(rate2)
     )
-    given = hand_out(stencil, natural)
+    ranges: list[tuple[int, int]] = []
+    given = hand_out(stencil, natural, ranges)
+    words = []
+    for i, (lo, hi, _tok) in enumerate(spots):
+        a, b = ranges[i] if i < len(ranges) else (-1, -1)
+        share_sounds = natural_share[a:b] if 0 <= a <= b else []
+        words.append({
+            "lo": lo,
+            "hi": hi,
+            "sounds": " ".join(given[i]),
+            # design/386 — one slot per sound, comma-separated. Symbols inside
+            # a slot are spaced. An empty slot kept nothing at SHARE_MIN.
+            "share": ",".join(" ".join(one) for one in share_sounds),
+        })
     return {
         "voice": name,
-        "words": [
-            {"lo": lo, "hi": hi, "sounds": " ".join(given[i])}
-            for i, (lo, hi, _tok) in enumerate(spots)
-        ],
+        "words": words,
         "natural_n": len(natural),
         "mark_n": len(times),
     }
@@ -389,6 +413,7 @@ def attach_sounds(
         lo = span.get("spoken_lo")
         hi = span.get("spoken_hi")
         pieces: list[str] = []
+        share_bits: list[str] = []
         if isinstance(lo, int) and isinstance(hi, int) and hi > lo:
             for i, one in enumerate(words):
                 if taken[i]:
@@ -402,7 +427,12 @@ def attach_sounds(
                     taken[i] = True
                     if piece:
                         pieces.append(piece)
+                        share_bits.append(str(one.get("share") or "").strip())
         span["phone"] = " ".join(pieces)
+        # design/386 — same sound order as phone, comma-separated. Empty when
+        # this reference was built before the share was stored.
+        joined = ",".join(share_bits)
+        span["share"] = joined if any(bit.strip() for bit in share_bits) else ""
         if pieces:
             filled += 1
     return filled
