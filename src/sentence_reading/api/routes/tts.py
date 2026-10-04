@@ -62,12 +62,17 @@ def _paper_speak_terms(cache_id: object) -> dict[str, str] | None:
     return dict(terms) if isinstance(terms, dict) and terms else None
 
 
-def _attach_sound_ref(spoken: str, spans: list) -> tuple[str, int]:
+def _attach_sound_ref(spoken: str, spans: list, whole: str = "") -> tuple[str, int]:
     """Fill `spans[].phone` from the cached reference, or ask for one.
 
     Never raises and never blocks. A missing reference leaves every `phone`
     empty, which is what the scorer already treats as `sound_ref_missing`, so
     the worst case is the behaviour design/368 left behind.
+
+    design/389 - `whole` is the sentence this chunk is the front of, already
+    checked by `whole_line`. Its reference serves the chunk, and a miss builds the
+    sentence, because the paper warm builds sentences and the next chunk is the
+    same sentence again.
     """
     from sentence_reading.llm.sound_reference import (
         attach_sounds,
@@ -79,11 +84,15 @@ def _attach_sound_ref(spoken: str, spans: list) -> tuple[str, int]:
     code, filled = "none", 0
     try:
         got = reference_for(spoken, allow_build=False)
+        borrowed = False
+        if got is None and whole:
+            got = reference_for(whole, allow_build=False)
+            borrowed = got is not None
         if got is None:
-            code = request_build(spoken)
+            code = request_build(whole or spoken)
         else:
             filled = attach_sounds(spans, got)
-            code = "ready" if filled else "empty"
+            code = ("sliced" if borrowed else "ready") if filled else "empty"
     except Exception as exc:  # noqa: BLE001
         code = re.sub(r"[^a-z0-9]+", "_", type(exc).__name__.lower())[:40] or "failed"
     finally:
@@ -104,6 +113,7 @@ def _emit_spoken_align(
     spans: object,
     sound_code: str = "none",
     sound_n: int = 0,
+    whole_code: str = "none",
 ) -> None:
     """Counts and a short code only. No sentence text."""
     try:
@@ -190,6 +200,8 @@ def _emit_spoken_align(
             # reading after this one scores; anything else is a fault.
             "sound_ref_code": _snake(sound_code),
             "sound_ref_n": int(sound_n),
+            # design/389 - whether this chunk could borrow its sentence's sounds.
+            "sound_ref_whole": _snake(whole_code),
             **_sound_ref_counts(),
         },
     )
@@ -270,9 +282,8 @@ async def tts_spoken(request: Request, payload: dict = Body(...)) -> dict[str, A
         if denied is not None:
             return denied  # type: ignore[return-value]
     raw = str((payload or {}).get("text") or "")
-    spoken = spoken_text_for_tts(
-        raw, terms=_paper_speak_terms((payload or {}).get("cache_id"))
-    )
+    terms = _paper_speak_terms((payload or {}).get("cache_id"))
+    spoken = spoken_text_for_tts(raw, terms=terms)
     if not spoken.strip():
         return {
             "ok": False,
@@ -287,8 +298,16 @@ async def tts_spoken(request: Request, payload: dict = Body(...)) -> dict[str, A
     # native audio now, built from the spoken form so a printed `nm` is asked
     # for as `nanometers`. A build is far too slow to hold this call on, so the
     # cache is served and a miss is asked for in the background.
-    sound_code, sound_n = _attach_sound_ref(spoken, spans)
-    _emit_spoken_align(payload, spoken, report, spans, sound_code, sound_n)
+    from sentence_reading.llm.sound_reference import whole_line
+
+    whole_raw = str((payload or {}).get("whole_text") or "")[:4000]
+    whole, whole_code = whole_line(
+        spoken, spoken_text_for_tts(whole_raw, terms=terms) if whole_raw.strip() else ""
+    )
+    sound_code, sound_n = _attach_sound_ref(spoken, spans, whole)
+    _emit_spoken_align(
+        payload, spoken, report, spans, sound_code, sound_n, whole_code
+    )
     return {
         "ok": True,
         "spoken": spoken,

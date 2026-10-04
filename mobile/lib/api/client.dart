@@ -2697,9 +2697,14 @@ throw AsrApiException(
 
   /// GET /api/access/status
   /// design/212 — POST /api/tts/spoken (no audio).
-  Future<SpokenTextResult?> fetchSpokenText(String text, {String? cacheId}) async {
+  Future<SpokenTextResult?> fetchSpokenText(
+    String text, {
+    String? cacheId,
+    String wholeText = '',
+  }) async {
     if (isEmptyTtsText(text)) return null;
     final headers = await _headers(jsonBody: true);
+    final whole = wholeText.trim();
     final res = await _http
         .post(
           _uri('/api/tts/spoken'),
@@ -2709,6 +2714,9 @@ throw AsrApiException(
             // design/343 — same paper names as the audio call, so the follow
             // highlight and the audio agree.
             if ((cacheId ?? '').trim().isNotEmpty) 'cache_id': cacheId!.trim(),
+            // design/389 — the sentence this chunk is the front of. The server
+            // lends the chunk that sentence's reference sounds.
+            if (whole.isNotEmpty && whole != text.trim()) 'whole_text': whole,
           }),
         )
         .timeout(const Duration(seconds: 30));

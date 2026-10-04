@@ -325,6 +325,9 @@ class PracticeSkillController {
   int _chunkIndex = 0;
   int _focusElapsedMs = 0;
 
+  /// design/389 — the current sentence's last chunk, as displayed.
+  String sentenceWhole = '';
+
   void attachClient(AsrClient client) {
     _client = client;
     evidence.attachClient(client);
@@ -486,7 +489,11 @@ class PracticeSkillController {
     );
     final sw = Stopwatch()..start();
     try {
-      final r = await c.fetchSpokenText(chunkDisplay, cacheId: _cacheId);
+      final r = await c.fetchSpokenText(
+        chunkDisplay,
+        cacheId: _cacheId,
+        wholeText: sentenceWhole,
+      );
       sw.stop();
       if (r == null) {
         await evidence.emit(

@@ -852,6 +852,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     );
     _chunks = _skill.chunksFor(_baseChunks);
     final maxChunk = _chunks.isEmpty ? 0 : _chunks.length - 1;
+    _skill.sentenceWhole = _displayChunk(maxChunk);
     _chunkIndex = chunkIndex.clamp(0, maxChunk);
     unawaited(_prefetchSpoken());
     unawaited(_persistPracticeCursor());
@@ -926,6 +927,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             ? ''
             : _chunks[_chunkIndex.clamp(0, _chunks.length - 1)]);
     _chunks = _skill.chunksFor(_baseChunks);
+    _skill.sentenceWhole = _displayChunk(_chunks.length - 1);
     _chunkIndex = rematchChunkIndex(_chunks, prev, _chunkIndex);
     _clearChunkTtsCache();
     widget.tts.setSkillTier(_skill.tier);

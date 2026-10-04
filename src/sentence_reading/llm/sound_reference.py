@@ -388,6 +388,28 @@ def reference_for(
     return got
 
 
+def whole_line(spoken: str, whole: str) -> tuple[str, str]:
+    """design/389 - the sentence a practice chunk was cut from, if it can serve.
+
+    A chunk is the front of its sentence, and the sentence's reference holds every
+    word of the chunk at the same spoken offsets. So the chunk borrows those words
+    instead of paying for its own build, and one build serves the whole sentence.
+
+    Only a true front that stops at a word edge qualifies. The normaliser reads a
+    chunk cut inside a bracket differently from the sentence, and those keep
+    building their own. Returns the sentence (or "") and a code for the log.
+    """
+    part = (spoken or "").strip()
+    full = (whole or "").strip()
+    if not full:
+        return "", "none"
+    if not part or full == part:
+        return "", "same"
+    if not full.startswith(part) or full[len(part)].isalnum():
+        return "", "not_front"
+    return full, "front"
+
+
 def attach_sounds(
     spans: list[dict[str, int]], got: dict[str, object] | None
 ) -> int:
