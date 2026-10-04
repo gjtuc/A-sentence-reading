@@ -226,11 +226,15 @@ Duration missReviewTail({
 /// using both tries, climbs back: another waiting sound if there is one, else
 /// the word again.
 class MissReviewLadder {
-  MissReviewLadder({required this.soundN, required this.line})
-      : _streak = List<int>.filled(soundN < 0 ? 0 : soundN, 0);
+  MissReviewLadder({
+    required this.soundN,
+    required this.line,
+    this.bar = 1.0,
+  }) : _streak = List<int>.filled(soundN < 0 ? 0 : soundN, 0);
 
   final int soundN;
   final double line;
+  final double bar;
   final List<int> _streak;
   int? drilling;
   int drillTries = 0;
@@ -240,7 +244,8 @@ class MissReviewLadder {
   int? afterWord(List<double> sounds) {
     if (sounds.length != soundN || soundN <= 0) return null;
     for (var i = 0; i < soundN; i++) {
-      _streak[i] = sounds[i] < line ? _streak[i] + 1 : 0;
+      _streak[i] =
+          soundClears(sounds[i], bar: bar, line: line) ? 0 : _streak[i] + 1;
     }
     return _openNext();
   }
@@ -250,7 +255,8 @@ class MissReviewLadder {
     final i = drilling;
     if (i == null) return null;
     drillTries += 1;
-    if (score >= line || drillTries >= kMissReviewSoundTries) {
+    if (soundClears(score, bar: bar, line: line) ||
+        drillTries >= kMissReviewSoundTries) {
       _streak[i] = 0;
       return _openNext();
     }

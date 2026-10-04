@@ -3,6 +3,7 @@ library;
 
 import '../practice_rhythm/follow_span.dart';
 import 'pass_line.dart';
+import 'skill_ladder.dart';
 
 const int kContentWordListV = 1;
 const int kSpokenSlotListV = 2;
@@ -173,6 +174,10 @@ SpokenSlotDiag diagnoseSpokenSlots({
   required List<FollowSpan> spans,
   List<String> heardPhones = const [],
   double passLine = kPassLineCold,
+  // design/387 — first gate. 1.0 leaves a caller that does not pass a rung
+  // judging by the account line alone.
+  double difficultyBar = 1.0,
+  List<int> slotSaid = const [],
   // design/382 — one score per slot from the server, which has the model's own
   // probabilities. Empty, short, or long and the sounds are compared here the
   // way they shipped, so an old server or a failed alignment costs nothing.
@@ -254,9 +259,21 @@ SpokenSlotDiag diagnoseSpokenSlots({
       continue;
     }
     judged += 1;
+    // The account line learns this, the 30% match fraction. The difficulty
+    // bar must not move it, or an easy rung would raise the line for a hard one.
     scores.add(got);
-    closeness.add('${(got * 100).round()}');
-    final ok = got >= passLine;
+    final probs = slotI < soundEach.length ? soundEach[slotI] : const <double>[];
+    final said = slotI < slotSaid.length ? slotSaid[slotI] : -1;
+    final adjusted = twoGateWordScore(
+      probs: probs,
+      soundN: phoneSymbols(slot.phone).length,
+      said: said,
+      bar: difficultyBar,
+      line: passLine,
+    );
+    final shown = adjusted ?? got;
+    closeness.add('${(shown * 100).round()}');
+    final ok = shown >= passLine;
     if (ok) soundPassN += 1;
     marks.write(ok ? '1' : '0');
     pieces.add(slot.tokens.join(' '));
@@ -436,6 +453,31 @@ List<double> parseSlotScores(String row, {required int slotN}) {
     final n = int.tryParse(one);
     if (n == null || n < 0 || n > 100) return const [];
     out.add(n / 100.0);
+  }
+  return out;
+}
+
+/// How many sounds the reader made in each slot. `-` is unknown.
+///
+/// The two-gate score divides by the longer of this and the reference. Dropping
+/// the row when it does not line up keeps a missing count from becoming a free
+/// pass for an extra sound.
+List<int> parseSlotSaid(String row, {required int slotN}) {
+  final parts = row
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((one) => one.isNotEmpty)
+      .toList();
+  if (parts.length != slotN) return const [];
+  final out = <int>[];
+  for (final one in parts) {
+    if (one == '-') {
+      out.add(-1);
+      continue;
+    }
+    final n = int.tryParse(one);
+    if (n == null || n < 0) return const [];
+    out.add(n);
   }
   return out;
 }
@@ -689,6 +731,36 @@ const double kPhoneOverlapMin = 0.72;
 
 /// Below this a target matches almost anything, so it is not judged by sound.
 const int kPhoneMinUnits = 3;
+
+/// design/387 — a sound clears the difficulty bar, or else the account line.
+///
+/// The bar is (20 + rung)%. Clearing it passes the sound. Missing it is not a
+/// miss yet: the same probability is then compared with the account line.
+bool soundClears(double p, {required double bar, required double line}) {
+  if (p >= bar) return true;
+  return p >= line;
+}
+
+/// Word score after that sound rule, over the longer of the two sides.
+///
+/// Null when the probability row does not line up with the sounds, or the
+/// said-count is missing. The caller keeps the server's own score then, which
+/// is the 30% match fraction and is also what the account line learns from.
+double? twoGateWordScore({
+  required List<double> probs,
+  required int soundN,
+  required int said,
+  required double bar,
+  required double line,
+}) {
+  if (soundN <= 0 || probs.length != soundN || said < 0) return null;
+  var matches = 0;
+  for (final p in probs) {
+    if (soundClears(p, bar: bar, line: line)) matches += 1;
+  }
+  final denom = soundN > said ? soundN : said;
+  return matches / denom;
+}
 
 /// True when [target] is heard anywhere in [heardWords].
 ///

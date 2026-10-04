@@ -152,6 +152,7 @@ List<TextSpan> reviewSoundSpans({
   required String phone,
   required List<double> sounds,
   required double line,
+  double bar = 1.0,
   required Color weak,
   required Color strong,
 }) {
@@ -164,7 +165,7 @@ List<TextSpan> reviewSoundSpans({
   }
   final out = <TextSpan>[];
   for (var i = 0; i < symbols.length; i++) {
-    final low = sounds[i] < line;
+    final low = !soundClears(sounds[i], bar: bar, line: line);
     out.add(TextSpan(
       text: symbols[i],
       style: TextStyle(

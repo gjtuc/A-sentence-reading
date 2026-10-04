@@ -41,6 +41,7 @@ import '../practice_sample/sample_rounds.dart';
 import '../practice_skill/chunk_density.dart';
 import '../practice_skill/pass_line.dart';
 import '../practice_skill/practice_skill_controller.dart';
+import '../practice_skill/skill_ladder.dart';
 import '../practice_skill/skill_score.dart';
 import '../services/evidence_bus.dart';
 import '../services/shadowing_disk_store.dart';
@@ -2179,9 +2180,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     final symbols = phoneSymbols(item.phone);
     if (_reviewSounds.length != symbols.length || symbols.isEmpty) return;
     final line = _skill.store.state.line.lineOr(kPassLineCold);
+    final bar = skillDifficultyBar(
+      tier: _skill.store.state.tier,
+      density: _skill.store.state.density,
+    );
     final lad = _reviewLadders.putIfAbsent(
       wordIndex,
-      () => MissReviewLadder(soundN: symbols.length, line: line),
+      () => MissReviewLadder(soundN: symbols.length, line: line, bar: bar),
     );
     var soundI = lad.afterWord(_reviewSounds);
     while (soundI != null && _reviewAlive(token)) {
@@ -2273,21 +2278,36 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       // design/375 — the account's own line, so a word the speak phase would
       // have passed is not failed here.
       final line = _skill.store.state.line.lineOr(kPassLineCold);
+      final bar = skillDifficultyBar(
+        tier: _skill.store.state.tier,
+        density: _skill.store.state.density,
+      );
       final reviewSym = parseSlotScores(widget.client.lastSlotSym, slotN: 1);
       // design/382 - the model's own score when it came back, the shipped
       // comparison when it did not. -1 is a word too short to ask about, and
       // that was never a reason to fail a re-read.
-      var matched = reviewSym.isEmpty
-          ? phonesClose(targetPhone, missReviewHeardPhoneWords(heardPhone),
-              line: line)
-          : reviewSym.first < 0 || reviewSym.first >= line;
       final mineEach = parseSlotSounds(widget.client.lastSlotEach, slotN: 1);
       final gotEach = mineEach.isEmpty ? const <double>[] : mineEach.first;
+      final saidRow = parseSlotSaid(widget.client.lastSlotSaid, slotN: 1);
+      final adjusted = twoGateWordScore(
+        probs: gotEach,
+        soundN: phoneSymbols(targetPhone).length,
+        said: saidRow.length == 1 ? saidRow.first : -1,
+        bar: bar,
+        line: line,
+      );
+      var matched = adjusted != null
+          ? adjusted >= line
+          : reviewSym.isEmpty
+              ? phonesClose(targetPhone, missReviewHeardPhoneWords(heardPhone),
+                  line: line)
+              : reviewSym.first < 0 || reviewSym.first >= line;
       // design/384 - a sound drill is judged on that one sound. Its score
       // must not decide the word, and it must not move the account line
       // (noteMissReview never does).
       if (soundI != null) {
-        matched = soundI < gotEach.length && gotEach[soundI] >= line;
+        matched = soundI < gotEach.length &&
+            soundClears(gotEach[soundI], bar: bar, line: line);
       }
       final drill = matched
           ? const <String>[]
@@ -3011,6 +3031,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                                                             .line
                                                             .lineOr(
                                                                 kPassLineCold),
+                                                        bar: skillDifficultyBar(
+                                                          tier: _skill
+                                                              .store.state.tier,
+                                                          density: _skill.store
+                                                              .state.density,
+                                                        ),
                                                         weak: kRhythmSpeak,
                                                         strong: kRhythmText,
                                                       ),

@@ -524,17 +524,21 @@ def sound_score_of(
             hi = spans[keys[-1]][1]
         said = _said_between(top, lo, hi)
         flags: list[float] = []
+        # design/387 — the lowest required symbol, not a 0/1. The phone applies
+        # the difficulty bar and then the account line. Folding either in here
+        # would bake one rung's leniency into the number the line learns from.
+        raws: list[float] = []
         for k in keys:
             sym, slot = req_for[k]
             req = [sym] if slot is None else slot
             lo_s, hi_s = spans[k][0], spans[k][1]
-            ok = bool(req)
+            probs = []
             for one in req:
                 tid = ids.get(one)
-                if tid is None or _mean_prob(sheet, tid, lo_s, hi_s) < SHARE_MIN:
-                    ok = False
-                    break
-            flags.append(1.0 if ok else 0.0)
+                probs.append(0.0 if tid is None else _mean_prob(sheet, tid, lo_s, hi_s))
+            low = min(probs) if probs else 0.0
+            raws.append(low)
+            flags.append(1.0 if probs and low >= SHARE_MIN else 0.0)
         n = len(flags)
         mean = sum(flags) / n
         out.append({
@@ -543,9 +547,7 @@ def sound_score_of(
             "n": float(n),
             "said": float(said),
             "sym": mean * n / max(n, said),
-            # design/384·386 — 1 when that sound matched, 0 when it did not.
-            # The word score cannot say which sound was missing.
-            "each": flags,
+            "each": raws,
         })
     return out
 

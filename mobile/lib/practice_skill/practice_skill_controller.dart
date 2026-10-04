@@ -14,6 +14,7 @@ import 'pass_line.dart';
 import 'skill_adapt.dart';
 import 'skill_evidence.dart';
 import '../practice_rhythm/judgment_tier.dart';
+import 'skill_ladder.dart';
 import 'skill_score.dart';
 import 'skill_store.dart';
 import 'spoken_disk_cache.dart';
@@ -147,10 +148,6 @@ class SpokenCache {
     var n = 0;
     for (final span in peekSpans(chunk)) {
       if (soundsFromOtherReader(span.phone)) n += 1;
-      // design/386 — a row of sounds with no share was built before the
-      // native's 30% symbols were stored. Scoring it would pretend the
-      // winner was the whole of the sound.
-      if (span.phone.trim().isNotEmpty && span.share.trim().isEmpty) n += 1;
     }
     return n;
   }
@@ -739,14 +736,12 @@ class PracticeSkillController {
     // design/382 - the score the reader is judged by now comes from the model's
     // probabilities. One entry per slot or the whole row is refused, and the
     // sounds are compared the way they shipped instead.
-    final slotSym = parseSlotScores(
-      c.lastSlotSym,
-      slotN: slotPhonesFor(
-        display: chunkDisplay,
-        spoken: spoken,
-        spans: spokenCache.peekSpans(chunkDisplay),
-      ).length,
-    );
+    final slotN = slotPhonesFor(
+      display: chunkDisplay,
+      spoken: spoken,
+      spans: spokenCache.peekSpans(chunkDisplay),
+    ).length;
+    final slotSym = parseSlotScores(c.lastSlotSym, slotN: slotN);
     final diag = diagnoseSpokenSlots(
       display: chunkDisplay,
       spoken: spoken,
@@ -759,6 +754,11 @@ class PracticeSkillController {
       // design/371 - this account's own line, or the fixed one while it is still
       // too new to have one.
       passLine: store.state.line.lineOr(kPassLineCold),
+      difficultyBar: skillDifficultyBar(
+        tier: store.state.tier,
+        density: store.state.density,
+      ),
+      slotSaid: parseSlotSaid(c.lastSlotSaid, slotN: slotSym.length),
       soundScores: slotSym,
       soundEach: parseSlotSounds(c.lastSlotEach, slotN: slotSym.length),
     );

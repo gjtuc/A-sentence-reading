@@ -4,6 +4,7 @@ import 'package:sentence_reading/practice_skill/chunk_density.dart';
 import 'package:sentence_reading/practice_skill/practice_skill_controller.dart';
 import 'package:sentence_reading/practice_skill/pass_line.dart';
 import 'package:sentence_reading/practice_skill/skill_adapt.dart';
+import 'package:sentence_reading/practice_skill/skill_ladder.dart';
 import 'package:sentence_reading/practice_skill/skill_score.dart';
 import 'package:sentence_reading/practice_skill/skill_store.dart';
 
@@ -851,6 +852,39 @@ void main() {
     // One number per slot, and every slot that was asked carries one.
     expect(asked.length, out.slotScores.split(' ').length);
     expect(asked.length, out.slotHits.length);
+  });
+
+  test('design/387 the first rung is 20 percent and the last is 70', () {
+    expect(skillDifficultyBar(tier: 0, density: 2), closeTo(0.20, 1e-9));
+    expect(skillDifficultyBar(tier: 9, density: -2), closeTo(0.70, 1e-9));
+  });
+
+  test('design/387 a sound under 30 percent still passes an easy rung', () {
+    expect(soundClears(0.25, bar: 0.20, line: 0.57), isTrue);
+    expect(soundClears(0.25, bar: 0.70, line: 0.57), isFalse);
+    expect(soundClears(0.60, bar: 0.70, line: 0.57), isTrue);
+  });
+
+  test('design/387 ten sounds at 40 percent fail the hard bar and the line', () {
+    final score = twoGateWordScore(
+      probs: List<double>.filled(10, 0.40),
+      soundN: 10,
+      said: 10,
+      bar: 0.70,
+      line: 0.57,
+    );
+    expect(score, 0);
+  });
+
+  test('design/387 an extra sound still sits in the divisor', () {
+    final score = twoGateWordScore(
+      probs: const [0.90, 0.90, 0.90],
+      soundN: 3,
+      said: 4,
+      bar: 0.70,
+      line: 0.57,
+    );
+    expect(score, closeTo(0.75, 1e-9));
   });
 
   test('design/386 a share row is sent only when it lines up', () {

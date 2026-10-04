@@ -189,8 +189,10 @@ def test_a_sound_matches_only_when_every_kept_symbol_clears():
     both = hw.sound_score_of(sheet_for([A, A]), [["a"]], [[["a", "b"]]])
     empty = hw.sound_score_of(sheet_for([A, A]), [["a"]], [[[]]])
     assert solo is not None and both is not None and empty is not None
-    assert solo[0]["each"] == [1.0]
-    assert both[0]["each"] == [0.0]
+    # The row keeps the probability. 0.30 is only how slot_sym still counts a match.
+    assert solo[0]["each"][0] == pytest.approx(0.96, abs=0.02)
+    assert solo[0]["sym"] == pytest.approx(1.0)
+    assert both[0]["each"][0] < 0.30
     assert both[0]["sym"] == 0.0
     assert empty[0]["each"] == [0.0]
 

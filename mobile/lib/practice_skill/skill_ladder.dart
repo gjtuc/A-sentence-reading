@@ -29,6 +29,16 @@ int skillLadderDisplayN({required int tier, required int density}) =>
 String skillLadderLabelKo({required int tier, required int density}) =>
     '난이도 ${skillLadderDisplayN(tier: tier, density: density)}/$kSkillLadderTotal';
 
+/// design/387 — first gate on a sound. Display 1 is 0.20, display 50 is 0.70.
+///
+/// The screen number is what moves, not the speed tier 0–9. Adding that tier
+/// would leave the bar between 20% and 29%.
+double skillDifficultyBar({required int tier, required int density}) {
+  final n = skillLadderDisplayN(tier: tier, density: density);
+  final step = (n - 1).clamp(0, kSkillLadderTotal - 1);
+  return 0.20 + step * (0.50 / (kSkillLadderTotal - 1));
+}
+
 /// Decode hardness0 for tests / debug.
 ({int tier, int density}) skillLadderDecode(int hardness0) {
   var h = hardness0;

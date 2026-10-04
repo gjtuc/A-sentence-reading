@@ -422,6 +422,7 @@
 | 378 | [378-warm-the-paper-not-the-reader.md](378-warm-the-paper-not-the-reader.md) | 기준 소리를 논문 분석할 때 미리 짓는다 (읽는 사람은 최대 한 개 뒤에 선다, 논문 뒤가 아니다) |
 | 379 | [379-the-ceiling-was-my-ruler.md](379-the-ceiling-was-my-ruler.md) | design/377 의 「채점 제한」은 측정 오류였다 (기준만 자르고 낭독은 안 자름) · 천장은 1.000, 다른 원어민 낭독은 0.92–0.97 · 통과 못 하는 단어는 없다 |
 | 380 | [380-the-model-says-when-it-is-unsure.md](380-the-model-says-when-it-is-unsure.md) | 낭독 둘이 소리를 다르게 보는 자리는 모델이 헷갈리는 자리다 (같게 본 자리 0.90 vs 다르게 본 자리 0.43, 0.70 넘는 불일치 0/16) · phone_frames 가 확률을 버려서 0.35 찍은 소리가 0.97 소리와 같은 무게다 |
+| 387 | [387-the-rung-then-the-line.md](387-the-rung-then-the-line.md) | 소리 확률을 먼저 (20+난이도)%로 보고, 못 넘기면 계정 선으로 한 번 더 본다 · 선이 배우는 점수는 난이도 적용 전 30% 일치 · 더 말한 소리는 분모에 남긴다 · 기호 목록은 30% 고정 (0.3.427) |
 | 386 | [386-thirty-percent-of-each-sound.md](386-thirty-percent-of-each-sound.md) | 소리 하나의 일치는 원어민이 30% 넘긴 기호를 사용자도 전부 30% 넘긴 것 · 공백은 세지 않음 · 분모는 그대로 · 619개에서 기호가 둘인 칸은 3.1%, 그 중 또렷한 읽기가 떨어지는 경우는 소리 1000개 중 9개 (0.3.426) |
 | 385 | [385-warm-from-the-cursor.md](385-warm-from-the-cursor.md) | 미리 짓기는 지금 읽는 자리부터 한 바퀴 돈다 · 연습 커서가 있으면 그쪽 · `/open` 의 1번부터 걷기는 폰 요청을 `_WARMING` 으로 버려서 뺐다 (0.3.425) |
 | 384 | [384-which-sound-was-missing.md](384-which-sound-was-missing.md) | 틀린 단어 점수는 어느 소리가 빠졌는지 말하지 못 한다 · `slot_each` 로 소리별 확신도를 보내고, 틀린 단어 화면이 첫 시도부터 통과선 아래 기호를 강조한다 · 개수가 안 맞으면 안 칠한다 · 사다리·0.5배는 2차 |
