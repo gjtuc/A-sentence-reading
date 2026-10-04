@@ -198,6 +198,8 @@ def _safe_details(raw: Any) -> dict[str, Any]:
                 "slot_floor",
                 # design/384 - every sound on its own, words barred apart.
                 "slot_each",
+                # design/388 - stage one's native:reader pairs.
+                "slot_top",
                 "slot_pieces",
                 "target_phones",
                 "heard_phones",

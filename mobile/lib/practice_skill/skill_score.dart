@@ -1,6 +1,8 @@
 /// design/212 — content-word multiset coverage (mirrors practice_skill_score.py).
 library;
 
+import 'dart:math' as math;
+
 import '../practice_rhythm/follow_span.dart';
 import 'pass_line.dart';
 import 'skill_ladder.dart';
@@ -55,6 +57,7 @@ class MissedWordSpan {
     this.phone = '',
     this.sounds = const [],
     this.share = '',
+    this.tops = const [],
   });
 
   final int start;
@@ -78,8 +81,22 @@ class MissedWordSpan {
   /// symbol red — worse than painting none.
   final List<double> sounds;
 
-  /// design/386 — the share row for this slot. Empty on an older reference.
+  /// design/388 — the native spread row for this slot. Empty on an older
+  /// reference.
   final String share;
+
+  /// design/388 — stage one's pairs for each sound in [sounds], same order.
+  /// Empty when the server sent none, which leaves every sound to the line.
+  final List<List<SoundTop>> tops;
+}
+
+/// design/388 — one native symbol at 20% or more, and the reader's share of it.
+/// Both are blank-free and scaled to 1.
+class SoundTop {
+  const SoundTop(this.native, this.reader);
+
+  final double native;
+  final double reader;
 }
 
 class SkillScoreResult {
@@ -183,6 +200,8 @@ SpokenSlotDiag diagnoseSpokenSlots({
   // way they shipped, so an old server or a failed alignment costs nothing.
   List<double> soundScores = const [],
   List<List<double>> soundEach = const [],
+  // design/388 — stage one's pairs, per slot and per sound.
+  List<List<List<SoundTop>>> soundTops = const [],
 }) {
   final built = _spokenSlots(display: display, spoken: spoken, spans: spans);
   if (built.slots.isEmpty) {
@@ -259,21 +278,33 @@ SpokenSlotDiag diagnoseSpokenSlots({
       continue;
     }
     judged += 1;
-    // The account line learns this, the 30% match fraction. The difficulty
-    // bar must not move it, or an easy rung would raise the line for a hard one.
-    scores.add(got);
     final probs = slotI < soundEach.length ? soundEach[slotI] : const <double>[];
+    final soundN = phoneSymbols(slot.phone).length;
+    // design/388 — the line learns each sound's overlap, because stage two
+    // compares a sound's overlap with it. The difficulty bar must not move it,
+    // or an easy rung would raise the line for a hard one. Without the
+    // per-sound row the word's own overlap stands in, once.
+    if (probs.length == soundN) {
+      scores.addAll(probs);
+    } else {
+      scores.add(got);
+    }
+    final tops = slotI < soundTops.length
+        ? soundTops[slotI]
+        : const <List<SoundTop>>[];
     final said = slotI < slotSaid.length ? slotSaid[slotI] : -1;
     final adjusted = twoGateWordScore(
       probs: probs,
-      soundN: phoneSymbols(slot.phone).length,
+      tops: tops,
+      soundN: soundN,
       said: said,
       bar: difficultyBar,
       line: passLine,
     );
     final shown = adjusted ?? got;
     closeness.add('${(shown * 100).round()}');
-    final ok = shown >= passLine;
+    final ok = shown >=
+        (fromServer ? passLine : math.max(passLine, kWordOverlapLine));
     if (ok) soundPassN += 1;
     marks.write(ok ? '1' : '0');
     pieces.add(slot.tokens.join(' '));
@@ -289,9 +320,10 @@ SpokenSlotDiag diagnoseSpokenSlots({
         spoken: slot.tokens.join(' '),
         phone: slot.phone,
         share: slot.share,
-        sounds: heardEach.length == phoneSymbols(slot.phone).length
-            ? heardEach
-            : const <double>[],
+        sounds: heardEach.length == soundN ? heardEach : const <double>[],
+        tops: heardEach.length == soundN && tops.length == soundN
+            ? tops
+            : const <List<SoundTop>>[],
       ));
     }
   }
@@ -717,6 +749,11 @@ List<String> _phonePieces(String ipa) => phoneUnits(ipa);
 /// against, and no take, however good, can match it.
 bool soundsFromOtherReader(String phone) => _otherReader.hasMatch(phone);
 
+/// design/388 — sounds with no native spread beside them. A design/386 share
+/// is bare symbols, and anything older has none; a spread always holds `=`.
+bool spreadMissing(String phone, String share) =>
+    phone.trim().isNotEmpty && !share.contains('=');
+
 final RegExp _otherReader =
     RegExp(r'[\u02c8\u02cc\u200d\u0361\u035c]', unicode: true);
 
@@ -729,37 +766,104 @@ const String kSoundTooShort = 'sound_too_short';
 /// Least overlap that counts as the same sound. See design/366 for the sweep.
 const double kPhoneOverlapMin = 0.72;
 
+/// design/388 — the lowest line [phoneOverlap] is judged by. That is the
+/// design/371 word overlap the phone falls back on when the server sent no
+/// sound rows, and design/375 measured its own line: 0.747 − 0.75 × 0.230. The
+/// account line is in spread-overlap units now and sits lower, which on this
+/// ruler would pass words that were not read.
+const double kWordOverlapLine = 0.57;
+
 /// Below this a target matches almost anything, so it is not judged by sound.
 const int kPhoneMinUnits = 3;
 
-/// design/387 — a sound clears the difficulty bar, or else the account line.
+/// design/388 — stage one, then stage two.
 ///
-/// The bar is (20 + rung)%. Clearing it passes the sound. Missing it is not a
-/// miss yet: the same probability is then compared with the account line.
-bool soundClears(double p, {required double bar, required double line}) {
-  if (p >= bar) return true;
-  return p >= line;
+/// Stage one asks about every native symbol at or above the bar, (20 + rung)%.
+/// When there is at least one and the reader has every one of them at the bar
+/// too, the sound passes. Otherwise — no native symbol that high, or the reader
+/// short on one — the sound's [overlap] is compared with the account line.
+bool soundClears(
+  double overlap, {
+  List<SoundTop> top = const [],
+  required double bar,
+  required double line,
+}) {
+  const eps = 1e-9;
+  final need = [
+    for (final one in top)
+      if (one.native >= bar - eps) one,
+  ];
+  if (need.isNotEmpty && need.every((one) => one.reader >= bar - eps)) {
+    return true;
+  }
+  return overlap >= line;
 }
 
 /// Word score after that sound rule, over the longer of the two sides.
 ///
-/// Null when the probability row does not line up with the sounds, or the
-/// said-count is missing. The caller keeps the server's own score then, which
-/// is the 30% match fraction and is also what the account line learns from.
+/// Null when the overlap row does not line up with the sounds, or the
+/// said-count is missing. The caller keeps the server's own score then.
+/// [tops] that do not line up are dropped, which leaves every sound to the line.
 double? twoGateWordScore({
   required List<double> probs,
+  List<List<SoundTop>> tops = const [],
   required int soundN,
   required int said,
   required double bar,
   required double line,
 }) {
   if (soundN <= 0 || probs.length != soundN || said < 0) return null;
+  final lined = tops.length == soundN;
   var matches = 0;
-  for (final p in probs) {
-    if (soundClears(p, bar: bar, line: line)) matches += 1;
+  for (var i = 0; i < soundN; i++) {
+    if (soundClears(
+      probs[i],
+      top: lined ? tops[i] : const [],
+      bar: bar,
+      line: line,
+    )) {
+      matches += 1;
+    }
   }
   final denom = soundN > said ? soundN : said;
   return matches / denom;
+}
+
+/// design/388 — the server's `slot_top` row: words barred, sounds comma
+/// separated, `native:reader` percents spaced.
+///
+/// `-` is a word with nothing to send and comes back empty. A row whose word
+/// count does not match, or holding anything that is not a pair of percents,
+/// is refused whole, like [parseSlotSounds].
+List<List<List<SoundTop>>> parseSlotTops(String row, {required int slotN}) {
+  final parts = row.trim().split('|');
+  if (row.trim().isEmpty || parts.length != slotN) return const [];
+  final out = <List<List<SoundTop>>>[];
+  for (final part in parts) {
+    final one = part.trim();
+    if (one == '-') {
+      out.add(const <List<SoundTop>>[]);
+      continue;
+    }
+    final sounds = <List<SoundTop>>[];
+    for (final sound in part.split(',')) {
+      final pairs = <SoundTop>[];
+      for (final piece in sound.trim().split(RegExp(r'\s+'))) {
+        if (piece.isEmpty) continue;
+        final halves = piece.split(':');
+        if (halves.length != 2) return const [];
+        final a = int.tryParse(halves[0]);
+        final b = int.tryParse(halves[1]);
+        if (a == null || b == null || a < 0 || a > 100 || b < 0 || b > 100) {
+          return const [];
+        }
+        pairs.add(SoundTop(a / 100.0, b / 100.0));
+      }
+      sounds.add(pairs);
+    }
+    out.add(sounds);
+  }
+  return out;
 }
 
 /// True when [target] is heard anywhere in [heardWords].
@@ -773,13 +877,14 @@ double? twoGateWordScore({
 /// design/375 — [line] is the caller's, because the review has to pass on the
 /// same ground the speak phase does. Left to itself it uses the cold line rather
 /// than design/366's 0.72, which answers how close two different words may sound
-/// and is a stricter bar than any reading is judged by.
+/// and is a stricter bar than any reading is judged by. design/388 — never
+/// under [kWordOverlapLine], the line this ruler was measured with.
 bool phonesClose(
   String target,
   List<String> heardWords, {
-  double line = kPassLineCold,
+  double line = kWordOverlapLine,
 }) =>
-    phoneOverlap(target, heardWords) >= line;
+    phoneOverlap(target, heardWords) >= math.max(line, kWordOverlapLine);
 
 /// How much of [target] is heard in [heardWords], or -1 when it cannot be asked.
 ///

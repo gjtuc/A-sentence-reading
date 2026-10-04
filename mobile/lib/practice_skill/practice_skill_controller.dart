@@ -144,10 +144,17 @@ class SpokenCache {
   /// of the spelling, which is a full reference as far as [phoneSpanN] can tell,
   /// so without this the row is kept forever and every word of the sentence
   /// fails no matter how it is read.
+  ///
+  /// design/388 -- a row whose sounds carry no native spread is stale too. It
+  /// can still be scored, as the stored symbol alone, but that is a sound the
+  /// native never split, which is the case stage one exists for.
   int staleSpanN(String chunk) {
     var n = 0;
     for (final span in peekSpans(chunk)) {
-      if (soundsFromOtherReader(span.phone)) n += 1;
+      if (soundsFromOtherReader(span.phone) ||
+          spreadMissing(span.phone, span.share)) {
+        n += 1;
+      }
     }
     return n;
   }
@@ -761,6 +768,7 @@ class PracticeSkillController {
       slotSaid: parseSlotSaid(c.lastSlotSaid, slotN: slotSym.length),
       soundScores: slotSym,
       soundEach: parseSlotSounds(c.lastSlotEach, slotN: slotSym.length),
+      soundTops: parseSlotTops(c.lastSlotTop, slotN: slotSym.length),
     );
     final align = spokenCache.peekAlign(chunkDisplay);
     final score = diag.score;
@@ -810,6 +818,8 @@ class PracticeSkillController {
         'slot_sure': c.lastSlotSure,
         'slot_floor': c.lastSlotFloor,
         'slot_said': c.lastSlotSaid,
+        'slot_each': c.lastSlotEach,
+        'slot_top': c.lastSlotTop,
         'sure_code': c.lastSureCode,
         'sym_used': slotSym.isEmpty ? 0 : 1,
         ...align.details,

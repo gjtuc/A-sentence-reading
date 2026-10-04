@@ -118,6 +118,7 @@ class SkillState {
         'line_avg': line.avg,
         'line_var': line.varp,
         'line_n': line.n,
+        'line_unit': kPassLineUnit,
         'updated_at_ms': updatedAtMs < 0 ? 0 : updatedAtMs,
         'days': {
           for (final e in days.entries)
@@ -164,11 +165,13 @@ class SkillState {
       pinned: m['pinned'] == true,
       savedTier: ((m['saved_tier'] as num?)?.toInt() ?? -1).clamp(-1, 9),
       savedDensity: ((m['saved_density'] as num?)?.toInt() ?? 0).clamp(-2, 2),
-      line: PassLine(
-        avg: ((m['line_avg'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0),
-        varp: ((m['line_var'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0),
-        n: ((m['line_n'] as num?)?.toInt() ?? 0).clamp(0, 1 << 30),
-      ),
+      line: (m['line_unit'] as num?)?.toInt() != kPassLineUnit
+          ? const PassLine()
+          : PassLine(
+              avg: ((m['line_avg'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0),
+              varp: ((m['line_var'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0),
+              n: ((m['line_n'] as num?)?.toInt() ?? 0).clamp(0, 1 << 30),
+            ),
       updatedAtMs: (() {
         final u = (m['updated_at_ms'] as num?)?.toInt() ?? 0;
         return u < 0 ? 0 : u;

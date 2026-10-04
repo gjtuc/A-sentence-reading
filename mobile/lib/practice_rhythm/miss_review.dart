@@ -169,6 +169,7 @@ class MissReviewItem {
     required this.phone,
     this.sounds = const [],
     this.share = '',
+    this.tops = const [],
   });
 
   final String printed;
@@ -179,8 +180,11 @@ class MissReviewItem {
   /// take that marked this word missed. Empty when it cannot be lined up.
   final List<double> sounds;
 
-  /// design/386 — required symbols for [phone], sent back with the re-read.
+  /// design/388 — the native spread for [phone], sent back with the re-read.
   final String share;
+
+  /// design/388 — stage one's pairs for each sound in [sounds].
+  final List<List<SoundTop>> tops;
 
   /// What the review plays and compares. The speak phase scored the spoken
   /// form, so a printed `nm` is asked for as `nanometers`, not as two letters.
@@ -204,6 +208,7 @@ List<MissReviewItem> missReviewWords({
       phone: span.phone,
       sounds: span.sounds,
       share: span.share,
+      tops: span.tops,
     ));
   }
   return out;
@@ -241,21 +246,32 @@ class MissReviewLadder {
 
   /// Call only after a missed word try. [sounds] must line up with [soundN]
   /// or this returns null rather than open a drill on the wrong symbol.
-  int? afterWord(List<double> sounds) {
+  /// [tops] that do not line up leave every sound to the line.
+  int? afterWord(
+    List<double> sounds, {
+    List<List<SoundTop>> tops = const [],
+  }) {
     if (sounds.length != soundN || soundN <= 0) return null;
+    final lined = tops.length == soundN;
     for (var i = 0; i < soundN; i++) {
-      _streak[i] =
-          soundClears(sounds[i], bar: bar, line: line) ? 0 : _streak[i] + 1;
+      _streak[i] = soundClears(
+        sounds[i],
+        top: lined ? tops[i] : const [],
+        bar: bar,
+        line: line,
+      )
+          ? 0
+          : _streak[i] + 1;
     }
     return _openNext();
   }
 
   /// Call after a sound-drill try with that one sound's score.
-  int? afterSound(double score) {
+  int? afterSound(double score, {List<SoundTop> top = const []}) {
     final i = drilling;
     if (i == null) return null;
     drillTries += 1;
-    if (soundClears(score, bar: bar, line: line) ||
+    if (soundClears(score, top: top, bar: bar, line: line) ||
         drillTries >= kMissReviewSoundTries) {
       _streak[i] = 0;
       return _openNext();

@@ -146,6 +146,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   /// part to aim at on the *first* try rather than after missing again.
   List<double> _reviewSounds = const [];
 
+  /// design/388 — stage one's pairs for [_reviewSounds], same order.
+  List<List<SoundTop>> _reviewTops = const [];
+
   /// design/384 - which sound the speaker is aiming at, when inside a drill.
   int? _reviewFocusSound;
   final Map<int, MissReviewLadder> _reviewLadders = {};
@@ -1919,6 +1922,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       _reviewWord = null;
       _reviewDrillPhones = const [];
       _reviewSounds = const [];
+      _reviewTops = const [];
       _judgmentBurst = null;
     });
     try {
@@ -2099,6 +2103,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         _reviewSounds = item.sounds.length == phoneSymbols(shown).length
             ? item.sounds
             : const <double>[];
+        _reviewTops = item.tops.length == _reviewSounds.length
+            ? item.tops
+            : const <List<SoundTop>>[];
       });
     }
     _noteCycleStep(
@@ -2188,7 +2195,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       wordIndex,
       () => MissReviewLadder(soundN: symbols.length, line: line, bar: bar),
     );
-    var soundI = lad.afterWord(_reviewSounds);
+    var soundI = lad.afterWord(_reviewSounds, tops: _reviewTops);
     while (soundI != null && _reviewAlive(token)) {
       if (mounted) setState(() => _reviewFocusSound = soundI);
       final played = await _playReviewWord(
@@ -2210,7 +2217,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         soundI: soundI,
       );
       final score = soundI < _reviewSounds.length ? _reviewSounds[soundI] : 0.0;
-      soundI = lad.afterSound(score);
+      final top = _reviewTops.length == _reviewSounds.length &&
+              soundI < _reviewTops.length
+          ? _reviewTops[soundI]
+          : const <SoundTop>[];
+      soundI = lad.afterSound(score, top: top);
     }
     if (mounted) setState(() => _reviewFocusSound = null);
   }
@@ -2289,8 +2300,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       final mineEach = parseSlotSounds(widget.client.lastSlotEach, slotN: 1);
       final gotEach = mineEach.isEmpty ? const <double>[] : mineEach.first;
       final saidRow = parseSlotSaid(widget.client.lastSlotSaid, slotN: 1);
+      final mineTops = parseSlotTops(widget.client.lastSlotTop, slotN: 1);
+      final gotTops = mineTops.isEmpty || mineTops.first.length != gotEach.length
+          ? const <List<SoundTop>>[]
+          : mineTops.first;
       final adjusted = twoGateWordScore(
         probs: gotEach,
+        tops: gotTops,
         soundN: phoneSymbols(targetPhone).length,
         said: saidRow.length == 1 ? saidRow.first : -1,
         bar: bar,
@@ -2307,7 +2323,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       // (noteMissReview never does).
       if (soundI != null) {
         matched = soundI < gotEach.length &&
-            soundClears(gotEach[soundI], bar: bar, line: line);
+            soundClears(
+              gotEach[soundI],
+              top: soundI < gotTops.length ? gotTops[soundI] : const [],
+              bar: bar,
+              line: line,
+            );
       }
       final drill = matched
           ? const <String>[]
@@ -2327,10 +2348,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           _reviewHeardPhone = heardPhone;
           _reviewDrillPhones = drill;
           // design/384 - this re-read's own sounds now, not the sentence's.
-          final got = gotEach.length == phoneSymbols(targetPhone).length
-              ? gotEach
-              : _reviewSounds;
-          _reviewSounds = got;
+          final fresh = gotEach.length == phoneSymbols(targetPhone).length;
+          _reviewSounds = fresh ? gotEach : _reviewSounds;
+          if (fresh) _reviewTops = gotTops;
         });
       }
       await _skill.noteMissReview(
@@ -3027,6 +3047,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                                                         phone:
                                                             _reviewTargetPhone,
                                                         sounds: _reviewSounds,
+                                                        tops: _reviewTops,
                                                         line: _skill.store.state
                                                             .line
                                                             .lineOr(

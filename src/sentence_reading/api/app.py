@@ -284,7 +284,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.427",
+    version="0.3.428",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -3226,7 +3226,12 @@ def _slot_certainty(
 
     design/384 - `slot_each` is every sound on its own, words barred apart. A
     word score cannot say *which* sound was missing, and that is the one thing a
-    speaker about to re-read the word needs to know.
+    speaker about to re-read the word needs to know. design/388 made it the
+    overlap of the two spreads.
+
+    design/388 - `slot_top` is the phone's first gate: per sound, every native
+    symbol at 20% or more as `native:reader` percents, spaced. Sounds are comma
+    separated and words barred, so an empty sound is an empty field.
 
     Never raises. A missing answer leaves the rows empty and the code says why,
     and the phone then falls back to the rule it shipped with.
@@ -3237,6 +3242,7 @@ def _slot_certainty(
         "slot_floor": "",
         "slot_said": "",
         "slot_each": "",
+        "slot_top": "",
     }
     groups_raw = [g.strip() for g in (target_phones or "").split("|")]
     if not any(groups_raw):
@@ -3266,11 +3272,13 @@ def _slot_certainty(
     # design/384 - sounds inside a word are spaced, words are barred. A word the
     # model knows no sound for is one dash, so the bars still count the words.
     each: list[str] = []
+    tops: list[str] = []
     for one in got:
         if not one:
             for key in keys:
                 rows[key].append("-")
             each.append("-")
+            tops.append("-")
             continue
         rows["slot_sym"].append(f"{round(100 * one['sym'])}")
         rows["slot_sure"].append(f"{round(100 * one['sure'])}")
@@ -3280,9 +3288,19 @@ def _slot_certainty(
         # with no sound at all: the bars have to keep counting the words.
         mine = one.get("each") or []
         each.append(" ".join(f"{round(100 * v)}" for v in mine) or "-")
+        top = one.get("top")
+        tops.append(
+            ",".join(
+                " ".join(f"{round(100 * a)}:{round(100 * b)}" for a, b in sound)
+                for sound in top
+            )
+            if isinstance(top, list) and len(top) == len(mine)
+            else "-"
+        )
     return {
         **{k: " ".join(v) for k, v in rows.items()},
         "slot_each": "|".join(each),
+        "slot_top": "|".join(tops),
         "sure_code": "ok",
     }
 
@@ -3303,9 +3321,9 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
     # them here keeps the answer lined up with the phone's own slots by
     # construction, and costs a few hundred characters.
     target_phones: str = Form(""),
-    # design/386 — symbols the native sound kept at 30% or above, one slot per
-    # reference sound. Words barred apart like target_phones, sounds comma
-    # separated. Empty means the phone is still holding an older reference.
+    # design/388 — the native spread of each reference sound, one slot per
+    # sound. Words barred apart like target_phones, sounds comma separated.
+    # Empty means the phone is still holding an older reference.
     target_shares: str = Form(""),
 ) -> dict:
     """연습 오디오 → 발음 기호 (CTC). 전사·점수 없음 (design/370)."""

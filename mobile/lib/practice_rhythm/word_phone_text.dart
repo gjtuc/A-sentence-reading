@@ -153,6 +153,9 @@ List<TextSpan> reviewSoundSpans({
   required List<double> sounds,
   required double line,
   double bar = 1.0,
+  // design/388 — stage one's pairs, same order as [sounds]. Not lined up and
+  // every sound is judged by the line alone.
+  List<List<SoundTop>> tops = const [],
   required Color weak,
   required Color strong,
 }) {
@@ -164,8 +167,14 @@ List<TextSpan> reviewSoundSpans({
     return [TextSpan(text: phone.trim(), style: TextStyle(color: strong))];
   }
   final out = <TextSpan>[];
+  final lined = tops.length == sounds.length;
   for (var i = 0; i < symbols.length; i++) {
-    final low = !soundClears(sounds[i], bar: bar, line: line);
+    final low = !soundClears(
+      sounds[i],
+      top: lined ? tops[i] : const [],
+      bar: bar,
+      line: line,
+    );
     out.add(TextSpan(
       text: symbols[i],
       style: TextStyle(

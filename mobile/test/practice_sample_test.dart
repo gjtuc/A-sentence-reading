@@ -274,6 +274,7 @@ void main() {
       'line_avg': 7.5,
       'line_var': -3.0,
       'line_n': -9,
+      'line_unit': kPassLineUnit,
     });
     expect(bad.line.avg, 1.0);
     expect(bad.line.varp, 0.0);

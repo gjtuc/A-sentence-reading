@@ -25,11 +25,14 @@ _LOAD_FAIL = ""
 # Total convolution stride is 320 samples at 16 kHz, so a frame is 20 ms. The
 # reference cut needs this to turn a mark time into a frame number.
 FRAME_MS = 20
-# design/386 — a native sound keeps every symbol at or above this share of the
-# softmax, blank left out. The reader's sound matches only when it clears the
-# same line on every one of them. 0.30 is the owner's number; it is in the
-# reference cache key so an older reference is not scored as if it knew this.
-SHARE_MIN = 0.30
+# design/388 — a native sound is kept as its whole spread over the symbols:
+# blank left out and the rest scaled to 1. A symbol under SHARE_TAIL of that is
+# dropped and the rest scaled to 1 again, so a stored sound is a few symbols and
+# not 391. It is in the reference cache key so an older reference is rebuilt.
+SHARE_TAIL = 0.01
+# design/388 — the lowest difficulty bar. Stage one only ever asks about a
+# native symbol at or above the bar, so nothing under this is sent back.
+TOP_MIN = 0.20
 _FRAME_READY = False
 _EXTRACTOR = None
 _INV: dict[int, str] = {}
@@ -331,24 +334,66 @@ def phone_frames(pcm) -> list[dict[str, object]]:
         sym = _INV.get(int(tid), "")
         if not sym:
             continue
-        # design/386 — every symbol this stretch gives at least SHARE_MIN,
-        # blank excluded. The winner alone cannot say the native was split.
+        # design/388 — the whole spread this stretch gives the symbols. The
+        # winner alone cannot say the native was split.
         avg = probs[f0:frame].mean(dim=0)
-        hot: list[tuple[float, str]] = []
-        for i, name in _INV.items():
-            if i == _PAD or not name:
-                continue
-            p = float(avg[i])
-            if p >= SHARE_MIN:
-                hot.append((p, name))
-        hot.sort(reverse=True)
         out.append({
             "sym": sym,
             "f0": f0,
             "f1": frame,
-            "share": [name for _p, name in hot],
+            "share": native_spread({
+                name: float(avg[i])
+                for i, name in _INV.items()
+                if i != _PAD and name
+            }),
         })
     return out
+
+
+def native_spread(probs: dict[str, float]) -> list[tuple[str, float]]:
+    """design/388 — blank already out, scaled to 1, the tail cut, scaled again.
+
+    Largest first. Empty when nothing but the blank had any probability.
+    """
+    total = sum(p for p in probs.values() if p > 0)
+    if total <= 0:
+        return []
+    kept = [(name, p / total) for name, p in probs.items() if p / total >= SHARE_TAIL]
+    rest = sum(p for _name, p in kept)
+    if rest <= 0:
+        return []
+    kept = [(name, p / rest) for name, p in kept]
+    kept.sort(key=lambda one: (-one[1], one[0]))
+    return kept
+
+
+def spread_text(spread: list[tuple[str, float]]) -> str:
+    """`ɛ=37 æ=63` — whole percents. `=` because the vocabulary holds `u:`."""
+    return " ".join(f"{name}={round(100 * p)}" for name, p in spread)
+
+
+def parse_spread(raw: str) -> dict[str, float] | None:
+    """The stored spread scaled back to 1, or None for a slot written before it.
+
+    A design/386 slot is bare symbols with no `=`, which only says which symbols
+    cleared 30% and not how much each had.
+    """
+    out: dict[str, float] = {}
+    for piece in (raw or "").split():
+        name, eq, pct = piece.rpartition("=")
+        if not eq or not name:
+            return None
+        try:
+            val = float(pct)
+        except ValueError:
+            return None
+        if val < 0:
+            return None
+        out[name] = out.get(name, 0.0) + val
+    total = sum(out.values())
+    if total <= 0:
+        return None
+    return {name: val / total for name, val in out.items()}
 
 
 def phones_of(frames: list[dict[str, object]]) -> str:
@@ -393,57 +438,64 @@ def _said_between(top: list[int], lo: int, hi: int) -> int:
     return seen
 
 
-def _mean_prob(sheet: object, tid: int, lo: int, hi: int) -> float:
-    """Mean probability of one symbol over frames [lo, hi). The sheet is log-softmax."""
+def _mean_probs(
+    rows: list[list[float]], cols: list[int], lo: int, hi: int
+) -> list[float]:
+    """Mean probability of each column over frames [lo, hi). Rows are log-softmax."""
     import math
 
-    col = [row[0] for row in sheet[:, [tid]].tolist()]
+    lo, hi = max(0, lo), min(hi, len(rows))
     if hi <= lo:
-        return 0.0
-    total = 0.0
-    n = 0
-    for t in range(max(0, lo), min(hi, len(col))):
-        total += math.exp(col[t])
-        n += 1
-    return total / n if n else 0.0
+        return [0.0] * len(cols)
+    out = []
+    for c in cols:
+        out.append(sum(math.exp(rows[t][c]) for t in range(lo, hi)) / (hi - lo))
+    return out
 
 
 def parse_share_groups(
     raw: str, groups: list[list[str]]
-) -> list[list[list[str]]] | None:
-    """design/386 — one required-symbol list per reference sound.
+) -> list[list[dict[str, float] | None]] | None:
+    """design/388 — the native spread of every reference sound.
 
     Words are barred apart, the same way `target_phones` is. Sounds inside a
-    word are comma-separated, symbols inside a sound are spaced. A sound with
-    no symbol at SHARE_MIN is an empty slot, and that sound cannot match.
-    A row that does not have one slot per reference sound is refused whole.
+    word are comma-separated, `symbol=percent` pairs inside a sound are spaced.
+    A slot written before design/388 comes back None and is scored as the stored
+    symbol alone. A row that does not have one slot per reference sound is
+    refused whole: a slot out of step would judge one sound by its neighbour's.
     """
     parts = [one.strip() for one in (raw or "").split("|")]
     if len(parts) != len(groups):
         return None
-    out: list[list[list[str]]] = []
+    out: list[list[dict[str, float] | None]] = []
     for part, group in zip(parts, groups):
         slots = part.split(",") if part else []
         if len(slots) != len(group):
             return None
-        out.append([slot.split() for slot in slots])
+        out.append([parse_spread(slot) for slot in slots])
     return out
 
 
 def sound_score_of(
     sheet: object,
     groups: list[list[str]],
-    shares: list[list[list[str]]] | None = None,
-) -> list[dict[str, float | list[float]] | None] | None:
-    """design/382·386 — matches over the longer of the two sides.
+    shares: list[list[dict[str, float] | None]] | None = None,
+) -> list[dict[str, object] | None] | None:
+    """design/382·388 — how far each reference sound's two spreads overlap.
 
-    A reference sound matches when every symbol the native reading kept at
-    SHARE_MIN or above is also at SHARE_MIN on the reader, in the frames that
-    sound landed on. Blank is not a symbol. Without a share row, each stored
-    symbol is its own required set: that is an older reference, which only
-    kept the winner.
+    The native spread comes with the reference. The reader's is the mean over
+    the frames that sound landed on, blank left out and scaled to 1 the same
+    way. Their overlap is the sum, symbol by symbol, of the smaller of the two.
+    A sound whose frames the model read as nothing but blank overlaps 0:
+    scaling a near-silent stretch to 1 would otherwise hand it a full spread.
+    Without a share row the stored symbol is the whole native spread, which is
+    what an older reference knew.
 
-    The divisor is the longer of the reference and what the reader actually
+    `top` is every native symbol at TOP_MIN or above with the reader's share of
+    it, for the phone's first gate. The bar is the phone's, so it is applied
+    there.
+
+    `sym` divides by the longer of the reference and what the reader actually
     said, so a reader who says every reference sound and then one more scores
     n/(n+1) rather than n/n.
 
@@ -466,13 +518,11 @@ def sound_score_of(
     wanted = sorted({tid for group in as_ids for tid in group} | {_PAD})
     if len(wanted) <= 1:
         return None
-    column = {tid: i for i, tid in enumerate(wanted)}
-    flat: list[int] = []
+    flat_sym: list[str] = []
     owner: list[int] = []
     # None means this reference has no share row, so the stored symbol is the
-    # whole of what the sound requires. An empty list means the native sound
-    # kept nothing at SHARE_MIN, and that sound does not match.
-    req_for: list[tuple[str, list[str] | None]] = []
+    # whole native spread.
+    native_for: list[dict[int, float]] = []
     for i, group in enumerate(groups):
         word_share = shares[i] if shares is not None and i < len(shares) else None
         slot_i = 0
@@ -485,9 +535,21 @@ def sound_score_of(
             slot_i += 1
             if sym not in ids:
                 continue
-            flat.append(column[ids[sym]])
+            spread = {} if slot is None else {
+                ids[name]: p for name, p in slot.items() if name in ids
+            }
+            if not spread:
+                spread = {ids[sym]: 1.0}
+            flat_sym.append(sym)
             owner.append(i)
-            req_for.append((sym, slot))
+            native_for.append(spread)
+    # The spreads name symbols the reference itself never says, and the
+    # reader's share of each of those is read off the same frames.
+    wanted = sorted(
+        set(wanted) | {tid for one in native_for for tid in one}
+    )
+    column = {tid: i for i, tid in enumerate(wanted)}
+    flat = [column[ids[sym]] for sym in flat_sym]
     try:
         # Only the columns this sentence can use, for the alignment -- the full
         # sheet is hundreds of frames by four hundred sounds and Python walks it
@@ -502,7 +564,8 @@ def sound_score_of(
         return None
     mine = [[k for k, w in enumerate(owner) if w == i]
             for i in range(len(groups))]
-    out: list[dict[str, float | list[float]] | None] = []
+    blank_col = column[_PAD]
+    out: list[dict[str, object] | None] = []
     for i, keys in enumerate(mine):
         if not keys:
             out.append(None)
@@ -523,31 +586,49 @@ def sound_score_of(
             # Widening here would charge this word for that word's audio.
             hi = spans[keys[-1]][1]
         said = _said_between(top, lo, hi)
-        flags: list[float] = []
-        # design/387 — the lowest required symbol, not a 0/1. The phone applies
-        # the difficulty bar and then the account line. Folding either in here
-        # would bake one rung's leniency into the number the line learns from.
-        raws: list[float] = []
+        # design/388 — the overlap, not a 0/1. The phone applies the difficulty
+        # bar and then the account line. Folding either in here would bake one
+        # rung's leniency into the number the line learns from.
+        each: list[float] = []
+        loose: list[float] = []
+        tops: list[list[tuple[float, float]]] = []
+        quiet: list[int] = []
         for k in keys:
-            sym, slot = req_for[k]
-            req = [sym] if slot is None else slot
+            native = native_for[k]
             lo_s, hi_s = spans[k][0], spans[k][1]
-            probs = []
-            for one in req:
-                tid = ids.get(one)
-                probs.append(0.0 if tid is None else _mean_prob(sheet, tid, lo_s, hi_s))
-            low = min(probs) if probs else 0.0
-            raws.append(low)
-            flags.append(1.0 if probs and low >= SHARE_MIN else 0.0)
-        n = len(flags)
-        mean = sum(flags) / n
+            tids = sorted(native)
+            got = _mean_probs(rows, [column[t] for t in tids] + [blank_col], lo_s, hi_s)
+            rest = 1.0 - got[-1]
+            mine_share = {
+                t: (p / rest if rest > 1e-9 else 0.0) for t, p in zip(tids, got)
+            }
+            hush = _said_between(top, lo_s, hi_s) == 0
+            if hush:
+                heard = {t: 0.0 for t in tids}
+            else:
+                heard = mine_share
+            overlap = sum(min(native[t], heard[t]) for t in tids)
+            each.append(min(1.0, overlap))
+            loose.append(min(1.0, sum(min(native[t], mine_share[t]) for t in tids)))
+            quiet.append(1 if hush else 0)
+            tops.append([
+                (native[t], heard[t])
+                for t in sorted(tids, key=lambda t: -native[t])
+                if native[t] >= TOP_MIN - 1e-9
+            ])
+        n = len(each)
+        mean = sum(each) / n
         out.append({
             "sure": mean,
-            "low": min(flags),
+            "low": min(each),
             "n": float(n),
             "said": float(said),
             "sym": mean * n / max(n, said),
-            "each": raws,
+            "each": each,
+            "top": tops,
+            # Not sent. Kept so a probe can say what the silence guard changed.
+            "loose": loose,
+            "quiet": quiet,
         })
     return out
 

@@ -13,12 +13,18 @@ library;
 
 import 'dart:math' as math;
 
-/// How much of each new word is taken into the average.
+/// design/388 — the line's samples are sounds, and a judged word holds this
+/// many on average over the 2,924 words of real reading
+/// (scripts/spread_overlap_probe.py). The weight and the warm-up below are
+/// counted in sounds so that they stay the same in words.
+const double kPassLineSoundsPerWord = 5.73;
+
+/// How much of each new sound is taken into the average: 1% per word.
 ///
-/// Small on purpose. At 1% the last 300 words carry 95% of the average, which
-/// measured the same as keeping an explicit window of the last 300 and costs
-/// three numbers instead of three hundred.
-const double kPassLineWeight = 0.01;
+/// Small on purpose. At 1% a word, the last 300 words carry 95% of the average,
+/// which measured the same as keeping an explicit window of the last 300 and
+/// costs three numbers instead of three hundred.
+const double kPassLineWeight = 0.01 / kPassLineSoundsPerWord;
 
 /// How far below the average the line sits, counted in spreads.
 ///
@@ -31,31 +37,40 @@ const double kPassLineOffset = -0.75;
 ///
 /// Without this a broken microphone teaches the account that 0.1 is normal, the
 /// line follows it down, and the app starts passing everything while telling the
-/// reader they are doing fine. Measured over real reading this never once bound,
-/// so it costs nothing and only catches the case where something is wrong.
+/// reader they are doing fine. Over the design/371 word overlap it never once
+/// bound. design/388 — over the spread overlap of single sounds it usually
+/// does: a sound mostly lands near 0 or near 1, so the spread is wide and the
+/// formula falls under it.
 const double kPassLineFloor = 0.45;
 
-/// The line to judge by before the account has one of its own. design/375.
+/// The line to judge by before the account has one of its own. design/375·388.
 ///
 /// Not a number chosen on its own. It is [kPassLineOffset] spreads below the
 /// average — the same formula the account uses — with the population's numbers
-/// standing in for the account's: mean 0.747, spread 0.230 over all 2,919 words
-/// of real reading the scorer could ask about. Measured without looking at any
-/// label, so it is a description of how this scorer scores, not a fit to what
-/// anyone decided was right.
+/// standing in for the account's: mean 0.680, spread 0.370 over all 16,759
+/// sounds of real reading the scorer could ask about, each one's spread
+/// overlap. That is 0.403, under [kPassLineFloor], so the floor is the line,
+/// exactly as it would be for an account reading like that. Measured without
+/// looking at any label, so it is a description of how this scorer scores,
+/// not a fit to what anyone decided was right.
 ///
-/// The 0.72 this replaces was design/366's answer to a different question — how
-/// close two different words are allowed to sound — and as a pass line it sent
-/// 38% of correctly-read words to practice. That made the first forty words of
-/// an account the hardest it would ever be judged, which is the wrong forty to
-/// be hardest on, and a reader who had just arrived said so.
-const double kPassLineCold = 0.57;
+/// design/375's 0.57 was the same formula over the design/371 word overlap, a
+/// different number; carried over it would have judged a spread overlap by
+/// another ruler's average.
+const double kPassLineCold = 0.45;
 
-/// Words needed before the account's own line is trusted.
+/// design/388 — what the samples behind a stored line are: one sound's spread
+/// overlap each. A line stored under any other unit is dropped rather than
+/// carried, because an average of design/386 match fractions says nothing about
+/// where an overlap should be cut.
+const int kPassLineUnit = 388;
+
+/// Sounds needed before the account's own line is trusted: forty words at
+/// [kPassLineSoundsPerWord].
 ///
 /// Under this the fixed line is used, because an average over a handful of words
 /// is mostly the accident of which words they were.
-const int kPassLineWarmup = 40;
+const int kPassLineWarmup = 229;
 
 /// An account's average score and spread, and how many words are behind them.
 ///
@@ -79,12 +94,13 @@ class PassLine {
       ? math.max(avg + kPassLineOffset * spread, kPassLineFloor)
       : cold;
 
-  /// This account after one more word.
+  /// This account after one more sound. design/388.
   ///
   /// The weight is `1/n` while n is small, which makes the early average a plain
-  /// running mean, and it slides into the 1% moving average on its own once n
-  /// passes a hundred. Seeding the moving average with a single word instead
-  /// would leave that one word steering the line for the next three hundred.
+  /// running mean, and it slides into the moving average on its own once n
+  /// passes `1/kPassLineWeight`, a hundred words. Seeding the moving average
+  /// with a single sound instead would leave it steering the line for the next
+  /// three hundred words.
   PassLine after(double score) {
     final next = n + 1;
     if (next == 1) return PassLine(avg: score, varp: 0, n: 1);

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/practice_rhythm/follow_span.dart';
 import 'package:sentence_reading/practice_skill/chunk_density.dart';
@@ -332,7 +334,13 @@ void main() {
     final cache = SpokenCache();
     const chunk = 'The film grew.';
     cache.put(chunk, 'The film grew.', spans: const [
-      FollowSpan(start: 4, end: 8, weight: 4, phone: 'f i l m'),
+      FollowSpan(
+        start: 4,
+        end: 8,
+        weight: 4,
+        phone: 'f i l m',
+        share: 'f=100,i=100,l=100,m=100',
+      ),
     ]);
     expect(cache.phoneSpanN(chunk), 1);
     expect(cache.lacksSound(chunk), isFalse);
@@ -416,15 +424,17 @@ void main() {
       ['film', 5, 'f i l m'],
       ['grew', 4, 'g r uu'],
     ]);
-    // grew read as grow: some sounds land, not enough for the fixed line.
-    const heard = ['f i l m g r oo'];
+    // film read with the wrong last sound: three of four land. design/388 —
+    // this ruler is never judged under kWordOverlapLine, so the loose line is
+    // that floor rather than anything lower.
+    const heard = ['f i l n g r oo'];
     final strict = diagnoseSpokenSlots(
       display: 'The film grew', spoken: 'The film grew',
       spans: spans, heardPhones: heard, passLine: 0.99,
     );
     final loose = diagnoseSpokenSlots(
       display: 'The film grew', spoken: 'The film grew',
-      spans: spans, heardPhones: heard, passLine: 0.1,
+      spans: spans, heardPhones: heard, passLine: kWordOverlapLine,
     );
     expect(loose.score.hitN, greaterThan(strict.score.hitN));
   });
@@ -523,7 +533,13 @@ void main() {
     final cache = SpokenCache();
     const chunk = 'Chemical vapor deposition';
     cache.put(chunk, 'Chemical vapor deposition', spans: const [
-      FollowSpan(start: 0, end: 8, weight: 8, phone: 'k ɛ m ɪ k ə l'),
+      FollowSpan(
+        start: 0,
+        end: 8,
+        weight: 8,
+        phone: 'k ɛ m ɪ k ə l',
+        share: 'k=100,ɛ=100,m=100,ɪ=100,k=100,ə=100,l=100',
+      ),
     ]);
     expect(cache.staleSpanN(chunk), 0);
     expect(cache.lacksSound(chunk), isFalse);
@@ -536,7 +552,13 @@ void main() {
     // still has to be replaced; scoring the good half would report the rest as
     // misread words the speaker never got wrong.
     cache.put(chunk, 'Chemical vapor deposition', spans: const [
-      FollowSpan(start: 0, end: 8, weight: 8, phone: 'k ɛ m ɪ k ə l'),
+      FollowSpan(
+        start: 0,
+        end: 8,
+        weight: 8,
+        phone: 'k ɛ m ɪ k ə l',
+        share: 'k=100,ɛ=100,m=100,ɪ=100,k=100,ə=100,l=100',
+      ),
       FollowSpan(start: 9, end: 14, weight: 5, phone: 'vˈe‍ɪp'),
     ]);
     expect(cache.phoneSpanN(chunk), 2);
@@ -601,7 +623,7 @@ void main() {
     // The ask the server answered. Having the sounds ends it well short of the
     // cap, which is the normal path and must not cost the remaining calls.
     cache.put(chunk, 'The film grew.', spans: const [
-      FollowSpan(start: 0, end: 3, weight: 3, phone: 'd i'),
+      FollowSpan(start: 0, end: 3, weight: 3, phone: 'd i', share: 'd=100,i=100'),
     ], soundRefCode: 'ready');
     expect(cache.lacksSound(chunk), isFalse);
     expect(cache.askN(chunk), 1);
@@ -619,19 +641,6 @@ void main() {
     cache.setSpeakNorm('v11');
     expect(cache.refCode(chunk), '');
     expect(cache.askN(chunk), 0);
-  });
-
-  test('design/375 the cold line is the formula with the population numbers', () {
-    // Overlap over all 2,919 words of real reading the scorer could ask about,
-    // measured without looking at a label: scripts/token_units_probe.py.
-    const mean = 0.747;
-    const spread = 0.230;
-    const fromFormula = mean + kPassLineOffset * spread;
-    // The floor is for a broken microphone, and a whole population is not one.
-    expect(fromFormula, greaterThan(kPassLineFloor));
-    // Tying the constant to the measurement means moving it needs the
-    // measurement redone rather than a number someone liked better.
-    expect(kPassLineCold, closeTo(fromFormula, 0.005));
   });
 
   test('design/375 a fresh account is judged by the cold line', () {
@@ -663,31 +672,6 @@ void main() {
     }
     expect(line.warm, isTrue);
     expect(line.lineOr(kPassLineCold), closeTo(0.90, 1e-6));
-  });
-
-  test('design/375 the warm-up length is a chosen number the measurement allows',
-      () {
-    // 40 was never measured. scripts/warmup_probe.py measured it after the fact,
-    // label-free: 2,924 judged words shuffled 400 ways, asking how far apart the
-    // lines sit at each n. There is no knee -- the disagreement falls smoothly
-    // from +-0.117 at n=5 to a floor of +-0.020 -- so no n is the right one and
-    // these bounds are the band where the answer stops being obviously wrong.
-    const agreeWithinFive = 28;
-    const agreeWithinThree = 86;
-    expect(kPassLineWarmup, greaterThanOrEqualTo(agreeWithinFive));
-    expect(kPassLineWarmup, lessThan(agreeWithinThree));
-  });
-
-  test('design/375 the handover is flat, which is why 40 need not be exact', () {
-    // The account's own line at the warm-up point, median over those 400
-    // orderings. It sits almost exactly on the cold line, so crossing over is
-    // not an event the reader can feel.
-    const ownLineAtWarmup = 0.574;
-    expect((ownLineAtWarmup - kPassLineCold).abs(), lessThan(0.02));
-    // Under design/371's 0.72 this gap was 0.15, and that cliff is the bug
-    // design/375 fixed. If anyone raises the cold line again, this fails and
-    // says why rather than waiting for a reader to notice.
-    expect(kPassLineCold, lessThan(ownLineAtWarmup + 0.02));
   });
 
   test('design/377 the closeness string lines up with the hit marks', () {
@@ -854,17 +838,6 @@ void main() {
     expect(asked.length, out.slotHits.length);
   });
 
-  test('design/387 the first rung is 20 percent and the last is 70', () {
-    expect(skillDifficultyBar(tier: 0, density: 2), closeTo(0.20, 1e-9));
-    expect(skillDifficultyBar(tier: 9, density: -2), closeTo(0.70, 1e-9));
-  });
-
-  test('design/387 a sound under 30 percent still passes an easy rung', () {
-    expect(soundClears(0.25, bar: 0.20, line: 0.57), isTrue);
-    expect(soundClears(0.25, bar: 0.70, line: 0.57), isFalse);
-    expect(soundClears(0.60, bar: 0.70, line: 0.57), isTrue);
-  });
-
   test('design/387 ten sounds at 40 percent fail the hard bar and the line', () {
     final score = twoGateWordScore(
       probs: List<double>.filled(10, 0.40),
@@ -920,5 +893,177 @@ void main() {
       slotSharesFor(display: display, spoken: spoken, spans: missing),
       isEmpty,
     );
+  });
+
+  test('design/388 the bar is 20 plus the rung, in percent', () {
+    expect(skillDifficultyBar(tier: 0, density: 2), closeTo(0.21, 1e-9));
+    expect(skillDifficultyBar(tier: 4, density: -2), closeTo(0.45, 1e-9));
+    expect(skillDifficultyBar(tier: 9, density: -2), closeTo(0.70, 1e-9));
+  });
+
+  test('design/388 one native symbol over the bar decides stage one', () {
+    // Native a 60, b 10, c 15, d 15 at rung 25. Only a is at 20% or more.
+    const bar = 0.45;
+    const line = 0.57;
+    expect(
+      soundClears(0.30, top: const [SoundTop(0.60, 0.50)], bar: bar, line: line),
+      isTrue,
+    );
+    // Under the bar on a: stage two, the overlap against the line.
+    expect(
+      soundClears(0.30, top: const [SoundTop(0.60, 0.30)], bar: bar, line: line),
+      isFalse,
+    );
+    expect(
+      soundClears(0.60, top: const [SoundTop(0.60, 0.30)], bar: bar, line: line),
+      isTrue,
+    );
+  });
+
+  test('design/388 no native symbol at the bar goes straight to the line', () {
+    // Native a, b, c, d at 25% each. Nothing reaches 45%, so stage one has
+    // nothing to ask and the overlap decides.
+    const even = [
+      SoundTop(0.25, 0.50),
+      SoundTop(0.25, 0.50),
+      SoundTop(0.25, 0),
+      SoundTop(0.25, 0),
+    ];
+    expect(soundClears(0.50, top: even, bar: 0.45, line: 0.50), isTrue);
+    expect(soundClears(0.25, top: even, bar: 0.45, line: 0.50), isFalse);
+    expect(soundClears(0.40, top: even, bar: 0.45, line: 0.50), isFalse);
+  });
+
+  test('design/388 every native symbol at the bar has to be met', () {
+    const split = [SoundTop(0.50, 0.70), SoundTop(0.46, 0.20)];
+    expect(soundClears(0.40, top: split, bar: 0.45, line: 0.57), isFalse);
+    // Both met: stage one passes however small the overlap came out.
+    const both = [SoundTop(0.50, 0.50), SoundTop(0.46, 0.46)];
+    expect(soundClears(0.10, top: both, bar: 0.45, line: 0.57), isTrue);
+  });
+
+  test('design/388 no pairs at all is the line alone', () {
+    expect(soundClears(0.25, bar: 0.21, line: 0.57), isFalse);
+    expect(soundClears(0.60, bar: 0.70, line: 0.57), isTrue);
+  });
+
+  test('design/388 the pair row lines up or is refused whole', () {
+    final got = parseSlotTops('95:90,60:30 30:10,|-', slotN: 2);
+    expect(got, hasLength(2));
+    expect(got[0], hasLength(3));
+    expect(got[0][0].single.native, closeTo(0.95, 1e-9));
+    expect(got[0][1], hasLength(2));
+    expect(got[0][1][1].reader, closeTo(0.10, 1e-9));
+    expect(got[0][2], isEmpty);
+    expect(got[1], isEmpty);
+    expect(parseSlotTops('95:90|-', slotN: 3), isEmpty);
+    expect(parseSlotTops('95-90|-', slotN: 2), isEmpty);
+    expect(parseSlotTops('95:190|-', slotN: 2), isEmpty);
+    expect(parseSlotTops('', slotN: 1), isEmpty);
+  });
+
+  test('design/388 pairs that do not line up leave the word to the line', () {
+    final score = twoGateWordScore(
+      probs: const [0.30, 0.30],
+      tops: const [
+        [SoundTop(0.9, 0.9)],
+      ],
+      soundN: 2,
+      said: 2,
+      bar: 0.45,
+      line: 0.57,
+    );
+    expect(score, 0);
+  });
+
+  test('design/388 the line learns each sound, not each word', () {
+    const display = 'The film grew thin fast';
+    final spans = _spans(display, [
+      ['The', 4, 'd i'],
+      ['film', 5, 'f i l m'],
+      ['grew', 4, 'g r uu'],
+      ['thin', 5, 'th i n'],
+      ['fast', 4, 'f aa s t'],
+    ]);
+    final out = diagnoseSpokenSlots(
+      display: display,
+      spoken: display,
+      spans: spans,
+      passLine: 0.60,
+      soundScores: parseSlotScores('99 91 40 88 20', slotN: 5),
+      soundEach: parseSlotSounds(
+        '99 99|90 91 92 93|40 41 42|88 87 86|20 21 22 23',
+        slotN: 5,
+      ),
+    );
+    // The is under the floor. The other four hold 4 + 3 + 3 + 4 sounds.
+    expect(out.wordScores, hasLength(14));
+    expect(out.wordScores.first, closeTo(0.90, 1e-9));
+    expect(out.wordScores.last, closeTo(0.23, 1e-9));
+  });
+
+  test('design/388 a line stored under another unit starts cold', () {
+    final old = SkillState.fromJson({
+      'line_avg': 0.8,
+      'line_var': 0.01,
+      'line_n': 500,
+    });
+    expect(old.line.n, 0);
+    final kept = SkillState.fromJson({
+      'line_avg': 0.8,
+      'line_var': 0.01,
+      'line_n': 500,
+      'line_unit': kPassLineUnit,
+    });
+    expect(kept.line.n, 500);
+    expect(SkillState.fromJson(kept.toJson()).line.n, 500);
+  });
+
+  test('design/388 sounds with no native spread beside them are stale', () {
+    expect(spreadMissing('f i l m', ''), isTrue);
+    expect(spreadMissing('f i l m', 'f,i,l,m'), isTrue);
+    expect(spreadMissing('f i l m', 'f=100,i=100,l=100,m=100'), isFalse);
+    expect(spreadMissing('', ''), isFalse);
+    final cache = SpokenCache();
+    const chunk = 'The film grew.';
+    cache.put(chunk, 'The film grew.', spans: const [
+      FollowSpan(start: 4, end: 8, weight: 4, phone: 'f i l m', share: 'f,i,l,m'),
+    ]);
+    expect(cache.staleSpanN(chunk), 1);
+    expect(cache.lacksSound(chunk), isTrue);
+  });
+
+  test('design/388 the cold line is the formula with the population numbers', () {
+    // Spread overlap over all 16,759 sounds of real reading the scorer could
+    // ask about, measured without looking at a label:
+    // scripts/spread_overlap_probe.py.
+    const mean = 0.680;
+    const spread = 0.370;
+    const fromFormula = mean + kPassLineOffset * spread;
+    // Single sounds land near 0 or near 1, so the formula is under the floor
+    // and the floor is the line, as it would be for an account reading so.
+    expect(fromFormula, lessThan(kPassLineFloor));
+    // Tying the constant to the measurement means moving it needs the
+    // measurement redone rather than a number someone liked better.
+    expect(kPassLineCold, closeTo(math.max(fromFormula, kPassLineFloor), 1e-9));
+  });
+
+  test('design/388 the warm-up is still forty words, counted in sounds', () {
+    // design/375's band, in words: scripts/warmup_probe.py found no knee, and
+    // under 28 or over 86 the answer is obviously wrong.
+    final words = kPassLineWarmup / kPassLineSoundsPerWord;
+    expect(words, closeTo(40, 0.5));
+    expect(words, greaterThanOrEqualTo(28));
+    expect(words, lessThan(86));
+    expect(kPassLineWeight * kPassLineSoundsPerWord, closeTo(0.01, 1e-12));
+  });
+
+  test('design/388 the handover is flat, which is why 40 need not be exact', () {
+    // The account's own line at the warm-up, median over 400 orderings of the
+    // same words. It sits on the cold line, so crossing over is not an event
+    // the reader can feel. If anyone raises the cold line, this says why.
+    const ownLineAtWarmup = 0.450;
+    expect((ownLineAtWarmup - kPassLineCold).abs(), lessThan(0.02));
+    expect(kPassLineCold, lessThan(ownLineAtWarmup + 0.02));
   });
 }

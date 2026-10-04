@@ -568,6 +568,9 @@ class AsrClient {
   /// design/384 — every reference sound's certainty, words barred
   /// apart and sounds inside a word spaced: `95 88 11|76 80|-`.
   String lastSlotEach = '';
+
+  /// design/388 — stage one's pairs: `95:88 30:4,60:61|-`, native then reader.
+  String lastSlotTop = '';
   String lastSureCode = 'none';
   int lastWaveformPhones = -1;
   int lastFillerDropped = -1;
@@ -2808,6 +2811,7 @@ throw AsrApiException(
     lastSlotSure = '${map['slot_sure'] ?? ''}'.trim();
     lastSlotSaid = '${map['slot_said'] ?? ''}'.trim();
     lastSlotEach = '${map['slot_each'] ?? ''}'.trim();
+    lastSlotTop = '${map['slot_top'] ?? ''}'.trim();
     lastSlotFloor = '${map['slot_floor'] ?? ''}'.trim();
     lastSureCode = '${map['sure_code'] ?? 'none'}'.trim();
     return lastHeardPhones.isEmpty ? null : lastHeardPhones;

@@ -183,23 +183,76 @@ def test_the_score_never_leaves_zero_to_one():
             assert one["sym"] <= one["sure"] + 1e-9
 
 
-def test_a_sound_matches_only_when_every_kept_symbol_clears():
-    """design/386 — the native kept two symbols, so one of them is not enough."""
-    solo = hw.sound_score_of(sheet_for([A, A]), [["a"]])
-    both = hw.sound_score_of(sheet_for([A, A]), [["a"]], [[["a", "b"]]])
-    empty = hw.sound_score_of(sheet_for([A, A]), [["a"]], [[[]]])
-    assert solo is not None and both is not None and empty is not None
-    # The row keeps the probability. 0.30 is only how slot_sym still counts a match.
-    assert solo[0]["each"][0] == pytest.approx(0.96, abs=0.02)
-    assert solo[0]["sym"] == pytest.approx(1.0)
-    assert both[0]["each"][0] < 0.30
-    assert both[0]["sym"] == 0.0
-    assert empty[0]["each"] == [0.0]
+def test_the_native_spread_is_blank_free_and_sums_to_one():
+    """design/388 — the tail under SHARE_TAIL goes, and the rest is scaled again."""
+    spread = hw.native_spread({"a": 0.30, "b": 0.10, "c": 0.001})
+    assert [name for name, _p in spread] == ["a", "b"]
+    assert sum(p for _n, p in spread) == pytest.approx(1.0)
+    assert spread[0][1] == pytest.approx(0.75)
+    assert hw.native_spread({"a": 0.0}) == []
+
+
+def test_a_spread_survives_the_wire_and_an_older_slot_does_not_pass_for_one():
+    text = hw.spread_text([("u:", 0.6), ("a", 0.4)])
+    assert text == "u:=60 a=40"
+    assert hw.parse_spread(text) == {"u:": pytest.approx(0.6), "a": pytest.approx(0.4)}
+    # design/386 kept bare symbols, which say nothing about how much each had.
+    assert hw.parse_spread("a b") is None
+    assert hw.parse_spread("") is None
 
 
 def test_a_share_row_that_does_not_line_up_is_refused():
-    assert hw.parse_share_groups("a,b", [["a"]]) is None
-    assert hw.parse_share_groups("a,b c", [["a", "b"]]) == [[["a"], ["b", "c"]]]
-    assert hw.parse_share_groups("a,,c", [["a", "b", "c"]]) == [
-        [["a"], [], ["c"]]
-    ]
+    assert hw.parse_share_groups("a=100,b=100", [["a"]]) is None
+    got = hw.parse_share_groups("a=100,b=50 c=50", [["a", "b"]])
+    assert got == [[{"a": 1.0}, {"b": 0.5, "c": 0.5}]]
+    # An older slot comes back None and is scored as the stored symbol.
+    assert hw.parse_share_groups("a,b=100", [["a", "b"]]) == [[None, {"b": 1.0}]]
+
+
+def rows_for(frames: list[dict[int, float]]) -> Sheet:
+    """One frame per entry, the probabilities given and 0.001 everywhere else."""
+    return Sheet([
+        [math.log(frame.get(tid, 0.001)) for tid in sorted(VOCAB)]
+        for frame in frames
+    ])
+
+
+def test_the_overlap_is_the_smaller_share_summed():
+    """design/388 — native a 50 b 50, reader only a: half of it is shared."""
+    split = {A: 0.5, B: 0.5}
+    got = hw.sound_score_of(
+        sheet_for([A, A]), [["a"]], [[{"a": 0.5, "b": 0.5}]]
+    )
+    assert got is not None
+    assert got[0]["each"][0] == pytest.approx(0.5, abs=0.02)
+    both = hw.sound_score_of(
+        rows_for([split, split]), [["a"]], [[{"a": 0.5, "b": 0.5}]]
+    )
+    assert both is not None
+    assert both[0]["each"][0] == pytest.approx(1.0, abs=0.02)
+
+
+def test_stage_one_gets_every_native_symbol_at_twenty_percent():
+    got = hw.sound_score_of(
+        sheet_for([A, A]), [["a"]], [[{"a": 0.6, "b": 0.25, "c": 0.15}]]
+    )
+    assert got is not None
+    top = got[0]["top"][0]
+    # Native largest first, and c under 20% is not sent at all.
+    assert [round(n, 2) for n, _r in top] == [0.6, 0.25]
+    assert top[0][1] == pytest.approx(0.97, abs=0.02)
+    assert top[1][1] < 0.05
+
+
+def test_a_sound_the_model_heard_only_as_blank_overlaps_nothing():
+    """Scaling a near-silent stretch to 1 would hand it a full spread."""
+    hush = {PAD: 0.90, B: 0.06}
+    got = hw.sound_score_of(rows_for([{A: 0.96}, {A: 0.96}, hush, hush]),
+                            [["a"], ["b"]])
+    assert got is not None
+    assert got[1]["quiet"] == [1]
+    assert got[1]["each"] == [0.0]
+    assert got[1]["top"][0][0][1] == 0.0
+    # Without the guard the same frames would have passed for most of a b.
+    assert got[1]["loose"][0] > 0.5
+    assert got[0]["quiet"] == [0]

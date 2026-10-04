@@ -157,3 +157,20 @@ def test_a_failed_alignment_leaves_the_per_sound_row_empty(monkeypatch):
 
     assert got["sure_code"] == "no_align"
     assert got["slot_each"] == ""
+
+
+def test_stage_one_pairs_count_the_same_words_and_sounds(monkeypatch):
+    """design/388 - native:reader percents, an empty field for a sound with none."""
+    got = _rows_from(monkeypatch, [
+        {"sure": 0.5, "low": 0.2, "n": 3.0, "said": 3.0, "sym": 0.5,
+         "each": [0.9, 0.4, 0.2],
+         "top": [[(0.95, 0.9)], [(0.6, 0.3), (0.3, 0.1)], []]},
+        None,
+        {"sure": 0.8, "low": 0.8, "n": 2.0, "said": 2.0, "sym": 0.8,
+         "each": [0.8, 0.8], "top": [[(1.0, 0.8)]]},
+    ])
+
+    assert got["slot_top"] == "95:90,60:30 30:10,|-|-"
+    assert len(got["slot_top"].split("|")) == len(got["slot_sym"].split())
+    kept = _safe_details({"slot_top": got["slot_top"]})
+    assert kept.get("slot_top") == "95:90,60:30 30:10,|-|-"

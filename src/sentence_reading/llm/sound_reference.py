@@ -79,13 +79,13 @@ def reference_voice() -> str:
 
 def cache_key(spoken: str, voice: str) -> str:
     # Every number that changes the sounds is in the key, or GCS would keep
-    # serving a reference built by an older rule. SHARE_MIN changes which
-    # symbols a sound keeps, so a reference from before it is a different one.
-    from sentence_reading.llm.hear_waveform import SHARE_MIN
+    # serving a reference built by an older rule. A design/386 reference kept
+    # only the symbols over 30%, not how much each had, so it is a different one.
+    from sentence_reading.llm.hear_waveform import SHARE_TAIL
 
     raw = (
         f"{speak_norm_version()}|{voice}|{BREAK_MS}|{PAD_MS}|{SKIP_COST}"
-        f"|{SHARE_MIN}|{spoken}"
+        f"|spread{SHARE_TAIL}|{spoken}"
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
@@ -278,14 +278,14 @@ def hand_out(
 
 def build(spoken: str, *, voice: str | None = None) -> dict[str, object]:
     """Two synthesis calls and two model passes. Call `reference_for` instead."""
-    from sentence_reading.llm.hear_waveform import phone_frames
+    from sentence_reading.llm.hear_waveform import phone_frames, spread_text
 
     name = voice or reference_voice()
     straight, _t = synth_marked(f"<speak>{escape(spoken)}</speak>", name)
     pcm, _rate = pcm_of(straight)
     frames = phone_frames(pcm)
     natural = [str(one["sym"]) for one in frames]
-    natural_share = [list(one.get("share") or []) for one in frames]
+    natural_share = [spread_text(list(one.get("share") or [])) for one in frames]
 
     ssml, spots = ssml_marked(spoken)
     marked, times = synth_marked(ssml, name)
@@ -303,9 +303,9 @@ def build(spoken: str, *, voice: str | None = None) -> dict[str, object]:
             "lo": lo,
             "hi": hi,
             "sounds": " ".join(given[i]),
-            # design/386 — one slot per sound, comma-separated. Symbols inside
-            # a slot are spaced. An empty slot kept nothing at SHARE_MIN.
-            "share": ",".join(" ".join(one) for one in share_sounds),
+            # design/388 — one native spread per sound, comma-separated,
+            # `symbol=percent` pairs spaced inside it.
+            "share": ",".join(share_sounds),
         })
     return {
         "voice": name,
@@ -429,7 +429,7 @@ def attach_sounds(
                         pieces.append(piece)
                         share_bits.append(str(one.get("share") or "").strip())
         span["phone"] = " ".join(pieces)
-        # design/386 — same sound order as phone, comma-separated. Empty when
+        # design/388 — same sound order as phone, comma-separated. Empty when
         # this reference was built before the share was stored.
         joined = ",".join(share_bits)
         span["share"] = joined if any(bit.strip() for bit in share_bits) else ""
