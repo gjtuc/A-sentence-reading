@@ -88,8 +88,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   static const _speakMicReadyBeat = Duration(milliseconds: 350);
   // WHY: design/82 — Android MediaRecorder via platform channel (no pub `record` dep).
   static const _mic = MethodChannel('asr/shadowing_mic');
-  /// Speak phase only — quieter guide so mic take keeps user voice (design/206+215+255).
-  static const double _kSpeakTtsVolume = 0.05;
+  /// Speak phase only — the guide plays silent on every output, earphones
+  /// included; it still runs so the follow light keeps its clock (design/391).
+  static const double _kSpeakTtsVolume = 0.0;
   static const double _kFullTtsVolume = 1.0;
 
   final _player = AudioPlayer();
@@ -1085,10 +1086,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   Future<void> _playCachedChunkTts({required String phase}) async {
     final text = _displayChunk();
-    var headset = true;
-    if (phase == 'tts_speak') {
-      headset = await _mic.invokeMethod<bool>('hasHeadset') ?? false;
-    }
     try {
       await _ensureChunkTts(text);
       final bytes = _chunkTtsBytes!;
@@ -1101,10 +1098,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       _heardVoice = params.voice;
       _heardClientRate =
           clampSpeakingRate(params.speakingRate * _groomRateScale);
-      // Speak-along: lower TTS so the take is not drowned by speaker bleed.
-      final vol = !headset
-          ? 0.0
-          : (phase == 'tts_speak' ? _kSpeakTtsVolume : _kFullTtsVolume);
+      final vol = phase == 'tts_speak' ? _kSpeakTtsVolume : _kFullTtsVolume;
       try {
         await _player.setVolume(vol);
       } catch (_) {
@@ -1140,7 +1134,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           'phase': phase,
           'ok': true,
           'tts_reuse': phase == 'tts_speak' ? 1 : 0,
-          'tts_volume_pct': phase == 'tts_speak' ? 5 : 100,
+          'tts_volume_pct': (vol * 100).round(),
         },
       );
     } catch (e) {
