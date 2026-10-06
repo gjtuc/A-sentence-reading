@@ -1294,6 +1294,34 @@ def _take_one_spoken_word(full: str, cursor: int) -> int | None:
     return i if i > start else None
 
 
+# design/392 - spoken words the walk may pass over to find a printed word.
+# `Pt/CNT` is read `platinum on C N T`: the slash becomes a word no printed token
+# owns, and taking one spoken word per printed word slid every later word by one.
+_INSERTED_MAX = 2
+
+
+def _match_past_inserted(full: str, cursor: int, piece: str) -> int | None:
+    """End of [piece] found after up to [_INSERTED_MAX] spoken words, or None.
+
+    The skipped words go to the printed word that finds itself after them. The
+    match has to end at a word edge, because the walk's own match does not check
+    one and a skipped-to `C` would otherwise claim the front of `CVD`.
+    """
+    probe = cursor
+    for _ in range(_INSERTED_MAX):
+        probe = _take_one_spoken_word(full, probe)
+        if probe is None:
+            return None
+        while probe < len(full) and not (full[probe].isalnum() or full[probe] == "'"):
+            probe += 1
+        got = _match_spoken_slice(full, probe, piece)
+        if got is not None and got > probe and (
+            got == len(full) or not full[got].isalnum()
+        ):
+            return got
+    return None
+
+
 def _char_class(ch: str) -> str:
     if ch.isdigit():
         return "digit"
@@ -1377,6 +1405,7 @@ def _align_report(
     matched_n: int = 0,
     tail_n: int = 0,
     renamed_n: int = 0,
+    inserted_n: int = 0,
 ) -> dict[str, object]:
     return {
         "code": code,
@@ -1396,6 +1425,7 @@ def _align_report(
         "matched_n": matched_n,
         "tail_n": tail_n,
         "renamed_n": renamed_n,
+        "inserted_n": inserted_n,
     }
 
 
@@ -1450,6 +1480,10 @@ def align_display_report(
             spoken_chars=len(full),
         )
     dropped = _paren_drop_ranges(raw)
+    # design/392 - `sub` of `<sub>` is markup, never read. As a printed word it
+    # took a spoken word, and the search past inserted words then let the next
+    # printed word take that one's place.
+    dropped += [(t.start(), t.end()) for t in re.finditer(r"<[^<>]*>", raw)]
     word = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?")
     matches = list(word.finditer(raw))
     spans: list[dict[str, int]] = []
@@ -1457,6 +1491,7 @@ def align_display_report(
     token_i = -1
     prev_end = 0
     renamed_n = 0
+    inserted_n = 0
 
     def _skip_ws() -> None:
         nonlocal cursor
@@ -1493,6 +1528,10 @@ def align_display_report(
                 _skip_ws()
         matched = _match_spoken_slice(full, cursor, piece)
         if matched is None:
+            matched = _match_past_inserted(full, cursor, piece)
+            if matched is not None:
+                inserted_n += 1
+        if matched is None:
             # The printed word is read as another word (`nm` -> nanometers,
             # `1` -> one). Take the next spoken word so the rest of the
             # sentence keeps its light, phones and score slots.
@@ -1519,6 +1558,7 @@ def align_display_report(
                 matched_n=_matched_n(),
                 tail_n=len(matches) - token_i,
                 renamed_n=renamed_n,
+                inserted_n=inserted_n,
             )
         weight = matched - cursor
         span = {"start": start, "end": end, "weight": max(weight, 1)}
@@ -1544,12 +1584,14 @@ def align_display_report(
             matched_n=_matched_n(),
             tail_n=0,
             renamed_n=renamed_n,
+            inserted_n=inserted_n,
             full_class=_char_class(full[cursor]) if cursor < len(full) else "end",
         )
     return _align_report(
         code="ok",
         spans=spans,
         renamed_n=renamed_n,
+        inserted_n=inserted_n,
         token_i=token_i,
         cursor=cursor,
         display_chars=len(raw),

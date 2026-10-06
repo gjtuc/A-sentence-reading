@@ -158,6 +158,8 @@ List<TextSpan> reviewSoundSpans({
   List<List<SoundTop>> tops = const [],
   required Color weak,
   required Color strong,
+  // design/393 - paint this one sound only. Out of range paints none.
+  int? focus,
 }) {
   final symbols = [
     for (final one in phone.trim().split(RegExp(r'\s+')))
@@ -169,12 +171,14 @@ List<TextSpan> reviewSoundSpans({
   final out = <TextSpan>[];
   final lined = tops.length == sounds.length;
   for (var i = 0; i < symbols.length; i++) {
-    final low = !soundClears(
-      sounds[i],
-      top: lined ? tops[i] : const [],
-      bar: bar,
-      line: line,
-    );
+    final low = focus != null
+        ? i == focus
+        : !soundClears(
+            sounds[i],
+            top: lined ? tops[i] : const [],
+            bar: bar,
+            line: line,
+          );
     out.add(TextSpan(
       text: symbols[i],
       style: TextStyle(

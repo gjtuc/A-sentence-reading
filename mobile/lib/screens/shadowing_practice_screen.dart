@@ -156,7 +156,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   /// design/384 - which sound the speaker is aiming at, when inside a drill.
   int? _reviewFocusSound;
-  final Map<int, MissReviewLadder> _reviewLadders = {};
+  /// design/393 - the weakest failed sound of the last review take, null when
+  /// that take's sounds did not line up or none failed.
+  int? _reviewLowest;
   bool _missReviewActive = false;
 
   /// design/376 — the speaker's choice about the wrong-word drill. True until
@@ -1911,7 +1913,6 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       extra: {'review_word_n': words.length},
     );
     _missReviewActive = true;
-    _reviewLadders.clear();
     final clock = Stopwatch()..start();
     final epoch = ++_restEpoch;
     _armRestWatchdog(
@@ -1954,29 +1955,41 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         String? avoidVoice;
         double? avoidRate;
         var blankRun = 0;
-        for (var attempt = 0; attempt < kMissReviewMaxTries; attempt++) {
+        var wordTry = 0;
+        ({String voice, double rate})? draw;
+        final climb = MissReviewClimb();
+        while (climb.step != MissReviewStep.done) {
           if (!_reviewAlive(token)) return;
-          final draw = drawMissReviewPlayback(
-            randomAuto: randomAuto || attempt > 0,
-            reviewTier: reviewTier,
-            fallbackVoice: voice ?? widget.tts.voice,
-            fallbackRate: clientRate ?? kTtsRateDefault,
-            voiceIds:
-                widget.tts.voices.map((v) => v.id).toList(growable: false),
-            avoidVoice: attempt == 0 ? null : avoidVoice,
-            avoidRate: attempt == 0 ? null : avoidRate,
-          );
+          final soundI = climb.focus;
+          final attempt = climb.tries;
+          // design/384 - a drill replays the word try's voice at half speed.
+          if (soundI == null || draw == null) {
+            draw = drawMissReviewPlayback(
+              randomAuto: randomAuto || wordTry > 0,
+              reviewTier: reviewTier,
+              fallbackVoice: voice ?? widget.tts.voice,
+              fallbackRate: clientRate ?? kTtsRateDefault,
+              voiceIds:
+                  widget.tts.voices.map((v) => v.id).toList(growable: false),
+              avoidVoice: wordTry == 0 ? null : avoidVoice,
+              avoidRate: wordTry == 0 ? null : avoidRate,
+            );
+          }
+          if (mounted) setState(() => _reviewFocusSound = soundI);
           final played = await _playReviewWord(
             token: token,
             item: item,
             sourceChunk: sourceChunk,
             playVoice: draw.voice,
             playRate: draw.rate,
+            playbackRate: soundI == null ? 1.0 : 0.5,
           );
           if (!_reviewAlive(token)) return;
           if (!played.ok) break;
-          avoidVoice = draw.voice;
-          avoidRate = draw.rate;
+          if (soundI == null) {
+            avoidVoice = draw.voice;
+            avoidRate = draw.rate;
+          }
           final hear = await _hearReviewWord(
             token: token,
             item: item,
@@ -1984,6 +1997,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             ttsHeard: played.heard,
             attempt: attempt,
             wordIndex: i,
+            soundI: soundI,
           );
           if (!_reviewAlive(token)) {
             _noteCycleStep(
@@ -2011,6 +2025,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
               'hear_detail': widget.client.lastHearDetail,
               'waveform_phones': widget.client.lastWaveformPhones,
               'blank_run': blankRun,
+              'review_step': soundI == null ? 'word' : 'sound',
+              'sound_i': soundI ?? -1,
+              'next_sound_i': _reviewLowest ?? -1,
             },
           );
           blankRun = hear == MissReviewHear.blank ? blankRun + 1 : 0;
@@ -2026,23 +2043,27 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
             );
             break;
           }
-          if (hear != MissReviewHear.missed &&
-              hear != MissReviewHear.blank) {
-            break;
-          }
-          if (hear == MissReviewHear.missed) {
-            await _maybeRunSoundDrills(
-              token: token,
-              item: item,
-              sourceChunk: sourceChunk,
-              wordIndex: i,
-              attempt: attempt,
-              playVoice: draw.voice,
-              playRate: draw.rate,
+          if (hear == MissReviewHear.skip) break;
+          final lowest = hear == MissReviewHear.missed ? _reviewLowest : null;
+          if (soundI == null) {
+            wordTry += 1;
+            climb.afterWord(
+              matched: hear == MissReviewHear.matched,
+              lowest: lowest,
+            );
+          } else {
+            climb.afterSound(
+              cleared: hear == MissReviewHear.matched,
+              lowest: lowest,
             );
           }
         }
-        if (mounted) setState(() => _reviewWord = null);
+        if (mounted) {
+          setState(() {
+            _reviewWord = null;
+            _reviewFocusSound = null;
+          });
+        }
         if (i + 1 < words.length) {
           await Future<void>.delayed(kMissReviewGap);
         }
@@ -2220,58 +2241,24 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     }
   }
 
-  /// Record after TTS has stopped. The take must not contain the model voice.
-  Future<void> _maybeRunSoundDrills({
-    required int token,
-    required MissReviewItem item,
-    required String sourceChunk,
-    required int wordIndex,
-    required int attempt,
-    required String playVoice,
-    required double playRate,
-  }) async {
-    final symbols = phoneSymbols(item.phone);
-    if (_reviewSounds.length != symbols.length || symbols.isEmpty) return;
-    final line = _skill.store.state.line.lineOr(kPassLineCold);
-    final bar = skillDifficultyBar(
-      tier: _skill.store.state.tier,
-      density: _skill.store.state.density,
-    );
-    final lad = _reviewLadders.putIfAbsent(
-      wordIndex,
-      () => MissReviewLadder(soundN: symbols.length, line: line, bar: bar),
-    );
-    var soundI = lad.afterWord(_reviewSounds, tops: _reviewTops);
-    while (soundI != null && _reviewAlive(token)) {
-      if (mounted) setState(() => _reviewFocusSound = soundI);
-      final played = await _playReviewWord(
-        token: token,
-        item: item,
-        sourceChunk: sourceChunk,
-        playVoice: playVoice,
-        playRate: playRate,
-        playbackRate: 0.5,
-      );
-      if (!_reviewAlive(token) || !played.ok) break;
-      await _hearReviewWord(
-        token: token,
-        item: item,
-        sourceChunk: sourceChunk,
-        ttsHeard: played.heard,
-        attempt: attempt,
-        wordIndex: wordIndex,
-        soundI: soundI,
-      );
-      final score = soundI < _reviewSounds.length ? _reviewSounds[soundI] : 0.0;
-      final top = _reviewTops.length == _reviewSounds.length &&
-              soundI < _reviewTops.length
-          ? _reviewTops[soundI]
-          : const <SoundTop>[];
-      soundI = lad.afterSound(score, top: top);
-    }
-    if (mounted) setState(() => _reviewFocusSound = null);
+  /// design/393 - the one sound drawn blue: the drill's sound, else the weakest
+  /// failed sound of the last take. -1 paints none.
+  int _reviewPaintedSound() {
+    final drilled = _reviewFocusSound;
+    if (drilled != null) return drilled;
+    return lowestMissedSound(
+          _reviewSounds,
+          tops: _reviewTops,
+          line: _skill.store.state.line.lineOr(kPassLineCold),
+          bar: skillDifficultyBar(
+            tier: _skill.store.state.tier,
+            density: _skill.store.state.density,
+          ),
+        ) ??
+        -1;
   }
 
+  /// Record after TTS has stopped. The take must not contain the model voice.
   Future<MissReviewHear> _hearReviewWord({
     required int token,
     required MissReviewItem item,
@@ -2282,6 +2269,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     int? soundI,
   }) async {
     final word = item.ask;
+    _reviewLowest = null;
     if (!_skill.serverEnabled || !_skill.cloudSttEnabled) {
       return MissReviewHear.skip;
     }
@@ -2397,6 +2385,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           final fresh = gotEach.length == phoneSymbols(targetPhone).length;
           _reviewSounds = fresh ? gotEach : _reviewSounds;
           if (fresh) _reviewTops = gotTops;
+          _reviewLowest = fresh
+              ? lowestMissedSound(gotEach, tops: gotTops, line: line, bar: bar)
+              : null;
         });
       }
       await _skill.noteMissReview(
@@ -3113,6 +3104,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                                                         ),
                                                         weak: kRhythmSpeak,
                                                         strong: kRhythmText,
+                                                        focus:
+                                                            _reviewPaintedSound(),
                                                       ),
                                                     ),
                                                     textAlign:

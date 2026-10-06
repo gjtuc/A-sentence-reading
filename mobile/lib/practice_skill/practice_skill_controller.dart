@@ -107,6 +107,11 @@ const Set<String> kSoundRefComing = {'queued', 'building'};
 /// time the sentence is shown.
 const int kSoundAskMax = 3;
 
+/// design/392 - the server's word walk changed under the same speak-norm
+/// version, so rows it wrote before carry the old word-to-sound pairing and
+/// must not be served from the phone.
+const String kSpokenAlignRev = 'a392';
+
 class SpokenCache {
   String speakNorm = 'v6';
   final Map<String, String> _map = {};
@@ -127,7 +132,7 @@ class SpokenCache {
 
   String _key(String chunk) {
     final digest = sha256.convert(utf8.encode(chunk.trim()));
-    return '$speakNorm|${digest.toString().substring(0, 24)}';
+    return '$speakNorm|$kSpokenAlignRev|${digest.toString().substring(0, 24)}';
   }
 
   String? peek(String chunk) => _map[_key(chunk)];

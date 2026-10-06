@@ -354,4 +354,71 @@ void main() {
     expect(own!.phone, 'ɑː n t uː');
     expect(own.share, '');
   });
+
+  test('design/393 the aim is the least sure of the sounds that failed', () {
+    // 0.11 and 0.34 fail the 0.60 line; 0.11 is the weaker.
+    expect(
+      lowestMissedSound(const [0.95, 0.34, 0.91, 0.11, 0.90], line: 0.60),
+      3,
+    );
+    // A low sound that passes on stage one is not aimed at.
+    expect(
+      lowestMissedSound(
+        const [0.10, 0.40],
+        tops: const [
+          [SoundTop(0.9, 0.9)],
+          [],
+        ],
+        line: 0.60,
+        bar: 0.30,
+      ),
+      1,
+    );
+    expect(lowestMissedSound(const [0.95, 0.88], line: 0.60), isNull);
+    expect(lowestMissedSound(const [], line: 0.60), isNull);
+    // Ties go to the earlier sound.
+    expect(lowestMissedSound(const [0.20, 0.20], line: 0.60), 0);
+  });
+
+  test('design/393 a missed word drops to a sound and a cleared one climbs', () {
+    final climb = MissReviewClimb();
+    expect(climb.step, MissReviewStep.word);
+
+    climb.afterWord(matched: false, lowest: 2);
+    expect(climb.step, MissReviewStep.sound);
+    expect(climb.focus, 2);
+
+    // The drill misses and its own weakest sound is another one.
+    climb.afterSound(cleared: false, lowest: 0);
+    expect(climb.focus, 0);
+
+    climb.afterSound(cleared: true, lowest: 1);
+    expect(climb.step, MissReviewStep.word);
+    expect(climb.focus, isNull);
+
+    climb.afterWord(matched: true);
+    expect(climb.step, MissReviewStep.done);
+    expect(climb.tries, 4);
+  });
+
+  test('design/393 seven tries in all, word and sound together', () {
+    final climb = MissReviewClimb();
+    expect(climb.maxTries, 7);
+    climb.afterWord(matched: false, lowest: 1);
+    for (var i = 0; i < 5; i++) {
+      expect(climb.step, MissReviewStep.sound);
+      climb.afterSound(cleared: false);
+    }
+    expect(climb.focus, 1);
+    expect(climb.step, MissReviewStep.sound);
+    climb.afterSound(cleared: false);
+    expect(climb.tries, 7);
+    expect(climb.step, MissReviewStep.done);
+  });
+
+  test('design/393 a missed word with nothing to aim at tries the word again', () {
+    final climb = MissReviewClimb();
+    climb.afterWord(matched: false);
+    expect(climb.step, MissReviewStep.word);
+  });
 }

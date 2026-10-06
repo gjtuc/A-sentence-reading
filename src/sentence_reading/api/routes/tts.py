@@ -192,6 +192,8 @@ def _emit_spoken_align(
             "matched_n": _num("matched_n", 0),
             "tail_n": _num("tail_n", 0),
             "renamed_n": _num("renamed_n", 0),
+            # design/392 - printed words found past a spoken word nobody printed.
+            "inserted_n": _num("inserted_n", 0),
             # design/368 — the phone_* counts described eSpeak's reading of the
             # spelling. There is no dictionary in this route any more.
             "phone_code": "espeak_cut_368",
@@ -331,4 +333,5 @@ async def tts_spoken(request: Request, payload: dict = Body(...)) -> dict[str, A
         "align_matched_n": report["matched_n"],
         "align_tail_n": report["tail_n"],
         "align_renamed_n": report["renamed_n"],
+        "align_inserted_n": report["inserted_n"],
     }

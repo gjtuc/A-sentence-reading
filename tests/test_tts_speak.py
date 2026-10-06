@@ -205,6 +205,7 @@ def test_align_display_report_is_counts_and_code_only() -> None:
         "matched_n",
         "tail_n",
         "renamed_n",
+        "inserted_n",
     }
 
 

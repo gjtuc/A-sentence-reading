@@ -426,6 +426,8 @@
 | 389 | [389-chunk-borrows-the-sentence.md](389-chunk-borrows-the-sentence.md) | 미리 짓기는 문장 전체만 지었고 연습은 문장 앞부분 덩어리를 읽어서 덩어리마다 그 자리에서 지었다 · 덩어리는 문장의 기준 소리를 잘라 쓴다, 없으면 문장을 짓는다 · 실측 겹침 0.977, 끝 단어 0.964 (0.3.429) |
 | 390 | [390-review-word-read-alone.md](390-review-word-read-alone.md) | 틀린 단어 다시 읽기는 단어 혼자 읽은 소리를 들려주면서 문장 안 소리로 채점했다 (onto: 들려준 ɑː n t uː, 정답 ʌ n d ə) · 다시 읽기의 정답을 단어 혼자 읽은 기준으로 · 기록에 소리별 점수, slot_each·slot_top 400자 잘림 2000자로 (0.3.430) |
 | 391 | [391-speak-guide-silent-on-earphones.md](391-speak-guide-silent-on-earphones.md) | 말하기 단계 원어민 소리는 이어폰을 껴도 0 (폰 스피커와 같게) · 소리는 꺼진 채로 재생되어 따라가기 불빛은 그대로 (0.3.431) |
+| 392 | [392-spoken-word-nobody-printed.md](392-spoken-word-nobody-printed.md) | `Pt/CNT` 를 "platinum on C N T" 로 읽어 끼어든 "on" 때문에 뒤 단어 발음기호가 한 칸씩 밀림 · 맞지 않는 단어는 두 단어 앞까지 찾기, `<sub>` 같은 태그 이름은 단어 아님 · 폰 캐시 키 `a392` · 끝까지 맞는 줄 1239→1846/2157 (0.3.432) |
+| 393 | [393-weakest-sound-ladder.md](393-weakest-sound-ladder.md) | 틀린 단어 연습: 파란색은 가장 낮은 탈락 기호 하나 · 단어 1번 틀리면 바로 발음 연습, 통과할 때까지 가장 낮은 기호로 반복, 통과하면 단어로 · 단어당 총 7번 (0.3.432) |
 | 387 | [387-the-rung-then-the-line.md](387-the-rung-then-the-line.md) | 소리 확률을 먼저 (20+난이도)%로 보고, 못 넘기면 계정 선으로 한 번 더 본다 · 선이 배우는 점수는 난이도 적용 전 30% 일치 · 더 말한 소리는 분모에 남긴다 · 기호 목록은 30% 고정 (0.3.427) |
 | 386 | [386-thirty-percent-of-each-sound.md](386-thirty-percent-of-each-sound.md) | 소리 하나의 일치는 원어민이 30% 넘긴 기호를 사용자도 전부 30% 넘긴 것 · 공백은 세지 않음 · 분모는 그대로 · 619개에서 기호가 둘인 칸은 3.1%, 그 중 또렷한 읽기가 떨어지는 경우는 소리 1000개 중 9개 (0.3.426) |
 | 385 | [385-warm-from-the-cursor.md](385-warm-from-the-cursor.md) | 미리 짓기는 지금 읽는 자리부터 한 바퀴 돈다 · 연습 커서가 있으면 그쪽 · `/open` 의 1번부터 걷기는 폰 요청을 `_WARMING` 으로 버려서 뺐다 (0.3.425) |

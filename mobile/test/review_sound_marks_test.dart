@@ -86,4 +86,34 @@ void main() {
     expect(phoneSymbols('  eɪ   t  ').length, 2);
     expect(phoneSymbols(''), isEmpty);
   });
+
+  test('design/393 a focus paints that one sound only', () {
+    final spans = reviewSoundSpans(
+      phone: 'p r ɪ p ɛ ɹ d',
+      sounds: const [0.95, 0.88, 0.91, 0.93, 0.11, 0.34, 0.90],
+      line: 0.60,
+      weak: _weak,
+      strong: _strong,
+      focus: 4,
+    );
+
+    expect(spans[8].text, 'ɛ');
+    expect(spans[8].style?.color, _weak);
+    // ɹ is under the line too, but it is not the one aimed at.
+    expect(spans[10].text, 'ɹ');
+    expect(spans[10].style?.color, _strong);
+    expect(_colorsOf(spans).where((c) => c == _weak).length, 1);
+  });
+
+  test('design/393 a focus of -1 paints none', () {
+    final spans = reviewSoundSpans(
+      phone: 'p r ɪ',
+      sounds: const [0.10, 0.11, 0.12],
+      line: 0.60,
+      weak: _weak,
+      strong: _strong,
+      focus: -1,
+    );
+    expect(_colorsOf(spans), isNot(contains(_weak)));
+  });
 }

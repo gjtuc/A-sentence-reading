@@ -20,8 +20,8 @@ const Duration kMissReviewSttWait = Duration(seconds: 8);
 const Duration kReplayMarkHold = Duration(milliseconds: 2200);
 const int kMissReviewMaxTries = 5;
 
-/// design/384 - a sound drill is two tries, then the speaker climbs back.
-const int kMissReviewSoundTries = 2;
+/// design/393 - word tries and sound drills together, per missed word.
+const int kMissReviewTotalTries = 7;
 
 /// Extra attempts the rest watchdog must leave room for: a few sounds, two
 /// tries each, on top of the word tries. Without this the cover would close
@@ -261,71 +261,70 @@ Duration missReviewTail({
 }
 
 
-/// design/384 - narrow the unit only after the same sound is missed twice.
+/// design/393 - the one sound the next try aims at: the least sure of the
+/// sounds that failed, or null when none did.
 ///
-/// A word score cannot say which sound to aim at. After two word tries that
-/// both miss the same sound, this opens a drill for that sound. Passing it, or
-/// using both tries, climbs back: another waiting sound if there is one, else
-/// the word again.
-class MissReviewLadder {
-  MissReviewLadder({
-    required this.soundN,
-    required this.line,
-    this.bar = 1.0,
-  }) : _streak = List<int>.filled(soundN < 0 ? 0 : soundN, 0);
+/// [tops] that do not line up leave every sound to the line. Ties go to the
+/// earlier sound.
+int? lowestMissedSound(
+  List<double> sounds, {
+  List<List<SoundTop>> tops = const [],
+  required double line,
+  double bar = 1.0,
+}) {
+  final lined = tops.length == sounds.length;
+  int? at;
+  for (var i = 0; i < sounds.length; i++) {
+    final cleared = soundClears(
+      sounds[i],
+      top: lined ? tops[i] : const [],
+      bar: bar,
+      line: line,
+    );
+    if (cleared) continue;
+    if (at == null || sounds[i] < sounds[at]) at = i;
+  }
+  return at;
+}
 
-  final int soundN;
-  final double line;
-  final double bar;
-  final List<int> _streak;
-  int? drilling;
-  int drillTries = 0;
+enum MissReviewStep { word, sound, done }
 
-  /// Call only after a missed word try. [sounds] must line up with [soundN]
-  /// or this returns null rather than open a drill on the wrong symbol.
-  /// [tops] that do not line up leave every sound to the line.
-  int? afterWord(
-    List<double> sounds, {
-    List<List<SoundTop>> tops = const [],
-  }) {
-    if (sounds.length != soundN || soundN <= 0) return null;
-    final lined = tops.length == soundN;
-    for (var i = 0; i < soundN; i++) {
-      _streak[i] = soundClears(
-        sounds[i],
-        top: lined ? tops[i] : const [],
-        bar: bar,
-        line: line,
-      )
-          ? 0
-          : _streak[i] + 1;
-    }
-    return _openNext();
+/// design/393 - a missed word drops to its weakest sound, and a cleared sound
+/// climbs back to the word.
+///
+/// A missed word try opens a drill on [lowestMissedSound] of that take. A drill
+/// that misses aims at the weakest sound of its own take, which may be another
+/// one. A drill that clears returns to the word. The word passing ends it, and
+/// so does [maxTries] word and sound tries together.
+class MissReviewClimb {
+  MissReviewClimb({this.maxTries = kMissReviewTotalTries});
+
+  final int maxTries;
+  int tries = 0;
+  int? focus;
+  bool passed = false;
+
+  MissReviewStep get step {
+    if (passed || tries >= maxTries) return MissReviewStep.done;
+    return focus == null ? MissReviewStep.word : MissReviewStep.sound;
   }
 
-  /// Call after a sound-drill try with that one sound's score.
-  int? afterSound(double score, {List<SoundTop> top = const []}) {
-    final i = drilling;
-    if (i == null) return null;
-    drillTries += 1;
-    if (soundClears(score, top: top, bar: bar, line: line) ||
-        drillTries >= kMissReviewSoundTries) {
-      _streak[i] = 0;
-      return _openNext();
+  /// [lowest] is null when the take gave nothing to aim at, and the word is
+  /// tried again.
+  void afterWord({required bool matched, int? lowest}) {
+    tries += 1;
+    if (matched) {
+      passed = true;
+      focus = null;
+      return;
     }
-    return i;
+    focus = lowest;
   }
 
-  int? _openNext() {
-    for (var i = 0; i < _streak.length; i++) {
-      if (_streak[i] >= kMissReviewSoundTries) {
-        if (drilling != i) drillTries = 0;
-        drilling = i;
-        return i;
-      }
-    }
-    drilling = null;
-    drillTries = 0;
-    return null;
+  /// [cleared] is the drilled sound alone. A miss with no fresh [lowest]
+  /// keeps the same sound.
+  void afterSound({required bool cleared, int? lowest}) {
+    tries += 1;
+    focus = cleared ? null : (lowest ?? focus);
   }
 }
