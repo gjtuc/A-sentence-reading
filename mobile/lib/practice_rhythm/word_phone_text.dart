@@ -79,6 +79,7 @@ class WordPhoneText extends StatelessWidget {
     this.misses = const [],
     this.follow,
     this.markAlpha = 0.0,
+    this.litKey,
   });
 
   final String text;
@@ -86,6 +87,9 @@ class WordPhoneText extends StatelessWidget {
   final TextStyle style;
   final List<MissedWordSpan> misses;
   final ({int start, int end})? follow;
+
+  /// design/394 - put on the first lit word, so the screen can find its line.
+  final GlobalKey? litKey;
 
   /// 0 draws no practice marker. The replay blink drives this.
   final double markAlpha;
@@ -95,14 +99,16 @@ class WordPhoneText extends StatelessWidget {
     final phoneStyle = (Theme.of(context).textTheme.bodySmall ?? const TextStyle())
         .copyWith(color: kRhythmText.withValues(alpha: 0.7));
     final words = wordPhonesFor(text: text, spans: spans);
+    final keyAt = litKey == null ? -1 : words.indexWhere(_lit);
     return Wrap(
       alignment: WrapAlignment.center,
       crossAxisAlignment: WrapCrossAlignment.start,
       spacing: 10,
       runSpacing: 6,
       children: [
-        for (final item in words)
+        for (final (i, item) in words.indexed)
           Column(
+            key: i == keyAt ? litKey : null,
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(

@@ -53,6 +53,13 @@ const double kPromptScrollLead = 0.85;
 /// One glide between two position ticks, so the walk reads as continuous.
 const Duration kPromptScrollStep = Duration(milliseconds: 240);
 
+/// design/394 - where the line being read sits, as a share of the view from
+/// the top. The lines after it stay in view ahead of the voice.
+const double kFollowLineAlign = 0.3;
+
+/// design/394 - one glide when the voice moves to the next line.
+const Duration kFollowLineGlide = Duration(milliseconds: 320);
+
 /// Where the prompt stands when the audio is [position] into [duration].
 ///
 /// Null while there is nothing to move: a sentence that already fits the screen

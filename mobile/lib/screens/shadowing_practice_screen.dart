@@ -13,6 +13,7 @@ import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -95,6 +96,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   final _player = AudioPlayer();
   final _promptScroll = ScrollController();
+  /// design/394 - the lit word, the top of its line last walked to, and
+  /// whether the walk goes by line or a finger holds the prompt.
+  final _litWordKey = GlobalKey();
+  double _lineTop = -1;
+  bool _scrollByLine = false;
+  bool _promptHeld = false;
   StreamSubscription<Duration>? _followPosSub;
   StreamSubscription<Duration>? _followDurSub;
   StreamSubscription<Duration>? _scrollPosSub;
@@ -1016,6 +1023,24 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (spans.isEmpty) return;
     final gen = _followGen;
     Duration? mediaDur;
+    // design/394 - the light waits for the media length, and so does the walk.
+    // How long it took, and whether asking the player was what brought it.
+    final clock = Stopwatch()..start();
+    var asked = false;
+    void gotLength(Duration d, String source) {
+      if (mediaDur != null || d <= Duration.zero) return;
+      mediaDur = d;
+      _noteCycleStep(
+        'follow_clock',
+        token: token,
+        extra: {
+          'dur_wait_ms': clock.elapsedMilliseconds,
+          'dur_source': source,
+          'dur_ms': d.inMilliseconds,
+        },
+      );
+    }
+
     _followPosSub = _player.onPositionChanged.listen((pos) {
       if (!mounted || gen != _followGen) return;
       if (token != _cycleToken || chunk != _chunkIndex) return;
@@ -1024,16 +1049,25 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         return;
       }
       final dms = mediaDur?.inMilliseconds ?? 0;
-      if (dms <= 0) return;
+      if (dms <= 0) {
+        if (!asked) {
+          asked = true;
+          unawaited(_player.getDuration().then((d) {
+            if (gen == _followGen && d != null) gotLength(d, 'asked');
+          }).catchError((_) {}));
+        }
+        return;
+      }
       // File clock. Do not divide by playback rate (design/313).
       final hit = activeFollowSpan(spans, pos.inMilliseconds, dms);
       final next = hit == null ? null : (start: hit.start, end: hit.end);
       if (next?.start == _follow?.start && next?.end == _follow?.end) return;
       setState(() => _follow = next);
+      if (_scrollByLine) _followLineAfterFrame();
     });
     _followDurSub = _player.onDurationChanged.listen((d) {
       if (gen != _followGen) return;
-      mediaDur = d;
+      gotLength(d, 'event');
     });
   }
 
@@ -1044,12 +1078,27 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   /// the symbols above each word make the drawn height much taller than the
   /// plain paragraph a `TextPainter` measures, which left the last lines off
   /// screen.
-  void _armPromptScroll({required int token, required int chunk}) {
+  ///
+  /// design/394 - a phase with a follow light walks by line instead: the line
+  /// being read is kept [kFollowLineAlign] from the top, moving only when the
+  /// voice reaches the next line. A finger on the prompt holds it where it is
+  /// until the next phase.
+  void _armPromptScroll({
+    required int token,
+    required int chunk,
+    bool byLine = false,
+  }) {
     _clearPromptScroll();
     if (_promptScroll.hasClients && _promptScroll.offset != 0) {
       _promptScroll.jumpTo(0);
     }
+    _promptHeld = false;
+    _lineTop = -1;
     final gen = ++_scrollGen;
+    if (byLine) {
+      _scrollByLine = true;
+      return;
+    }
     Duration? mediaDur;
     _scrollDurSub = _player.onDurationChanged.listen((d) {
       if (gen != _scrollGen) return;
@@ -1058,7 +1107,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _scrollPosSub = _player.onPositionChanged.listen((pos) {
       if (!mounted || gen != _scrollGen) return;
       if (token != _cycleToken || chunk != _chunkIndex) return;
-      if (!_promptScroll.hasClients) return;
+      if (!_promptScroll.hasClients || _promptHeld) return;
       final dur = mediaDur;
       if (dur == null) return;
       final target = promptScrollTarget(
@@ -1078,7 +1127,32 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     });
   }
 
+  /// design/394 - bring the lit word's line to [kFollowLineAlign] once it has
+  /// been laid out, and only when that line is a new one.
+  void _followLineAfterFrame() {
+    final gen = _scrollGen;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || gen != _scrollGen || !_scrollByLine || _promptHeld) {
+        return;
+      }
+      final ctx = _litWordKey.currentContext;
+      if (ctx == null || !_promptScroll.hasClients) return;
+      final box = ctx.findRenderObject();
+      if (box is! RenderBox || !box.attached) return;
+      final top = box.localToGlobal(Offset.zero).dy + _promptScroll.offset;
+      if ((top - _lineTop).abs() < 1) return;
+      _lineTop = top;
+      unawaited(Scrollable.ensureVisible(
+        ctx,
+        alignment: kFollowLineAlign,
+        duration: kFollowLineGlide,
+        curve: Curves.easeOut,
+      ));
+    });
+  }
+
   void _clearPromptScroll() {
+    _scrollByLine = false;
     _scrollGen++;
     unawaited(_scrollPosSub?.cancel());
     unawaited(_scrollDurSub?.cancel());
@@ -1107,6 +1181,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         // EDGE: volume API missing — play at default.
       }
       final done = _player.onPlayerComplete.first;
+      final lit = (phase == 'tts_listen' || phase == 'tts_speak') &&
+          _skill.spokenCache.peekSpans(text).isNotEmpty;
       if (phase == 'tts_listen' || phase == 'tts_speak') {
         _armFollowLight(
           text: text,
@@ -1116,7 +1192,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       } else {
         _clearFollowLight();
       }
-      _armPromptScroll(token: _cycleToken, chunk: _chunkIndex);
+      _armPromptScroll(token: _cycleToken, chunk: _chunkIndex, byLine: lit);
       final playerSw = Stopwatch()..start();
       try {
         await _player.play(BytesSource(bytes));
@@ -2901,20 +2977,33 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                                 final showFollow =
                                     _rhythmPhase == RhythmPhase.listen ||
                                         _rhythmPhase == RhythmPhase.speak;
-                                return SingleChildScrollView(
-                                  controller: _promptScroll,
-                                  child: WordPhoneText(
-                                    text: prompt.isEmpty ? '…' : prompt,
-                                    spans: _skill.spokenCache.peekSpans(prompt),
-                                    style: _promptStyle(theme),
-                                    misses: _replayMissChunk == _chunkIndex
-                                        ? _replayMisses
-                                        : const [],
-                                    follow: showFollow ? _follow : null,
-                                    markAlpha:
-                                        _rhythmPhase == RhythmPhase.replay
-                                            ? 1.0
-                                            : 0.0,
+                                // design/394 - only a finger sends these, so
+                                // the walk's own glides do not hold it.
+                                return NotificationListener<
+                                    UserScrollNotification>(
+                                  onNotification: (n) {
+                                    if (n.direction != ScrollDirection.idle) {
+                                      _promptHeld = true;
+                                    }
+                                    return false;
+                                  },
+                                  child: SingleChildScrollView(
+                                    controller: _promptScroll,
+                                    child: WordPhoneText(
+                                      text: prompt.isEmpty ? '…' : prompt,
+                                      spans:
+                                          _skill.spokenCache.peekSpans(prompt),
+                                      style: _promptStyle(theme),
+                                      misses: _replayMissChunk == _chunkIndex
+                                          ? _replayMisses
+                                          : const [],
+                                      follow: showFollow ? _follow : null,
+                                      litKey: showFollow ? _litWordKey : null,
+                                      markAlpha:
+                                          _rhythmPhase == RhythmPhase.replay
+                                              ? 1.0
+                                              : 0.0,
+                                    ),
                                   ),
                                 );
                               },

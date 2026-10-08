@@ -428,6 +428,7 @@
 | 391 | [391-speak-guide-silent-on-earphones.md](391-speak-guide-silent-on-earphones.md) | 말하기 단계 원어민 소리는 이어폰을 껴도 0 (폰 스피커와 같게) · 소리는 꺼진 채로 재생되어 따라가기 불빛은 그대로 (0.3.431) |
 | 392 | [392-spoken-word-nobody-printed.md](392-spoken-word-nobody-printed.md) | `Pt/CNT` 를 "platinum on C N T" 로 읽어 끼어든 "on" 때문에 뒤 단어 발음기호가 한 칸씩 밀림 · 맞지 않는 단어는 두 단어 앞까지 찾기, `<sub>` 같은 태그 이름은 단어 아님 · 폰 캐시 키 `a392` · 끝까지 맞는 줄 1239→1846/2157 (0.3.432) |
 | 393 | [393-weakest-sound-ladder.md](393-weakest-sound-ladder.md) | 틀린 단어 연습: 파란색은 가장 낮은 탈락 기호 하나 · 단어 1번 틀리면 바로 발음 연습, 통과할 때까지 가장 낮은 기호로 반복, 통과하면 단어로 · 단어당 총 7번 (0.3.432) |
+| 394 | [394-follow-the-line.md](394-follow-the-line.md) | 연습 문장 스크롤: 시간 비례 대신 지금 읽는 줄 따라가기 (줄이 바뀔 때 위에서 1/3 자리로) · 손가락으로 끌면 그 단계 동안 멈춤, 다음 단계는 처음부터 · 길이 이벤트가 늦으면 직접 물어봄, `follow_clock` 로그 (0.3.433) |
 | 387 | [387-the-rung-then-the-line.md](387-the-rung-then-the-line.md) | 소리 확률을 먼저 (20+난이도)%로 보고, 못 넘기면 계정 선으로 한 번 더 본다 · 선이 배우는 점수는 난이도 적용 전 30% 일치 · 더 말한 소리는 분모에 남긴다 · 기호 목록은 30% 고정 (0.3.427) |
 | 386 | [386-thirty-percent-of-each-sound.md](386-thirty-percent-of-each-sound.md) | 소리 하나의 일치는 원어민이 30% 넘긴 기호를 사용자도 전부 30% 넘긴 것 · 공백은 세지 않음 · 분모는 그대로 · 619개에서 기호가 둘인 칸은 3.1%, 그 중 또렷한 읽기가 떨어지는 경우는 소리 1000개 중 9개 (0.3.426) |
 | 385 | [385-warm-from-the-cursor.md](385-warm-from-the-cursor.md) | 미리 짓기는 지금 읽는 자리부터 한 바퀴 돈다 · 연습 커서가 있으면 그쪽 · `/open` 의 1번부터 걷기는 폰 요청을 `_WARMING` 으로 버려서 뺐다 (0.3.425) |
