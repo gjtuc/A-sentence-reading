@@ -246,6 +246,7 @@ fi
 # secrets must --remove-secrets first, or keep SM mode when USER/PASS env empty.
 # design/173b — capacity bump (2CPU/2Gi, concurrency 16, maxScale 6, no CPU throttling).
 # design/173c — override via ASR_CLOUD_RUN_* for worker service deploy.
+# design/395 — API scales to zero by default; ASR_MIN_INSTANCES=1 keeps one warm.
 _RUN_MEMORY="${ASR_CLOUD_RUN_MEMORY:-2Gi}"
 _RUN_CPU="${ASR_CLOUD_RUN_CPU:-2}"
 _RUN_MAX_INSTANCES="${ASR_MAX_INSTANCES:-6}"
@@ -284,7 +285,7 @@ DEPLOY_ARGS=(
   --service-account "$SA_EMAIL"
   --memory "$_RUN_MEMORY"
   --cpu "$_RUN_CPU"
-  --min-instances "${ASR_MIN_INSTANCES:-1}"
+  --min-instances "${ASR_MIN_INSTANCES:-0}"
   --max-instances "$_RUN_MAX_INSTANCES"
   --concurrency "$_RUN_CONCURRENCY"
   "${_THROTTLE_ARGS[@]}"

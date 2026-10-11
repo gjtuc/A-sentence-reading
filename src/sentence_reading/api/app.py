@@ -261,6 +261,9 @@ async def _lifespan(_app: FastAPI):
             handoff_abandon_task = asyncio.create_task(_paper_handoff_abandon_loop())
     except Exception:
         handoff_abandon_task = None
+    # design/395 — the instance can start from zero; load the phoneme model now.
+    if _hear_preload_on_boot():
+        threading.Thread(target=_preload_hear, name="hear-preload", daemon=True).start()
     try:
         yield
     finally:
@@ -284,7 +287,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.433",
+    version="0.3.434",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -3098,6 +3101,24 @@ async def stt_warm() -> dict:
     report = await asyncio.to_thread(warm_report)
     _emit_hear_row("stt_warm", report)
     return {"ok": True, "warm": int(report.get("warm_ok") or 0), **report}
+
+
+def _hear_preload_on_boot() -> bool:
+    """Cloud Run API instances only, unless `ASR_HEAR_PRELOAD` says otherwise."""
+    raw = (os.environ.get("ASR_HEAR_PRELOAD") or "").strip()
+    if raw:
+        return raw == "1"
+    role = (os.environ.get("ASR_SERVICE_ROLE") or "api").strip().lower()
+    return bool(os.environ.get("K_SERVICE")) and role == "api"
+
+
+def _preload_hear() -> None:
+    try:
+        from sentence_reading.llm.hear_waveform import warm_report
+
+        _emit_hear_row("boot_warm", warm_report())
+    except Exception:  # noqa: BLE001
+        return
 
 
 def _emit_hear_row(route: str, report: dict) -> None:
