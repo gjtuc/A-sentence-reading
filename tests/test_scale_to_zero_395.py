@@ -74,3 +74,17 @@ def test_lifespan_starts_preload_thread() -> None:
     head = src.split("app = FastAPI(", 1)[0]
     assert "_hear_preload_on_boot()" in head
     assert 'name="hear-preload"' in head
+
+
+def test_cd_profile_matches_local_ship() -> None:
+    prof = (ROOT / "scripts" / "capacity_profiles" / "turn2-scale-to-zero.env").read_text(encoding="utf-8")
+    keys = dict(
+        line.strip().split("=", 1)
+        for line in prof.splitlines()
+        if line.strip() and not line.startswith("#") and "=" in line
+    )
+    assert keys["ASR_INGEST_INLINE"] == "1"
+    assert keys["ASR_MIN_INSTANCES"] == "0"
+    assert keys["ASR_CPU_THROTTLING"] == "0"
+    local = (ROOT / "scripts" / "deploy_cloud_run.sh").read_text(encoding="utf-8")
+    assert 'ASR_INGEST_INLINE: \\"${ASR_INGEST_INLINE:-1}\\"' in local

@@ -37,6 +37,13 @@ scales to zero. It is left as is.
 5. CPU stays always allocated. Ingest and the sound-reference warm run after the
    response returns; request-based CPU would freeze them.
 
+6. Two paths deploy the API on every push: the local ship and GitHub CD
+   (`vars.ASR_CAPACITY_PROFILE` = `turn2-scale-to-zero`). The last one to finish
+   wins. The CD profile had `ASR_INGEST_INLINE=0`, which moves ingest and the
+   sound-reference warm to the 2 Gi worker, too small for the phoneme model. 0.3.434
+   went live that way through CD. The profile now says `1`, like the local ship
+   (0.3.435).
+
 ## Costs that remain
 
 - An idle instance lives up to about 15 minutes after the last request.
