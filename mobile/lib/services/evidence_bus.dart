@@ -8,6 +8,7 @@ import 'dart:math';
 
 import '../api/client.dart';
 import '../config.dart';
+import 'app_foreground.dart';
 import 'evidence_kinds.dart';
 
 /// Process-wide bus (bound from [SentenceReadingApp] / tests).
@@ -42,7 +43,11 @@ class EvidenceBus {
     _enabled = enabled;
     if (_enabled) {
       _ensureTrace();
-      _timer ??= Timer.periodic(flushEvery, (_) => unawaited(flush()));
+      _timer ??= Timer.periodic(flushEvery, (_) {
+        // design/396 — rows wait in the ring until the app is back.
+        if (AppForeground.instance.resting) return;
+        unawaited(flush());
+      });
     } else {
       _timer?.cancel();
       _timer = null;

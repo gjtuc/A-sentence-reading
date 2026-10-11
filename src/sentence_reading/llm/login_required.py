@@ -28,7 +28,7 @@ _PUBLIC_API_EXACT = frozenset(
     }
 )
 
-_PUBLIC_PAGE_EXACT = frozenset({"/", "/favicon.ico"})
+_PUBLIC_PAGE_EXACT = frozenset({"/", "/favicon.ico", "/robots.txt"})
 
 
 def login_required_enabled() -> bool:

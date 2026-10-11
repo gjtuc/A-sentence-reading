@@ -16,11 +16,56 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "scripts" / "pre_deploy_guard.py"
+SERVICE = os.environ.get("ASR_CLOUD_RUN_SERVICE") or "asr-sentence-reading"
+REGION = os.environ.get("ASR_CLOUD_RUN_REGION") or "asia-northeast3"
+PROJECT = os.environ.get("GCP_PROJECT_ID") or "peaceful-basis-503207-t4"
+
+
+def parse_service(desc: dict[str, Any]) -> dict[str, str] | None:
+    """The serving revision's release env, or None when it is not certain."""
+    st = desc.get("status") or {}
+    ready = st.get("latestReadyRevisionName")
+    if not ready or ready != st.get("latestCreatedRevisionName"):
+        return None
+    traffic = st.get("traffic") or []
+    if not any(t.get("latestRevision") and int(t.get("percent") or 0) == 100 for t in traffic):
+        return None
+    try:
+        container = desc["spec"]["template"]["spec"]["containers"][0]
+    except (KeyError, IndexError, TypeError):
+        return None
+    env = {e.get("name"): e.get("value") for e in container.get("env") or [] if isinstance(e, dict)}
+    version = str(env.get("ASR_RELEASE_VERSION") or "").strip()
+    if not version:
+        return None
+    return {"version": version, "deploy_git_sha": str(env.get("ASR_DEPLOY_GIT_SHA") or "").strip()}
+
+
+def live_from_service(run=subprocess.run) -> dict[str, str] | None:
+    """design/396 — ask Cloud Run, not the app, so a scaled-to-zero API stays asleep."""
+    exe = "gcloud.cmd" if os.name == "nt" else "gcloud"
+    try:
+        res = run(
+            [exe, "run", "services", "describe", SERVICE, "--region", REGION,
+             "--project", PROJECT, "--format=json"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    if res.returncode != 0:
+        return None
+    try:
+        desc = json.loads(res.stdout or "{}")
+    except json.JSONDecodeError:
+        return None
+    return parse_service(desc) if isinstance(desc, dict) else None
 
 
 def _load_guard():
@@ -48,12 +93,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    live = None
+    if (os.environ.get("ASR_FRESHNESS_LIVE") or "").strip().lower() != "http":
+        live = live_from_service()
     try:
         mod = _load_guard()
         plan = mod.run_guard(
             allow_same_version=True,
             allow_dirty=True,
             skip_fetch=False,
+            live_data=live,
         )
     except Exception as exc:  # noqa: BLE001
         print(
@@ -95,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         "mobile_version": plan.get("mobile_version"),
         "live_version": plan.get("live_version"),
         "live_deploy_sha": plan.get("live_deploy_sha"),
+        "live_source": "service_env" if live else "http",
         "git_head": plan.get("git_head"),
         "git_branch": plan.get("git_branch"),
         "commits_behind_remote": plan.get("commits_behind_remote"),

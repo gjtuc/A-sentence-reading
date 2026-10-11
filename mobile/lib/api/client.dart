@@ -15,6 +15,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
 import '../config.dart';
+import '../services/app_foreground.dart';
 import '../services/evidence_bus.dart';
 import 'auth_models.dart';
 import 'paper_models.dart';
@@ -1750,10 +1751,11 @@ class AsrClient {
     if (jid.isEmpty || !RegExp(r'^job_[a-f0-9]{12}$').hasMatch(jid)) {
       throw AsrApiException('잘못된 작업 ID입니다.', 400);
     }
-    final absoluteDeadline = DateTime.now().add(maxDuration);
+    var absoluteDeadline = DateTime.now().add(maxDuration);
     var idleDeadline = DateTime.now().add(idleTimeout);
     var lastPct = -1;
     var lastMsg = '';
+    var parkedOnce = false;
     while (DateTime.now().isBefore(absoluteDeadline)) {
       if (DateTime.now().isAfter(idleDeadline)) {
         _breadcrumbApiFail(
@@ -1778,7 +1780,23 @@ class AsrClient {
         _emitIngestPollTerminal(jobId: jid, outcome: 'cancelled');
         throw UploadCancelledException();
       }
-      await Future<void>.delayed(pollInterval);
+      // design/396 — off screen, ask once a minute; after 30 minutes, wait.
+      final parked = await pollPause(pollInterval);
+      if (parked > Duration.zero) {
+        absoluteDeadline = absoluteDeadline.add(parked);
+        idleDeadline = DateTime.now().add(idleTimeout);
+        if (!parkedOnce) {
+          parkedOnce = true;
+          asrEvidenceBus?.record(
+            'ingest_poll_tick',
+            severity: 'lifecycle',
+            jobId: jid,
+            percent: lastPct < 0 ? 0 : lastPct,
+            stage: 'poll_parked',
+            details: {'parked_s': parked.inSeconds},
+          );
+        }
+      }
       if (isCancelled?.call() == true) {
         throw UploadCancelledException();
       }

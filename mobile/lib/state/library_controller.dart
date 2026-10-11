@@ -53,6 +53,7 @@ import '../api/library_order_models.dart';
 import '../api/bookmark_models.dart';
 import '../state/bookmark_controller.dart';
 import '../state/annotation_controller.dart';
+import '../services/app_foreground.dart';
 import '../services/error_reporter.dart';
 import '../services/evidence_bus.dart';
 import '../services/notify_complete_gate_evidence.dart';
@@ -1334,6 +1335,8 @@ class LibraryController extends ChangeNotifier {
   }
 
   Future<void> _tickHarmonizeResidualPoll(String cid) async {
+    // design/396 — a screen refresh; nobody sees it off screen.
+    if (AppForeground.instance.away) return;
     try {
       final fetched = await _client.listPapers();
       // design/288 E3 — publish remote-only without mergeRemoteWithLocal.
@@ -4148,6 +4151,8 @@ class LibraryController extends ChangeNotifier {
       _translatePollTimer?.cancel();
       _translatePollTimer =
           Timer.periodic(const Duration(seconds: 8), (t) async {
+        // design/396 — off screen ticks are not attempts.
+        if (AppForeground.instance.away) return;
         attempts++;
         if (attempts > 24) {
           unawaited(

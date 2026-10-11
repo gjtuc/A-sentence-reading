@@ -287,7 +287,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.435",
+    version="0.3.436",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -10752,12 +10752,26 @@ def veil_debug_log_get() -> dict:
     return {"ok": True, "lines": lines, "path": str(_DEBUG_LOG)}
 
 
+_ROBOTS_TXT = "User-agent: *\nDisallow: /\n"
+_NO_INDEX = {"X-Robots-Tag": "noindex, nofollow"}
+
+
+@app.get("/robots.txt")
+def robots_txt() -> Response:
+    """design/396 — every crawler visit wakes an instance from zero."""
+    return Response(
+        _ROBOTS_TXT,
+        media_type="text/plain",
+        headers={"Cache-Control": "public, max-age=86400", **_NO_INDEX},
+    )
+
+
 @app.get("/")
 def index() -> HTMLResponse:
     # WHY: 정적 JS/CSS 캐시 무효화 — 배포 버전이 바뀌면 브라우저가 새 파일을 받음
     html = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
     html = html.replace("__ASR_ASSET_V__", app.version)
-    return HTMLResponse(html)
+    return HTMLResponse(html, headers=_NO_INDEX)
 
 
 @app.get("/veil.html")

@@ -271,6 +271,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       unawaited(widget.library.persistOpenedProgress());
       unawaited(widget.library.recordReadLeft());
       unawaited(widget.bookmarks.pushToServer());
+      if (state == AppLifecycleState.paused) {
+        unawaited(asrEvidenceBus?.flush() ?? Future<void>.value());
+      }
     }
     if (state == AppLifecycleState.resumed) {
       unawaited(_consumePendingOpen());
