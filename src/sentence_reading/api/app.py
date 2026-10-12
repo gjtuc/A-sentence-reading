@@ -287,7 +287,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.438",
+    version="0.3.439",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -8827,12 +8827,14 @@ async def _run_ingest_job_body(
             from sentence_reading.llm import evidence_bus as eb
             from sentence_reading.llm.debone_quality import (
                 coverage_excluding_references,
+                drop_caption_text,
                 order_warnings,
                 practice_text_only,
                 practice_token_n,
                 quiet_headingless_body,
                 source_coverage_warnings,
                 source_order_stats,
+                text_coverage,
             )
 
             # A resume starts from already-filtered pages, so there is no copy of the
@@ -8843,16 +8845,24 @@ async def _run_ingest_job_body(
             _src_cov = 0.0
             _denom_n = 0
             _practice = ""
+            _src_text = ""
+            _src_tc = 1.0
+            _src_missing: list[str] = []
             if _has_pre:
+                # design/399 — captions live in the figure viewer.
+                _src_text = drop_caption_text(
+                    text_pre_filter, [f.caption or "" for f in figures or []]
+                )
                 # design/330/331 — references are never practice text. Azure knows
                 # where they are even when the raw text's columns hide the header.
-                _practice = practice_text_only(text_pre_filter)
+                _practice = practice_text_only(_src_text)
                 _src_cov = coverage_excluding_references(
-                    text_pre_filter,
+                    _src_text,
                     sentences,
                     references_text=_refs_text,
                 )
-                _denom_n = practice_token_n(text_pre_filter, _refs_text)
+                _denom_n = practice_token_n(_src_text, _refs_text)
+                _src_tc, _src_missing = text_coverage(_src_text, sentences)
                 warnings.extend(
                     source_coverage_warnings(
                         source_coverage=_src_cov,
@@ -8860,6 +8870,7 @@ async def _run_ingest_job_body(
                             (ingest_quality or {}).get("coverage_ratio") or 0.0
                         ),
                         denom_tokens=_denom_n,
+                        source_text_coverage=_src_tc,
                     )
                 )
             else:
@@ -8889,6 +8900,14 @@ async def _run_ingest_job_body(
                     "sentence_n": len(sentences or []),
                     # design/330 — what the denominator actually was.
                     "practice_chars": len(_practice or ""),
+                    # design/399 — the text ruler on the pre-filter copy.
+                    "caption_chars_dropped": max(
+                        0, len(text_pre_filter or "") - len(_src_text or "")
+                    )
+                    if _has_pre
+                    else 0,
+                    "source_text_coverage": round(float(_src_tc), 4),
+                    "source_text_missing_n": len(_src_missing),
                     "refs_share": round(
                         1 - len(_practice or "") / max(1, len(text_pre_filter or "")),
                         3,

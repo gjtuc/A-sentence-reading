@@ -291,6 +291,48 @@ _CHROME_LINE = re.compile(
     r"|\u00a9\s*(?:the author|\d{4})"
     r").*$"
 )
+# design/399 — PyMuPDF hands a page back as a few lines of 1,000+ characters, so a
+# footer stamp inside one took the page's prose with it: 68 of 225 papers kept less
+# than half their text, and one kept 30 of 40,494 characters. A real chrome line is
+# short (20 of 1,534 matching lines were 300 characters or fewer). Past that, only
+# the sentence carrying the stamp goes.
+CHROME_LINE_MAX = 300
+_CHROME_PIECE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def _strip_chrome(text: str) -> str:
+    out: list[str] = []
+    for line in (text or "").splitlines(keepends=True):
+        body = line.rstrip("\r\n")
+        if not _CHROME_LINE.search(body):
+            out.append(line)
+            continue
+        end = line[len(body) :]
+        if len(body) <= CHROME_LINE_MAX:
+            out.append(end)
+            continue
+        kept = [p for p in _CHROME_PIECE_SPLIT.split(body) if not _CHROME_LINE.search(p)]
+        out.append(" ".join(kept) + end)
+    return "".join(out)
+
+
+def drop_caption_text(text: str, captions: list[str]) -> str:
+    """design/399 — a figure caption is read in the figure viewer, not as sentences.
+
+    PyMuPDF prints captions inline with the body, so they sat in the source
+    denominator as prose the reader never got. Matched by the same shingles as the
+    text ruler, so a body sentence that only mentions a figure stays.
+    """
+    cap = _shingles(_coverage_words(" ".join(c or "" for c in captions or [])))
+    if not cap:
+        return text or ""
+    keep: list[str] = []
+    for piece in _FRAGMENT_SPLIT.split(text or ""):
+        want = _shingles(_coverage_words(piece))
+        if want and len(want & cap) >= TEXT_FRAGMENT_FOUND_SHARE * len(want):
+            continue
+        keep.append(piece)
+    return "\n".join(keep)
 
 
 def is_back_matter_sentence(text: str) -> bool:
@@ -387,7 +429,7 @@ def strip_back_matter(text: str) -> str:
     near the top, and cutting there removed the target paper entirely: the Science
     excerpt's denominator collapsed to 9 tokens.
     """
-    s = _CHROME_LINE.sub("", text or "")
+    s = _strip_chrome(text or "")
     if not s.strip():
         return s
     floor = int(len(s) * 0.66)
@@ -1055,12 +1097,18 @@ def source_coverage_warnings(
     source_coverage: float,
     debone_coverage: float,
     denom_tokens: int | None = None,
+    source_text_coverage: float | None = None,
 ) -> list[str]:
     """design/321 — recall against the pre-filter text, and the filter's share.
 
     `debone_coverage` is measured against the text debone was handed. When the
     source ratio is much lower, the loss happened before debone and no existing
     warning can see it.
+
+    design/399 — the word-set ratio read 0.70 on a paper missing its whole
+    Experimental section, because those words recur elsewhere. The text ruler
+    (design/344) read 0.70 of characters delivered there too, and 0.88 and 0.96 on
+    papers whose sentences were all present, so it is held to its own 0.80 line.
     """
     w: list[str] = []
     if denom_tokens is not None and not coverage_is_measurable(denom_tokens):
@@ -1070,6 +1118,8 @@ def source_coverage_warnings(
         w.append(f"source_coverage_low:{src:.2f}")
     elif src < SOURCE_COVERAGE_WARN:
         w.append(f"source_coverage_warn:{src:.2f}")
+    if source_text_coverage is not None and source_text_coverage < TEXT_COVERAGE_WARN:
+        w.append(f"source_text_coverage_low:{float(source_text_coverage):.2f}")
     gap = float(debone_coverage) - src
     if debone_coverage > 0 and gap > SOURCE_FILTER_GAP_WARN:
         w.append(f"extract_filter_gap:{gap:.2f}")
