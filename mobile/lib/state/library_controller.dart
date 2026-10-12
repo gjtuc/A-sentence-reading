@@ -690,6 +690,7 @@ class LibraryController extends ChangeNotifier {
   bool _pdfAdvisoryPumpBusy = false;
   bool _pdfAdvisoryRerunRequested = false;
   int _pdfAdvisoryPumpEpoch = 0;
+  final Map<PdfImportBrowseMode, String> _lastScannedTree = {};
   int _pdfFolderRescanDebounceMs = 0;
 
   /// design/241 — proactive tree writable probe (null = unknown / no grant).
@@ -6442,7 +6443,11 @@ class LibraryController extends ChangeNotifier {
     String trigger = 'scan',
     PdfImportBrowseMode target = PdfImportBrowseMode.papers,
   }) async {
-    _pdfAdvisoryPumpEpoch++;
+    // design/401 — only a different folder cancels the title read in flight.
+    if (_lastScannedTree[target] != treeUri) {
+      _pdfAdvisoryPumpEpoch++;
+      _lastScannedTree[target] = treeUri;
+    }
     final t0 = DateTime.now().millisecondsSinceEpoch;
     final prev = target == PdfImportBrowseMode.downloads
         ? pdfDownloadsEntries
@@ -6470,7 +6475,21 @@ class LibraryController extends ChangeNotifier {
           cached = prevEntry.contentHash;
         }
 
-        // design/309 — do not reuse a saved or previous title. Extract again.
+        // design/309 — never a saved title. design/401 — this run's read is kept.
+        final kept = keptScanEntry(
+          prevEntry,
+          displayName: it.displayName,
+          sizeBytes: it.sizeBytes,
+          lastModifiedMs: it.lastModifiedMs,
+        );
+        if (kept != null) {
+          if (cached != null && kept.contentHash.isEmpty) {
+            kept.contentHash = cached;
+            kept.hashState = PdfHashState.ready;
+          }
+          next.add(kept);
+          continue;
+        }
         next.add(
           ScannedPdfEntry(
             docUri: it.docUri,
@@ -6500,6 +6519,8 @@ class LibraryController extends ChangeNotifier {
       final nAdvUnknown =
           next.where((e) => e.advisoryState == PdfAdvisoryState.unknown).length;
       final nNew = next.where((e) => !prevUris.contains(e.docUri)).length;
+      final prevSet = prev.toSet();
+      final nAdvKept = next.where(prevSet.contains).length;
       asrEvidenceBus?.record(
         'pdf_folder_scan_done',
         severity: 'lifecycle',
@@ -6510,6 +6531,7 @@ class LibraryController extends ChangeNotifier {
           'n_hash_ready': nHashReady,
           'n_adv_ready': nAdvReady,
           'n_adv_unknown': nAdvUnknown,
+          'n_adv_kept': nAdvKept,
           'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
           'browse':
               target == PdfImportBrowseMode.downloads ? 'downloads' : 'papers',
@@ -6841,6 +6863,7 @@ class LibraryController extends ChangeNotifier {
       m[key] = (m[key] ?? 0) + 1;
     }
 
+    var pending = const <ScannedPdfEntry>[];
     try {
       final nReadyPre = pdfImportActiveEntries
           .where((e) => e.advisoryState == PdfAdvisoryState.ready)
@@ -6849,7 +6872,7 @@ class LibraryController extends ChangeNotifier {
           .where((e) => e.advisoryState == PdfAdvisoryState.failed)
           .length;
       final beyond = unknownAll.length > limit ? unknownAll.length - limit : 0;
-      final pending = unknownAll.take(limit).toList();
+      pending = unknownAll.take(limit).toList();
       if (pending.isEmpty) {
         asrEvidenceBus?.record(
           'pdf_advisory_pump_skip',
@@ -7141,6 +7164,7 @@ class LibraryController extends ChangeNotifier {
         details: doneDetails,
       );
     } finally {
+      if (epoch != _pdfAdvisoryPumpEpoch) releaseAbandonedReads(pending);
       _pdfAdvisoryPumpBusy = false;
       if (_pdfAdvisoryRerunRequested) {
         _pdfAdvisoryRerunRequested = false;

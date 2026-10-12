@@ -435,6 +435,7 @@
 | 398 | [398-acknowledgements-and-headingless-body.md](398-acknowledgements-and-headingless-body.md) | 원문에 Acknowledgements 제목이 있을 때만 감사의 글 문장을 빼기 (12문장·10% 이하) · 본문 소제목이 하나도 없는 논문(Communication)은 `Body ⚠` 를 띄우지 않기 — Azure `sectionHeading` 로 셈 (0.3.438) |
 | 399 | [399-chrome-inside-long-lines.md](399-chrome-inside-long-lines.md) | PyMuPDF 긴 줄 안의 바닥글 문구가 쪽 전체를 분모에서 지우던 문제 — 300자 넘는 줄은 그 문장만 지움 · 원문 쪽 검사에서 그림 설명 제외 · 원문 쪽 빠진 조각 검사 `source_text_coverage_low` (0.3.439) |
 | 400 | [400-archive-needs-same-build.md](400-archive-needs-same-build.md) | 보관본은 그 분석을 만든 앱 버전에서만 다시 쓰기 (`analyzed_build`) · 0.3.51 무렵부터 멈춰 있던 `rich-v24` 를 `rich-v25` 로, 테스트는 정확한 문자열 대신 "v24 이상" (0.3.440) |
+| 401 | [401-scan-keeps-read-titles.md](401-scan-keeps-read-titles.md) | 같은 폴더를 다시 훑어도 이번 실행에서 읽은 제목·읽는 중인 제목은 그대로 둔다 (SI 찾아보기 뒤 4초 감시가 제목을 매번 지우고 추출을 취소하던 문제) · 디스크 저장은 여전히 없음 (0.3.441) |
 | 387 | [387-the-rung-then-the-line.md](387-the-rung-then-the-line.md) | 소리 확률을 먼저 (20+난이도)%로 보고, 못 넘기면 계정 선으로 한 번 더 본다 · 선이 배우는 점수는 난이도 적용 전 30% 일치 · 더 말한 소리는 분모에 남긴다 · 기호 목록은 30% 고정 (0.3.427) |
 | 386 | [386-thirty-percent-of-each-sound.md](386-thirty-percent-of-each-sound.md) | 소리 하나의 일치는 원어민이 30% 넘긴 기호를 사용자도 전부 30% 넘긴 것 · 공백은 세지 않음 · 분모는 그대로 · 619개에서 기호가 둘인 칸은 3.1%, 그 중 또렷한 읽기가 떨어지는 경우는 소리 1000개 중 9개 (0.3.426) |
 | 385 | [385-warm-from-the-cursor.md](385-warm-from-the-cursor.md) | 미리 짓기는 지금 읽는 자리부터 한 바퀴 돈다 · 연습 커서가 있으면 그쪽 · `/open` 의 1번부터 걷기는 폰 요청을 `_WARMING` 으로 버려서 뺐다 (0.3.425) |

@@ -179,6 +179,36 @@ class ScannedPdfEntry {
   }
 }
 
+/// design/401 — a rescan of an unchanged file keeps the entry this run already
+/// read, including one still being read. The find watch rescans every 4 s for two
+/// minutes, and each rescan used to reset every title and cancel the read in
+/// flight, so a folder longer than one batch never finished. Nothing is written to
+/// disk: a fresh app start still reads every file (design/309).
+ScannedPdfEntry? keptScanEntry(
+  ScannedPdfEntry? prev, {
+  required String displayName,
+  required int sizeBytes,
+  required int lastModifiedMs,
+}) {
+  if (prev == null || prev.advisoryState == PdfAdvisoryState.unknown) return null;
+  if (prev.displayName != displayName ||
+      prev.sizeBytes != sizeBytes ||
+      prev.lastModifiedMs != lastModifiedMs) {
+    return null;
+  }
+  return prev;
+}
+
+/// design/401 — a cancelled read leaves nothing marked as in progress, or a kept
+/// entry would show 제목 확인 중 forever.
+void releaseAbandonedReads(Iterable<ScannedPdfEntry> pending) {
+  for (final e in pending) {
+    if (e.advisoryState == PdfAdvisoryState.computing) {
+      e.advisoryState = PdfAdvisoryState.unknown;
+    }
+  }
+}
+
 /// design/239 — visible import list: singleton or exact 1 main + 1 SI set.
 sealed class PdfImportListItem {
   const PdfImportListItem();
