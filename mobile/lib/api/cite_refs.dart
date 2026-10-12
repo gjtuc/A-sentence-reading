@@ -2,9 +2,13 @@
 library;
 
 final _tag = RegExp(r'<[^>]+>');
+// design/397 — Wiley `[ 5f, 7 ]` `[1a,e]`: spaces inside, and a letter names one
+// part of a grouped entry. No leading zero: `[001]` is a zone axis, not entry 1.
 final _bracket = RegExp(
-  r'\[(\d+(?:\s*[-–—,]\s*\d+)*(?:\s*,\s*\d+(?:\s*[-–—,]\s*\d+)*)*)\]',
+  r'\[\s*(?!0)(\d+[a-z]?(?:\s*[-–—,]\s*(?:\d+[a-z]?|[a-z](?![a-z])))*)\s*\]',
 );
+final _partRange = RegExp(r'(\d+)[a-z]\s*[-–—−]\s*[a-z](?![a-z])');
+final _partLetter = RegExp(r'(?<=\d)[a-z]');
 final _supNum = RegExp(r'<sup>\s*(\d{1,3})\s*</sup>', caseSensitive: false);
 final _dollarTexCite = RegExp(
   r'\$\{\^(\d+(?:\s*[,–—−-]\s*\d+)*)\}\$|\$\^\{(\d+(?:\s*[,–—−-]\s*\d+)*)\}\$',
@@ -26,7 +30,10 @@ String stripTags(String? html) => (html ?? '').replaceAll(_tag, ' ');
 List<int> _expandToken(String token) {
   final out = <int>[];
   final seen = <int>{};
-  for (final part in token.split(RegExp(r'\s*,\s*'))) {
+  final plain = token
+      .replaceAllMapped(_partRange, (m) => m.group(1)!)
+      .replaceAll(_partLetter, '');
+  for (final part in plain.split(RegExp(r'\s*,\s*'))) {
     final p = part.trim();
     if (p.isEmpty) continue;
     final range = RegExp(r'^(\d+)\s*[-–—−]\s*(\d+)$').firstMatch(p);

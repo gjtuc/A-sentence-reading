@@ -17,6 +17,17 @@ Set<String> residueKeepTokens(Iterable<String> ids) {
   return out;
 }
 
+/// design/397 — a paired SI folded under its main row is not in the visible list,
+/// but its folder is what the merge reads. Each row's mate is a library paper.
+List<String> residueLibraryIds(Iterable<({String id, String mateId})> rows) {
+  final out = <String>[];
+  for (final r in rows) {
+    out.add(r.id);
+    if (r.mateId.trim().isNotEmpty) out.add(r.mateId);
+  }
+  return out;
+}
+
 /// Folder names present on disk but not in [keep].
 Set<String> residueIdsNotInKeep({
   required Set<String> keep,

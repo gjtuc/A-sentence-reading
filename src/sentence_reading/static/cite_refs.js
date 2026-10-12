@@ -6,8 +6,11 @@
 (function (global) {
   "use strict";
 
+  // design/397 — Wiley `[ 5f, 7 ]` `[1a,e]`; `[001]` is a zone axis.
   var BRACKET =
-    /\[(\d+(?:\s*[-–—,]\s*\d+)*(?:\s*,\s*\d+(?:\s*[-–—,]\s*\d+)*)*)\]/g;
+    /\[\s*(?!0)(\d+[a-z]?(?:\s*[-–—,]\s*(?:\d+[a-z]?|[a-z](?![a-z])))*)\s*\]/g;
+  var PART_RANGE = /(\d+)[a-z]\s*[-–—−]\s*[a-z](?![a-z])/g;
+  var PART_LETTER = /(?<=\d)[a-z]/g;
   var SUP_NUM = /<sup>\s*(\d{1,3})\s*<\/sup>/gi;
   var DOLLAR_CITE = /(?<=[A-Za-z)\]])\$(\d{1,3})(?!\d)/g;
   var DOLLAR_CITE_AFTER_MARK = /([\]>])\s*\$(\d{1,3})(?!\d)/g;
@@ -37,6 +40,8 @@
     var out = [];
     var seen = Object.create(null);
     String(token || "")
+      .replace(PART_RANGE, "$1")
+      .replace(PART_LETTER, "")
       .split(/\s*,\s*/)
       .forEach(function (part) {
         part = String(part || "").trim();

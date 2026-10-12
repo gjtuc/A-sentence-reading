@@ -287,7 +287,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.436",
+    version="0.3.437",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1486,6 +1486,24 @@ def _maybe_fail_translate_stall(job_id: str, job: dict) -> bool:
     return applied
 
 
+def _adopt_gcs_terminal(jid: str, owner: str) -> None:
+    """Copy the shared terminal state into this instance's stale copy of [jid]."""
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+
+    job = _JOBS.get(jid)
+    if not isinstance(job, dict) or not owner:
+        return
+    try:
+        loaded = ij.load_ingest_job(jid, owner_uid=owner) or {}
+    except Exception:  # noqa: BLE001
+        return
+    if not (loaded.get("done") or loaded.get("error")):
+        return
+    for key in ("stage", "percent", "done", "error", "result"):
+        if key in loaded:
+            job[key] = loaded[key]
+
+
 async def _ingest_sweeper_loop() -> None:
     """design/168e — periodically reclaim or mark worker_lost on lease-expired jobs."""
     from sentence_reading.llm.ingest_stall import sweeper_interval_sec, sweep_candidate
@@ -1572,12 +1590,18 @@ async def _ingest_sweeper_loop() -> None:
                         "lease_claim_failed",
                         "already_local",
                     )
+                    # design/397 — another instance finished it. This copy is a poll
+                    # snapshot that stopped moving, not a lost worker.
+                    if reclaim_reason == "job_already_done":
+                        _adopt_gcs_terminal(jid, owner)
+                        job2 = _JOBS.get(jid) or job2
                     will_mark = (
                         not ok
                         and not job2.get("_local_running")
                         and not job2.get("done")
                         and not job2.get("error")
                         and reclaim_reason not in _zombie_reasons
+                        and reclaim_reason != "job_already_done"
                         and live_skip is None
                     )
                     try:
@@ -1652,7 +1676,11 @@ async def _ingest_sweeper_loop() -> None:
                     if job2.get("_local_running"):
                         _emit_kill_decision("skipped_local_running", will_mark=False)
                         continue
-                    if job2.get("done") or job2.get("error"):
+                    if (
+                        job2.get("done")
+                        or job2.get("error")
+                        or reclaim_reason == "job_already_done"
+                    ):
                         _emit_kill_decision("skipped_already_terminal", will_mark=False)
                         continue
                     # J1 / 286: live lease — do NOT false-kill.

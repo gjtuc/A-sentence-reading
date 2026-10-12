@@ -16,9 +16,14 @@ _DOI = re.compile(
     re.IGNORECASE,
 )
 # [1] [1-3] [1,2] [1–3]
+# design/397 — Wiley: `[ 5f, 7 ]` `[1a,e]`. Spaces inside, and a letter names one part
+# of a grouped entry. No leading zero: `[001]` is a zone axis, not entry 1.
 _BRACKET = re.compile(
-    r"\[(\d+(?:\s*[-–—,]\s*\d+)*(?:\s*,\s*\d+(?:\s*[-–—,]\s*\d+)*)*)\]"
+    r"\[\s*(?!0)(\d+[a-z]?(?:\s*[-–—,]\s*(?:\d+[a-z]?|[a-z](?![a-z])))*)\s*\]"
 )
+# `5a–c` is entry 5; `5f` is entry 5; a bare `e` after `1a,` is entry 1 again.
+_PART_RANGE = re.compile(r"(\d+)[a-z]\s*[-–—−]\s*[a-z](?![a-z])")
+_PART_LETTER = re.compile(r"(?<=\d)[a-z]")
 # <sup>12</sup> — 숫자만 (cm<sup>−1</sup> 등은 제외)
 _SUP_NUM = re.compile(r"<sup>\s*(\d{1,3})\s*</sup>", re.IGNORECASE)
 # Bracket cite shape — survey glossary가 [8, 9]를 LaTeX $1로 바꾸는 사고 방어
@@ -149,6 +154,7 @@ def _expand_num_token(token: str) -> list[int]:
     """'1-3,5' → [1,2,3,5]. 말도 안 되는 범위는 스킵."""
     out: list[int] = []
     seen: set[int] = set()
+    token = _PART_LETTER.sub("", _PART_RANGE.sub(r"\1", token))
     for part in re.split(r"\s*,\s*", token.strip()):
         part = part.strip()
         if not part:

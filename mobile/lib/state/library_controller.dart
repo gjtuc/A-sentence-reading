@@ -3128,7 +3128,9 @@ class LibraryController extends ChangeNotifier {
   /// design/307 — delete folders not in the library or soft-hide set, then re-list.
   Future<void> sweepLocalResidues({required String trigger}) async {
     final keep = residueKeepTokens([
-      ...papers.map((p) => p.id),
+      ...residueLibraryIds(
+        papers.map((p) => (id: p.id, mateId: p.pairedCacheId)),
+      ),
       ..._softDelete.hiddenIds,
     ]);
     var deleted = 0;

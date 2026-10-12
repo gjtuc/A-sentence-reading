@@ -84,4 +84,23 @@ void main() {
     expect(rows.map((e) => e.n).toList(), [1, 2]);
     expect(rows[0].doi, '10.1/abc');
   });
+
+  test('design/397 Wiley part letters and inner spaces are citations', () {
+    expect(parseCiteNumbers('catalytic performance. [ 1 ]'), [1]);
+    expect(parseCiteNumbers('sites is increased. [ 5f, 7 ]'), [5, 7]);
+    expect(parseCiteNumbers('reaction (ORR). [ 1a,e ]'), [1]);
+    expect(parseCiteNumbers('as shown before [5a–c, 9]'), [5, 9]);
+    expect(
+      stripCiteMarkersForDisplay('the active sites is increased. [ 5f, 7 ]'),
+      'the active sites is increased.',
+    );
+  });
+
+  test('design/397 a zone axis is not a citation', () {
+    expect(parseCiteNumbers('oriented along the Pt [001] zone axis'), isEmpty);
+    expect(
+      stripCiteMarkersForDisplay('along the Pt [001] zone axis'),
+      contains('[001]'),
+    );
+  });
 }
