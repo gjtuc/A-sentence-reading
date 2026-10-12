@@ -287,7 +287,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.437",
+    version="0.3.438",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -8830,6 +8830,7 @@ async def _run_ingest_job_body(
                 order_warnings,
                 practice_text_only,
                 practice_token_n,
+                quiet_headingless_body,
                 source_coverage_warnings,
                 source_order_stats,
             )
@@ -8872,6 +8873,7 @@ async def _run_ingest_job_body(
             # alone reported 44% on a paper whose order is 99% correct.
             _ord = source_order_stats(text_for_sentences, sentences)
             warnings.extend(order_warnings(_ord))
+            warnings[:] = quiet_headingless_body(warnings)
             eb.emit_handoff(
                 from_stage="extract_text",
                 to_stage="sentences_ready",

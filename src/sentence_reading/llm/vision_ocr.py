@@ -198,11 +198,13 @@ def recover_pdf_text(
         try:
             from sentence_reading.llm.env import azure_document_intelligence_available
             from sentence_reading.pdf.azure_layout import azure_layout_enabled
-            from sentence_reading.pdf.section_flow import azure_ordered_pages
+            from sentence_reading.pdf.body_headings import ordered_with_body_headings
 
             if azure_layout_enabled() and azure_document_intelligence_available():
-                ordered = azure_ordered_pages(pdf_path)
+                ordered, body_heads = ordered_with_body_headings(pdf_path)
                 if ordered is not None:
+                    if body_heads is not None:
+                        warnings.append(f"body_headings:{body_heads}")
                     if on_progress:
                         on_progress("quality", 1, 1, "Azure 읽기 순서")
                     return RecoverResult(

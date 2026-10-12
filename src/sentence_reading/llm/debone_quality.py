@@ -321,6 +321,60 @@ def drop_back_matter_sentences(
     return kept, len(sentences or []) - len(kept)
 
 
+# design/398 — thanks are not practice text, but only when the paper prints the
+# heading. A section label alone can be wrong (design/335), so a long run is kept.
+ACK_DROP_MAX = 12
+ACK_DROP_SHARE = 0.10
+_ACK_MARK = "<<<ASR_SECTION acknowledgement>>>"
+
+
+def _is_ack_section(section: str | None) -> bool:
+    return (section or "").strip().lower().startswith("acknowledg")
+
+
+def _prints_ack_heading(raw_text: str) -> bool:
+    from sentence_reading.pdf.section_flow import header_key
+
+    text = raw_text or ""
+    if _ACK_MARK in text:
+        return True
+    return any(
+        header_key(line) == "acknowledgement"
+        for line in text.splitlines()
+        if 0 < len(line.strip()) <= 40
+    )
+
+
+def drop_acknowledgement_sentences(
+    sentences: list[Sentence], raw_text: str
+) -> tuple[list[Sentence], list[Sentence], int]:
+    """Returns the kept sentences, the dropped ones, and how many were kept anyway."""
+    ack = [s for s in sentences or [] if _is_ack_section(s.section)]
+    if not ack:
+        return list(sentences or []), [], 0
+    too_many = len(ack) > ACK_DROP_MAX or len(ack) > ACK_DROP_SHARE * len(sentences)
+    if too_many or not _prints_ack_heading(raw_text):
+        return list(sentences), [], len(ack)
+    kept = [s for s in sentences if not _is_ack_section(s.section)]
+    return kept, ack, 0
+
+
+def quiet_headingless_body(warnings: list[str]) -> list[str]:
+    """design/398 — one Body section is a headingless paper's shape, not a failed split.
+
+    `body_headings:0` comes from the layout service's own section-heading tags. Without
+    it the warning stands.
+    """
+    if "body_headings:0" not in (warnings or []):
+        return list(warnings or [])
+    return [
+        "body_ratio_headingless:" + w.split(":", 1)[1]
+        if w.startswith("high_body_ratio:")
+        else w
+        for w in warnings
+    ]
+
+
 def strip_back_matter(text: str) -> str:
     """design/333 — drop per-page chrome, then cut a late back-matter heading.
 

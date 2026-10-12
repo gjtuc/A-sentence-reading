@@ -432,6 +432,7 @@
 | 395 | [395-scale-api-to-zero.md](395-scale-api-to-zero.md) | 서버 비용: API 최소 대수 1→0 (30일 중 요청 있는 시간 340/720) · 메모리 8→6Gi (최대 5.0Gi) · 발음 모델은 서버가 켜질 때 미리 불러옴 (`boot_warm`, 21초) (0.3.434) · GitHub CD 설정의 `INLINE=0` 을 로컬과 같은 1로 (0.3.435) |
 | 396 | [396-nothing-wakes-the-server.md](396-nothing-wakes-the-server.md) | 사람이 안 쓸 때 서버 깨우지 않기: 앱이 화면 밖이면 분석 상태 확인은 1분에 한 번, 30분 뒤엔 멈춤 · 화면 갱신용 반복과 로그 전송도 쉼 · `robots.txt` 전부 거부 · 새 채팅 버전 확인은 Cloud Run 설정에서 읽음 (0.3.436) |
 | 397 | [397-paired-si-survives-the-sweep.md](397-paired-si-survives-the-sweep.md) | 메인 밑에 접힌 보충자료를 잔여물 청소가 지우던 문제 · Wiley 인용 `[ 5f, 7 ]` `[1a,e]` 를 인용으로 읽기, `[001]` 은 인용 아님 · 다른 서버가 이미 끝낸 작업을 worker_lost 로 표시하지 않기 (0.3.437) |
+| 398 | [398-acknowledgements-and-headingless-body.md](398-acknowledgements-and-headingless-body.md) | 원문에 Acknowledgements 제목이 있을 때만 감사의 글 문장을 빼기 (12문장·10% 이하) · 본문 소제목이 하나도 없는 논문(Communication)은 `Body ⚠` 를 띄우지 않기 — Azure `sectionHeading` 로 셈 (0.3.438) |
 | 387 | [387-the-rung-then-the-line.md](387-the-rung-then-the-line.md) | 소리 확률을 먼저 (20+난이도)%로 보고, 못 넘기면 계정 선으로 한 번 더 본다 · 선이 배우는 점수는 난이도 적용 전 30% 일치 · 더 말한 소리는 분모에 남긴다 · 기호 목록은 30% 고정 (0.3.427) |
 | 386 | [386-thirty-percent-of-each-sound.md](386-thirty-percent-of-each-sound.md) | 소리 하나의 일치는 원어민이 30% 넘긴 기호를 사용자도 전부 30% 넘긴 것 · 공백은 세지 않음 · 분모는 그대로 · 619개에서 기호가 둘인 칸은 3.1%, 그 중 또렷한 읽기가 떨어지는 경우는 소리 1000개 중 9개 (0.3.426) |
 | 385 | [385-warm-from-the-cursor.md](385-warm-from-the-cursor.md) | 미리 짓기는 지금 읽는 자리부터 한 바퀴 돈다 · 연습 커서가 있으면 그쪽 · `/open` 의 1번부터 걷기는 폰 요청을 `_WARMING` 으로 버려서 뺐다 (0.3.425) |

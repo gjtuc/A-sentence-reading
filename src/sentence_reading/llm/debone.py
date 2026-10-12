@@ -25,6 +25,7 @@ from sentence_reading.llm.debone_quality import (
     chunk_kind,
     chunk_text_delivered,
     chunk_under_yielded,
+    drop_acknowledgement_sentences,
     drop_back_matter_sentences,
     fallback_split_chunk,
     pairs_chars,
@@ -917,6 +918,11 @@ def debone_sentences(
     # the sentence stream made the metric and the product disagree about what
     # practice text is.
     sentences, back_matter_n = drop_back_matter_sentences(sentences)
+    sentences, ack_dropped, ack_kept = drop_acknowledgement_sentences(sentences, raw_text)
+    if ack_dropped:
+        warnings.append(f"acknowledgement_dropped:{len(ack_dropped)}")
+    if ack_kept:
+        warnings.append(f"acknowledgement_kept:{ack_kept}")
 
     sentences, ungrounded_ids = apply_grounding_flags(sentences, raw_text)
 
@@ -932,7 +938,8 @@ def debone_sentences(
     missing_front = _missing_front_matter(sentences, raw_text)
     iq = build_ingest_quality(
         raw_text=raw_text,
-        sentences=sentences,
+        # A deliberate drop is reported by its own count, not as text the reader lost.
+        sentences=[*sentences, *ack_dropped],
         chunk_stats=chunk_stats,
         ungrounded_ids=ungrounded_ids,
         partial_debone_failed=failed,
