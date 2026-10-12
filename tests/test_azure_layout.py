@@ -113,7 +113,7 @@ def test_status_reports_azure_layout(monkeypatch: pytest.MonkeyPatch) -> None:
     st = TestClient(app).get("/api/status").json()
     assert st["azure_layout"] is False
     assert st["azure_layout_enabled"] is True
-    assert st["pipeline_version"] == PIPELINE_VERSION == "rich-v24"
+    assert st["pipeline_version"] == PIPELINE_VERSION
 
     monkeypatch.setenv(
         "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT",

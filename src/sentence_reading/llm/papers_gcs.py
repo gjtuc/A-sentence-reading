@@ -1101,6 +1101,7 @@ def download_paper_cache(
             "figure_count": len(meta.get("figures") or []),
             "debone": bool(meta.get("debone")),
             "pipeline_version": str(meta.get("pipeline_version") or ""),
+            "analyzed_build": str(meta.get("analyzed_build") or ""),
             "has_source": has_src,
             "content_hash": str(meta.get("content_hash") or "") or None,
         }

@@ -287,7 +287,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.439",
+    version="0.3.440",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -7337,6 +7337,10 @@ def _try_cache_hit(
         return None
     if str(hit.get("pipeline_version") or "") != PIPELINE_VERSION:
         return None
+    # design/400 — `rich-v24` stood from 0.3.51 to 0.3.439, so a pipeline name alone
+    # let an August analysis missing its Experimental section be served as current.
+    if str(hit.get("analyzed_build") or "") != app.version:
+        return None
     loaded = load_cached_session(str(hit["id"]))
     if loaded is None:
         return None
@@ -9025,6 +9029,7 @@ async def _run_ingest_job_body(
             layout_artifacts=layout_artifacts,
             ingest_status=early_status,
             force_cache_id=forced_cid or None,
+            analyzed_build=app.version,
         )
         # design/174 — auth+GCS Live: index miss must not look like library success.
         if (
@@ -9427,6 +9432,7 @@ async def _run_ingest_job_body(
                 layout_artifacts=layout_artifacts if kind == "pdf" else None,
                 ingest_status="ok",
                 force_cache_id=forced_cid or None,
+                analyzed_build=app.version,
             )
             # design/174 — durable library = personal GCS index listed.
             if (

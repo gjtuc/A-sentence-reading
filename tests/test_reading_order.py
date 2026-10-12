@@ -21,8 +21,8 @@ def test_status() -> None:
     st = TestClient(app).get("/api/status").json()
     assert_at_least(st["version"], "0.3.156")
     assert st.get("reading_order") is True
-    assert PIPELINE_VERSION == "rich-v24"
-    assert st["pipeline_version"] == "rich-v24"
+    assert int(PIPELINE_VERSION.removeprefix("rich-v")) >= 24
+    assert int(st["pipeline_version"].removeprefix("rich-v")) >= 24
 
 
 def test_reorder_two_column_left_then_right() -> None:

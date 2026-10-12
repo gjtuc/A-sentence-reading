@@ -28,7 +28,7 @@ def test_status_live_only_and_version() -> None:
     assert_at_least(st["version"], "0.3.156")
     assert st["live_only"] is True
     assert st["mobile_live_only"] is True
-    assert st["pipeline_version"] == "rich-v24"
+    assert int(st["pipeline_version"].removeprefix("rich-v")) >= 24
 
 
 def test_autostart_register_ensure_refuse() -> None:

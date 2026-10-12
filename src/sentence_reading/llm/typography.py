@@ -16,7 +16,9 @@ from sentence_reading.cite_refs import (
 from sentence_reading.llm.richtext import sanitize_sentence_html
 
 # 캐시 무효화 — 이 값이 다르면 ingest가 보관본을 건너뛰고 다시 다듬음
-PIPELINE_VERSION = "rich-v24"  # design/152 supplementary doc_role + SI slots
+# design/400 — v24 (design/152) stood until 0.3.439 because tests pinned the exact
+# string. Archive reuse now also needs the same app build (`analyzed_build`).
+PIPELINE_VERSION = "rich-v25"
 
 # design/154 — slot carousel (151+) 아래로 figure 파이프라인 회귀 금지 (배포·verify 게이트)
 FIGURE_PIPELINE_MIN = "rich-v20"

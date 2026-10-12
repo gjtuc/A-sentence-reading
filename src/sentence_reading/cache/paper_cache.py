@@ -1256,6 +1256,7 @@ def save_paper_session(
     merge_revision: int | None = None,
     ingest_status: str = "ok",
     force_cache_id: str | None = None,
+    analyzed_build: str | None = None,
 ) -> dict | None:
     """
     제목 키 + source(pdf/docx) + doc_role 로 저장.
@@ -1263,6 +1264,9 @@ def save_paper_session(
     source_path 가 있으면 source.pdf|docx 로 원본 백업 (한도 초과 시 생략).
     content_hash 는 원본 바이트 SHA-256 (진행 복원 교차 키).
     ingest_status: design/168c — processing|partial|error|ok (기본 ok).
+    analyzed_build: design/400 — the app version that produced these sentences. Only
+    an analysis passes it; a translation or merge save keeps the prior value, so a
+    re-save cannot make an old analysis look current.
     """
     import shutil
 
@@ -1530,9 +1534,13 @@ def save_paper_session(
         (s.text_ko or "").strip() for s in session.sentences
     ) or any((f.caption_ko or "").strip() for f in session.figures)
 
+    build = (analyzed_build or "").strip() or str(
+        prior_meta_for_gen.get("analyzed_build") or ""
+    )
     payload = {
         "version": 1,
         "pipeline_version": PIPELINE_VERSION,
+        "analyzed_build": build,
         "title": title,
         "title_key": key,
         "source": src,
@@ -1666,6 +1674,7 @@ def save_paper_session(
         "figure_count": len(fig_meta),
         "debone": bool(debone),
         "pipeline_version": PIPELINE_VERSION,
+        "analyzed_build": build,
         "has_source": has_source,
         "content_hash": ch or None,
         "ingest_status": status,

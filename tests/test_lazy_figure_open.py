@@ -23,7 +23,7 @@ def test_design_and_status_pin() -> None:
     st = TestClient(app).get("/api/status").json()
     assert_at_least(st["version"], "0.3.156")
     assert st.get("lazy_figure_open") is True
-    assert "rich-v24" in str(st.get("pipeline_version") or "")
+    assert str(st.get("pipeline_version") or "").startswith("rich-v")
 
 
 def test_open_omits_image_bytes(tmp_path, monkeypatch) -> None:
