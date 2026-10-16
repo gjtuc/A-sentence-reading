@@ -30,6 +30,7 @@ LABELS = {
     "tests": "테스트 전체",
     "ship_install": "배포하고 폰에 설치",
     "selftest": "실행기 점검",
+    "web_build": "웹 빌드하고 열어 보기",
 }
 QUICK = {"selftest"}
 
@@ -284,6 +285,42 @@ def job_ship_install(job: Job) -> None:
     job.note(f"폰 설치: versionName {got}")
 
 
+def probe_summary(text: str) -> dict[str, int]:
+    rows = text.splitlines()
+    uncaught = sum(1 for r in rows if r.startswith("UNCAUGHT"))
+    cors = sum(1 for r in rows if r.startswith("LOG-ERROR") and "CORS policy" in r)
+    other = sum(
+        1 for r in rows
+        if r.startswith(("LOG-ERROR", "ERROR"))
+        and "CORS policy" not in r
+        and "Failed to load resource" not in r
+    )
+    return {"uncaught": uncaught, "cors": cors, "other": other}
+
+
+def job_web_build(job: Job) -> None:
+    rc, _ = job.run(
+        "웹 빌드",
+        ["cmd", "/c", r"scripts\flutter_any.cmd", "build", "web", "--release", "--no-wasm-dry-run"],
+    )
+    if rc != 0:
+        job.fail(f"웹 빌드 실패 (exit {rc})")
+        return
+    job.note("웹 빌드: mobile/build/web")
+    out = ROOT / ".cache" / "web_probe"
+    rc, _ = job.run("웹 화면 열어 보기", [sys.executable, "scripts/web_probe.py", "--out", str(out)])
+    console = Path(str(out) + ".console.txt")
+    if rc != 0 or not console.exists():
+        job.fail(f"웹 화면 열기 실패 (exit {rc})")
+        return
+    s = probe_summary(console.read_text(encoding="utf-8"))
+    job.note(f"잡히지 않은 오류 {s['uncaught']}개, 다른 오류 {s['other']}개")
+    job.note(f"서버 주소가 달라 막힌 요청(CORS) {s['cors']}개 - 이 PC에서 열 때만 생김")
+    job.note(f"화면: .cache/web_probe.png  콘솔: .cache/web_probe.console.txt")
+    if s["uncaught"] or s["other"]:
+        job.fail("웹 화면에 오류가 있음. 콘솔 파일을 볼 것")
+
+
 def job_selftest(job: Job) -> None:
     rc, text = job.run("파이썬 확인", [sys.executable, "--version"])
     job.note(f"파이썬: {text.strip()}" if rc == 0 else f"파이썬 확인 실패 (exit {rc})")
@@ -291,7 +328,12 @@ def job_selftest(job: Job) -> None:
     job.note(f"주식 작업: {', '.join(stock_jobs()) or '없음'}")
 
 
-JOBS = {"tests": job_tests, "ship_install": job_ship_install, "selftest": job_selftest}
+JOBS = {
+    "tests": job_tests,
+    "ship_install": job_ship_install,
+    "selftest": job_selftest,
+    "web_build": job_web_build,
+}
 
 
 def main() -> int:

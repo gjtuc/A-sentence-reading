@@ -18,7 +18,6 @@ ios/
 macos/
 linux/
 windows/
-web/
 *.jks
 *.keystore
 .env

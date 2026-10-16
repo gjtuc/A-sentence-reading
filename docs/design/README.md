@@ -437,6 +437,7 @@
 | 400 | [400-archive-needs-same-build.md](400-archive-needs-same-build.md) | 보관본은 그 분석을 만든 앱 버전에서만 다시 쓰기 (`analyzed_build`) · 0.3.51 무렵부터 멈춰 있던 `rich-v24` 를 `rich-v25` 로, 테스트는 정확한 문자열 대신 "v24 이상" (0.3.440) |
 | 401 | [401-scan-keeps-read-titles.md](401-scan-keeps-read-titles.md) | 같은 폴더를 다시 훑어도 이번 실행에서 읽은 제목·읽는 중인 제목은 그대로 둔다 (SI 찾아보기 뒤 4초 감시가 제목을 매번 지우고 추출을 취소하던 문제) · 디스크 저장은 여전히 없음 (0.3.441) |
 | 402 | [402-click-jobs.md](402-click-jobs.md) | 오래 걸리는 작업(테스트 전체·배포+폰 설치)은 click 폴더의 .bat 를 더블클릭해 PC에서 돌리고, 에이전트는 click/out 결과 파일만 읽는다 · 주식 click 폴더와 분리 |
+| 403 | [403-web-build-step-1.md](403-web-build-step-1.md) | 웹 버전 1단계: 폰 앱을 웹으로 빌드하고 오류 없이 로그인 화면까지 열기 (`mobile/web/` 추가, 로그아웃 정리의 path_provider 두 곳·딥링크 채널을 웹에서만 건너뜀) · `scripts/flutter_any.cmd`, `scripts/web_probe.py`, `click/03_web_build.bat` (0.3.442) |
 | 387 | [387-the-rung-then-the-line.md](387-the-rung-then-the-line.md) | 소리 확률을 먼저 (20+난이도)%로 보고, 못 넘기면 계정 선으로 한 번 더 본다 · 선이 배우는 점수는 난이도 적용 전 30% 일치 · 더 말한 소리는 분모에 남긴다 · 기호 목록은 30% 고정 (0.3.427) |
 | 386 | [386-thirty-percent-of-each-sound.md](386-thirty-percent-of-each-sound.md) | 소리 하나의 일치는 원어민이 30% 넘긴 기호를 사용자도 전부 30% 넘긴 것 · 공백은 세지 않음 · 분모는 그대로 · 619개에서 기호가 둘인 칸은 3.1%, 그 중 또렷한 읽기가 떨어지는 경우는 소리 1000개 중 9개 (0.3.426) |
 | 385 | [385-warm-from-the-cursor.md](385-warm-from-the-cursor.md) | 미리 짓기는 지금 읽는 자리부터 한 바퀴 돈다 · 연습 커서가 있으면 그쪽 · `/open` 의 1번부터 걷기는 폰 요청을 `_WARMING` 으로 버려서 뺐다 (0.3.425) |

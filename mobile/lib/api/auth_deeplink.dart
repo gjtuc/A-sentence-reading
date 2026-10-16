@@ -22,7 +22,8 @@ class AuthDeepLinkBridge {
   }
 
   Future<void> start() async {
-    if (_listening) return;
+    // design/403 — no Android intent on web; the link opens the page itself.
+    if (_listening || kIsWeb) return;
     _listening = true;
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'magicLinkResult') {

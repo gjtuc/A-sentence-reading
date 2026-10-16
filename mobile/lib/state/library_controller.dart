@@ -5248,7 +5248,8 @@ class LibraryController extends ChangeNotifier {
     _shadowDisk.bindUid(null);
     _diskUid = null;
     await _cancelWorkmanager();
-    await _editStash.purgeAll();
+    // design/403 — web has no app documents folder (path_provider throws).
+    if (!kIsWeb) await _editStash.purgeAll();
     await _drafts.clear();
     await _reserve.clear();
     await _pickerRecent.clearBound();
@@ -5256,7 +5257,7 @@ class LibraryController extends ChangeNotifier {
     final oldDl = pdfDownloadsGrant;
     await _pdfFolderGrant.clearBound();
     await _pdfDownloadsGrant.clearBound();
-    await _pdfHashCache.clearBound();
+    if (!kIsWeb) await _pdfHashCache.clearBound();
     await _pdfAdvisoryCache.clearBound();
     _pdfAdvisoryPumpEpoch++;
     if (oldGrant != null) {
