@@ -1,0 +1,11 @@
+# Failures that were already there before design/402. One substring per line,
+# matched against the pytest id or the Flutter test line. Remove a line when it is fixed.
+test_figure_pinch_vs_swipe.py
+test_github_cd.py
+test_design_316_github_cd_pair.py
+test_live_smtp_wiring.py
+design_367
+test_progressive_writer.py
+test_rich_display_tts_polish.py
+test_swipe_direction_flip.py
+advisory_title_smoke_test.dart

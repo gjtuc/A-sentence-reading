@@ -95,3 +95,6 @@ scripts/*.dartfrag
 /canvases/
 # design/371 - reference sounds are rebuilt from the voice, and GCS holds them
 data/sound_ref/
+
+# design/402 - click job logs (local PC runs)
+click/out/
