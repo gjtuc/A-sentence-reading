@@ -149,3 +149,44 @@ def test_library_has_the_button_and_both_kind_lists_know_the_event():
     from sentence_reading.llm.evidence_kinds import ALLOWED_KINDS
 
     assert "near_sync_done" in ALLOWED_KINDS
+
+
+def test_relay_bundles_pass_once_and_are_deleted(client):
+    a = _cookie(A)
+    link = "r" * 20
+    assert client.get(f"/api/near/relay/{link}/h/0", cookies=a).status_code == 204
+    assert client.post(f"/api/near/relay/{link}/h/0", content=b"one", cookies=a).json()["ok"] is True
+    assert client.post(f"/api/near/relay/{link}/h/1", content=b"two", cookies=a).json()["ok"] is True
+    got = client.get(f"/api/near/relay/{link}/h/0", cookies=a)
+    assert got.status_code == 200
+    assert got.content == b"one"
+    assert client.get(f"/api/near/relay/{link}/h/1", cookies=a).content == b"two"
+    assert f"{A}/relay/{link}/h/00000000" not in near_links._mem
+    assert client.get(f"/api/near/relay/{link}/j/0", cookies=a).status_code == 204
+    assert client.get(f"/api/near/relay/{link}/h/0", cookies=_cookie(B)).status_code == 204
+    assert client.delete(f"/api/near/relay/{link}", cookies=a).json()["ok"] is True
+    assert not [k for k in near_links._mem if "/relay/" in k]
+
+
+def test_relay_rejects_bad_input(client):
+    a = _cookie(A)
+    link = "r" * 20
+    assert client.post(f"/api/near/relay/{link}/x/0", content=b"1", cookies=a).status_code == 400
+    assert client.post(f"/api/near/relay/short/h/0", content=b"1", cookies=a).status_code == 400
+    assert client.post(f"/api/near/relay/{link}/h/0", content=b"", cookies=a).status_code == 413
+    big = b"x" * (near_links.RELAY_MAX_BYTES + 1)
+    assert client.post(f"/api/near/relay/{link}/h/0", content=big, cookies=a).status_code == 413
+
+
+def test_new_link_wipes_relay_leftovers(client):
+    a = _cookie(A)
+    link = "r" * 20
+    client.post(f"/api/near/relay/{link}/h/5", content=b"left", cookies=a)
+    client.post("/api/near/links", json={"offer": OFFER}, cookies=a)
+    assert not [k for k in near_links._mem if "/relay/" in k]
+
+
+def test_relay_frames_are_dropped_after_sync():
+    text = _dart("services/near_link.dart")
+    assert "nearRelayWipe(" in text
+    assert "kNearDirectLimit" in text

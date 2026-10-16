@@ -8,6 +8,7 @@ import 'package:sentence_reading/api/progress_store.dart';
 import 'package:sentence_reading/services/disk_fs.dart';
 import 'package:sentence_reading/services/local_disk.dart';
 import 'package:sentence_reading/services/near_library_local.dart';
+import 'package:sentence_reading/services/near_relay.dart';
 import 'package:sentence_reading/services/near_sync.dart';
 import 'package:sentence_reading/services/paper_disk_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -259,5 +260,90 @@ void main() {
     expect(got.single.contentHash, 'cafe');
     expect(await webDisk.hasSession('abcd1234'), isTrue);
     expect(await webDisk.readFigureBytes('abcd1234', 'f1'), _bytes(3000, 5));
+  });
+  relayMain();
+}
+
+class _RelayServer {
+  final bundles = <String, Uint8List>{};
+  var puts = 0;
+  var failPuts = 0;
+
+  Future<void> put(String side, int seq, Uint8List b) async {
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+    if (failPuts > 0) {
+      failPuts -= 1;
+      throw StateError('put failed');
+    }
+    puts += 1;
+    bundles['$side/$seq'] = Uint8List.fromList(b);
+  }
+
+  Future<Uint8List?> take(String side, int seq) async {
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+    if (seq > 0) bundles.remove('$side/${seq - 1}');
+    return bundles['$side/$seq'];
+  }
+}
+
+void relayMain() {
+  group('design/410 relay', () {
+    test('a bundle round-trips its frames', () {
+      final frames = [Uint8List.fromList([1, 2, 3]), Uint8List(0), Uint8List.fromList([9])];
+      final back = decodeRelayBundle(encodeRelayBundle(frames));
+      expect(back.length, 3);
+      expect(back[0], [1, 2, 3]);
+      expect(back[1], isEmpty);
+      expect(back[2], [9]);
+      expect(() => decodeRelayBundle(Uint8List.fromList([0, 0, 0, 9, 1])), throwsA(isA<NearSyncError>()));
+    });
+
+    test('papers and reading spots move through the relay and nothing read stays there', () async {
+      final server = _RelayServer()..failPuts = 1;
+      NearRelayPipe pipe(bool host) => NearRelayPipe(
+            host: host,
+            put: server.put,
+            take: server.take,
+            linger: const Duration(milliseconds: 5),
+            idle: const Duration(milliseconds: 5),
+          )..start();
+      final web = pipe(true);
+      final phone = pipe(false);
+      final phoneLib = _Mem()..add('big', _paper(3 * 1024 * 1024 + 5, 7));
+      phoneLib.rows['big'] = {'sentence_index': 12, 'figure_index': 1, 'at': '2026-10-17T01:00:00Z'};
+      final webLib = _Mem()..add('w', _paper(1000, 8));
+      final results = await Future.wait([
+        NearSync(web, webLib).run(),
+        NearSync(phone, phoneLib).run(),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      web.close();
+      phone.close();
+      expect(results[0].papersIn, 1);
+      expect(results[1].papersIn, 1);
+      expect(webLib.packs['big']!['source.pdf'], phoneLib.packs['big']!['source.pdf']);
+      expect(webLib.rows['big']!['sentence_index'], 12);
+      expect(server.puts, greaterThan(3));
+      expect(server.bundles.length, lessThanOrEqualTo(2));
+      for (final b in server.bundles.values) {
+        expect(b.length, lessThan(1024));
+      }
+    });
+
+    test('a relay that keeps failing ends the run', () async {
+      final server = _RelayServer()..failPuts = 1000;
+      final web = NearRelayPipe(
+        host: true,
+        put: server.put,
+        take: server.take,
+        linger: const Duration(milliseconds: 5),
+        idle: const Duration(milliseconds: 5),
+      )..start();
+      await expectLater(
+        NearSync(web, _Mem(), quiet: const Duration(seconds: 30)).run(),
+        throwsA(isA<NearSyncError>()),
+      );
+      web.close();
+    });
   });
 }

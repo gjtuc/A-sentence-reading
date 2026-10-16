@@ -2246,6 +2246,52 @@ throw AsrApiException(
     return answer is Map ? Map<String, dynamic>.from(answer) : null;
   }
 
+  /// design/410 — relay: post one numbered bundle of frames.
+  Future<void> nearRelayPut(
+    String linkId,
+    String side,
+    int seq,
+    Uint8List bundle,
+  ) async {
+    final res = await _http
+        .post(
+          _uri('/api/near/relay/${Uri.encodeComponent(linkId)}/$side/$seq'),
+          headers: await _headers(),
+          body: bundle,
+        )
+        .timeout(const Duration(seconds: 90));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw AsrApiException('near-relay put HTTP ${res.statusCode}', res.statusCode);
+    }
+  }
+
+  /// design/410 — relay: bundle [seq] of the other side (null = not there yet).
+  Future<Uint8List?> nearRelayTake(String linkId, String side, int seq) async {
+    final res = await _http
+        .get(
+          _uri('/api/near/relay/${Uri.encodeComponent(linkId)}/$side/$seq'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 90));
+    if (res.statusCode == 204) return null;
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw AsrApiException('near-relay take HTTP ${res.statusCode}', res.statusCode);
+    }
+    return res.bodyBytes;
+  }
+
+  /// design/410 — relay: delete what is left of this link (best effort).
+  Future<void> nearRelayWipe(String linkId) async {
+    try {
+      await _http
+          .delete(
+            _uri('/api/near/relay/${Uri.encodeComponent(linkId)}'),
+            headers: await _headers(),
+          )
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {}
+  }
+
   /// design/410 — forget the link (best effort).
   Future<void> nearDropLink(String linkId) async {
     try {

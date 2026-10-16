@@ -25,7 +25,25 @@ notes and bookmarks are step 2b.
   (`users/{uid}/near_links/{id}.json` in GCS; in memory without GCS). An SDP is capped at
   64 KB. The routes need login and pass the paid-access gate.
 - ICE uses `stun:stun.l.google.com:19302` only. Without TURN, two devices on different
-  networks may not reach each other; the dialog then says to use the same Wi-Fi.
+  networks often cannot reach each other. The user's office has no Wi-Fi: the phone is
+  on mobile data and the PC behind a company firewall.
+
+## Relay when the devices cannot reach each other (`services/near_relay.dart`)
+
+If the data channel is not open 10 s after the description exchange
+(`kNearDirectLimit`), both sides close the peer connection and run the same frames
+through the server. It uses the same HTTPS the web app already uses, so a firewall
+that lets the web app in lets the relay in.
+
+- Frames are bundled as `[u32 length][frame]...`, at most 1 MB, flushed after 150 ms.
+  Each side posts numbered bundles: `POST /api/near/relay/{link}/{h|j}/{seq}` (4 MB cap).
+- The other side polls `GET .../{other side}/{seq}` every 0.7 s when idle and at once
+  after a hit. Asking for `seq` deletes `seq - 1`, so a bundle stays only until it is read.
+- Bundles live under the account (`users/{uid}/near_relay/...`). A failed or cancelled
+  run deletes its bundles (`DELETE /api/near/relay/{link}`), and a new link wipes
+  anything an earlier run left.
+- A put is retried 4 times (0.5, 1, 2, 4 s); 5 failed polls in a row end the run.
+- `near_sync_done` records `relay=1` for a relayed run.
 
 ## What moves (`services/near_sync.dart`)
 
@@ -53,7 +71,9 @@ ones.
 
 ## Known limits
 
-- Without TURN a cross-network pair can fail (`open_timeout` / `ice_failed`).
+- A relayed paper passes through the server for a few seconds (HTTPS, deleted once read).
+- If a channel opens right at the 10 s boundary, one side may go direct and the other
+  relay; that run fails and a retry works.
 - The whole pack of one paper is held in memory while it moves.
 - Practice records, recordings, notes and bookmarks are not synced yet (step 2b).
 
@@ -65,4 +85,8 @@ ones.
 - `mobile/test/near_sync_test.dart`: both directions byte for byte, a 5 MB paper through
   the 2 MB window, reading spots both ways, nothing to move, a cut pipe fails, an
   escaping path is refused, `mergeProgressRows`, and two browser-stored libraries
-  syncing through the real `PaperDiskStore`.
+  syncing through the real `PaperDiskStore`. Group `design/410 relay`: bundle round
+  trip, a 3 MB paper and reading spots through a fake relay with one failed put and
+  nothing read left behind, and a relay that keeps failing ends the run.
+- `tests/test_design_410_near_links.py` also covers relay bundles passing once and
+  being deleted, bad relay input, and a new link wiping leftovers.

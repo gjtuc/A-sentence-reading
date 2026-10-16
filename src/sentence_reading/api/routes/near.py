@@ -101,3 +101,54 @@ def near_remove(link_id: str, request: Request):
         return _fail(400, "bad_link_id")
     near_links.remove(uid, link_id)
     return {"ok": True}
+
+
+def _relay_args(link_id: str, side: str, seq: int) -> JSONResponse | None:
+    if not near_links.valid_link_id(link_id):
+        return _fail(400, "bad_link_id")
+    if side not in near_links.RELAY_SIDES:
+        return _fail(400, "bad_side")
+    if seq < 0 or seq > 10_000_000:
+        return _fail(400, "bad_seq")
+    return None
+
+
+@router.post("/api/near/relay/{link_id}/{side}/{seq}")
+async def near_relay_put(link_id: str, side: str, seq: int, request: Request):
+    uid, denied = _gate(request)
+    if denied is not None:
+        return denied
+    bad = _relay_args(link_id, side, seq)
+    if bad is not None:
+        return bad
+    data = await request.body()
+    if not data or len(data) > near_links.RELAY_MAX_BYTES:
+        return _fail(413, "bad_bundle_size")
+    if not near_links.relay_put(uid, link_id, side, seq, data):
+        return _fail(503, "relay_store_failed")
+    return {"ok": True}
+
+
+@router.get("/api/near/relay/{link_id}/{side}/{seq}")
+def near_relay_take(link_id: str, side: str, seq: int, request: Request):
+    uid, denied = _gate(request)
+    if denied is not None:
+        return denied
+    bad = _relay_args(link_id, side, seq)
+    if bad is not None:
+        return bad
+    data = near_links.relay_take(uid, link_id, side, seq)
+    if data is None:
+        return Response(status_code=204)
+    return Response(content=data, media_type="application/octet-stream")
+
+
+@router.delete("/api/near/relay/{link_id}")
+def near_relay_wipe(link_id: str, request: Request):
+    uid, denied = _gate(request)
+    if denied is not None:
+        return denied
+    if not near_links.valid_link_id(link_id):
+        return _fail(400, "bad_link_id")
+    near_links.relay_wipe(uid, link_id)
+    return {"ok": True}

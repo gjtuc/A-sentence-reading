@@ -21,7 +21,10 @@ String nearFailText(String code) {
       return '3분 동안 폰이 연결하지 않았습니다. 다시 시도해 주세요.';
     case 'open_timeout':
     case 'ice_failed':
-      return '두 기기가 서로 닿지 못했습니다. 폰과 PC를 같은 와이파이에 두고 다시 해 주세요.';
+      return '두 기기가 서로 닿지 못했습니다. 다시 해 주세요.';
+    case 'pipe_error':
+    case 'relay_failed':
+      return '서버를 거쳐 옮기다가 끊겼습니다. 다시 하면 남은 것만 옮깁니다.';
     case 'cancelled':
       return '취소했습니다.';
     case 'quiet':
@@ -112,9 +115,12 @@ class _NearSyncDialog extends StatelessWidget {
         return '이제 폰에서 라이브러리 위쪽의 「웹과 동기화」 버튼을 눌러 주세요.\n'
             '(같은 계정으로 로그인한 폰, 3분 안에)';
       case NearStep.connecting:
-        return '두 기기를 잇고 있습니다…';
+        return '두 기기를 잇고 있습니다…\n'
+            '(바로 연결되지 않으면 10초 뒤 서버를 거쳐 옮깁니다)';
       case NearStep.syncing:
-        return '논문 받는 중 ${p.gotIn}/${p.wantIn} (${_mb(p.bytesIn)}MB)\n'
+        final how = link.via == 'relay' ? '서버를 거쳐 옮기는 중' : '직접 연결로 옮기는 중';
+        return '$how\n'
+            '논문 받는 중 ${p.gotIn}/${p.wantIn} (${_mb(p.bytesIn)}MB)\n'
             '논문 보내는 중 ${p.sentOut}/${p.wantOut} (${_mb(p.bytesOut)}MB)';
       case NearStep.done:
         final r = link.report;

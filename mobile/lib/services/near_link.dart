@@ -2,6 +2,8 @@
 ///
 /// Only the two session descriptions pass the server (`/api/near/links`). Candidates
 /// are gathered before the description is sent, so there is no trickle round trip.
+/// When the channel does not open within [kNearDirectLimit], both sides run the same
+/// frames through the server relay instead (`near_relay.dart`).
 library;
 
 import 'dart:async';
@@ -11,12 +13,14 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../api/client.dart';
 import 'evidence_bus.dart';
+import 'near_relay.dart';
 import 'near_sync.dart';
 
 enum NearStep { idle, preparing, waiting, connecting, syncing, done, failed }
 
 const Duration kNearLinkLife = Duration(minutes: 3);
 const Duration kNearOpenLimit = Duration(seconds: 30);
+const Duration kNearDirectLimit = Duration(seconds: 10);
 const Duration kNearGatherLimit = Duration(seconds: 4);
 const Duration kNearPollEvery = Duration(milliseconds: 1500);
 
@@ -64,9 +68,12 @@ class NearLink extends ChangeNotifier {
   NearSyncProgress progress = const NearSyncProgress();
   NearSyncReport? report;
 
+  /// `direct` (WebRTC) or `relay` (through the server).
+  String via = '';
+
   RTCPeerConnection? _pc;
   RTCDataChannel? _channel;
-  _RtcPipe? _pipe;
+  void Function()? _endPipe;
   String _linkId = '';
   bool _host = false;
   bool _stopped = false;
@@ -99,11 +106,11 @@ class NearLink extends ChangeNotifier {
         RTCSessionDescription('${answer['sdp']}', '${answer['type']}'),
       );
       unawaited(client.nearDropLink(_linkId));
-      await opened.timeout(
-        kNearOpenLimit,
-        onTimeout: () => throw const NearSyncError('open_timeout'),
-      );
-      await _sync(channel);
+      if (await _within(opened)) {
+        await _direct(channel);
+      } else {
+        await _relay();
+      }
     });
   }
 
@@ -128,15 +135,11 @@ class NearLink extends ChangeNotifier {
       final local = await _gathered(pc);
       await client.nearPutAnswer(_linkId, local);
       _go(NearStep.connecting);
-      final channel = await gotChannel.future.timeout(
-        kNearOpenLimit,
-        onTimeout: () => throw const NearSyncError('open_timeout'),
-      );
-      await _whenOpen(channel).timeout(
-        kNearOpenLimit,
-        onTimeout: () => throw const NearSyncError('open_timeout'),
-      );
-      await _sync(channel);
+      if (await _within(gotChannel.future.then(_whenOpen))) {
+        await _direct(_channel!);
+      } else {
+        await _relay();
+      }
     });
   }
 
@@ -144,7 +147,7 @@ class NearLink extends ChangeNotifier {
     if (step == NearStep.done || step == NearStep.failed) return;
     _stopped = true;
     code = 'cancelled';
-    _pipe?.end();
+    _endPipe?.call();
     _go(NearStep.failed);
     await _close();
   }
@@ -180,6 +183,7 @@ class NearLink extends ChangeNotifier {
       message: ok ? '' : code,
       details: {
         'web': kIsWeb ? 1 : 0,
+        'relay': via == 'relay' ? 1 : 0,
         'papers_in': r?.papersIn ?? 0,
         'papers_out': r?.papersOut ?? 0,
         'papers_failed': r?.failed.length ?? 0,
@@ -196,8 +200,8 @@ class NearLink extends ChangeNotifier {
     _pc = pc;
     pc.onConnectionState = (state) {
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-        if (code.isEmpty) code = 'ice_failed';
-        _pipe?.end();
+        if (code.isEmpty && via == 'direct') code = 'ice_failed';
+        if (via == 'direct') _endPipe?.call();
       }
     };
     return pc;
@@ -239,17 +243,57 @@ class NearLink extends ChangeNotifier {
       if (state == RTCDataChannelState.RTCDataChannelOpen) {
         if (!open.isCompleted) open.complete();
       } else if (state == RTCDataChannelState.RTCDataChannelClosed) {
-        _pipe?.end();
+        if (via == 'direct') _endPipe?.call();
       }
     };
     return open.future;
   }
 
-  Future<void> _sync(RTCDataChannel channel) async {
+  Future<bool> _within(Future<void> opened) async {
+    try {
+      await opened.timeout(kNearDirectLimit);
+      return true;
+    } on TimeoutException {
+      return false;
+    }
+  }
+
+  Future<void> _direct(RTCDataChannel channel) async {
+    via = 'direct';
+    final pipe = _RtcPipe(channel);
+    _endPipe = pipe.end;
+    await _sync(pipe);
+  }
+
+  Future<void> _relay() async {
+    via = 'relay';
+    final pc = _pc;
+    final channel = _channel;
+    _pc = null;
+    _channel = null;
+    pc?.onConnectionState = null;
+    channel?.onDataChannelState = null;
+    try {
+      await channel?.close();
+    } catch (_) {}
+    try {
+      await pc?.close();
+    } catch (_) {}
+    final linkId = _linkId;
+    final pipe = NearRelayPipe(
+      host: _host,
+      put: (side, seq, bundle) =>
+          client.nearRelayPut(linkId, side, seq, bundle),
+      take: (side, seq) => client.nearRelayTake(linkId, side, seq),
+    );
+    _endPipe = pipe.close;
+    pipe.start();
+    await _sync(pipe);
+  }
+
+  Future<void> _sync(NearPipe pipe) async {
     if (_stopped) throw const NearSyncError('cancelled');
     _go(NearStep.syncing);
-    final pipe = _RtcPipe(channel);
-    _pipe = pipe;
     report = await NearSync(
       pipe,
       local,
@@ -263,13 +307,16 @@ class NearLink extends ChangeNotifier {
   }
 
   Future<void> _close() async {
-    _pipe?.end();
+    _endPipe?.call();
     final channel = _channel;
     final pc = _pc;
     _channel = null;
     _pc = null;
     if (_linkId.isNotEmpty && _host && step != NearStep.done) {
       unawaited(client.nearDropLink(_linkId));
+    }
+    if (via == 'relay' && step != NearStep.done) {
+      unawaited(client.nearRelayWipe(_linkId));
     }
     try {
       await channel?.close();

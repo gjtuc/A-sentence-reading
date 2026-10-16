@@ -128,6 +128,7 @@ def _expired(row: dict[str, Any], now: float) -> bool:
 def create(uid: str, offer: dict[str, str], *, now: float | None = None) -> str | None:
     """Store the host offer; returns the new link id (None when storage failed)."""
     t = time.time() if now is None else now
+    relay_wipe(uid)
     link_id = secrets.token_urlsafe(18)
     row = {
         "offer": offer,
@@ -199,6 +200,71 @@ def peek(uid: str, link_id: str, *, now: float | None = None) -> tuple[str, dict
 
 def remove(uid: str, link_id: str) -> None:
     _drop(uid, link_id)
+
+
+# --- relay: the same frames through the server when the devices cannot reach each other.
+# A bundle waits under the account until the other side reads the next one, then it is
+# deleted. Leftovers of an earlier run are wiped when the account opens a new link.
+
+RELAY_DIR = "near_relay"
+RELAY_MAX_BYTES = 4 * 1024 * 1024
+RELAY_SIDES = ("h", "j")
+
+
+def _relay_object(link_id: str, side: str, seq: int) -> str | None:
+    return personal_object_name(RELAY_DIR, link_id, side, f"{seq:08d}.bin")
+
+
+def _relay_mem_key(uid: str, link_id: str, side: str, seq: int) -> str:
+    return f"{uid}/relay/{link_id}/{side}/{seq:08d}"
+
+
+def relay_put(uid: str, link_id: str, side: str, seq: int, data: bytes) -> bool:
+    if not _use_gcs():
+        with _lock:
+            _mem[_relay_mem_key(uid, link_id, side, seq)] = {"data": bytes(data)}
+        return True
+    name = _relay_object(link_id, side, seq)
+    if not name:
+        return False
+    return upload_bytes(name, bytes(data), content_type="application/octet-stream", meter=False)
+
+
+def relay_take(uid: str, link_id: str, side: str, seq: int) -> bytes | None:
+    """Bundle `seq` (None = not there yet). Asking for it means `seq - 1` arrived, so that one goes."""
+    if not _use_gcs():
+        with _lock:
+            if seq > 0:
+                _mem.pop(_relay_mem_key(uid, link_id, side, seq - 1), None)
+            row = _mem.get(_relay_mem_key(uid, link_id, side, seq))
+            return bytes(row["data"]) if row else None
+    if seq > 0:
+        prev = _relay_object(link_id, side, seq - 1)
+        if prev:
+            delete_bytes(prev)
+    name = _relay_object(link_id, side, seq)
+    if not name:
+        return None
+    return download_bytes(name, meter=False)
+
+
+def relay_wipe(uid: str, link_id: str | None = None) -> int:
+    """Delete relay bundles of one link (or of every link of the account)."""
+    if not _use_gcs():
+        head = f"{uid}/relay/" + (f"{link_id}/" if link_id else "")
+        with _lock:
+            keys = [k for k in _mem if k.startswith(head)]
+            for k in keys:
+                _mem.pop(k, None)
+        return len(keys)
+    folder = personal_object_name(RELAY_DIR, link_id) if link_id else personal_object_name(RELAY_DIR)
+    if not folder:
+        return 0
+    n = 0
+    for name in list_blobs_under(folder):
+        if delete_bytes(name):
+            n += 1
+    return n
 
 
 def reset_memory_for_tests() -> None:
