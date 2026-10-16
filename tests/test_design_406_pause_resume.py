@@ -185,3 +185,16 @@ def test_web_check_fails_on_a_white_screen():
     assert web.index('if not s["drawn"]:') < web.index("web_app 폴더를 커밋한 뒤")
     probe = (ROOT / "scripts" / "web_probe.py").read_text(encoding="utf-8")
     assert "flutter-first-frame" in probe and "NO-FIRST-FRAME" in probe
+
+
+def test_install_only_job_skips_the_deploy():
+    run = _load("_run")
+    assert run.JOBS["install"] is run.job_install
+    src = (CLICK / "_run.py").read_text(encoding="utf-8")
+    body = src[src.index("def job_install") : src.index("def job_web_build")]
+    assert "install_apk(job, want)" in body
+    assert "ship_cloud_pair" not in body and "build_apk" not in body
+    ship = src[src.index("def job_ship_install") : src.index("def install_apk")]
+    assert ship.index("build_apk(job)") < ship.index("install_apk(job, want)")
+    bat = (CLICK / "04_install.bat").read_bytes()
+    assert b"\r\n" in bat and b'_job.cmd" install' in bat

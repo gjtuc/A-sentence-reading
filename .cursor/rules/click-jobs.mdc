@@ -8,6 +8,7 @@ alwaysApply: true
 The user wants to save tokens. Do not wait on long jobs in the agent shell.
 
 - Deploy + phone install: ask the user to double-click `click\02_ship_and_install.bat`.
+- Install only (deploy already live, phone was not connected): `click\04_install.bat`. Do not run 02 again for that; the deploy guard blocks a same-version redeploy.
 - Full Python + Flutter suites: `click\01_tests.bat`. Web build + headless check: `click\03_web_build.bat`.
 - 02 refuses to deploy when `src/sentence_reading/web_app/version.json` is not the app version (design/405). After a version bump: 03, commit `web_app`, then 02.
 - Then end the turn. When the user says it finished, read only `click\out\<job>.result.txt` (first line `DONE` or `FAILED`). Open `click\out\<job>.log` only for a FAILED step.

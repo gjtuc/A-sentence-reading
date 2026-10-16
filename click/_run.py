@@ -36,6 +36,7 @@ LABELS = {
     "tests": "테스트 전체",
     "ship_install": "배포하고 폰에 설치",
     "selftest": "실행기 점검",
+    "install": "폰에 설치만",
     "web_build": "웹 빌드하고 열어 보기",
 }
 QUICK = {"selftest"}
@@ -401,20 +402,34 @@ def job_ship_install(job: Job) -> None:
         return
     job.note("앱 빌드: 새 APK 만듦")
 
+    install_apk(job, want)
+
+
+def install_apk(job: Job, want: str) -> None:
     adb = find_adb()
     if not adb:
         job.fail("adb 를 찾지 못해 설치 못 함")
         return
     devices = adb_devices(adb)
     if len(devices) != 1:
-        job.fail(f"연결된 폰 {len(devices)}대. 설치 안 함 (한 대만 연결할 것)")
+        job.fail(f"연결된 폰 {len(devices)}대. 설치 안 함. 폰을 한 대만 연결하고 04 를 더블클릭 (설치만 함)")
         return
-    job.run("폰 설치", [adb, "-s", devices[0], "install", "-r", str(APK)])
+    job.run("폰 설치", [adb, "-s", devices[0], "install", "-r", str(APK)], step="none")
     got = installed_version(adb, devices[0])
     if got != want:
         job.fail(f"폰 설치 확인 실패: 폰 버전 {got or '없음'}, 기대 {want}")
         return
     job.note(f"폰 설치: versionName {got}")
+
+
+def job_install(job: Job) -> None:
+    want = app_version()
+    if not APK.exists():
+        job.fail("APK 가 없음. 02 를 먼저 할 것")
+        return
+    built = dt.datetime.fromtimestamp(APK.stat().st_mtime)
+    job.note(f"설치할 APK: {built:%m-%d %H:%M} 빌드, 앱 버전 {want}")
+    install_apk(job, want)
 
 
 def job_web_build(job: Job) -> None:
@@ -471,6 +486,7 @@ JOBS = {
     "ship_install": job_ship_install,
     "selftest": job_selftest,
     "web_build": job_web_build,
+    "install": job_install,
 }
 
 
