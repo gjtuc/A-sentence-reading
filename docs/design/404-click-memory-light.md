@@ -37,7 +37,7 @@ start a step.
 
 - Python tests and the web build (dart2js) have no memory knob. They only wait.
 - Memory the stock workers already hold is not taken back. A step that starts
-  can still be squeezed if the stock workers grow afterwards; the watch reports it.
+  can still be squeezed if the stock workers grow afterwards; design/406 pauses it.
 - A hard cap (Windows job object) was rejected: a capped build fails instead of
   slowing down.
 

@@ -26,6 +26,7 @@ import _mem  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "click" / "out"
 LOCK = OUT / ".running"
+PROCS = OUT / ".step_procs"
 KNOWN = ROOT / "click" / "known_failures.txt"
 APK = ROOT / "mobile" / "build" / "app" / "outputs" / "flutter-apk" / "app-release.apk"
 PACKAGE = "com.gjtuc.sentence_reading"
@@ -44,7 +45,10 @@ class Job:
     def __init__(self, name: str, label: str) -> None:
         self.name = name
         self.label = label
-        self.log = open(OUT / f"{name}.log", "w", encoding="utf-8")
+        self.try_n = int(os.environ.get("ASR_CLICK_TRY") or 0)
+        self.log = open(OUT / f"{name}.log", "a" if self.try_n else "w", encoding="utf-8")
+        self.restart_ok = OUT / f"{name}.restart_ok"
+        self.last_pauses = 0
         self.result = OUT / f"{name}.result.txt"
         self.lines: list[str] = []
         self.ok = True
@@ -81,6 +85,9 @@ class Job:
         self, title: str, cmd: list[str], step: str = "light", env: dict[str, str] | None = None
     ) -> tuple[int, str]:
         self.light(title, step)
+        if step == "ship":
+            # After the deploy starts, running the job again from the top is not safe.
+            self.restart_ok.unlink(missing_ok=True)
         self.say("")
         self.say(f"=== {title} === (남은 메모리 {_mem.free_gb():.1f}GB)")
         full_env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
@@ -88,8 +95,31 @@ class Job:
         proc = subprocess.Popen(
             cmd, cwd=ROOT, env=full_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
         )
-        watch = _mem.Watch(proc.pid).start(
-            lambda free: self.say(f"[주의] 남은 메모리 {free:.1f}GB - PC가 느려질 수 있습니다")
+
+        def on_pause(usable: float, others: list[str]) -> None:
+            self.say(
+                f"[빨간불] {title} 도중 남은 메모리 {max(usable, 0):.1f}GB (주식 작업: {', '.join(others)}). "
+                f"잠시 멈추고 {_mem.WATCH_S}초마다 봅니다"
+            )
+            self.status(f"메모리 때문에 멈춤 - {title}")
+
+        def on_resume(usable: float, paused_s: float) -> None:
+            if usable >= _mem.RESUME_AT_GB:
+                self.say(f"[초록불] 남은 메모리 {usable:.1f}GB. {paused_s / 60:.0f}분 멈췄다가 {title} 을 이어서 합니다")
+            else:
+                self.say(f"주식 작업이 끝나 더 기다려도 메모리가 비지 않습니다. {title} 을 이어서 합니다")
+            self.status(f"실행 중 - {title}")
+
+        watch = _mem.Watch(
+            proc.pid,
+            pausable=step in _mem.PAUSABLE,
+            extra=_mem.build_daemons if step == "apk" else None,
+            procs_file=PROCS,
+        ).start(
+            lambda free: self.say(f"[주의] 남은 메모리 {free:.1f}GB - PC가 느려질 수 있습니다"),
+            on_pause,
+            on_resume,
+            stock_jobs,
         )
         out: list[str] = []
         assert proc.stdout is not None
@@ -99,6 +129,10 @@ class Job:
             self.say(line)
         rc = proc.wait()
         watch.stop()
+        self.last_pauses = watch.pauses
+        if watch.pauses:
+            self.waited_min += watch.paused_s / 60
+            self.note(f"메모리 때문에 {title} 을 {watch.pauses}번 멈춤 (모두 {watch.paused_s / 60:.0f}분)")
         if watch.peak_gb > 0.05:
             self.history.record(step, watch.peak_gb)
         self.say(
@@ -270,33 +304,39 @@ def flutter_test_args(job: Job) -> list[str]:
     return ["cmd", "/c", r"scripts\flutter_test.cmd", f"--concurrency={workers}"]
 
 
+def test_step(job: Job, name: str, cmd_of, step: str, failures_of, tally_of, known: list[str]) -> None:
+    title = f"{name} 테스트"
+    for attempt in (1, 2):
+        rc, text = job.run(title, cmd_of(), step=step)
+        failed = failures_of(text)
+        old, new = split_known(failed, known)
+        broken = bool(new) or (rc != 0 and not failed)
+        if broken and job.last_pauses and attempt == 1:
+            # A suspended test's timers keep counting; after resume it can time out.
+            job.note(f"{title}: 도중에 멈췄다가 이어서 해서 시간초과로 틀렸을 수 있어 한 번 더 돌립니다")
+            continue
+        break
+    job.note(f"{name}: {tally_of(text) or f'exit {rc}'}")
+    if old:
+        job.note(f"  이미 알던 실패 {len(old)}개")
+    for f in new:
+        job.fail(f"  새 실패: {f}")
+    if rc != 0 and not failed:
+        job.fail(f"  {title}가 결과 줄 없이 끝남. 로그를 볼 것")
+
+
 def job_tests(job: Job) -> None:
     known = known_failures()
-    rc, text = job.run(
-        "Python 테스트",
-        ["cmd", "/c", r"scripts\pytest.cmd", "tests", "-q", "-p", "no:cacheprovider"],
-        step="pytest",
+    test_step(
+        job,
+        "Python",
+        lambda: ["cmd", "/c", r"scripts\pytest.cmd", "tests", "-q", "-p", "no:cacheprovider"],
+        "pytest",
+        pytest_failures,
+        pytest_tally,
+        known,
     )
-    failed = pytest_failures(text)
-    old, new = split_known(failed, known)
-    job.note(f"Python: {pytest_tally(text) or f'exit {rc}'}")
-    if old:
-        job.note(f"  이미 알던 실패 {len(old)}개")
-    for f in new:
-        job.fail(f"  새 실패: {f}")
-    if rc != 0 and not failed:
-        job.fail("  Python 테스트가 결과 없이 끝남. 로그를 볼 것")
-
-    rc, text = job.run("Flutter 테스트", flutter_test_args(job), step="flutter_test")
-    failed = flutter_failures(text)
-    old, new = split_known(failed, known)
-    job.note(f"Flutter: {flutter_tally(text) or f'exit {rc}'}")
-    if old:
-        job.note(f"  이미 알던 실패 {len(old)}개")
-    for f in new:
-        job.fail(f"  새 실패: {f}")
-    if rc != 0 and not failed:
-        job.fail("  Flutter 테스트가 결과 없이 끝남. 로그를 볼 것")
+    test_step(job, "Flutter", lambda: flutter_test_args(job), "flutter_test", flutter_failures, flutter_tally, known)
 
 
 def build_apk(job: Job) -> tuple[int, float]:
@@ -443,19 +483,33 @@ def main() -> int:
     if other:
         print(f"문장읽기 작업 '{other}' 이 이미 실행 중입니다. 끝난 뒤 다시 실행하세요.")
         return 3
+    left = _mem.kill_leftovers(PROCS)
 
     try:
         job = Job(name, label)
+        if not job.try_n:
+            job.restart_ok.write_text("", encoding="utf-8")
         started = dt.datetime.now()
         job.status(f"실행 중 ({started:%Y-%m-%d %H:%M})")
         job.say(f"문장읽기 - {label}")
         job.say(f"시작 {started:%Y-%m-%d %H:%M:%S}  기록 {job.log.name}")
+        if job.try_n:
+            job.say(f"[다시 시작 {job.try_n}번째] 메모리가 모자라 이 창의 작업이 꺼졌었습니다. 처음부터 다시 합니다")
+        if left:
+            job.say(f"지난번 꺼진 창이 남긴 프로그램 {left}개를 정리했습니다")
         if name not in QUICK:
             stock = stock_jobs()
             if stock:
                 job.say(f"주식 작업이 실행 중입니다: {', '.join(stock)}. 메모리가 빌 때만 단계를 시작합니다.")
         try:
             JOBS[name](job)
+        except MemoryError:
+            if job.restart_ok.exists():
+                job.status("메모리가 모자라 꺼짐 - 15초 뒤 처음부터 다시 시작")
+                job.say("메모리가 모자라 작업이 꺼졌습니다. 15초 뒤 처음부터 다시 합니다")
+                job.log.close()
+                return 75
+            job.fail("작업 중 메모리가 모자라 꺼짐")
         except Exception as e:
             job.fail(f"작업 중 오류: {type(e).__name__}: {e}")
         ended = dt.datetime.now()
@@ -469,6 +523,7 @@ def main() -> int:
             f"전체 기록: click/out/{name}.log",
         ]
         job.result.write_text("\n".join(body) + "\n", encoding="utf-8")
+        job.restart_ok.unlink(missing_ok=True)
         job.say("")
         job.say("=" * 50)
         for row in body:

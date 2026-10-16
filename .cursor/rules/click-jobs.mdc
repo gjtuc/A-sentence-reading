@@ -12,6 +12,7 @@ The user wants to save tokens. Do not wait on long jobs in the agent shell.
 - 02 refuses to deploy when `src/sentence_reading/web_app/version.json` is not the app version (design/405). After a version bump: 03, commit `web_app`, then 02.
 - Then end the turn. When the user says it finished, read only `click\out\<job>.result.txt` (first line `DONE` or `FAILED`). Open `click\out\<job>.log` only for a FAILED step.
 - Every step in `click\_run.py` goes through the memory light in `click\_mem.py` (`job.run(..., step=...)`). New jobs must use `job.run`; do not start subprocesses around it. Steps with a knob (Flutter `--concurrency`, Gradle `-Xmx` via `GRADLE_OPTS`) are sized to free memory.
+- design/406: while a step runs, the light keeps watching. Test and build steps are suspended on red (only while a stock job runs) and resumed on green. A window whose Python died restarts the job after 15 s until the deploy step began. Keep new long steps in `_mem.PAUSABLE` only if they have no network or wall-clock timeout.
 - The stock simulation can hold 8 GB. Before any heavy agent-shell command (APK, web build), check free memory first.
 - Short targeted test runs (one or two files) may still run in the agent shell.
 - Do not touch `D:\.cursor\scratch\lifecycle_ga\click\` (stock project).

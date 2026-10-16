@@ -4,6 +4,12 @@ Every step declares what it needs. Before the step starts, the light waits until
 that much memory is free on top of a reserve for the desktop. Steps with a knob
 (Flutter test concurrency, Gradle heap) are sized to what is free when they start.
 Each step's measured peak is kept so the next run asks for what it really used.
+
+design/406 - the light keeps watching while a step runs. When free memory drops
+below the reserve and a stock job is running, the step's processes are suspended
+(red) and resumed once memory is back (green), as often as needed. Suspending
+does not hand memory back; it stops the step from taking more while the stock
+job needs it.
 """
 
 from __future__ import annotations
@@ -12,6 +18,7 @@ import ctypes
 import json
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,6 +31,13 @@ SAY_EVERY_S = 300
 MAX_WAIT_S = 8 * 3600
 HISTORY_KEEP = 5
 LOW_FREE_GB = 0.4
+# Mid-step: red below PAUSE_BELOW_GB usable, green again at RESUME_AT_GB.
+PAUSE_BELOW_GB = 0.0
+RESUME_AT_GB = 0.5
+WATCH_S = 2
+OTHERS_EVERY_S = 60
+# Deploy, phone install and the browser check run on wall-clock timeouts.
+PAUSABLE = {"pytest", "flutter_test", "web_build", "apk"}
 
 # Smallest amount each step can run with. Learned peaks raise it for fixed steps.
 MIN_NEED_GB = {
@@ -108,7 +122,11 @@ def wait_for(need: float, title: str, say, status, others) -> float:
     t0 = time.time()
     last_say = 0.0
     while True:
-        usable = usable_gb()
+        try:
+            usable = usable_gb()
+        except MemoryError:
+            time.sleep(POLL_S)
+            continue
         if usable >= need:
             return (time.time() - t0) / 60
         waited = time.time() - t0
@@ -128,21 +146,116 @@ def wait_for(need: float, title: str, say, status, others) -> float:
 
 @dataclass
 class Watch:
-    """Samples the step's process tree and the machine while the step runs."""
+    """Samples the step's process tree and the machine while the step runs.
+
+    With `pausable`, a red light suspends the tree (plus `extra()` processes such
+    as Gradle daemons that are not its children) and a green light resumes it.
+    The live tree is written to `procs_file` so a later run can clean up after a
+    window that died."""
 
     pid: int
+    pausable: bool = False
+    extra: Callable[[], list[psutil.Process]] | None = None
+    procs_file: Path | None = None
     peak_gb: float = 0.0
     min_free_gb: float = field(default=99.0)
+    pauses: int = 0
+    paused_s: float = 0.0
+    _held: dict[int, psutil.Process] = field(default_factory=dict)
+    _paused_at: float | None = None
+    _others_at: float = 0.0
+    _others: list[str] = field(default_factory=list)
+    _saved: str = ""
     _stop: threading.Event = field(default_factory=threading.Event)
     _thread: threading.Thread | None = None
 
-    def start(self, on_low) -> "Watch":
+    def tree(self) -> list[psutil.Process]:
+        try:
+            root = psutil.Process(self.pid)
+            procs = [root, *root.children(recursive=True)]
+        except psutil.Error:
+            procs = []
+        if self.extra:
+            seen = {p.pid for p in procs}
+            procs += [p for p in self.extra() if p.pid not in seen]
+        return procs
+
+    def gate(self, usable: float, procs: list[psutil.Process], others: Callable[[], list[str]]) -> str:
+        """One look at the light. Returns "pause", "resume" or ""."""
+        if not self.pausable:
+            return ""
+        now = time.time()
+        if self._paused_at is None:
+            if usable >= PAUSE_BELOW_GB or not self._stock(others, now):
+                return ""
+            self._hold(procs)
+            self._paused_at = now
+            self.pauses += 1
+            return "pause"
+        if usable >= RESUME_AT_GB or not self._stock(others, now):
+            self.release()
+            return "resume"
+        self._hold(procs)
+        return ""
+
+    def _stock(self, others: Callable[[], list[str]], now: float) -> list[str]:
+        # Nobody else will free memory when no stock job runs; pausing would never end.
+        if now - self._others_at >= OTHERS_EVERY_S or self._others_at == 0.0:
+            try:
+                self._others = list(others())
+            except Exception:
+                self._others = []
+            self._others_at = now
+        return self._others
+
+    def _hold(self, procs: list[psutil.Process]) -> None:
+        for p in procs:
+            if p.pid in self._held:
+                continue
+            try:
+                p.suspend()
+                self._held[p.pid] = p
+            except psutil.Error:
+                pass
+
+    def release(self) -> None:
+        for p in self._held.values():
+            try:
+                p.resume()
+            except psutil.Error:
+                pass
+        self._held.clear()
+        if self._paused_at is not None:
+            self.paused_s += time.time() - self._paused_at
+            self._paused_at = None
+
+    @property
+    def paused(self) -> bool:
+        return self._paused_at is not None
+
+    def save(self, procs: list[psutil.Process]) -> None:
+        if self.procs_file is None:
+            return
+        rows = []
+        for p in procs:
+            try:
+                rows.append(f"{p.pid} {p.create_time():.3f}")
+            except psutil.Error:
+                pass
+        text = "\n".join(sorted(rows))
+        if text != self._saved:
+            try:
+                self.procs_file.write_text(text, encoding="utf-8")
+                self._saved = text
+            except OSError:
+                pass
+
+    def start(self, on_low, on_pause=None, on_resume=None, others=lambda: []) -> "Watch":
         def loop() -> None:
             warned = False
-            while not self._stop.wait(2):
+            while not self._stop.wait(WATCH_S):
                 try:
-                    root = psutil.Process(self.pid)
-                    procs = [root, *root.children(recursive=True)]
+                    procs = self.tree()
                     rss = 0
                     for p in procs:
                         try:
@@ -150,13 +263,20 @@ class Watch:
                         except psutil.Error:
                             pass
                     self.peak_gb = max(self.peak_gb, rss / GB)
-                except psutil.Error:
+                    self.save(procs)
+                    free = free_gb()
+                    self.min_free_gb = min(self.min_free_gb, free)
+                    if free < LOW_FREE_GB and not warned and not self.pausable:
+                        on_low(free)
+                        warned = True
+                    since = self._paused_at
+                    turn = self.gate(free - RESERVE_GB, procs, others)
+                    if turn == "pause" and on_pause:
+                        on_pause(free - RESERVE_GB, self._others)
+                    elif turn == "resume" and on_resume:
+                        on_resume(free - RESERVE_GB, time.time() - (since or time.time()))
+                except Exception:
                     pass
-                free = free_gb()
-                self.min_free_gb = min(self.min_free_gb, free)
-                if free < LOW_FREE_GB and not warned:
-                    on_low(free)
-                    warned = True
 
         self._thread = threading.Thread(target=loop, daemon=True)
         self._thread.start()
@@ -165,7 +285,50 @@ class Watch:
     def stop(self) -> None:
         self._stop.set()
         if self._thread:
-            self._thread.join(timeout=5)
+            self._thread.join(timeout=10)
+        self.release()
+        if self.procs_file is not None:
+            try:
+                self.procs_file.unlink()
+            except OSError:
+                pass
+
+
+def kill_leftovers(procs_file: Path) -> int:
+    """Kill processes a dead window's step left behind (suspended ones included)."""
+    try:
+        rows = procs_file.read_text(encoding="utf-8").split()
+    except OSError:
+        return 0
+    killed = 0
+    for pid_s, ctime_s in zip(rows[::2], rows[1::2]):
+        try:
+            p = psutil.Process(int(pid_s))
+            if abs(p.create_time() - float(ctime_s)) > 1:
+                continue
+            p.kill()
+            killed += 1
+        except (psutil.Error, ValueError):
+            pass
+    try:
+        procs_file.unlink()
+    except OSError:
+        pass
+    return killed
+
+
+def build_daemons() -> list[psutil.Process]:
+    """Gradle and Kotlin daemons run detached from the build's process tree."""
+    found = []
+    for p in psutil.process_iter(["name", "cmdline"]):
+        try:
+            if (p.info["name"] or "").lower() == "java.exe" and any(
+                "GradleDaemon" in c or "KotlinCompileDaemon" in c for c in (p.info["cmdline"] or [])
+            ):
+                found.append(p)
+        except psutil.Error:
+            pass
+    return found
 
 
 def gradle_daemons() -> list[psutil.Process]:
