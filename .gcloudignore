@@ -14,3 +14,5 @@ logs/
 agent-transcripts/
 .cursor/
 nul
+# design/405 - the Flutter web build ships with the server (icons are .png).
+!src/sentence_reading/web_app/**

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ctypes
 import datetime as dt
+import json
 import os
 import re
 import shutil
@@ -164,6 +165,14 @@ def flutter_tally(text: str) -> str:
     return f"{passed} passed, {failed or 0} failed"
 
 
+def web_app_version() -> str:
+    try:
+        data = json.loads((ROOT / "src" / "sentence_reading" / "web_app" / "version.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return str(data.get("version") or "")
+
+
 def probe_summary(text: str) -> dict[str, int]:
     rows = text.splitlines()
     uncaught = sum(1 for r in rows if r.startswith("UNCAUGHT"))
@@ -314,6 +323,10 @@ def build_apk(job: Job) -> tuple[int, float]:
 def job_ship_install(job: Job) -> None:
     want = app_version()
     job.note(f"배포할 버전: {want}")
+    web = web_app_version()
+    if web != want:
+        job.fail(f"웹 화면 버전 {web or '없음'} 이 앱 {want} 와 다름. 03 웹 빌드 후 커밋을 먼저 할 것")
+        return
     py = sys.executable
     for title, script in (
         ("최신 상태 확인", "scripts/session_freshness_guard.py"),
@@ -365,28 +378,29 @@ def job_ship_install(job: Job) -> None:
 
 def job_web_build(job: Job) -> None:
     rc, _ = job.run(
-        "웹 빌드",
-        ["cmd", "/c", r"scripts\flutter_any.cmd", "build", "web", "--release", "--no-wasm-dry-run"],
-        step="web_build",
+        "웹 빌드 + 서버 폴더로 복사", [sys.executable, "scripts/build_web_app.py"], step="web_build"
     )
     if rc != 0:
         job.fail(f"웹 빌드 실패 (exit {rc})")
         return
-    job.note("웹 빌드: mobile/build/web")
+    job.note(f"웹 빌드: src/sentence_reading/web_app (버전 {web_app_version()}, 서버가 /app/ 에서 내보냄)")
     out = ROOT / ".cache" / "web_probe"
     rc, _ = job.run(
-        "웹 화면 열어 보기", [sys.executable, "scripts/web_probe.py", "--out", str(out)], step="probe"
+        "웹 화면 열어 보기 (/app/, API 는 live 로 전달)",
+        [sys.executable, "scripts/web_probe.py", "--app", "--out", str(out)],
+        step="probe",
     )
     console = Path(str(out) + ".console.txt")
     if rc != 0 or not console.exists():
         job.fail(f"웹 화면 열기 실패 (exit {rc})")
         return
     s = probe_summary(console.read_text(encoding="utf-8"))
-    job.note(f"잡히지 않은 오류 {s['uncaught']}개, 다른 오류 {s['other']}개")
-    job.note(f"서버 주소가 달라 막힌 요청(CORS) {s['cors']}개 - 이 PC에서 열 때만 생김")
+    job.note(f"잡히지 않은 오류 {s['uncaught']}개, 다른 오류 {s['other']}개, 주소가 달라 막힌 요청(CORS) {s['cors']}개")
     job.note("화면: .cache/web_probe.png  콘솔: .cache/web_probe.console.txt")
-    if s["uncaught"] or s["other"]:
+    if s["uncaught"] or s["other"] or s["cors"]:
         job.fail("웹 화면에 오류가 있음. 콘솔 파일을 볼 것")
+        return
+    job.note("다음: web_app 폴더를 커밋한 뒤 02 배포")
 
 
 def job_selftest(job: Job) -> None:

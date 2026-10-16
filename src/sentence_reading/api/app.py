@@ -287,7 +287,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.442",
+    version="0.3.443",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -2823,6 +2823,8 @@ async def auth_email_magic_request(
         client_hint = str(payload.get("client") or "").strip().lower()
         intent = str(payload.get("intent") or "login").strip().lower() or "login"
     for_mobile = client_hint in ("android", "mobile", "app")
+    # design/405 — the Flutter web app lives under /app/, not the old page at /.
+    for_web_app = client_hint == "web_app"
     em = normalize_email(email)
     if not em:
         return JSONResponse(
@@ -2871,6 +2873,8 @@ async def auth_email_magic_request(
     )
     if for_mobile:
         open_url += "&mobile=1"
+    elif for_web_app:
+        open_url += "&land=app"
     try:
         send_magic_link_email(to_email=em, open_url=open_url)
     except ValueError as exc:
@@ -2903,7 +2907,7 @@ async def auth_email_magic_request(
 
 @auth_routes.router.get("/api/auth/email/magic/open")
 def auth_email_magic_open(
-    request: Request, t: str = "", mobile: str = ""
+    request: Request, t: str = "", mobile: str = "", land: str = ""
 ) -> Response:
     """Redeem once → set session cookie; web lands on `/`, Android may deep-link.
 
@@ -2913,6 +2917,7 @@ def auth_email_magic_open(
     """
     raw = (t or "").strip()
     want_mobile = (mobile or "").strip().lower() in ("1", "true", "yes", "android", "app")
+    web_root = "/app/" if (land or "").strip().lower() == "app" else "/"
     try:
         from sentence_reading.llm.auth_magic_link import redeem_magic_detail
 
@@ -2936,8 +2941,8 @@ def auth_email_magic_open(
             )
         else:
             # design/85 — web session for browser mail opens.
-            land = "/?auth=linked" if link_uid else "/?auth=logged_in"
-            resp = RedirectResponse(url=land, status_code=302)
+            land_url = web_root + ("?auth=linked" if link_uid else "?auth=logged_in")
+            resp = RedirectResponse(url=land_url, status_code=302)
         resp.set_cookie(
             key=COOKIE_NAME,
             value=token,
@@ -2956,7 +2961,7 @@ def auth_email_magic_open(
             )
         # FAIL-CLOSED: do not pretend login; surface safe error code only.
         return RedirectResponse(
-            url="/?auth_error=" + urllib.parse.quote(code, safe=""),
+            url=web_root + "?auth_error=" + urllib.parse.quote(code, safe=""),
             status_code=302,
         )
 
@@ -10835,3 +10840,19 @@ def veil_page() -> FileResponse:
 
 
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+
+class _WebAppFiles(StaticFiles):
+    """design/405 — Flutter web build. main.dart.js keeps its name across builds,
+    so every file revalidates (ETag) instead of living in the browser cache."""
+
+    def file_response(self, *args, **kwargs) -> Response:
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache"
+        resp.headers.update(_NO_INDEX)
+        return resp
+
+
+_WEB_APP_DIR = Path(__file__).resolve().parent.parent / "web_app"
+if (_WEB_APP_DIR / "index.html").is_file():
+    app.mount("/app", _WebAppFiles(directory=_WEB_APP_DIR, html=True), name="web_app")

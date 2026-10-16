@@ -1,6 +1,7 @@
 """design/403 - open the built Flutter web app in headless Chrome and keep what it said.
 
 usage: python scripts/web_probe.py [--wait-s 25] [--out .cache/web_probe] [--path /]
+       python scripts/web_probe.py --app   (design/405: web_app under /app/, /api/ proxied to live)
 
 Serves mobile/build/web on 127.0.0.1, loads it with a throwaway Chrome profile
 over the DevTools protocol, waits in real time, and writes OUT.png (screenshot)
@@ -12,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import base64
-import functools
 import http.server
 import json
 import os
@@ -22,6 +22,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -29,6 +30,10 @@ import websocket
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "mobile" / "build" / "web"
+WEB_APP = ROOT / "src" / "sentence_reading" / "web_app"
+LIVE = "https://asr-sentence-reading-984608876300.asia-northeast3.run.app"
+_PASS_HEADERS = ("Content-Type", "Accept", "Cookie")
+_DROP_REPLY = {"transfer-encoding", "connection", "content-length"}
 CHROMES = [
     Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Google/Chrome/Application/chrome.exe",
     Path(os.environ.get("LOCALAPPDATA", "")) / "Google/Chrome/Application/chrome.exe",
@@ -36,9 +41,54 @@ CHROMES = [
 ]
 
 
-class _Quiet(http.server.SimpleHTTPRequestHandler):
-    def log_message(self, *args):
-        pass
+def _handler(root: Path, prefix: str, proxy: str | None):
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *a, **k):
+            super().__init__(*a, directory=str(root), **k)
+
+        def log_message(self, *args):
+            pass
+
+        def translate_path(self, path: str) -> str:
+            if prefix != "/" and path.startswith(prefix):
+                path = "/" + path[len(prefix):]
+            return super().translate_path(path)
+
+        def _forward(self, method: str) -> None:
+            n = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(n) if n else None
+            headers = {h: self.headers[h] for h in _PASS_HEADERS if self.headers.get(h)}
+            req = urllib.request.Request(proxy + self.path, data=body, method=method, headers=headers)
+            try:
+                resp = urllib.request.urlopen(req, timeout=60)
+            except urllib.error.HTTPError as e:
+                resp = e
+            data = resp.read()
+            self.send_response(resp.status if hasattr(resp, "status") else resp.code)
+            for k, v in resp.headers.items():
+                if k.lower() not in _DROP_REPLY:
+                    self.send_header(k, v)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            if proxy and self.path.startswith("/api/"):
+                return self._forward("GET")
+            if prefix != "/" and self.path.split("?")[0] == prefix.rstrip("/"):
+                self.send_response(302)
+                self.send_header("Location", prefix)
+                self.end_headers()
+                return None
+            return super().do_GET()
+
+        def do_POST(self):
+            if proxy and self.path.startswith("/api/"):
+                return self._forward("POST")
+            self.send_error(405)
+            return None
+
+    return Handler
 
 
 def _free_port() -> int:
@@ -84,18 +134,23 @@ def main() -> int:
     ap.add_argument("--wait-s", type=float, default=25)
     ap.add_argument("--out", default=str(ROOT / ".cache" / "web_probe"))
     ap.add_argument("--path", default="/")
+    ap.add_argument("--app", action="store_true", help="serve web_app at /app/ and proxy /api/ to live")
     args = ap.parse_args()
+    root, prefix, proxy = WEB, "/", None
+    if args.app:
+        root, prefix, proxy = WEB_APP, "/app/", LIVE
+        if args.path == "/":
+            args.path = "/app/"
 
     chrome = next((p for p in CHROMES if p.exists()), None)
     if chrome is None:
         print("chrome not found")
         return 2
-    if not (WEB / "index.html").exists():
-        print("build/web missing; run flutter build web first")
+    if not (root / "index.html").exists():
+        print(f"{root} has no index.html; build first")
         return 2
 
-    handler = functools.partial(_Quiet, directory=str(WEB))
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _handler(root, prefix, proxy))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{server.server_address[1]}{args.path}"
 

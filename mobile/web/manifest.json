@@ -1,11 +1,11 @@
 {
-    "name": "sentence_reading",
-    "short_name": "sentence_reading",
+    "name": "문장 읽기",
+    "short_name": "문장 읽기",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#F7F9FC",
+    "theme_color": "#1B4F72",
+    "description": "문장 읽기",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

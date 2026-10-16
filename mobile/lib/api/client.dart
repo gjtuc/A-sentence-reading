@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
@@ -28,6 +29,10 @@ import '../services/figure_png_cache.dart';
 import 'oauth_models.dart';
 import 'access_models.dart';
 import 'ingest_models.dart';
+
+/// design/85 · 405 — which page the emailed login link opens: the Android app
+/// (deep link) or the web app under /app/.
+const String kMagicLinkClient = kIsWeb ? 'web_app' : 'android';
 
 /// design/169g — snake-safe message fingerprint for progress_view (no paper text).
 String _progressMsgHash(String msg) {
@@ -595,7 +600,8 @@ class AsrClient {
       h['Accept'] = 'application/json';
     }
     final token = await _sessions.readToken();
-    if (token != null && token.isNotEmpty) {
+    // design/405 — a browser refuses a Cookie header; same-origin calls send its own.
+    if (!kIsWeb && token != null && token.isNotEmpty) {
       h['Cookie'] = '$kAsrSessionCookieName=$token';
     }
     return h;
@@ -845,7 +851,7 @@ class AsrClient {
           headers: await _headers(jsonBody: true),
           body: jsonEncode({
             'email': email.trim(),
-            'client': 'android',
+            'client': kMagicLinkClient,
             'intent': 'link',
           }),
         )
@@ -861,6 +867,7 @@ class AsrClient {
   }
 
   /// POST /api/auth/email/magic/request — SMTP send; no session yet (design/77).
+  /// [kMagicLinkClient] ``web_app`` lands the opened link on /app/ (design/405).
   /// [client] ``android`` appends ``mobile=1`` so open deep-links the app (design/85).
   Future<String> requestMagicLink({required String email}) async {
     final res = await _http
@@ -869,7 +876,7 @@ class AsrClient {
           headers: await _headers(jsonBody: true),
           body: jsonEncode({
             'email': email.trim(),
-            'client': 'android',
+            'client': kMagicLinkClient,
           }),
         )
         .timeout(const Duration(seconds: 30));

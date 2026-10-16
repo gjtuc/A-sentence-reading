@@ -54,4 +54,7 @@ def is_login_public_path(path: str) -> bool:
         return True
     if raw.startswith("/static/"):
         return True
+    # design/405 — the web app shell draws its own login screen; its APIs stay locked.
+    if raw == "/app" or raw.startswith("/app/"):
+        return True
     return False
