@@ -217,7 +217,8 @@ def probe_summary(text: str) -> dict[str, int]:
         and "CORS policy" not in r
         and "Failed to load resource" not in r
     )
-    return {"uncaught": uncaught, "cors": cors, "other": other}
+    drawn = sum(1 for r in rows if r.startswith("FIRST-FRAME"))
+    return {"uncaught": uncaught, "cors": cors, "other": other, "drawn": drawn}
 
 
 def stock_jobs() -> list[str]:
@@ -437,6 +438,9 @@ def job_web_build(job: Job) -> None:
     s = probe_summary(console.read_text(encoding="utf-8"))
     job.note(f"잡히지 않은 오류 {s['uncaught']}개, 다른 오류 {s['other']}개, 주소가 달라 막힌 요청(CORS) {s['cors']}개")
     job.note("화면: .cache/web_probe.png  콘솔: .cache/web_probe.console.txt")
+    if not s["drawn"]:
+        job.fail("웹 화면이 90초 안에 그려지지 않음 (빈 화면). 콘솔 파일을 볼 것")
+        return
     if s["uncaught"] or s["other"] or s["cors"]:
         job.fail("웹 화면에 오류가 있음. 콘솔 파일을 볼 것")
         return

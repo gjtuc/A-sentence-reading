@@ -131,7 +131,8 @@ def _exception_text(d: dict) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--wait-s", type=float, default=25)
+    ap.add_argument("--wait-s", type=float, default=90, help="longest wait for the first frame")
+    ap.add_argument("--settle-s", type=float, default=3, help="keep listening after the first frame")
     ap.add_argument("--out", default=str(ROOT / ".cache" / "web_probe"))
     ap.add_argument("--path", default="/")
     ap.add_argument("--app", action="store_true", help="serve web_app at /app/ and proxy /api/ to live")
@@ -170,6 +171,7 @@ def main() -> int:
     )
     rows: list[str] = []
     n_err = 0
+    drawn_s: float | None = None
     try:
         ws = websocket.create_connection(
             _page_ws(dbg, time.time() + 30), timeout=5, suppress_origin=True
@@ -185,13 +187,29 @@ def main() -> int:
         for m in ("Runtime.enable", "Log.enable", "Page.enable", "Debugger.enable"):
             send(m)
         send("Debugger.setAsyncCallStackDepth", {"maxDepth": 32})
+        # design/406 - the engine fires flutter-first-frame once it has drawn; before that
+        # the page is white even with no errors.
+        send(
+            "Page.addScriptToEvaluateOnNewDocument",
+            {"source": "window.__asrFirstFrame=0;window.addEventListener('flutter-first-frame',"
+                       "function(){window.__asrFirstFrame=Date.now()});"},
+        )
+        t0 = time.time()
         send("Page.navigate", {"url": url})
-        end = time.time() + args.wait_s
+        end = t0 + args.wait_s
         shot_id = None
+        frame_id = None
+        next_ask = t0 + 1
+        drawn_s: float | None = None
         dart_text: dict[int, int] = {}
+        ws.settimeout(1)
         while True:
-            if shot_id is None and time.time() >= end:
+            now = time.time()
+            if shot_id is None and now >= end:
+                rows.append(f"FIRST-FRAME {drawn_s:.1f}s" if drawn_s is not None else f"NO-FIRST-FRAME {args.wait_s:.0f}s")
                 shot_id = send("Page.captureScreenshot", {"format": "png"})
+            if drawn_s is None and frame_id is None and now >= next_ask:
+                frame_id = send("Runtime.evaluate", {"expression": "window.__asrFirstFrame||0", "returnByValue": True})
             try:
                 msg = json.loads(ws.recv())
             except websocket.WebSocketTimeoutException:
@@ -199,6 +217,13 @@ def main() -> int:
             if shot_id is not None and msg.get("id") == shot_id:
                 png.write_bytes(base64.b64decode(msg["result"]["data"]))
                 break
+            if frame_id is not None and msg.get("id") == frame_id:
+                frame_id = None
+                next_ask = time.time() + 1
+                if ((msg.get("result") or {}).get("result") or {}).get("value"):
+                    drawn_s = time.time() - t0
+                    end = min(end, time.time() + args.settle_s)
+                continue
             if msg.get("id") in dart_text:
                 value = ((msg.get("result") or {}).get("result") or {}).get("value")
                 rows.insert(dart_text.pop(msg["id"]), f"  dart: {value}")
@@ -245,6 +270,7 @@ def main() -> int:
     console.write_text("\n".join(rows) + "\n", encoding="utf-8")
     print(f"screenshot {png}")
     print(f"console {console} lines={len(rows)} errors={n_err}")
+    print(f"first_frame {'%.1fs' % drawn_s if drawn_s is not None else 'none'}")
     return 0
 
 

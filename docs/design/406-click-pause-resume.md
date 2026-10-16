@@ -37,6 +37,12 @@ The waiting Python itself died, so nothing was watching any more.
   matching process start time so a reused PID is never touched. `Watch.stop`
   always resumes what it suspended.
 
+- **White screen counted as success.** The first `03` run took its screenshot at a
+  fixed 25 s, before Flutter had drawn anything, and reported 0 errors on a white
+  page. `web_probe.py` now waits up to 90 s for the engine's `flutter-first-frame`
+  event, listens 3 s more, then takes the screenshot. The click job fails on
+  `NO-FIRST-FRAME`.
+
 ## Tests
 
 `tests/test_design_406_pause_resume.py` (one test really freezes and resumes a child

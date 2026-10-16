@@ -57,6 +57,6 @@ def test_click_web_build_counts_only_real_errors():
             "ERROR something else",
         ]
     )
-    assert run.probe_summary(console) == {"uncaught": 1, "cors": 1, "other": 1}
+    assert run.probe_summary(console) == {"uncaught": 1, "cors": 1, "other": 1, "drawn": 0}
     assert "web_build" in run.JOBS
     assert (ROOT / "click" / "03_web_build.bat").read_bytes().decode("ascii").count("web_build") >= 1

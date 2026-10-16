@@ -174,3 +174,14 @@ def test_runner_restarts_a_dead_window_but_not_after_deploy():
     assert 'findstr /b /c:"DONE" /c:"FAILED"' in text
     assert 'if not exist "click\\out\\%~2.restart_ok" goto :eof' in text
     assert "GTR 20" in text
+
+
+def test_web_check_fails_on_a_white_screen():
+    run = _load("_run")
+    assert run.probe_summary("DEBUG x\nNO-FIRST-FRAME 90s\n")["drawn"] == 0
+    assert run.probe_summary("DEBUG x\nFIRST-FRAME 4.5s\n")["drawn"] == 1
+    src = (CLICK / "_run.py").read_text(encoding="utf-8")
+    web = src[src.index("def job_web_build") : src.index("def job_selftest")]
+    assert web.index('if not s["drawn"]:') < web.index("web_app 폴더를 커밋한 뒤")
+    probe = (ROOT / "scripts" / "web_probe.py").read_text(encoding="utf-8")
+    assert "flutter-first-frame" in probe and "NO-FIRST-FRAME" in probe
