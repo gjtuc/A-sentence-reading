@@ -1,7 +1,7 @@
 name: sentence_reading
 description: Android Flutter client for A-sentence-reading Cloud Run API
 publish_to: "none"
-version: 0.3.445+1
+version: 0.3.446+1
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -29,6 +29,8 @@ dependencies:
   wakelock_plus: ^1.2.8
   # WHY (design/409): IndexedDB paper storage on the web build.
   web: ^1.1.1
+  # WHY (design/410): phone <-> web paper sync over a direct data channel.
+  flutter_webrtc: 1.6.2+hotfix.3
 
 dev_dependencies:
   flutter_test:

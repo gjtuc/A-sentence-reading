@@ -2191,6 +2191,73 @@ throw AsrApiException(
     return _decodeObject(res, 'handoff-ack');
   }
 
+  /// design/410 — host: publish the WebRTC offer; returns the link id.
+  Future<String> nearCreateLink(Map<String, Object?> offer) async {
+    final res = await _http
+        .post(
+          _uri('/api/near/links'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({'offer': offer}),
+        )
+        .timeout(const Duration(seconds: 30));
+    final body = _decodeObject(res, 'near-create');
+    final id = '${body['link_id'] ?? ''}'.trim();
+    if (id.isEmpty) throw AsrApiException('near link id missing', res.statusCode);
+    return id;
+  }
+
+  /// design/410 — joiner: take the newest open link of this account (null = none).
+  Future<({String linkId, Map<String, dynamic> offer})?> nearClaimLink() async {
+    final res = await _http
+        .post(_uri('/api/near/links/claim'), headers: await _headers())
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 404) return null;
+    final body = _decodeObject(res, 'near-claim');
+    final offer = body['offer'];
+    final id = '${body['link_id'] ?? ''}'.trim();
+    if (id.isEmpty || offer is! Map) {
+      throw AsrApiException('near link body incomplete', res.statusCode);
+    }
+    return (linkId: id, offer: Map<String, dynamic>.from(offer));
+  }
+
+  /// design/410 — joiner: hand back the WebRTC answer.
+  Future<void> nearPutAnswer(String linkId, Map<String, Object?> answer) async {
+    final res = await _http
+        .post(
+          _uri('/api/near/links/${Uri.encodeComponent(linkId)}/answer'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({'answer': answer}),
+        )
+        .timeout(const Duration(seconds: 30));
+    _decodeObject(res, 'near-answer');
+  }
+
+  /// design/410 — host polling: the answer once the joiner gave one (null = not yet).
+  Future<Map<String, dynamic>?> nearPeekAnswer(String linkId) async {
+    final res = await _http
+        .get(
+          _uri('/api/near/links/${Uri.encodeComponent(linkId)}'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 30));
+    final body = _decodeObject(res, 'near-peek');
+    final answer = body['answer'];
+    return answer is Map ? Map<String, dynamic>.from(answer) : null;
+  }
+
+  /// design/410 — forget the link (best effort).
+  Future<void> nearDropLink(String linkId) async {
+    try {
+      await _http
+          .delete(
+            _uri('/api/near/links/${Uri.encodeComponent(linkId)}'),
+            headers: await _headers(),
+          )
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {}
+  }
+
 
   /// design/186 — list transfer packs (metadata only).
   Future<List<Map<String, dynamic>>> listTransferPacks() async {

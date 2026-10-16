@@ -17,6 +17,7 @@ import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/tts_controller.dart';
 import '../widgets/library_card_hold.dart';
+import '../widgets/near_sync_sheet.dart';
 import '../widgets/upload_queue_sheet.dart';
 import 'pdf_import_screen.dart';
 import 'shadowing_practice_screen.dart';
@@ -846,6 +847,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             : _openUploadPicker,
                         icon: const Icon(Icons.upload_file),
                         tooltip: '논문 가져오기',
+                      ),
+                      IconButton(
+                        // design/410 — papers and reading spots, device to device.
+                        onPressed: _selecting || !widget.auth.isLoggedIn
+                            ? null
+                            : () => showNearSyncSheet(
+                                  context: context,
+                                  library: lib,
+                                ),
+                        icon: const Icon(Icons.sync_alt),
+                        tooltip: nearSyncTitle(),
                       ),
                       IconButton(
                         onPressed: widget.onOpenSettings,

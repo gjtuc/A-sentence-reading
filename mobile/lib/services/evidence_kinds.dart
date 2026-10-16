@@ -169,6 +169,8 @@ const Set<String> kEvidenceAllowedKinds = {
   'ingest_artifact_purge_tick',
   'paper_handoff_start',
   'paper_handoff_done',
+  // design/410 — phone <-> web near sync
+  'near_sync_done',
   'paper_cloud_wipe',
   'paper_upload_refused_acked',
   'transfer_pack_create',

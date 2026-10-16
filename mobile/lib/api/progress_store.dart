@@ -223,3 +223,97 @@ Future<Map<String, String>> loadProgressResumeLabels({
   }
   return out;
 }
+
+/// design/410 — every stored row, keyed by cache id (for near sync).
+Future<Map<String, Map<String, dynamic>>> loadProgressRows({
+  required String? uid,
+}) async {
+  final out = <String, Map<String, dynamic>>{};
+  final p = await SharedPreferences.getInstance();
+  final raw = p.getString(progressPrefsKey(uid));
+  if (raw == null || raw.isEmpty) return out;
+  try {
+    final map = jsonDecode(raw);
+    if (map is! Map || map['papers'] is! Map) return out;
+    for (final e in (map['papers'] as Map).entries) {
+      final key = '${e.key}';
+      if (!key.startsWith('cache:') || e.value is! Map) continue;
+      final cid = key.substring('cache:'.length).trim();
+      if (cid.isEmpty) continue;
+      out[cid] = Map<String, dynamic>.from(e.value as Map);
+    }
+  } catch (_) {
+    return out;
+  }
+  return out;
+}
+
+/// design/410 — fold another device's rows into this one.
+///
+/// The newer `at` wins the reading spot; `last_read_left_at` keeps the later time.
+/// Returns how many rows changed.
+Future<int> mergeProgressRows({
+  required String? uid,
+  required Map<String, Map<String, dynamic>> incoming,
+}) async {
+  if (incoming.isEmpty) return 0;
+  final p = await SharedPreferences.getInstance();
+  final key = progressPrefsKey(uid);
+  Map<String, dynamic> store = {'version': 1, 'papers': <String, dynamic>{}};
+  final raw = p.getString(key);
+  if (raw != null && raw.isNotEmpty) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map && decoded['version'] == 1) {
+        store = Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {
+      // overwrite corrupt store
+    }
+  }
+  final papers = Map<String, dynamic>.from(
+    (store['papers'] is Map) ? store['papers'] as Map : <String, dynamic>{},
+  );
+  String text(Object? v) => (v is String) ? v.trim() : '';
+  var changed = 0;
+  for (final e in incoming.entries) {
+    final cid = e.key.trim();
+    if (cid.isEmpty) continue;
+    final rowKey = progressCacheKey(cid);
+    final mine = (papers[rowKey] is Map)
+        ? Map<String, dynamic>.from(papers[rowKey] as Map)
+        : <String, dynamic>{};
+    final theirs = e.value;
+    final next = Map<String, dynamic>.from(mine);
+    final theirSpot = theirs.containsKey('sentence_index') &&
+        theirs.containsKey('figure_index');
+    if (theirSpot && text(theirs['at']).compareTo(text(mine['at'])) > 0) {
+      for (final k in const [
+        'sentence_index',
+        'figure_index',
+        'layout_mode',
+        'section_label',
+        'at',
+      ]) {
+        if (theirs.containsKey(k)) {
+          next[k] = theirs[k];
+        } else {
+          next.remove(k);
+        }
+      }
+    }
+    final left = text(theirs['last_read_left_at']);
+    if (left.compareTo(text(mine['last_read_left_at'])) > 0) {
+      next['last_read_left_at'] = left;
+    }
+    if (jsonEncode(next) != jsonEncode(mine)) {
+      papers[rowKey] = next;
+      changed += 1;
+    }
+  }
+  if (changed == 0) return 0;
+  store['papers'] = papers;
+  store['version'] = 1;
+  await p.setString(key, jsonEncode(store));
+  return changed;
+}
