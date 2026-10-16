@@ -193,7 +193,8 @@ def test_install_only_job_skips_the_deploy():
     src = (CLICK / "_run.py").read_text(encoding="utf-8")
     body = src[src.index("def job_install") : src.index("def job_web_build")]
     assert "install_apk(job, want)" in body
-    assert "ship_cloud_pair" not in body and "build_apk" not in body
+    assert "ship_cloud_pair" not in body
+    assert body.index("apk_version() != want") < body.index("build_apk(job)") < body.index("install_apk(job, want)")
     ship = src[src.index("def job_ship_install") : src.index("def install_apk")]
     assert ship.index("build_apk(job)") < ship.index("install_apk(job, want)")
     bat = (CLICK / "04_install.bat").read_bytes()
@@ -215,3 +216,13 @@ def test_web_build_runs_web_flutter_tests_first():
     web = src[src.index("def job_web_build") : src.index("def job_selftest")]
     assert web.index('glob("web_*_test.dart")') < web.index("scripts/build_web_app.py")
     assert (ROOT / "mobile" / "test" / "web_oauth_same_tab_test.dart").exists()
+
+
+def test_apk_budget_counts_awake_time_only():
+    ps = (ROOT / "scripts" / "build_release_apk.ps1").read_text(encoding="utf-8")
+    assert "AddMinutes(25)" not in ps
+    assert "[Math]::Min(($now - $lastTick).TotalSeconds, 15)" in ps
+    assert "if ($awakeSec -gt $budgetSec) {" in ps
+    src = (CLICK / "_run.py").read_text(encoding="utf-8")
+    ship = src[src.index("def job_ship_install") : src.index("def install_apk")]
+    assert ship.index('job.note("앱 빌드: 새 APK 만듦")') < ship.index("APK_STAMP.write_text(want")

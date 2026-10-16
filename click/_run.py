@@ -27,6 +27,8 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "click" / "out"
 LOCK = OUT / ".running"
 PROCS = OUT / ".step_procs"
+# design/408 - app version of the APK the last successful build made.
+APK_STAMP = OUT / "apk_version.txt"
 KNOWN = ROOT / "click" / "known_failures.txt"
 APK = ROOT / "mobile" / "build" / "app" / "outputs" / "flutter-apk" / "app-release.apk"
 PACKAGE = "com.gjtuc.sentence_reading"
@@ -36,7 +38,7 @@ LABELS = {
     "tests": "테스트 전체",
     "ship_install": "배포하고 폰에 설치",
     "selftest": "실행기 점검",
-    "install": "폰에 설치만",
+    "install": "폰에 설치 (필요하면 앱 빌드)",
     "web_build": "웹 빌드하고 열어 보기",
 }
 QUICK = {"selftest"}
@@ -401,6 +403,7 @@ def job_ship_install(job: Job) -> None:
         job.fail(f"앱 빌드 실패 (exit {rc}). 새 APK 없음")
         return
     job.note("앱 빌드: 새 APK 만듦")
+    APK_STAMP.write_text(want, encoding="utf-8")
 
     install_apk(job, want)
 
@@ -422,11 +425,23 @@ def install_apk(job: Job, want: str) -> None:
     job.note(f"폰 설치: versionName {got}")
 
 
+def apk_version() -> str:
+    try:
+        return APK_STAMP.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def job_install(job: Job) -> None:
     want = app_version()
-    if not APK.exists():
-        job.fail("APK 가 없음. 02 를 먼저 할 것")
-        return
+    if not APK.exists() or apk_version() != want:
+        job.note(f"APK 가 {apk_version() or '이전'} 버전이라 {want} 로 앱 빌드부터 함 (배포는 안 함)")
+        rc, t0 = build_apk(job)
+        if not APK.exists() or APK.stat().st_mtime < t0:
+            job.fail(f"앱 빌드 실패 (exit {rc}). 새 APK 없음")
+            return
+        APK_STAMP.write_text(want, encoding="utf-8")
+        job.note("앱 빌드: 새 APK 만듦")
     built = dt.datetime.fromtimestamp(APK.stat().st_mtime)
     job.note(f"설치할 APK: {built:%m-%d %H:%M} 빌드, 앱 버전 {want}")
     install_apk(job, want)

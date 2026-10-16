@@ -43,6 +43,14 @@ The waiting Python itself died, so nothing was watching any more.
   event, listens 3 s more, then takes the screenshot. The click job fails on
   `NO-FIRST-FRAME`.
 
+- **Wall-clock budget killed a paused build (0.3.444).** `build_release_apk.ps1` stopped
+  flutter 25 min after it started. The light had paused the build 5 times (23 min), so
+  the budget ran out mid-build. The script is suspended together with the build, so it
+  now counts awake time only: each 5 s tick adds at most 15 s.
+- **04 builds when needed.** `click\out\apk_version.txt` holds the app version of the
+  last APK a click job built. `04_install.bat` builds first when it is not the app
+  version, then installs. It never deploys.
+
 ## Tests
 
 `tests/test_design_406_pause_resume.py` (one test really freezes and resumes a child

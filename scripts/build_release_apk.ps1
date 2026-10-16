@@ -86,13 +86,20 @@ function Invoke-FlutterApk {
     # design/304 — the child cmd must see the catalog. Parent SetEnvironmentVariable did not.
     $arg = '/c set "' + $pf86 + '=C:\Program Files (x86)" && flutter build apk --release > "' + $log + '" 2>&1'
     $proc = Start-Process -FilePath "cmd.exe" -ArgumentList $arg -WorkingDirectory $Mobile -PassThru -WindowStyle Hidden
-    $deadline = (Get-Date).AddMinutes(25)
+    # design/408 - the budget counts awake time only. The click memory light suspends
+    # this script with the build; a long gap between ticks is a pause, not a hang.
+    $budgetSec = 25 * 60
+    $awakeSec = 0.0
+    $lastTick = Get-Date
     $lastLen = -1
     $failIdle = 0
     $apkIdle = 0
     $apkLen = -1
     while ($proc -and -not $proc.HasExited) {
-      if ((Get-Date) -gt $deadline) {
+      $now = Get-Date
+      $awakeSec += [Math]::Min(($now - $lastTick).TotalSeconds, 15)
+      $lastTick = $now
+      if ($awakeSec -gt $budgetSec) {
         Write-Host "design/300: apk build deadline - stop hung flutter"
         Stop-ProcessTree $proc.Id
         break
