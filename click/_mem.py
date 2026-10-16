@@ -46,7 +46,8 @@ MIN_NEED_GB = {
     "pytest": 1.5,
     "flutter_test": 1.2,
     "web_build": 2.5,
-    "apk": 3.5,
+    # 0.3.444 build peaked at 2.6 GB with a 2.5 GB heap.
+    "apk": 3.0,
     "probe": 0.8,
 }
 # Steps whose size is set by a knob; their history is reported, not gated on.
