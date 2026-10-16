@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../api/reading_models.dart';
+import 'local_disk.dart';
 
 const int kFigureDiskMaxBytes = 8 * 1024 * 1024;
 
@@ -164,7 +165,7 @@ class FigureDiskCache {
   }
 
   Future<List<String>> listChildDirNames() async {
-    if (!isBound) return const [];
+    if (!isBound || !localDiskAvailable) return const [];
     final docs = await _rootResolver();
     final dir = Directory(p.join(docs.path, cacheDirName, 'u', _uid));
     if (!await dir.exists()) return const [];
@@ -176,7 +177,7 @@ class FigureDiskCache {
   }
 
   Future<Directory?> paperDir(String cacheId) async {
-    if (!isBound) return null;
+    if (!isBound || !localDiskAvailable) return null;
     final id = figureCacheSafeToken(cacheId, maxLen: 32);
     if (id.isEmpty) return null;
     return Directory(p.join((await _uidRoot()).path, id));
@@ -357,7 +358,7 @@ class FigureDiskCache {
 
   /// Delete all papers for the bound uid (logout optional aggressive wipe).
   Future<void> purgeAllForUid() async {
-    if (!isBound) return;
+    if (!isBound || !localDiskAvailable) return;
     try {
       final root = await _uidRoot();
       if (await root.exists()) {

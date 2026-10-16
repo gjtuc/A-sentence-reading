@@ -7,6 +7,8 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+import '../services/local_disk.dart';
+
 class SkillEvidenceStore {
   SkillEvidenceStore({this.maxEvents = 5000});
 
@@ -44,6 +46,7 @@ class SkillEvidenceStore {
   }
 
   Future<void> append(Map<String, dynamic> event) async {
+    if (!localDiskAvailable) return;
     await _lock.run(() async {
       final f = await _ensureFile();
       await f.writeAsString(
@@ -78,6 +81,7 @@ class SkillEvidenceStore {
   }
 
   Future<int> pendingCount() async {
+    if (!localDiskAvailable) return 0;
     return _lock.run(() async {
       final f = await _ensureFile();
       return (await _readLines(f)).length;
@@ -85,6 +89,7 @@ class SkillEvidenceStore {
   }
 
   Future<List<Map<String, dynamic>>> peek(int limit) async {
+    if (!localDiskAvailable) return const [];
     return _lock.run(() async {
       final f = await _ensureFile();
       final lines = await _readLines(f);
@@ -105,7 +110,7 @@ class SkillEvidenceStore {
   }
 
   Future<void> ack(int count) async {
-    if (count <= 0) return;
+    if (count <= 0 || !localDiskAvailable) return;
     await _lock.run(() async {
       final f = await _ensureFile();
       final lines = await _readLines(f);
@@ -120,6 +125,7 @@ class SkillEvidenceStore {
   }
 
   Future<void> clearAll() async {
+    if (!localDiskAvailable) return;
     await _lock.run(() async {
       try {
         final root = await getApplicationSupportDirectory();

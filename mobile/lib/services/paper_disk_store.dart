@@ -17,6 +17,7 @@ import '../api/reading_models.dart';
 import '../pdf/normalize_pairing_key.dart';
 import 'evidence_bus.dart';
 import 'figure_disk_cache.dart';
+import 'local_disk.dart';
 
 const String kPaperDiskStoreDirName = 'asr_papers';
 const int kPaperSessionMaxBytes = 8 * 1024 * 1024;
@@ -532,7 +533,7 @@ class PaperDiskStore {
   }
 
   Future<Directory?> uidRoot() async {
-    if (!isBound) return null;
+    if (!isBound || !localDiskAvailable) return null;
     final docs = await _docsRoot();
     return Directory(p.join(docs.path, kPaperDiskStoreDirName, 'u', _uid));
   }

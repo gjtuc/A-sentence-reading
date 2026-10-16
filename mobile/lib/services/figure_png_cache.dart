@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 
 import 'tts_audio_cache.dart' show ttsCacheEvictions;
+import 'local_disk.dart';
 
 const int kFigureCacheMaxBytes = 200 * 1024 * 1024;
 const String kFigureCacheDirName = 'asr_figure_png';
@@ -26,6 +27,7 @@ class FigurePngCache {
 
   Future<Directory?> _root() async {
     if (_dir != null) return _dir;
+    if (!localDiskAvailable) return null;
     try {
       final base = await getApplicationSupportDirectory();
       final dir = Directory(

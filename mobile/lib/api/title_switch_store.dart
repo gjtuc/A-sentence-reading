@@ -7,6 +7,8 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../services/local_disk.dart';
+
 const int kTitleSwitchSchema = 1;
 
 class TitleSwitchEntry {
@@ -46,7 +48,7 @@ class TitleSwitchStore {
 
   Future<File?> _file() async {
     final u = _uid;
-    if (u == null || u.isEmpty) return null;
+    if (u == null || u.isEmpty || !localDiskAvailable) return null;
     final safe = u.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
     final base = await getApplicationDocumentsDirectory();
     final dir = Directory('${base.path}/title_switch/u_$safe');

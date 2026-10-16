@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/client.dart';
 import 'evidence_bus.dart';
 import 'figure_disk_cache.dart';
+import 'local_disk.dart';
 
 const String kNotesLocalArchiveDirName = 'asr_notes';
 
@@ -42,7 +43,7 @@ class NotesLocalArchive {
   }
 
   Future<File?> _storeFile() async {
-    if (!isBound) return null;
+    if (!isBound || !localDiskAvailable) return null;
     final docs = await _docsRoot();
     return File(
       p.join(docs.path, kNotesLocalArchiveDirName, 'u', _uid, 'store_v2.json'),

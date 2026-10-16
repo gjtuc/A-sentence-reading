@@ -8,6 +8,8 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'local_disk.dart';
+
 class PaperStashMeta {
   const PaperStashMeta({
     required this.cacheId,
@@ -124,6 +126,7 @@ class PaperEditStash {
   }
 
   Future<PaperStashMeta?> readMeta(String cacheId) async {
+    if (!localDiskAvailable) return null;
     final f = await metaFile(cacheId);
     if (!await f.exists()) return null;
     try {
@@ -167,6 +170,7 @@ class PaperEditStash {
   }
 
   Future<Uint8List?> readPagePreview(String cacheId, int pageIndex) async {
+    if (!localDiskAvailable) return null;
     final f = await pagePreviewFile(cacheId, pageIndex);
     if (!await f.exists()) return null;
     try {
@@ -182,6 +186,7 @@ class PaperEditStash {
     required String filename,
     String contentHash = '',
   }) async {
+    if (!localDiskAvailable) throw PaperStashException('no_local_disk');
     if (bytes.isEmpty || bytes.length > maxSourceBytes) {
       throw PaperStashException('source_too_large');
     }
@@ -241,12 +246,13 @@ class PaperEditStash {
     int pageIndex,
     Uint8List png,
   ) async {
-    if (png.isEmpty) return;
+    if (png.isEmpty || !localDiskAvailable) return;
     final f = await pagePreviewFile(cacheId, pageIndex);
     await f.writeAsBytes(png, flush: true);
   }
 
   Future<void> invalidatePreviews(String cacheId) async {
+    if (!localDiskAvailable) return;
     final previews = Directory(
       p.join((await paperDir(cacheId)).path, 'page_previews'),
     );
@@ -272,6 +278,7 @@ class PaperEditStash {
   }
 
   Future<void> purge(String cacheId) async {
+    if (!localDiskAvailable) return;
     final dir = await paperDir(cacheId);
     if (await dir.exists()) {
       await dir.delete(recursive: true);
@@ -279,6 +286,7 @@ class PaperEditStash {
   }
 
   Future<void> purgeAll() async {
+    if (!localDiskAvailable) return;
     final root = await stashRoot();
     if (!await root.exists()) return;
     await for (final e in root.list()) {
@@ -289,6 +297,7 @@ class PaperEditStash {
   }
 
   Future<void> purgeOrphans(Set<String> knownCacheIds) async {
+    if (!localDiskAvailable) return;
     final known = knownCacheIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
     final root = await stashRoot();
     if (!await root.exists()) return;

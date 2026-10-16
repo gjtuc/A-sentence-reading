@@ -12,6 +12,8 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'local_disk.dart';
+
 const int kTtsCacheMaxBytes = 120 * 1024 * 1024;
 const String kTtsCacheDirName = 'asr_tts_audio';
 
@@ -52,6 +54,7 @@ class TtsAudioCache {
 
   Future<Directory?> _root() async {
     if (_dir != null) return _dir;
+    if (!localDiskAvailable) return null;
     try {
       final base = await getApplicationSupportDirectory();
       final dir = Directory(

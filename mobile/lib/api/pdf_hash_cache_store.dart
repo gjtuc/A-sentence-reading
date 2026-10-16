@@ -7,6 +7,8 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../services/local_disk.dart';
+
 const int kPdfHashCacheMaxEntries = 2000;
 
 String pdfHashCacheKey({
@@ -33,7 +35,7 @@ class PdfHashCacheStore {
 
   Future<Directory?> _dir() async {
     final u = _uid;
-    if (u == null || u.isEmpty) return null;
+    if (u == null || u.isEmpty || !localDiskAvailable) return null;
     final safe = u.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
     final base = await getApplicationDocumentsDirectory();
     final d = Directory('${base.path}/pdf_hash_cache/u_$safe');

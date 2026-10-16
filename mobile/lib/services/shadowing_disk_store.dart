@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'figure_disk_cache.dart';
 import '../api/shadowing_chunk_plan.dart';
+import 'local_disk.dart';
 
 const String kShadowingDiskStoreDirName = 'asr_shadowing';
 
@@ -34,7 +35,7 @@ class ShadowingDiskStore {
   }
 
   Future<Directory?> uidRoot() async {
-    if (!isBound) return null;
+    if (!isBound || !localDiskAvailable) return null;
     final docs = await _docsRoot();
     return Directory(p.join(docs.path, kShadowingDiskStoreDirName, 'u', _uid));
   }

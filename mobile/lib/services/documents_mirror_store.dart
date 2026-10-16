@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../platform/documents_mirror_channel.dart';
 import 'figure_disk_cache.dart';
+import 'local_disk.dart';
 import 'paper_disk_store.dart';
 import 'paper_residue.dart';
 import 'shadowing_disk_store.dart';
@@ -40,7 +41,7 @@ class DocumentsMirrorStore {
   void attachShadowDisk(ShadowingDiskStore store) => _shadowDisk = store;
 
   void bindUid(String? uid) {
-    _uid = figureCacheSafeToken(uid ?? '', maxLen: 80);
+    _uid = localDiskAvailable ? figureCacheSafeToken(uid ?? '', maxLen: 80) : '';
     lastError = null;
     _hideTried = false;
     lastHideOk = false;
