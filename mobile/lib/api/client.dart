@@ -898,6 +898,22 @@ class AsrClient {
     ).toString();
   }
 
+  /// design/407 — web app: same-tab Google page that lands back on /app/.
+  String googleWebStartUrl({String mode = 'login'}) {
+    final m = mode.trim().isEmpty ? 'login' : mode.trim();
+    return _uri('/api/auth/google/mobile/start').replace(
+      queryParameters: {'mode': m, 'land': 'app'},
+    ).toString();
+  }
+
+  /// design/407 — web app: same-tab Kakao start whose callback lands on /app/.
+  String kakaoWebStartUrl({String mode = 'login'}) {
+    final m = mode.trim().isEmpty ? 'login' : mode.trim();
+    return _uri('/api/auth/kakao/start').replace(
+      queryParameters: {'mode': m, 'land': 'app'},
+    ).toString();
+  }
+
   /// Absolute URL for Kakao Custom-Tab start (mobile=1).
   String kakaoStartUrl({String mode = 'login'}) {
     final m = mode.trim().isEmpty ? 'login' : mode.trim();

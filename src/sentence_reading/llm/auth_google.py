@@ -301,7 +301,7 @@ def mobile_google_deep_link(*, session: str = "", auth: str = "google", error: s
 
 
 def issue_oauth_state(
-    mode: str, *, link_uid: str | None = None, mobile: bool = False
+    mode: str, *, link_uid: str | None = None, mobile: bool = False, land: str = ""
 ) -> str:
     """카카오 redirect state (mode=login|link). mobile → Flutter deep link."""
     m = (mode or "login").strip().lower()
@@ -313,6 +313,8 @@ def issue_oauth_state(
         "iat": int(time.time()),
         "n": secrets.token_hex(8),
         "mob": 1 if mobile else 0,
+        # design/407 - the web app under /app/ asked; land there after the callback.
+        "ld": 1 if (land or "").strip().lower() == "app" else 0,
     }
     payload_b64 = _b64url_encode(
         json.dumps(body, separators=(",", ":")).encode("utf-8")
@@ -348,10 +350,15 @@ def parse_oauth_state(state: str | None) -> dict[str, str] | None:
         mobile = int(data.get("mob") or 0) == 1
     except (TypeError, ValueError):
         mobile = False
+    try:
+        land_app = int(data.get("ld") or 0) == 1
+    except (TypeError, ValueError):
+        land_app = False
     return {
         "mode": mode,
         "link_uid": str(data.get("u") or ""),
         "mobile": "1" if mobile else "0",
+        "land": "app" if land_app else "",
     }
 
 

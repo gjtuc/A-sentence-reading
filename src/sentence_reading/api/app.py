@@ -287,7 +287,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.443",
+    version="0.3.444",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -2457,7 +2457,7 @@ async def auth_google_login(request: Request, payload: dict = Body(...)) -> JSON
 
 
 @auth_routes.router.get("/api/auth/google/mobile/start")
-def auth_google_mobile_start(mode: str = "login") -> Response:
+def auth_google_mobile_start(mode: str = "login", land: str = "") -> Response:
     """Custom Tab page: GIS on Cloud Run origin → deep-link session (design/65).
 
     WHY not native google_sign_in: Android OAuth SHA-1 breaks across sideload PCs
@@ -2480,6 +2480,7 @@ def auth_google_mobile_start(mode: str = "login") -> Response:
     # EDGE: escape for JS string literals (client_id is public but may contain quotes).
     cid_js = json.dumps(cid)
     mode_js = json.dumps(mode_s)
+    land_js = json.dumps("app" if (land or "").strip().lower() == "app" else "")
     html = f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -2502,6 +2503,7 @@ def auth_google_mobile_start(mode: str = "login") -> Response:
 (function () {{
   var CLIENT_ID = {cid_js};
   var MODE = {mode_js};
+  var LAND = {land_js};
   var errEl = document.getElementById('err');
   function showErr(msg) {{
     errEl.hidden = false;
@@ -2520,10 +2522,15 @@ def auth_google_mobile_start(mode: str = "login") -> Response:
         method: 'POST',
         headers: {{ 'Content-Type': 'application/json' }},
         credentials: 'same-origin',
-        body: JSON.stringify({{ credential: cred, mode: MODE, mobile: '1' }})
+        body: JSON.stringify({{ credential: cred, mode: MODE, mobile: LAND ? '0' : '1' }})
       }});
       var data = {{}};
       try {{ data = await r.json(); }} catch (e) {{ data = {{}}; }}
+      if (r.ok && data && data.ok && LAND === 'app') {{
+        // design/407 - the web app reads the cookie this response set.
+        window.location.href = '/app/?auth=' + (MODE === 'link' ? 'linked' : 'logged_in');
+        return;
+      }}
       if (!r.ok || !data || !data.ok || !data.asr_session) {{
         showErr((data && data.message) || ('로그인 실패 (' + r.status + ')'));
         return;
@@ -2566,7 +2573,7 @@ def auth_google_mobile_start(mode: str = "login") -> Response:
 
 @auth_routes.router.get("/api/auth/kakao/start")
 def auth_kakao_start(
-    request: Request, mode: str = "login", mobile: str = "0"
+    request: Request, mode: str = "login", mobile: str = "0", land: str = ""
 ) -> Response:
     if not kakao_enabled():
         return JSONResponse(
@@ -2594,7 +2601,7 @@ def auth_kakao_start(
             )
         link_uid = cur.uid
     want_mobile = str(mobile or "0").strip().lower() in ("1", "true", "yes", "on")
-    state = issue_oauth_state(m, link_uid=link_uid, mobile=want_mobile)
+    state = issue_oauth_state(m, link_uid=link_uid, mobile=want_mobile, land=land)
     url = kakao_authorize_url(
         redirect_uri=_kakao_redirect_uri(request), state=state
     )
@@ -2612,10 +2619,11 @@ def auth_kakao_callback(
 
     parsed = parse_oauth_state(state) if state else None
     is_mobile = bool(parsed and parsed.get("mobile") == "1")
+    web_root = "/app/" if parsed and parsed.get("land") == "app" else "/"
 
     def _web_err(code_s: str) -> Response:
         return RedirectResponse(
-            "/?auth_error=" + urllib.parse.quote(code_s[:80]), status_code=302
+            web_root + "?auth_error=" + urllib.parse.quote(code_s[:80]), status_code=302
         )
 
     def _mobile_err(code_s: str) -> Response:
@@ -2670,7 +2678,7 @@ def auth_kakao_callback(
             mobile_kakao_deep_link(session=token, auth=msg), status_code=302
         )
     else:
-        resp = RedirectResponse("/?auth=" + msg, status_code=302)
+        resp = RedirectResponse(web_root + "?auth=" + msg, status_code=302)
     resp.set_cookie(
         key=COOKIE_NAME,
         value=token,

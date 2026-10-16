@@ -208,3 +208,10 @@ def test_restart_without_marker_does_nothing(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(run, "take_lock", lambda name: (_ for _ in ()).throw(AssertionError("ran")))
     assert run.main() == 0
     assert list(tmp_path.iterdir()) == []
+
+
+def test_web_build_runs_web_flutter_tests_first():
+    src = (CLICK / "_run.py").read_text(encoding="utf-8")
+    web = src[src.index("def job_web_build") : src.index("def job_selftest")]
+    assert web.index('glob("web_*_test.dart")') < web.index("scripts/build_web_app.py")
+    assert (ROOT / "mobile" / "test" / "web_oauth_same_tab_test.dart").exists()

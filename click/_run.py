@@ -433,6 +433,16 @@ def job_install(job: Job) -> None:
 
 
 def job_web_build(job: Job) -> None:
+    # design/407 - Flutter tests for the web branches (mobile/test/web_*_test.dart) first.
+    web_tests = sorted(f"test/{p.name}" for p in (ROOT / "mobile" / "test").glob("web_*_test.dart"))
+    if web_tests:
+        rc, text = job.run(
+            "웹 Flutter 테스트", ["cmd", "/c", r"scripts\flutter_test.cmd", *web_tests], step="flutter_test"
+        )
+        job.note(f"웹 Flutter 테스트 {len(web_tests)}개 파일: {flutter_tally(text) or f'exit {rc}'}")
+        if rc != 0:
+            job.fail("웹 Flutter 테스트 실패. 빌드하지 않음")
+            return
     rc, _ = job.run(
         "웹 빌드 + 서버 폴더로 복사", [sys.executable, "scripts/build_web_app.py"], step="web_build"
     )

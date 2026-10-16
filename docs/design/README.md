@@ -441,6 +441,7 @@
 | 404 | [404-click-memory-light.md](404-click-memory-light.md) | 클릭 작업 메모리 신호등: 단계마다 필요한 메모리가 빌 때까지 기다리고, 실제로 쓴 양을 기록해 다음 필요량으로 쓴다. Flutter 테스트 동시 개수와 Gradle 최대 메모리는 남은 메모리에 맞춘다 |
 | 405 | [405-web-app-hosting-and-login.md](405-web-app-hosting-and-login.md) | 웹 버전 2단계: 서버가 `/app/` 에서 웹 화면을 내보내고, 웹에서 이메일 링크로 로그인한다 (`/app` 공개, `land=app` 링크, 웹은 페이지 주소로 API 호출·Cookie 헤더 안 씀) · `scripts/build_web_app.py`, `web_probe.py --app`, 02 는 웹 버전이 다르면 배포 거부 (0.3.443) |
 | 406 | [406-click-pause-resume.md](406-click-pause-resume.md) | 클릭 작업 신호등을 단계 도중에도 본다: 주식 작업 중 메모리가 바닥나면 그 단계를 멈추고, 다시 비면 이어서 한다 (몇 번이든). 창이 메모리 부족으로 꺼지면 15초 뒤 처음부터 다시 시작 (배포 단계부터는 안 함) |
+| 407 | [407-web-oauth-same-tab.md](407-web-oauth-same-tab.md) | 웹 앱 Google·카카오 로그인: 같은 탭으로 로그인 페이지에 갔다가 `/app/` 으로 돌아온다 (`land=app`, 쿠키 세션). 폰은 그대로. 03 이 빌드 전에 `web_*_test.dart` 를 돌린다 (0.3.444) |
 | 387 | [387-the-rung-then-the-line.md](387-the-rung-then-the-line.md) | 소리 확률을 먼저 (20+난이도)%로 보고, 못 넘기면 계정 선으로 한 번 더 본다 · 선이 배우는 점수는 난이도 적용 전 30% 일치 · 더 말한 소리는 분모에 남긴다 · 기호 목록은 30% 고정 (0.3.427) |
 | 386 | [386-thirty-percent-of-each-sound.md](386-thirty-percent-of-each-sound.md) | 소리 하나의 일치는 원어민이 30% 넘긴 기호를 사용자도 전부 30% 넘긴 것 · 공백은 세지 않음 · 분모는 그대로 · 619개에서 기호가 둘인 칸은 3.1%, 그 중 또렷한 읽기가 떨어지는 경우는 소리 1000개 중 9개 (0.3.426) |
 | 385 | [385-warm-from-the-cursor.md](385-warm-from-the-cursor.md) | 미리 짓기는 지금 읽는 자리부터 한 바퀴 돈다 · 연습 커서가 있으면 그쪽 · `/open` 의 1번부터 걷기는 폰 요청을 `_WARMING` 으로 버려서 뺐다 (0.3.425) |

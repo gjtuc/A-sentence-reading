@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api/auth_models.dart';
 import '../api/auth_deeplink.dart';
@@ -19,7 +20,9 @@ class AuthController extends ChangeNotifier {
     GoogleIdTokenSource? googleTokens,
     KakaoOAuthBrowser? kakaoBrowser,
     AuthDeepLinkBridge? deepLinks,
-  })  : _client = client ?? AsrClient(),
+    Future<void> Function(Uri)? openSameTab,
+  })  : _openSameTab = openSameTab ?? _launchSameTab,
+        _client = client ?? AsrClient(),
         _googleTokens = googleTokens ?? GoogleSignInIdTokenSource(),
         _kakaoBrowser = kakaoBrowser ?? FlutterWebAuthKakaoBrowser(),
         _deepLinks = deepLinks ?? AuthDeepLinkBridge();
@@ -28,6 +31,23 @@ class AuthController extends ChangeNotifier {
   final GoogleIdTokenSource _googleTokens;
   final KakaoOAuthBrowser _kakaoBrowser;
   final AuthDeepLinkBridge _deepLinks;
+  final Future<void> Function(Uri) _openSameTab;
+
+  /// design/407 — tests drive the web branch on the VM.
+  @visibleForTesting
+  static bool debugForceWebLogin = false;
+
+  static Future<void> _launchSameTab(Uri uri) async {
+    await launchUrl(uri, webOnlyWindowName: '_self');
+  }
+
+  /// design/407 — web has no Custom Tab or deep link. The provider page comes back
+  /// to /app/ with a session cookie that bootstrap reads. True when the page left.
+  Future<bool> _leaveForWebLogin(String url) async {
+    if (!kIsWeb && !debugForceWebLogin) return false;
+    await _openSameTab(Uri.parse(url));
+    return true;
+  }
 
   AsrClient get client => _client;
 
@@ -230,6 +250,7 @@ class AuthController extends ChangeNotifier {
       if (cid.isEmpty) {
         throw AsrApiException('Google client_id missing from /api/auth/status', 503);
       }
+      if (await _leaveForWebLogin(_client.googleWebStartUrl())) return;
       try {
         final token = await _googleTokens.obtainIdToken(serverClientId: cid);
         if (token != null && isUsableGoogleCredential(token)) {
@@ -292,6 +313,7 @@ class AuthController extends ChangeNotifier {
       if (lastStatus?.kakaoEnabled != true) {
         throw AsrApiException('Kakao login is disabled on the server', 503);
       }
+      if (await _leaveForWebLogin(_client.kakaoWebStartUrl())) return;
       final start = _client.kakaoStartUrl(mode: 'login');
       final redirected = await _kakaoBrowser.authenticate(
         startUrl: start,
