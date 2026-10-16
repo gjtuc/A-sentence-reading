@@ -1,0 +1,2 @@
+# design/405 - the Flutter web build ships byte-for-byte (binary manifests, no CRLF)
+/src/sentence_reading/web_app/** -text
