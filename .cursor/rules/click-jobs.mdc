@@ -1,15 +1,17 @@
 ---
-description: Long ASR jobs run from click files on the local PC (design/402)
+description: Long ASR jobs run from click files on the local PC (design/402, design/404)
 alwaysApply: true
 ---
 
-# Click jobs (design/402)
+# Click jobs (design/402, design/404)
 
 The user wants to save tokens. Do not wait on long jobs in the agent shell.
 
 - Deploy + phone install: ask the user to double-click `click\02_ship_and_install.bat`.
-- Full Python + Flutter suites: `click\01_tests.bat`.
+- Full Python + Flutter suites: `click\01_tests.bat`. Web build + headless check: `click\03_web_build.bat`.
 - Then end the turn. When the user says it finished, read only `click\out\<job>.result.txt` (first line `DONE` or `FAILED`). Open `click\out\<job>.log` only for a FAILED step.
+- Every step in `click\_run.py` goes through the memory light in `click\_mem.py` (`job.run(..., step=...)`). New jobs must use `job.run`; do not start subprocesses around it. Steps with a knob (Flutter `--concurrency`, Gradle `-Xmx` via `GRADLE_OPTS`) are sized to free memory.
+- The stock simulation can hold 8 GB. Before any heavy agent-shell command (APK, web build), check free memory first.
 - Short targeted test runs (one or two files) may still run in the agent shell.
 - Do not touch `D:\.cursor\scratch\lifecycle_ga\click\` (stock project).
 - When a failure in `click\known_failures.txt` is fixed, remove its line.

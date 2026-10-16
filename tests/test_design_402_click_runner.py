@@ -66,9 +66,10 @@ def test_ship_job_guards_before_ship_and_verify_before_apk():
         body.index("pre_deploy_guard.py"),
         body.index("ship_cloud_pair.ps1"),
         body.index("verify_live_status.py"),
-        body.index("build_release_apk.ps1"),
+        body.index("build_apk(job)"),
         body.index('"install", "-r"'),
     ]
+    assert "build_release_apk.ps1" in src[src.index("def build_apk") :]
     assert order == sorted(order)
     assert "ASR_SKIP" not in src
     assert "git push" not in src
