@@ -495,6 +495,10 @@ def main() -> int:
     if name not in JOBS:
         print(f"unknown job: {name}. choose one of {', '.join(JOBS)}")
         return 2
+    # cmd itself can fail lines when memory is gone; a restart without the marker
+    # means the job already ended (or reached the deploy), so do nothing.
+    if os.environ.get("ASR_CLICK_TRY", "0") != "0" and not (OUT / f"{name}.restart_ok").exists():
+        return 0
     label = LABELS[name]
     OUT.mkdir(parents=True, exist_ok=True)
     ctypes.windll.kernel32.SetConsoleTitleW(f"문장읽기 - {label}")

@@ -198,3 +198,13 @@ def test_install_only_job_skips_the_deploy():
     assert ship.index("build_apk(job)") < ship.index("install_apk(job, want)")
     bat = (CLICK / "04_install.bat").read_bytes()
     assert b"\r\n" in bat and b'_job.cmd" install' in bat
+
+
+def test_restart_without_marker_does_nothing(monkeypatch, tmp_path: Path):
+    run = _load("_run")
+    monkeypatch.setattr(run, "OUT", tmp_path)
+    monkeypatch.setattr(run.sys, "argv", ["_run.py", "selftest"])
+    monkeypatch.setenv("ASR_CLICK_TRY", "1")
+    monkeypatch.setattr(run, "take_lock", lambda name: (_ for _ in ()).throw(AssertionError("ran")))
+    assert run.main() == 0
+    assert list(tmp_path.iterdir()) == []
