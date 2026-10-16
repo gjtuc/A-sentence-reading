@@ -27,6 +27,8 @@ dependencies:
   package_info_plus: ^8.3.0
   # WHY: keep screen on only during focus practice session (hands-free speaking).
   wakelock_plus: ^1.2.8
+  # WHY (design/409): IndexedDB paper storage on the web build.
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:

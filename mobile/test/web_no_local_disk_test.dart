@@ -14,6 +14,7 @@ import 'package:sentence_reading/api/session_store.dart';
 import 'package:sentence_reading/api/title_switch_store.dart';
 import 'package:sentence_reading/api/upload_draft_store.dart';
 import 'package:sentence_reading/practice_skill/skill_evidence_store.dart';
+import 'package:sentence_reading/services/disk_fs.dart';
 import 'package:sentence_reading/services/documents_mirror_store.dart';
 import 'package:sentence_reading/services/figure_disk_cache.dart';
 import 'package:sentence_reading/services/figure_png_cache.dart';
@@ -159,6 +160,7 @@ void main() {
   });
 
   libraryMain();
+  browserDiskMain();
 }
 
 Future<AsrClient> _webClient() async {
@@ -238,5 +240,135 @@ void libraryMain() {
       await Future<void>.delayed(const Duration(milliseconds: 200));
     }, (e, _) => errors.add(e));
     expect(errors, isEmpty);
+  });
+}
+
+const _sessionBody = '{"session_id":"ses_disk","cache_id":"abcd1234",'
+    '"title":"Paper A","sentences":[{"id":"s0","text":"First sentence.",'
+    '"section":"results"},{"id":"s1","text":"Second sentence.",'
+    '"section":"results"}],"figures":[],"sentence_index":0,"figure_index":0}';
+
+/// A server that still holds one paper for handoff until [wipe] is set.
+class _HandoffServer {
+  bool wipe = false;
+  int acks = 0;
+  int opens = 0;
+
+  AsrClient client(MemorySessionStore store) {
+    final session = utf8.encode(_sessionBody);
+    return AsrClient(
+      sessionStore: store,
+      httpClient: MockClient((request) async {
+        final path = request.url.path;
+        Map<String, dynamic>? json;
+        if (path.endsWith('/api/auth/status')) {
+          json = {'ok': true, 'user': {'uid': 'u1', 'email': 'a@b.c'}};
+        } else if (path.endsWith('/api/status')) {
+          json = {'ok': true, 'paper_local_sot': true, 'paper_handoff': true};
+        } else if (path.endsWith('/handoff-manifest')) {
+          json = {
+            'ok': true,
+            'content_hash': '',
+            'artifact_gen': 'g1',
+            'title': 'Paper A',
+            'files': {
+              'session.json': {'size': session.length, 'sha256': paperDiskSha256Hex(session)},
+            },
+          };
+        } else if (path.endsWith('/handoff/file')) {
+          return http.Response.bytes(session, 200);
+        } else if (path.endsWith('/handoff/ack') || path.endsWith('/handoff-ack')) {
+          acks += 1;
+          json = {'ok': true, 'wiped': true};
+        } else if (path.endsWith('/open')) {
+          opens += 1;
+          return http.Response('{}', 404);
+        } else if (path.endsWith('/api/cache/papers')) {
+          json = {
+            'ok': true,
+            'papers': [
+              if (!wipe) {'id': 'abcd1234', 'title': 'Paper A'},
+            ],
+          };
+        }
+        if (json == null) return http.Response('{}', 404);
+        return http.Response(
+          jsonEncode(json),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+  }
+}
+
+void browserDiskMain() {
+  group('design/409 browser storage', () {
+    setUp(() {
+      debugBrowserDisk = MemoryDiskFs();
+    });
+
+    tearDown(() {
+      debugBrowserDisk = null;
+    });
+
+    test('the paper store keeps papers in browser storage, not app folders', () async {
+      final store = PaperDiskStore()..bindUid('u1');
+      expect(await store.uidRoot(), isNull);
+      expect(await store.paperDir('abcd1234'), isNull);
+      expect(await store.localSourcePath('abcd1234'), isNull);
+
+      expect(
+        await store.writeSessionJson('abcd1234', jsonDecode(_sessionBody) as Map<String, dynamic>),
+        isTrue,
+      );
+      await store.upsertIndex(
+        PaperDiskIndexEntry(id: 'abcd1234', title: 'Paper A', updatedAt: '2026-10-16T00:00:00Z'),
+        caller: 'test',
+      );
+      expect(await store.hasSession('abcd1234'), isTrue);
+      expect((await store.loadSessionJson('abcd1234'))?['title'], 'Paper A');
+      expect((await store.listIndex()).map((e) => e.id), ['abcd1234']);
+      expect(await store.listChildDirNames(), ['abcd1234']);
+
+      final fs = debugBrowserDisk! as MemoryDiskFs;
+      expect(fs.files.keys.where((k) => k.endsWith('.part')), isEmpty);
+
+      final other = PaperDiskStore()..bindUid('u2');
+      expect(await other.listIndex(), isEmpty);
+
+      await store.purge('abcd1234');
+      expect(await store.hasSession('abcd1234'), isFalse);
+      expect(await store.listIndex(), isEmpty);
+    });
+
+    test('the web takes a copy without the ACK, and keeps it after the phone wipes the server',
+        () async {
+      final server = _HandoffServer();
+      final sessions = MemorySessionStore();
+      await sessions.writeToken('tok');
+      final library = LibraryController(
+        client: server.client(sessions),
+        draftStore: MemoryUploadDraftStore(),
+      )..bindFigureDiskUid('u1');
+
+      await library.refresh();
+      for (var i = 0; i < 50; i++) {
+        if (await library.paperDiskStore.hasSession('abcd1234')) break;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(await library.paperDiskStore.hasSession('abcd1234'), isTrue);
+      expect(server.acks, 0, reason: 'an ACK would wipe the paper before the phone pulls it');
+
+      server.wipe = true;
+      await library.refresh();
+      expect(library.error, isNull);
+      expect(library.papers.map((p) => p.id), ['abcd1234']);
+
+      final opened = await library.open(library.papers.first);
+      expect(library.error, isNull);
+      expect(opened?.sentenceCount, 2);
+      expect(server.opens, 0, reason: 'a stored paper opens from browser storage');
+    });
   });
 }

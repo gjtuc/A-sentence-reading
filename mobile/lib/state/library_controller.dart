@@ -59,6 +59,7 @@ import '../services/evidence_bus.dart';
 import '../services/notify_complete_gate_evidence.dart';
 import '../services/documents_mirror_store.dart';
 import 'library_block_move.dart';
+import '../services/local_disk.dart';
 import '../services/paper_residue.dart';
 import '../services/figure_disk_cache.dart';
 import '../services/paper_disk_store.dart';
@@ -2078,13 +2079,18 @@ class LibraryController extends ChangeNotifier {
         );
         return false;
       }
-      final ack = await _client.postHandoffAck(
-        cid,
-        contentHash: contentHash,
-        artifactGen: artifactGen,
-        fileCount: okN,
-        jobId: jobId,
-      );
+      // design/409 - a browser copy does not own the paper. The ACK wipes the
+      // server copy, and the phone could then never pull it.
+      final copyOnly = !localDiskAvailable;
+      final ack = copyOnly
+          ? const <String, dynamic>{'ok': true, 'wiped': false}
+          : await _client.postHandoffAck(
+              cid,
+              contentHash: contentHash,
+              artifactGen: artifactGen,
+              fileCount: okN,
+              jobId: jobId,
+            );
       if (ack['ok'] != true) {
         final has = await _paperDisk.hasSession(cid);
         _emitPaperHandoffDone(
@@ -2157,12 +2163,12 @@ class LibraryController extends ChangeNotifier {
       _emitPaperHandoffDone(
         cacheId: cid,
         ok: true,
-        stage: wiped ? 'wiped' : 'acked',
+        stage: copyOnly ? 'copied' : (wiped ? 'wiped' : 'acked'),
         failCode: 'ok',
         filesOkN: okN,
         filesWantN: filesWant,
         hasSession: has,
-        ackOk: true,
+        ackOk: !copyOnly,
         wiped: wiped,
         jobId: jobId,
         contentHash: contentHash,

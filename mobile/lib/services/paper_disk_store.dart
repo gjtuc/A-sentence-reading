@@ -16,6 +16,7 @@ import '../api/paper_models.dart';
 import '../api/reading_models.dart';
 import '../pdf/normalize_pairing_key.dart';
 import 'evidence_bus.dart';
+import 'disk_fs.dart';
 import 'figure_disk_cache.dart';
 import 'local_disk.dart';
 
@@ -539,11 +540,11 @@ class PaperDiskStore {
   }
 
   Future<List<String>> listChildDirNames() async {
-    final root = await uidRoot();
+    final root = await _root();
     if (root == null || !await root.exists()) return const [];
     final out = <String>[];
     await for (final e in root.list(followLinks: false)) {
-      if (e is Directory) out.add(p.basename(e.path));
+      if (e is DiskDir) out.add(p.basename(e.path));
     }
     return out;
   }
@@ -555,43 +556,64 @@ class PaperDiskStore {
     return Directory(p.join(root.path, cid));
   }
 
-  Future<File?> _indexFile() async {
-    final root = await uidRoot();
+  /// design/409 - the store's own folder: the app folder on a phone, browser
+  /// storage on the web. [uidRoot] and [paperDir] stay app-folder only, because
+  /// the Android mirror, the residue sweep and the native PDF renderer need
+  /// real paths.
+  Future<DiskDir?> _root() async {
+    if (!isBound) return null;
+    if (localDiskAvailable) {
+      final docs = await _docsRoot();
+      return DiskDir(p.join(docs.path, kPaperDiskStoreDirName, 'u', _uid));
+    }
+    if (!browserDiskAvailable) return null;
+    return DiskDir('/$kPaperDiskStoreDirName/u/$_uid');
+  }
+
+  Future<DiskDir?> _dirOf(String cacheId) async {
+    final root = await _root();
+    final cid = figureCacheSafeToken(cacheId, maxLen: 32);
+    if (root == null || cid.isEmpty) return null;
+    return DiskDir(p.join(root.path, cid));
+  }
+
+  Future<DiskFile?> _indexFile() async {
+    final root = await _root();
     if (root == null) return null;
-    return File(p.join(root.path, 'index.json'));
+    return DiskFile(p.join(root.path, 'index.json'));
   }
 
-  Future<File?> _sessionFile(String cacheId) async {
-    final dir = await paperDir(cacheId);
+  Future<DiskFile?> _sessionFile(String cacheId) async {
+    final dir = await _dirOf(cacheId);
     if (dir == null) return null;
-    return File(p.join(dir.path, 'session.json'));
+    return DiskFile(p.join(dir.path, 'session.json'));
   }
 
-  Future<File?> _manifestFile(String cacheId) async {
-    final dir = await paperDir(cacheId);
+  Future<DiskFile?> _manifestFile(String cacheId) async {
+    final dir = await _dirOf(cacheId);
     if (dir == null) return null;
-    return File(p.join(dir.path, 'manifest.json'));
+    return DiskFile(p.join(dir.path, 'manifest.json'));
   }
 
-  Future<Directory?> _figuresDir(String cacheId) async {
-    final dir = await paperDir(cacheId);
+  Future<DiskDir?> _figuresDir(String cacheId) async {
+    final dir = await _dirOf(cacheId);
     if (dir == null) return null;
-    return Directory(p.join(dir.path, 'figures'));
+    return DiskDir(p.join(dir.path, 'figures'));
   }
 
-  Future<File?> _figureFile(String cacheId, String figureId) async {
+  Future<DiskFile?> _figureFile(String cacheId, String figureId) async {
     final dir = await _figuresDir(cacheId);
     final fid = figureCacheSafeToken(figureId, maxLen: 64);
     if (dir == null || fid.isEmpty) return null;
-    return File(p.join(dir.path, '$fid.png'));
+    return DiskFile(p.join(dir.path, '$fid.png'));
   }
 
-  Future<void> _atomicWriteBytes(File dest, List<int> bytes) async {
+  Future<void> _atomicWriteBytes(DiskFile dest, List<int> bytes) async {
     final parent = dest.parent;
     if (!await parent.exists()) {
       await parent.create(recursive: true);
     }
-    final tmp = File('${dest.path}.part');
+    final tmp = DiskFile('${dest.path}.part');
     await tmp.writeAsBytes(bytes, flush: true);
     if (await dest.exists()) {
       await dest.delete();
@@ -599,7 +621,7 @@ class PaperDiskStore {
     await tmp.rename(dest.path);
   }
 
-  Future<void> _atomicWriteString(File dest, String text) async {
+  Future<void> _atomicWriteString(DiskFile dest, String text) async {
     await _atomicWriteBytes(dest, utf8.encode(text));
   }
 
@@ -673,7 +695,7 @@ class PaperDiskStore {
   }) async {
     if (!isBound || !entry.isValid) return;
     final f = await _indexFile();
-    final root = await uidRoot();
+    final root = await _root();
     if (f == null || root == null) return;
     if (!await root.exists()) {
       await root.create(recursive: true);
@@ -847,9 +869,9 @@ class PaperDiskStore {
   }
 
   Future<Map<String, dynamic>?> _loadJsonRel(String cacheId, String rel) async {
-    final dir = await paperDir(cacheId);
+    final dir = await _dirOf(cacheId);
     if (dir == null) return null;
-    final f = File(p.join(dir.path, rel));
+    final f = DiskFile(p.join(dir.path, rel));
     if (!await f.exists()) return null;
     try {
       final raw = jsonDecode(await f.readAsString());
@@ -879,10 +901,10 @@ class PaperDiskStore {
   }
 
   Future<bool> hasLocalSource(String cacheId) async {
-    final dir = await paperDir(cacheId);
+    final dir = await _dirOf(cacheId);
     if (dir == null) return false;
     for (final name in const ['source.pdf', 'source.docx']) {
-      if (await File(p.join(dir.path, name)).exists()) return true;
+      if (await DiskFile(p.join(dir.path, name)).exists()) return true;
     }
     return false;
   }
@@ -890,10 +912,10 @@ class PaperDiskStore {
   Future<({Uint8List bytes, String filename})?> readSourceBytes(
     String cacheId,
   ) async {
-    final dir = await paperDir(cacheId);
+    final dir = await _dirOf(cacheId);
     if (dir == null) return null;
     for (final name in const ['source.pdf', 'source.docx']) {
-      final f = File(p.join(dir.path, name));
+      final f = DiskFile(p.join(dir.path, name));
       if (!await f.exists()) continue;
       try {
         final bytes = await f.readAsBytes();
@@ -906,10 +928,10 @@ class PaperDiskStore {
 
   Future<Uint8List?> readPagePreviewBytes(String cacheId, int pageIndex) async {
     if (pageIndex < 0) return null;
-    final dir = await paperDir(cacheId);
+    final dir = await _dirOf(cacheId);
     if (dir == null) return null;
     // design/197 — `_wb` = white-bg native render (transparent PdfRenderer cache bust).
-    final f = File(p.join(dir.path, 'page_previews', 'p${pageIndex}_wb.png'));
+    final f = DiskFile(p.join(dir.path, 'page_previews', 'p${pageIndex}_wb.png'));
     if (!await f.exists()) return null;
     try {
       final bytes = await f.readAsBytes();
@@ -932,7 +954,7 @@ class PaperDiskStore {
   }) async {
     if (!isBound) return false;
     final f = await _sessionFile(cacheId);
-    final dir = await paperDir(cacheId);
+    final dir = await _dirOf(cacheId);
     if (f == null || dir == null) return false;
     final encoded = utf8.encode(jsonEncode(session));
     if (encoded.isEmpty || encoded.length > maxSessionBytes) return false;
@@ -997,9 +1019,9 @@ class PaperDiskStore {
     if (bytes.isEmpty || bytes.length > maxSourceBytes) return false;
     final ext = suffix.startsWith('.') ? suffix.toLowerCase() : '.$suffix';
     if (ext != '.pdf' && ext != '.docx') return false;
-    final dir = await paperDir(cacheId);
+    final dir = await _dirOf(cacheId);
     if (dir == null) return false;
-    final f = File(p.join(dir.path, 'source$ext'));
+    final f = DiskFile(p.join(dir.path, 'source$ext'));
     try {
       await _atomicWriteBytes(f, bytes);
       await _touchManifestFile(
@@ -1058,7 +1080,7 @@ class PaperDiskStore {
   }
 
   Future<void> purge(String cacheId) async {
-    final dir = await paperDir(cacheId);
+    final dir = await _dirOf(cacheId);
     if (dir != null && await dir.exists()) {
       try {
         await dir.delete(recursive: true);
@@ -1111,9 +1133,9 @@ class PaperDiskStore {
       );
     }
     if (rel == 'layout_map.json' || rel == 'slot_plan.json') {
-      final dir = await paperDir(cacheId);
+      final dir = await _dirOf(cacheId);
       if (dir == null) return false;
-      final f = File(p.join(dir.path, rel));
+      final f = DiskFile(p.join(dir.path, rel));
       try {
         await _atomicWriteBytes(f, bytes);
         await _touchManifestFile(
@@ -1128,9 +1150,9 @@ class PaperDiskStore {
       }
     }
     if (rel.startsWith('page_previews/') && rel.endsWith('.png')) {
-      final dir = await paperDir(cacheId);
+      final dir = await _dirOf(cacheId);
       if (dir == null) return false;
-      final f = File(p.join(dir.path, rel));
+      final f = DiskFile(p.join(dir.path, rel));
       try {
         await _atomicWriteBytes(f, bytes);
         await _touchManifestFile(
@@ -1156,9 +1178,9 @@ class PaperDiskStore {
     final want = expectedSha256.trim().toLowerCase();
     if (want.isEmpty) return false;
     final rel = relPath.trim().replaceAll('\\', '/');
-    final dir = await paperDir(cacheId);
+    final dir = await _dirOf(cacheId);
     if (dir == null) return false;
-    final f = File(p.join(dir.path, rel));
+    final f = DiskFile(p.join(dir.path, rel));
     if (!await f.exists()) return false;
     try {
       final bytes = await f.readAsBytes();
@@ -1231,14 +1253,14 @@ class PaperDiskStore {
     Map<String, Uint8List>? extraFiles,
   }) async {
     final out = <String, Uint8List>{};
-    final dir = await paperDir(cacheId);
+    final dir = await _dirOf(cacheId);
     if (dir == null || !await dir.exists()) {
       if (extraFiles != null) out.addAll(extraFiles);
       return out;
     }
 
     Future<void> maybeAdd(String rel) async {
-      final f = File(p.join(dir.path, rel));
+      final f = DiskFile(p.join(dir.path, rel));
       if (!await f.exists()) return;
       try {
         final bytes = await f.readAsBytes();
@@ -1252,10 +1274,10 @@ class PaperDiskStore {
     await maybeAdd('slot_plan.json');
     await maybeAdd('source.pdf');
     await maybeAdd('source.docx');
-    final previews = Directory(p.join(dir.path, 'page_previews'));
+    final previews = DiskDir(p.join(dir.path, 'page_previews'));
     if (await previews.exists()) {
       await for (final ent in previews.list(followLinks: false)) {
-        if (ent is! File) continue;
+        if (ent is! DiskFile) continue;
         final name = p.basename(ent.path);
         if (!name.endsWith('.png')) continue;
         try {
@@ -1265,10 +1287,10 @@ class PaperDiskStore {
         } catch (_) {}
       }
     }
-    final figs = Directory(p.join(dir.path, 'figures'));
+    final figs = DiskDir(p.join(dir.path, 'figures'));
     if (await figs.exists()) {
       await for (final ent in figs.list(followLinks: false)) {
-        if (ent is! File) continue;
+        if (ent is! DiskFile) continue;
         final name = p.basename(ent.path);
         if (!name.endsWith('.png')) continue;
         try {
