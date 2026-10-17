@@ -290,6 +290,7 @@ void main() {
   });
   relayMain();
   extrasMain();
+  progressMain();
 }
 
 class _RelayServer {
@@ -492,5 +493,25 @@ void extrasMain() {
         isTrue,
       );
     });
+  });
+}
+
+void progressMain() {
+  test('practice file bytes show in progress apart from paper bytes', () async {
+    final (pa, pb) = _pair();
+    final phone = _Mem()..add('both', _paper(10, 2));
+    phone.extras['both'] = {'a.bin': _bytes(300 * 1024 + 5, 1), 'b.bin': _bytes(70, 2)};
+    final web = _Mem()..add('both', _paper(10, 2));
+    final seenWeb = <NearSyncProgress>[];
+    NearSyncProgress? lastPhone;
+    await Future.wait([
+      NearSync(pa, phone, onProgress: (p) => lastPhone = p).run(),
+      NearSync(pb, web, onProgress: seenWeb.add).run(),
+    ]);
+    const total = 300 * 1024 + 5 + 70;
+    expect(lastPhone!.extraBytesOut, total);
+    expect(lastPhone!.bytesOut, total);
+    expect(seenWeb.last.extraBytesIn, total);
+    expect(seenWeb.last.bytesIn, total);
   });
 }

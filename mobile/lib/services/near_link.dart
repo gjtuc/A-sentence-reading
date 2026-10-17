@@ -193,6 +193,8 @@ class NearLink extends ChangeNotifier {
         'progress_rows': r?.progressRows ?? 0,
         'bytes_in': progress.bytesIn,
         'bytes_out': progress.bytesOut,
+        'extra_bytes_in': progress.extraBytesIn,
+        'extra_bytes_out': progress.extraBytesOut,
         'ms': ms,
         'open_ms': _openMs,
         'extras_in': r?.extrasIn ?? 0,

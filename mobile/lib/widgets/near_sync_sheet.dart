@@ -124,9 +124,15 @@ class _NearSyncDialog extends StatelessWidget {
             '(바로 연결되지 않으면 10초 뒤 서버를 거쳐 옮깁니다)';
       case NearStep.syncing:
         final how = link.via == 'relay' ? '서버를 거쳐 옮기는 중' : '직접 연결로 옮기는 중';
-        return '$how\n'
-            '논문 받는 중 ${p.gotIn}/${p.wantIn} (${_mb(p.bytesIn)}MB)\n'
-            '논문 보내는 중 ${p.sentOut}/${p.wantOut} (${_mb(p.bytesOut)}MB)';
+        return [
+          how,
+          '논문 받는 중 ${p.gotIn}/${p.wantIn} (${_mb(p.bytesIn - p.extraBytesIn)}MB)',
+          '논문 보내는 중 ${p.sentOut}/${p.wantOut} (${_mb(p.bytesOut - p.extraBytesOut)}MB)',
+          if (p.extraBytesIn > 0) '연습 녹음·기록 받는 중 (${_mb(p.extraBytesIn)}MB)',
+          if (p.extraBytesOut > 0) '연습 녹음·기록 보내는 중 (${_mb(p.extraBytesOut)}MB)',
+          if (p.extraBytesIn > 0 || p.extraBytesOut > 0)
+            '(처음 한 번은 연습 녹음을 모두 옮겨서 오래 걸립니다. 다음부터는 새것만 옮깁니다)',
+        ].join('\n');
       case NearStep.done:
         final r = link.report;
         if (r == null) return '끝났습니다.';
@@ -134,7 +140,9 @@ class _NearSyncDialog extends StatelessWidget {
           '끝났습니다.',
           '받은 논문 ${r.papersIn}개, 보낸 논문 ${r.papersOut}개',
           '읽던 위치 ${r.progressRows}개 맞춤',
-          if (r.extrasIn > 0) '연습 녹음·기록 ${r.extrasIn}개 받음',
+          if (r.extrasIn > 0)
+            '연습 녹음·기록 ${r.extrasIn}개 받음 (${_mb(p.extraBytesIn)}MB)',
+          if (p.extraBytesOut > 0) '연습 녹음·기록 보냄 (${_mb(p.extraBytesOut)}MB)',
           if (r.failed.isNotEmpty) '받지 못한 논문 ${r.failed.length}개',
         ];
         return lines.join('\n');

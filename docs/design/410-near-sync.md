@@ -93,6 +93,20 @@ records `open_ms`, the selected candidate pair (`local_kind`, `remote_kind`, `pr
 channel), `room_ms` (waiting for acks), `store_ms` and `sync_ms`. A large `room_ms`
 points at the ack window, a large `send_ms` at the channel or the network.
 
+0.3.447 run (phone on mobile data, PC on the office network, `srflx`/`srflx` over UDP,
+RTT 31-64 ms): no papers moved, but the first practice-file pass sent 368 files.
+`room_ms` was 495 s of a 527 s run, `send_ms` 2 s, web `store_ms` 35 s. The web acks
+every 256 KB as bytes arrive, so `room_ms` here is the time the bytes spend in the
+channel, not a late ack: native `send` only fills the channel buffer. A 2 MB window at
+64 ms RTT allows far more than the ~130 KB/s seen in both runs, so the path itself is
+the limit, not the window. Voices the other side holds are skipped, so later runs move
+only new voices and the two small JSON files per paper.
+
+The dialog used to show only paper counts, so a practice-file pass looked frozen at
+"0/0 (0.0MB)". `NearSyncProgress.extraBytesIn/Out` now count user-file bytes (reported
+at most every 250 ms), the dialog shows them on their own line, and `near_sync_done`
+records `extra_bytes_in` / `extra_bytes_out`.
+
 ## Known limits
 
 - A relayed paper passes through the server for a few seconds (HTTPS, deleted once read).

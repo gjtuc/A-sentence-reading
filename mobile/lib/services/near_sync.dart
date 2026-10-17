@@ -81,14 +81,22 @@ class NearSyncProgress {
     this.sentOut = 0,
     this.bytesIn = 0,
     this.bytesOut = 0,
+    this.extraBytesIn = 0,
+    this.extraBytesOut = 0,
   });
 
   final int wantIn;
   final int gotIn;
   final int wantOut;
   final int sentOut;
+
+  /// All bytes moved, papers and user files together.
   final int bytesIn;
   final int bytesOut;
+
+  /// The part of [bytesIn] / [bytesOut] that is user files (`extra`).
+  final int extraBytesIn;
+  final int extraBytesOut;
 }
 
 class NearSyncReport {
@@ -189,6 +197,9 @@ class NearSync {
   var _missingOut = 0;
   var _bytesIn = 0;
   var _bytesOut = 0;
+  var _extraBytesIn = 0;
+  var _extraBytesOut = 0;
+  final _reportWatch = Stopwatch();
   var _ackedOut = 0;
   var _ackedIn = 0;
   var _progressRows = 0;
@@ -247,7 +258,18 @@ class NearSync {
       sentOut: _sentOut,
       bytesIn: _bytesIn,
       bytesOut: _bytesOut,
+      extraBytesIn: _extraBytesIn,
+      extraBytesOut: _extraBytesOut,
     ));
+    _reportWatch
+      ..reset()
+      ..start();
+  }
+
+  /// [_report] at most every 250 ms while bytes stream.
+  void _reportSoon() {
+    if (_reportWatch.isRunning && _reportWatch.elapsedMilliseconds < 250) return;
+    _report();
   }
 
   Future<void> _send(Map<String, Object?> message) =>
@@ -373,6 +395,8 @@ class NearSync {
     final size = inc.sizes[inc.index];
     if (have > size) throw const NearSyncError('file_overrun');
     _bytesIn += data.length;
+    if (inc.extra) _extraBytesIn += data.length;
+    _reportSoon();
     if (have == size) {
       inc.files[inc.rels[inc.index]] = inc.buffer.takeBytes();
       inc.buffer = BytesBuilder(copy: false);
@@ -489,9 +513,10 @@ class NearSync {
             for (final e in entries) {'rel': e.key, 'size': e.value.length},
           ],
         });
-        await _sendFiles(entries);
+        await _sendFiles(entries, extra: true);
         _extrasOut += 1;
       }
+      _report();
       await _send({'t': 'sent'});
     } on NearSyncError catch (e) {
       _fail(e.code);
@@ -500,7 +525,10 @@ class NearSync {
     }
   }
 
-  Future<void> _sendFiles(List<MapEntry<String, Uint8List>> entries) async {
+  Future<void> _sendFiles(
+    List<MapEntry<String, Uint8List>> entries, {
+    bool extra = false,
+  }) async {
     for (final e in entries) {
       final bytes = e.value;
       for (var at = 0; at < bytes.length; at += kNearChunk) {
@@ -511,6 +539,8 @@ class NearSync {
         await pipe.send(nearBytesFrame(bytes, at, end));
         _sendWatch.stop();
         _bytesOut += end - at;
+        if (extra) _extraBytesOut += end - at;
+        _reportSoon();
       }
     }
   }
@@ -529,6 +559,7 @@ class NearSync {
 
   void _maybeDone() {
     if (!_finSent || !_peerFin || _done.isCompleted) return;
+    _report();
     _done.complete(NearSyncReport(
       papersIn: _gotIn - _failed.length,
       papersOut: _sentOut - _missingOut,
