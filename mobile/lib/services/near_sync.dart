@@ -3,7 +3,9 @@
 /// Both sides run the same steps:
 ///   1. send `inv` (papers held + reading spots),
 ///   2. ask with `want` for the papers the other side lacks,
-///   3. send the asked papers (`paper` header, then byte frames), then `sent`,
+///   3. send the asked papers (`paper` header, then byte frames), then for every
+///      paper both sides will hold the user files the other lacks (`extra`, same
+///      framing: shadowing takes, chunk plan, voice), then `sent`,
 ///   4. after storing everything received, send `fin`.
 /// Done when both `fin` are exchanged. Nothing is ever deleted.
 ///
@@ -52,6 +54,15 @@ abstract class NearLocal {
   Future<bool> store(NearPaper paper, Map<String, Uint8List> files);
   Future<Map<String, Map<String, dynamic>>> progress();
   Future<int> mergeProgress(Map<String, Map<String, dynamic>> rows);
+
+  /// Per paper id, the names of user files held (e.g. voice files).
+  Future<Map<String, List<String>>> extraNames();
+
+  /// User files of one paper, leaving out the names the other side holds.
+  Future<Map<String, Uint8List>> extraPack(String id, Set<String> skipNames);
+
+  /// Fold the other side's user files of one paper in; returns files changed.
+  Future<int> mergeExtra(String id, Map<String, Uint8List> files);
 }
 
 class NearSyncError implements Exception {
@@ -86,12 +97,23 @@ class NearSyncReport {
     required this.papersOut,
     required this.progressRows,
     required this.failed,
+    this.extrasIn = 0,
+    this.extrasOut = 0,
+    this.times = const {},
   });
 
   final int papersIn;
   final int papersOut;
   final int progressRows;
   final List<String> failed;
+
+  /// User files changed here / papers whose user files were sent.
+  final int extrasIn;
+  final int extrasOut;
+
+  /// Milliseconds spent: `pack_ms`, `send_ms` (awaiting the pipe), `room_ms`
+  /// (waiting for acks), `store_ms`, `sync_ms` (whole run).
+  final Map<String, int> times;
 }
 
 Uint8List nearJsonFrame(Map<String, Object?> message) {
@@ -116,9 +138,10 @@ bool nearSafeRel(String rel) {
 }
 
 class _Incoming {
-  _Incoming(this.paper, this.rels, this.sizes);
+  _Incoming(this.paper, this.rels, this.sizes, {this.extra = false});
 
   final NearPaper paper;
+  final bool extra;
   final List<String> rels;
   final List<int> sizes;
   final Map<String, Uint8List> files = {};
@@ -150,6 +173,15 @@ class NearSync {
   Completer<void>? _room;
 
   Set<String> _mine = {};
+  final _peerIds = <String>{};
+  final _peerExtras = <String, Set<String>>{};
+  var _extrasIn = 0;
+  var _extrasOut = 0;
+  final _clock = Stopwatch();
+  final _packWatch = Stopwatch();
+  final _sendWatch = Stopwatch();
+  final _roomWatch = Stopwatch();
+  final _storeWatch = Stopwatch();
   var _wantIn = 0;
   var _gotIn = 0;
   var _wantOut = 0;
@@ -167,6 +199,7 @@ class NearSync {
   var _peerFin = false;
 
   Future<NearSyncReport> run() async {
+    _clock.start();
     _sub = pipe.frames.listen(
       _onFrame,
       onError: (Object _) => _fail('pipe_error'),
@@ -177,10 +210,12 @@ class NearSync {
       final papers = await local.papers();
       _mine = {for (final p in papers) p.id};
       final rows = await local.progress();
+      final extras = await local.extraNames();
       await _send({
         't': 'inv',
         'papers': [for (final p in papers) p.toJson()],
         'progress': rows,
+        'extras': extras,
       });
     } catch (e) {
       _fail('inv_failed');
@@ -250,6 +285,8 @@ class NearSync {
         unawaited(_sendPapers(ids));
       case 'paper':
         _onPaperHeader(m);
+      case 'extra':
+        _onPaperHeader(m, extra: true);
       case 'ack':
         final n = m['n'];
         if (n is int && n > _ackedOut) _ackedOut = n;
@@ -275,6 +312,14 @@ class NearSync {
       for (final p in theirs)
         if (p.id.isNotEmpty && !_mine.contains(p.id)) p.id,
     ];
+    _peerIds.addAll([for (final p in theirs) p.id]);
+    if (m['extras'] is Map) {
+      for (final e in (m['extras'] as Map).entries) {
+        if (e.value is List) {
+          _peerExtras['${e.key}'] = {for (final v in e.value as List) '$v'};
+        }
+      }
+    }
     _wantIn = want.length;
     final rows = <String, Map<String, dynamic>>{};
     if (m['progress'] is Map) {
@@ -293,7 +338,7 @@ class NearSync {
     }));
   }
 
-  void _onPaperHeader(Map<String, dynamic> m) {
+  void _onPaperHeader(Map<String, dynamic> m, {bool extra = false}) {
     if (_incoming != null) throw const NearSyncError('paper_overlap');
     final paper = NearPaper.fromJson(m);
     if (paper.id.isEmpty) throw const NearSyncError('bad_paper');
@@ -315,7 +360,7 @@ class NearSync {
       rels.add(rel);
       sizes.add(size);
     }
-    final inc = _Incoming(paper, rels, sizes)..skipEmpty();
+    final inc = _Incoming(paper, rels, sizes, extra: extra)..skipEmpty();
     _incoming = inc;
     if (inc.complete) _finishPaper();
   }
@@ -353,15 +398,26 @@ class NearSync {
     _incoming = null;
     _ack();
     _storeTurn = _storeTurn.then((_) async {
-      var ok = false;
+      _storeWatch.start();
       try {
-        ok = await local.store(inc.paper, inc.files);
-      } catch (_) {
-        ok = false;
+        if (inc.extra) {
+          try {
+            _extrasIn += await local.mergeExtra(inc.paper.id, inc.files);
+          } catch (_) {}
+          return;
+        }
+        var ok = false;
+        try {
+          ok = await local.store(inc.paper, inc.files);
+        } catch (_) {
+          ok = false;
+        }
+        if (!ok) _failed.add(inc.paper.id);
+        _gotIn += 1;
+        _report();
+      } finally {
+        _storeWatch.stop();
       }
-      if (!ok) _failed.add(inc.paper.id);
-      _gotIn += 1;
-      _report();
     });
   }
 
@@ -374,10 +430,12 @@ class NearSync {
   }
 
   Future<void> _waitRoom() async {
+    if (_bytesOut - _ackedOut > kNearWindow) _roomWatch.start();
     while (!_done.isCompleted && _bytesOut - _ackedOut > kNearWindow) {
       _room ??= Completer<void>();
       await _room!.future;
     }
+    _roomWatch.stop();
     if (_done.isCompleted) throw const NearSyncError('stopped');
   }
 
@@ -386,9 +444,11 @@ class NearSync {
     _report();
     try {
       for (final id in ids) {
+        _packWatch.start();
         final files = _mine.contains(id)
             ? await local.pack(id)
             : const <String, Uint8List>{};
+        _packWatch.stop();
         final entries = files.entries
             .where((e) => nearSafeRel(e.key))
             .toList(growable: false);
@@ -408,26 +468,50 @@ class NearSync {
               for (final e in entries) {'rel': e.key, 'size': e.value.length},
             ],
           });
-          for (final e in entries) {
-            final bytes = e.value;
-            for (var at = 0; at < bytes.length; at += kNearChunk) {
-              await _waitRoom();
-              final end = (at + kNearChunk < bytes.length)
-                  ? at + kNearChunk
-                  : bytes.length;
-              await pipe.send(nearBytesFrame(bytes, at, end));
-              _bytesOut += end - at;
-            }
-          }
+          await _sendFiles(entries);
         }
         _sentOut += 1;
         _report();
+      }
+      final together = {..._mine.intersection(_peerIds), ...ids.where(_mine.contains)};
+      for (final id in together.toList()..sort()) {
+        _packWatch.start();
+        final files = await local.extraPack(id, _peerExtras[id] ?? const {});
+        _packWatch.stop();
+        final entries = files.entries
+            .where((e) => nearSafeRel(e.key))
+            .toList(growable: false);
+        if (entries.isEmpty) continue;
+        await _send({
+          't': 'extra',
+          'id': id,
+          'files': [
+            for (final e in entries) {'rel': e.key, 'size': e.value.length},
+          ],
+        });
+        await _sendFiles(entries);
+        _extrasOut += 1;
       }
       await _send({'t': 'sent'});
     } on NearSyncError catch (e) {
       _fail(e.code);
     } catch (_) {
       _fail('send_failed');
+    }
+  }
+
+  Future<void> _sendFiles(List<MapEntry<String, Uint8List>> entries) async {
+    for (final e in entries) {
+      final bytes = e.value;
+      for (var at = 0; at < bytes.length; at += kNearChunk) {
+        await _waitRoom();
+        final end =
+            (at + kNearChunk < bytes.length) ? at + kNearChunk : bytes.length;
+        _sendWatch.start();
+        await pipe.send(nearBytesFrame(bytes, at, end));
+        _sendWatch.stop();
+        _bytesOut += end - at;
+      }
     }
   }
 
@@ -450,6 +534,15 @@ class NearSync {
       papersOut: _sentOut - _missingOut,
       progressRows: _progressRows,
       failed: List.unmodifiable(_failed),
+      extrasIn: _extrasIn,
+      extrasOut: _extrasOut,
+      times: {
+        'pack_ms': _packWatch.elapsedMilliseconds,
+        'send_ms': _sendWatch.elapsedMilliseconds,
+        'room_ms': _roomWatch.elapsedMilliseconds,
+        'store_ms': _storeWatch.elapsedMilliseconds,
+        'sync_ms': _clock.elapsedMilliseconds,
+      },
     ));
   }
 }

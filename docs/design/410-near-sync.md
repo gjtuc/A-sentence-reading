@@ -69,13 +69,38 @@ ones.
   dialog shows it in plain Korean, and `near_sync_done` records the side, codes, counts,
   bytes and time.
 
+## Practice files (step 2b, 0.3.447)
+
+Bookmarks, annotations, notes and the practice calendar and skill stores already
+sync per account through the server (`/api/bookmarks/sync`, `/api/annotations/sync`,
+`/api/notes/sync`, `/api/practice/*/sync`). Only shadowing lives on the device alone:
+`chunks.json`, `takes.json` and `voice/*.bin` per paper (design/187).
+
+- `ShadowingDiskStore` now reads and writes through `disk_fs` like the paper store:
+  the app folder on a phone, `/asr_shadowing/u/<uid>` in browser storage on the web.
+- `inv` carries `extras`: per paper, the voice file names held. After the papers, each
+  side sends an `extra` item for every paper both will hold, with the chunk plan, the
+  takes and only the voice files the other side lacks.
+- `mergePackFiles` never replaces: a voice file is written only when missing, the chunk
+  plan only when there is none, and a take slot only when it is empty here
+  (`mergeShadowingTakes`).
+
+## Speed evidence
+
+The first live run moved 58 MB directly in about 7 minutes. `near_sync_done` now also
+records `open_ms`, the selected candidate pair (`local_kind`, `remote_kind`, `proto`,
+`rtt_ms`) and where the time went: `pack_ms` (reading files), `send_ms` (awaiting the
+channel), `room_ms` (waiting for acks), `store_ms` and `sync_ms`. A large `room_ms`
+points at the ack window, a large `send_ms` at the channel or the network.
+
 ## Known limits
 
 - A relayed paper passes through the server for a few seconds (HTTPS, deleted once read).
 - If a channel opens right at the 10 s boundary, one side may go direct and the other
   relay; that run fails and a retry works.
 - The whole pack of one paper is held in memory while it moves.
-- Practice records, recordings, notes and bookmarks are not synced yet (step 2b).
+- Two different takes in the same slot: the one already held stays.
+- The web holds shadowing files but its shadowing screen is web step 6.
 
 ## Tests
 

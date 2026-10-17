@@ -74,6 +74,9 @@ class NearLink extends ChangeNotifier {
   RTCPeerConnection? _pc;
   RTCDataChannel? _channel;
   void Function()? _endPipe;
+  final _watch = Stopwatch();
+  int _openMs = -1;
+  Map<String, Object> _path = const {};
   String _linkId = '';
   bool _host = false;
   bool _stopped = false;
@@ -153,7 +156,7 @@ class NearLink extends ChangeNotifier {
   }
 
   Future<void> _guard(Future<void> Function() run) async {
-    final watch = Stopwatch()..start();
+    final watch = _watch..start();
     try {
       await run();
       _go(NearStep.done);
@@ -191,6 +194,11 @@ class NearLink extends ChangeNotifier {
         'bytes_in': progress.bytesIn,
         'bytes_out': progress.bytesOut,
         'ms': ms,
+        'open_ms': _openMs,
+        'extras_in': r?.extrasIn ?? 0,
+        'extras_out': r?.extrasOut ?? 0,
+        ...?r?.times,
+        ..._path,
       },
     );
   }
@@ -205,6 +213,46 @@ class NearLink extends ChangeNotifier {
       }
     };
     return pc;
+  }
+
+  /// The selected candidate pair: kinds (host / srflx / prflx / relay), protocol
+  /// and round trip time. Empty when the stats do not say.
+  Future<Map<String, Object>> _pathStats() async {
+    final pc = _pc;
+    if (pc == null) return const {};
+    try {
+      final reports = await pc.getStats();
+      final byId = {for (final r in reports) r.id: r};
+      StatsReport? pair;
+      for (final r in reports) {
+        if (r.type != 'transport') continue;
+        final sel = byId['${r.values['selectedCandidatePairId'] ?? ''}'];
+        if (sel != null) pair = sel;
+      }
+      if (pair == null) {
+        for (final r in reports) {
+          if (r.type == 'candidate-pair' &&
+              r.values['state'] == 'succeeded' &&
+              r.values['nominated'] == true) {
+            pair = r;
+            break;
+          }
+        }
+      }
+      if (pair == null) return const {};
+      final local = byId['${pair.values['localCandidateId'] ?? ''}'];
+      final remote = byId['${pair.values['remoteCandidateId'] ?? ''}'];
+      String word(Object? v) => '${v ?? ''}'.trim().toLowerCase();
+      final rtt = pair.values['currentRoundTripTime'];
+      return {
+        'local_kind': word(local?.values['candidateType']),
+        'remote_kind': word(remote?.values['candidateType']),
+        'proto': word(local?.values['protocol']),
+        'rtt_ms': rtt is num ? (rtt * 1000).round() : -1,
+      };
+    } catch (_) {
+      return const {};
+    }
   }
 
   Future<Map<String, Object?>> _gathered(RTCPeerConnection pc) async {
@@ -260,6 +308,8 @@ class NearLink extends ChangeNotifier {
 
   Future<void> _direct(RTCDataChannel channel) async {
     via = 'direct';
+    _openMs = _watch.elapsedMilliseconds;
+    _path = await _pathStats();
     final pipe = _RtcPipe(channel);
     _endPipe = pipe.end;
     await _sync(pipe);
@@ -267,6 +317,7 @@ class NearLink extends ChangeNotifier {
 
   Future<void> _relay() async {
     via = 'relay';
+    _openMs = _watch.elapsedMilliseconds;
     final pc = _pc;
     final channel = _channel;
     _pc = null;

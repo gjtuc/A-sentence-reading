@@ -11,6 +11,7 @@ import 'package:sentence_reading/services/near_library_local.dart';
 import 'package:sentence_reading/services/near_relay.dart';
 import 'package:sentence_reading/services/near_sync.dart';
 import 'package:sentence_reading/services/paper_disk_store.dart';
+import 'package:sentence_reading/services/shadowing_disk_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _End implements NearPipe {
@@ -78,6 +79,32 @@ class _Mem implements NearLocal {
     packs[paper.id] = files;
     stored += 1;
     return true;
+  }
+
+  final extras = <String, Map<String, Uint8List>>{};
+
+  @override
+  Future<Map<String, List<String>>> extraNames() async => {
+        for (final e in extras.entries) e.key: (e.value.keys.toList()..sort()),
+      };
+
+  @override
+  Future<Map<String, Uint8List>> extraPack(String id, Set<String> skipNames) async => {
+        for (final e in (extras[id] ?? const <String, Uint8List>{}).entries)
+          if (!skipNames.contains(e.key)) 'shadowing/voice/${e.key}': e.value,
+      };
+
+  @override
+  Future<int> mergeExtra(String id, Map<String, Uint8List> files) async {
+    final into = extras.putIfAbsent(id, () => {});
+    var n = 0;
+    for (final e in files.entries) {
+      final name = e.key.substring('shadowing/voice/'.length);
+      if (into.containsKey(name)) continue;
+      into[name] = e.value;
+      n += 1;
+    }
+    return n;
   }
 
   @override
@@ -262,6 +289,7 @@ void main() {
     expect(await webDisk.readFigureBytes('abcd1234', 'f1'), _bytes(3000, 5));
   });
   relayMain();
+  extrasMain();
 }
 
 class _RelayServer {
@@ -344,6 +372,125 @@ void relayMain() {
         throwsA(isA<NearSyncError>()),
       );
       web.close();
+    });
+  });
+}
+
+
+void extrasMain() {
+  group('design/410 practice files', () {
+    test('voices cross both ways for shared and new papers, and held ones are not resent', () async {
+      final (pa, pb) = _pair();
+      final phone = _Mem()..add('p1', _paper(100, 1))..add('both', _paper(10, 2));
+      phone.extras['p1'] = {'a.bin': _bytes(5000, 1)};
+      phone.extras['both'] = {'x.bin': _bytes(300, 2), 'same.bin': _bytes(10, 3)};
+      final web = _Mem()..add('both', _paper(10, 2));
+      web.extras['both'] = {'y.bin': _bytes(200, 4), 'same.bin': _bytes(10, 9)};
+      final results = await Future.wait([
+        NearSync(pa, phone).run(),
+        NearSync(pb, web).run(),
+      ]);
+      expect(web.extras['p1']!.keys, ['a.bin']);
+      expect(web.extras['both']!.keys.toSet(), {'x.bin', 'y.bin', 'same.bin'});
+      expect(web.extras['both']!['same.bin'], _bytes(10, 9));
+      expect(phone.extras['both']!.keys.toSet(), {'x.bin', 'y.bin', 'same.bin'});
+      expect(phone.extras['both']!['same.bin'], _bytes(10, 3));
+      expect(results[1].extrasIn, 2);
+      expect(results[0].extrasIn, 1);
+      expect(results[0].times.keys, containsAll(['pack_ms', 'send_ms', 'room_ms', 'store_ms', 'sync_ms']));
+    });
+
+    test('mergeShadowingTakes fills empty slots and keeps filled ones', () {
+      final mine = {
+        'version': 1,
+        'cache_id': 'c',
+        'sentences': {
+          's1': {
+            'chunks': [
+              {'status': 'done', 'blob_key': 'mine1', 'mime': 'audio/m4a'},
+              {'status': 'empty', 'blob_key': null, 'mime': null},
+            ],
+          },
+        },
+      };
+      final theirs = {
+        'sentences': {
+          's1': {
+            'chunks': [
+              {'status': 'done', 'blob_key': 'their1', 'mime': 'audio/m4a'},
+              {'status': 'done', 'blob_key': 'their2', 'mime': 'audio/m4a'},
+              {'status': 'done', 'blob_key': 'their3', 'mime': 'audio/m4a'},
+            ],
+          },
+          's2': {
+            'chunks': [
+              {'status': 'done', 'blob_key': 'their4', 'mime': 'audio/m4a'},
+            ],
+          },
+        },
+      };
+      final out = mergeShadowingTakes(mine, theirs, cacheId: 'c');
+      final s1 = (out['sentences'] as Map)['s1']['chunks'] as List;
+      expect([for (final c in s1) c['blob_key']], ['mine1', 'their2', 'their3']);
+      expect(((out['sentences'] as Map)['s2']['chunks'] as List).single['blob_key'], 'their4');
+      expect(mergeShadowingTakes(null, theirs, cacheId: 'c')['cache_id'], 'c');
+    });
+
+    test('the web keeps shadowing in browser storage and a merge never replaces', () async {
+      debugNoLocalDisk = true;
+      debugBrowserDisk = MemoryDiskFs();
+      addTearDown(() {
+        debugBrowserDisk = null;
+        debugNoLocalDisk = false;
+      });
+      final store = ShadowingDiskStore()..bindUid('web');
+      expect(await store.uidRoot(), isNull);
+      expect(await store.writeVoiceBytes('abcd1234', 'k1', [1, 2, 3]), isTrue);
+      expect(
+        await store.writeTakesJson('abcd1234', {
+          'version': 1,
+          'cache_id': 'abcd1234',
+          'sentences': {
+            's1': {
+              'chunks': [
+                {'status': 'done', 'blob_key': 'k1', 'mime': 'audio/m4a'},
+              ],
+            },
+          },
+        }),
+        isTrue,
+      );
+      expect(await store.listChildDirNames(), ['abcd1234']);
+      expect(await store.listVoiceNames('abcd1234'), ['k1.bin']);
+      final n = await store.mergePackFiles('abcd1234', {
+        'shadowing/voice/k1.bin': Uint8List.fromList([9, 9]),
+        'shadowing/voice/k2.bin': Uint8List.fromList([7]),
+        'shadowing/voice/../x.bin': Uint8List.fromList([7]),
+        'shadowing/chunks.json': Uint8List.fromList(utf8.encode('{"sentences":[]}')),
+        'shadowing/takes.json': Uint8List.fromList(utf8.encode(jsonEncode({
+          'sentences': {
+            's1': {
+              'chunks': [
+                {'status': 'done', 'blob_key': 'other', 'mime': 'audio/m4a'},
+                {'status': 'done', 'blob_key': 'k2', 'mime': 'audio/m4a'},
+              ],
+            },
+          },
+        }))),
+      });
+      expect(n, 3);
+      expect(await store.listVoiceNames('abcd1234'), ['k1.bin', 'k2.bin']);
+      final pack = await store.listPackFiles('abcd1234');
+      expect(pack['shadowing/voice/k1.bin'], [1, 2, 3]);
+      final takes = await store.loadTakesJson('abcd1234');
+      final chunks = (takes!['sentences'] as Map)['s1']['chunks'] as List;
+      expect([for (final c in chunks) c['blob_key']], ['k1', 'k2']);
+      final fs = debugBrowserDisk! as MemoryDiskFs;
+      expect(fs.files.keys.where((k) => k.endsWith('.part')), isEmpty);
+      expect(
+        fs.files.keys.every((k) => k.replaceAll(r'\', '/').startsWith('/asr_shadowing/u/web/')),
+        isTrue,
+      );
     });
   });
 }

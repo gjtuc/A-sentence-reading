@@ -144,6 +144,7 @@ class LibraryController extends ChangeNotifier {
   /// design/410 — near sync talks to the same server and progress account.
   AsrClient get apiClient => _client;
   Future<String?> progressUid() => _authUid();
+  String? get diskUid => _diskUid;
 
   /// Wire after [TranslateController] exists (app root).
   void attachTranslateEnabled(bool Function() enabled) {

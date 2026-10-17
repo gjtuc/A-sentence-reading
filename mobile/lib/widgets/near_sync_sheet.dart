@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../services/near_library_local.dart';
 import '../services/near_link.dart';
+import '../services/shadowing_disk_store.dart';
 import '../state/library_controller.dart';
 
 String nearSyncTitle() => kIsWeb ? '폰과 동기화' : '웹과 동기화';
@@ -48,7 +49,11 @@ Future<void> showNearSyncSheet({
   if (!context.mounted) return;
   final link = NearLink(
     client: library.apiClient,
-    local: LibraryNearLocal(disk: library.paperDiskStore, uid: uid),
+    local: LibraryNearLocal(
+      disk: library.paperDiskStore,
+      uid: uid,
+      shadow: ShadowingDiskStore()..bindUid(library.diskUid ?? uid),
+    ),
   );
   if (kIsWeb) {
     unawaited(link.host());
@@ -129,6 +134,7 @@ class _NearSyncDialog extends StatelessWidget {
           '끝났습니다.',
           '받은 논문 ${r.papersIn}개, 보낸 논문 ${r.papersOut}개',
           '읽던 위치 ${r.progressRows}개 맞춤',
+          if (r.extrasIn > 0) '연습 녹음·기록 ${r.extrasIn}개 받음',
           if (r.failed.isNotEmpty) '받지 못한 논문 ${r.failed.length}개',
         ];
         return lines.join('\n');

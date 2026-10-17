@@ -6,12 +6,16 @@ import 'dart:typed_data';
 import '../api/progress_store.dart';
 import 'near_sync.dart';
 import 'paper_disk_store.dart';
+import 'shadowing_disk_store.dart';
 
 class LibraryNearLocal implements NearLocal {
-  LibraryNearLocal({required this.disk, required this.uid});
+  LibraryNearLocal({required this.disk, required this.uid, this.shadow});
 
   final PaperDiskStore disk;
   final String? uid;
+
+  /// Shadowing takes, chunk plans and voice files (design/187).
+  final ShadowingDiskStore? shadow;
 
   @override
   Future<List<NearPaper>> papers() async {
@@ -43,4 +47,39 @@ class LibraryNearLocal implements NearLocal {
   @override
   Future<int> mergeProgress(Map<String, Map<String, dynamic>> rows) =>
       mergeProgressRows(uid: uid, incoming: rows);
+
+  @override
+  Future<Map<String, List<String>>> extraNames() async {
+    final s = shadow;
+    if (s == null) return const {};
+    final out = <String, List<String>>{};
+    for (final id in await s.listChildDirNames()) {
+      final names = await s.listVoiceNames(id);
+      if (names.isNotEmpty) out[id] = names;
+    }
+    return out;
+  }
+
+  @override
+  Future<Map<String, Uint8List>> extraPack(
+    String id,
+    Set<String> skipNames,
+  ) async {
+    final s = shadow;
+    if (s == null) return const {};
+    final files = await s.listPackFiles(id);
+    files.removeWhere(
+      (rel, _) =>
+          rel.startsWith('shadowing/voice/') &&
+          skipNames.contains(rel.substring('shadowing/voice/'.length)),
+    );
+    return files;
+  }
+
+  @override
+  Future<int> mergeExtra(String id, Map<String, Uint8List> files) async {
+    final s = shadow;
+    if (s == null) return 0;
+    return s.mergePackFiles(id, files);
+  }
 }

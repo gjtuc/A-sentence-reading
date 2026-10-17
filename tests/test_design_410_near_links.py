@@ -190,3 +190,19 @@ def test_relay_frames_are_dropped_after_sync():
     text = _dart("services/near_link.dart")
     assert "nearRelayWipe(" in text
     assert "kNearDirectLimit" in text
+
+
+def test_shadowing_store_goes_through_disk_fs():
+    text = _dart("services/shadowing_disk_store.dart")
+    body = text[text.index("Future<DiskFile?> _chunkPlanFile("):]
+    assert not __import__("re").search(r"(?<![A-Za-z_])(File|Directory)\(", body)
+    assert "if (!browserDiskAvailable) return null;" in text
+
+
+def test_sync_report_says_where_the_time_went():
+    link = _dart("services/near_link.dart")
+    for key in ("'open_ms'", "'local_kind'", "'remote_kind'", "'rtt_ms'", "...?r?.times"):
+        assert key in link, key
+    sync = _dart("services/near_sync.dart")
+    for key in ("'pack_ms'", "'send_ms'", "'room_ms'", "'store_ms'", "'sync_ms'"):
+        assert key in sync, key
