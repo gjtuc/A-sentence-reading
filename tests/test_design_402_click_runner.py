@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -83,3 +84,13 @@ def test_click_folder_is_separate_and_logs_stay_local():
         raw = p.read_bytes()
         raw.decode("ascii")
         assert b"\r\n" in raw and b"_job.cmd" in raw
+
+
+def test_ship_ok_is_the_result_line_not_the_banner():
+    src = (CLICK / "_run.py").read_text(encoding="utf-8")
+    ship = src[src.index("def job_ship_install") : src.index("def install_apk")]
+    assert '"ship_release OK" in text' not in ship
+    assert 'r"(?m)^design/292: ship_release OK\\s*$"' in ship
+    banner = "  6. APK only after ship_release OK\npre-deploy guard: https://x/api/status\n"
+    assert re.search(r"(?m)^design/292: ship_release OK\s*$", banner) is None
+    assert re.search(r"(?m)^design/292: ship_release OK\s*$", banner + "design/292: ship_release OK\n")

@@ -393,7 +393,8 @@ def job_ship_install(job: Job) -> None:
 
     ps = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
     rc, text = job.run("서버 배포", ps + [r"scripts\ship_cloud_pair.ps1"], step="ship")
-    shipped = "ship_release OK" in text
+    # The ship banner itself says "APK only after ship_release OK"; match the result line only.
+    shipped = re.search(r"(?m)^design/292: ship_release OK\s*$", text) is not None
     job.note("서버 배포: ship_release OK" if shipped else f"서버 배포: ship_release OK 없음 (exit {rc}). 서버 버전만 확인함")
 
     rc, text = job.run(
