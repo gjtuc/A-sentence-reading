@@ -8,6 +8,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding;
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -56,6 +57,7 @@ import '../state/annotation_controller.dart';
 import '../services/app_foreground.dart';
 import '../services/error_reporter.dart';
 import '../services/evidence_bus.dart';
+import '../services/spot_sync.dart';
 import '../services/notify_complete_gate_evidence.dart';
 import '../services/documents_mirror_store.dart';
 import 'library_block_move.dart';
@@ -158,8 +160,118 @@ class LibraryController extends ChangeNotifier {
     _shadowingLocalSot = next;
   }
 
+  /// design/411 — live reading spots with the other devices of this account.
+  /// Started by the home shell so a bare controller (tests) runs no timer.
+  bool _spotWanted = false;
+  SpotSync? _spotSync;
+  Timer? _spotTimer;
+  String? _spotUid;
+  int _spotFollows = 0;
+
+  void startSpotSync() {
+    _spotWanted = true;
+    _bindSpotSync(_diskUid);
+  }
+
+  void stopSpotSync() {
+    _spotWanted = false;
+    _bindSpotSync(null);
+  }
+
+  Future<void> flushSpots() => _spotSync?.flush() ?? Future<void>.value();
+
+  void _bindSpotSync(String? uid) {
+    final want = _spotWanted ? uid : null;
+    if (want == _spotUid && (want == null || _spotSync != null)) return;
+    _spotUid = want;
+    _spotTimer?.cancel();
+    _spotSync?.close();
+    _spotSync = null;
+    if (want == null) return;
+    unawaited(() async {
+      final dev = await spotDeviceId();
+      if (_spotUid != want || _spotSync != null) return;
+      _spotSync = SpotSync(
+        transport: _ClientSpotTransport(_client),
+        deviceId: dev,
+        onRemote: _onRemoteSpot,
+        onFailure: (stage, err) => asrEvidenceBus?.record(
+          'spot_sync_failed',
+          severity: 'error',
+          stage: stage,
+          ok: false,
+          message: '$err'.length > 200 ? '$err'.substring(0, 200) : '$err',
+          details: {'web': kIsWeb ? 1 : 0},
+        ),
+      );
+      _armSpotPoll(Duration.zero);
+    }());
+  }
+
+  void _armSpotPoll(Duration wait) {
+    _spotTimer?.cancel();
+    _spotTimer = Timer(wait, () async {
+      final sync = _spotSync;
+      if (sync == null) return;
+      final life = WidgetsBinding.instance.lifecycleState;
+      if (life == null || life == AppLifecycleState.resumed) {
+        await sync.poll();
+      }
+      if (identical(sync, _spotSync)) {
+        _armSpotPoll(sync.slow ? kSpotSlowPoll : kSpotPoll);
+      }
+    });
+  }
+
+  /// Another device read [cacheId] up to here. Kept apart from this device's row;
+  /// the open paper follows when the spot is newer and fits it.
+  Future<void> _onRemoteSpot(String cacheId, int si, int fi, String at) async {
+    final uid = _spotUid;
+    final kept = await saveRemoteSpot(
+      uid: uid,
+      cacheId: cacheId,
+      spot: (si: si, fi: fi, at: at),
+    );
+    if (!kept) return;
+    final s = session;
+    if (s == null || !s.isValid || s.cacheId.trim() != cacheId.trim()) return;
+    if (_annotations?.blocksReaderNavigation == true) return;
+    final mine = await loadProgressAt(uid: uid, cacheId: cacheId);
+    if (mine.compareTo(at) >= 0) return;
+    final v = validateProgressIndices(
+      sentenceIndex: si,
+      figureIndex: fi,
+      sentenceCount: s.sentenceCount,
+      figureCount: s.figureCount,
+    );
+    if (!v.ok) return;
+    if (v.sentenceIndex == s.sentenceIndex && v.figureIndex == s.figureIndex) {
+      return;
+    }
+    final from = s.sentenceIndex;
+    s.sentenceIndex = v.sentenceIndex!;
+    s.figureIndex = v.figureIndex!;
+    if (from != s.sentenceIndex) {
+      onSentenceIndexChanged?.call(from, s.sentenceIndex);
+    }
+    notifyListeners();
+    if (_spotFollows++ % 20 == 0) {
+      asrEvidenceBus?.record(
+        'spot_follow',
+        severity: 'lifecycle',
+        cacheId: cacheId,
+        stage: 'follow',
+        details: {'web': kIsWeb ? 1 : 0, 'si': s.sentenceIndex, 'fi': s.figureIndex},
+      );
+    }
+    unawaited(_prefetchFigureWindow());
+    await persistOpenedProgress(at: at);
+    await _syncCursor(sentence: true, figure: true);
+  }
+
   void bindFigureDiskUid(String? uid) {
     _diskUid = (uid ?? '').trim().isEmpty ? null : uid!.trim();
+    _bindSpotSync(_diskUid);
     _figureDisk.bindUid(uid);
     _paperDisk.bindUid(uid);
     _shadowDisk.bindUid(uid);
@@ -3973,11 +4085,16 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// Persist opened cursors to uid-scoped prefs (design/123 product 5C).
-  Future<void> persistOpenedProgress() async {
+  ///
+  /// design/411 — [publish] (a move made here) also sends the spot to the other
+  /// devices of this account; [at] is the time of a spot taken from one of them.
+  Future<void> persistOpenedProgress({bool publish = false, String? at}) async {
     final s = session;
     if (s == null || !s.isValid || s.cacheId.isEmpty) return;
+    if (publish) _spotSync?.noteLocal(s.cacheId, s.sentenceIndex, s.figureIndex);
     try {
-      final uid = await _authUid();
+      // design/411 - the bound uid needs no network; a slow auth call lost the last spot.
+      final uid = _diskUid ?? await _authUid();
       final header = s.sectionNav.headerPartsFor(s.sentenceIndex);
       final sectionLabel =
           '${header.sectionName} ${header.rightLabel}'.trim();
@@ -3988,6 +4105,7 @@ class LibraryController extends ChangeNotifier {
         figureIndex: s.figureIndex,
         layoutMode: readerLayoutMode,
         sectionLabel: sectionLabel,
+        at: at,
       );
       final next = Map<String, String>.from(progressResumeByCacheId);
       // design/196 — section only; UI joins metaLine + section + reading mark.
@@ -4413,6 +4531,8 @@ class LibraryController extends ChangeNotifier {
   @override
   void dispose() {
     _stopTranslatePoll();
+    _spotTimer?.cancel();
+    _spotSync?.close();
     super.dispose();
   }
 
@@ -4602,6 +4722,23 @@ class LibraryController extends ChangeNotifier {
         final lm = raw.layoutMode.trim();
         if (lm.isNotEmpty) readerLayoutMode = lm;
       }
+      // design/411 — a newer spot read on another device of this account wins when it fits.
+      try {
+        final remote = await loadRemoteSpot(uid: _diskUid ?? uid, cacheId: o.cacheId);
+        final mineAt = await loadProgressAt(uid: uid, cacheId: o.cacheId);
+        if (remote != null && remote.at.compareTo(mineAt) > 0) {
+          final v = validateProgressIndices(
+            sentenceIndex: remote.si,
+            figureIndex: remote.fi,
+            sentenceCount: o.sentenceCount,
+            figureCount: o.figureCount,
+          );
+          if (v.ok) {
+            o.sentenceIndex = v.sentenceIndex!;
+            o.figureIndex = v.figureIndex!;
+          }
+        }
+      } catch (_) {}
 
       // design/385 — walk from the sentence about to be read, not from 1.
       // Practice cursor wins: that is the spoken sentence. Reader cursor is
@@ -4946,9 +5083,9 @@ class LibraryController extends ChangeNotifier {
       );
     }
     notifyListeners();
+    // design/123 — durable prefs on every sentence move (product 5C), before the network.
+    await persistOpenedProgress(publish: true);
     await _syncCursor(sentence: true, figure: followed);
-    // design/123 — durable prefs on every sentence move (product 5C).
-    await persistOpenedProgress();
   }
 
   Future<void> advanceFigure(int delta) async {
@@ -4968,9 +5105,9 @@ class LibraryController extends ChangeNotifier {
     }
     notifyListeners();
     unawaited(_prefetchFigureWindow());
+    // design/123 — durable prefs on every figure move (product 5C), before the network.
+    await persistOpenedProgress(publish: true);
     await _syncCursor(figure: true);
-    // design/123 — durable prefs on every figure move (product 5C).
-    await persistOpenedProgress();
   }
 
   /// Header picker jump — sentence index only (figure unchanged).
@@ -4989,8 +5126,8 @@ class LibraryController extends ChangeNotifier {
     onSentenceIndexChanged?.call(from, index);
     final followed = await _maybeAutoFollowVisibleFigChip();
     notifyListeners();
+    await persistOpenedProgress(publish: true);
     await _syncCursor(sentence: true, figure: followed);
-    await persistOpenedProgress();
   }
 
   /// design/28 · 124 — Fig. chip jump: figure index only (sentence unchanged).
@@ -5007,8 +5144,8 @@ class LibraryController extends ChangeNotifier {
     assert(s.sentenceIndex == beforeSent, 'figure jump must not move sentence');
     notifyListeners();
     unawaited(_prefetchFigureWindow());
+    await persistOpenedProgress(publish: true);
     await _syncCursor(figure: true);
-    await persistOpenedProgress();
   }
 
   /// design/129 — fetch current±1 PNGs; never invent success on failure.
@@ -9568,4 +9705,18 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+}
+
+/// design/411 — [SpotSync] over the app's API client.
+class _ClientSpotTransport implements SpotTransport {
+  _ClientSpotTransport(this._client);
+
+  final AsrClient _client;
+
+  @override
+  Future<SpotPage> since(int rev) => _client.spotsSince(rev);
+
+  @override
+  Future<void> put(String cacheId, Map<String, Object?> spot) =>
+      _client.spotPut(cacheId, spot);
 }

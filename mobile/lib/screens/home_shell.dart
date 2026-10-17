@@ -144,6 +144,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     widget.library.uploadNotify.setOpenCacheIdHandler(_onNotifyOpenCacheId);
     unawaited(_consumePendingOpen());
     unawaited(_refreshAccessGate());
+    // design/411 — reading spots follow between the devices of this account.
+    widget.library.startSpotSync();
   }
 
   @override
@@ -153,6 +155,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     widget.library.onSoftHideOpened = null;
     widget.library.uploadNotify.setOpenCacheIdHandler(null);
+    widget.library.stopSpotSync();
     super.dispose();
   }
 
@@ -269,6 +272,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
       unawaited(widget.library.persistOpenedProgress());
+      unawaited(widget.library.flushSpots());
       unawaited(widget.library.recordReadLeft());
       unawaited(widget.bookmarks.pushToServer());
       if (state == AppLifecycleState.paused) {

@@ -57,6 +57,9 @@ Future<StoredProgressRaw?> loadProgressRaw({
 }
 
 /// Persist both indices. Caller saves in-memory cursors (already valid).
+///
+/// design/411 — `at` is when the spot was reached: a save at the same spot keeps
+/// it, and a spot taken from another device passes that device's [at].
 Future<void> saveProgressRow({
   required String? uid,
   required String cacheId,
@@ -64,6 +67,7 @@ Future<void> saveProgressRow({
   required int figureIndex,
   String layoutMode = '',
   String sectionLabel = '',
+  String? at,
 }) async {
   final cid = cacheId.trim();
   if (cid.isEmpty) return;
@@ -88,12 +92,19 @@ Future<void> saveProgressRow({
   final papers = Map<String, dynamic>.from(
     (store['papers'] as Map?) ?? <String, dynamic>{},
   );
+  final prev = papers[progressCacheKey(cid)];
+  final sameSpot = prev is Map &&
+      prev['sentence_index'] == sentenceIndex &&
+      prev['figure_index'] == figureIndex &&
+      prev['at'] is String &&
+      (prev['at'] as String).isNotEmpty;
   papers[progressCacheKey(cid)] = {
     'sentence_index': sentenceIndex,
     'figure_index': figureIndex,
     if (layoutMode.trim().isNotEmpty) 'layout_mode': layoutMode.trim(),
     if (sectionLabel.trim().isNotEmpty) 'section_label': sectionLabel.trim(),
-    'at': DateTime.now().toUtc().toIso8601String(),
+    'at': at ??
+        (sameSpot ? prev['at'] as String : DateTime.now().toUtc().toIso8601String()),
   };
   if (papers.length > 500) {
     final entries = papers.entries.toList()
@@ -316,4 +327,69 @@ Future<int> mergeProgressRows({
   store['version'] = 1;
   await p.setString(key, jsonEncode(store));
   return changed;
+}
+
+/// design/411 — the newest spot another device of this account read, per paper.
+///
+/// Kept apart from this device's rows: an open validates its own row and refuses
+/// a bad one, so a spot from elsewhere is only used when it is newer and fits.
+String remoteSpotsPrefsKey(String? uid) =>
+    'reading_spots_remote_v1:${(uid ?? '').trim().isEmpty ? '_' : uid!.trim()}';
+
+typedef RemoteSpot = ({int si, int fi, String at});
+
+Future<Map<String, Map<String, dynamic>>> _loadRemoteSpots(SharedPreferences p, String? uid) async {
+  final raw = p.getString(remoteSpotsPrefsKey(uid));
+  if (raw == null || raw.isEmpty) return {};
+  try {
+    final map = jsonDecode(raw);
+    if (map is! Map) return {};
+    return {
+      for (final e in map.entries)
+        if (e.value is Map) '${e.key}': Map<String, dynamic>.from(e.value as Map),
+    };
+  } catch (_) {
+    return {};
+  }
+}
+
+/// Store [spot] for [cacheId] when it is newer than the one held; returns whether it was.
+Future<bool> saveRemoteSpot({
+  required String? uid,
+  required String cacheId,
+  required RemoteSpot spot,
+}) async {
+  final cid = cacheId.trim();
+  if (cid.isEmpty || spot.at.isEmpty) return false;
+  final p = await SharedPreferences.getInstance();
+  final all = await _loadRemoteSpots(p, uid);
+  final held = '${all[cid]?['at'] ?? ''}';
+  if (held.compareTo(spot.at) >= 0) return false;
+  all[cid] = {'si': spot.si, 'fi': spot.fi, 'at': spot.at};
+  if (all.length > 500) {
+    final keys = all.keys.toList()
+      ..sort((a, b) => '${all[a]!['at']}'.compareTo('${all[b]!['at']}'));
+    for (final k in keys.take(all.length - 500)) {
+      all.remove(k);
+    }
+  }
+  await p.setString(remoteSpotsPrefsKey(uid), jsonEncode(all));
+  return true;
+}
+
+Future<RemoteSpot?> loadRemoteSpot({required String? uid, required String cacheId}) async {
+  final p = await SharedPreferences.getInstance();
+  final row = (await _loadRemoteSpots(p, uid))[cacheId.trim()];
+  if (row == null) return null;
+  final si = row['si'];
+  final fi = row['fi'];
+  final at = '${row['at'] ?? ''}';
+  if (si is! int || fi is! int || at.isEmpty) return null;
+  return (si: si, fi: fi, at: at);
+}
+
+/// `at` of this device's own row for [cacheId] ('' when none).
+Future<String> loadProgressAt({required String? uid, required String cacheId}) async {
+  final rows = await loadProgressRows(uid: uid);
+  return '${rows[cacheId.trim()]?['at'] ?? ''}';
 }

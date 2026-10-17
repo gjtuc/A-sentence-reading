@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -21,6 +22,7 @@ import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
+import '../state/web_reading_prefs.dart';
 import '../practice_rhythm/blank_rest.dart';
 import '../practice_rhythm/miss_review.dart';
 import '../practice_rhythm/judgment_prefs.dart';
@@ -81,6 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    if (kIsWeb) unawaited(WebReadingPrefs.instance.load());
     // WHY: session restore is async — first _reload often runs while logged out.
     // EDGE: without this listener, invite form appears after login but access/is_admin stay null
     // (admin mint chrome never shows even when ASR_ADMIN_EMAILS matches).
@@ -957,6 +960,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 );
               },
             ),
+            if (kIsWeb) ...[
+              const Divider(height: 32),
+              const _WebReadingSection(),
+            ],
             const Divider(height: 32),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
@@ -1215,6 +1222,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         );
       },
+    );
+  }
+}
+
+/// design/411 — web-only text size and line width (Word Immersive Reader style).
+class _WebReadingSection extends StatelessWidget {
+  const _WebReadingSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = WebReadingPrefs.instance;
+    final text = Theme.of(context).textTheme;
+    return ListenableBuilder(
+      listenable: prefs,
+      builder: (context, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('웹 읽기 화면', style: text.titleMedium),
+          const SizedBox(height: 8),
+          Text('글자 크기', style: text.bodyMedium),
+          const SizedBox(height: 4),
+          SegmentedButton<WebTextSize>(
+            segments: const [
+              ButtonSegment(value: WebTextSize.normal, label: Text('보통')),
+              ButtonSegment(value: WebTextSize.large, label: Text('크게')),
+              ButtonSegment(value: WebTextSize.huge, label: Text('아주 크게')),
+            ],
+            selected: {prefs.size},
+            onSelectionChanged: (v) => unawaited(prefs.setSize(v.first)),
+          ),
+          const SizedBox(height: 12),
+          Text('줄 폭', style: text.bodyMedium),
+          const SizedBox(height: 4),
+          SegmentedButton<WebColumnWidth>(
+            segments: const [
+              ButtonSegment(value: WebColumnWidth.narrow, label: Text('좁게')),
+              ButtonSegment(value: WebColumnWidth.medium, label: Text('보통')),
+              ButtonSegment(value: WebColumnWidth.wide, label: Text('넓게')),
+            ],
+            selected: {prefs.column},
+            onSelectionChanged: (v) => unawaited(prefs.setColumn(v.first)),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '넓은 모니터에서 문장을 가운데 폭에 모아 크게 보여 줍니다. '
+            '키보드 ←/→ 는 문장, Shift+←/→ 는 그림을 넘깁니다.',
+            style: text.bodySmall,
+          ),
+        ],
+      ),
     );
   }
 }

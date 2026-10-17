@@ -2304,6 +2304,39 @@ throw AsrApiException(
     } catch (_) {}
   }
 
+  /// design/411 — reading spots of this account changed after [since] (numbers only).
+  Future<({int rev, Map<String, Map<String, dynamic>> spots})> spotsSince(
+    int since,
+  ) async {
+    final res = await _http
+        .get(_uri('/api/spots?since=$since'), headers: await _headers())
+        .timeout(const Duration(seconds: 15));
+    final body = _decodeObject(res, 'spots-since');
+    final out = <String, Map<String, dynamic>>{};
+    final raw = body['spots'];
+    if (raw is Map) {
+      for (final e in raw.entries) {
+        if (e.value is Map) {
+          out['${e.key}'] = Map<String, dynamic>.from(e.value as Map);
+        }
+      }
+    }
+    final rev = body['rev'];
+    return (rev: rev is int ? rev : 0, spots: out);
+  }
+
+  /// design/411 — publish this device's spot in one paper.
+  Future<void> spotPut(String cacheId, Map<String, Object?> spot) async {
+    final res = await _http
+        .put(
+          _uri('/api/spots/${Uri.encodeComponent(cacheId)}'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode(spot),
+        )
+        .timeout(const Duration(seconds: 15));
+    _decodeObject(res, 'spots-put');
+  }
+
 
   /// design/186 — list transfer packs (metadata only).
   Future<List<Map<String, dynamic>>> listTransferPacks() async {

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
@@ -33,6 +34,7 @@ import '../widgets/figure_ink_toolbar.dart';
 import '../widgets/swipe_motion.dart';
 import '../widgets/annotated_sentence_text.dart';
 import '../widgets/upload_status_bar.dart';
+import '../state/web_reading_prefs.dart';
 import 'figure_edit_screen.dart';
 
 /// Split reader: sentence panel + figure panel (design/63) + TTS (design/64).
@@ -109,10 +111,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// design/183 — user-owned; survives translate poll (new session_id).
   bool _citeCollapsed = false;
   String? _citePaperKey;
+  final FocusNode _keysFocus = FocusNode(debugLabel: 'reader_keys');
+  bool _keysVisible = false;
 
   @override
   void initState() {
     super.initState();
+    if (kIsWeb) unawaited(WebReadingPrefs.instance.load());
     widget.library.onSentenceIndexChanged = _onSentenceIndexChanged;
     widget.client.fetchStatus().then((st) {
       if (!mounted) return;
@@ -131,10 +136,24 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Back from the library, focus sits on a library widget; take it again.
+    final visible = TickerMode.of(context);
+    if (visible && !_keysVisible) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && TickerMode.of(context)) _keysFocus.requestFocus();
+      });
+    }
+    _keysVisible = visible;
+  }
+
+  @override
   void dispose() {
     if (widget.library.onSentenceIndexChanged == _onSentenceIndexChanged) {
       widget.library.onSentenceIndexChanged = null;
     }
+    _keysFocus.dispose();
     super.dispose();
   }
 
@@ -480,7 +499,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         }
         final showSentence = _layout != _ReaderLayoutMode.figureOnly;
         final showFigure = _layout != _ReaderLayoutMode.sentenceOnly;
-        return Column(
+        return _readerKeys(Column(
           children: [
             UploadStatusBar(
               library: library,
@@ -858,9 +877,43 @@ class _ReaderScreenState extends State<ReaderScreen> {
               ),
             ),
           ],
-        );
+        ));
       },
     );
+  }
+
+  /// design/411 — ←/→ move the sentence (the figure when only the figure shows),
+  /// Shift+←/→ move the figure.
+  Widget _readerKeys(Widget child) {
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _keyMove(-1),
+        const SingleActivator(LogicalKeyboardKey.arrowRight): () => _keyMove(1),
+        const SingleActivator(LogicalKeyboardKey.arrowLeft, shift: true): () =>
+            _keyMove(-1, figure: true),
+        const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true): () =>
+            _keyMove(1, figure: true),
+      },
+      child: Focus(focusNode: _keysFocus, autofocus: true, child: child),
+    );
+  }
+
+  void _keyMove(int delta, {bool figure = false}) {
+    // The reader stays mounted under the library; keys must not move it unseen.
+    if (!TickerMode.of(context)) return;
+    if (widget.annotations.blocksReaderNavigation) return;
+    final s = widget.library.session;
+    if (s == null || !s.isValid) return;
+    if (figure || _layout == _ReaderLayoutMode.figureOnly) {
+      if (s.figureCount < 1) return;
+      unawaited(widget.library.advanceFigure(delta));
+      return;
+    }
+    if (s.sentenceCount < 1) return;
+    unawaited(() async {
+      await widget.tts.stop();
+      await widget.library.advanceSentence(delta);
+    }());
   }
 }
 
@@ -1127,7 +1180,8 @@ class _SentencePanel extends StatelessWidget {
                 child: Card(
                   child: Padding(
                   padding: const EdgeInsets.all(16),
-                  child: SingleChildScrollView(
+                  child: WebReadingFrame(
+                  builder: (context, web) => SingleChildScrollView(
                     physics: annotations.sentencePaintMode
                         ? const NeverScrollableScrollPhysics()
                         : null,
@@ -1141,7 +1195,7 @@ class _SentencePanel extends StatelessWidget {
                                       annotations: annotations,
                                       session: session,
                                     ),
-                            child: Column(
+                            child: webReadingColumn(web, Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 if (cur.isUngrounded)
@@ -1156,10 +1210,10 @@ class _SentencePanel extends StatelessWidget {
                                 AnnotatedSentenceText(
                                   html: cite
                                       .stripCiteMarkersForDisplay(cur.text),
-                                  style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium ??
-                                      const TextStyle(fontSize: 18),
+                                  style: webSentenceStyle(
+                                      web,
+                                      Theme.of(context).textTheme.titleMedium ??
+                                          const TextStyle(fontSize: 18)),
                                   annotations: annotations
                                       .activeForSentenceKey(sentKey),
                                   paintMode:
@@ -1208,10 +1262,10 @@ class _SentencePanel extends StatelessWidget {
                                   richSentenceText(
                                     cite.stripCiteMarkersForDisplay(
                                         cur.textKo),
-                                    style: Theme.of(context)
-                                            .textTheme
-                                            .bodyMedium ??
-                                        const TextStyle(fontSize: 14),
+                                    style: webKoStyle(
+                                        web,
+                                        Theme.of(context).textTheme.bodyMedium ??
+                                            const TextStyle(fontSize: 14)),
                                   ),
                                 ] else if (showKo &&
                                     (library.translateBackfillBusy ||
@@ -1230,9 +1284,9 @@ class _SentencePanel extends StatelessWidget {
                                   ),
                                 ],
                               ],
-                            ),
+                            )),
                           ),
-                  ),
+                  )),
                 ),
               ),
             ),
