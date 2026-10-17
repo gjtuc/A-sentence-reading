@@ -181,8 +181,9 @@ def test_web_check_fails_on_a_white_screen():
     assert run.probe_summary("DEBUG x\nNO-FIRST-FRAME 90s\n")["drawn"] == 0
     assert run.probe_summary("DEBUG x\nFIRST-FRAME 4.5s\n")["drawn"] == 1
     src = (CLICK / "_run.py").read_text(encoding="utf-8")
-    web = src[src.index("def job_web_build") : src.index("def job_selftest")]
-    assert web.index('if not s["drawn"]:') < web.index("web_app 폴더를 커밋한 뒤")
+    web = src[src.index("def build_web") : src.index("def commit_web")]
+    assert web.index('if not s["drawn"]:') < web.index("return True")
+    assert "if build_web(job):" in src[src.index("def job_web_build") : src.index("def build_web")]
     probe = (ROOT / "scripts" / "web_probe.py").read_text(encoding="utf-8")
     assert "flutter-first-frame" in probe and "NO-FIRST-FRAME" in probe
 

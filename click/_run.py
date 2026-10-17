@@ -369,7 +369,14 @@ def job_ship_install(job: Job) -> None:
     job.note(f"배포할 버전: {want}")
     web = web_app_version()
     if web != want:
-        job.fail(f"웹 화면 버전 {web or '없음'} 이 앱 {want} 와 다름. 03 웹 빌드 후 커밋을 먼저 할 것")
+        job.note(f"웹 화면 버전 {web or '없음'} 이 앱 {want} 와 달라 웹 빌드부터 함")
+        if not build_web(job):
+            job.fail("웹 빌드가 안 되어 배포하지 않음")
+            return
+        if web_app_version() != want:
+            job.fail(f"웹 빌드 뒤에도 웹 화면 버전 {web_app_version() or '없음'} 이 앱 {want} 와 다름. 배포하지 않음")
+            return
+    if not commit_web(job, want):
         return
     py = sys.executable
     for title, script in (
@@ -448,6 +455,11 @@ def job_install(job: Job) -> None:
 
 
 def job_web_build(job: Job) -> None:
+    if build_web(job):
+        job.note("다음: 02 배포 (02 가 web_app 폴더를 커밋함)")
+
+
+def build_web(job: Job) -> bool:
     # design/407 - Flutter tests for the web branches (mobile/test/web_*_test.dart) first.
     web_tests = sorted(f"test/{p.name}" for p in (ROOT / "mobile" / "test").glob("web_*_test.dart"))
     if web_tests:
@@ -457,13 +469,13 @@ def job_web_build(job: Job) -> None:
         job.note(f"웹 Flutter 테스트 {len(web_tests)}개 파일: {flutter_tally(text) or f'exit {rc}'}")
         if rc != 0:
             job.fail("웹 Flutter 테스트 실패. 빌드하지 않음")
-            return
+            return False
     rc, _ = job.run(
         "웹 빌드 + 서버 폴더로 복사", [sys.executable, "scripts/build_web_app.py"], step="web_build"
     )
     if rc != 0:
         job.fail(f"웹 빌드 실패 (exit {rc})")
-        return
+        return False
     job.note(f"웹 빌드: src/sentence_reading/web_app (버전 {web_app_version()}, 서버가 /app/ 에서 내보냄)")
     out = ROOT / ".cache" / "web_probe"
     rc, _ = job.run(
@@ -474,17 +486,49 @@ def job_web_build(job: Job) -> None:
     console = Path(str(out) + ".console.txt")
     if rc != 0 or not console.exists():
         job.fail(f"웹 화면 열기 실패 (exit {rc})")
-        return
+        return False
     s = probe_summary(console.read_text(encoding="utf-8"))
     job.note(f"잡히지 않은 오류 {s['uncaught']}개, 다른 오류 {s['other']}개, 주소가 달라 막힌 요청(CORS) {s['cors']}개")
     job.note("화면: .cache/web_probe.png  콘솔: .cache/web_probe.console.txt")
     if not s["drawn"]:
         job.fail("웹 화면이 90초 안에 그려지지 않음 (빈 화면). 콘솔 파일을 볼 것")
-        return
+        return False
     if s["uncaught"] or s["other"] or s["cors"]:
         job.fail("웹 화면에 오류가 있음. 콘솔 파일을 볼 것")
-        return
-    job.note("다음: web_app 폴더를 커밋한 뒤 02 배포")
+        return False
+    return True
+
+
+def commit_web(job: Job, want: str) -> bool:
+    """Commit a fresh web_app build so the deploy guard sees a clean tree (design/405)."""
+    web_dir = "src/sentence_reading/web_app"
+    git = shutil.which("git") or "git"
+    changed = subprocess.run(
+        [git, "status", "--porcelain", "--", web_dir], cwd=ROOT, capture_output=True, text=True
+    ).stdout.strip()
+    if not changed:
+        return True
+    staged = subprocess.run(
+        [git, "diff", "--cached", "--name-only"], cwd=ROOT, capture_output=True, text=True
+    ).stdout.split()
+    others = [f for f in staged if not f.startswith(web_dir + "/")]
+    if others:
+        job.fail(f"web_app 말고도 커밋 대기 파일 {len(others)}개가 있어 커밋하지 않음. 배포하지 않음")
+        return False
+    rc, _ = job.run("웹 파일 커밋 준비", [git, "add", "-A", "--", web_dir], step="none")
+    if rc != 0:
+        job.fail(f"web_app 커밋 준비 실패 (exit {rc}). 배포하지 않음")
+        return False
+    rc, _ = job.run(
+        "웹 파일 커밋",
+        ["cmd", "/c", r"scripts\git_commit.cmd", "-Message", f"Web bundle {want} built by click 02"],
+        step="none",
+    )
+    if rc != 0:
+        job.fail(f"web_app 커밋 실패 (exit {rc}). 배포하지 않음")
+        return False
+    job.note(f"웹 파일 커밋: Web bundle {want}")
+    return True
 
 
 def job_selftest(job: Job) -> None:

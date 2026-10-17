@@ -179,3 +179,19 @@ def test_ship_click_refuses_stale_web_app():
     web = src[src.index("def job_web_build"):src.index("def job_selftest")]
     assert "scripts/build_web_app.py" in web and '"--app"' in web
     assert 's["cors"]' in web
+
+
+def test_ship_click_builds_and_commits_web_app_itself():
+    src = _read("click/_run.py")
+    ship = src[src.index("def job_ship_install"):src.index("def install_apk")]
+    order = [
+        ship.index("web_app_version()"),
+        ship.index("build_web(job)"),
+        ship.index("commit_web(job, want)"),
+        ship.index("session_freshness_guard.py"),
+    ]
+    assert order == sorted(order)
+    commit = src[src.index("def commit_web"):src.index("def job_selftest")]
+    assert "git_commit.cmd" in commit and '"add", "-A", "--", web_dir' in commit
+    assert commit.index("others") < commit.index('"add", "-A"')
+    assert "push" not in commit

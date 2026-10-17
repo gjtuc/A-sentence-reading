@@ -10,7 +10,7 @@ The user wants to save tokens. Do not wait on long jobs in the agent shell.
 - Deploy + phone install: ask the user to double-click `click\02_ship_and_install.bat`.
 - Deploy already live but no phone or a failed APK build: `click\04_install.bat` (builds the APK first when it is not the app version, never deploys). Do not run 02 again for that; the deploy guard blocks a same-version redeploy.
 - Full Python + Flutter suites: `click\01_tests.bat`. Web build + headless check: `click\03_web_build.bat`.
-- 02 refuses to deploy when `src/sentence_reading/web_app/version.json` is not the app version (design/405). After a version bump: 03, commit `web_app`, then 02.
+- When `src/sentence_reading/web_app/version.json` is not the app version, 02 runs the web build first and commits `web_app` itself before the guards (design/405). After a version bump, ask only for 02. 03 is for checking the web alone.
 - Then end the turn. When the user says it finished, read only `click\out\<job>.result.txt` (first line `DONE` or `FAILED`). Open `click\out\<job>.log` only for a FAILED step.
 - Every step in `click\_run.py` goes through the memory light in `click\_mem.py` (`job.run(..., step=...)`). New jobs must use `job.run`; do not start subprocesses around it. Steps with a knob (Flutter `--concurrency`, Gradle `-Xmx` via `GRADLE_OPTS`) are sized to free memory.
 - design/406: while a step runs, the light keeps watching. Test and build steps are suspended on red (only while a stock job runs) and resumed on green. A window whose Python died restarts the job after 15 s until the deploy step began. Keep new long steps in `_mem.PAUSABLE` only if they have no network or wall-clock timeout.
