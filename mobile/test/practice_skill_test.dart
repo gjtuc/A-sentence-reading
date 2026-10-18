@@ -56,7 +56,7 @@ void main() {
     expect(d.densityDelta, 0);
   });
 
-  test('epoch finer when avg <= 85 and can finer', () {
+  test('epoch finer when avg <= 75 and can finer', () {
     final state = SkillState(
       epochMeans: const [0.7, 0.7, 0.7, 0.7, 0.7],
       epochTargetN: 5,
@@ -74,7 +74,7 @@ void main() {
     expect(d.reason, 'finer');
   });
 
-  test('epoch coarser when avg >= 95', () {
+  test('epoch coarser when avg >= 85', () {
     final state = SkillState(
       epochMeans: const [0.97, 0.96, 0.95, 0.95, 0.97],
       epochTargetN: 5,
@@ -92,9 +92,9 @@ void main() {
     expect(d.reason, 'coarser');
   });
 
-  test('epoch hold in 85-95 band', () {
+  test('epoch hold in 75-85 band', () {
     final state = SkillState(
-      epochMeans: const [0.90, 0.90, 0.90, 0.90, 0.90],
+      epochMeans: const [0.80, 0.80, 0.80, 0.80, 0.80],
       epochTargetN: 5,
       density: 0,
       tier: 2,
@@ -1084,11 +1084,11 @@ void main() {
         ],
       );
 
-  test('design/412 the band runs from 85 to 95', () {
-    expect(decideAt(0.85).reason, 'finer');
-    expect(decideAt(0.86).reason, 'hold');
-    expect(decideAt(0.94).reason, 'hold');
-    expect(decideAt(0.95).reason, 'coarser');
+  test('design/412 the band runs from 75 to 85', () {
+    expect(decideAt(0.75).reason, 'finer');
+    expect(decideAt(0.76).reason, 'hold');
+    expect(decideAt(0.84).reason, 'hold');
+    expect(decideAt(0.85).reason, 'coarser');
   });
 
   test('design/412 a history row comes back as it went', () {

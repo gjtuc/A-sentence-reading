@@ -22,7 +22,7 @@ def _phone(**over):
         "line_unit": 1,
         "ladder_fix": 1,
         "history": [
-            {"at": 10, "why": "sample_on", "t0": 2, "d0": 0, "t1": 3, "d1": 0, "n": 0, "lo": 0.85, "hi": 0.95},
+            {"at": 10, "why": "sample_on", "t0": 2, "d0": 0, "t1": 3, "d1": 0, "n": 0, "lo": 0.75, "hi": 0.85},
         ],
         "updated_at_ms": 100,
         "days": {},

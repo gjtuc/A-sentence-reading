@@ -137,8 +137,8 @@ def normalize_skill_history(raw: Any) -> list[dict[str, Any]]:
             "t1": _clamp_int(r.get("t1"), 0, 9, 2),
             "d1": _clamp_int(r.get("d1"), -2, 2, 0),
             "n": _clamp_int(r.get("n"), 0, 1000, 0),
-            "lo": _clamp_float(r.get("lo"), 0.0, 1.0, 0.85),
-            "hi": _clamp_float(r.get("hi"), 0.0, 1.0, 0.95),
+            "lo": _clamp_float(r.get("lo"), 0.0, 1.0, 0.75),
+            "hi": _clamp_float(r.get("hi"), 0.0, 1.0, 0.85),
         }
         avg = r.get("avg")
         if isinstance(avg, (int, float)) and not isinstance(avg, bool):

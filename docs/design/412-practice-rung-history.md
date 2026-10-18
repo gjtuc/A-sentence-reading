@@ -51,8 +51,8 @@ The reader chose this over keeping 17/50. A fresh account starts with the mark s
 
 - Missed-word review: 3 tries in all (`kMissReviewTotalTries`), was 7. Word, its
   weakest sound, word again.
-- Epoch lines: finer at or under 85%, coarser at or over 95% (was 80 and 90). Saying
-  each word right matters more to the reader than moving up.
+- Epoch lines: finer at or under 75%, coarser at or over 85% (was 80 and 90). The
+  reader's choice.
 
 ## Tests
 
