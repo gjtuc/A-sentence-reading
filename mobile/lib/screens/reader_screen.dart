@@ -35,6 +35,7 @@ import '../widgets/swipe_motion.dart';
 import '../widgets/annotated_sentence_text.dart';
 import '../widgets/upload_status_bar.dart';
 import '../state/web_reading_prefs.dart';
+import '../services/pane_link.dart';
 import 'figure_edit_screen.dart';
 
 /// Split reader: sentence panel + figure panel (design/63) + TTS (design/64).
@@ -57,6 +58,7 @@ class ReaderScreen extends StatefulWidget {
     required this.citePanel,
     required this.bookmarks,
     required this.annotations,
+    this.pane,
   });
 
   final LibraryController library;
@@ -67,6 +69,8 @@ class ReaderScreen extends StatefulWidget {
   final CitePanelController citePanel;
   final BookmarkController bookmarks;
   final AnnotationController annotations;
+  /// design/415 — the other window of this browser (web only).
+  final PaneLink? pane;
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
@@ -113,6 +117,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
   String? _citePaperKey;
   final FocusNode _keysFocus = FocusNode(debugLabel: 'reader_keys');
   bool _keysVisible = false;
+  /// design/414 — a still mouse on a wide web window fades the buttons.
+  bool _idleHidden = false;
+  Timer? _idleTimer;
 
   @override
   void initState() {
@@ -153,11 +160,49 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (widget.library.onSentenceIndexChanged == _onSentenceIndexChanged) {
       widget.library.onSentenceIndexChanged = null;
     }
+    _idleTimer?.cancel();
     _keysFocus.dispose();
     super.dispose();
   }
 
+  void _onPointerMoved() {
+    _idleTimer?.cancel();
+    if (_idleHidden) setState(() => _idleHidden = false);
+    _idleTimer = Timer(kWebChromeIdle, _hideWhenIdle);
+  }
+
+  void _hideWhenIdle() {
+    if (!mounted || !TickerMode.of(context)) return;
+    if (!WebReadingPrefs.instance.autoHide) return;
+    if (!webReadingActive(web: kIsWeb, width: MediaQuery.sizeOf(context).width)) return;
+    if (widget.annotations.sentencePaintMode) return;
+    setState(() => _idleHidden = true);
+  }
+
+  /// design/414 — off the web this is [child] untouched.
+  Widget _idleChrome(Widget child) {
+    if (!kIsWeb) return child;
+    return MouseRegion(
+      cursor: _idleHidden ? SystemMouseCursors.none : MouseCursor.defer,
+      onHover: (_) => _onPointerMoved(),
+      onEnter: (_) => _onPointerMoved(),
+      child: Listener(onPointerDown: (_) => _onPointerMoved(), child: child),
+    );
+  }
+
   void _pinLayout() => _layoutPolicy.pin();
+
+  /// design/415 — the figure window shows only figures; the main window shows only
+  /// sentences while a figure window is open. Null leaves the chosen layout.
+  _ReaderLayoutMode? get _paneLayout {
+    final p = widget.pane;
+    if (p == null) return null;
+    if (p.role == PaneRole.figure) return _ReaderLayoutMode.figureOnly;
+    if (p.figureOpen) return _ReaderLayoutMode.sentenceOnly;
+    return null;
+  }
+
+  _ReaderLayoutMode get _shownLayout => _paneLayout ?? _layout;
 
   bool _sectionIsTitle(ReadingSession s) {
     final cur = s.currentSentence;
@@ -437,7 +482,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final client = widget.client;
     final shadowing = widget.shadowing;
     final translate = widget.translate;
-    return AnimatedBuilder(
+    return WebPageTheme(child: AnimatedBuilder(
       animation: Listenable.merge([
         library,
         tts,
@@ -445,6 +490,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         widget.citePanel,
         widget.bookmarks,
         widget.annotations,
+        if (widget.pane != null) widget.pane!,
       ]),
       builder: (context, _) {
         final s = library.session;
@@ -497,9 +543,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
         } else if (library.readerLayoutMode != _layoutName) {
           library.readerLayoutMode = _layoutName;
         }
-        final showSentence = _layout != _ReaderLayoutMode.figureOnly;
-        final showFigure = _layout != _ReaderLayoutMode.sentenceOnly;
-        return _readerKeys(Column(
+        final showSentence = _shownLayout != _ReaderLayoutMode.figureOnly;
+        final showFigure = _shownLayout != _ReaderLayoutMode.sentenceOnly;
+        return _readerKeys(_idleChrome(Column(
           children: [
             UploadStatusBar(
               library: library,
@@ -635,7 +681,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   ),
                 ],
               ),
-            Padding(
+            _FadeChrome(
+              faded: _idleHidden,
+              child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               child: Row(
                 children: [
@@ -668,9 +716,30 @@ class _ReaderScreenState extends State<ReaderScreen> {
                             },
                       child: const Text('연습'),
                     ),
+                  if (widget.pane?.role == PaneRole.main &&
+                      webReadingActive(
+                          web: kIsWeb, width: MediaQuery.sizeOf(context).width))
+                    IconButton(
+                      tooltip: widget.pane!.figureOpen
+                          ? '그림 창이 열려 있습니다'
+                          : '그림 창 따로 열기 (다른 모니터로 옮겨 쓰세요)',
+                      onPressed: () {
+                        if (openFigurePane()) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              '브라우저가 새 창을 막았습니다. 주소창 오른쪽에서 팝업을 허용해 주세요.',
+                            ),
+                          ),
+                        );
+                      },
+                      icon: Icon(widget.pane!.figureOpen
+                          ? Icons.picture_in_picture_alt
+                          : Icons.open_in_new),
+                    ),
                 ],
               ),
-            ),
+            )),
             if (library.shadowingChunksBusy &&
                 (library.shadowingChunksCacheId == null ||
                     library.shadowingChunksCacheId == s.cacheId))
@@ -756,6 +825,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       annotations: widget.annotations,
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
+                                      fadeChrome: _idleHidden,
                                       figRefHints: _figRefHints,
                                       citeCollapsed: _citeCollapsed,
                                       onToggleCiteCollapsed: () {
@@ -813,6 +883,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       annotations: widget.annotations,
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
+                                      fadeChrome: _idleHidden,
                                       captionFullText: _captionFullText,
                                       figureCaptionInImage: _figureCaptionInImage,
                                       onToggleChrome: _toggleChrome,
@@ -877,9 +948,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
               ),
             ),
           ],
-        ));
+        )));
       },
-    );
+    ));
   }
 
   /// design/411 — ←/→ move the sentence (the figure when only the figure shows),
@@ -904,7 +975,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (widget.annotations.blocksReaderNavigation) return;
     final s = widget.library.session;
     if (s == null || !s.isValid) return;
-    if (figure || _layout == _ReaderLayoutMode.figureOnly) {
+    if (figure || _shownLayout == _ReaderLayoutMode.figureOnly) {
       if (s.figureCount < 1) return;
       unawaited(widget.library.advanceFigure(delta));
       return;
@@ -914,6 +985,23 @@ class _ReaderScreenState extends State<ReaderScreen> {
       await widget.tts.stop();
       await widget.library.advanceSentence(delta);
     }());
+  }
+}
+
+/// design/414 — fades the buttons but keeps their space, so the sentence stays put.
+class _FadeChrome extends StatelessWidget {
+  const _FadeChrome({required this.faded, required this.child});
+
+  final bool faded;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      opacity: faded ? 0 : 1,
+      duration: Duration(milliseconds: faded ? 600 : 150),
+      child: IgnorePointer(ignoring: faded, child: child),
+    );
   }
 }
 
@@ -982,6 +1070,7 @@ class _SentencePanel extends StatelessWidget {
     required this.annotations,
     required this.showKo,
     required this.showChrome,
+    this.fadeChrome = false,
     this.figRefHints = true,
     this.citeCollapsed = true,
     this.onToggleCiteCollapsed,
@@ -1000,6 +1089,8 @@ class _SentencePanel extends StatelessWidget {
   final AnnotationController annotations;
   final bool showKo;
   final bool showChrome;
+  /// design/414 — buttons keep their space but fade out (idle mouse on the web).
+  final bool fadeChrome;
   /// design/124 — from /api/status; parent owns fetch.
   final bool figRefHints;
   /// design/183 — local cite sheet collapse (not settings kill).
@@ -1010,6 +1101,45 @@ class _SentencePanel extends StatelessWidget {
   final VoidCallback? onDoubleTapExpand;
   /// design/156 — sentence full-screen: swipe up → figure full-screen.
   final VoidCallback? onSwipeToFigure;
+
+  /// design/414 — the sentence before or after, faded; only inside the same section.
+  Widget _contextSentence(
+    BuildContext context,
+    WebReadingStyle web,
+    int index, {
+    required bool above,
+  }) {
+    final cur = session.currentSentence;
+    final list = session.sentences;
+    if (cur == null || index < 0 || index >= list.length) {
+      return const SizedBox.shrink();
+    }
+    final near = list[index];
+    if (!near.hasText || near.section != cur.section) {
+      return const SizedBox.shrink();
+    }
+    final gap = web.fontSize * 0.9;
+    return Padding(
+      padding: EdgeInsets.only(top: above ? 0 : gap, bottom: above ? gap : 0),
+      child: ExcludeSemantics(
+        child: IgnorePointer(
+          child: Opacity(
+            opacity: kWebContextOpacity,
+            child: Text(
+              annotationPlainForSentence(near.text),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: webContextStyle(
+                web,
+                Theme.of(context).textTheme.titleMedium ??
+                    const TextStyle(fontSize: 18),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1048,7 +1178,9 @@ class _SentencePanel extends StatelessWidget {
             curve: Curves.easeInOut,
             alignment: Alignment.topCenter,
             child: showChrome
-                ? Row(
+                ? _FadeChrome(
+                    faded: fadeChrome,
+                    child: Row(
                     children: [
                       IconButton(
                         tooltip: 'prev sentence',
@@ -1133,7 +1265,7 @@ class _SentencePanel extends StatelessWidget {
                           ),
                         ),
                     ],
-                  )
+                  ))
                 : const SizedBox(width: double.infinity),
           ),
           if (showChrome && tts.error != null)
@@ -1198,6 +1330,13 @@ class _SentencePanel extends StatelessWidget {
                             child: webReadingColumn(web, Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                if (web != null && web.showContext)
+                                  _contextSentence(
+                                    context,
+                                    web,
+                                    session.sentenceIndex - 1,
+                                    above: true,
+                                  ),
                                 if (cur.isUngrounded)
                                   Padding(
                                     padding: const EdgeInsets.only(bottom: 8),
@@ -1283,6 +1422,13 @@ class _SentencePanel extends StatelessWidget {
                                         ),
                                   ),
                                 ],
+                                if (web != null && web.showContext)
+                                  _contextSentence(
+                                    context,
+                                    web,
+                                    session.sentenceIndex + 1,
+                                    above: false,
+                                  ),
                               ],
                             )),
                           ),
@@ -1722,6 +1868,7 @@ class _FigurePanel extends StatelessWidget {
     required this.annotations,
     required this.showKo,
     required this.showChrome,
+    this.fadeChrome = false,
     this.captionFullText = true,
     this.figureCaptionInImage = true,
     this.onToggleChrome,
@@ -1737,6 +1884,7 @@ class _FigurePanel extends StatelessWidget {
   final AnnotationController annotations;
   final bool showKo;
   final bool showChrome;
+  final bool fadeChrome;
   /// design/131 — false restores 2-line ellipsis (server kill / old clients).
   final bool captionFullText;
   /// design/149 — when true, caption is in PNG; hide Text under image.
@@ -1783,7 +1931,9 @@ class _FigurePanel extends StatelessWidget {
             curve: Curves.easeInOut,
             alignment: Alignment.topCenter,
             child: showChrome
-                ? Row(
+                ? _FadeChrome(
+                    faded: fadeChrome,
+                    child: Row(
                     children: [
                       IconButton(
                         tooltip: 'prev figure',
@@ -1843,7 +1993,7 @@ class _FigurePanel extends StatelessWidget {
                         ),
                       ),
                     ],
-                  )
+                  ))
                 : const SizedBox(width: double.infinity),
           ),
           Expanded(

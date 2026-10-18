@@ -16,6 +16,7 @@ import '../state/tts_controller.dart';
 import '../api/launch_dest.dart';
 import '../api/practice_cloud_sync.dart';
 import '../services/evidence_bus.dart';
+import '../services/pane_link.dart';
 import 'access_waiting_screen.dart';
 import 'library_screen.dart';
 import 'login_screen.dart';
@@ -73,6 +74,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   bool _launchDestDone = false;
   late final AccessStickyStore _sticky =
       widget.accessSticky ?? PrefsAccessStickyStore();
+  /// design/415 — link to the other window of this browser; null off the web.
+  PaneLink? _pane;
+  /// A spot that arrived before this figure window was allowed in.
+  ({String cacheId, int si, int fi})? _paneWaiting;
+
+  bool get _isFigurePane => _pane?.role == PaneRole.figure;
 
   void _goReader() {
     final hid = widget.library.takeOpenHandoffId();
@@ -89,6 +96,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       _readerMounted = true;
       _readerSurface = true;
     });
+    // design/415 — a paper opened here: the figure window opens it too.
+    if (_pane?.role == PaneRole.main) _sendPaneSpot();
   }
 
   void _goLibrary({bool recordLeft = true}) {
@@ -146,6 +155,46 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     unawaited(_refreshAccessGate());
     // design/411 — reading spots follow between the devices of this account.
     widget.library.startSpotSync();
+    _startPane();
+  }
+
+  void _startPane() {
+    final role = paneRoleFromUrl(Uri.base);
+    if (role == null) return;
+    final channel = openPaneChannel();
+    if (channel == null) return;
+    final id = '${DateTime.now().microsecondsSinceEpoch}-${identityHashCode(this)}';
+    final link = PaneLink(channel: channel, role: role, windowId: id)
+      ..onSpot = _onPaneSpot
+      ..onSpotWanted = _sendPaneSpot
+      ..needsSpot = () => _accessUnlocked == true && widget.library.session == null;
+    _pane = link;
+    widget.library.onSpotSaved = link.sendSpot;
+    onPaneWindowClose(link.leave);
+    link.start();
+  }
+
+  void _sendPaneSpot() {
+    final s = widget.library.session;
+    if (s == null || !s.isValid) return;
+    _pane?.sendSpot(s.cacheId, s.sentenceIndex, s.figureIndex);
+  }
+
+  Future<void> _onPaneSpot(String cacheId, int si, int fi) async {
+    if (!mounted) return;
+    if (_accessUnlocked != true || !widget.auth.isLoggedIn) {
+      if (_isFigurePane) _paneWaiting = (cacheId: cacheId, si: si, fi: fi);
+      return;
+    }
+    final s = widget.library.session;
+    if (s == null || !s.isValid || s.cacheId.trim() != cacheId.trim()) {
+      // Only the figure window follows the main window to another paper.
+      if (!_isFigurePane) return;
+      final opened = await widget.library.openByCacheId(cacheId);
+      if (!mounted || opened == null) return;
+      if (!_readerSurface) _goReader();
+    }
+    await widget.library.followPane(cacheId, si, fi);
   }
 
   @override
@@ -156,6 +205,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     widget.library.onSoftHideOpened = null;
     widget.library.uploadNotify.setOpenCacheIdHandler(null);
     widget.library.stopSpotSync();
+    if (_pane != null) {
+      widget.library.onSpotSaved = null;
+      _pane!.dispose();
+    }
     super.dispose();
   }
 
@@ -329,6 +382,14 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   Future<void> _applyLaunchDest() async {
     if (!mounted || _accessUnlocked != true || !widget.auth.isLoggedIn) return;
     if (_readerSurface) return;
+    // design/415 — the figure window shows what the main window has open, not the
+    // last paper read.
+    if (_isFigurePane) {
+      final w = _paneWaiting;
+      _paneWaiting = null;
+      if (w != null) await _onPaneSpot(w.cacheId, w.si, w.fi);
+      return;
+    }
     await _consumePendingOpen();
     if (!mounted || _readerSurface) return;
     await widget.shadowing.applyAutoOffIfStale();
@@ -494,16 +555,26 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           }
         }
 
-        final libraryPage = LibraryScreen(
-          auth: widget.auth,
-          library: widget.library,
-          bookmarks: widget.bookmarks,
-          annotations: widget.annotations,
-          shadowing: widget.shadowing,
-          tts: widget.tts,
-          onOpened: _goReader,
-          onOpenSettings: _openSettings,
-        );
+        final Widget libraryPage = _isFigurePane
+            ? const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text(
+                    '그림 창입니다.\n문장 창에서 논문을 열면 여기에 그림이 나옵니다.',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              )
+            : LibraryScreen(
+                auth: widget.auth,
+                library: widget.library,
+                bookmarks: widget.bookmarks,
+                annotations: widget.annotations,
+                shadowing: widget.shadowing,
+                tts: widget.tts,
+                onOpened: _goReader,
+                onOpenSettings: _openSettings,
+              );
         final readerPage = ReaderScreen(
           library: widget.library,
           tts: widget.tts,
@@ -513,6 +584,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           citePanel: widget.citePanel,
           bookmarks: widget.bookmarks,
           annotations: widget.annotations,
+          pane: _pane,
         );
 
         // design/224 — no bottom tabs; reader Offstage keep-alive (P1).

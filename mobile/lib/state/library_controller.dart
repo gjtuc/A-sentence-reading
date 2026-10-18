@@ -269,6 +269,38 @@ class LibraryController extends ChangeNotifier {
     await _syncCursor(sentence: true, figure: true);
   }
 
+  /// design/415 — every saved spot of the open paper; the other window follows it.
+  void Function(String cacheId, int si, int fi)? onSpotSaved;
+
+  /// design/415 — the other window of this browser moved; same checks as a spot
+  /// from another device, but no clock compare: the windows share one clock and
+  /// the message is a move made a moment ago. True when the open paper moved.
+  Future<bool> followPane(String cacheId, int si, int fi) async {
+    final s = session;
+    if (s == null || !s.isValid || s.cacheId.trim() != cacheId.trim()) return false;
+    if (_annotations?.blocksReaderNavigation == true) return false;
+    final v = validateProgressIndices(
+      sentenceIndex: si,
+      figureIndex: fi,
+      sentenceCount: s.sentenceCount,
+      figureCount: s.figureCount,
+    );
+    if (!v.ok) return false;
+    if (v.sentenceIndex == s.sentenceIndex && v.figureIndex == s.figureIndex) {
+      return false;
+    }
+    final from = s.sentenceIndex;
+    s.sentenceIndex = v.sentenceIndex!;
+    s.figureIndex = v.figureIndex!;
+    if (from != s.sentenceIndex) {
+      onSentenceIndexChanged?.call(from, s.sentenceIndex);
+    }
+    notifyListeners();
+    unawaited(_prefetchFigureWindow());
+    await persistOpenedProgress(toPane: false);
+    return true;
+  }
+
   void bindFigureDiskUid(String? uid) {
     _diskUid = (uid ?? '').trim().isEmpty ? null : uid!.trim();
     _bindSpotSync(_diskUid);
@@ -4107,10 +4139,17 @@ class LibraryController extends ChangeNotifier {
   ///
   /// design/411 — [publish] (a move made here) also sends the spot to the other
   /// devices of this account; [at] is the time of a spot taken from one of them.
-  Future<void> persistOpenedProgress({bool publish = false, String? at}) async {
+  Future<void> persistOpenedProgress({
+    bool publish = false,
+    String? at,
+    bool toPane = true,
+  }) async {
     final s = session;
     if (s == null || !s.isValid || s.cacheId.isEmpty) return;
     if (publish) _spotSync?.noteLocal(s.cacheId, s.sentenceIndex, s.figureIndex);
+    // A spot that came from the other window is not sent back: by the time the echo
+    // lands, that window may have moved on and would be pulled back.
+    if (toPane) onSpotSaved?.call(s.cacheId, s.sentenceIndex, s.figureIndex);
     try {
       // design/411 - the bound uid needs no network; a slow auth call lost the last spot.
       final uid = _diskUid ?? await _authUid();

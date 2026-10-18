@@ -1264,9 +1264,58 @@ class _WebReadingSection extends StatelessWidget {
             selected: {prefs.column},
             onSelectionChanged: (v) => unawaited(prefs.setColumn(v.first)),
           ),
+          const SizedBox(height: 12),
+          Text('배경', style: text.bodyMedium),
+          const SizedBox(height: 4),
+          SegmentedButton<WebPage>(
+            segments: const [
+              ButtonSegment(value: WebPage.app, label: Text('앱 그대로')),
+              ButtonSegment(value: WebPage.dim, label: Text('어두운 회색')),
+              ButtonSegment(value: WebPage.paper, label: Text('종이색')),
+              ButtonSegment(value: WebPage.white, label: Text('흰색')),
+            ],
+            selected: {prefs.page},
+            onSelectionChanged: (v) => unawaited(prefs.setPage(v.first)),
+          ),
+          const SizedBox(height: 12),
+          Text('글자 간격', style: text.bodyMedium),
+          const SizedBox(height: 4),
+          SegmentedButton<WebSpacing>(
+            segments: const [
+              ButtonSegment(value: WebSpacing.normal, label: Text('보통')),
+              ButtonSegment(value: WebSpacing.wide, label: Text('넓게')),
+            ],
+            selected: {prefs.spacing},
+            onSelectionChanged: (v) => unawaited(prefs.setSpacing(v.first)),
+          ),
+          const SizedBox(height: 12),
+          Text('글꼴', style: text.bodyMedium),
+          const SizedBox(height: 4),
+          SegmentedButton<WebFont>(
+            segments: const [
+              ButtonSegment(value: WebFont.sans, label: Text('기본')),
+              ButtonSegment(value: WebFont.serif, label: Text('책 글꼴')),
+            ],
+            selected: {prefs.font},
+            onSelectionChanged: (v) => unawaited(prefs.setFont(v.first)),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('마우스가 멈추면 버튼 숨기기'),
+            subtitle: const Text('3초 동안 마우스를 움직이지 않으면 문장만 남습니다.'),
+            value: prefs.autoHide,
+            onChanged: (v) => unawaited(prefs.setAutoHide(v)),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('앞뒤 문장 흐리게 보이기'),
+            subtitle: const Text('같은 장 안의 이전·다음 문장을 옅게 보여 줍니다.'),
+            value: prefs.showContext,
+            onChanged: (v) => unawaited(prefs.setShowContext(v)),
+          ),
           const SizedBox(height: 8),
           Text(
-            '넓은 모니터에서 문장을 가운데 폭에 모아 크게 보여 줍니다. '
+            '넓은 모니터에서 문장을 화면 가운데에 크게 보여 줍니다. '
             '키보드 ←/→ 는 문장, Shift+←/→ 는 그림을 넘깁니다.',
             style: text.bodySmall,
           ),
