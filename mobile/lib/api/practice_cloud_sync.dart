@@ -188,7 +188,13 @@ class PracticeCloudSync {
     try {
       final result = await client.pushPracticeSkillSync(store);
       if (!result.available || result.store == null) return;
-      final merged = SkillState.fromJson(result.store!);
+      // design/412 - the reply was written over the phone's copy whole, and a
+      // server that dropped a field took it off the phone too. The phone's own
+      // copy wins a tie.
+      final merged = mergeSkillStates(
+        SkillState.fromJson(result.store!),
+        SkillState.fromJson(Map<String, dynamic>.from(store)),
+      );
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(skillPrefsKey(uid), jsonEncode(merged.toJson()));
       ok = true;

@@ -8,8 +8,10 @@ import 'skill_store.dart';
 
 const int kSkillEpochMinN = 5;
 const int kSkillEpochMaxN = 10;
-const double kSkillFinerThreshold = 0.80;
-const double kSkillCoarserThreshold = 0.90;
+/// design/412 - each word said right matters more than moving up, so the
+/// band sits higher.
+const double kSkillFinerThreshold = 0.85;
+const double kSkillCoarserThreshold = 0.95;
 
 int rollSkillEpochTarget([Random? random]) {
   final rng = random ?? Random();

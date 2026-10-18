@@ -7,6 +7,7 @@ import '../api/focus_practice_models.dart';
 import '../state/focus_practice_controller.dart';
 import '../practice_skill/skill_ladder.dart';
 import '../practice_skill/skill_store.dart';
+import 'skill_history_sheet.dart';
 
 /// Single emerald palette · level 0..3 (empty → densest).
 Color focusHeatColor(int level, {required bool dark}) {
@@ -234,6 +235,17 @@ class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white38, fontSize: 11),
             ),
+            if (widget.skill != null && widget.skillFeatureOn)
+              TextButton(
+                onPressed: () => showSkillHistorySheet(
+                  context: context,
+                  history: widget.skill!.state.history,
+                ),
+                child: Text(
+                  '난이도 기록 보기 (${widget.skill!.state.history.length})',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
           ],
         ),
       ),

@@ -10,6 +10,7 @@ import '../api/practice_cloud_hooks.dart';
 import 'chunk_density.dart';
 import 'pass_line.dart';
 import 'skill_adapt.dart';
+import 'skill_history.dart';
 import 'skill_ladder.dart';
 
 const String kSkillPrefsKeyBase = 'asr.practice_skill.v1';
@@ -45,6 +46,8 @@ class SkillState {
     this.savedTier = -1,
     this.savedDensity = 0,
     this.line = const PassLine(),
+    this.history = const [],
+    this.ladderFix = 0,
   });
 
   final int version;
@@ -69,6 +72,12 @@ class SkillState {
   /// design/371 - where this account's pass line sits. Three numbers.
   final PassLine line;
 
+  /// design/412 - why the rung is where it is, oldest first.
+  final List<SkillChange> history;
+
+  /// design/412 - the last [kSkillLadderFix] this account has had applied.
+  final int ladderFix;
+
   SkillState copyWith({
     int? version,
     int? tier,
@@ -84,6 +93,8 @@ class SkillState {
     int? savedTier,
     int? savedDensity,
     PassLine? line,
+    List<SkillChange>? history,
+    int? ladderFix,
   }) {
     return SkillState(
       version: version ?? this.version,
@@ -100,6 +111,8 @@ class SkillState {
       savedTier: savedTier ?? this.savedTier,
       savedDensity: savedDensity ?? this.savedDensity,
       line: line ?? this.line,
+      history: history ?? this.history,
+      ladderFix: ladderFix ?? this.ladderFix,
     );
   }
 
@@ -120,6 +133,8 @@ class SkillState {
         'line_n': line.n,
         'line_unit': kPassLineUnit,
         'updated_at_ms': updatedAtMs < 0 ? 0 : updatedAtMs,
+        'history': [for (final c in history) c.toJson()],
+        'ladder_fix': ladderFix,
         'days': {
           for (final e in days.entries)
             e.key: {'sum': e.value.sum, 'n': e.value.n},
@@ -176,6 +191,8 @@ class SkillState {
         final u = (m['updated_at_ms'] as num?)?.toInt() ?? 0;
         return u < 0 ? 0 : u;
       })(),
+      history: parseSkillHistory(m['history']),
+      ladderFix: ((m['ladder_fix'] as num?)?.toInt() ?? 0).clamp(0, 1 << 20),
     );
   }
 }
@@ -190,7 +207,10 @@ class SkillStore {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(skillPrefsKey(_uid));
     if (raw == null || raw.isEmpty) {
-      state = SkillState(epochTargetN: rollSkillEpochTarget());
+      state = SkillState(
+        epochTargetN: rollSkillEpochTarget(),
+        ladderFix: kSkillLadderFix,
+      );
       // Cache empty local without cloud push (avoid LWW clobber of remote).
       await prefs.setString(skillPrefsKey(_uid), jsonEncode(state.toJson()));
       return;
@@ -218,8 +238,32 @@ class SkillStore {
     // that survived a kill would silently hold every later paper on that rung,
     // so every bind drops it; a starting round re-pins right after this.
     if (state.pinned) {
-      await unpinLadder();
+      await unpinLadder(reason: 'sample_left');
     }
+    await _applyLadderFix();
+  }
+
+  /// design/412 - the server dropped `pinned` and `saved_tier`, so a sample
+  /// round killed mid-way left its rung as the account's own. Put the account
+  /// back on the starting rung once, and let the epoch move it from there.
+  Future<void> _applyLadderFix() async {
+    if (state.ladderFix >= kSkillLadderFix) return;
+    const start = SkillState();
+    final before = state;
+    state = state.copyWith(
+      tier: start.tier,
+      density: start.density,
+      cooldownBlocks: 0,
+      epochMeans: const [],
+      blockSum: 0,
+      blockN: 0,
+      ladderFix: kSkillLadderFix,
+    );
+    await noteChange(
+      reason: 'reset',
+      tierBefore: before.tier,
+      densityBefore: before.density,
+    );
   }
 
   Future<void> _persist() async {
@@ -268,6 +312,7 @@ class SkillStore {
   Future<void> pinLadder({required int tier, required int density}) async {
     final keepTier = state.pinned ? state.savedTier : state.tier;
     final keepDensity = state.pinned ? state.savedDensity : state.density;
+    final before = state;
     state = state.copyWith(
       pinned: true,
       savedTier: keepTier,
@@ -279,13 +324,18 @@ class SkillStore {
       blockSum: 0,
       blockN: 0,
     );
-    await _persist();
+    await noteChange(
+      reason: 'sample_on',
+      tierBefore: before.tier,
+      densityBefore: before.density,
+    );
   }
 
   /// Put the remembered rung back and drop everything the sweep accumulated.
-  Future<void> unpinLadder() async {
+  Future<void> unpinLadder({String reason = 'sample_back'}) async {
     if (!state.pinned) return;
     final back = state.savedTier;
+    final before = state;
     state = state.copyWith(
       pinned: false,
       tier: back < 0 ? state.tier : clampSkillTier(back),
@@ -296,6 +346,38 @@ class SkillStore {
       epochMeans: const [],
       blockSum: 0,
       blockN: 0,
+    );
+    await noteChange(
+      reason: reason,
+      tierBefore: before.tier,
+      densityBefore: before.density,
+    );
+  }
+
+  /// design/412 - one row for [SkillState.history], at the rung the state is
+  /// on now. Saves the state.
+  Future<void> noteChange({
+    required String reason,
+    required int tierBefore,
+    required int densityBefore,
+    double? avg,
+    int blocks = 0,
+  }) async {
+    var at = DateTime.now().millisecondsSinceEpoch;
+    final last = state.history.isEmpty ? 0 : state.history.last.atMs;
+    if (at <= last) at = last + 1;
+    final row = SkillChange(
+      atMs: at,
+      reason: reason,
+      tierBefore: tierBefore,
+      densityBefore: densityBefore,
+      tier: state.tier,
+      density: state.density,
+      avg: avg,
+      blocks: blocks,
+    );
+    state = state.copyWith(
+      history: trimSkillHistory([...state.history, row]),
     );
     await _persist();
   }

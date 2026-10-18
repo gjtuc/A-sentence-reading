@@ -1076,6 +1076,7 @@ class PracticeSkillController {
       return;
     }
 
+    final tierBefore = store.state.tier;
     final apply = resolveSkillAdaptApply(
       state: store.state,
       decision: decision,
@@ -1087,6 +1088,13 @@ class PracticeSkillController {
         cooldown: apply.cooldown,
       );
     }
+    await store.noteChange(
+      reason: decision.reason,
+      tierBefore: tierBefore,
+      densityBefore: apply.densityBefore,
+      avg: epochAvg,
+      blocks: epochN,
+    );
     await store.resolveEpoch(newTargetN: rollSkillEpochTarget());
     await evidence.emit(
       kind: 'practice_skill_adapt',
@@ -1106,6 +1114,9 @@ class PracticeSkillController {
         'epoch_n': epochN,
         'epoch_target': epochTarget,
         if (epochAvg != null) 'epoch_avg': epochAvg,
+        'tier_before': tierBefore,
+        'finer_line': kSkillFinerThreshold,
+        'coarser_line': kSkillCoarserThreshold,
         'can_finer': canFiner(baseChunks, store.state.density) ? 1 : 0,
         'can_coarser': canCoarser(baseChunks, store.state.density) ? 1 : 0,
       },

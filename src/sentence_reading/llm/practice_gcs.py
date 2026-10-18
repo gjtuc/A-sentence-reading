@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from sentence_reading.llm.gcs_sync import (
@@ -20,6 +21,11 @@ from sentence_reading.llm.gcs_sync import (
 log = logging.getLogger(__name__)
 
 PRACTICE_STORE_MAX_BYTES = 400_000
+
+# design/412 - rung history rows kept per account (mobile kSkillHistoryMax).
+SKILL_HISTORY_MAX = 400
+_HISTORY_REASON = re.compile(r"^[a-z0-9_]{1,24}$")
+_LINE_KEYS = ("line_avg", "line_var", "line_n", "line_unit")
 
 
 def focus_store_object() -> str | None:
@@ -103,6 +109,57 @@ def normalize_focus_store(raw: Any) -> dict[str, Any]:
     }
 
 
+def _clamp_int(v: Any, lo: int, hi: int, default: int) -> int:
+    return max(lo, min(hi, _as_int(v, default)))
+
+
+def _clamp_float(v: Any, lo: float, hi: float, default: float) -> float:
+    return max(lo, min(hi, _as_float(v, default)))
+
+
+def normalize_skill_history(raw: Any) -> list[dict[str, Any]]:
+    """design/412 - oldest first, one row per (at, why), at most SKILL_HISTORY_MAX."""
+    rows: dict[str, dict[str, Any]] = {}
+    if not isinstance(raw, list):
+        return []
+    for r in raw:
+        if not isinstance(r, dict):
+            continue
+        at = _as_int(r.get("at"), 0)
+        why = str(r.get("why") or "").strip()
+        if at <= 0 or not _HISTORY_REASON.match(why):
+            continue
+        row: dict[str, Any] = {
+            "at": at,
+            "why": why,
+            "t0": _clamp_int(r.get("t0"), 0, 9, 2),
+            "d0": _clamp_int(r.get("d0"), -2, 2, 0),
+            "t1": _clamp_int(r.get("t1"), 0, 9, 2),
+            "d1": _clamp_int(r.get("d1"), -2, 2, 0),
+            "n": _clamp_int(r.get("n"), 0, 1000, 0),
+            "lo": _clamp_float(r.get("lo"), 0.0, 1.0, 0.85),
+            "hi": _clamp_float(r.get("hi"), 0.0, 1.0, 0.95),
+        }
+        avg = r.get("avg")
+        if isinstance(avg, (int, float)) and not isinstance(avg, bool):
+            row["avg"] = max(0.0, min(1.0, float(avg)))
+        rows[f"{at}:{why}"] = row
+    out = sorted(rows.values(), key=lambda x: x["at"])
+    return out[-SKILL_HISTORY_MAX:]
+
+
+def _line_fields(raw: dict[str, Any]) -> dict[str, Any]:
+    """design/371 pass line. Absent without a unit, which the phone reads as cold."""
+    if not isinstance(raw.get("line_unit"), int) or isinstance(raw.get("line_unit"), bool):
+        return {}
+    return {
+        "line_avg": _clamp_float(raw.get("line_avg"), 0.0, 1.0, 0.0),
+        "line_var": _clamp_float(raw.get("line_var"), 0.0, 1.0, 0.0),
+        "line_n": max(0, _as_int(raw.get("line_n"), 0)),
+        "line_unit": int(raw["line_unit"]),
+    }
+
+
 def normalize_skill_store(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
         return empty_skill_store()
@@ -129,6 +186,9 @@ def normalize_skill_store(raw: Any) -> dict[str, Any]:
     target = max(5, min(10, target))
     tier = max(0, min(9, _as_int(raw.get("tier"), 2)))
     density = max(-2, min(2, _as_int(raw.get("density"), 0)))
+    # design/412 - pinned, saved_* and the line used to be dropped here, and the
+    # phone saved this reply over its own copy. A sample round killed mid-way
+    # then kept its rung, and the pass line started cold every session.
     return {
         "version": 2,
         "tier": tier,
@@ -140,6 +200,12 @@ def normalize_skill_store(raw: Any) -> dict[str, Any]:
         "epoch_means": means,
         "epoch_target_n": target,
         "updated_at_ms": max(0, _as_int(raw.get("updated_at_ms"), 0)),
+        "pinned": raw.get("pinned") is True,
+        "saved_tier": _clamp_int(raw.get("saved_tier"), -1, 9, -1),
+        "saved_density": _clamp_int(raw.get("saved_density"), -2, 2, 0),
+        **_line_fields(raw),
+        "history": normalize_skill_history(raw.get("history")),
+        "ladder_fix": max(0, _as_int(raw.get("ladder_fix"), 0)),
     }
 
 
@@ -193,6 +259,13 @@ def merge_skill_stores(a: Any, b: Any) -> dict[str, Any]:
     out["days"] = days
     out["version"] = 2
     out["updated_at_ms"] = max(int(sa["updated_at_ms"]), int(sb["updated_at_ms"]))
+    other = sa if live is sb else sb
+    # A client older than design/412 sends no line. Keep the one already learned.
+    if int(live.get("line_n", 0)) == 0 and int(other.get("line_n", 0)) > 0:
+        for k in _LINE_KEYS:
+            out[k] = other[k]
+    out["history"] = normalize_skill_history(sa["history"] + sb["history"])
+    out["ladder_fix"] = max(int(sa["ladder_fix"]), int(sb["ladder_fix"]))
     return normalize_skill_store(out)
 
 

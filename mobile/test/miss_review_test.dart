@@ -381,7 +381,8 @@ void main() {
   });
 
   test('design/393 a missed word drops to a sound and a cleared one climbs', () {
-    final climb = MissReviewClimb();
+    // The walk takes four tries, one more than design/412's default.
+    final climb = MissReviewClimb(maxTries: 5);
     expect(climb.step, MissReviewStep.word);
 
     climb.afterWord(matched: false, lowest: 2);
@@ -401,18 +402,16 @@ void main() {
     expect(climb.tries, 4);
   });
 
-  test('design/393 seven tries in all, word and sound together', () {
+  test('design/412 three tries in all, word and sound together', () {
     final climb = MissReviewClimb();
-    expect(climb.maxTries, 7);
+    expect(climb.maxTries, 3);
     climb.afterWord(matched: false, lowest: 1);
-    for (var i = 0; i < 5; i++) {
-      expect(climb.step, MissReviewStep.sound);
-      climb.afterSound(cleared: false);
-    }
+    expect(climb.step, MissReviewStep.sound);
+    climb.afterSound(cleared: false);
     expect(climb.focus, 1);
     expect(climb.step, MissReviewStep.sound);
     climb.afterSound(cleared: false);
-    expect(climb.tries, 7);
+    expect(climb.tries, 3);
     expect(climb.step, MissReviewStep.done);
   });
 

@@ -21,7 +21,8 @@ const Duration kReplayMarkHold = Duration(milliseconds: 2200);
 const int kMissReviewMaxTries = 5;
 
 /// design/393 - word tries and sound drills together, per missed word.
-const int kMissReviewTotalTries = 7;
+/// design/412 - word, its weakest sound, word again.
+const int kMissReviewTotalTries = 3;
 
 /// Extra attempts the rest watchdog must leave room for: a few sounds, two
 /// tries each, on top of the word tries. Without this the cover would close

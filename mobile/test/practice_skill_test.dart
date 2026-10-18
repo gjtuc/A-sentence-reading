@@ -9,6 +9,9 @@ import 'package:sentence_reading/practice_skill/skill_adapt.dart';
 import 'package:sentence_reading/practice_skill/skill_ladder.dart';
 import 'package:sentence_reading/practice_skill/skill_score.dart';
 import 'package:sentence_reading/practice_skill/skill_store.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sentence_reading/practice_skill/skill_history.dart';
 
 /// design/370 - a slot is judged by sound. `phone` on a span carries the sounds
 /// the native voice makes for that word, and `heardPhones` carries the run the
@@ -53,7 +56,7 @@ void main() {
     expect(d.densityDelta, 0);
   });
 
-  test('epoch finer when avg <= 80 and can finer', () {
+  test('epoch finer when avg <= 85 and can finer', () {
     final state = SkillState(
       epochMeans: const [0.7, 0.7, 0.7, 0.7, 0.7],
       epochTargetN: 5,
@@ -71,9 +74,9 @@ void main() {
     expect(d.reason, 'finer');
   });
 
-  test('epoch coarser when avg >= 90', () {
+  test('epoch coarser when avg >= 95', () {
     final state = SkillState(
-      epochMeans: const [0.95, 0.92, 0.91, 0.90, 0.93],
+      epochMeans: const [0.97, 0.96, 0.95, 0.95, 0.97],
       epochTargetN: 5,
       density: 1,
       tier: 2,
@@ -89,9 +92,9 @@ void main() {
     expect(d.reason, 'coarser');
   });
 
-  test('epoch hold in 80-90 band', () {
+  test('epoch hold in 85-95 band', () {
     final state = SkillState(
-      epochMeans: const [0.85, 0.85, 0.85, 0.85, 0.85],
+      epochMeans: const [0.90, 0.90, 0.90, 0.90, 0.90],
       epochTargetN: 5,
       density: 0,
       tier: 2,
@@ -1065,5 +1068,108 @@ void main() {
     const ownLineAtWarmup = 0.450;
     expect((ownLineAtWarmup - kPassLineCold).abs(), lessThan(0.02));
     expect(kPassLineCold, lessThan(ownLineAtWarmup + 0.02));
+  });
+
+  SkillAdaptDecision decideAt(double avg) => decideSkillAdapt(
+        state: SkillState(
+          epochMeans: List<double>.filled(5, avg),
+          epochTargetN: 5,
+          density: 0,
+          tier: 2,
+        ),
+        baseChunks: const [
+          'The catalyst',
+          'The catalyst was prepared by reduction of the oxide',
+          'The catalyst was prepared by reduction of the oxide at high heat',
+        ],
+      );
+
+  test('design/412 the band runs from 85 to 95', () {
+    expect(decideAt(0.85).reason, 'finer');
+    expect(decideAt(0.86).reason, 'hold');
+    expect(decideAt(0.94).reason, 'hold');
+    expect(decideAt(0.95).reason, 'coarser');
+  });
+
+  test('design/412 a history row comes back as it went', () {
+    const row = SkillChange(
+      atMs: 1792204790524,
+      reason: 'finer',
+      tierBefore: 3,
+      densityBefore: 0,
+      tier: 3,
+      density: 1,
+      avg: 0.812,
+      blocks: 7,
+    );
+    final back = SkillState.fromJson(
+      jsonDecode(jsonEncode(const SkillState(history: [row]).toJson()))
+          as Map<String, dynamic>,
+    );
+    final got = back.history.single;
+    expect(got.key, row.key);
+    expect(got.ladderBefore, 18);
+    expect(got.ladderAfter, 17);
+    expect(got.avg, closeTo(0.812, 1e-9));
+    expect(got.blocks, 7);
+    expect(got.lo, kSkillFinerThreshold);
+    expect(got.hi, kSkillCoarserThreshold);
+  });
+
+  Future<SkillStore> boundStore(Map<String, dynamic> saved) async {
+    SharedPreferences.setMockInitialValues({
+      skillPrefsKey('u'): jsonEncode({'epoch_target_n': 5, ...saved}),
+    });
+    final store = SkillStore();
+    await store.bindUid('u');
+    return store;
+  }
+
+  test('design/412 a rung a lost pin left behind is put back once', () async {
+    // What the phone held: the round's rung with the pin stripped off.
+    final store = await boundStore({'tier': 3, 'density': 1});
+    expect(store.state.tier, 2);
+    expect(store.state.density, 0);
+    expect(store.state.ladderFix, kSkillLadderFix);
+    final row = store.state.history.single;
+    expect(row.reason, 'reset');
+    expect(row.ladderBefore, 17);
+    expect(row.ladderAfter, 13);
+    // The next bind finds the fix applied and leaves the rung to the epoch.
+    await store.setTierDensity(tier: 4, density: 0);
+    await store.bindUid('u');
+    expect(store.state.tier, 4);
+    expect(store.state.history, hasLength(1));
+  });
+
+  test('design/412 a sample round writes its start and its return', () async {
+    final store = await boundStore({
+      'tier': 2,
+      'density': 0,
+      'ladder_fix': kSkillLadderFix,
+    });
+    await store.pinLadder(tier: 3, density: 0);
+    await store.unpinLadder();
+    expect(store.state.tier, 2);
+    expect(
+      store.state.history.map((c) => c.reason).toList(),
+      ['sample_on', 'sample_back'],
+    );
+    expect(store.state.history.first.ladderAfter, 18);
+    expect(store.state.history.last.ladderAfter, 13);
+  });
+
+  test('design/412 a pin that outlived its round is dropped on bind', () async {
+    final store = await boundStore({
+      'tier': 3,
+      'density': 0,
+      'pinned': true,
+      'saved_tier': 2,
+      'saved_density': 0,
+      'ladder_fix': kSkillLadderFix,
+    });
+    expect(store.state.pinned, isFalse);
+    expect(store.state.tier, 2);
+    expect(store.state.history.single.reason, 'sample_left');
   });
 }

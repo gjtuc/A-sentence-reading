@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/api/focus_practice_models.dart';
 import 'package:sentence_reading/api/practice_cloud_merge.dart';
 import 'package:sentence_reading/practice_skill/skill_store.dart';
+import 'package:sentence_reading/practice_skill/pass_line.dart';
+import 'package:sentence_reading/practice_skill/skill_history.dart';
 
 void main() {
   test('mergeFocusHistories takes max blocks and streak', () {
@@ -63,5 +65,53 @@ void main() {
     final again = parseFocusPracticeHistory(serializeFocusPracticeHistory(h));
     expect(again.updatedAtMs, 123);
     expect(again.days['2026-09-01'], 2);
+  });
+
+  test('design/412 a reply that lost the line does not take it off the phone', () {
+    // What the server sent back before design/412: no line, no pin.
+    const reply = SkillState(tier: 3, density: 0, updatedAtMs: 50);
+    const phone = SkillState(
+      tier: 3,
+      density: 0,
+      updatedAtMs: 50,
+      pinned: true,
+      savedTier: 2,
+      line: PassLine(avg: 0.7, varp: 0.02, n: 1300),
+    );
+    final m = mergeSkillStates(reply, phone);
+    expect(m.line.n, 1300);
+    expect(m.pinned, isTrue);
+    expect(m.savedTier, 2);
+  });
+
+  test('design/412 history is the union and the fix mark only goes up', () {
+    const one = SkillChange(
+      atMs: 10,
+      reason: 'hold',
+      tierBefore: 2,
+      densityBefore: 0,
+      tier: 2,
+      density: 0,
+      avg: 0.9,
+    );
+    const two = SkillChange(
+      atMs: 20,
+      reason: 'reset',
+      tierBefore: 3,
+      densityBefore: 1,
+      tier: 2,
+      density: 0,
+    );
+    const a = SkillState(updatedAtMs: 30, history: [one], ladderFix: 0);
+    const b = SkillState(updatedAtMs: 5, history: [one, two], ladderFix: 1);
+    final m = mergeSkillStates(a, b);
+    expect(m.history.map((c) => c.key).toList(), [one.key, two.key]);
+    expect(m.ladderFix, 1);
+    // A newer copy with an empty line keeps the learned one beside it.
+    final lined = mergeSkillStates(
+      const SkillState(updatedAtMs: 1, line: PassLine(avg: 0.7, n: 40)),
+      const SkillState(updatedAtMs: 2),
+    );
+    expect(lined.line.n, 40);
   });
 }

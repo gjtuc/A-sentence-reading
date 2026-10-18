@@ -11,7 +11,7 @@ const String kDefaultApiBaseUrl =
     'https://asr-sentence-reading-984608876300.asia-northeast3.run.app';
 
 /// Fallback when [PackageInfo] is unavailable (error reports). Keep in sync with pubspec.
-const String kAppVersionLabel = '0.3.449';
+const String kAppVersionLabel = '0.3.450';
 
 /// Runtime-overridable API settings (email session cookie in SessionStore).
 class AsrConfig {

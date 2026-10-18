@@ -2,6 +2,7 @@
 library;
 
 import 'focus_practice_models.dart';
+import '../practice_skill/skill_history.dart';
 import '../practice_skill/skill_store.dart';
 
 FocusPracticeHistory mergeFocusHistories(
@@ -48,5 +49,15 @@ SkillState mergeSkillStates(SkillState a, SkillState b) {
   }
   final updated =
       a.updatedAtMs > b.updatedAtMs ? a.updatedAtMs : b.updatedAtMs;
-  return live.copyWith(days: days, updatedAtMs: updated);
+  final other = identical(live, b) ? a : b;
+  // design/412 - a line only resets when its unit changes, so an empty one
+  // beside a learned one is a copy that lost it on the way.
+  final line = live.line.n == 0 && other.line.n > 0 ? other.line : live.line;
+  return live.copyWith(
+    days: days,
+    updatedAtMs: updated,
+    line: line,
+    history: mergeSkillHistory(a.history, b.history),
+    ladderFix: a.ladderFix > b.ladderFix ? a.ladderFix : b.ladderFix,
+  );
 }
