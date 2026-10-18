@@ -4,6 +4,7 @@ library;
 import 'dart:typed_data';
 
 import '../api/progress_store.dart';
+import '../practice_sample/sample_seed.dart';
 import 'near_sync.dart';
 import 'paper_disk_store.dart';
 import 'shadowing_disk_store.dart';
@@ -21,7 +22,8 @@ class LibraryNearLocal implements NearLocal {
   Future<List<NearPaper>> papers() async {
     final out = <NearPaper>[];
     for (final e in await disk.listIndex()) {
-      if (e.id.isEmpty || !await disk.hasSession(e.id)) continue;
+      if (e.id.isEmpty || isSampleCacheId(e.id)) continue;
+      if (!await disk.hasSession(e.id)) continue;
       out.add(NearPaper(id: e.id, title: e.title, hash: e.contentHash));
     }
     return out;

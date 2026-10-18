@@ -2841,6 +2841,7 @@ class LibraryController extends ChangeNotifier {
     }
     notifyListeners();
     final trig = trigger.trim().isEmpty ? 'manual' : trigger.trim();
+    var listed = false;
     try {
       final fetched = await _client.listPapers(fresh: fresh);
       // design/222 — persist server doc_role/content_hash onto disk index before wipe.
@@ -2870,6 +2871,7 @@ class LibraryController extends ChangeNotifier {
       // design/185 Phase 1 — surface local-only disk papers (no cloud wipe yet).
       final merged = await _paperDisk.mergeRemoteWithLocal(fetched);
       _publishPapers(await _applySavedOrder(merged), trigger: trig);
+      listed = true;
       await _rebuildLibraryHashSet();
       await _reloadPickerRecent();
       try {
@@ -2966,10 +2968,14 @@ class LibraryController extends ChangeNotifier {
       unawaited(_refreshResumeOffer());
       unawaited(hydrateUploadQueue(pump: true));
       unawaited(refreshReadLeftTimes());
-      unawaited(
-        _editStash.purgeOrphans(papers.map((p) => p.id).toSet()),
-      );
-      unawaited(sweepLocalResidues(trigger: 'library_refresh'));
+      // design/413 - a list that failed to load is empty, not a list of what to
+      // keep. Sweeping by it deleted every paper the web held.
+      if (listed) {
+        unawaited(
+          _editStash.purgeOrphans(papers.map((p) => p.id).toSet()),
+        );
+        unawaited(sweepLocalResidues(trigger: 'library_refresh'));
+      }
       unawaited(reconcileUploadNotify());
       for (final p in papers) {
         if (p.harmonizePending) {
@@ -3250,10 +3256,22 @@ class LibraryController extends ChangeNotifier {
 
   /// design/307 — delete folders not in the library or soft-hide set, then re-list.
   Future<void> sweepLocalResidues({required String trigger}) async {
+    // design/413 - a paper this device indexed with its session is the device's
+    // own, whatever the list says. A delete purges it by name first.
+    final indexed = <({String id, String mateId})>[];
+    try {
+      for (final e in await _paperDisk.listIndex()) {
+        if (e.id.isEmpty || !await _paperDisk.hasSession(e.id)) continue;
+        indexed.add((id: e.id, mateId: e.pairedCacheId));
+      }
+    } catch (_) {
+      return;
+    }
     final keep = residueKeepTokens([
       ...residueLibraryIds(
         papers.map((p) => (id: p.id, mateId: p.pairedCacheId)),
       ),
+      ...residueLibraryIds(indexed),
       ..._softDelete.hiddenIds,
     ]);
     var deleted = 0;
@@ -3295,6 +3313,7 @@ class LibraryController extends ChangeNotifier {
         'deleted_n': deleted,
         'leftover_n': leftover,
         'keep_n': keep.length,
+        'indexed_n': indexed.length,
       },
     );
   }

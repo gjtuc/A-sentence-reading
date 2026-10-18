@@ -251,6 +251,7 @@ const _sessionBody = '{"session_id":"ses_disk","cache_id":"abcd1234",'
 /// A server that still holds one paper for handoff until [wipe] is set.
 class _HandoffServer {
   bool wipe = false;
+  bool fail = false;
   int acks = 0;
   int opens = 0;
 
@@ -284,6 +285,7 @@ class _HandoffServer {
           opens += 1;
           return http.Response('{}', 404);
         } else if (path.endsWith('/api/cache/papers')) {
+          if (fail) return http.Response('{"ok":false}', 503);
           json = {
             'ok': true,
             'papers': [
@@ -369,6 +371,43 @@ void browserDiskMain() {
       expect(library.error, isNull);
       expect(opened?.sentenceCount, 2);
       expect(server.opens, 0, reason: 'a stored paper opens from browser storage');
+    });
+
+    test('design/413 a list that failed to load deletes nothing', () async {
+      final server = _HandoffServer();
+      final sessions = MemorySessionStore();
+      await sessions.writeToken('tok');
+      final first = LibraryController(
+        client: server.client(sessions),
+        draftStore: MemoryUploadDraftStore(),
+      )..bindFigureDiskUid('u1');
+      await first.refresh();
+      for (var i = 0; i < 50; i++) {
+        if (await first.paperDiskStore.hasSession('abcd1234')) break;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(await first.paperDiskStore.hasSession('abcd1234'), isTrue);
+
+      // The tab reopened while the server was slow: nothing is listed yet.
+      server.fail = true;
+      final reopened = LibraryController(
+        client: server.client(sessions),
+        draftStore: MemoryUploadDraftStore(),
+      )..bindFigureDiskUid('u1');
+      await reopened.refresh();
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(reopened.papers, isEmpty);
+      expect(await reopened.paperDiskStore.hasSession('abcd1234'), isTrue);
+
+      // Even a sweep run against the empty list keeps what the device indexed.
+      await reopened.sweepLocalResidues(trigger: 'test');
+      expect(await reopened.paperDiskStore.hasSession('abcd1234'), isTrue);
+
+      server
+        ..fail = false
+        ..wipe = true;
+      await reopened.refresh();
+      expect(reopened.papers.map((p) => p.id), ['abcd1234']);
     });
   });
 }
