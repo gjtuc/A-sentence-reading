@@ -287,7 +287,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.452",
+    version="0.3.453",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -3434,7 +3434,10 @@ async def stt_recognize(request: Request, file: UploadFile = File(...),
             "hear_code": "call_failed",
             "hear_detail": type(exc).__name__.lower(),
         }
-    hear_report["hear_mime_ok"] = 1 if "mp4" in (mime or "").lower() else 0
+    # design/418 - the browser sends WebM/Opus; ffmpeg reads both.
+    hear_report["hear_mime_ok"] = (
+        1 if any(k in (mime or "").lower() for k in ("mp4", "webm")) else 0
+    )
     _emit_hear_row("stt_recognize", hear_report)
     # design/368 — this used to fall back to eSpeak reading the transcript aloud,
     # which turned the sound compare into a spelling compare wearing a costume

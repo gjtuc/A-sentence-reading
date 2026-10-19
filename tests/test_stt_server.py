@@ -213,3 +213,31 @@ def test_a_refused_recording_reports_the_ffmpeg_line(monkeypatch) -> None:
     assert phones == ""
     assert report["hear_code"] == "decode_failed"
     assert report["hear_detail"] == "moov_atom_not_found"
+
+
+def test_a_browser_webm_take_decodes_like_the_phone_m4a(tmp_path) -> None:
+    """design/418 - the web practice sends WebM/Opus from MediaRecorder."""
+    import shutil
+    import subprocess
+
+    from sentence_reading.llm import hear_waveform as hw
+
+    assert hw._suffix_for(b"\x1a\x45\xdf\xa3rest") == ".webm"
+    assert hw._suffix_for(b"\x00\x00\x00\x20ftypM4A ") == ".m4a"
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    pytest.importorskip("torch")
+    take = tmp_path / "take.webm"
+    made = subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=1.5",
+            "-c:a", "libopus", "-b:a", "48k", str(take),
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if made.returncode != 0:
+        pytest.skip("ffmpeg has no libopus")
+    pcm = hw._pcm16k(take.read_bytes())
+    assert abs(pcm.shape[0] - 24000) <= 160

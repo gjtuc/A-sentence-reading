@@ -12,10 +12,10 @@ import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/cite_refs.dart' as cite;
@@ -33,6 +33,7 @@ import '../practice_rhythm/judgment_copy.dart';
 import '../practice_rhythm/judgment_prefs.dart';
 import '../practice_rhythm/judgment_tier.dart';
 import '../practice_rhythm/phase_rail.dart';
+import '../practice_rhythm/practice_pause.dart';
 import '../practice_rhythm/follow_span.dart';
 import '../practice_rhythm/miss_review.dart';
 import '../practice_rhythm/word_phone_text.dart';
@@ -45,6 +46,7 @@ import '../practice_skill/practice_skill_controller.dart';
 import '../practice_skill/skill_ladder.dart';
 import '../practice_skill/skill_score.dart';
 import '../services/evidence_bus.dart';
+import '../services/shadow_mic.dart';
 import '../services/shadowing_disk_store.dart';
 import '../services/tts_audio_cache.dart';
 import '../services/shadowing_cloud_migrate.dart';
@@ -87,8 +89,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   static const _pad = Duration(seconds: 2);
   /// design/245+259 — after mic start, brief beat before speak UI / guide TTS.
   static const _speakMicReadyBeat = Duration(milliseconds: 350);
-  // WHY: design/82 — Android MediaRecorder via platform channel (no pub `record` dep).
-  static const _mic = MethodChannel('asr/shadowing_mic');
+  final ShadowMic _mic = ShadowMic();
   /// Speak phase only — the guide plays silent on every output, earphones
   /// included; it still runs so the follow light keeps its clock (design/391).
   static const double _kSpeakTtsVolume = 0.0;
@@ -132,10 +133,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   int _chunkIndex = 0;
   String _sentenceId = '0';
   int _sentenceIndex = 0;
-  /// design/120 — last local take path for replay phase (this chunk).
-  String? _lastTakePath;
-  /// design/245 — MediaRecorder prepared during listen for this take path.
-  String? _primedMicPath;
+  /// design/120 — last take of this chunk, for the replay phase.
+  MicTake? _lastTake;
   /// Per-chunk TTS: one random voice/rate draw; bytes reused for listen+speak.
   Uint8List? _chunkTtsBytes;
   TtsPlaybackParams? _chunkTtsParams;
@@ -349,7 +348,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _restWatchdog = null;
     _restEpoch++;
     unawaited(_player.dispose());
-    unawaited(_mic.invokeMethod<String>('stop'));
+    _mic.dispose();
     unawaited(_persistPracticeCursor());
     unawaited(_skill.flushEvidence(cacheId: _cacheId));
     if (widget.sampleRound != null) {
@@ -360,8 +359,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused) {
+    if (practicePausesOn(state, web: kIsWeb)) {
       _focus.onAppPaused(cacheId: _cacheId);
       if (_missReviewActive) {
         unawaited(_player.stop());
@@ -1239,7 +1237,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     // Continuous loop must not pin _busy (bookmark / calendar stay usable).
     if (mounted && _busy) setState(() => _busy = false);
     _clearChunkTtsCache();
-    _lastTakePath = null;
+    _lastTake = null;
     _grooming.setServerEnabled(widget.shadowing.groomingServerEnabled);
     _groomRateScale = _focus.sessionActive
         ? _grooming.beginCycle(chunkKey: _chunkKey, cacheId: _cacheId)
@@ -1419,23 +1417,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   /// design/245 — build+prepare recorder during listen so Speak start is cheap.
   Future<void> _primeMicForUpcomingSpeak() async {
     try {
-      var okMic = await _mic.invokeMethod<bool>('hasPermission') ?? false;
-      if (!okMic) {
-        okMic = await _mic.invokeMethod<bool>('requestPermission') ?? false;
-      }
-      if (!okMic) {
-        _primedMicPath = null;
-        return;
-      }
-      final dir = await getTemporaryDirectory();
-      final path =
-          '${dir.path}${Platform.pathSeparator}asr_shadow_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      final primed =
-          await _mic.invokeMethod<bool>('prepare', {'path': path}) ?? false;
-      _primedMicPath = primed ? path : null;
-    } catch (_) {
-      _primedMicPath = null;
-    }
+      if (!await _mic.ensurePermission()) return;
+      await _mic.prepare('shadow');
+    } catch (_) {}
   }
 
   /// design/259 — flip Speak rail/status at the same tick as beginSpeak.
@@ -1463,10 +1447,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         token == _cycleToken &&
         _focus.sessionActive &&
         !_focus.paused;
-    var okMic = await _mic.invokeMethod<bool>('hasPermission') ?? false;
-    if (!okMic) {
-      okMic = await _mic.invokeMethod<bool>('requestPermission') ?? false;
-    }
+    final okMic = await _mic.ensurePermission();
     if (!okMic) {
       asrEvidenceBus?.record(
         'shadowing_loop_event',
@@ -1476,22 +1457,13 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
         details: {'phase': 'mic_start', 'ok': false, 'exc_type': 'mic_perm'},
       );
       setState(() => _status = '마이크 권한이 없습니다. 다음 구간으로 넘어갑니다.');
-      _primedMicPath = null;
       return const _SpeakPhaseResult(
         ok: false,
         signal: GroomingSignal.micPerm,
         code: 'mic_perm',
       );
     }
-    var path = _primedMicPath;
-    if (path == null || path.isEmpty) {
-      final dir = await getTemporaryDirectory();
-      path =
-          '${dir.path}${Platform.pathSeparator}asr_shadow_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    }
-    final started =
-        await _mic.invokeMethod<bool>('start', {'path': path}) ?? false;
-    _primedMicPath = null;
+    final started = await _mic.start('shadow');
     if (!started) {
       asrEvidenceBus?.record(
         'shadowing_loop_event',
@@ -1511,7 +1483,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     await Future<void>.delayed(_speakMicReadyBeat);
     // design/260 — Give Up / jump / pause during beat must not reveal Speak.
     if (!alive()) {
-      unawaited(_mic.invokeMethod<String>('stop'));
+      unawaited(_mic.cancel());
       return const _SpeakPhaseResult(
         ok: false,
         signal: GroomingSignal.takeFail,
@@ -1560,27 +1532,25 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     } finally {
       wall.stop();
       _focus.endSpeak(cacheId: _cacheId);
-      final outPath = await _mic.invokeMethod<String>('stop');
+      final take = await _mic.stop();
       asrEvidenceBus?.record(
         'shadowing_loop_event',
         cacheId: _cacheId,
         ok: true,
         details: {'phase': 'mic_stop', 'ok': true},
       );
-      final filePath = (outPath == null || outPath.isEmpty) ? path : outPath;
-      final file = File(filePath);
-      if (!await file.exists()) {
+      if (take == null) {
         setState(() => _status = '녹음 실패. 다음 구간으로 넘어갑니다.');
         signal = GroomingSignal.takeFail;
         code = 'missing_file';
       } else {
-        final bytes = await file.readAsBytes();
+        final bytes = take.bytes;
         if (bytes.isEmpty) {
           setState(() => _status = '녹음이 비었습니다. 다음 구간으로 넘어갑니다.');
           signal = GroomingSignal.takeFail;
           code = 'empty_bytes';
         } else {
-          _lastTakePath = filePath;
+          _lastTake = take;
           final cacheId = _cacheId;
           final blobKey =
               'shadowing|$cacheId|$_sentenceId|$_chunkIndex|${DateTime.now().millisecondsSinceEpoch}';
@@ -1589,14 +1559,14 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
               cacheId: cacheId,
               status: 'recorded',
               blobKey: blobKey,
-              mime: 'audio/mp4',
+              mime: take.mime,
               voiceBytes: bytes,
             );
             if (!_localSot) {
               await widget.client.putVoiceBlob(
                 blobKey,
                 bytes,
-                contentType: 'audio/mp4',
+                contentType: take.mime,
               );
               await widget.client.postShadowingTake(
                 cacheId,
@@ -1606,7 +1576,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
                 chunkCount: _chunks.length,
                 status: 'recorded',
                 blobKey: blobKey,
-                mime: 'audio/mp4',
+                mime: take.mime,
               );
             }
             asrEvidenceBus?.record(
@@ -1631,11 +1601,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
               chunkDisplay: chunkDisplay,
               scoredChunk: scoredChunk,
               bytes: bytes,
+              mime: take.mime,
               densBefore: densBefore,
               tierBefore: tierBefore,
             );
             final tooShort = await _takeLooksTooShort(
-              path: filePath,
+              take: take,
               expectedMs: wall.elapsedMilliseconds,
               byteLen: bytes.length,
             );
@@ -1685,17 +1656,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
           }
         }
       }
-      if (takeOk && (_lastTakePath ?? '').isNotEmpty) {
-        try {
-          final probe = AudioPlayer();
-          try {
-            await probe.setSource(DeviceFileSource(_lastTakePath!));
-            final d = await probe.getDuration();
-            fileMs = d?.inMilliseconds ?? -1;
-          } finally {
-            await probe.dispose();
-          }
-        } catch (_) {}
+      final kept = _lastTake;
+      if (takeOk && kept != null) {
+        fileMs = await _takeMs(kept) ?? -1;
       }
       await _skill.noteSpeakWindow(
         wallMs: wall.elapsedMilliseconds,
@@ -1710,17 +1673,9 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       );
     }
     var takeDurMs = 0;
-    if (takeOk && (_lastTakePath ?? '').isNotEmpty) {
-      try {
-        final probe = AudioPlayer();
-        try {
-          await probe.setSource(DeviceFileSource(_lastTakePath!));
-          final d = await probe.getDuration();
-          takeDurMs = d?.inMilliseconds ?? 0;
-        } finally {
-          await probe.dispose();
-        }
-      } catch (_) {}
+    final kept = _lastTake;
+    if (takeOk && kept != null) {
+      takeDurMs = await _takeMs(kept) ?? 0;
     }
     return _SpeakPhaseResult(
       ok: takeOk,
@@ -1739,6 +1694,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     required String chunkDisplay,
     required int scoredChunk,
     required List<int> bytes,
+    required String mime,
     required int densBefore,
     required int tierBefore,
   }) async {
@@ -1761,7 +1717,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     final scored = await _skill.onTakeReady(
       chunkDisplay: chunkDisplay,
       takeBytes: bytes,
-      mime: 'audio/mp4',
+      mime: mime,
       baseChunks: _baseChunks,
     );
     if (!mounted || scored == null) {
@@ -1796,35 +1752,50 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   }
 
 
+  /// The recorder's own clock when it has one; otherwise the file is probed.
+  /// A browser WebM recording carries no length, so it cannot be probed.
+  Future<int?> _takeMs(MicTake take) async {
+    if (take.durationMs >= 0) return take.durationMs;
+    final path = take.path;
+    if (path == null) return null;
+    try {
+      final probe = AudioPlayer();
+      try {
+        await probe.setSource(DeviceFileSource(path));
+        return (await probe.getDuration())?.inMilliseconds;
+      } finally {
+        await probe.dispose();
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Source _takeSource(MicTake take) {
+    final path = take.path;
+    if (path != null) return DeviceFileSource(path);
+    return BytesSource(take.bytes, mimeType: take.mime);
+  }
+
   /// Heuristic: tiny file or duration ≪ speak wall clock → struggle signal.
   Future<bool> _takeLooksTooShort({
-    required String path,
+    required MicTake take,
     required int expectedMs,
     required int byteLen,
   }) async {
     if (byteLen > 0 && byteLen < 2500) return true;
     if (expectedMs <= 0) return false;
-    try {
-      final probe = AudioPlayer();
-      try {
-        await probe.setSource(DeviceFileSource(path));
-        final d = await probe.getDuration();
-        if (d == null) return false;
-        return d.inMilliseconds < (expectedMs * 0.45).round();
-      } finally {
-        await probe.dispose();
-      }
-    } catch (_) {
-      return false;
-    }
+    final ms = await _takeMs(take);
+    if (ms == null) return false;
+    return ms < (expectedMs * 0.45).round();
   }
 
   /// Phase 3 — my recording only; focus clock must stay off.
   Future<void> _playMyTakePhase() async {
-    final path = (_lastTakePath ?? '').trim();
-    if (path.isEmpty) return;
-    final file = File(path);
-    if (!await file.exists()) return;
+    final take = _lastTake;
+    if (take == null || take.bytes.isEmpty) return;
+    final path = take.path;
+    if (path != null && !await File(path).exists()) return;
     setState(() => _status = '내 녹음 듣는 중');
     _clearFollowLight();
     try {
@@ -1835,7 +1806,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       final done = _player.onPlayerComplete.first;
       _armPromptScroll(token: _cycleToken, chunk: _chunkIndex);
       try {
-        await _player.play(DeviceFileSource(path));
+        await _player.play(_takeSource(take));
         await done;
       } finally {
         _clearPromptScroll();
@@ -2353,26 +2324,18 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     var started = false;
     try {
       await _player.stop();
-      var okMic = await _mic.invokeMethod<bool>('hasPermission') ?? false;
-      if (!okMic) {
-        okMic = await _mic.invokeMethod<bool>('requestPermission') ?? false;
-      }
+      final okMic = await _mic.ensurePermission();
       if (!okMic || !_reviewAlive(token)) return MissReviewHear.skip;
       await Future<void>.delayed(kMissReviewMicReady);
       if (!_reviewAlive(token)) return MissReviewHear.skip;
-      final dir = await getTemporaryDirectory();
-      final path =
-          '${dir.path}${Platform.pathSeparator}asr_review_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      started = await _mic.invokeMethod<bool>('start', {'path': path}) ?? false;
+      started = await _mic.start('review', usePrimed: false);
       if (!started || !_reviewAlive(token)) return MissReviewHear.skip;
       await Future<void>.delayed(missReviewSpeakWindow(ttsHeard));
       if (!_reviewAlive(token)) return MissReviewHear.skip;
-      final outPath = await _mic.invokeMethod<String>('stop');
+      final take = await _mic.stop();
       started = false;
-      final filePath = (outPath == null || outPath.isEmpty) ? path : outPath;
-      final file = File(filePath);
-      if (!await file.exists()) return MissReviewHear.missed;
-      final bytes = await file.readAsBytes();
+      if (take == null) return MissReviewHear.missed;
+      final bytes = take.bytes;
       if (bytes.isEmpty) return MissReviewHear.missed;
       // The score already cut this slot's symbols, so nothing is asked again.
       final chunkDisplay = sourceChunk.isEmpty ? _displayChunk() : sourceChunk;
@@ -2383,7 +2346,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       await widget.client
           .recognizePracticeTake(
             bytes: bytes,
-            mime: 'audio/mp4',
+            mime: take.mime,
             // design/382 - the review has to pass on the same ground the speak
             // phase does, and the speak phase now asks the model how sure it is.
             targetPhones: targetPhone,
@@ -2499,7 +2462,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       return MissReviewHear.missed;
     } finally {
       if (started) {
-        unawaited(_mic.invokeMethod<String>('stop'));
+        unawaited(_mic.cancel());
       }
     }
   }
@@ -2581,7 +2544,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
       return true;
     }
 
-    _lastTakePath = null;
+    _lastTake = null;
     _clearChunkTtsCache();
     var canContinue = false;
     String? prevSection;
@@ -2708,8 +2671,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _clearRestWatchdog();
     unawaited(_player.stop());
     _clearFollowLight();
-    unawaited(_mic.invokeMethod<String>('stop'));
-    _primedMicPath = null;
+    unawaited(_mic.cancel());
     unawaited(_persistPracticeCursor());
     if (_focus.speaking) {
       _focus.endSpeak(cacheId: _cacheId);
@@ -2769,14 +2731,12 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     _clearRestWatchdog();
     unawaited(_player.stop());
     _clearFollowLight();
-    try {
-      await _mic.invokeMethod<String>('stop');
-    } catch (_) {}
+    await _mic.cancel();
     if (_focus.speaking) {
       _focus.endSpeak(cacheId: _cacheId);
     }
     _clearChunkTtsCache();
-    _lastTakePath = null;
+    _lastTake = null;
     if (_busy) return;
     setState(() => _busy = true);
     try {

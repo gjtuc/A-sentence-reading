@@ -182,12 +182,20 @@ def _load() -> None:
         _READY = True
 
 
+_EBML = b"\x1a\x45\xdf\xa3"
+
+
+def _suffix_for(data: bytes) -> str:
+    return ".webm" if data[:4] == _EBML else ".m4a"
+
+
 def _pcm16k(data: bytes):
     import torch
 
     # The phone sends MP4/M4A. Its index sits at the end of the file, so ffmpeg
     # has to seek and a pipe cannot be seeked. The bytes go to a file first.
-    handle, path = tempfile.mkstemp(suffix=".m4a")
+    # design/418 - the browser sends WebM, named by its EBML header.
+    handle, path = tempfile.mkstemp(suffix=_suffix_for(data))
     try:
         with os.fdopen(handle, "wb") as fh:
             fh.write(data)

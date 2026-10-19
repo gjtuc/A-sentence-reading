@@ -2990,7 +2990,7 @@ throw AsrApiException(
     req.files.add(http.MultipartFile.fromBytes(
       'file',
       bytes,
-      filename: 'take.m4a',
+      filename: mime.contains('webm') ? 'take.webm' : 'take.m4a',
       contentType: MediaType.parse(mime.isEmpty ? 'audio/mp4' : mime),
     ));
     final streamed = await req.send().timeout(const Duration(seconds: 90));
