@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'screens/home_shell.dart';
@@ -16,6 +17,7 @@ import 'state/shadowing_controller.dart';
 import 'state/theme_controller.dart';
 import 'state/translate_controller.dart';
 import 'state/tts_controller.dart';
+import 'state/web_reading_prefs.dart';
 
 /// Root Material app — brand title 「문장 읽기」.
 class SentenceReadingApp extends StatefulWidget {
@@ -74,6 +76,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
   @override
   void initState() {
     super.initState();
+    if (kIsWeb) unawaited(WebReadingPrefs.instance.load());
     // Reuse reporter from main() when injected; otherwise create for tests.
     asrErrorReporter ??= ErrorReporter(client: _auth.client)..install();
     asrEvidenceBus ??= EvidenceBus(client: _auth.client);
@@ -190,26 +193,32 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _theme,
+      animation: kIsWeb
+          ? Listenable.merge([_theme, WebReadingPrefs.instance])
+          : _theme,
       builder: (context, _) {
+        final light = ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: _seed,
+            brightness: Brightness.light,
+          ),
+          useMaterial3: true,
+        );
+        final dark = ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: _seed,
+            brightness: Brightness.dark,
+          ),
+          useMaterial3: true,
+        );
+        // design/420 — on the web the page colour is the theme: one setting.
+        final page = kIsWeb ? WebReadingPrefs.instance.page : null;
         return MaterialApp(
           title: '문장 읽기',
           debugShowCheckedModeBanner: false,
-          themeMode: _theme.mode,
-          theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: _seed,
-              brightness: Brightness.light,
-            ),
-            useMaterial3: true,
-          ),
-          darkTheme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: _seed,
-              brightness: Brightness.dark,
-            ),
-            useMaterial3: true,
-          ),
+          themeMode: page == null ? _theme.mode : webThemeMode(page),
+          theme: page == null ? light : webAppTheme(light, page),
+          darkTheme: page == null ? dark : webAppTheme(dark, page),
           home: HomeShell(
             auth: _auth,
             library: _library,

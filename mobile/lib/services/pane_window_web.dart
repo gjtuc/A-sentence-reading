@@ -3,6 +3,7 @@ library;
 
 import 'dart:convert';
 import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 
 import 'package:web/web.dart' as web;
 
@@ -47,7 +48,7 @@ PaneChannel? openPaneChannel(String name) {
 
 bool openWindow(String url, String name) {
   try {
-    return web.window.open(url, name, 'popup=yes,width=1100,height=850') != null;
+    return web.window.open(url, name, _features()) != null;
   } catch (_) {
     return false;
   }
@@ -55,4 +56,61 @@ bool openWindow(String url, String name) {
 
 void onPageHide(void Function() handler) {
   web.window.addEventListener('pagehide', ((web.Event _) => handler()).toJS);
+}
+
+@JS('getScreenDetails')
+external JSPromise<JSObject> _getScreenDetails();
+
+/// The browser's live ScreenDetails, once allowed (Chrome and Edge).
+JSObject? _screens;
+
+Future<bool> prepareScreens({bool ask = false}) async {
+  if (!(web.window as JSObject).has('getScreenDetails')) return false;
+  try {
+    if (!ask) {
+      final desc = JSObject()..setProperty('name'.toJS, 'window-management'.toJS);
+      final st = await web.window.navigator.permissions.query(desc).toDart;
+      if (st.state != 'granted') return false;
+    }
+    _screens = await _getScreenDetails().toDart;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+PaneScreen _screen(JSObject s) {
+  int n(String k) => s.getProperty<JSNumber>(k.toJS).toDartDouble.round();
+  return (
+    left: n('availLeft'),
+    top: n('availTop'),
+    width: n('availWidth'),
+    height: n('availHeight'),
+  );
+}
+
+String _features() {
+  final d = _screens;
+  if (d == null) return paneWindowFeatures(const [], null);
+  try {
+    final all = d.getProperty<JSArray<JSObject>>('screens'.toJS).toDart;
+    final current = d.getProperty<JSObject>('currentScreen'.toJS);
+    return paneWindowFeatures([for (final s in all) _screen(s)], _screen(current));
+  } catch (_) {
+    return paneWindowFeatures(const [], null);
+  }
+}
+
+void onNextGesture(void Function() handler) {
+  var done = false;
+  late final JSFunction listener;
+  listener = ((web.Event _) {
+    if (done) return;
+    done = true;
+    web.window.removeEventListener('pointerdown', listener, true.toJS);
+    web.window.removeEventListener('keydown', listener, true.toJS);
+    handler();
+  }).toJS;
+  web.window.addEventListener('pointerdown', listener, true.toJS);
+  web.window.addEventListener('keydown', listener, true.toJS);
 }

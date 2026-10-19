@@ -13,6 +13,7 @@ import '../state/shadowing_controller.dart';
 import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
+import '../state/web_reading_prefs.dart';
 import '../api/launch_dest.dart';
 import '../api/practice_cloud_sync.dart';
 import '../services/evidence_bus.dart';
@@ -78,8 +79,47 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   PaneLink? _pane;
   /// A spot that arrived before this figure window was allowed in.
   ({String cacheId, int si, int fi})? _paneWaiting;
+  bool _paneAutoTried = false;
+  Timer? _paneAutoTimer;
 
   bool get _isFigurePane => _pane?.role == PaneRole.figure;
+
+  /// design/420 — the figure window opens on its own once a paper opens. The
+  /// wait outlasts one hello, so a figure window already open is not reloaded.
+  void _armPaneAuto() {
+    if (_pane?.role != PaneRole.main || _paneAutoTried) return;
+    _paneAutoTimer?.cancel();
+    _paneAutoTimer =
+        Timer(kPaneBeat + const Duration(milliseconds: 600), _paneAutoOpen);
+  }
+
+  Future<void> _paneAutoOpen() async {
+    final pane = _pane;
+    if (!mounted || pane == null) return;
+    final prefs = WebReadingPrefs.instance;
+    await prefs.load();
+    if (!mounted) return;
+    if (!paneAutoOpenDue(
+      enabled: prefs.autoFigurePane,
+      role: pane.role,
+      figureOpen: pane.figureOpen,
+      hasPaper: widget.library.session?.isValid == true,
+      tried: _paneAutoTried,
+    )) {
+      return;
+    }
+    _paneAutoTried = true;
+    if (openFigurePane()) return;
+    openFigurePaneOnNextGesture(() => mounted && _pane?.figureOpen == false);
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+        content: Text(
+          '그림 창은 화면을 한 번 누르면 열립니다. '
+          '주소창 오른쪽에서 팝업을 허용하면 다음부터 바로 열립니다.',
+        ),
+      ),
+    );
+  }
 
   void _goReader() {
     final hid = widget.library.takeOpenHandoffId();
@@ -97,7 +137,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       _readerSurface = true;
     });
     // design/415 — a paper opened here: the figure window opens it too.
-    if (_pane?.role == PaneRole.main) _sendPaneSpot();
+    if (_pane?.role == PaneRole.main) {
+      _sendPaneSpot();
+      _armPaneAuto();
+    }
   }
 
   void _goLibrary({bool recordLeft = true}) {
@@ -172,6 +215,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     widget.library.onSpotSaved = link.sendSpot;
     onPaneWindowClose(link.leave);
     link.start();
+    if (role == PaneRole.main) unawaited(preparePaneScreens());
   }
 
   void _sendPaneSpot() {
@@ -200,6 +244,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     _accessRetry?.cancel();
+    _paneAutoTimer?.cancel();
     widget.auth.removeListener(_onAuthChanged);
     WidgetsBinding.instance.removeObserver(this);
     widget.library.onSoftHideOpened = null;

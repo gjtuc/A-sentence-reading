@@ -48,6 +48,42 @@ bool openFigurePane() => win.openWindow(figurePaneUrl(Uri.base).toString(), 'asr
 
 void onPaneWindowClose(void Function() handler) => win.onPageHide(handler);
 
+/// design/420 — learn the screens so the figure window goes to another one.
+/// [ask] shows the browser's 「window management」 question; it must run inside
+/// a click. Without [ask] only an already given answer is used.
+Future<bool> preparePaneScreens({bool ask = false}) => win.prepareScreens(ask: ask);
+
+/// design/420 — a window opened without a click is a blocked popup unless the
+/// site is allowed popups; the next click or key opens it instead.
+void openFigurePaneOnNextGesture(bool Function() stillWanted) =>
+    win.onNextGesture(() {
+      if (stillWanted()) openFigurePane();
+    });
+
+typedef PaneScreen = ({int left, int top, int width, int height});
+
+/// The figure window fills a screen other than [current] when there is one;
+/// otherwise a window over this one.
+String paneWindowFeatures(List<PaneScreen> screens, PaneScreen? current) {
+  const plain = 'popup=yes,width=1100,height=850';
+  if (current == null || screens.length < 2) return plain;
+  for (final s in screens) {
+    if (s.left == current.left && s.top == current.top) continue;
+    return 'popup=yes,left=${s.left},top=${s.top},width=${s.width},height=${s.height}';
+  }
+  return plain;
+}
+
+/// Whether the main window should open the figure window on its own now.
+bool paneAutoOpenDue({
+  required bool enabled,
+  required PaneRole? role,
+  required bool figureOpen,
+  required bool hasPaper,
+  required bool tried,
+}) =>
+    enabled && role == PaneRole.main && hasPaper && !figureOpen && !tried;
+
 class PaneLink extends ChangeNotifier {
   PaneLink({
     required PaneChannel channel,

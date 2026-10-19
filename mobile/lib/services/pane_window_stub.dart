@@ -6,3 +6,7 @@ PaneChannel? openPaneChannel(String name) => null;
 bool openWindow(String url, String name) => false;
 
 void onPageHide(void Function() handler) {}
+
+Future<bool> prepareScreens({bool ask = false}) async => false;
+
+void onNextGesture(void Function() handler) {}

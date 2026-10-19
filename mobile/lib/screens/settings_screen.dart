@@ -14,6 +14,7 @@ import '../api/client.dart';
 import '../api/launch_dest.dart';
 import '../config.dart';
 import '../api/theme_models.dart';
+import '../services/pane_link.dart' show preparePaneScreens;
 import '../api/tts_models.dart';
 import '../state/auth_controller.dart';
 import '../state/library_controller.dart';
@@ -808,6 +809,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ..._accountLinkTiles(user),
               ],
             ],
+            // design/420 — the web has one colour setting, 화면 색, below.
+            if (!kIsWeb) ...[
             const Divider(height: 32),
             Text('테마', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
@@ -837,6 +840,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 8),
             Text('현재: ${themeModeLabelKo(widget.theme.mode)}'),
+            ],
             const Divider(height: 32),
             Text('TTS', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
@@ -1265,11 +1269,11 @@ class _WebReadingSection extends StatelessWidget {
             onSelectionChanged: (v) => unawaited(prefs.setColumn(v.first)),
           ),
           const SizedBox(height: 12),
-          Text('배경', style: text.bodyMedium),
+          Text('화면 색', style: text.bodyMedium),
           const SizedBox(height: 4),
           SegmentedButton<WebPage>(
             segments: const [
-              ButtonSegment(value: WebPage.app, label: Text('앱 그대로')),
+              ButtonSegment(value: WebPage.app, label: Text('시스템')),
               ButtonSegment(value: WebPage.dim, label: Text('어두운 회색')),
               ButtonSegment(value: WebPage.paper, label: Text('종이색')),
               ButtonSegment(value: WebPage.white, label: Text('흰색')),
@@ -1312,6 +1316,21 @@ class _WebReadingSection extends StatelessWidget {
             subtitle: const Text('같은 장 안의 이전·다음 문장을 옅게 보여 줍니다.'),
             value: prefs.showContext,
             onChanged: (v) => unawaited(prefs.setShowContext(v)),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('그림 창 자동으로 열기'),
+            subtitle: const Text(
+              '논문을 열면 그림 창을 다른 모니터에 띄웁니다. '
+              '브라우저가 「창 관리」를 물으면 허용해 주세요. '
+              '팝업이 막히면 화면을 한 번 누를 때 열립니다.',
+            ),
+            value: prefs.autoFigurePane,
+            onChanged: (v) {
+              unawaited(prefs.setAutoFigurePane(v));
+              // Asked here, inside the click: the browser shows its question only then.
+              if (v) unawaited(preparePaneScreens(ask: true));
+            },
           ),
           const SizedBox(height: 8),
           Text(

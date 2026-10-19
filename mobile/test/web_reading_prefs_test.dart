@@ -130,4 +130,40 @@ void main() {
     expect(webReadingActive(web: true, width: 719), isFalse);
     expect(webReadingActive(web: false, width: 1900), isFalse);
   });
+
+  test('design/420: on the web the page colour is the app theme', () {
+    expect(webThemeMode(WebPage.app), ThemeMode.system);
+    expect(webThemeMode(WebPage.dim), ThemeMode.dark);
+    expect(webThemeMode(WebPage.paper), ThemeMode.light);
+    expect(webThemeMode(WebPage.white), ThemeMode.light);
+    final light = ThemeData(
+      colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+      useMaterial3: true,
+    );
+    final dark = ThemeData(
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: Colors.teal,
+        brightness: Brightness.dark,
+      ),
+      useMaterial3: true,
+    );
+    expect(identical(webAppTheme(light, WebPage.app), light), isTrue);
+    expect(identical(webAppTheme(dark, WebPage.paper), dark), isTrue,
+        reason: 'a light page leaves the unused dark theme alone');
+    expect(webAppTheme(light, WebPage.paper).scaffoldBackgroundColor,
+        kWebPages[WebPage.paper]!.background);
+    expect(webAppTheme(dark, WebPage.dim).scaffoldBackgroundColor,
+        kWebPages[WebPage.dim]!.background);
+  });
+
+  test('design/420: the figure window does not open on its own until asked', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = WebReadingPrefs.instance..resetForTests();
+    await prefs.load();
+    expect(prefs.autoFigurePane, isFalse);
+    await prefs.setAutoFigurePane(true);
+    final p = await SharedPreferences.getInstance();
+    expect(p.getBool(WebReadingPrefs.autoPaneKey), isTrue);
+    prefs.resetForTests();
+  });
 }

@@ -120,4 +120,43 @@ void main() {
     expect(figEnd.closed, isTrue);
     main.dispose();
   });
+
+  test('design/420: the figure window fills the other monitor when there is one', () {
+    const left = (left: 0, top: 0, width: 1920, height: 1040);
+    const right = (left: 1920, top: 0, width: 2560, height: 1400);
+    expect(
+      paneWindowFeatures(const [left, right], left),
+      'popup=yes,left=1920,top=0,width=2560,height=1400',
+    );
+    expect(
+      paneWindowFeatures(const [left, right], right),
+      'popup=yes,left=0,top=0,width=1920,height=1040',
+    );
+    expect(paneWindowFeatures(const [left], left), 'popup=yes,width=1100,height=850');
+    expect(paneWindowFeatures(const [], null), 'popup=yes,width=1100,height=850');
+  });
+
+  test('design/420: the main window opens it once, with a paper, when asked', () {
+    bool due({
+      bool enabled = true,
+      PaneRole? role = PaneRole.main,
+      bool figureOpen = false,
+      bool hasPaper = true,
+      bool tried = false,
+    }) =>
+        paneAutoOpenDue(
+          enabled: enabled,
+          role: role,
+          figureOpen: figureOpen,
+          hasPaper: hasPaper,
+          tried: tried,
+        );
+    expect(due(), isTrue);
+    expect(due(enabled: false), isFalse);
+    expect(due(role: PaneRole.figure), isFalse);
+    expect(due(role: null), isFalse);
+    expect(due(figureOpen: true), isFalse);
+    expect(due(hasPaper: false), isFalse);
+    expect(due(tried: true), isFalse, reason: 'a closed figure window stays closed');
+  });
 }

@@ -18,7 +18,8 @@ enum WebTextSize { normal, large, huge }
 
 enum WebColumnWidth { narrow, medium, wide }
 
-/// [app] keeps the app theme; the others repaint the reader only.
+/// design/420 — on the web this is the app's one colour setting: [app] follows
+/// the system's light or dark, the others paint every screen.
 enum WebPage { app, dim, paper, white }
 
 enum WebSpacing { normal, wide }
@@ -211,32 +212,19 @@ ThemeData webPageTheme(ThemeData base, WebPagePalette p) {
   );
 }
 
-/// Repaints [child] with the chosen page colour on a wide web window.
-class WebPageTheme extends StatelessWidget {
-  const WebPageTheme({super.key, required this.child});
+/// design/420 — the web app's theme mode comes from the page colour.
+ThemeMode webThemeMode(WebPage page) => switch (kWebPages[page]?.brightness) {
+      Brightness.light => ThemeMode.light,
+      Brightness.dark => ThemeMode.dark,
+      null => ThemeMode.system,
+    };
 
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final prefs = WebReadingPrefs.instance;
-    return ListenableBuilder(
-      listenable: prefs,
-      builder: (context, _) => LayoutBuilder(
-        builder: (context, box) {
-          final palette = kWebPages[prefs.page];
-          if (palette == null || !webReadingActive(web: kIsWeb, width: box.maxWidth)) {
-            return child;
-          }
-          // Material, not a bare box: it also resets DefaultTextStyle to the page text colour.
-          return Theme(
-            data: webPageTheme(Theme.of(context), palette),
-            child: Material(color: palette.background, child: child),
-          );
-        },
-      ),
-    );
-  }
+/// [base] painted with [page]; [base] itself when the page keeps the app colours
+/// or is for the other brightness.
+ThemeData webAppTheme(ThemeData base, WebPage page) {
+  final p = kWebPages[page];
+  if (p == null || p.brightness != base.colorScheme.brightness) return base;
+  return webPageTheme(base, p);
 }
 
 /// Rebuilds with the style for the size it gets and the current prefs.
@@ -281,6 +269,7 @@ class WebReadingPrefs extends ChangeNotifier {
   static const String fontKey = 'web_reading_font_v1';
   static const String autoHideKey = 'web_reading_autohide_v1';
   static const String contextKey = 'web_reading_context_v1';
+  static const String autoPaneKey = 'web_reading_auto_pane_v1';
 
   WebTextSize size = WebTextSize.large;
   WebColumnWidth column = WebColumnWidth.medium;
@@ -289,6 +278,9 @@ class WebReadingPrefs extends ChangeNotifier {
   WebFont font = WebFont.sans;
   bool autoHide = true;
   bool showContext = true;
+
+  /// design/420 — open the figure window when a paper opens.
+  bool autoFigurePane = false;
   Future<void>? _loading;
 
   Future<void> load() => _loading ??= _load();
@@ -303,6 +295,7 @@ class WebReadingPrefs extends ChangeNotifier {
       font = WebFont.values.asNameMap()[p.getString(fontKey) ?? ''] ?? font;
       autoHide = p.getBool(autoHideKey) ?? autoHide;
       showContext = p.getBool(contextKey) ?? showContext;
+      autoFigurePane = p.getBool(autoPaneKey) ?? autoFigurePane;
       notifyListeners();
     } catch (_) {}
   }
@@ -370,6 +363,13 @@ class WebReadingPrefs extends ChangeNotifier {
     await _saveBool(contextKey, next);
   }
 
+  Future<void> setAutoFigurePane(bool next) async {
+    if (next == autoFigurePane) return;
+    autoFigurePane = next;
+    notifyListeners();
+    await _saveBool(autoPaneKey, next);
+  }
+
   @visibleForTesting
   void resetForTests() {
     size = WebTextSize.large;
@@ -379,6 +379,7 @@ class WebReadingPrefs extends ChangeNotifier {
     font = WebFont.sans;
     autoHide = true;
     showContext = true;
+    autoFigurePane = false;
     _loading = null;
   }
 }

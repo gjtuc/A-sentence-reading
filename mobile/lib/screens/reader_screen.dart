@@ -482,7 +482,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final client = widget.client;
     final shadowing = widget.shadowing;
     final translate = widget.translate;
-    return WebPageTheme(child: AnimatedBuilder(
+    return AnimatedBuilder(
       animation: Listenable.merge([
         library,
         tts,
@@ -950,7 +950,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           ],
         )));
       },
-    ));
+    );
   }
 
   /// design/411 — ←/→ move the sentence (the figure when only the figure shows),
