@@ -186,4 +186,61 @@ void main() {
     other.dispose();
     fig.dispose();
   });
+
+  test('design/424: figures leave the main window before the figure window is up', () {
+    final hub = _Hub();
+    final main = PaneLink(channel: hub.join(), role: PaneRole.main, windowId: 'm');
+    var changes = 0;
+    var came = 0;
+    main
+      ..addListener(() => changes++)
+      ..onFigureCame = () => came++;
+    expect(main.figureShown, isFalse);
+    main.figureExpected = true;
+    expect(main.figureShown, isTrue, reason: 'sentences only from the start');
+    expect(changes, 1);
+
+    final fig = PaneLink(channel: hub.join(), role: PaneRole.figure, windowId: 'f');
+    fig.tick();
+    expect(main.figureOpen, isTrue);
+    expect(main.figureExpected, isFalse, reason: 'its hello takes over');
+    expect(main.figureShown, isTrue);
+    expect(came, 1);
+    fig.tick();
+    expect(came, 1, reason: 'only the first hello');
+
+    fig.dispose();
+    expect(main.figureShown, isFalse, reason: 'closed: the figures come back');
+    final mainFig = PaneLink(channel: hub.join(), role: PaneRole.figure, windowId: 'x');
+    expect(mainFig.figureShown, isFalse, reason: 'a figure window never hides figures');
+    mainFig.dispose();
+    main.dispose();
+  });
+
+  test('design/424: the main window tells the figure window which screen to fill', () {
+    final hub = _Hub();
+    final main = PaneLink(channel: hub.join(), role: PaneRole.main, windowId: 'm');
+    final fig = PaneLink(channel: hub.join(), role: PaneRole.figure, windowId: 'f');
+    final placed = <PaneScreen>[];
+    fig.onPlace = placed.add;
+    var mainPlaced = 0;
+    main.onPlace = (_) => mainPlaced++;
+
+    const right = (left: 1920, top: 0, width: 2560, height: 1400);
+    main.sendPlace(right);
+    expect(placed, [right]);
+    fig.sendPlace(right);
+    expect(mainPlaced, 0, reason: 'only a figure window moves');
+
+    fig.handle({'t': 'place', 'id': 'm', 'l': 0, 'tp': 0, 'w': 50, 'h': 50});
+    fig.handle({'t': 'place', 'id': 'm', 'l': '0', 'tp': 0, 'w': 900, 'h': 900});
+    expect(placed.length, 1, reason: 'a tiny or broken place is ignored');
+
+    const left = (left: 0, top: 0, width: 1920, height: 1040);
+    expect(paneTargetScreen(const [left, right], left), right);
+    expect(paneTargetScreen(const [left, right], right), left);
+    expect(paneTargetScreen(const [left], left), isNull);
+    main.dispose();
+    fig.dispose();
+  });
 }

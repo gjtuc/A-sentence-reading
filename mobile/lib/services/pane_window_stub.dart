@@ -12,3 +12,7 @@ void closeWindow() {}
 Future<bool> prepareScreens({bool ask = false}) async => false;
 
 void onNextGesture(void Function() handler) {}
+
+PaneScreen? otherScreen() => null;
+
+void fillScreen(PaneScreen s) {}

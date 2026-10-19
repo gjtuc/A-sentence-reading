@@ -95,16 +95,33 @@ PaneScreen _screen(JSObject s) {
   );
 }
 
-String _features() {
+({List<PaneScreen> all, PaneScreen? current}) _known() {
   final d = _screens;
-  if (d == null) return paneWindowFeatures(const [], null);
+  if (d == null) return (all: const [], current: null);
   try {
     final all = d.getProperty<JSArray<JSObject>>('screens'.toJS).toDart;
     final current = d.getProperty<JSObject>('currentScreen'.toJS);
-    return paneWindowFeatures([for (final s in all) _screen(s)], _screen(current));
+    return (all: [for (final s in all) _screen(s)], current: _screen(current));
   } catch (_) {
-    return paneWindowFeatures(const [], null);
+    return (all: const [], current: null);
   }
+}
+
+String _features() {
+  final k = _known();
+  return paneWindowFeatures(k.all, k.current);
+}
+
+PaneScreen? otherScreen() {
+  final k = _known();
+  return paneTargetScreen(k.all, k.current);
+}
+
+void fillScreen(PaneScreen s) {
+  try {
+    web.window.moveTo(s.left, s.top);
+    web.window.resizeTo(s.width, s.height);
+  } catch (_) {}
 }
 
 void onNextGesture(void Function() handler) {

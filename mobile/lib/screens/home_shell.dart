@@ -84,6 +84,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   bool _paneAutoTried = false;
   Timer? _paneAutoTimer;
   bool _paneGesturePending = false;
+  Timer? _paneExpectTimer;
 
   bool get _isFigurePane => _pane?.role == PaneRole.figure;
 
@@ -102,6 +103,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final prefs = WebReadingPrefs.instance;
     await prefs.load();
     if (!mounted) return;
+    if (!prefs.autoFigurePane) pane.figureExpected = false;
     if (!paneAutoOpenDue(
       enabled: prefs.autoFigurePane,
       role: pane.role,
@@ -112,11 +114,16 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       return;
     }
     _paneAutoTried = true;
-    if (openFigurePane()) return;
+    if (openFigurePane()) {
+      _expectFigureFor();
+      return;
+    }
     _paneGesturePending = true;
     openFigurePaneOnNextGesture(() {
       _paneGesturePending = false;
-      return mounted && _pane?.figureOpen == false;
+      final wanted = mounted && _pane?.figureOpen == false;
+      if (wanted) _expectFigureFor();
+      return wanted;
     });
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       const SnackBar(
@@ -126,6 +133,35 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  /// design/424 — a window that never says hello gives the figures back.
+  void _expectFigureFor() {
+    _paneExpectTimer?.cancel();
+    _paneExpectTimer = Timer(const Duration(seconds: 20), () {
+      final pane = _pane;
+      if (mounted && pane != null && !pane.figureOpen) pane.figureExpected = false;
+    });
+  }
+
+  /// design/424 — the figure window sits on the other screen, filling it.
+  void _placeFigure() {
+    final pane = _pane;
+    final s = paneOtherScreen();
+    if (pane == null || s == null || !pane.figureOpen) return;
+    pane.sendPlace(s);
+  }
+
+  Future<void> _prepareMainPane(PaneLink link) async {
+    final prefs = WebReadingPrefs.instance;
+    await prefs.load();
+    if (!mounted || !identical(_pane, link)) return;
+    if (prefs.autoFigurePane && !link.figureOpen) link.figureExpected = true;
+    if (await preparePaneScreens()) {
+      _placeFigure();
+      return;
+    }
+    if (mounted && prefs.autoFigurePane) askPaneScreensOnNextGesture(_placeFigure);
   }
 
   void _goReader() {
@@ -237,12 +273,18 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       ..onSpot = _onPaneSpot
       ..onSpotWanted = _sendPaneSpot
       ..needsSpot = (() => _accessUnlocked == true && widget.library.session == null)
-      ..onMainGone = role == PaneRole.figure ? closeThisPaneWindow : null;
+      ..onMainGone = role == PaneRole.figure ? closeThisPaneWindow : null
+      ..onPlace = role == PaneRole.figure
+          ? (s) {
+              if (!fullScreenOn.value) fillPaneScreen(s);
+            }
+          : null
+      ..onFigureCame = role == PaneRole.main ? _placeFigure : null;
     _pane = link;
     widget.library.onSpotSaved = link.sendSpot;
     onPaneWindowClose(link.leave);
     link.start();
-    if (role == PaneRole.main) unawaited(preparePaneScreens());
+    if (role == PaneRole.main) unawaited(_prepareMainPane(link));
   }
 
   void _sendPaneSpot() {
@@ -272,6 +314,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   void dispose() {
     _accessRetry?.cancel();
     _paneAutoTimer?.cancel();
+    _paneExpectTimer?.cancel();
     widget.auth.removeListener(_onAuthChanged);
     WidgetsBinding.instance.removeObserver(this);
     widget.library.onSoftHideOpened = null;

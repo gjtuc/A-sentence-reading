@@ -69,17 +69,41 @@ void openFigurePaneOnNextGesture(bool Function() stillWanted) =>
 
 typedef PaneScreen = ({int left, int top, int width, int height});
 
+/// The screen for the figure window: one other than [current], if any.
+PaneScreen? paneTargetScreen(List<PaneScreen> screens, PaneScreen? current) {
+  if (current == null || screens.length < 2) return null;
+  for (final s in screens) {
+    if (s.left == current.left && s.top == current.top) continue;
+    return s;
+  }
+  return null;
+}
+
 /// The figure window fills a screen other than [current] when there is one;
 /// otherwise a window over this one.
 String paneWindowFeatures(List<PaneScreen> screens, PaneScreen? current) {
-  const plain = 'popup=yes,width=1100,height=850';
-  if (current == null || screens.length < 2) return plain;
-  for (final s in screens) {
-    if (s.left == current.left && s.top == current.top) continue;
-    return 'popup=yes,left=${s.left},top=${s.top},width=${s.width},height=${s.height}';
-  }
-  return plain;
+  final s = paneTargetScreen(screens, current);
+  if (s == null) return 'popup=yes,width=1100,height=850';
+  return 'popup=yes,left=${s.left},top=${s.top},width=${s.width},height=${s.height}';
 }
+
+/// design/424 — the other screen, once the browser was allowed to tell.
+PaneScreen? paneOtherScreen() => win.otherScreen();
+
+/// design/424 — this window fills [s] like a maximized one. The web cannot
+/// maximize; the outer size set here covers the same area.
+void fillPaneScreen(PaneScreen s) => win.fillScreen(s);
+
+/// design/424 — after a click, ask for the screens; [then] runs once allowed.
+/// The question waits for the click to finish, so a figure window that the
+/// same click opens comes first.
+void askPaneScreensOnNextGesture(void Function() then) => win.onNextGesture(() {
+      Timer.run(() {
+        preparePaneScreens(ask: true).then((ok) {
+          if (ok) then();
+        });
+      });
+    });
 
 /// Whether the main window should open the figure window on its own now.
 bool paneAutoOpenDue({
@@ -119,8 +143,27 @@ class PaneLink extends ChangeNotifier {
   /// design/423 — figure window: the last main window said bye.
   void Function()? onMainGone;
 
+  /// design/424 — figure window: the main window says where to sit.
+  void Function(PaneScreen screen)? onPlace;
+
+  /// design/424 — main window: hello from a figure window that was not open.
+  void Function()? onFigureCame;
+
   DateTime? _figureSeen;
   final Map<String, DateTime> _mainsSeen = {};
+  bool _figureExpected = false;
+
+  /// design/424 — main window: a figure window is on its way (opening on its
+  /// own), so the figures already leave this window. Ends at its first hello.
+  bool get figureExpected => _figureExpected;
+  set figureExpected(bool next) {
+    if (next == _figureExpected) return;
+    _figureExpected = next;
+    notifyListeners();
+  }
+
+  /// The main window shows sentences only.
+  bool get figureShown => role == PaneRole.main && (figureOpen || _figureExpected);
   Timer? _beat;
   bool _closed = false;
 
@@ -157,6 +200,14 @@ class PaneLink extends ChangeNotifier {
 
   void leave() => _post({'t': 'bye', 'role': role.name});
 
+  void sendPlace(PaneScreen s) => _post({
+        't': 'place',
+        'l': s.left,
+        'tp': s.top,
+        'w': s.width,
+        'h': s.height,
+      });
+
   void _post(Map<String, Object?> m) {
     if (_closed) return;
     try {
@@ -183,13 +234,22 @@ class PaneLink extends ChangeNotifier {
         if (role != PaneRole.main || m['role'] != PaneRole.figure.name) return;
         final was = figureOpen;
         _figureSeen = _now();
-        if (!was) notifyListeners();
+        if (!was) {
+          _figureExpected = false;
+          notifyListeners();
+          onFigureCame?.call();
+        }
         if (!was || m['need'] == true) onSpotWanted?.call();
       case 'bye':
         if (role != PaneRole.main || m['role'] != PaneRole.figure.name) return;
         if (_figureSeen == null) return;
         _figureSeen = null;
         notifyListeners();
+      case 'place':
+        if (role != PaneRole.figure) return;
+        final l = m['l'], t = m['tp'], w = m['w'], h = m['h'];
+        if (l is! int || t is! int || w is! int || h is! int || w < 200 || h < 200) return;
+        onPlace?.call((left: l, top: t, width: w, height: h));
       case 'spot':
         final cache = m['cache'];
         final si = m['si'];

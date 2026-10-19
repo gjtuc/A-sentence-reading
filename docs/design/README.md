@@ -458,6 +458,7 @@
 | 421 | [421-back-button-and-figure-window-default.md](421-back-button-and-figure-window-default.md) | 웹 읽기 화면 제목 왼쪽에 서재로 가는 버튼(Esc 도 같음). 설치한 웹 앱은 브라우저 뒤로 버튼이 없기 때문. 「그림 창 자동으로 열기」는 처음부터 켜짐 (0.3.455) |
 | 422 | [422-full-screen.md](422-full-screen.md) | 웹 「전체 화면으로 보기」: 제목 줄과 작업 표시줄을 숨긴다. 켜 두면 창마다 처음 누를 때 전체 화면, 그림 창이 먼저 열린 뒤. 제목 옆 전체 화면 버튼. 전체 화면을 푸는 Esc 는 서재로 가지 않는다 (0.3.455) |
 | 423 | [423-cursor-and-figure-window-close.md](423-cursor-and-figure-window-close.md) | 3초 뒤 숨기기가 클릭할 수 있는 곳 위에서도 마우스를 숨긴다. 문장 창을 닫으면 그림 창도 닫힌다 (0.3.455) |
+| 424 | [424-figure-window-from-the-start.md](424-figure-window-from-the-start.md) | 그림 창이 자동으로 열리게 되어 있으면 문장 창은 처음부터 문장만 보인다. 그림 창은 다른 모니터를 꽉 채운다. 창 관리 허락은 첫 클릭에 묻는다 (0.3.456) |
 | 387 | [387-the-rung-then-the-line.md](387-the-rung-then-the-line.md) | 소리 확률을 먼저 (20+난이도)%로 보고, 못 넘기면 계정 선으로 한 번 더 본다 · 선이 배우는 점수는 난이도 적용 전 30% 일치 · 더 말한 소리는 분모에 남긴다 · 기호 목록은 30% 고정 (0.3.427) |
 | 386 | [386-thirty-percent-of-each-sound.md](386-thirty-percent-of-each-sound.md) | 소리 하나의 일치는 원어민이 30% 넘긴 기호를 사용자도 전부 30% 넘긴 것 · 공백은 세지 않음 · 분모는 그대로 · 619개에서 기호가 둘인 칸은 3.1%, 그 중 또렷한 읽기가 떨어지는 경우는 소리 1000개 중 9개 (0.3.426) |
 | 385 | [385-warm-from-the-cursor.md](385-warm-from-the-cursor.md) | 미리 짓기는 지금 읽는 자리부터 한 바퀴 돈다 · 연습 커서가 있으면 그쪽 · `/open` 의 1번부터 걷기는 폰 요청을 `_WARMING` 으로 버려서 뺐다 (0.3.425) |

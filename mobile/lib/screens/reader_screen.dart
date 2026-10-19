@@ -202,12 +202,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void _pinLayout() => _layoutPolicy.pin();
 
   /// design/415 — the figure window shows only figures; the main window shows only
-  /// sentences while a figure window is open. Null leaves the chosen layout.
+  /// sentences while a figure window is open, or on its way (design/424). Null
+  /// leaves the chosen layout.
   _ReaderLayoutMode? get _paneLayout {
     final p = widget.pane;
     if (p == null) return null;
     if (p.role == PaneRole.figure) return _ReaderLayoutMode.figureOnly;
-    if (p.figureOpen) return _ReaderLayoutMode.sentenceOnly;
+    if (p.figureShown) return _ReaderLayoutMode.sentenceOnly;
     return null;
   }
 
