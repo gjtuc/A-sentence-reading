@@ -1,7 +1,9 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/api/annotation_plain.dart';
 import 'package:sentence_reading/api/ai_ask_prompt_models.dart';
 import 'package:sentence_reading/api/ai_ask_prompt_store.dart';
+import 'package:sentence_reading/widgets/annotation_toolbar_sheet.dart';
 
 void main() {
   test('annotationPlainForSentence strips cite markers', () {
@@ -64,5 +66,51 @@ void main() {
       extentIndex: 20, // inside activity
     );
     expect(range, [4, 22]); // catalytic activity
+  });
+
+  test('design/419: the question rides in the AI Mode address on one line', () {
+    final uri = aiAskModeUri(
+      sentencePlain: 'That ant\nis small.',
+      promptBody: '  이 문장의\n문법을 설명해줘. ',
+    )!;
+    expect(uri.host, 'www.google.com');
+    expect(uri.path, '/search');
+    expect(uri.queryParameters['udm'], '50');
+    expect(uri.queryParameters['q'], '"That ant is small." 이 문장의 문법을 설명해줘.');
+    expect(aiAskModeUri(sentencePlain: 'x', promptBody: '  '), isNull);
+    expect(
+      aiAskModeUri(sentencePlain: 'word ' * 3000, promptBody: 'explain'),
+      isNull,
+      reason: 'too long for an address: the clipboard path takes it',
+    );
+  });
+
+  test('design/419: a letter or Enter opens the question box, shortcuts do not', () {
+    KeyEvent down(LogicalKeyboardKey key, PhysicalKeyboardKey phys, String? ch) =>
+        KeyDownEvent(
+          physicalKey: phys,
+          logicalKey: key,
+          character: ch,
+          timeStamp: Duration.zero,
+        );
+    bool opens(KeyEvent e, {bool ctrl = false}) =>
+        aiAskOpensOnKey(e, ctrl: ctrl, alt: false, meta: false);
+    final g = down(LogicalKeyboardKey.keyG, PhysicalKeyboardKey.keyG, 'g');
+    expect(opens(g), isTrue);
+    expect(opens(g, ctrl: true), isFalse);
+    expect(opens(down(LogicalKeyboardKey.enter, PhysicalKeyboardKey.enter, '\r')), isTrue);
+    expect(opens(down(LogicalKeyboardKey.space, PhysicalKeyboardKey.space, ' ')), isFalse);
+    expect(
+      opens(down(LogicalKeyboardKey.arrowLeft, PhysicalKeyboardKey.arrowLeft, null)),
+      isFalse,
+    );
+    expect(
+      opens(KeyUpEvent(
+        physicalKey: PhysicalKeyboardKey.keyG,
+        logicalKey: LogicalKeyboardKey.keyG,
+        timeStamp: Duration.zero,
+      )),
+      isFalse,
+    );
   });
 }

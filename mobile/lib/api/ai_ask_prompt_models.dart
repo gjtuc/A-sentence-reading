@@ -8,6 +8,40 @@ const kAiAskSeedPromptBody = '이 문장에 포함된 단어와 문법을 설명
 
 const kAiAskGoogleUrl = 'https://www.google.com/ai';
 
+/// design/419 — Google AI Mode answers a question carried in the address, so
+/// nothing has to be pasted. `udm=50` is not documented by Google; when it stops
+/// working the copy-and-open path still stands.
+const kAiAskModeUrl = 'https://www.google.com/search';
+
+/// Longest address sent; a longer question falls back to the clipboard.
+const kAiAskModeMaxUrl = 8000;
+
+/// The question in one line: AI Mode drops line breaks, which would join the
+/// sentence's last word to the question's first. The quotes keep them apart.
+String aiAskModeQuery({
+  required String sentencePlain,
+  required String promptBody,
+}) {
+  String flat(String s) => s.replaceAll(RegExp(r'\s+'), ' ').trim();
+  final sentence = flat(sentencePlain);
+  final prompt = flat(promptBody);
+  if (sentence.isEmpty) return prompt;
+  return '"$sentence" $prompt';
+}
+
+/// Null when the question is empty or too long for an address.
+Uri? aiAskModeUri({
+  required String sentencePlain,
+  required String promptBody,
+}) {
+  if (promptBody.trim().isEmpty) return null;
+  final uri = Uri.parse(kAiAskModeUrl).replace(queryParameters: {
+    'udm': '50',
+    'q': aiAskModeQuery(sentencePlain: sentencePlain, promptBody: promptBody),
+  });
+  return uri.toString().length > kAiAskModeMaxUrl ? null : uri;
+}
+
 class AiAskPrompt {
   const AiAskPrompt({
     required this.id,

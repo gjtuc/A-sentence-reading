@@ -965,8 +965,39 @@ class _ReaderScreenState extends State<ReaderScreen> {
         const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true): () =>
             _keyMove(1, figure: true),
       },
-      child: Focus(focusNode: _keysFocus, autofocus: true, child: child),
+      child: Focus(
+        focusNode: _keysFocus,
+        autofocus: true,
+        onKeyEvent: _onReaderKey,
+        child: child,
+      ),
     );
+  }
+
+  /// design/419 — on the web, typing while a sentence shows asks AI about it.
+  KeyEventResult _onReaderKey(FocusNode node, KeyEvent event) {
+    if (!kIsWeb || !node.hasPrimaryFocus) return KeyEventResult.ignored;
+    final hw = HardwareKeyboard.instance;
+    if (!aiAskOpensOnKey(
+      event,
+      ctrl: hw.isControlPressed,
+      alt: hw.isAltPressed,
+      meta: hw.isMetaPressed,
+    )) {
+      return KeyEventResult.ignored;
+    }
+    if (!TickerMode.of(context) || widget.annotations.blocksReaderNavigation) {
+      return KeyEventResult.ignored;
+    }
+    final cur = widget.library.session?.currentSentence;
+    if (cur == null) return KeyEventResult.ignored;
+    final plain = annotationPlainForSentence(cur.text);
+    unawaited(() async {
+      final q = await showAiAskTypeDialog(context: context, sentencePlain: plain);
+      if (q == null || !mounted) return;
+      await _askAiAbout(context, sentencePlain: plain, promptBody: q);
+    }());
+    return KeyEventResult.handled;
   }
 
   void _keyMove(int delta, {bool figure = false}) {
@@ -2959,28 +2990,39 @@ Future<void> _handleSentenceAnnotateLongPress(
       HapticFeedback.mediumImpact();
       return;
     case AnnotationSheetAction.askAi:
-      final body = (result.promptBody ?? '').trim();
-      if (body.isEmpty) return;
-      final plain = annotationPlainForSentence(cur.text);
-      final launch = await runAiAsk(sentencePlain: plain, promptBody: body);
-      if (!context.mounted) return;
-      if (!launch.copied) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('프롬프트가 비어 있습니다')),
-        );
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            launch.launched
-                ? '복사됨 · Google AI에서 붙여넣기 하세요'
-                : '복사는 됐습니다. 브라우저에서 google.com/ai를 열어 붙여넣기 하세요',
-          ),
-        ),
+      await _askAiAbout(
+        context,
+        sentencePlain: annotationPlainForSentence(cur.text),
+        promptBody: result.promptBody ?? '',
       );
       return;
   }
+}
+
+Future<void> _askAiAbout(
+  BuildContext context, {
+  required String sentencePlain,
+  required String promptBody,
+}) async {
+  final body = promptBody.trim();
+  if (body.isEmpty) return;
+  final launch = await runAiAsk(sentencePlain: sentencePlain, promptBody: body);
+  if (!context.mounted || launch.direct) return;
+  if (!launch.copied) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('프롬프트가 비어 있습니다')),
+    );
+    return;
+  }
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        launch.launched
+            ? '복사됨 · Google AI에서 붙여넣기 하세요'
+            : '복사는 됐습니다. 브라우저에서 google.com/ai를 열어 붙여넣기 하세요',
+      ),
+    ),
+  );
 }
 
 Future<void> _handleFigureBookmarkTap(

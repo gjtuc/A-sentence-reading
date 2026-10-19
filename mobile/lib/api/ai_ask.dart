@@ -1,4 +1,5 @@
-/// Run AI ask: clipboard + open Google AI (design/182).
+/// Run AI ask: open Google AI Mode with the question (design/419), or copy it
+/// and open Google AI when it does not fit an address (design/182).
 library;
 
 import 'package:flutter/services.dart';
@@ -10,10 +11,14 @@ class AiAskLaunchResult {
   const AiAskLaunchResult({
     required this.copied,
     required this.launched,
+    this.direct = false,
   });
 
   final bool copied;
   final bool launched;
+
+  /// The question went in the address; nothing to paste.
+  final bool direct;
 }
 
 Future<AiAskLaunchResult> runAiAsk({
@@ -23,6 +28,14 @@ Future<AiAskLaunchResult> runAiAsk({
   final body = promptBody.trim();
   if (body.isEmpty) {
     return const AiAskLaunchResult(copied: false, launched: false);
+  }
+  final direct = aiAskModeUri(sentencePlain: sentencePlain, promptBody: body);
+  if (direct != null) {
+    try {
+      if (await launchUrl(direct, mode: LaunchMode.externalApplication)) {
+        return const AiAskLaunchResult(copied: false, launched: true, direct: true);
+      }
+    } catch (_) {}
   }
   final payload = buildAiAskClipboard(
     sentencePlain: sentencePlain,

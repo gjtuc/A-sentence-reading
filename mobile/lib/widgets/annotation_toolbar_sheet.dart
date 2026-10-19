@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -245,6 +247,16 @@ class _AnnotationToolbarBodyState extends State<_AnnotationToolbarBody> {
                 ),
               ],
             ),
+            AiAskQuestionField(
+              onAsk: (q) => Navigator.pop(
+                context,
+                AnnotationToolbarResult(
+                  action: AnnotationSheetAction.askAi,
+                  promptBody: q,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
             if (_loadingPrompts)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
@@ -281,6 +293,172 @@ class _AnnotationToolbarBodyState extends State<_AnnotationToolbarBody> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// design/419 — a question typed now, sent with the sentence on Enter.
+class AiAskQuestionField extends StatefulWidget {
+  const AiAskQuestionField({
+    super.key,
+    required this.onAsk,
+    this.initial = '',
+    this.autofocus = false,
+  });
+
+  final ValueChanged<String> onAsk;
+  final String initial;
+  final bool autofocus;
+
+  @override
+  State<AiAskQuestionField> createState() => _AiAskQuestionFieldState();
+}
+
+class _AiAskQuestionFieldState extends State<AiAskQuestionField> {
+  late final TextEditingController _ctrl =
+      TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _send() {
+    final q = _ctrl.text.trim();
+    if (q.isEmpty) return;
+    widget.onAsk(q);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: _ctrl,
+      autofocus: widget.autofocus,
+      textInputAction: TextInputAction.send,
+      onSubmitted: (_) => _send(),
+      decoration: InputDecoration(
+        hintText: '질문을 입력하고 Enter',
+        border: const OutlineInputBorder(),
+        isDense: true,
+        suffixIcon: IconButton(
+          tooltip: 'Google AI에 묻기',
+          icon: const Icon(Icons.send),
+          onPressed: _send,
+        ),
+      ),
+    );
+  }
+}
+
+/// design/419 — a typed letter or Enter opens the question box; shortcuts with
+/// Ctrl, Alt or Cmd, the arrows and Space do not. The letter itself is dropped:
+/// with no text field focused the browser types Latin letters even in Korean
+/// mode, so keeping it would start a Korean question with a stray letter.
+bool aiAskOpensOnKey(
+  KeyEvent event, {
+  required bool ctrl,
+  required bool alt,
+  required bool meta,
+}) {
+  if (event is! KeyDownEvent || ctrl || alt || meta) return false;
+  final key = event.logicalKey;
+  if (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.numpadEnter) {
+    return true;
+  }
+  final ch = event.character;
+  if (ch == null || ch.trim().isEmpty) return false;
+  return ch.runes.every((r) => r >= 0x21 && r != 0x7f);
+}
+
+/// design/419 — the web reader's keyboard: a key opens this, the question is
+/// typed, Enter sends it with the sentence. Saved prompts sit below as chips.
+Future<String?> showAiAskTypeDialog({
+  required BuildContext context,
+  required String sentencePlain,
+  AiAskPromptStore? promptStore,
+}) {
+  return showDialog<String>(
+    context: context,
+    builder: (ctx) => _AiAskTypeDialog(
+      sentencePlain: sentencePlain,
+      store: promptStore ?? PrefsAiAskPromptStore(),
+    ),
+  );
+}
+
+class _AiAskTypeDialog extends StatefulWidget {
+  const _AiAskTypeDialog({required this.sentencePlain, required this.store});
+
+  final String sentencePlain;
+  final AiAskPromptStore store;
+
+  @override
+  State<_AiAskTypeDialog> createState() => _AiAskTypeDialogState();
+}
+
+class _AiAskTypeDialogState extends State<_AiAskTypeDialog> {
+  List<AiAskPrompt> _prompts = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(() async {
+      final list = await loadAiAskPromptsEnsuringSeed(widget.store);
+      if (mounted) setState(() => _prompts = list);
+    }());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('이 문장을 AI에게 묻기'),
+      content: SizedBox(
+        width: 560,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              widget.sentencePlain,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            AiAskQuestionField(
+              autofocus: true,
+              onAsk: (q) => Navigator.pop(context, q),
+            ),
+            if (_prompts.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final p in _prompts)
+                    ActionChip(
+                      label: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 480),
+                        child: Text(p.body, overflow: TextOverflow.ellipsis),
+                      ),
+                      onPressed: () => Navigator.pop(context, p.body),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('닫기'),
+        ),
+      ],
     );
   }
 }
