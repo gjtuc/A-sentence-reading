@@ -1,6 +1,9 @@
 /// design/422 - the web app fills the whole screen: no title bar, no taskbar.
 /// The browser allows it only inside a click or key, and Esc always leaves it.
+/// design/425: the main and figure windows go in and out together.
 library;
+
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
@@ -16,23 +19,63 @@ bool get fullScreenSupported => impl.supported();
 
 void _sync() {
   final on = impl.isOn();
-  if (fullScreenOn.value && !on) _leftAt = DateTime.now();
+  if (fullScreenOn.value && !on) {
+    _leftAt = DateTime.now();
+    impl.tellPeer(false);
+  }
   fullScreenOn.value = on;
 }
 
 bool _watching = false;
 
+/// The other window asked to go full screen and this one is not yet.
+bool _peerWants = false;
+bool _peerArmed = false;
+
+void _onPeer(bool on) {
+  if (!on) {
+    _peerWants = false;
+    unawaited(exitFullScreen());
+    return;
+  }
+  if (fullScreenOn.value) return;
+  _peerWants = true;
+  // Called inside the message, while the handed-over right lasts.
+  impl.enter().then((ok) {
+    _sync();
+    if (ok) {
+      _peerWants = false;
+      return;
+    }
+    if (_peerArmed) return;
+    _peerArmed = true;
+    impl.onNextGesture(() {
+      _peerArmed = false;
+      if (!_peerWants || fullScreenOn.value) return;
+      _peerWants = false;
+      impl.enter().then((_) => _sync());
+    });
+  });
+}
+
 void _watch() {
   if (_watching || !fullScreenSupported) return;
   _watching = true;
   impl.onChange(_sync);
+  impl.onPeer(_onPeer);
   _sync();
 }
 
-/// Must run inside a click or key. False when the browser said no.
+/// Starts listening for the other window. Call once per window on the web.
+void startFullScreenSync() => _watch();
+
+/// Must run inside a click or key. False when the browser said no. The other
+/// window is told in the same click.
 Future<bool> enterFullScreen() async {
   _watch();
-  final ok = await impl.enter();
+  final pending = impl.enter();
+  impl.tellPeer(true);
+  final ok = await pending;
   _sync();
   return ok;
 }

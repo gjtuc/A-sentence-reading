@@ -242,7 +242,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     // design/411 — reading spots follow between the devices of this account.
     widget.library.startSpotSync();
     _startPane();
-    if (kIsWeb) unawaited(_startFullScreen());
+    if (kIsWeb) {
+      startFullScreenSync();
+      unawaited(_startFullScreen());
+    }
   }
 
   /// design/422 — a new window would end full screen, so the figure window

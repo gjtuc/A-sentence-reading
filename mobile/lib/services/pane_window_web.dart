@@ -46,11 +46,29 @@ PaneChannel? openPaneChannel(String name) {
   }
 }
 
+web.Window? _opened;
+
 bool openWindow(String url, String name) {
   try {
-    return web.window.open(url, name, _features()) != null;
+    _opened = web.window.open(url, name, _features());
+    return _opened != null;
   } catch (_) {
     return false;
+  }
+}
+
+/// design/425 - the other window of the pair: the figure window this one
+/// opened, else the main window that opened this one.
+web.Window? peerWindow() {
+  final w = _opened;
+  if (w != null && !w.closed) return w;
+  final o = web.window.opener;
+  if (o == null) return null;
+  try {
+    final win = o as web.Window;
+    return win.closed ? null : win;
+  } catch (_) {
+    return null;
   }
 }
 
