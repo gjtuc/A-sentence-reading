@@ -388,6 +388,20 @@ Future<RemoteSpot?> loadRemoteSpot({required String? uid, required String cacheI
   return (si: si, fi: fi, at: at);
 }
 
+/// Every held spot from other devices, keyed by cache id.
+Future<Map<String, RemoteSpot>> loadRemoteSpots({required String? uid}) async {
+  final p = await SharedPreferences.getInstance();
+  final out = <String, RemoteSpot>{};
+  for (final e in (await _loadRemoteSpots(p, uid)).entries) {
+    final si = e.value['si'];
+    final fi = e.value['fi'];
+    final at = '${e.value['at'] ?? ''}';
+    if (si is! int || fi is! int || at.isEmpty) continue;
+    out[e.key] = (si: si, fi: fi, at: at);
+  }
+  return out;
+}
+
 /// `at` of this device's own row for [cacheId] ('' when none).
 Future<String> loadProgressAt({required String? uid, required String cacheId}) async {
   final rows = await loadProgressRows(uid: uid);

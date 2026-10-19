@@ -234,7 +234,20 @@ class LibraryController extends ChangeNotifier {
     );
     if (!kept) return;
     final s = session;
-    if (s == null || !s.isValid || s.cacheId.trim() != cacheId.trim()) return;
+    if (s == null || !s.isValid || s.cacheId.trim() != cacheId.trim()) {
+      try {
+        final next = await _withRemoteLabels(
+          uid,
+          progressResumeByCacheId,
+          only: [cacheId.trim()],
+        );
+        if (next[cacheId.trim()] != progressResumeByCacheId[cacheId.trim()]) {
+          progressResumeByCacheId = next;
+          notifyListeners();
+        }
+      } catch (_) {}
+      return;
+    }
     if (_annotations?.blocksReaderNavigation == true) return;
     final mine = await loadProgressAt(uid: uid, cacheId: cacheId);
     if (mine.compareTo(at) >= 0) return;
@@ -2913,7 +2926,7 @@ class LibraryController extends ChangeNotifier {
           loadProgressResumeLabels(uid: uid, cacheIds: cids),
           loadPracticeResumeLabels(uid: uid, cacheIds: cids),
         ]);
-        progressResumeByCacheId = results[0];
+        progressResumeByCacheId = await _withRemoteLabels(uid, results[0]);
         practiceResumeByCacheId = results[1];
       } catch (_) {
         // EDGE: resume labels optional for library list.
@@ -4221,10 +4234,55 @@ class LibraryController extends ChangeNotifier {
         loadProgressResumeLabels(uid: uid, cacheIds: cids),
         loadPracticeResumeLabels(uid: uid, cacheIds: cids),
       ]);
-      progressResumeByCacheId = results[0];
+      progressResumeByCacheId = await _withRemoteLabels(uid, results[0]);
       practiceResumeByCacheId = results[1];
       notifyListeners();
     } catch (_) {}
+  }
+
+  /// cache id -> (spot time, label) built from the session on disk.
+  final Map<String, ({String at, String label})> _remoteLabels = {};
+
+  /// design/417 — a spot read on another device names the section this paper
+  /// resumes at, before this device opens it. Built from the session on disk,
+  /// since a spot carries numbers only.
+  Future<Map<String, String>> _withRemoteLabels(
+    String? uid,
+    Map<String, String> local, {
+    Iterable<String>? only,
+  }) async {
+    final out = Map<String, String>.from(local);
+    final remote = await loadRemoteSpots(uid: _diskUid ?? uid);
+    if (remote.isEmpty) return out;
+    final mine = await loadProgressRows(uid: uid);
+    final open = session?.cacheId.trim() ?? '';
+    for (final cid in only ?? papers.map((e) => e.id)) {
+      final spot = remote[cid];
+      if (spot == null || cid == open) continue;
+      if (spot.at.compareTo('${mine[cid]?['at'] ?? ''}') <= 0) continue;
+      var held = _remoteLabels[cid];
+      if (held == null || held.at != spot.at) {
+        try {
+          final raw = await _paperDisk.loadSessionJson(cid);
+          if (raw == null) continue;
+          final o = ReadingSession.fromOpenJson(raw, fallbackCacheId: cid);
+          final v = validateProgressIndices(
+            sentenceIndex: spot.si,
+            figureIndex: spot.fi,
+            sentenceCount: o.sentenceCount,
+            figureCount: o.figureCount,
+          );
+          if (!v.ok) continue;
+          final h = o.sectionNav.headerPartsFor(v.sentenceIndex!);
+          held = (at: spot.at, label: '${h.sectionName} ${h.rightLabel}'.trim());
+          _remoteLabels[cid] = held;
+        } catch (_) {
+          continue;
+        }
+      }
+      if (held.label.isNotEmpty) out[cid] = held.label;
+    }
+    return out;
   }
 
   Future<void> _syncBookmarksForSession(ReadingSession o) async {

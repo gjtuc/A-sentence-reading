@@ -130,4 +130,15 @@ void main() {
     expect(await loadRemoteSpot(uid: 'u2', cacheId: 'c1'), isNull);
     expect(await loadProgressAt(uid: 'u1', cacheId: 'c1'), '', reason: 'own rows untouched');
   });
+
+  test('all remote spots of an account load at once for the library labels', () async {
+    SharedPreferences.setMockInitialValues({});
+    await saveRemoteSpot(uid: 'u1', cacheId: 'c1', spot: (si: 5, fi: 1, at: '2026-10-17T10:00:05Z'));
+    await saveRemoteSpot(uid: 'u1', cacheId: 'c2', spot: (si: 9, fi: 0, at: '2026-10-17T10:00:07Z'));
+    await saveRemoteSpot(uid: 'u2', cacheId: 'c3', spot: (si: 1, fi: 0, at: '2026-10-17T10:00:09Z'));
+    final all = await loadRemoteSpots(uid: 'u1');
+    expect(all.keys.toSet(), {'c1', 'c2'});
+    expect(all['c2'], (si: 9, fi: 0, at: '2026-10-17T10:00:07Z'));
+    expect(await loadRemoteSpots(uid: 'u9'), isEmpty);
+  });
 }
