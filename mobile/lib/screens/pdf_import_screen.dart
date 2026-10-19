@@ -3,9 +3,11 @@
 library;
 
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api/pdf_folder_grant_models.dart';
+import '../platform/saf_tree_channel.dart' show webFolderSupported;
 import '../state/library_controller.dart';
 import '../services/evidence_bus.dart';
 
@@ -155,7 +157,9 @@ class _PdfImportScreenState extends State<PdfImportScreen>
       await lib.loadPdfDownloadsGrantAndScan(trigger: 'bootstrap');
       final stale = lib.pdfImportActiveGrantStale;
       if (stale) {
-        _banner = '이전에 연결한 폴더를 열 수 없습니다. 다시 연결해 주세요.';
+        _banner = kIsWeb
+            ? '브라우저가 폴더를 다시 열어도 되는지 묻습니다. 「다시 연결」을 누르면 같은 폴더를 엽니다.'
+            : '이전에 연결한 폴더를 열 수 없습니다. 다시 연결해 주세요.';
       }
       unawaited(lib.ensureVisiblePdfHashes());
       unawaited(lib.ensureVisiblePdfAdvisories());
@@ -165,6 +169,14 @@ class _PdfImportScreenState extends State<PdfImportScreen>
   }
 
   Future<void> _connectFolder() async {
+    if (kIsWeb && !webFolderSupported) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('이 브라우저는 폴더 열기를 지원하지 않습니다. 크롬이나 엣지에서 열어 주세요.'),
+        ),
+      );
+      return;
+    }
     setState(() {
       _busy = true;
       _banner = null;
@@ -537,7 +549,8 @@ class _PdfImportScreenState extends State<PdfImportScreen>
           appBar: AppBar(
             title: const Text('논문 가져오기'),
             actions: [
-              if (_selected.isNotEmpty)
+              // design/416 — the web folder is opened read-only.
+              if (_selected.isNotEmpty && !kIsWeb)
                 IconButton(
                   icon: const Icon(Icons.delete_outline),
                   tooltip: '선택 파일 삭제',

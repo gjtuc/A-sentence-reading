@@ -5,7 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../pdf/advisory_title.dart' show PdfHeadStyledLine;
+import 'web_folder_stub.dart' if (dart.library.js_interop) 'web_folder_web.dart' as webdir;
+
 const MethodChannel kSafTreeChannel = MethodChannel('asr/saf_tree');
+
+/// design/416 — Chrome can open a folder; other browsers cannot.
+bool get webFolderSupported => webdir.webFolderSupported;
 
 class SafPdfHeadResult {
   const SafPdfHeadResult({
@@ -71,8 +76,8 @@ class SafTreeChannel {
 
   final MethodChannel _channel;
 
-  Future<SafTreePickResult?> pickTree({String? initialUri}) async {
-    if (kIsWeb) return null;
+  Future<SafTreePickResult?> pickTree({String? initialUri, bool downloads = false}) async {
+    if (kIsWeb) return webdir.webPickFolder(previous: initialUri, downloads: downloads);
     try {
       final raw = await _channel.invokeMethod<dynamic>(
         'pickTree',
@@ -221,7 +226,8 @@ class SafTreeChannel {
 
   Future<bool> releaseTree(String treeUri) async {
     final u = treeUri.trim();
-    if (u.isEmpty || kIsWeb) return false;
+    if (u.isEmpty) return false;
+    if (kIsWeb) return webdir.webForgetFolder(u);
     try {
       final ok = await _channel.invokeMethod<dynamic>('releaseTree', {
         'treeUri': u,
@@ -237,9 +243,10 @@ class SafTreeChannel {
     int maxItems = 500,
   }) async {
     final u = treeUri.trim();
-    if (u.isEmpty || kIsWeb) {
+    if (u.isEmpty) {
       return const SafTreeListResult(items: [], truncated: false);
     }
+    if (kIsWeb) return webdir.webListPdfs(u, maxItems: maxItems);
     final raw = await _channel.invokeMethod<dynamic>('listPdfs', {
       'treeUri': u,
       'maxItems': maxItems,
@@ -262,7 +269,8 @@ class SafTreeChannel {
 
   Future<String?> sha256OfUri(String docUri) async {
     final u = docUri.trim();
-    if (u.isEmpty || kIsWeb) return null;
+    if (u.isEmpty) return null;
+    if (kIsWeb) return webdir.webSha256(u);
     try {
       final hex = await _channel.invokeMethod<dynamic>('sha256OfUri', {
         'docUri': u,
@@ -282,7 +290,8 @@ class SafTreeChannel {
     int maxBytes = 50 * 1024 * 1024,
   }) async {
     final u = docUri.trim();
-    if (u.isEmpty || kIsWeb) return null;
+    if (u.isEmpty) return null;
+    if (kIsWeb) return webdir.webReadFile(u, maxBytes: maxBytes);
     try {
       final raw = await _channel.invokeMethod<dynamic>('readPdfBytes', {
         'docUri': u,

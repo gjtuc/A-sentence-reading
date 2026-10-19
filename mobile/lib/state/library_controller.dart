@@ -6339,7 +6339,9 @@ class LibraryController extends ChangeNotifier {
   /// design/241 — proactive writable probe for READ-only banner.
   Future<void> refreshPdfFolderWritable() async {
     final grant = pdfFolderGrant;
-    if (grant == null) {
+    // design/416 — the web folder is opened read-only and nothing copies into it,
+    // so there is nothing to warn about.
+    if (grant == null || kIsWeb) {
       pdfFolderWritable = null;
       notifyListeners();
       return;
@@ -6476,7 +6478,10 @@ class LibraryController extends ChangeNotifier {
       details: {'browse': 'downloads'},
     );
     try {
-      final picked = await _safTree.pickTree(initialUri: pdfDownloadsGrant?.treeUri);
+      final picked = await _safTree.pickTree(
+        initialUri: pdfDownloadsGrant?.treeUri,
+        downloads: true,
+      );
       final elapsed = DateTime.now().millisecondsSinceEpoch - t0;
       if (picked == null) {
         asrEvidenceBus?.record(
@@ -6559,6 +6564,12 @@ class LibraryController extends ChangeNotifier {
     if (!connectIfMissing) {
       notifyListeners();
       return (ok: false, mode: 'no_grant', message: null);
+    }
+    // design/416 — the browser has no single-file Downloads picker here; connect
+    // the Downloads folder itself instead.
+    if (kIsWeb) {
+      final ok = await connectPdfDownloadsFolder();
+      return (ok: ok, mode: ok ? 'browse' : 'cancel', message: null);
     }
     // No tree grant — pick files from Downloads via OPEN_DOCUMENT.
     final t0 = DateTime.now().millisecondsSinceEpoch;
@@ -8252,7 +8263,7 @@ class LibraryController extends ChangeNotifier {
     final failedPick = <({String docUri, String displayName})>[];
     if (grant != null) {
       final probe = await _safTree.probeTreeWritable(grant.treeUri);
-      pdfFolderWritable = probe.writable;
+      pdfFolderWritable = kIsWeb ? null : probe.writable;
       asrEvidenceBus?.record(
         'pdf_tree_write_probe',
         severity: 'lifecycle',
