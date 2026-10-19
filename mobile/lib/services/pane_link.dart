@@ -48,6 +48,10 @@ bool openFigurePane() => win.openWindow(figurePaneUrl(Uri.base).toString(), 'asr
 
 void onPaneWindowClose(void Function() handler) => win.onPageHide(handler);
 
+/// design/423 — closes this window. Works for the figure window because the
+/// main window opened it; a window typed in by hand stays.
+void closeThisPaneWindow() => win.closeWindow();
+
 /// design/420 — learn the screens so the figure window goes to another one.
 /// [ask] shows the browser's 「window management」 question; it must run inside
 /// a click. Without [ask] only an already given answer is used.
@@ -112,7 +116,11 @@ class PaneLink extends ChangeNotifier {
   /// Figure window: true while it has no paper to show.
   bool Function()? needsSpot;
 
+  /// design/423 — figure window: the last main window said bye.
+  void Function()? onMainGone;
+
   DateTime? _figureSeen;
+  final Map<String, DateTime> _mainsSeen = {};
   Timer? _beat;
   bool _closed = false;
 
@@ -159,6 +167,17 @@ class PaneLink extends ChangeNotifier {
   @visibleForTesting
   void handle(Map<String, Object?> m) {
     if (_closed || m['id'] == windowId) return;
+    final from = m['id'];
+    if (role == PaneRole.figure && m['role'] == PaneRole.main.name && from is String) {
+      if (m['t'] == 'hello') _mainsSeen[from] = _now();
+      if (m['t'] == 'bye') {
+        _mainsSeen.remove(from);
+        final now = _now();
+        _mainsSeen.removeWhere((_, seen) => now.difference(seen) >= kPaneAlive);
+        if (_mainsSeen.isEmpty) onMainGone?.call();
+        return;
+      }
+    }
     switch (m['t']) {
       case 'hello':
         if (role != PaneRole.main || m['role'] != PaneRole.figure.name) return;

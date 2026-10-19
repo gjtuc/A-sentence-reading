@@ -236,7 +236,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final link = PaneLink(channel: channel, role: role, windowId: id)
       ..onSpot = _onPaneSpot
       ..onSpotWanted = _sendPaneSpot
-      ..needsSpot = () => _accessUnlocked == true && widget.library.session == null;
+      ..needsSpot = (() => _accessUnlocked == true && widget.library.session == null)
+      ..onMainGone = role == PaneRole.figure ? closeThisPaneWindow : null;
     _pane = link;
     widget.library.onSpotSaved = link.sendSpot;
     onPaneWindowClose(link.leave);

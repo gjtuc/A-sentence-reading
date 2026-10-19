@@ -58,6 +58,12 @@ void onPageHide(void Function() handler) {
   web.window.addEventListener('pagehide', ((web.Event _) => handler()).toJS);
 }
 
+void closeWindow() {
+  try {
+    web.window.close();
+  } catch (_) {}
+}
+
 @JS('getScreenDetails')
 external JSPromise<JSObject> _getScreenDetails();
 

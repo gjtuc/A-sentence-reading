@@ -36,6 +36,7 @@ import '../widgets/annotated_sentence_text.dart';
 import '../widgets/upload_status_bar.dart';
 import '../state/web_reading_prefs.dart';
 import '../services/full_screen.dart';
+import '../widgets/idle_cursor_layer.dart';
 import '../services/pane_link.dart';
 import 'figure_edit_screen.dart';
 
@@ -189,10 +190,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Widget _idleChrome(Widget child) {
     if (!kIsWeb) return child;
     return MouseRegion(
-      cursor: _idleHidden ? SystemMouseCursors.none : MouseCursor.defer,
       onHover: (_) => _onPointerMoved(),
       onEnter: (_) => _onPointerMoved(),
-      child: Listener(onPointerDown: (_) => _onPointerMoved(), child: child),
+      child: Listener(
+        onPointerDown: (_) => _onPointerMoved(),
+        child: IdleCursorLayer(hidden: _idleHidden, child: child),
+      ),
     );
   }
 

@@ -159,4 +159,31 @@ void main() {
     expect(due(hasPaper: false), isFalse);
     expect(due(tried: true), isFalse, reason: 'a closed figure window stays closed');
   });
+
+  test('design/423: the figure window closes with the last main window', () {
+    var now = DateTime(2026, 10, 19, 21);
+    final hub = _Hub();
+    final main = PaneLink(channel: hub.join(), role: PaneRole.main, windowId: 'm', now: () => now);
+    final other = PaneLink(channel: hub.join(), role: PaneRole.main, windowId: 'o', now: () => now);
+    final fig = PaneLink(channel: hub.join(), role: PaneRole.figure, windowId: 'f', now: () => now);
+    var gone = 0;
+    fig.onMainGone = () => gone++;
+    main.tick();
+    other.tick();
+
+    other.leave();
+    expect(gone, 0, reason: 'another main window is still there');
+    now = now.add(kPaneAlive);
+    main.tick();
+    main.leave();
+    expect(gone, 1);
+
+    main.leave();
+    expect(gone, 2, reason: 'a bye from a main never heard still means it closed');
+    fig.leave();
+    expect(gone, 2, reason: 'its own bye and a figure bye do not count');
+    main.dispose();
+    other.dispose();
+    fig.dispose();
+  });
 }
