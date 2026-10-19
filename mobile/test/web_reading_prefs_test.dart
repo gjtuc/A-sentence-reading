@@ -156,14 +156,18 @@ void main() {
         kWebPages[WebPage.dim]!.background);
   });
 
-  test('design/420: the figure window does not open on its own until asked', () async {
+  test('design/421: the figure window opens on its own until turned off', () async {
     SharedPreferences.setMockInitialValues({});
     final prefs = WebReadingPrefs.instance..resetForTests();
     await prefs.load();
-    expect(prefs.autoFigurePane, isFalse);
-    await prefs.setAutoFigurePane(true);
+    expect(prefs.autoFigurePane, isTrue);
+    await prefs.setAutoFigurePane(false);
     final p = await SharedPreferences.getInstance();
-    expect(p.getBool(WebReadingPrefs.autoPaneKey), isTrue);
+    expect(p.getBool(WebReadingPrefs.autoPaneKey), isFalse);
+    prefs.resetForTests();
+    SharedPreferences.setMockInitialValues({WebReadingPrefs.autoPaneKey: false});
+    await prefs.load();
+    expect(prefs.autoFigurePane, isFalse, reason: 'turned off stays off');
     prefs.resetForTests();
   });
 }

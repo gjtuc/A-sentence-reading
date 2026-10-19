@@ -115,7 +115,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       const SnackBar(
         content: Text(
           '그림 창은 화면을 한 번 누르면 열립니다. '
-          '주소창 오른쪽에서 팝업을 허용하면 다음부터 바로 열립니다.',
+          '창 위쪽 오른쪽의 막힘 표시에서 팝업을 허용하면 다음부터 바로 열립니다.',
         ),
       ),
     );
@@ -630,6 +630,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           bookmarks: widget.bookmarks,
           annotations: widget.annotations,
           pane: _pane,
+          onBack: _isFigurePane ? null : _goLibrary,
         );
 
         // design/224 — no bottom tabs; reader Offstage keep-alive (P1).

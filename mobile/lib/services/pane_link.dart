@@ -54,10 +54,13 @@ void onPaneWindowClose(void Function() handler) => win.onPageHide(handler);
 Future<bool> preparePaneScreens({bool ask = false}) => win.prepareScreens(ask: ask);
 
 /// design/420 — a window opened without a click is a blocked popup unless the
-/// site is allowed popups; the next click or key opens it instead.
+/// site is allowed popups; the next click or key opens it instead. That click
+/// also asks for the screens, so the next window goes to the other monitor.
 void openFigurePaneOnNextGesture(bool Function() stillWanted) =>
     win.onNextGesture(() {
-      if (stillWanted()) openFigurePane();
+      if (!stillWanted()) return;
+      openFigurePane();
+      unawaited(preparePaneScreens(ask: true));
     });
 
 typedef PaneScreen = ({int left, int top, int width, int height});

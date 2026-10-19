@@ -279,8 +279,9 @@ class WebReadingPrefs extends ChangeNotifier {
   bool autoHide = true;
   bool showContext = true;
 
-  /// design/420 — open the figure window when a paper opens.
-  bool autoFigurePane = false;
+  /// design/420 — open the figure window when a paper opens. design/421: on
+  /// unless turned off.
+  bool autoFigurePane = true;
   Future<void>? _loading;
 
   Future<void> load() => _loading ??= _load();
@@ -379,7 +380,7 @@ class WebReadingPrefs extends ChangeNotifier {
     font = WebFont.sans;
     autoHide = true;
     showContext = true;
-    autoFigurePane = false;
+    autoFigurePane = true;
     _loading = null;
   }
 }

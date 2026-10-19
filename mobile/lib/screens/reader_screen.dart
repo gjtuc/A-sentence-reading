@@ -59,6 +59,7 @@ class ReaderScreen extends StatefulWidget {
     required this.bookmarks,
     required this.annotations,
     this.pane,
+    this.onBack,
   });
 
   final LibraryController library;
@@ -71,6 +72,10 @@ class ReaderScreen extends StatefulWidget {
   final AnnotationController annotations;
   /// design/415 — the other window of this browser (web only).
   final PaneLink? pane;
+
+  /// design/421 — back to the library. The web shows it as a button: an installed
+  /// web app has no browser back button, and the phone has its own back.
+  final VoidCallback? onBack;
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
@@ -687,6 +692,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               child: Row(
                 children: [
+                  if (kIsWeb && widget.onBack != null)
+                    IconButton(
+                      tooltip: '서재로 (Esc)',
+                      onPressed: widget.onBack,
+                      icon: const Icon(Icons.arrow_back),
+                    ),
                   Expanded(
                     child: Text(
                       s.title.isEmpty ? '(no title)' : s.title,
@@ -724,11 +735,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
                           ? '그림 창이 열려 있습니다'
                           : '그림 창 따로 열기 (다른 모니터로 옮겨 쓰세요)',
                       onPressed: () {
-                        if (openFigurePane()) return;
+                        final opened = openFigurePane();
+                        unawaited(preparePaneScreens(ask: true));
+                        if (opened) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text(
-                              '브라우저가 새 창을 막았습니다. 주소창 오른쪽에서 팝업을 허용해 주세요.',
+                              '브라우저가 새 창을 막았습니다. 창 위쪽 오른쪽의 막힘 표시에서 팝업을 허용해 주세요.',
                             ),
                           ),
                         );
@@ -964,6 +977,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
             _keyMove(-1, figure: true),
         const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true): () =>
             _keyMove(1, figure: true),
+        const SingleActivator(LogicalKeyboardKey.escape): _keyBack,
       },
       child: Focus(
         focusNode: _keysFocus,
@@ -998,6 +1012,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
       await _askAiAbout(context, sentencePlain: plain, promptBody: q);
     }());
     return KeyEventResult.handled;
+  }
+
+  void _keyBack() {
+    if (!kIsWeb || !TickerMode.of(context)) return;
+    if (widget.annotations.blocksReaderNavigation) return;
+    widget.onBack?.call();
   }
 
   void _keyMove(int delta, {bool figure = false}) {
