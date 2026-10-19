@@ -270,6 +270,7 @@ class WebReadingPrefs extends ChangeNotifier {
   static const String autoHideKey = 'web_reading_autohide_v1';
   static const String contextKey = 'web_reading_context_v1';
   static const String autoPaneKey = 'web_reading_auto_pane_v1';
+  static const String fullScreenKey = 'web_reading_full_screen_v1';
 
   WebTextSize size = WebTextSize.large;
   WebColumnWidth column = WebColumnWidth.medium;
@@ -282,6 +283,9 @@ class WebReadingPrefs extends ChangeNotifier {
   /// design/420 — open the figure window when a paper opens. design/421: on
   /// unless turned off.
   bool autoFigurePane = true;
+
+  /// design/422 — each window goes full screen on its first click.
+  bool fullScreen = false;
   Future<void>? _loading;
 
   Future<void> load() => _loading ??= _load();
@@ -297,6 +301,7 @@ class WebReadingPrefs extends ChangeNotifier {
       autoHide = p.getBool(autoHideKey) ?? autoHide;
       showContext = p.getBool(contextKey) ?? showContext;
       autoFigurePane = p.getBool(autoPaneKey) ?? autoFigurePane;
+      fullScreen = p.getBool(fullScreenKey) ?? fullScreen;
       notifyListeners();
     } catch (_) {}
   }
@@ -371,6 +376,13 @@ class WebReadingPrefs extends ChangeNotifier {
     await _saveBool(autoPaneKey, next);
   }
 
+  Future<void> setFullScreen(bool next) async {
+    if (next == fullScreen) return;
+    fullScreen = next;
+    notifyListeners();
+    await _saveBool(fullScreenKey, next);
+  }
+
   @visibleForTesting
   void resetForTests() {
     size = WebTextSize.large;
@@ -381,6 +393,7 @@ class WebReadingPrefs extends ChangeNotifier {
     autoHide = true;
     showContext = true;
     autoFigurePane = true;
+    fullScreen = false;
     _loading = null;
   }
 }

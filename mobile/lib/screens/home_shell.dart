@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../api/access_models.dart';
@@ -17,6 +18,7 @@ import '../state/web_reading_prefs.dart';
 import '../api/launch_dest.dart';
 import '../api/practice_cloud_sync.dart';
 import '../services/evidence_bus.dart';
+import '../services/full_screen.dart';
 import '../services/pane_link.dart';
 import 'access_waiting_screen.dart';
 import 'library_screen.dart';
@@ -81,6 +83,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   ({String cacheId, int si, int fi})? _paneWaiting;
   bool _paneAutoTried = false;
   Timer? _paneAutoTimer;
+  bool _paneGesturePending = false;
 
   bool get _isFigurePane => _pane?.role == PaneRole.figure;
 
@@ -110,7 +113,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     }
     _paneAutoTried = true;
     if (openFigurePane()) return;
-    openFigurePaneOnNextGesture(() => mounted && _pane?.figureOpen == false);
+    _paneGesturePending = true;
+    openFigurePaneOnNextGesture(() {
+      _paneGesturePending = false;
+      return mounted && _pane?.figureOpen == false;
+    });
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       const SnackBar(
         content: Text(
@@ -199,6 +206,25 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     // design/411 — reading spots follow between the devices of this account.
     widget.library.startSpotSync();
     _startPane();
+    if (kIsWeb) unawaited(_startFullScreen());
+  }
+
+  /// design/422 — a new window would end full screen, so the figure window
+  /// opens first and full screen takes the click after.
+  Future<void> _startFullScreen() async {
+    final prefs = WebReadingPrefs.instance;
+    await prefs.load();
+    if (!mounted || !prefs.fullScreen) return;
+    enterFullScreenOnNextGesture(
+      wanted: () => mounted && prefs.fullScreen,
+      hold: () => fullScreenWaitsForPane(
+        main: _pane?.role == PaneRole.main,
+        autoPane: prefs.autoFigurePane,
+        figureOpen: _pane?.figureOpen == true,
+        tried: _paneAutoTried,
+        gesturePending: _paneGesturePending,
+      ),
+    );
   }
 
   void _startPane() {

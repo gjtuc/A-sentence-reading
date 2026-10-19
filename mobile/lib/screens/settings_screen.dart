@@ -14,6 +14,7 @@ import '../api/client.dart';
 import '../api/launch_dest.dart';
 import '../config.dart';
 import '../api/theme_models.dart';
+import '../services/full_screen.dart';
 import '../services/pane_link.dart' show preparePaneScreens;
 import '../api/tts_models.dart';
 import '../state/auth_controller.dart';
@@ -1332,6 +1333,22 @@ class _WebReadingSection extends StatelessWidget {
               if (v) unawaited(preparePaneScreens(ask: true));
             },
           ),
+          if (fullScreenSupported)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('전체 화면으로 보기'),
+              subtitle: const Text(
+                '제목 줄과 작업 표시줄을 숨기고 앱만 보여 줍니다. '
+                '앱을 켠 뒤 처음 누를 때 전체 화면이 됩니다. 그림 창도 같습니다. '
+                'Esc 를 누르면 풀립니다.',
+              ),
+              value: prefs.fullScreen,
+              onChanged: (v) {
+                // Inside the click: the browser allows full screen only then.
+                unawaited(v ? enterFullScreen() : exitFullScreen());
+                unawaited(prefs.setFullScreen(v));
+              },
+            ),
           const SizedBox(height: 8),
           Text(
             '넓은 모니터에서 문장을 화면 가운데에 크게 보여 줍니다. '

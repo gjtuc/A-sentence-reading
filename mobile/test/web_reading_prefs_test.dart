@@ -170,4 +170,16 @@ void main() {
     expect(prefs.autoFigurePane, isFalse, reason: 'turned off stays off');
     prefs.resetForTests();
   });
+
+  test('design/422: full screen is off until turned on, then remembered', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = WebReadingPrefs.instance..resetForTests();
+    await prefs.load();
+    expect(prefs.fullScreen, isFalse);
+    await prefs.setFullScreen(true);
+    prefs.resetForTests();
+    await prefs.load();
+    expect(prefs.fullScreen, isTrue);
+    prefs.resetForTests();
+  });
 }

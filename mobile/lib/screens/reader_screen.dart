@@ -35,6 +35,7 @@ import '../widgets/swipe_motion.dart';
 import '../widgets/annotated_sentence_text.dart';
 import '../widgets/upload_status_bar.dart';
 import '../state/web_reading_prefs.dart';
+import '../services/full_screen.dart';
 import '../services/pane_link.dart';
 import 'figure_edit_screen.dart';
 
@@ -750,6 +751,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
                           ? Icons.picture_in_picture_alt
                           : Icons.open_in_new),
                     ),
+                  if (kIsWeb && fullScreenSupported)
+                    ValueListenableBuilder<bool>(
+                      valueListenable: fullScreenOn,
+                      builder: (context, on, _) => IconButton(
+                        tooltip: on ? '전체 화면 풀기 (Esc)' : '전체 화면',
+                        onPressed: () => unawaited(toggleFullScreen()),
+                        icon: Icon(on ? Icons.fullscreen_exit : Icons.fullscreen),
+                      ),
+                    ),
                 ],
               ),
             )),
@@ -1017,6 +1027,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void _keyBack() {
     if (!kIsWeb || !TickerMode.of(context)) return;
     if (widget.annotations.blocksReaderNavigation) return;
+    // The browser spends this Esc on leaving full screen.
+    if (fullScreenOn.value || fullScreenJustLeft()) return;
     widget.onBack?.call();
   }
 
