@@ -177,6 +177,27 @@ DecodedImageBytes? decodeRasterDataUrl(String? src) {
   }
 }
 
+const int kFigureBytesCacheSize = 8;
+final List<(String, DecodedImageBytes?)> _figureBytesCache = [];
+
+/// design/426 — the same bytes for the same figure on every rebuild. New bytes
+/// make a new [MemoryImage], which decodes again and leaves the frame blank
+/// meanwhile: the figure blinked whenever anything else redrew the reader.
+DecodedImageBytes? decodeRasterDataUrlCached(String? src) {
+  if (src == null) return null;
+  for (var i = 0; i < _figureBytesCache.length; i++) {
+    final (key, value) = _figureBytesCache[i];
+    if (identical(key, src) || key == src) {
+      if (i > 0) _figureBytesCache.insert(0, _figureBytesCache.removeAt(i));
+      return value;
+    }
+  }
+  final decoded = decodeRasterDataUrl(src);
+  _figureBytesCache.insert(0, (src, decoded));
+  if (_figureBytesCache.length > kFigureBytesCacheSize) _figureBytesCache.removeLast();
+  return decoded;
+}
+
 /// Full opened paper with independent cursors.
 class ReadingSession {
   ReadingSession({

@@ -52,6 +52,9 @@ void onPaneWindowClose(void Function() handler) => win.onPageHide(handler);
 /// main window opened it; a window typed in by hand stays.
 void closeThisPaneWindow() => win.closeWindow();
 
+/// design/426 — the two windows learn each other's window for full screen.
+void startPanePair(PaneRole role) => win.startPair(figure: role == PaneRole.figure);
+
 /// design/420 — learn the screens so the figure window goes to another one.
 /// [ask] shows the browser's 「window management」 question; it must run inside
 /// a click. Without [ask] only an already given answer is used.

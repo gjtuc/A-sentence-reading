@@ -2361,7 +2361,7 @@ class _FigureImage extends StatelessWidget {
         ),
       );
     }
-    final decoded = decodeRasterDataUrl(src);
+    final decoded = decodeRasterDataUrlCached(src);
     if (decoded != null) {
       return _ZoomableFigureFrame(
         key: ValueKey<String>('fig-mem-${src.length}-${src.hashCode}'),
@@ -2377,6 +2377,7 @@ class _FigureImage extends StatelessWidget {
           decoded.bytes,
           fit: BoxFit.contain,
           filterQuality: FilterQuality.high,
+          gaplessPlayback: true,
         ),
       );
     }
@@ -2395,6 +2396,7 @@ class _FigureImage extends StatelessWidget {
           src,
           fit: BoxFit.contain,
           filterQuality: FilterQuality.high,
+          gaplessPlayback: true,
           errorBuilder: (_, __, ___) =>
               const Center(child: Text('이미지 없음')),
         ),

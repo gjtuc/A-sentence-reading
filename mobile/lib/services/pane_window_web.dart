@@ -57,19 +57,73 @@ bool openWindow(String url, String name) {
   }
 }
 
-/// design/425 - the other window of the pair: the figure window this one
-/// opened, else the main window that opened this one.
-web.Window? peerWindow() {
-  final w = _opened;
-  if (w != null && !w.closed) return w;
+const String _kPairHello = 'asr_pair_hello';
+
+/// design/426 - the window that last said [_kPairHello] here: the live figure
+/// window. The `window.open` result alone did not reach it from the main window.
+web.Window? _heard;
+bool _listening = false;
+
+void _listenForPair() {
+  if (_listening) return;
+  _listening = true;
+  web.window.addEventListener(
+    'message',
+    ((web.MessageEvent e) {
+      if (e.origin != web.window.location.origin) return;
+      if (e.data.dartify() != _kPairHello) return;
+      final src = e.source;
+      if (src == null) return;
+      try {
+        _heard = src as web.Window;
+      } catch (_) {}
+    }).toJS,
+  );
+}
+
+web.Window? _opener() {
   final o = web.window.opener;
   if (o == null) return null;
   try {
-    final win = o as web.Window;
-    return win.closed ? null : win;
+    return o as web.Window;
   } catch (_) {
     return null;
   }
+}
+
+/// Main window: listen for the figure window. Figure window: say hello to the
+/// main window that opened it, so it learns where to post.
+void startPair({required bool figure}) {
+  _listenForPair();
+  if (!figure) return;
+  final o = _opener();
+  if (o == null) return;
+  try {
+    (o as JSObject).callMethod<JSAny?>(
+      'postMessage'.toJS,
+      _kPairHello.toJS,
+      web.window.location.origin.toJS,
+    );
+  } catch (_) {}
+}
+
+bool _live(web.Window? w) {
+  if (w == null) return false;
+  try {
+    return !w.closed;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// design/425 - the other window of the pair: the figure window that said
+/// hello, else the one this window opened, else the main window that opened
+/// this one.
+web.Window? peerWindow() {
+  if (_live(_heard)) return _heard;
+  if (_live(_opened)) return _opened;
+  final o = _opener();
+  return _live(o) ? o : null;
 }
 
 void onPageHide(void Function() handler) {

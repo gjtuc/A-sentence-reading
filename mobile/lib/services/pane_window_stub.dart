@@ -9,6 +9,8 @@ void onPageHide(void Function() handler) {}
 
 void closeWindow() {}
 
+void startPair({required bool figure}) {}
+
 Future<bool> prepareScreens({bool ask = false}) async => false;
 
 void onNextGesture(void Function() handler) {}

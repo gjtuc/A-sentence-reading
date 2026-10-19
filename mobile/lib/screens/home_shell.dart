@@ -286,6 +286,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     _pane = link;
     widget.library.onSpotSaved = link.sendSpot;
     onPaneWindowClose(link.leave);
+    startPanePair(role);
     link.start();
     if (role == PaneRole.main) unawaited(_prepareMainPane(link));
   }
