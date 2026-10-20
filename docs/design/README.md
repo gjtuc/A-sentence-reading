@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 430 | [430-section-name-between-sentences.md](430-section-name-between-sentences.md) | 새 섹션이 시작되는 곳에 작은 섹션 이름을 문장 사이에 넣는다. 다른 섹션의 흐린 문장도 보인다. 마우스가 멈춰도 사라지지 않는다 (0.3.459) |
 | 429 | [429-folded-references-fade-when-idle.md](429-folded-references-fade-when-idle.md) | 참고문헌이 접혀 있으면 마우스가 3초 멈출 때 제목 줄과 같이 사라진다. 펼쳐져 있으면 그대로 (0.3.459) |
 | 428 | [428-f11-like-the-button.md](428-f11-like-the-button.md) | F11 을 앱이 받아 전체 화면 버튼과 똑같이 한다. 다른 창을 누르고 5초 안에 F11 이면 두 창 다 전체 화면 (0.3.458) |
 | 387 | [387-the-rung-then-the-line.md](387-the-rung-then-the-line.md) | 소리 확률을 먼저 (20+난이도)%로 보고, 못 넘기면 계정 선으로 한 번 더 본다 · 선이 배우는 점수는 난이도 적용 전 30% 일치 · 더 말한 소리는 분모에 남긴다 · 기호 목록은 30% 고정 (0.3.427) |

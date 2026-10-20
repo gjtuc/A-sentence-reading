@@ -102,4 +102,19 @@ void main() {
     expect(nav.carouselIndexFor(1, 0), 1);
     expect(nav.headerPartsFor(1).rightLabel, 'S2 / S2');
   });
+
+  test('design/430: section name only where a section starts', () {
+    final s = [
+      SentenceView(id: 'a', text: 'a', section: 'introduction'),
+      SentenceView(id: 'b', text: 'b', section: 'Introduction '),
+      SentenceView(id: 'c', text: 'c', section: 'experimental'),
+      SentenceView(id: 'd', text: 'd', section: ''),
+    ];
+    expect(sectionStartLabel(s, 0), 'Introduction');
+    expect(sectionStartLabel(s, 1), '');
+    expect(sectionStartLabel(s, 2), 'Experimental');
+    expect(sectionStartLabel(s, 3), 'Body');
+    expect(sectionStartLabel(s, 4), '');
+    expect(sectionStartLabel(s, -1), '');
+  });
 }

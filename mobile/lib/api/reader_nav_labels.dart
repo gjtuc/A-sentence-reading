@@ -217,6 +217,14 @@ String _sectionKey(String? section) {
   return s.isEmpty ? 'body' : s;
 }
 
+/// design/430 — the section name when sentence [index] starts a section, else ''.
+String sectionStartLabel(List<SentenceView> sentences, int index) {
+  if (index < 0 || index >= sentences.length) return '';
+  final key = _sectionKey(sentences[index].section);
+  if (index > 0 && _sectionKey(sentences[index - 1].section) == key) return '';
+  return sectionDisplayName(key);
+}
+
 /// Header split for figure/table carousel.
 class FigureHeaderParts {
   const FigureHeaderParts({

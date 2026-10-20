@@ -1169,7 +1169,46 @@ class _SentencePanel extends StatelessWidget {
   /// design/156 — sentence full-screen: swipe up → figure full-screen.
   final VoidCallback? onSwipeToFigure;
 
-  /// design/414 — the sentence before or after, faded; only inside the same section.
+  /// design/430 — a small section name where a section starts: above the
+  /// sentence that starts it, or below the one that ends the section before.
+  /// Not chrome: it stays when the buttons fade.
+  Widget _sectionBreak(
+    BuildContext context,
+    WebReadingStyle web,
+    int startIndex, {
+    required bool above,
+  }) {
+    final name = sectionStartLabel(session.sentences, startIndex);
+    if (name.isEmpty) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    final line = Expanded(
+      child: Divider(color: scheme.outlineVariant.withValues(alpha: 0.6)),
+    );
+    final gap = web.fontSize * 0.9;
+    return Padding(
+      padding: EdgeInsets.only(top: above ? 0 : gap, bottom: above ? gap : 0),
+      child: Row(
+        children: [
+          line,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              name,
+              style: TextStyle(
+                fontSize: web.fontSize * 0.55,
+                letterSpacing: 0.6,
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+              ),
+            ),
+          ),
+          line,
+        ],
+      ),
+    );
+  }
+
+  /// design/414 — the sentence before or after, faded. design/430: across a
+  /// section start too; [_sectionBreak] names the new section between them.
   Widget _contextSentence(
     BuildContext context,
     WebReadingStyle web,
@@ -1182,9 +1221,7 @@ class _SentencePanel extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final near = list[index];
-    if (!near.hasText || near.section != cur.section) {
-      return const SizedBox.shrink();
-    }
+    if (!near.hasText) return const SizedBox.shrink();
     final gap = web.fontSize * 0.9;
     return Padding(
       padding: EdgeInsets.only(top: above ? 0 : gap, bottom: above ? gap : 0),
@@ -1404,6 +1441,13 @@ class _SentencePanel extends StatelessWidget {
                                     session.sentenceIndex - 1,
                                     above: true,
                                   ),
+                                if (web != null)
+                                  _sectionBreak(
+                                    context,
+                                    web,
+                                    session.sentenceIndex,
+                                    above: true,
+                                  ),
                                 if (cur.isUngrounded)
                                   Padding(
                                     padding: const EdgeInsets.only(bottom: 8),
@@ -1489,6 +1533,13 @@ class _SentencePanel extends StatelessWidget {
                                         ),
                                   ),
                                 ],
+                                if (web != null)
+                                  _sectionBreak(
+                                    context,
+                                    web,
+                                    session.sentenceIndex + 1,
+                                    above: false,
+                                  ),
                                 if (web != null && web.showContext)
                                   _contextSentence(
                                     context,
