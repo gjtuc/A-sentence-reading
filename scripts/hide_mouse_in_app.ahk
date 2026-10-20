@@ -2,21 +2,33 @@
 #SingleInstance Force
 Persistent
 
-; Hides the mouse after it is still for IDLE_MS over a 문장 읽기 window, focused
-; or not. Windows draws the blank cursor itself, so Chrome need not repaint.
+; Opens the 문장 읽기 app, hides the mouse after it is still for IDLE_MS over an
+; app window (focused or not), and quits once every app window has closed.
+; Windows draws the blank cursor itself, so Chrome need not repaint.
 IDLE_MS := 3000
+GONE_MS := 3000
+START_WAIT_MS := 30000
 TITLE_PART := "문장 읽기"
 BROWSERS := ["chrome.exe", "msedge.exe"]
+APP_EXE := "C:\Program Files\Google\Chrome\Application\chrome_proxy.exe"
+APP_ARGS := '--profile-directory="Profile 1" --app-id=gmcbhkpkpmofemkjpnnfknmkeojidgcp'
 
 hidden := false
 lastX := -1
 lastY := -1
 stillSince := A_TickCount
+startedAt := A_TickCount
+appSeen := false
+goneSince := 0
 
+SetTitleMatchMode(2)
 CoordMode("Mouse", "Screen")
 OnExit((*) => ShowCursor())
 A_IconTip := "문장 읽기: 마우스 숨기기"
+if !AppOpen()
+    Run('"' APP_EXE '" ' APP_ARGS)
 SetTimer(Check, 100)
+SetTimer(WatchApp, 500)
 
 Check() {
     global hidden, lastX, lastY, stillSince
@@ -33,6 +45,34 @@ Check() {
         return
     if OverApp(win)
         HideCursor()
+}
+
+WatchApp() {
+    global appSeen, goneSince
+    if AppOpen() {
+        appSeen := true
+        goneSince := 0
+        return
+    }
+    if !appSeen {
+        if (A_TickCount - startedAt > START_WAIT_MS)
+            ExitApp()
+        return
+    }
+    if !goneSince {
+        goneSince := A_TickCount
+        return
+    }
+    if (A_TickCount - goneSince >= GONE_MS)
+        ExitApp()
+}
+
+AppOpen() {
+    for name in BROWSERS {
+        if WinExist(TITLE_PART " ahk_exe " name)
+            return true
+    }
+    return false
 }
 
 OverApp(win) {
