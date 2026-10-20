@@ -1,0 +1,72 @@
+#Requires AutoHotkey v2.0
+#SingleInstance Force
+Persistent
+
+; Hides the mouse after it is still for IDLE_MS over a 문장 읽기 window, focused
+; or not. Windows draws the blank cursor itself, so Chrome need not repaint.
+IDLE_MS := 3000
+TITLE_PART := "문장 읽기"
+BROWSERS := ["chrome.exe", "msedge.exe"]
+
+hidden := false
+lastX := -1
+lastY := -1
+stillSince := A_TickCount
+
+CoordMode("Mouse", "Screen")
+OnExit((*) => ShowCursor())
+A_IconTip := "문장 읽기: 마우스 숨기기"
+SetTimer(Check, 100)
+
+Check() {
+    global hidden, lastX, lastY, stillSince
+    MouseGetPos(&x, &y, &win)
+    if (x != lastX || y != lastY) {
+        lastX := x
+        lastY := y
+        stillSince := A_TickCount
+        if hidden
+            ShowCursor()
+        return
+    }
+    if (hidden || A_TickCount - stillSince < IDLE_MS)
+        return
+    if OverApp(win)
+        HideCursor()
+}
+
+OverApp(win) {
+    try {
+        title := WinGetTitle("ahk_id " win)
+        exe := WinGetProcessName("ahk_id " win)
+    } catch {
+        return false
+    }
+    if !InStr(title, TITLE_PART)
+        return false
+    for name in BROWSERS {
+        if (exe = name)
+            return true
+    }
+    return false
+}
+
+HideCursor() {
+    global hidden
+    ; 32x32 monochrome: AND all ones + XOR all zeros = see-through.
+    andMask := Buffer(128, 0xFF)
+    xorMask := Buffer(128, 0)
+    for id in [32512, 32513, 32514, 32515, 32516, 32642, 32643, 32644, 32645, 32646, 32648, 32649, 32650, 32651] {
+        h := DllCall("CreateCursor", "Ptr", 0, "Int", 0, "Int", 0, "Int", 32, "Int", 32
+            , "Ptr", andMask, "Ptr", xorMask, "Ptr")
+        DllCall("SetSystemCursor", "Ptr", h, "UInt", id)
+    }
+    hidden := true
+}
+
+ShowCursor() {
+    global hidden
+    ; SPI_SETCURSORS reloads the user's own cursor scheme.
+    DllCall("SystemParametersInfo", "UInt", 0x57, "UInt", 0, "Ptr", 0, "UInt", 0)
+    hidden := false
+}
