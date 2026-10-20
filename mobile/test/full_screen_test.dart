@@ -41,4 +41,13 @@ void main() {
     markFullScreenLeftForTests(null);
     expect(fullScreenJustLeft(now: t), isFalse);
   });
+
+  test('design/432: only the exit right after opening the AI window is a step away', () {
+    final t = DateTime(2026, 10, 20, 20);
+    expect(fullScreenSteppedAway(null, t), isFalse);
+    expect(fullScreenSteppedAway(t, t.add(const Duration(milliseconds: 300))), isTrue);
+    expect(fullScreenSteppedAway(t, t.add(const Duration(seconds: 5))), isFalse,
+        reason: 'a later Esc is the user leaving, and the other window follows');
+    expect(fullScreenSteppedAway(t, t.subtract(const Duration(seconds: 1))), isFalse);
+  });
 }

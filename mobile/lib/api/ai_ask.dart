@@ -2,10 +2,18 @@
 /// and open Google AI when it does not fit an address (design/182).
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../services/ai_window.dart';
 import 'ai_ask_prompt_models.dart';
+
+/// design/432 — the web opens its own AI window; the phone hands off to the app.
+Future<bool> _openAi(Uri uri) async {
+  if (kIsWeb && openAiWindow(uri)) return true;
+  return launchUrl(uri, mode: LaunchMode.externalApplication);
+}
 
 class AiAskLaunchResult {
   const AiAskLaunchResult({
@@ -32,7 +40,7 @@ Future<AiAskLaunchResult> runAiAsk({
   final direct = aiAskModeUri(sentencePlain: sentencePlain, promptBody: body);
   if (direct != null) {
     try {
-      if (await launchUrl(direct, mode: LaunchMode.externalApplication)) {
+      if (await _openAi(direct)) {
         return const AiAskLaunchResult(copied: false, launched: true, direct: true);
       }
     } catch (_) {}
@@ -44,10 +52,7 @@ Future<AiAskLaunchResult> runAiAsk({
   await Clipboard.setData(ClipboardData(text: payload));
   var launched = false;
   try {
-    launched = await launchUrl(
-      Uri.parse(kAiAskGoogleUrl),
-      mode: LaunchMode.externalApplication,
-    );
+    launched = await _openAi(Uri.parse(kAiAskGoogleUrl));
   } catch (_) {
     launched = false;
   }

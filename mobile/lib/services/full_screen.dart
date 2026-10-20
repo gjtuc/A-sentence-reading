@@ -3,6 +3,7 @@
 /// design/425 + 427: the main and figure windows follow each other. Leaving
 /// follows at once; entering waits for one click in the other window, since one
 /// click can fill only one window. design/428: F11 works like the button.
+/// design/432: opening the AI window ends full screen; the next click is back.
 library;
 
 import 'dart:async';
@@ -19,14 +20,21 @@ final ValueNotifier<bool> fullScreenOn = ValueNotifier<bool>(false);
 final ValueNotifier<bool> fullScreenAwaitsClick = ValueNotifier<bool>(false);
 
 DateTime? _leftAt;
+DateTime? _awayAt;
 
 bool get fullScreenSupported => impl.supported();
 
 void _sync() {
   final on = impl.isOn();
   if (fullScreenOn.value && !on) {
-    _leftAt = DateTime.now();
-    impl.tellPeer(false);
+    final now = DateTime.now();
+    _leftAt = now;
+    if (fullScreenSteppedAway(_awayAt, now)) {
+      _awayAt = null;
+      _comeBackOnClick();
+    } else {
+      impl.tellPeer(false);
+    }
   }
   fullScreenOn.value = on;
   if (on) fullScreenAwaitsClick.value = false;
@@ -56,6 +64,14 @@ void _onPeer(bool on) {
       impl.enter().then((_) => _sync());
       return true;
     });
+  });
+}
+
+void _comeBackOnClick() {
+  impl.onNextGestureSwallowed(() {
+    if (fullScreenOn.value) return false;
+    unawaited(enterFullScreen());
+    return true;
   });
 }
 
@@ -90,6 +106,21 @@ Future<void> exitFullScreen() async {
 
 Future<void> toggleFullScreen() =>
     fullScreenOn.value ? exitFullScreen() : enterFullScreen().then((_) {});
+
+/// design/432 — this window is about to open another one, which ends its full
+/// screen (measured in Chrome: a tab or a window alike). The other pane is not
+/// told to leave, and the next click here enters again.
+void fullScreenStepAway({DateTime? now}) {
+  if (!fullScreenOn.value) return;
+  _awayAt = now ?? DateTime.now();
+}
+
+/// The exit at [now] came from [fullScreenStepAway] at [awayAt], not the user.
+bool fullScreenSteppedAway(DateTime? awayAt, DateTime now) {
+  if (awayAt == null) return false;
+  final d = now.difference(awayAt);
+  return !d.isNegative && d < const Duration(seconds: 3);
+}
 
 /// The Esc that left full screen is not also a "back".
 bool fullScreenJustLeft({DateTime? now}) {
