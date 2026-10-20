@@ -1520,7 +1520,10 @@ class _SentencePanel extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                InkWell(
+                // design/429 — folded means "not now", so it fades with the buttons.
+                _FadeChrome(
+                  faded: fadeChrome && citeCollapsed,
+                  child: InkWell(
                   onTap: onToggleCiteCollapsed,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
@@ -1540,6 +1543,7 @@ class _SentencePanel extends StatelessWidget {
                       ],
                     ),
                   ),
+                ),
                 ),
                 if (!citeCollapsed)
                   _CiteRefPanel(
