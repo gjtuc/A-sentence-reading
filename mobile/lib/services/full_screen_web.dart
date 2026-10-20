@@ -1,5 +1,7 @@
 /// design/422 - the browser Fullscreen API. design/425: the pair of windows
-/// follow each other by postMessage.
+/// follow each other by postMessage. design/427: measured in Chrome, one click
+/// fills one window only (requestFullscreen and fullscreen delegation each use
+/// up the click), so the other window is only told, and waits for its own click.
 library;
 
 import 'dart:js_interop';
@@ -38,39 +40,63 @@ Future<void> exit() async {
   } catch (_) {}
 }
 
-void onNextGesture(void Function() handler) {
+void _onceOnGesture(void Function() handler, {required bool swallow}) {
   var done = false;
   late final JSFunction listener;
-  listener = ((web.Event _) {
+  listener = ((web.Event e) {
     if (done) return;
+    if (e.type == 'keydown' && (e as web.KeyboardEvent).key == 'Escape') return;
     done = true;
     web.window.removeEventListener('pointerdown', listener, true.toJS);
     web.window.removeEventListener('keydown', listener, true.toJS);
+    if (swallow) {
+      e.stopPropagation();
+      e.preventDefault();
+      if (e.type == 'pointerdown') _swallowRelease();
+    }
     handler();
   }).toJS;
   web.window.addEventListener('pointerdown', listener, true.toJS);
   web.window.addEventListener('keydown', listener, true.toJS);
 }
 
-/// Tells the other window. An enter hands over this click's right to go full
-/// screen (Chrome and Edge capability delegation); a browser without it gets a
-/// plain message and the other window waits for its own click.
+/// The release of a swallowed press, so the app never sees half a click.
+void _swallowRelease() {
+  late final JSFunction stop;
+  stop = ((web.Event e) {
+    e.stopPropagation();
+    if (e.type == 'click') {
+      web.window.removeEventListener('pointerup', stop, true.toJS);
+      web.window.removeEventListener('click', stop, true.toJS);
+    }
+  }).toJS;
+  web.window.addEventListener('pointerup', stop, true.toJS);
+  web.window.addEventListener('click', stop, true.toJS);
+  // A press dragged off the page never clicks; stop listening anyway.
+  web.window.setTimeout(
+    (() {
+      web.window.removeEventListener('pointerup', stop, true.toJS);
+      web.window.removeEventListener('click', stop, true.toJS);
+    }).toJS,
+    1500.toJS,
+  );
+}
+
+void onNextGesture(void Function() handler) => _onceOnGesture(handler, swallow: false);
+
+/// The click only brings full screen; the app under it does not see it.
+void onNextGestureSwallowed(void Function() handler) =>
+    _onceOnGesture(handler, swallow: true);
+
 void tellPeer(bool on) {
   final peer = peerWindow();
   if (peer == null) return;
-  final origin = web.window.location.origin;
-  final msg = (on ? _kEnter : _kExit).toJS;
-  if (on) {
-    try {
-      final opts = JSObject()
-        ..setProperty('targetOrigin'.toJS, origin.toJS)
-        ..setProperty('delegate'.toJS, 'fullscreen'.toJS);
-      (peer as JSObject).callMethod<JSAny?>('postMessage'.toJS, msg, opts);
-      return;
-    } catch (_) {}
-  }
   try {
-    (peer as JSObject).callMethod<JSAny?>('postMessage'.toJS, msg, origin.toJS);
+    (peer as JSObject).callMethod<JSAny?>(
+      'postMessage'.toJS,
+      (on ? _kEnter : _kExit).toJS,
+      web.window.location.origin.toJS,
+    );
   } catch (_) {}
 }
 

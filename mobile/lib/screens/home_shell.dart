@@ -85,6 +85,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   Timer? _paneAutoTimer;
   bool _paneGesturePending = false;
   Timer? _paneExpectTimer;
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? _fullScreenSnack;
 
   bool get _isFigurePane => _pane?.role == PaneRole.figure;
 
@@ -244,8 +245,23 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     _startPane();
     if (kIsWeb) {
       startFullScreenSync();
+      fullScreenAwaitsClick.addListener(_onFullScreenAwaitsClick);
       unawaited(_startFullScreen());
     }
+  }
+
+  /// design/427 — one click fills one window; this one waits for its own.
+  void _onFullScreenAwaitsClick() {
+    if (!mounted) return;
+    _fullScreenSnack?.close();
+    _fullScreenSnack = null;
+    if (!fullScreenAwaitsClick.value) return;
+    _fullScreenSnack = ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+        duration: Duration(seconds: 30),
+        content: Text('다른 창이 전체 화면이 됐습니다. 이 창을 한 번 누르면 이 창도 전체 화면이 됩니다.'),
+      ),
+    );
   }
 
   /// design/422 — a new window would end full screen, so the figure window
@@ -319,6 +335,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     _accessRetry?.cancel();
     _paneAutoTimer?.cancel();
     _paneExpectTimer?.cancel();
+    fullScreenAwaitsClick.removeListener(_onFullScreenAwaitsClick);
     widget.auth.removeListener(_onAuthChanged);
     WidgetsBinding.instance.removeObserver(this);
     widget.library.onSoftHideOpened = null;

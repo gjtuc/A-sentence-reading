@@ -1,6 +1,8 @@
 /// design/422 - the web app fills the whole screen: no title bar, no taskbar.
 /// The browser allows it only inside a click or key, and Esc always leaves it.
-/// design/425: the main and figure windows go in and out together.
+/// design/425 + 427: the main and figure windows follow each other. Leaving
+/// follows at once; entering waits for one click in the other window, since one
+/// click can fill only one window.
 library;
 
 import 'dart:async';
@@ -13,6 +15,9 @@ import 'full_screen_stub.dart'
 /// Whether this window is full screen now. Follows exits by Esc too.
 final ValueNotifier<bool> fullScreenOn = ValueNotifier<bool>(false);
 
+/// design/427 — the other window went full screen; the next click here does too.
+final ValueNotifier<bool> fullScreenAwaitsClick = ValueNotifier<bool>(false);
+
 DateTime? _leftAt;
 
 bool get fullScreenSupported => impl.supported();
@@ -24,35 +29,30 @@ void _sync() {
     impl.tellPeer(false);
   }
   fullScreenOn.value = on;
+  if (on) fullScreenAwaitsClick.value = false;
 }
 
 bool _watching = false;
-
-/// The other window asked to go full screen and this one is not yet.
-bool _peerWants = false;
-bool _peerArmed = false;
+bool _armed = false;
 
 void _onPeer(bool on) {
   if (!on) {
-    _peerWants = false;
+    fullScreenAwaitsClick.value = false;
     unawaited(exitFullScreen());
     return;
   }
   if (fullScreenOn.value) return;
-  _peerWants = true;
-  // Called inside the message, while the handed-over right lasts.
+  // A click here in the last few seconds may still allow it.
   impl.enter().then((ok) {
     _sync();
-    if (ok) {
-      _peerWants = false;
-      return;
-    }
-    if (_peerArmed) return;
-    _peerArmed = true;
-    impl.onNextGesture(() {
-      _peerArmed = false;
-      if (!_peerWants || fullScreenOn.value) return;
-      _peerWants = false;
+    if (ok) return;
+    fullScreenAwaitsClick.value = true;
+    if (_armed) return;
+    _armed = true;
+    impl.onNextGestureSwallowed(() {
+      _armed = false;
+      if (!fullScreenAwaitsClick.value || fullScreenOn.value) return;
+      fullScreenAwaitsClick.value = false;
       impl.enter().then((_) => _sync());
     });
   });
@@ -70,18 +70,18 @@ void _watch() {
 void startFullScreenSync() => _watch();
 
 /// Must run inside a click or key. False when the browser said no. The other
-/// window is told in the same click.
+/// window is told after this window has used the click.
 Future<bool> enterFullScreen() async {
   _watch();
-  final pending = impl.enter();
-  impl.tellPeer(true);
-  final ok = await pending;
+  final ok = await impl.enter();
   _sync();
+  if (ok) impl.tellPeer(true);
   return ok;
 }
 
 Future<void> exitFullScreen() async {
   _watch();
+  fullScreenAwaitsClick.value = false;
   await impl.exit();
   _sync();
 }
