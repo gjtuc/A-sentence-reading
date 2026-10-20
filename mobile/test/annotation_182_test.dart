@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/api/annotation_plain.dart';
 import 'package:sentence_reading/api/ai_ask_prompt_models.dart';
@@ -112,5 +113,13 @@ void main() {
       )),
       isFalse,
     );
+  });
+
+  test('design/433 neighbour sentence keeps its scripts, not its cites', () {
+    const raw = 'Loading was 0.25 mg<sub>Pt</sub> cm<sup>\u22122</sup>.<sup>12</sup>';
+    const style = TextStyle(fontSize: 20);
+    final spans = annotationRichSpansForSentence(raw, style);
+    expect(spans.whereType<WidgetSpan>().length, 2);
+    expect(spans.map((s) => s.toPlainText()).join().contains('12'), isFalse);
   });
 }

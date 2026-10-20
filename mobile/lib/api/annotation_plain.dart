@@ -4,12 +4,23 @@
 /// so cite-strip + rich-plain stay aligned.
 library;
 
+import 'package:flutter/widgets.dart';
+
 import 'cite_refs.dart';
 import 'rich_sentence.dart';
 
 /// Exact display/paint plain for a sentence body (182 §8.1).
 String annotationPlainForSentence(String? rawHtml) {
   return plainFromRichHtml(stripCiteMarkersForDisplay(rawHtml));
+}
+
+/// design/433 — the same text as [annotationPlainForSentence], with its
+/// sub/superscripts kept, for sentences that are shown but not annotated.
+List<InlineSpan> annotationRichSpansForSentence(
+  String? rawHtml,
+  TextStyle style,
+) {
+  return buildRichSpans(stripCiteMarkersForDisplay(rawHtml), style);
 }
 
 /// Clamp half-open [start, end) into [0, length]. Returns null if empty.

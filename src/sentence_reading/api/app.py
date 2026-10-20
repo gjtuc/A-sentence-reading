@@ -8711,6 +8711,31 @@ async def _run_ingest_job_body(
                 except Exception:  # noqa: BLE001
                     pass
 
+            # design/433 — the PDF's own sub/superscripts, word by word, over whatever
+            # the model restored.
+            if kind == "pdf" and sentences:
+                from dataclasses import replace
+
+                from sentence_reading.pdf.drawn_glyphs import (
+                    apply_script_forms,
+                    script_forms_for_path,
+                )
+
+                _forms = await asyncio.to_thread(script_forms_for_path, tmp_path)
+                _forms_hit = 0
+                _marked: list[str] = []
+                for s in sentences:
+                    _t, _n = apply_script_forms(s.text, _forms)
+                    _marked.append(_t)
+                    _forms_hit += _n
+                sentences = [
+                    replace(s, text=t) if t != s.text else s
+                    for s, t in zip(sentences, _marked)
+                ]
+                if _forms:
+                    warnings.append(f"script_forms:{len(_forms)}")
+                    warnings.append(f"script_forms_applied:{_forms_hit}")
+
             # WHY: debone 경로도 apply_glossary가 이미 정규화함 — 폴백·누락 lookalike 한 번 더
             sentences = [
                 Sentence(

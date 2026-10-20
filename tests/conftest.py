@@ -85,5 +85,7 @@ def _isolate_asr_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ASR_AZURE_LAYOUT", "0")
     # design/169o — suite keeps legacy inline harmonize; residual tests flip to 1.
     monkeypatch.setenv("ASR_HARMONIZE_RESIDUAL", "0")
+    # design/433 — fixture papers with unnamed glyphs must not call Gemini vision.
+    monkeypatch.setenv("ASR_GLYPH_VISION", "0")
     monkeypatch.delenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", raising=False)
     monkeypatch.delenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", raising=False)

@@ -201,10 +201,19 @@ def recover_pdf_text(
             from sentence_reading.pdf.body_headings import ordered_with_body_headings
 
             if azure_layout_enabled() and azure_document_intelligence_available():
+                from sentence_reading.pdf import drawn_glyphs
+
+                # design/433 — name the paper's unnamed glyphs while the service reads it.
+                drawn_glyphs.prefetch(pdf_path)
                 ordered, body_heads = ordered_with_body_headings(pdf_path)
                 if ordered is not None:
                     if body_heads is not None:
                         warnings.append(f"body_headings:{body_heads}")
+                    warnings.extend(
+                        f"drawn_glyph_{k}:{v}"
+                        for k, v in sorted(drawn_glyphs.census_for_path(pdf_path).items())
+                        if v
+                    )
                     if on_progress:
                         on_progress("quality", 1, 1, "Azure 읽기 순서")
                     return RecoverResult(

@@ -1223,21 +1223,23 @@ class _SentencePanel extends StatelessWidget {
     final near = list[index];
     if (!near.hasText) return const SizedBox.shrink();
     final gap = web.fontSize * 0.9;
+    final style = webContextStyle(
+      web,
+      Theme.of(context).textTheme.titleMedium ?? const TextStyle(fontSize: 18),
+    );
     return Padding(
       padding: EdgeInsets.only(top: above ? 0 : gap, bottom: above ? gap : 0),
       child: ExcludeSemantics(
         child: IgnorePointer(
           child: Opacity(
             opacity: kWebContextOpacity,
-            child: Text(
-              annotationPlainForSentence(near.text),
+            child: Text.rich(
+              TextSpan(
+                style: style,
+                children: annotationRichSpansForSentence(near.text, style),
+              ),
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: webContextStyle(
-                web,
-                Theme.of(context).textTheme.titleMedium ??
-                    const TextStyle(fontSize: 18),
-              ),
             ),
           ),
         ),

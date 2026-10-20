@@ -72,7 +72,20 @@ def agreement(azure_text: str, pdf_text: str) -> float:
 
 
 def page_words(page) -> list[tuple[float, float, float, float, str]]:
-    """Every word on the page with its rectangle, in the page's own reading order."""
+    """Every word on the page with its rectangle, in the page's own reading order.
+
+    design/433 — a glyph whose font gives it no character arrives as a control code,
+    which `get_text("words")` takes for a space (`cm−2` became `cm 2`). When the paper
+    has such glyphs and they could be named, the words are built from the named glyphs.
+    """
+    try:
+        from sentence_reading.pdf.drawn_glyphs import page_words_named
+
+        named = page_words_named(page)
+        if named is not None:
+            return named
+    except Exception:  # noqa: BLE001
+        pass
     out = []
     for w in page.get_text("words") or []:
         out.append((float(w[0]), float(w[1]), float(w[2]), float(w[3]), str(w[4])))

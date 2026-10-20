@@ -17,6 +17,8 @@ dependencies = [
     "python-docx>=1.1.0",
     "pillow>=10.0.0",
     "azure-ai-documentintelligence>=1.0.0",
+    # design/433 — glyph names inside embedded fonts
+    "fonttools>=4.40.0",
 ]
 
 [project.optional-dependencies]
