@@ -11,7 +11,9 @@ Future<void> exit() async {}
 
 void onNextGesture(void Function() handler) {}
 
-void onNextGestureSwallowed(void Function() handler) {}
+void onNextGestureSwallowed(bool Function() handler) {}
+
+void onFullScreenKey(void Function() handler) {}
 
 void tellPeer(bool on) {}
 

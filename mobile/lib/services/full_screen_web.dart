@@ -2,6 +2,7 @@
 /// follow each other by postMessage. design/427: measured in Chrome, one click
 /// fills one window only (requestFullscreen and fullscreen delegation each use
 /// up the click), so the other window is only told, and waits for its own click.
+/// design/428: F11 is taken from the browser and works like the button.
 library;
 
 import 'dart:js_interop';
@@ -40,21 +41,29 @@ Future<void> exit() async {
   } catch (_) {}
 }
 
-void _onceOnGesture(void Function() handler, {required bool swallow}) {
+/// Esc never carries the right to go full screen; F11 has its own handler.
+bool _skipKey(web.Event e) {
+  if (e.type != 'keydown') return false;
+  final key = (e as web.KeyboardEvent).key;
+  return key == 'Escape' || key == 'F11';
+}
+
+/// [handler] returns true when it used the press. Only then is the press
+/// stopped (with its release), so the app under it does not also act on it.
+void _onceOnGesture(bool Function() handler, {required bool swallow}) {
   var done = false;
   late final JSFunction listener;
   listener = ((web.Event e) {
-    if (done) return;
-    if (e.type == 'keydown' && (e as web.KeyboardEvent).key == 'Escape') return;
+    if (done || _skipKey(e)) return;
     done = true;
     web.window.removeEventListener('pointerdown', listener, true.toJS);
     web.window.removeEventListener('keydown', listener, true.toJS);
-    if (swallow) {
+    final used = handler();
+    if (swallow && used) {
       e.stopPropagation();
       e.preventDefault();
       if (e.type == 'pointerdown') _swallowRelease();
     }
-    handler();
   }).toJS;
   web.window.addEventListener('pointerdown', listener, true.toJS);
   web.window.addEventListener('keydown', listener, true.toJS);
@@ -82,11 +91,29 @@ void _swallowRelease() {
   );
 }
 
-void onNextGesture(void Function() handler) => _onceOnGesture(handler, swallow: false);
+void onNextGesture(void Function() handler) => _onceOnGesture(() {
+      handler();
+      return false;
+    }, swallow: false);
 
-/// The click only brings full screen; the app under it does not see it.
-void onNextGestureSwallowed(void Function() handler) =>
+void onNextGestureSwallowed(bool Function() handler) =>
     _onceOnGesture(handler, swallow: true);
+
+/// F11 would be the browser's own full screen, which the other window never
+/// hears of. Taken here, it is a key press like any other and fills this window
+/// the same way as the button.
+void onFullScreenKey(void Function() handler) {
+  web.window.addEventListener(
+    'keydown',
+    ((web.KeyboardEvent e) {
+      if (e.key != 'F11' || e.repeat) return;
+      e.preventDefault();
+      e.stopPropagation();
+      handler();
+    }).toJS,
+    true.toJS,
+  );
+}
 
 void tellPeer(bool on) {
   final peer = peerWindow();

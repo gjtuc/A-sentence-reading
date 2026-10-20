@@ -759,7 +759,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     ValueListenableBuilder<bool>(
                       valueListenable: fullScreenOn,
                       builder: (context, on, _) => IconButton(
-                        tooltip: on ? '전체 화면 풀기 (Esc)' : '전체 화면',
+                        tooltip: on ? '전체 화면 풀기 (Esc)' : '전체 화면 (F11)',
                         onPressed: () => unawaited(toggleFullScreen()),
                         icon: Icon(on ? Icons.fullscreen_exit : Icons.fullscreen),
                       ),

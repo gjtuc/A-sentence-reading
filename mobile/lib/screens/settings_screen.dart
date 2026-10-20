@@ -1340,7 +1340,7 @@ class _WebReadingSection extends StatelessWidget {
               subtitle: const Text(
                 '제목 줄과 작업 표시줄을 숨기고 앱만 보여 줍니다. '
                 '앱을 켠 뒤 처음 누를 때 전체 화면이 됩니다. 그림 창도 같습니다. '
-                'Esc 를 누르면 풀립니다.',
+                'Esc 를 누르면 풀립니다. F11 은 전체 화면 버튼과 같습니다.',
               ),
               value: prefs.fullScreen,
               onChanged: (v) {

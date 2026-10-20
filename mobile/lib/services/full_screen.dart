@@ -2,7 +2,7 @@
 /// The browser allows it only inside a click or key, and Esc always leaves it.
 /// design/425 + 427: the main and figure windows follow each other. Leaving
 /// follows at once; entering waits for one click in the other window, since one
-/// click can fill only one window.
+/// click can fill only one window. design/428: F11 works like the button.
 library;
 
 import 'dart:async';
@@ -51,9 +51,10 @@ void _onPeer(bool on) {
     _armed = true;
     impl.onNextGestureSwallowed(() {
       _armed = false;
-      if (!fullScreenAwaitsClick.value || fullScreenOn.value) return;
+      if (!fullScreenAwaitsClick.value || fullScreenOn.value) return false;
       fullScreenAwaitsClick.value = false;
       impl.enter().then((_) => _sync());
+      return true;
     });
   });
 }
@@ -63,6 +64,7 @@ void _watch() {
   _watching = true;
   impl.onChange(_sync);
   impl.onPeer(_onPeer);
+  impl.onFullScreenKey(() => unawaited(toggleFullScreen()));
   _sync();
 }
 
