@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:sentence_reading/api/client.dart';
 import 'package:sentence_reading/api/reading_models.dart';
+import 'package:sentence_reading/api/reader_nav_labels.dart';
 import 'package:sentence_reading/api/session_store.dart';
 import 'package:sentence_reading/screens/reader_screen.dart';
 import 'package:sentence_reading/state/annotation_controller.dart';
@@ -406,5 +407,47 @@ void main() {
     final p = await SharedPreferences.getInstance();
     expect(p.getString(ReaderPrefs.pageKey), 'dim');
     prefs.resetForTests();
+  });
+
+  // design/437 — the phone sentence sits a little above the middle of its pane.
+  testWidgets('a short phone sentence sits a little above the middle of its pane',
+      (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    WebReadingPrefs.instance.resetForTests();
+    final client = _mockClient();
+    final library = LibraryController(client: client)..session = _session();
+    await _pumpReader(tester, library, client);
+    await animate(tester);
+
+    final text = tester.getRect(_richText('Sentence body number 0.').first);
+    final card = tester.getRect(find
+        .ancestor(
+          of: _richText('Sentence body number 0.').first,
+          matching: find.byType(Card),
+        )
+        .first);
+    final at = (text.center.dy - card.top) / card.height;
+    expect(at, greaterThan(0.3));
+    expect(at, lessThan(0.5));
+  });
+
+  testWidgets('the phone names a new section above its first sentence',
+      (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    WebReadingPrefs.instance.resetForTests();
+    final client = _mockClient();
+    final library = LibraryController(client: client)..session = _session();
+    await _pumpReader(tester, library, client);
+    await animate(tester);
+    final name = sectionStartLabel(library.session!.sentences, 0);
+    expect(name, isNotEmpty);
+
+    await tapSentence(tester);
+    expect(find.byTooltip('next sentence'), findsNothing);
+    expect(find.text(name), findsOneWidget);
+
+    library.advanceSentence(1);
+    await animate(tester);
+    expect(find.text(name), findsNothing);
   });
 }

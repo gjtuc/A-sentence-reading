@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -1098,6 +1099,22 @@ TextStyle _koStyle(WebReadingStyle? web, TextStyle base) => web != null
     ? webKoStyle(web, base)
     : phoneSentenceStyle(base, px: koPxFor(ReaderPrefs.instance.sentencePx));
 
+/// design/437 — the phone sentence sits a little above the middle of its pane,
+/// as on the web; one taller than the pane starts at the top.
+Widget _readingColumn(WebReadingStyle? web, double viewHeight, Widget child) {
+  if (web != null) return webReadingColumn(web, child);
+  return ConstrainedBox(
+    constraints: BoxConstraints(minHeight: viewHeight.isFinite ? viewHeight : 0),
+    child: Align(
+      alignment: Alignment(-1, kWebSentenceAlign.y),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: child,
+      ),
+    ),
+  );
+}
+
 /// design/414 — fades the buttons but keeps their space, so the sentence stays put.
 class _FadeChrome extends StatelessWidget {
   const _FadeChrome({required this.faded, required this.child});
@@ -1214,10 +1231,11 @@ class _SentencePanel extends StatelessWidget {
 
   /// design/430 — a small section name where a section starts: above the
   /// sentence that starts it, or below the one that ends the section before.
-  /// Not chrome: it stays when the buttons fade.
+  /// Not chrome: it stays when the buttons fade. design/437: on the phone too,
+  /// where a tap hides the header that names the section.
   Widget _sectionBreak(
     BuildContext context,
-    WebReadingStyle web,
+    double fontSize,
     int startIndex, {
     required bool above,
   }) {
@@ -1227,7 +1245,7 @@ class _SentencePanel extends StatelessWidget {
     final line = Expanded(
       child: Divider(color: scheme.outlineVariant.withValues(alpha: 0.6)),
     );
-    final gap = web.fontSize * 0.9;
+    final gap = fontSize * 0.9;
     return Padding(
       padding: EdgeInsets.only(top: above ? 0 : gap, bottom: above ? gap : 0),
       child: Row(
@@ -1238,7 +1256,7 @@ class _SentencePanel extends StatelessWidget {
             child: Text(
               name,
               style: TextStyle(
-                fontSize: web.fontSize * 0.55,
+                fontSize: math.max(12, fontSize * 0.55),
                 letterSpacing: 0.6,
                 color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
               ),
@@ -1462,7 +1480,8 @@ class _SentencePanel extends StatelessWidget {
                   child: Padding(
                   padding: const EdgeInsets.fromLTRB(4, 16, 4, 16),
                   child: WebReadingFrame(
-                  builder: (context, web) => SingleChildScrollView(
+                  builder: (context, web) => LayoutBuilder(
+                  builder: (context, box) => SingleChildScrollView(
                     // A long sentence scrolled down must not open the next one halfway.
                     key: ValueKey(session.sentenceIndex),
                     padding: EdgeInsets.symmetric(
@@ -1480,7 +1499,7 @@ class _SentencePanel extends StatelessWidget {
                                       annotations: annotations,
                                       session: session,
                                     ),
-                            child: webReadingColumn(web, Column(
+                            child: _readingColumn(web, box.maxHeight, Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 if (web != null && web.showContext)
@@ -1490,10 +1509,10 @@ class _SentencePanel extends StatelessWidget {
                                     session.sentenceIndex - 1,
                                     above: true,
                                   ),
-                                if (web != null)
-                                  _sectionBreak(
-                                    context,
-                                    web,
+                                _sectionBreak(
+                                  context,
+                                  web?.fontSize ??
+                                      ReaderPrefs.instance.sentencePx,
                                     session.sentenceIndex,
                                     above: true,
                                   ),
@@ -1582,10 +1601,10 @@ class _SentencePanel extends StatelessWidget {
                                         ),
                                   ),
                                 ],
-                                if (web != null)
-                                  _sectionBreak(
-                                    context,
-                                    web,
+                                _sectionBreak(
+                                  context,
+                                  web?.fontSize ??
+                                      ReaderPrefs.instance.sentencePx,
                                     session.sentenceIndex + 1,
                                     above: false,
                                   ),
@@ -1599,7 +1618,7 @@ class _SentencePanel extends StatelessWidget {
                               ],
                             )),
                           ),
-                  )),
+                  ))),
                 ),
               ),
             ),
