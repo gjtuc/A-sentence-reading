@@ -1,5 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/api/annotation_plain.dart';
 import 'package:sentence_reading/api/ai_ask_prompt_models.dart';
@@ -121,5 +123,46 @@ void main() {
     final spans = annotationRichSpansForSentence(raw, style);
     expect(spans.whereType<WidgetSpan>().length, 2);
     expect(spans.map((s) => s.toPlainText()).join().contains('12'), isFalse);
+  });
+
+  testWidgets('design/434 figure dialog: steps shown, question or figure alone',
+      (tester) async {
+    final png = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    );
+    FigureAiAsk? got;
+    var closed = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => TextButton(
+          onPressed: () async {
+            got = await showFigureAiAskDialog(
+              context: context,
+              image: png,
+              promptStore: MemoryAiAskPromptStore(),
+            );
+            closed++;
+          },
+          child: const Text('open'),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.text('이 그림을 AI에게 묻기'), findsOneWidget);
+    expect(find.textContaining('Ctrl+V'), findsOneWidget);
+    expect(find.textContaining('Win+V'), findsOneWidget);
+    await tester.tap(find.text('그림만 복사하고 AI 열기'));
+    await tester.pumpAndSettle();
+    expect(closed, 1);
+    expect(got?.question, '');
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '이 그림의 축을 설명해 줘');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    expect(closed, 2);
+    expect(got?.question, '이 그림의 축을 설명해 줘');
   });
 }

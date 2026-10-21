@@ -1017,6 +1017,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (!TickerMode.of(context) || widget.annotations.blocksReaderNavigation) {
       return KeyEventResult.ignored;
     }
+    // design/434 — the figure window asks about the figure it shows.
+    if (_shownLayout == _ReaderLayoutMode.figureOnly) {
+      final image = decodeRasterDataUrlCached(
+        widget.library.session?.currentFigure?.imageSrc,
+      );
+      if (image == null) return KeyEventResult.ignored;
+      unawaited(() async {
+        final ask = await showFigureAiAskDialog(context: context, image: image.bytes);
+        if (ask == null || !mounted) return;
+        await _askAiAboutFigure(context, image: image, question: ask.question);
+      }());
+      return KeyEventResult.handled;
+    }
     final cur = widget.library.session?.currentSentence;
     if (cur == null) return KeyEventResult.ignored;
     final plain = annotationPlainForSentence(cur.text);
@@ -3115,6 +3128,30 @@ Future<void> _askAiAbout(
         launch.launched
             ? '복사됨 · Google AI에서 붙여넣기 하세요'
             : '복사는 됐습니다. 브라우저에서 google.com/ai를 열어 붙여넣기 하세요',
+      ),
+    ),
+  );
+}
+
+Future<void> _askAiAboutFigure(
+  BuildContext context, {
+  required DecodedImageBytes image,
+  required String question,
+}) async {
+  final launch = await runFigureAiAsk(
+    image: image.bytes,
+    mime: image.mime,
+    question: question,
+  );
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        !launch.copied
+            ? '그림을 복사하지 못했어요'
+            : launch.launched
+                ? 'AI 창에서 Ctrl+V 로 그림을 넣어 주세요'
+                : '복사는 됐어요. 브라우저에서 google.com/ai 를 열어 붙여넣어 주세요',
       ),
     ),
   );

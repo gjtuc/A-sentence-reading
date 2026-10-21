@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/ai_window.dart';
+import '../services/figure_clipboard.dart';
 import 'ai_ask_prompt_models.dart';
 
 /// design/432 — the web opens its own AI window; the phone hands off to the app.
@@ -50,6 +51,25 @@ Future<AiAskLaunchResult> runAiAsk({
     promptBody: body,
   );
   await Clipboard.setData(ClipboardData(text: payload));
+  var launched = false;
+  try {
+    launched = await _openAi(Uri.parse(kAiAskGoogleUrl));
+  } catch (_) {
+    launched = false;
+  }
+  return AiAskLaunchResult(copied: true, launched: launched);
+}
+
+/// design/434 — a figure cannot travel in the address, so it is pasted: the
+/// question (if any) and then the picture go to the clipboard, then the AI page
+/// opens empty.
+Future<AiAskLaunchResult> runFigureAiAsk({
+  required Uint8List image,
+  required String mime,
+  String question = '',
+}) async {
+  final copied = await copyFigureForAi(image, mime: mime, question: question);
+  if (!copied) return const AiAskLaunchResult(copied: false, launched: false);
   var launched = false;
   try {
     launched = await _openAi(Uri.parse(kAiAskGoogleUrl));

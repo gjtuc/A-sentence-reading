@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 434 | [434-ask-ai-about-the-figure.md](434-ask-ai-about-the-figure.md) | 그림 창에서 키를 누르면 '이 그림을 AI에게 묻기'. 그림과 글을 같이 붙이면 그림만 들어가서, 질문 글을 먼저 복사하고 그림을 뒤에 복사해 Ctrl+V 로 그림, Win+V 로 질문을 넣음. 컴퓨터 앱만 (0.3.461) |
 | 433 | [433-letters-the-pdf-never-named.md](433-letters-the-pdf-never-named.md) | 글꼴이 뜻을 적지 않은 글자(빼기 등)는 논문마다 모양을 한 장에 모아 Gemini 에게 한 번 묻고, 위·아래 첨자는 PDF 의 글자 크기와 높이로 정해 문장에 다시 입힘. 흐린 이웃 문장도 첨자 표시 (0.3.460) |
 | 432 | [432-ai-window-and-back-to-full-screen.md](432-ai-window-and-back-to-full-screen.md) | 크롬은 전체 화면 페이지가 다른 페이지를 열면 전체 화면을 끝낸다(탭·창 같음). AI는 앱 위 작은 창으로 열고, 돌아와 한 번 누르면 다시 전체 화면. 그림 창에는 나가라고 안 함 (0.3.460) |
 | 431 | [431-pc-launcher-and-web-icon.md](431-pc-launcher-and-web-icon.md) | 포커스 없는 창은 크롬이 마우스를 다시 그리지 않아 웹으로는 못 숨긴다. AutoHotkey 바로가기가 앱을 켜고 마우스를 숨기고 앱이 닫히면 꺼진다. 웹 아이콘을 폰 아이콘으로 (0.3.459) |

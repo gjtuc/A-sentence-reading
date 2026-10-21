@@ -463,6 +463,131 @@ class _AiAskTypeDialogState extends State<_AiAskTypeDialog> {
   }
 }
 
+/// design/434 — what the figure dialog asks for. An empty [question] copies the
+/// figure alone; the question is then typed on the AI page.
+class FigureAiAsk {
+  const FigureAiAsk(this.question);
+
+  final String question;
+}
+
+/// design/434 — the figure window's question box. The AI page keeps only the
+/// picture when a picture and text are pasted together, so the question goes
+/// to the clipboard first and the picture after it: Ctrl+V pastes the picture
+/// and Win+V's list still holds the question.
+Future<FigureAiAsk?> showFigureAiAskDialog({
+  required BuildContext context,
+  required Uint8List image,
+  AiAskPromptStore? promptStore,
+}) {
+  return showDialog<FigureAiAsk>(
+    context: context,
+    builder: (ctx) => _FigureAiAskDialog(
+      image: image,
+      store: promptStore ?? PrefsAiAskPromptStore(),
+    ),
+  );
+}
+
+const kFigureAiAskSteps = [
+  '질문을 적거나 아래 질문을 고르면, 그림과 질문이 복사되고 AI 창이 열려요.',
+  'AI 창 입력칸을 누르고 Ctrl+V 를 누르면 그림이 들어가요.',
+  '이어서 Win+V 를 누르고, 목록에서 질문 글을 눌러 넣은 뒤 Enter 를 눌러요. '
+      '(Win+V 가 처음이면 "켜기"를 한 번 눌러 주세요.)',
+];
+
+class _FigureAiAskDialog extends StatefulWidget {
+  const _FigureAiAskDialog({required this.image, required this.store});
+
+  final Uint8List image;
+  final AiAskPromptStore store;
+
+  @override
+  State<_FigureAiAskDialog> createState() => _FigureAiAskDialogState();
+}
+
+class _FigureAiAskDialogState extends State<_FigureAiAskDialog> {
+  List<AiAskPrompt> _prompts = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(() async {
+      final list = await loadAiAskPromptsEnsuringSeed(widget.store);
+      if (mounted) setState(() => _prompts = list);
+    }());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final steps = theme.textTheme.bodyMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return AlertDialog(
+      title: const Text('이 그림을 AI에게 묻기'),
+      content: SizedBox(
+        width: 560,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 220),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.memory(widget.image, fit: BoxFit.contain),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text('쓰는 법', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 4),
+              for (var i = 0; i < kFigureAiAskSteps.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text('${i + 1}. ${kFigureAiAskSteps[i]}', style: steps),
+                ),
+              const SizedBox(height: 12),
+              AiAskQuestionField(
+                autofocus: true,
+                onAsk: (q) => Navigator.pop(context, FigureAiAsk(q)),
+              ),
+              if (_prompts.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final p in _prompts)
+                      ActionChip(
+                        label: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 480),
+                          child: Text(p.body, overflow: TextOverflow.ellipsis),
+                        ),
+                        onPressed: () => Navigator.pop(context, FigureAiAsk(p.body)),
+                      ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, const FigureAiAsk('')),
+          child: const Text('그림만 복사하고 AI 열기'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('닫기'),
+        ),
+      ],
+    );
+  }
+}
+
 class _PromptManageSheet extends StatefulWidget {
   const _PromptManageSheet({
     required this.store,
