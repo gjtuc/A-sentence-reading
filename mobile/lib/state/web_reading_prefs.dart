@@ -24,7 +24,11 @@ enum WebPage { app, dim, paper, white }
 
 enum WebSpacing { normal, wide }
 
-enum WebFont { sans, serif }
+/// design/436 — line height on its own; [WebSpacing] keeps letters and words.
+enum WebLineGap { normal, wide, wider }
+
+/// design/436 — [serif] is Source Serif 4, kept by name for saved prefs.
+enum WebFont { sans, inter, atkinson, serif, literata }
 
 const Map<WebTextSize, double> kWebTextPx = {
   WebTextSize.normal: 26,
@@ -46,6 +50,21 @@ const double kWebWideLineHeight = 1.9;
 
 /// Declared in pubspec.yaml (assets/fonts, SIL Open Font License).
 const String kWebSerifFamily = 'SourceSerif4';
+
+/// Null is the platform font.
+const Map<WebFont, String?> kReadingFontFamily = {
+  WebFont.sans: null,
+  WebFont.inter: 'Inter',
+  WebFont.atkinson: 'AtkinsonHyperlegible',
+  WebFont.serif: kWebSerifFamily,
+  WebFont.literata: 'Literata',
+};
+
+const Map<WebLineGap, double> kWebLineGapHeight = {
+  WebLineGap.normal: kWebLineHeight,
+  WebLineGap.wide: kWebWideLineHeight,
+  WebLineGap.wider: 2.2,
+};
 
 /// Seconds without a mouse move before the reader hides its buttons.
 const Duration kWebChromeIdle = Duration(seconds: 3);
@@ -128,6 +147,7 @@ WebReadingStyle? webReadingStyle({
   WebColumnWidth column = WebColumnWidth.medium,
   WebSpacing spacing = WebSpacing.normal,
   WebFont font = WebFont.sans,
+  WebLineGap? lineGap,
   bool showContext = false,
 }) {
   if (!web || !width.isFinite || width < kWebReadingMinWidth) return null;
@@ -137,10 +157,11 @@ WebReadingStyle? webReadingStyle({
   return WebReadingStyle(
     fontSize: px,
     maxWidth: maxWidth,
-    lineHeight: wide ? kWebWideLineHeight : kWebLineHeight,
+    lineHeight: kWebLineGapHeight[
+        lineGap ?? (wide ? WebLineGap.wide : WebLineGap.normal)]!,
     letterSpacing: wide ? px * 0.05 : 0.2,
     wordSpacing: wide ? px * 0.2 : 0,
-    fontFamily: font == WebFont.serif ? kWebSerifFamily : null,
+    fontFamily: kReadingFontFamily[font],
     viewHeight: height.isFinite ? math.max(0, height) : 0,
     showContext: showContext,
   );
@@ -249,6 +270,7 @@ class WebReadingFrame extends StatelessWidget {
             column: prefs.column,
             spacing: prefs.spacing,
             font: prefs.font,
+            lineGap: prefs.lineGap,
             showContext: prefs.showContext,
           ),
         ),
@@ -271,12 +293,19 @@ class WebReadingPrefs extends ChangeNotifier {
   static const String contextKey = 'web_reading_context_v1';
   static const String autoPaneKey = 'web_reading_auto_pane_v1';
   static const String fullScreenKey = 'web_reading_full_screen_v1';
+  static const String lineGapKey = 'web_reading_line_gap_v1';
 
   WebTextSize size = WebTextSize.large;
   WebColumnWidth column = WebColumnWidth.medium;
   WebPage page = WebPage.dim;
   WebSpacing spacing = WebSpacing.normal;
   WebFont font = WebFont.sans;
+
+  /// design/436 — set once chosen; until then wide spacing brings wide lines
+  /// as it did before line height had its own setting.
+  WebLineGap? _lineGap;
+  WebLineGap get lineGap =>
+      _lineGap ?? (spacing == WebSpacing.wide ? WebLineGap.wide : WebLineGap.normal);
   bool autoHide = true;
   bool showContext = true;
 
@@ -298,6 +327,7 @@ class WebReadingPrefs extends ChangeNotifier {
       page = WebPage.values.asNameMap()[p.getString(pageKey) ?? ''] ?? page;
       spacing = WebSpacing.values.asNameMap()[p.getString(spacingKey) ?? ''] ?? spacing;
       font = WebFont.values.asNameMap()[p.getString(fontKey) ?? ''] ?? font;
+      _lineGap = WebLineGap.values.asNameMap()[p.getString(lineGapKey) ?? ''] ?? _lineGap;
       autoHide = p.getBool(autoHideKey) ?? autoHide;
       showContext = p.getBool(contextKey) ?? showContext;
       autoFigurePane = p.getBool(autoPaneKey) ?? autoFigurePane;
@@ -355,6 +385,13 @@ class WebReadingPrefs extends ChangeNotifier {
     await _saveString(fontKey, next.name);
   }
 
+  Future<void> setLineGap(WebLineGap next) async {
+    if (next == _lineGap) return;
+    _lineGap = next;
+    notifyListeners();
+    await _saveString(lineGapKey, next.name);
+  }
+
   Future<void> setAutoHide(bool next) async {
     if (next == autoHide) return;
     autoHide = next;
@@ -390,6 +427,7 @@ class WebReadingPrefs extends ChangeNotifier {
     page = WebPage.dim;
     spacing = WebSpacing.normal;
     font = WebFont.sans;
+    _lineGap = null;
     autoHide = true;
     showContext = true;
     autoFigurePane = true;

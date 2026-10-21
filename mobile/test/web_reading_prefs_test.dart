@@ -182,4 +182,39 @@ void main() {
     expect(prefs.fullScreen, isTrue);
     prefs.resetForTests();
   });
+
+  test('design/436 line height has its own setting; wide spacing keeps wide lines until then',
+      () async {
+    SharedPreferences.setMockInitialValues({WebReadingPrefs.spacingKey: 'wide'});
+    final prefs = WebReadingPrefs.instance..resetForTests();
+    expect(prefs.lineGap, WebLineGap.normal);
+    await prefs.load();
+    expect(prefs.lineGap, WebLineGap.wide);
+    await prefs.setLineGap(WebLineGap.normal);
+    expect(prefs.lineGap, WebLineGap.normal);
+    expect(prefs.spacing, WebSpacing.wide);
+    final p = await SharedPreferences.getInstance();
+    expect(p.getString(WebReadingPrefs.lineGapKey), 'normal');
+    final s = webReadingStyle(
+      web: true,
+      width: 1900,
+      spacing: WebSpacing.wide,
+      lineGap: WebLineGap.wider,
+    )!;
+    expect(s.lineHeight, 2.2);
+    expect(s.letterSpacing, closeTo(34 * 0.05, 1e-9));
+    prefs.resetForTests();
+  });
+
+  test('design/436 every reading font has a bundled family or the platform one', () {
+    expect(kReadingFontFamily.keys.toSet(), WebFont.values.toSet());
+    expect(kReadingFontFamily[WebFont.sans], isNull);
+    expect(kReadingFontFamily[WebFont.serif], kWebSerifFamily);
+    for (final f in [WebFont.inter, WebFont.atkinson, WebFont.literata]) {
+      final s = webReadingStyle(web: true, width: 1900, font: f)!;
+      expect(s.fontFamily, kReadingFontFamily[f]);
+    }
+    expect(WebFont.values.asNameMap()['serif'], WebFont.serif,
+        reason: 'saved prefs name the old book font serif');
+  });
 }

@@ -132,7 +132,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   @override
   void initState() {
     super.initState();
-    if (kIsWeb) unawaited(WebReadingPrefs.instance.load());
+    unawaited(WebReadingPrefs.instance.load());
     unawaited(ReaderPrefs.instance.load().then((_) {
       if (!mounted || _dragging || _layout != _ReaderLayoutMode.split) return;
       if (_sentenceFraction != _restFraction) {
@@ -1092,11 +1092,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
 /// keeps its own.
 TextStyle _sentenceStyle(WebReadingStyle? web, TextStyle base) => web != null
     ? webSentenceStyle(web, base)
-    : base.copyWith(fontSize: ReaderPrefs.instance.sentencePx);
+    : phoneSentenceStyle(base);
 
 TextStyle _koStyle(WebReadingStyle? web, TextStyle base) => web != null
     ? webKoStyle(web, base)
-    : base.copyWith(fontSize: koPxFor(ReaderPrefs.instance.sentencePx));
+    : phoneSentenceStyle(base, px: koPxFor(ReaderPrefs.instance.sentencePx));
 
 /// design/414 — fades the buttons but keeps their space, so the sentence stays put.
 class _FadeChrome extends StatelessWidget {
@@ -1460,11 +1460,13 @@ class _SentencePanel extends StatelessWidget {
                 // Nav is blocked via enabled/null callbacks + library gate.
                 child: Card(
                   child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(4, 16, 4, 16),
                   child: WebReadingFrame(
                   builder: (context, web) => SingleChildScrollView(
                     // A long sentence scrolled down must not open the next one halfway.
                     key: ValueKey(session.sentenceIndex),
+                    padding: EdgeInsets.symmetric(
+                        horizontal: web != null ? 12 : phoneColumnInset()),
                     physics: annotations.sentencePaintMode
                         ? const NeverScrollableScrollPhysics()
                         : null,

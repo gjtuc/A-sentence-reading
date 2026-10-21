@@ -86,7 +86,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    if (kIsWeb) unawaited(WebReadingPrefs.instance.load());
+    unawaited(WebReadingPrefs.instance.load());
     unawaited(ReaderPrefs.instance.load());
     // WHY: session restore is async — first _reload often runs while logged out.
     // EDGE: without this listener, invite form appears after login but access/is_admin stay null
@@ -972,7 +972,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const _WebReadingSection(),
             ] else ...[
               const Divider(height: 32),
-              const _SentenceSizeSection(),
+              const _PhoneReadingSection(),
             ],
             const Divider(height: 32),
             SwitchListTile(
@@ -1236,27 +1236,112 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-/// design/435 — the phone sentence size. The web has its own, in 웹 읽기 화면.
-class _SentenceSizeSection extends StatelessWidget {
-  const _SentenceSizeSection();
+/// design/436 — one row of choices that wraps on a narrow phone.
+class _Choices<T> extends StatelessWidget {
+  const _Choices({
+    required this.values,
+    required this.labels,
+    required this.selected,
+    required this.onSelected,
+    this.styles,
+  });
+
+  final List<T> values;
+  final Map<T, String> labels;
+  final T selected;
+  final ValueChanged<T> onSelected;
+  final Map<T, TextStyle>? styles;
 
   @override
   Widget build(BuildContext context) {
-    final prefs = ReaderPrefs.instance;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 4,
+      children: [
+        for (final v in values)
+          ChoiceChip(
+            label: Text(labels[v]!, style: styles?[v]),
+            selected: v == selected,
+            onSelected: (_) => onSelected(v),
+          ),
+      ],
+    );
+  }
+}
+
+const Map<WebFont, String> _kFontLabel = {
+  WebFont.sans: '기본',
+  WebFont.inter: 'Inter',
+  WebFont.atkinson: 'Atkinson',
+  WebFont.serif: 'Source Serif',
+  WebFont.literata: 'Literata',
+};
+
+const Map<WebFont, String> _kFontHint = {
+  WebFont.sans: '기기의 기본 글꼴이에요.',
+  WebFont.inter: '요즘 앱과 웹에서 많이 쓰는 깔끔한 고딕이에요.',
+  WebFont.atkinson: 'l, I, 1 처럼 헷갈리는 글자를 쉽게 구별하도록 만든 글꼴이에요.',
+  WebFont.serif: '논문에 흔한 명조예요. 전에 「책 글꼴」이던 것이에요.',
+  WebFont.literata: '전자책(구글 플레이 북)을 위해 만든 명조예요. 오래 읽어도 편해요.',
+};
+
+const Map<WebLineGap, String> _kLineGapLabel = {
+  WebLineGap.normal: '보통',
+  WebLineGap.wide: '넓게',
+  WebLineGap.wider: '아주 넓게',
+};
+
+/// design/436 — the same font list on the web and the phone. Build it under a
+/// listener of [WebReadingPrefs].
+class _ReadingFontChoice extends StatelessWidget {
+  const _ReadingFontChoice();
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = WebReadingPrefs.instance;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _Choices<WebFont>(
+          values: WebFont.values,
+          labels: _kFontLabel,
+          styles: {
+            for (final f in WebFont.values)
+              f: TextStyle(fontFamily: kReadingFontFamily[f]),
+          },
+          selected: prefs.font,
+          onSelected: (f) => unawaited(prefs.setFont(f)),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '${_kFontHint[prefs.font]} 한글은 기기의 한글 글꼴로 보여요.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+}
+
+/// design/435 — the phone sentence size. design/436: and the rest of the web's
+/// reading look, fitted to a phone. The web has its own, in 웹 읽기 화면.
+class _PhoneReadingSection extends StatelessWidget {
+  const _PhoneReadingSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final reader = ReaderPrefs.instance;
+    final web = WebReadingPrefs.instance;
     final text = Theme.of(context).textTheme;
     return ListenableBuilder(
-      listenable: prefs,
+      listenable: Listenable.merge([reader, web]),
       builder: (context, _) {
-        final px = prefs.sentencePx;
+        final px = reader.sentencePx;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('문장 글자 크기', style: text.titleMedium),
-            const SizedBox(height: 4),
-            Text(
-              '읽기 화면 문장 창의 글자예요. 문장이 창보다 길면 위아래로 밀어 보세요.',
-              style: text.bodySmall,
-            ),
+            Text('읽기 화면', style: text.titleMedium),
+            const SizedBox(height: 8),
+            Text('문장 글자 크기', style: text.bodyMedium),
             Row(
               children: [
                 Expanded(
@@ -1267,7 +1352,7 @@ class _SentenceSizeSection extends StatelessWidget {
                     max: kSentencePxMax,
                     divisions: kSentencePxSteps,
                     label: '${px.round()}',
-                    onChanged: (v) => unawaited(prefs.setSentencePx(v)),
+                    onChanged: (v) => unawaited(reader.setSentencePx(v)),
                   ),
                 ),
                 SizedBox(
@@ -1276,9 +1361,77 @@ class _SentenceSizeSection extends StatelessWidget {
                 ),
               ],
             ),
+            Card(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  4 + phoneColumnInset(),
+                  12,
+                  4 + phoneColumnInset(),
+                  12,
+                ),
+                child: Text(
+                  'Reading one sentence at a time keeps the eye on the line '
+                  'and the mind on the idea.',
+                  style: phoneSentenceStyle(
+                    text.titleMedium ?? const TextStyle(fontSize: 16),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text('줄 간격', style: text.bodyMedium),
+            const SizedBox(height: 4),
+            _Choices<WebLineGap>(
+              values: WebLineGap.values,
+              labels: _kLineGapLabel,
+              selected: web.lineGap,
+              onSelected: (v) => unawaited(web.setLineGap(v)),
+            ),
+            const SizedBox(height: 12),
+            Text('글자 간격', style: text.bodyMedium),
+            const SizedBox(height: 4),
+            _Choices<WebSpacing>(
+              values: WebSpacing.values,
+              labels: const {WebSpacing.normal: '보통', WebSpacing.wide: '넓게'},
+              selected: web.spacing,
+              onSelected: (v) => unawaited(web.setSpacing(v)),
+            ),
+            const SizedBox(height: 12),
+            Text('줄 폭', style: text.bodyMedium),
+            const SizedBox(height: 4),
+            _Choices<WebColumnWidth>(
+              values: WebColumnWidth.values,
+              labels: const {
+                WebColumnWidth.narrow: '좁게',
+                WebColumnWidth.medium: '보통',
+                WebColumnWidth.wide: '넓게',
+              },
+              selected: web.column,
+              onSelected: (v) => unawaited(web.setColumn(v)),
+            ),
+            const SizedBox(height: 12),
+            Text('글꼴', style: text.bodyMedium),
+            const SizedBox(height: 4),
+            const _ReadingFontChoice(),
+            const SizedBox(height: 12),
+            Text('화면 색', style: text.bodyMedium),
+            const SizedBox(height: 4),
+            _Choices<WebPage>(
+              values: WebPage.values,
+              labels: const {
+                WebPage.app: '앱 테마',
+                WebPage.dim: '어두운 회색',
+                WebPage.paper: '종이색',
+                WebPage.white: '흰색',
+              },
+              selected: reader.page,
+              onSelected: (v) => unawaited(reader.setPage(v)),
+            ),
+            const SizedBox(height: 4),
             Text(
-              'One sentence at a time.',
-              style: (text.titleMedium ?? const TextStyle()).copyWith(fontSize: px),
+              '「앱 테마」는 위의 테마 설정을 따라요. 다른 색을 고르면 모든 화면이 그 색이 돼요. '
+              '문장이 문장 창보다 길면 위아래로 밀어 보세요.',
+              style: text.bodySmall,
             ),
           ],
         );
@@ -1350,16 +1503,21 @@ class _WebReadingSection extends StatelessWidget {
             onSelectionChanged: (v) => unawaited(prefs.setSpacing(v.first)),
           ),
           const SizedBox(height: 12),
+          Text('줄 간격', style: text.bodyMedium),
+          const SizedBox(height: 4),
+          SegmentedButton<WebLineGap>(
+            segments: const [
+              ButtonSegment(value: WebLineGap.normal, label: Text('보통')),
+              ButtonSegment(value: WebLineGap.wide, label: Text('넓게')),
+              ButtonSegment(value: WebLineGap.wider, label: Text('아주 넓게')),
+            ],
+            selected: {prefs.lineGap},
+            onSelectionChanged: (v) => unawaited(prefs.setLineGap(v.first)),
+          ),
+          const SizedBox(height: 12),
           Text('글꼴', style: text.bodyMedium),
           const SizedBox(height: 4),
-          SegmentedButton<WebFont>(
-            segments: const [
-              ButtonSegment(value: WebFont.sans, label: Text('기본')),
-              ButtonSegment(value: WebFont.serif, label: Text('책 글꼴')),
-            ],
-            selected: {prefs.font},
-            onSelectionChanged: (v) => unawaited(prefs.setFont(v.first)),
-          ),
+          const _ReadingFontChoice(),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('마우스가 멈추면 버튼 숨기기'),

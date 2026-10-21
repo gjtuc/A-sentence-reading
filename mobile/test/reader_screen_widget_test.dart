@@ -19,6 +19,7 @@ import 'package:sentence_reading/state/bookmark_controller.dart';
 import 'package:sentence_reading/state/cite_panel_controller.dart';
 import 'package:sentence_reading/state/library_controller.dart';
 import 'package:sentence_reading/state/reader_prefs.dart';
+import 'package:sentence_reading/state/web_reading_prefs.dart';
 import 'package:sentence_reading/state/shadowing_controller.dart';
 import 'package:sentence_reading/state/translate_controller.dart';
 import 'package:sentence_reading/state/tts_controller.dart';
@@ -336,5 +337,74 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getDouble(ReaderPrefs.splitKey), saved);
     ReaderPrefs.instance.resetForTests();
+  });
+
+  // design/436 — the phone sentence takes the font, line height, spacing and
+  // line width from the reading settings.
+  TextStyle? sentenceStyle(WidgetTester tester) {
+    TextStyle? found;
+    for (final rt in tester.widgetList<RichText>(
+        _richText('Sentence body number 0.'))) {
+      rt.text.visitChildren((span) {
+        if (span is TextSpan &&
+            (span.text ?? '').contains('Sentence body') &&
+            span.style?.fontSize != null) {
+          found ??= span.style;
+        }
+        return true;
+      });
+    }
+    return found;
+  }
+
+  testWidgets('the phone sentence uses the chosen font, line height and spacing',
+      (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    final web = WebReadingPrefs.instance..resetForTests();
+    await web.setFont(WebFont.literata);
+    await web.setLineGap(WebLineGap.wider);
+    await web.setSpacing(WebSpacing.wide);
+    final client = _mockClient();
+    final library = LibraryController(client: client)..session = _session();
+
+    await _pumpReader(tester, library, client);
+    await animate(tester);
+    final style = sentenceStyle(tester)!;
+    expect(style.fontFamily, 'Literata');
+    expect(style.height, 2.2);
+    expect(style.letterSpacing, closeTo(16 * 0.05, 1e-9));
+    web.resetForTests();
+  });
+
+  testWidgets('a narrow line width moves the phone sentence in from the sides',
+      (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    final web = WebReadingPrefs.instance..resetForTests();
+    final client = _mockClient();
+    final library = LibraryController(client: client)..session = _session();
+    await _pumpReader(tester, library, client);
+    await animate(tester);
+    final medium = tester.getTopLeft(_richText('Sentence body number 0.').first).dx;
+
+    await web.setColumn(WebColumnWidth.narrow);
+    await animate(tester);
+    final narrow = tester.getTopLeft(_richText('Sentence body number 0.').first).dx;
+    expect(narrow - medium,
+        closeTo(kPhoneColumnInset[WebColumnWidth.narrow]! -
+            kPhoneColumnInset[WebColumnWidth.medium]!, 0.5));
+    web.resetForTests();
+  });
+
+  test('design/436 the phone page colour loads and saves, and starts at the app theme',
+      () async {
+    SharedPreferences.setMockInitialValues({ReaderPrefs.pageKey: 'paper'});
+    final prefs = ReaderPrefs.instance..resetForTests();
+    expect(prefs.page, WebPage.app);
+    await prefs.load();
+    expect(prefs.page, WebPage.paper);
+    await prefs.setPage(WebPage.dim);
+    final p = await SharedPreferences.getInstance();
+    expect(p.getString(ReaderPrefs.pageKey), 'dim');
+    prefs.resetForTests();
   });
 }

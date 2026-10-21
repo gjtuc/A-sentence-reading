@@ -18,6 +18,7 @@ import 'state/theme_controller.dart';
 import 'state/translate_controller.dart';
 import 'state/tts_controller.dart';
 import 'state/web_reading_prefs.dart';
+import 'state/reader_prefs.dart';
 
 /// Root Material app — brand title 「문장 읽기」.
 class SentenceReadingApp extends StatefulWidget {
@@ -76,7 +77,8 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
   @override
   void initState() {
     super.initState();
-    if (kIsWeb) unawaited(WebReadingPrefs.instance.load());
+    unawaited(WebReadingPrefs.instance.load());
+    unawaited(ReaderPrefs.instance.load());
     // Reuse reporter from main() when injected; otherwise create for tests.
     asrErrorReporter ??= ErrorReporter(client: _auth.client)..install();
     asrEvidenceBus ??= EvidenceBus(client: _auth.client);
@@ -195,7 +197,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
     return AnimatedBuilder(
       animation: kIsWeb
           ? Listenable.merge([_theme, WebReadingPrefs.instance])
-          : _theme,
+          : Listenable.merge([_theme, ReaderPrefs.instance]),
       builder: (context, _) {
         final light = ThemeData(
           colorScheme: ColorScheme.fromSeed(
@@ -212,7 +214,11 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
           useMaterial3: true,
         );
         // design/420 — on the web the page colour is the theme: one setting.
-        final page = kIsWeb ? WebReadingPrefs.instance.page : null;
+        // design/436 — on the phone 앱 테마 leaves the 테마 setting in charge.
+        final phonePage = ReaderPrefs.instance.page;
+        final page = kIsWeb
+            ? WebReadingPrefs.instance.page
+            : (phonePage == WebPage.app ? null : phonePage);
         return MaterialApp(
           title: '문장 읽기',
           debugShowCheckedModeBanner: false,
