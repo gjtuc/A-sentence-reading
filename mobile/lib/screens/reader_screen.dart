@@ -35,6 +35,7 @@ import '../widgets/swipe_motion.dart';
 import '../widgets/annotated_sentence_text.dart';
 import '../widgets/upload_status_bar.dart';
 import '../state/web_reading_prefs.dart';
+import '../state/reader_prefs.dart';
 import '../services/full_screen.dart';
 import '../widgets/idle_cursor_layer.dart';
 import '../services/pane_link.dart';
@@ -84,7 +85,7 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen> {
-  static const double _kDefaultFraction = 0.6;
+  static const double _kDefaultFraction = kSplitFractionDefault;
   /// Soft resistance band around default (fraction of height).
   static const double _kMagnetResistanceBand = 0.11;
   /// Pull this far from default → break free to 1:1 tracking (jelly snap).
@@ -100,7 +101,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   _ReaderLayoutMode _layout = _ReaderLayoutMode.split;
   bool _appliedSavedLayout = false;
-  double _sentenceFraction = _kDefaultFraction;
+  double _sentenceFraction = ReaderPrefs.instance.splitFraction;
   bool _dragging = false;
   bool _inMagnet = false;
   bool _magnetEscaped = false;
@@ -132,6 +133,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void initState() {
     super.initState();
     if (kIsWeb) unawaited(WebReadingPrefs.instance.load());
+    unawaited(ReaderPrefs.instance.load().then((_) {
+      if (!mounted || _dragging || _layout != _ReaderLayoutMode.split) return;
+      if (_sentenceFraction != _restFraction) {
+        setState(() => _sentenceFraction = _restFraction);
+      }
+    }));
     widget.library.onSentenceIndexChanged = _onSentenceIndexChanged;
     widget.client.fetchStatus().then((st) {
       if (!mounted) return;
@@ -201,6 +208,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   void _pinLayout() => _layoutPolicy.pin();
 
+  /// design/435 — where the split rests: the reader's last bar, else the default.
+  double get _restFraction => ReaderPrefs.instance.splitFraction;
+
   /// design/415 — the figure window shows only figures; the main window shows only
   /// sentences while a figure window is open, or on its way (design/424). Null
   /// leaves the chosen layout.
@@ -243,14 +253,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
       case ReaderLayoutDesire.sentenceOnly:
         if (_layout == _ReaderLayoutMode.sentenceOnly) return;
         _layout = _ReaderLayoutMode.sentenceOnly;
-        _sentenceFraction = _kDefaultFraction;
+        _sentenceFraction = _restFraction;
       case ReaderLayoutDesire.splitDefault:
         if (_layout == _ReaderLayoutMode.split &&
-            (_sentenceFraction - _kDefaultFraction).abs() < 0.001) {
+            (_sentenceFraction - _restFraction).abs() < 0.001) {
           return;
         }
         _layout = _ReaderLayoutMode.split;
-        _sentenceFraction = _kDefaultFraction;
+        _sentenceFraction = _restFraction;
     }
     _edgePreviewSentence = false;
     _edgePreviewFigure = false;
@@ -316,7 +326,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _applyAutoLayoutForIndex(s, s.sentenceIndex);
     } else {
       _layout = _ReaderLayoutMode.split;
-      _sentenceFraction = _kDefaultFraction;
+      _sentenceFraction = _restFraction;
     }
   }
 
@@ -329,7 +339,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _pinLayout();
       if (_layout == _ReaderLayoutMode.sentenceOnly) {
         _layout = _ReaderLayoutMode.split;
-        _sentenceFraction = _kDefaultFraction;
+        _sentenceFraction = _restFraction;
       } else {
         _layout = _ReaderLayoutMode.sentenceOnly;
       }
@@ -343,7 +353,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _pinLayout();
       if (_layout == _ReaderLayoutMode.figureOnly) {
         _layout = _ReaderLayoutMode.split;
-        _sentenceFraction = _kDefaultFraction;
+        _sentenceFraction = _restFraction;
       } else {
         _layout = _ReaderLayoutMode.figureOnly;
       }
@@ -399,7 +409,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       setState(() {
         _pinLayout();
         _layout = _ReaderLayoutMode.split;
-        _sentenceFraction = _kDefaultFraction;
+        _sentenceFraction = _restFraction;
       });
     }
     widget.library.goToFigureIndex(figureIndex);
@@ -468,16 +478,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _magnetEscaped = false;
       if (_sentenceFraction >= 1 - _kEdgeSnap) {
         _layout = _ReaderLayoutMode.sentenceOnly;
-        _sentenceFraction = _kDefaultFraction;
+        _sentenceFraction = _restFraction;
       } else if (_sentenceFraction <= _kEdgeSnap) {
         _layout = _ReaderLayoutMode.figureOnly;
-        _sentenceFraction = _kDefaultFraction;
+        _sentenceFraction = _restFraction;
       } else if ((_sentenceFraction - _kDefaultFraction).abs() <=
           _kMagnetReleaseSnap) {
-        _sentenceFraction = _kDefaultFraction;
+        _sentenceFraction = kSplitFractionDefault;
         _layout = _ReaderLayoutMode.split;
+        unawaited(ReaderPrefs.instance.setSplitFraction(kSplitFractionDefault));
       } else {
         _layout = _ReaderLayoutMode.split;
+        unawaited(ReaderPrefs.instance.setSplitFraction(_sentenceFraction));
       }
       _edgePreviewSentence = false;
       _edgePreviewFigure = false;
@@ -500,6 +512,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         widget.citePanel,
         widget.bookmarks,
         widget.annotations,
+        ReaderPrefs.instance,
         if (widget.pane != null) widget.pane!,
       ]),
       builder: (context, _) {
@@ -691,7 +704,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   ),
                 ],
               ),
-            _FadeChrome(
+            // design/435 — the tap that hides the sentence buttons hides this row.
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: !_chromeVisible
+                  ? const SizedBox(width: double.infinity)
+                  : _FadeChrome(
               faded: _idleHidden,
               child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -766,7 +786,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     ),
                 ],
               ),
-            )),
+            ))),
             if (library.shadowingChunksBusy &&
                 (library.shadowingChunksCacheId == null ||
                     library.shadowingChunksCacheId == s.cacheId))
@@ -1067,6 +1087,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }());
   }
 }
+
+/// design/435 — the phone sentence takes its size from settings; the web look
+/// keeps its own.
+TextStyle _sentenceStyle(WebReadingStyle? web, TextStyle base) => web != null
+    ? webSentenceStyle(web, base)
+    : base.copyWith(fontSize: ReaderPrefs.instance.sentencePx);
+
+TextStyle _koStyle(WebReadingStyle? web, TextStyle base) => web != null
+    ? webKoStyle(web, base)
+    : base.copyWith(fontSize: koPxFor(ReaderPrefs.instance.sentencePx));
 
 /// design/414 — fades the buttons but keeps their space, so the sentence stays put.
 class _FadeChrome extends StatelessWidget {
@@ -1433,6 +1463,8 @@ class _SentencePanel extends StatelessWidget {
                   padding: const EdgeInsets.all(16),
                   child: WebReadingFrame(
                   builder: (context, web) => SingleChildScrollView(
+                    // A long sentence scrolled down must not open the next one halfway.
+                    key: ValueKey(session.sentenceIndex),
                     physics: annotations.sentencePaintMode
                         ? const NeverScrollableScrollPhysics()
                         : null,
@@ -1475,7 +1507,7 @@ class _SentencePanel extends StatelessWidget {
                                 AnnotatedSentenceText(
                                   html: cite
                                       .stripCiteMarkersForDisplay(cur.text),
-                                  style: webSentenceStyle(
+                                  style: _sentenceStyle(
                                       web,
                                       Theme.of(context).textTheme.titleMedium ??
                                           const TextStyle(fontSize: 18)),
@@ -1527,7 +1559,7 @@ class _SentencePanel extends StatelessWidget {
                                   richSentenceText(
                                     cite.stripCiteMarkersForDisplay(
                                         cur.textKo),
-                                    style: webKoStyle(
+                                    style: _koStyle(
                                         web,
                                         Theme.of(context).textTheme.bodyMedium ??
                                             const TextStyle(fontSize: 14)),
@@ -1587,7 +1619,14 @@ class _SentencePanel extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // design/429 — folded means "not now", so it fades with the buttons.
-                _FadeChrome(
+                // design/435 — and goes with them when a tap hides them.
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeInOut,
+                  alignment: Alignment.topCenter,
+                  child: !showChrome && citeCollapsed
+                      ? const SizedBox(width: double.infinity)
+                      : _FadeChrome(
                   faded: fadeChrome && citeCollapsed,
                   child: InkWell(
                   onTap: onToggleCiteCollapsed,
@@ -1610,7 +1649,7 @@ class _SentencePanel extends StatelessWidget {
                     ),
                   ),
                 ),
-                ),
+                )),
                 if (!citeCollapsed)
                   _CiteRefPanel(
                     client: client,

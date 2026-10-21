@@ -18,6 +18,7 @@ import 'package:sentence_reading/state/annotation_controller.dart';
 import 'package:sentence_reading/state/bookmark_controller.dart';
 import 'package:sentence_reading/state/cite_panel_controller.dart';
 import 'package:sentence_reading/state/library_controller.dart';
+import 'package:sentence_reading/state/reader_prefs.dart';
 import 'package:sentence_reading/state/shadowing_controller.dart';
 import 'package:sentence_reading/state/translate_controller.dart';
 import 'package:sentence_reading/state/tts_controller.dart';
@@ -205,5 +206,135 @@ void main() {
 
     expect(tester.widget<IconButton>(_chevron('next sentence')).onPressed, isNull);
     expect(tester.widget<IconButton>(_chevron('prev sentence')).onPressed, isNull);
+  });
+
+  // design/435 — [_pumpReader] stops on the first frame of the pane animation.
+  // These tests play it out; a pane passing through a few pixels reports an
+  // overflow on the way, which the ClipRect around it hides.
+  Future<void> animate(WidgetTester tester) async {
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      final e = tester.takeException();
+      if (e != null &&
+          !'$e'.contains('overflowed') &&
+          !'$e'.contains('Multiple exceptions')) {
+        fail('$e');
+      }
+    }
+  }
+
+  Future<void> tapSentence(WidgetTester tester) async {
+    await tester.tap(_richText('Sentence body number 0.').first);
+    await tester.pump(const Duration(milliseconds: 400));
+    await animate(tester);
+  }
+
+  // design/435 — the tap that hides the sentence buttons also hides the title
+  // row and a folded references row; another tap brings them back.
+  testWidgets('a tap hides the title row and the folded references row',
+      (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    final client = _mockClient();
+    final library = LibraryController(client: client)..session = _session();
+
+    await _pumpReader(tester, library, client);
+    await animate(tester);
+    expect(find.text('Independent Cursor Paper'), findsOneWidget);
+    expect(find.text('참고문헌'), findsOneWidget);
+
+    await tester.tap(find.text('참고문헌'));
+    await animate(tester);
+    await tapSentence(tester);
+    expect(find.text('Independent Cursor Paper'), findsNothing);
+    expect(find.text('참고문헌'), findsNothing);
+    expect(find.byTooltip('next sentence'), findsNothing);
+
+    await tapSentence(tester);
+    expect(find.text('Independent Cursor Paper'), findsOneWidget);
+    expect(find.text('참고문헌'), findsOneWidget);
+  });
+
+  testWidgets('an open references row stays when a tap hides the buttons',
+      (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    final client = _mockClient();
+    final library = LibraryController(client: client)..session = _session();
+
+    await _pumpReader(tester, library, client);
+    await animate(tester);
+    await tapSentence(tester);
+    expect(find.text('Independent Cursor Paper'), findsNothing);
+    expect(find.text('참고문헌'), findsOneWidget);
+  });
+
+  testWidgets('the phone sentence uses the size from settings', (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    await ReaderPrefs.instance.setSentencePx(32);
+    final client = _mockClient();
+    final library = LibraryController(client: client)..session = _session();
+
+    await _pumpReader(tester, library, client);
+    await animate(tester);
+    final sizes = <double?>[];
+    for (final rt in tester.widgetList<RichText>(
+        _richText('Sentence body number 0.'))) {
+      rt.text.visitChildren((span) {
+        if (span is TextSpan && (span.text ?? '').contains('Sentence body')) {
+          sizes.add(span.style?.fontSize);
+        }
+        return true;
+      });
+      sizes.add((rt.text as TextSpan).style?.fontSize);
+    }
+    expect(sizes, contains(32.0));
+    ReaderPrefs.instance.resetForTests();
+  });
+
+  double sentenceCardHeight(WidgetTester tester) {
+    final card = find.ancestor(
+      of: _richText('Sentence body number 0.').first,
+      matching: find.byType(Card),
+    );
+    return tester.getSize(card.first).height;
+  }
+
+  testWidgets('the split opens where the reader last left the bar',
+      (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    final client = _mockClient();
+    final library = LibraryController(client: client)..session = _session();
+    await _pumpReader(tester, library, client);
+    await animate(tester);
+    final atDefault = sentenceCardHeight(tester);
+
+    await tester.pumpWidget(const SizedBox());
+    await ReaderPrefs.instance.setSplitFraction(0.35);
+    final library2 = LibraryController(client: client)..session = _session();
+    await _pumpReader(tester, library2, client);
+    await animate(tester);
+    final atSaved = sentenceCardHeight(tester);
+    expect(atSaved, lessThan(atDefault - 100));
+    ReaderPrefs.instance.resetForTests();
+  });
+
+  testWidgets('dragging the bar saves where it was left', (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    final client = _mockClient();
+    final library = LibraryController(client: client)..session = _session();
+    await _pumpReader(tester, library, client);
+    await animate(tester);
+
+    final bar = find.byWidgetPredicate(
+      (w) => w.runtimeType.toString() == '_SplitHandle',
+    );
+    expect(bar, findsOneWidget);
+    await tester.drag(bar, const Offset(0, -220));
+    await animate(tester);
+
+    final saved = ReaderPrefs.instance.splitFraction;
+    expect(saved, lessThan(0.5));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getDouble(ReaderPrefs.splitKey), saved);
+    ReaderPrefs.instance.resetForTests();
   });
 }

@@ -25,6 +25,7 @@ import '../state/theme_controller.dart';
 import '../state/translate_controller.dart';
 import '../state/tts_controller.dart';
 import '../state/web_reading_prefs.dart';
+import '../state/reader_prefs.dart';
 import '../practice_rhythm/blank_rest.dart';
 import '../practice_rhythm/miss_review.dart';
 import '../practice_rhythm/judgment_prefs.dart';
@@ -86,6 +87,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     if (kIsWeb) unawaited(WebReadingPrefs.instance.load());
+    unawaited(ReaderPrefs.instance.load());
     // WHY: session restore is async — first _reload often runs while logged out.
     // EDGE: without this listener, invite form appears after login but access/is_admin stay null
     // (admin mint chrome never shows even when ASR_ADMIN_EMAILS matches).
@@ -968,6 +970,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (kIsWeb) ...[
               const Divider(height: 32),
               const _WebReadingSection(),
+            ] else ...[
+              const Divider(height: 32),
+              const _SentenceSizeSection(),
             ],
             const Divider(height: 32),
             SwitchListTile(
@@ -1225,6 +1230,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
             // design/138 — no localhost hang-simulate tile (Live-only product path).
           ],
         ),
+        );
+      },
+    );
+  }
+}
+
+/// design/435 — the phone sentence size. The web has its own, in 웹 읽기 화면.
+class _SentenceSizeSection extends StatelessWidget {
+  const _SentenceSizeSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = ReaderPrefs.instance;
+    final text = Theme.of(context).textTheme;
+    return ListenableBuilder(
+      listenable: prefs,
+      builder: (context, _) {
+        final px = prefs.sentencePx;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('문장 글자 크기', style: text.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              '읽기 화면 문장 창의 글자예요. 문장이 창보다 길면 위아래로 밀어 보세요.',
+              style: text.bodySmall,
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: Slider(
+                    key: const ValueKey('sentence_px'),
+                    value: px,
+                    min: kSentencePxMin,
+                    max: kSentencePxMax,
+                    divisions: kSentencePxSteps,
+                    label: '${px.round()}',
+                    onChanged: (v) => unawaited(prefs.setSentencePx(v)),
+                  ),
+                ),
+                SizedBox(
+                  width: 36,
+                  child: Text('${px.round()}', textAlign: TextAlign.end),
+                ),
+              ],
+            ),
+            Text(
+              'One sentence at a time.',
+              style: (text.titleMedium ?? const TextStyle()).copyWith(fontSize: px),
+            ),
+          ],
         );
       },
     );
