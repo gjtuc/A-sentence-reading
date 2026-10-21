@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../api/client.dart';
 import '../api/figure_pinch_sensitivity.dart';
@@ -78,11 +79,13 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_onKey);
     _load();
   }
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
     _transform.dispose();
     super.dispose();
   }
@@ -117,7 +120,7 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
   void _onViewerInteractionEnd(ScaleEndDetails details) {
     final pointers = _maxPointers;
     _maxPointers = 0;
-    if (_mode != _EditMode.pan || _loading) return;
+    if (_mode == _EditMode.crop || _loading) return;
     final w = _viewport.width;
     final scale = _transform.value.getMaxScaleOnAxis();
     final t = _transform.value.getTranslation();
@@ -145,10 +148,36 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
       pulledPastRight: pulledPastRight,
     );
     if (turn == PanEdgeTurn.none) return;
-    final delta = turn == PanEdgeTurn.next ? 1 : -1;
-    if (!_hasLayoutPage(_pageIndex + delta)) return;
+    _turnPage(turn == PanEdgeTurn.next ? 1 : -1);
+  }
+
+  /// design/438 — a swipe (Pan and Select) or ←/→ turns the page; the bar has
+  /// no page arrows. Crop keeps its drag for the crop frame.
+  void _turnPage(int delta) {
+    if (_loading || !_hasLayoutPage(_pageIndex + delta)) return;
     _transform.value = Matrix4.identity();
     unawaited(_changePage(delta));
+  }
+
+  bool _onKey(KeyEvent event) {
+    if (event is! KeyDownEvent) return false;
+    // A dialog above this screen keeps its keys.
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return false;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      _turnPage(-1);
+      return true;
+    }
+    if (key == LogicalKeyboardKey.arrowRight) {
+      _turnPage(1);
+      return true;
+    }
+    return false;
+  }
+
+  int get _pageCount {
+    final pages = _session?.layoutMap['pages'];
+    return pages is List ? pages.length : 0;
   }
 
   bool _hasLayoutPage(int index) {
@@ -566,7 +595,18 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Figure layout edit'),
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Figure layout edit'),
+              if (_pageCount > 0)
+                Text(
+                  '${_pageIndex + 1} / $_pageCount쪽',
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+            ],
+          ),
           actions: [
             if (session?.dirty == true)
               TextButton(
@@ -586,19 +626,6 @@ class _FigureEditScreenState extends State<FigureEditScreen> {
                       )
                     : const Text('Save'),
               ),
-            IconButton(
-              tooltip: 'prev page',
-              onPressed: _pageIndex > 0 && !_loading
-                  ? () => _changePage(-1)
-                  : null,
-              icon: const Icon(Icons.chevron_left),
-            ),
-            Text('p.${_pageIndex + 1}'),
-            IconButton(
-              tooltip: 'next page',
-              onPressed: !_loading ? () => _changePage(1) : null,
-              icon: const Icon(Icons.chevron_right),
-            ),
           ],
         ),
         body: _loading

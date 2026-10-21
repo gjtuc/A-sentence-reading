@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 438 | [438-turn-the-edit-page.md](438-turn-the-edit-page.md) | 그림 레이아웃 편집: '< p.1 >' 지우고 제목 아래 '3 / 12쪽' · Pan·Select 모드에서 옆으로 밀어 페이지 넘김 (Crop 은 그대로) · ←/→ 키로도 넘김 · 첫·끝 쪽에서 멈춤 (0.3.465) |
 | 437 | [437-sentence-off-the-top.md](437-sentence-off-the-top.md) | 폰 문장을 문장 창 위에 붙이지 않고 웹처럼 조금 위 가운데(창 높이 약 40%)에 둠, 길면 위부터 스크롤 · 새 섹션 표시 선을 폰에도 (헤더를 숨겨도 보임) (0.3.464) |
 | 436 | [436-reading-look-on-the-phone.md](436-reading-look-on-the-phone.md) | 폰 설정 '읽기 화면'에 웹처럼 줄 간격·글자 간격·줄 폭·글꼴·화면 색 · 줄 간격을 따로 분리 (보통/넓게/아주 넓게, 웹도) · 글꼴 Inter·Atkinson·Literata 추가 (웹·폰 공통, OFL) (0.3.463) |
 | 435 | [435-bigger-phone-sentence.md](435-bigger-phone-sentence.md) | 폰 문장 창: 설정의 '문장 글자 크기'(16~40) · 가로 바는 한 번 옮기면 그 자리 유지 (가이드 선은 처음 자리) · 탭으로 버튼을 숨기면 맨 위 제목·연습 줄과 접힌 참고문헌 줄도 숨김 · 다음 문장은 맨 위부터 (0.3.462) |
