@@ -380,6 +380,73 @@ def attach_continued_pages(layout: LayoutMap, plan: SlotPlan) -> int:
     return joined
 
 
+# design/443 — a table carried onto the next page with no heading at all. The Advanced
+# Materials SI runs Table S1 from the foot of page 19 to the top of page 20 and prints
+# nothing over the second part. Once Table S1's caption reads, the caption list is
+# complete and design/357 holds every unclaimed table back, so the last row vanished.
+# The page geometry is the evidence here, and all of it must hold: the very next page,
+# no table caption on it, the held part reaching the foot of its page, the new part
+# starting at the head of its page, and the same left and right edges.
+CARRIED_TABLE_FOOT = 0.75
+CARRIED_TABLE_HEAD = 0.25
+CARRIED_TABLE_EDGE_PT = 24.0
+
+
+def _page_height(layout: LayoutMap, page_index: int) -> float:
+    for p in layout.pages:
+        if int(p.get("page_index", -1)) == int(page_index):
+            return float(p.get("height_pt") or 0.0)
+    return 0.0
+
+
+def attach_carried_table_pages(layout: LayoutMap, plan: SlotPlan) -> int:
+    """Join a captionless table part on the next page to the table above it."""
+    from sentence_reading.pdf.slot_plan import assign_body_to_slot
+
+    joined = 0
+    for slot in plan.slots:
+        if slot.kind != "table" or slot.unnumbered or slot.status == "user_confirmed":
+            continue
+        if not slot.caption_box_id:
+            continue
+        while True:
+            held = slot.body_box_ids or ([slot.body_box_id] if slot.body_box_id else [])
+            bodies = [b for b in (layout.box_by_id(i) for i in held) if b is not None]
+            if not bodies:
+                break
+            last = max(bodies, key=lambda b: (b.page_index, float(b.rect["y1"])))
+            h_last = _page_height(layout, last.page_index)
+            nxt = last.page_index + 1
+            h_next = _page_height(layout, nxt)
+            if h_last <= 0 or h_next <= 0:
+                break
+            if float(last.rect["y1"]) < h_last * CARRIED_TABLE_FOOT:
+                break
+            on_next = layout.boxes_on_page(nxt)
+            if any(b.kind == "table_caption" for b in on_next):
+                break
+            part = None
+            for box in on_next:
+                if box.kind != "table_body" or box.used_by_slot:
+                    continue
+                if float(box.rect["y0"]) > h_next * CARRIED_TABLE_HEAD:
+                    continue
+                if abs(float(box.rect["x0"]) - float(last.rect["x0"])) > CARRIED_TABLE_EDGE_PT:
+                    continue
+                if abs(float(box.rect["x1"]) - float(last.rect["x1"])) > CARRIED_TABLE_EDGE_PT:
+                    continue
+                if part is None or float(box.rect["y0"]) < float(part.rect["y0"]):
+                    part = box
+            if part is None:
+                break
+            assign_body_to_slot(plan, layout, slot.key, part.id)
+            slot.continued = True
+            joined += 1
+    if joined:
+        refresh_slot_statuses(plan)
+    return joined
+
+
 _SUPP_WORD = r"(?:Supplementary|Supplemental|Supporting)"
 _KIND_WORDS = {
     "fig": r"(?:Figures?|Figs?)",

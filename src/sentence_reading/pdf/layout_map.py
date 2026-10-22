@@ -165,6 +165,65 @@ def _classify_paragraph_caption(text: str) -> str | None:
     return None
 
 
+# design/443 — a running head Azure joined to the caption under it. The Advanced
+# Materials SI prints `Submitted to` at the top of every page; on its landscape page 19
+# the caption `Table S1.` starts 1pt below it and Azure returns one paragraph for both,
+# so the caption never read as one and Table S1 rendered `(missing)`. A head is a short
+# text printed alone in a page's top or bottom band on two or more pages.
+RUNNING_HEAD_MAX_CHARS = 60
+RUNNING_HEAD_BAND = 0.15
+
+
+def _flat(text: str) -> str:
+    return " ".join((text or "").split())
+
+
+def _running_heads(paras: list[tuple[int, dict[str, float], str]], pages) -> list[str]:
+    heights = {int(p["page_index"]): float(p["height_pt"]) for p in pages}
+    seen: dict[str, set[int]] = {}
+    for page_index, rect, text in paras:
+        t = _flat(text)
+        h = heights.get(page_index) or 0.0
+        if not t or len(t) > RUNNING_HEAD_MAX_CHARS or h <= 0:
+            continue
+        if rect["y1"] > h * RUNNING_HEAD_BAND and rect["y0"] < h * (1 - RUNNING_HEAD_BAND):
+            continue
+        seen.setdefault(t, set()).add(page_index)
+    heads = [t for t, on in seen.items() if len(on) >= 2]
+    return sorted(heads, key=len, reverse=True)
+
+
+def _caption_under_head(text: str, heads: list[str]) -> str | None:
+    """The caption left once a running head is taken off the front, or None."""
+    flat = _flat(text)
+    for head in heads:
+        if not flat.startswith(head + " "):
+            continue
+        rest = flat[len(head) :].strip()
+        if _classify_paragraph_caption(rest):
+            return rest
+    return None
+
+
+def _rect_from_caption_start(page, rect: dict[str, float], caption: str) -> dict[str, float]:
+    """Drop the head's band from the box: start it at the caption's own first line."""
+    from sentence_reading.pdf.extract import _CAPTION_LABEL
+
+    m = _CAPTION_LABEL.match(caption)
+    if page is None or not m or int(getattr(page, "rotation", 0) or 0):
+        return rect
+    try:
+        hits = page.search_for(m.group(1))
+    except Exception:  # noqa: BLE001
+        return rect
+    for hit in hits:
+        if rect["x0"] - 2 <= hit.x0 <= rect["x1"] and rect["y0"] - 2 <= hit.y0 <= rect["y1"]:
+            out = dict(rect)
+            out["y0"] = max(rect["y0"], float(hit.y0) - 0.5)
+            return out
+    return rect
+
+
 def build_layout_map_from_result(result, doc) -> LayoutMap:
     """Map Azure prebuilt-layout result + PyMuPDF doc pages → LayoutMap."""
     import fitz
@@ -188,14 +247,26 @@ def build_layout_map_from_result(result, doc) -> LayoutMap:
     boxes: list[LayoutBox] = []
     seq = 0
 
+    paras: list[tuple[int, dict[str, float], str]] = []
     for para in result.paragraphs or []:
         page_index, rect = _region_page_and_rect(
             getattr(para, "bounding_regions", None) or []
         )
         if page_index is None or rect is None:
             continue
-        text = (getattr(para, "content", None) or "").strip()
-        kind = _classify_paragraph_caption(text) or "paragraph"
+        paras.append((page_index, rect, (getattr(para, "content", None) or "").strip()))
+    heads = _running_heads(paras, pages)
+
+    for page_index, rect, text in paras:
+        kind = _classify_paragraph_caption(text)
+        if kind is None and heads:
+            caption = _caption_under_head(text, heads)
+            if caption:
+                kind = _classify_paragraph_caption(caption)
+                page = doc[page_index] if 0 <= page_index < len(doc) else None
+                rect = _rect_from_caption_start(page, rect, caption)
+                text = caption
+        kind = kind or "paragraph"
         seq += 1
         boxes.append(
             LayoutBox(

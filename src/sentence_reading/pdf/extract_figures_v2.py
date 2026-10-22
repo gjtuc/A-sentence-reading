@@ -11,6 +11,7 @@ from typing import Any
 
 from sentence_reading.models import Figure
 from sentence_reading.pdf.caption_pairing import (
+    attach_carried_table_pages,
     attach_continued_pages,
     fill_from_page_neighbours,
     pair_slot_captions,
@@ -410,6 +411,8 @@ def extract_figures_v2(pdf_path: Path, *, doc_role: str = "main") -> list[Figure
         # one table. Join those pages before leftovers are counted, or five sixths of
         # it is filed as an unclaimed body.
         attach_continued_pages(layout, plan)
+        # design/443 — and one carried onto the next page with no heading at all.
+        attach_carried_table_pages(layout, plan)
         append_unclaimed_body_slots(layout, plan, supplementary=supplementary)
         refresh_slot_statuses(plan)
         merged = slots_to_figures(doc, client, layout, plan)
