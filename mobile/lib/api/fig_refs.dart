@@ -15,6 +15,22 @@ final _kindPanel = RegExp(
   r'\b((?:Figures?|Figs?|Scheme|Table)\.?\s*(S?\d+)\s*(?:\(([A-Za-z])\)|([A-Z])))\b',
   caseSensitive: false,
 );
+// design/439 — Figs. 5, 7 and 8 / Figs. 5–7 / Tables 2 and 3: every number
+// after one kind word is its own ref.
+const _listItem =
+    r'S?\d+(?:[A-Za-z](?![A-Za-z])|\s*\([A-Za-z]\))?(?![A-Za-z\d])';
+const _listSep =
+    r'(?:\s*,\s*(?:and\s+|&\s*)?|\s+and\s+|\s*&\s*|\s*[\u2013\u2014-]\s*)';
+final _kindList = RegExp(
+  '\\b(Figures?|Figs?|Schemes?|Tables?)\\.?\\s*'
+  '($_listItem(?:$_listSep$_listItem)*)',
+  caseSensitive: false,
+);
+final _listItemRe = RegExp(_listItem, caseSensitive: false);
+final _listPlainNum = RegExp(r'^(S?)(\d+)$', caseSensitive: false);
+// A singular `Fig. 3, 4 samples` is a count, not a second figure.
+final _listEnd = RegExp(r'^\s*(?:[).;\]]|$)');
+const _kRangeMax = 12;
 final _bareS = RegExp(r'\b(S\d+[a-z]?)\b', caseSensitive: false);
 final _tag = RegExp(r'<[^>]+>');
 
@@ -122,15 +138,83 @@ List<String> _matchKeysForLabel(
   return keys;
 }
 
+String _listWord(String kindRaw) {
+  final k = kindRaw.toLowerCase();
+  if (k.startsWith('figure')) return 'Figure';
+  if (k.startsWith('fig')) return 'Fig.';
+  if (k.startsWith('scheme')) return 'Scheme';
+  return 'Table';
+}
+
+/// Every number after one kind word, at its own offset (design/439).
+List<({int start, String label, String key})> _listRefs(String plain) {
+  final out = <({int start, String label, String key})>[];
+  for (final m in _kindList.allMatches(plain)) {
+    final kindRaw = m.group(1)!;
+    final body = m.group(2)!;
+    final bodyStart = m.end - body.length;
+    final kind = _kindToken(kindRaw);
+    final word = _listWord(kindRaw);
+    final plural = const {'figs', 'figures', 'tables', 'schemes'}
+        .contains(kindRaw.toLowerCase());
+    void add(int start, String num) {
+      final label = '$word $num';
+      final key = _wantKey(label) ?? _baseKeyFromNum(kind, num);
+      if (key != null) out.add((start: start, label: label, key: key));
+    }
+
+    final items = _listItemRe.allMatches(body).toList();
+    for (var i = 0; i < items.length; i++) {
+      final it = items[i];
+      final num = it.group(0)!.replaceAll(RegExp(r'\s+'), '');
+      final start = bodyStart + it.start;
+      if (i > 0) {
+        final prev = items[i - 1];
+        final sep = body.substring(prev.end, it.start);
+        final commaOnly = sep.contains(',') &&
+            !RegExp(r'and|&', caseSensitive: false).hasMatch(sep);
+        if (commaOnly &&
+            !plural &&
+            i == items.length - 1 &&
+            !_listEnd.hasMatch(plain.substring(m.end))) {
+          break;
+        }
+        if (RegExp('[\u2013\u2014-]').hasMatch(sep)) {
+          final a = _listPlainNum.firstMatch(
+            prev.group(0)!.replaceAll(RegExp(r'\s+'), ''),
+          );
+          final b = _listPlainNum.firstMatch(num);
+          // `Fig. 2–200 nm` is a span of sizes, not figures 2 to 200.
+          if (a == null ||
+              b == null ||
+              a.group(1)!.toLowerCase() != b.group(1)!.toLowerCase()) {
+            break;
+          }
+          final lo = int.parse(a.group(2)!);
+          final hi = int.parse(b.group(2)!);
+          if (hi <= lo || hi - lo > _kRangeMax) break;
+          for (var n = lo + 1; n < hi; n++) {
+            add(start, '${b.group(1)!}$n');
+          }
+        }
+      }
+      add(start, num);
+    }
+  }
+  return out;
+}
+
 /// Body refs in appearance order (deduped by match key).
 List<String> parseFigRefs(String? text, {bool supplementaryMerged = false}) {
   final plain = stripTags(text);
-  final hits = <({int start, String label, String key})>[];
+  final hits = <({int start, int pri, int seq, String label, String key})>[];
+  void hit(int start, int pri, String label, String key) =>
+      hits.add((start: start, pri: pri, seq: hits.length, label: label, key: key));
   for (final m in _kindNumLower.allMatches(plain)) {
     final label = m.group(1)!.replaceAll(RegExp(r'\s+'), ' ').trim();
     final key = _wantKey(label, supplementaryMerged: supplementaryMerged);
     if (key == null) continue;
-    hits.add((start: m.start, label: label, key: key));
+    hit(m.start, 0, label, key);
   }
   for (final m in _kindNumBase.allMatches(plain)) {
     if (m.end < plain.length && RegExp(r'[A-Za-z]').hasMatch(plain[m.end])) {
@@ -139,14 +223,22 @@ List<String> parseFigRefs(String? text, {bool supplementaryMerged = false}) {
     final label = m.group(1)!.replaceAll(RegExp(r'\s+'), ' ').trim();
     final key = _wantKey(label, supplementaryMerged: supplementaryMerged);
     if (key == null) continue;
-    hits.add((start: m.start, label: label, key: key));
+    hit(m.start, 0, label, key);
   }
   for (final m in _kindPanel.allMatches(plain)) {
     final parsed = _panelParse(m);
     if (parsed == null) continue;
-    hits.add((start: m.start, label: parsed.label, key: parsed.key));
+    hit(m.start, 0, parsed.label, parsed.key);
   }
-  hits.sort((a, b) => a.start.compareTo(b.start));
+  for (final r in _listRefs(plain)) {
+    hit(r.start, 1, r.label, r.key);
+  }
+  hits.sort((a, b) {
+    final c = a.start.compareTo(b.start);
+    if (c != 0) return c;
+    final p = a.pri.compareTo(b.pri);
+    return p != 0 ? p : a.seq.compareTo(b.seq);
+  });
   final out = <String>[];
   final seen = <String>{};
   for (final h in hits) {

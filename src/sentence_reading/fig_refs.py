@@ -38,6 +38,20 @@ _TOKEN_PANEL = re.compile(
     rf"(?:({_SUPP_WORD})\s+)?({_KIND_WORD})\.?\s*(S?\d+)\s*(?:\(([A-Za-z])\)|([A-Z]))",
     re.IGNORECASE,
 )
+# design/439 — Figs. 5, 7 and 8 / Figs. 5–7 / Tables 2 and 3: every number
+# after one kind word is its own ref. Same rule as mobile `fig_refs.dart`.
+_LIST_ITEM = r"S?\d+(?:[A-Za-z](?![A-Za-z])|\s*\([A-Za-z]\))?(?![A-Za-z\d])"
+_LIST_SEP = r"(?:\s*,\s*(?:and\s+|&\s*)?|\s+and\s+|\s*&\s*|\s*[\u2013\u2014-]\s*)"
+_KIND_LIST = re.compile(
+    rf"\b(Figures?|Figs?|Schemes?|Tables?)\.?\s*({_LIST_ITEM}(?:{_LIST_SEP}{_LIST_ITEM})*)",
+    re.IGNORECASE,
+)
+_LIST_ITEM_RE = re.compile(_LIST_ITEM, re.IGNORECASE)
+_LIST_PLAIN_NUM = re.compile(r"^(S?)(\d+)$", re.IGNORECASE)
+# A singular `Fig. 3, 4 samples` is a count, not a second figure.
+_LIST_END = re.compile(r"^\s*(?:[).;\]]|$)")
+_SUPP_TAIL = re.compile(rf"\b({_SUPP_WORD})\s+$", re.IGNORECASE)
+_RANGE_MAX = 12
 _BARE_S = re.compile(r"\b(S\d+[a-z]?)\b", re.IGNORECASE)
 _TAG = re.compile(r"<[^>]+>")
 
@@ -155,26 +169,89 @@ def _match_keys_for_label(
     return keys
 
 
+def _list_word(kind_raw: str) -> str:
+    k = (kind_raw or "").lower()
+    if k.startswith("figure"):
+        return "Figure"
+    if k.startswith("fig"):
+        return "Fig."
+    if k.startswith("scheme"):
+        return "Scheme"
+    return "Table"
+
+
+def _list_refs(plain: str) -> list[tuple[int, str, str]]:
+    """Every number after one kind word, at its own offset (design/439)."""
+    out: list[tuple[int, str, str]] = []
+    for m in _KIND_LIST.finditer(plain):
+        kind_raw = m.group(1)
+        body_start = m.start(2)
+        body = m.group(2)
+        kind = _kind_token(kind_raw)
+        word = _list_word(kind_raw)
+        plural = kind_raw.lower() in {"figs", "figures", "tables", "schemes"}
+        supp = _SUPP_TAIL.search(plain[: m.start()])
+
+        def add(start: int, num: str) -> None:
+            label = f"{word} {num}"
+            if supp:
+                label = f"{supp.group(1)} {label}"
+            key = _want_key(label) or _base_key_from_num(kind, num)
+            if key:
+                out.append((start, label, key))
+
+        items = list(_LIST_ITEM_RE.finditer(body))
+        for i, it in enumerate(items):
+            num = re.sub(r"\s+", "", it.group(0))
+            start = body_start + it.start()
+            if i > 0:
+                prev = items[i - 1]
+                sep = body[prev.end() : it.start()]
+                comma_only = "," in sep and not re.search(r"and|&", sep, re.IGNORECASE)
+                if (
+                    comma_only
+                    and not plural
+                    and i == len(items) - 1
+                    and not _LIST_END.match(plain[m.end() :])
+                ):
+                    break
+                if re.search("[\u2013\u2014-]", sep):
+                    a = _LIST_PLAIN_NUM.match(re.sub(r"\s+", "", prev.group(0)))
+                    b = _LIST_PLAIN_NUM.match(num)
+                    # `Fig. 2–200 nm` is a span of sizes, not figures 2 to 200.
+                    if not a or not b or a.group(1).lower() != b.group(1).lower():
+                        break
+                    lo, hi = int(a.group(2)), int(b.group(2))
+                    if hi <= lo or hi - lo > _RANGE_MAX:
+                        break
+                    for n in range(lo + 1, hi):
+                        add(start, f"{b.group(1)}{n}")
+            add(start, num)
+    return out
+
+
 def parse_refs(text: str, *, supplementary_merged: bool = False) -> list[str]:
     """본문에서 참조 표시 문자열 목록 (등장 순 · base_key 중복 제거)."""
     plain = strip_tags(text)
-    hits: list[tuple[int, str, str]] = []
+    hits: list[tuple[int, int, str, str]] = []
     for m in _KIND_NUM.finditer(plain):
         label = re.sub(r"\s+", " ", m.group(1).strip())
         key = _want_key(label, supplementary_merged=supplementary_merged)
         if not key:
             continue
-        hits.append((m.start(), label, key))
+        hits.append((m.start(), 0, label, key))
     for m in _KIND_PANEL.finditer(plain):
         parsed = _panel_parse(m)
         if not parsed:
             continue
         label, key = parsed
-        hits.append((m.start(), label, key))
-    hits.sort(key=lambda t: t[0])
+        hits.append((m.start(), 0, label, key))
+    for start, label, key in _list_refs(plain):
+        hits.append((start, 1, label, key))
+    hits.sort(key=lambda t: (t[0], t[1]))
     out: list[str] = []
     seen: set[str] = set()
-    for _, label, key in hits:
+    for _, _, label, key in hits:
         if key in seen:
             continue
         seen.add(key)

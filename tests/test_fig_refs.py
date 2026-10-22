@@ -91,3 +91,28 @@ def test_static_and_design() -> None:
     assert "figRefHints" in html
     design = (root / "docs" / "design" / "28-fig-ref-jump.md").read_text(encoding="utf-8")
     assert "0.2.25" in design
+
+
+def test_every_number_after_one_kind_word_design_439() -> None:
+    assert parse_refs("as in Figs. 5, 7 and 8.") == ["Figs. 5", "Fig. 7", "Fig. 8"]
+    assert parse_refs("as in Figs. 5, 7, and 8.") == ["Figs. 5", "Fig. 7", "Fig. 8"]
+    assert parse_refs("Figs. 5\u20137 show") == ["Figs. 5", "Fig. 6", "Fig. 7"]
+    assert parse_refs("Tables 2 and 3 list") == ["Table 2", "Table 3"]
+    assert parse_refs("Figs. S1 and S2") == ["Figs. S1", "Fig. S2"]
+    assert parse_refs("Figs. 5a and 6b") == ["Figs. 5a", "Fig. 6b"]
+    assert parse_refs("In Fig. 3, 4 samples were used.") == ["Fig. 3"]
+    assert parse_refs("Table 3, the dispersion of 75\u201383% holds.") == ["Table 3"]
+    assert parse_refs("Fig. 2\u2013200 nm") == ["Fig. 2"]
+    assert parse_refs("(Figure 6C) and (Figure 6D)") == ["Figure 6"]
+    assert parse_refs("Supplementary Figs. 1 and 2") == [
+        "Supplementary Figs. 1",
+        "Supplementary Fig. 2",
+    ]
+    figs = [
+        Figure(id="a", image_src="x", caption="Fig. 1 — A"),
+        Figure(id="b", image_src="x", caption="Fig. 5 — B"),
+        Figure(id="c", image_src="x", caption="Fig. 7 — C"),
+        Figure(id="d", image_src="x", caption="Fig. 8 — D"),
+    ]
+    hints = hints_for_sentence("shown in Figs. 5, 7 and 8 and Fig. 9.", figs)
+    assert [h["figure_index"] for h in hints] == [1, 2, 3]
