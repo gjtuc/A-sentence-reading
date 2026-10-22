@@ -34,22 +34,44 @@ CW = "cw"
 CCW = "ccw"
 
 
-def line_directions(page) -> Counter[tuple[int, int]]:
-    """Every text line's baseline direction on this page, rounded to an axis."""
-    tally: Counter[tuple[int, int]] = Counter()
+def _shown_lines(page):
+    """Every text line as `(dir, bbox)` in the page as shown (design/440).
+
+    PyMuPDF reports `dir` and `bbox` in the page as stored, but the crop is rendered
+    from the page as shown, after its `/Rotate`, and Azure boxes are in that space
+    too. `1-s2.0-S0008622310008997` page 8 has `/Rotate 90`: Fig. 10's caption is
+    `(1, 0)` as stored and reads down the sheet as shown, so it needs a
+    counter-clockwise turn. Read in the stored space it was turned clockwise and came
+    out upside down.
+    """
     try:
         blocks = page.get_text("dict").get("blocks") or []
     except Exception:  # noqa: BLE001
-        return tally
+        return
+    m = page.rotation_matrix if int(getattr(page, "rotation", 0) or 0) else None
     for block in blocks:
         if block.get("type") != 0:
             continue
         for line in block.get("lines") or []:
             d = line.get("dir") or (1.0, 0.0)
+            bbox = line.get("bbox") or (0, 0, 0, 0)
             try:
-                tally[(round(float(d[0])), round(float(d[1])))] += 1
+                dx, dy = float(d[0]), float(d[1])
             except (TypeError, ValueError):
                 continue
+            if m is not None:
+                import fitz
+
+                dx, dy = m.a * dx + m.c * dy, m.b * dx + m.d * dy
+                bbox = tuple(fitz.Rect(bbox) * m)
+            yield (round(dx), round(dy)), bbox
+
+
+def line_directions(page) -> Counter[tuple[int, int]]:
+    """Every text line's baseline direction on this page, rounded to an axis."""
+    tally: Counter[tuple[int, int]] = Counter()
+    for d, _bbox in _shown_lines(page):
+        tally[d] += 1
     return tally
 
 
@@ -75,22 +97,9 @@ def rect_turn(page, rect, *, min_lines: int = 1) -> str:
     if rect is None:
         return ""
     tally: Counter[tuple[int, int]] = Counter()
-    try:
-        blocks = page.get_text("dict").get("blocks") or []
-    except Exception:  # noqa: BLE001
-        return ""
-    for block in blocks:
-        if block.get("type") != 0:
-            continue
-        for line in block.get("lines") or []:
-            bbox = line.get("bbox") or (0, 0, 0, 0)
-            if not _intersects(rect, bbox):
-                continue
-            d = line.get("dir") or (1.0, 0.0)
-            try:
-                tally[(round(float(d[0])), round(float(d[1])))] += 1
-            except (TypeError, ValueError):
-                continue
+    for d, bbox in _shown_lines(page):
+        if _intersects(rect, bbox):
+            tally[d] += 1
     total = sum(tally.values())
     if total < min_lines:
         return ""

@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 440 | [440-turn-as-shown.md](440-turn-as-shown.md) | '90도 돌려 보여 주기' 표시(/Rotate)가 있는 페이지: 글자 방향을 화면에 보이는 대로 읽음 · Fig. 10 이 거꾸로(180도) 나오던 것 해결 · acsaem.9b01599 27쪽 잘못 눕히던 것도 해결 (0.3.466) |
 | 439 | [439-every-figure-in-a-list.md](439-every-figure-in-a-list.md) | 그림 참조 목록 전부 칩: 'Figs. 5, 7 and 8' → 5·7·8 칩 · 'Figs. 5–7' → 5·6·7 · 'Tables 2 and 3' · 'Figs. S1 and S2' · 'Fig. 3, 4 samples' 같은 숫자는 그림 아님 · 서버 fig_refs.py 도 같은 규칙 (0.3.466) |
 | 438 | [438-turn-the-edit-page.md](438-turn-the-edit-page.md) | 그림 레이아웃 편집: '< p.1 >' 지우고 제목 아래 '3 / 12쪽' · Pan·Select 모드에서 옆으로 밀어 페이지 넘김 (Crop 은 그대로) · ←/→ 키로도 넘김 · 첫·끝 쪽에서 멈춤 (0.3.465) |
 | 437 | [437-sentence-off-the-top.md](437-sentence-off-the-top.md) | 폰 문장을 문장 창 위에 붙이지 않고 웹처럼 조금 위 가운데(창 높이 약 40%)에 둠, 길면 위부터 스크롤 · 새 섹션 표시 선을 폰에도 (헤더를 숨겨도 보임) (0.3.464) |

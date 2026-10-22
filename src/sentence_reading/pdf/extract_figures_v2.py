@@ -214,9 +214,13 @@ def _slot_turn(layout: LayoutMap, page, page_index: int, cap_rect, body_rect) ->
     upright prose above a sideways table, so the page is only 65% rotated. Asking the
     caption's own box settles it, and the body's box when there is no caption.
     """
-    from sentence_reading.pdf.page_turn import rect_turn
+    from sentence_reading.pdf.page_turn import page_turn, rect_turn
 
-    turn = layout.turn_of_page(page_index)
+    # A map stored before design/440 read a `/Rotate` page in the stored space.
+    if int(getattr(page, "rotation", 0) or 0):
+        turn = page_turn(page)
+    else:
+        turn = layout.turn_of_page(page_index)
     if turn:
         return turn
     for rect in (cap_rect, body_rect):
