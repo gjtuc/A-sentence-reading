@@ -66,8 +66,12 @@ class ReaderPrefs extends ChangeNotifier {
   static const String sentencePxKey = 'reader_sentence_px_v1';
   static const String splitKey = 'reader_split_fraction_v1';
   static const String pageKey = 'reader_page_v1';
+  static const String citeCollapsedKey = 'reader_cite_collapsed_v1';
 
   double sentencePx = kSentencePxDefault;
+
+  /// design/441 — the 참고문헌 fold, for every paper, web and phone.
+  bool citeCollapsed = false;
 
   /// Not notified: the reader reads it when it next opens a split.
   double splitFraction = kSplitFractionDefault;
@@ -90,6 +94,7 @@ class ReaderPrefs extends ChangeNotifier {
         splitFraction = f;
       }
       page = WebPage.values.asNameMap()[p.getString(pageKey) ?? ''] ?? page;
+      citeCollapsed = p.getBool(citeCollapsedKey) ?? citeCollapsed;
       notifyListeners();
     } catch (_) {}
   }
@@ -129,11 +134,22 @@ class ReaderPrefs extends ChangeNotifier {
     } catch (_) {}
   }
 
+  Future<void> setCiteCollapsed(bool next) async {
+    if (next == citeCollapsed) return;
+    citeCollapsed = next;
+    notifyListeners();
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(citeCollapsedKey, next);
+    } catch (_) {}
+  }
+
   @visibleForTesting
   void resetForTests() {
     sentencePx = kSentencePxDefault;
     splitFraction = kSplitFractionDefault;
     page = WebPage.app;
+    citeCollapsed = false;
     _loading = null;
   }
 }

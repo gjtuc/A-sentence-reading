@@ -25,10 +25,14 @@ import 'package:sentence_reading/state/shadowing_controller.dart';
 import 'package:sentence_reading/state/translate_controller.dart';
 import 'package:sentence_reading/state/tts_controller.dart';
 
-ReadingSession _session({int sentences = 3, int figures = 2}) {
+ReadingSession _session({
+  int sentences = 3,
+  int figures = 2,
+  String cacheId = 'c1',
+}) {
   return ReadingSession.fromOpenJson({
     'session_id': 'ses_test',
-    'cache_id': 'c1',
+    'cache_id': cacheId,
     'title': 'Independent Cursor Paper',
     'sentences': [
       for (var i = 0; i < sentences; i++)
@@ -449,5 +453,48 @@ void main() {
     library.advanceSentence(1);
     await animate(tester);
     expect(find.text(name), findsNothing);
+  });
+
+  // design/441 — the references fold is the reader's, for every paper.
+  Finder citeIcon(IconData icon) => find.descendant(
+        of: find.ancestor(of: find.text('참고문헌'), matching: find.byType(Row)).first,
+        matching: find.byIcon(icon),
+      );
+
+  testWidgets('folded references stay folded in the next paper', (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    final client = _mockClient();
+    final first = LibraryController(client: client)..session = _session();
+    await _pumpReader(tester, first, client);
+    await animate(tester);
+    expect(citeIcon(Icons.expand_less), findsOneWidget);
+
+    await tester.tap(find.text('참고문헌'));
+    await animate(tester);
+    expect(citeIcon(Icons.expand_more), findsOneWidget);
+    final p = await SharedPreferences.getInstance();
+    expect(p.getBool(ReaderPrefs.citeCollapsedKey), isTrue);
+
+    await tester.pumpWidget(const SizedBox());
+    final second = LibraryController(client: client)
+      ..session = _session(cacheId: 'c2');
+    await _pumpReader(tester, second, client);
+    await animate(tester);
+    expect(citeIcon(Icons.expand_more), findsOneWidget);
+
+    await tester.tap(find.text('참고문헌'));
+    await animate(tester);
+    expect(citeIcon(Icons.expand_less), findsOneWidget);
+    expect(p.getBool(ReaderPrefs.citeCollapsedKey), isFalse);
+    ReaderPrefs.instance.resetForTests();
+  });
+
+  test('design/441 the references fold loads from the saved value', () async {
+    SharedPreferences.setMockInitialValues({ReaderPrefs.citeCollapsedKey: true});
+    final prefs = ReaderPrefs.instance..resetForTests();
+    expect(prefs.citeCollapsed, isFalse);
+    await prefs.load();
+    expect(prefs.citeCollapsed, isTrue);
+    prefs.resetForTests();
   });
 }

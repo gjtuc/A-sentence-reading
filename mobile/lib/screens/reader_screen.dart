@@ -121,9 +121,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// design/183 — Intro collapse / first Fig chip expand.
   final ReaderLayoutPolicy _layoutPolicy = ReaderLayoutPolicy();
   bool _readerLayoutAuto = true;
-  /// design/183 — user-owned; survives translate poll (new session_id).
-  bool _citeCollapsed = false;
-  String? _citePaperKey;
   final FocusNode _keysFocus = FocusNode(debugLabel: 'reader_keys');
   bool _keysVisible = false;
   /// design/414 — a still mouse on a wide web window fades the buttons.
@@ -298,10 +295,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
     // and must not reset layout pin / cite accordion (design/183).
     final key = s.cacheId.trim().isNotEmpty ? s.cacheId.trim() : s.sessionId;
     final t = _thresholdFor(s);
-    if (_citePaperKey != key) {
-      _citePaperKey = key;
-      _citeCollapsed = false;
-    }
     if (_layoutSessionKey == key) {
       // design/183 hazard — SI merge / reanalyze may change T mid-paper.
       if (_layoutPolicy.threshold != t) {
@@ -875,12 +868,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       showChrome: _chromeVisible,
                                       fadeChrome: _idleHidden,
                                       figRefHints: _figRefHints,
-                                      citeCollapsed: _citeCollapsed,
-                                      onToggleCiteCollapsed: () {
-                                        setState(() {
-                                          _citeCollapsed = !_citeCollapsed;
-                                        });
-                                      },
+                                      citeCollapsed:
+                                          ReaderPrefs.instance.citeCollapsed,
+                                      onToggleCiteCollapsed: () => ReaderPrefs
+                                          .instance
+                                          .setCiteCollapsed(
+                                        !ReaderPrefs.instance.citeCollapsed,
+                                      ),
                                       onFigChipPressed: _onFigChipPressed,
                                       onToggleChrome: _toggleChrome,
                                       onDoubleTapExpand: _toggleSentenceExpand,
@@ -1115,7 +1109,8 @@ Widget _readingColumn(WebReadingStyle? web, double viewHeight, Widget child) {
   );
 }
 
-/// design/414 — fades the buttons but keeps their space, so the sentence stays put.
+/// design/414 — fades the buttons on a still mouse. design/441: their space folds
+/// with them, as when a tap hides them, so no empty band is left behind.
 class _FadeChrome extends StatelessWidget {
   const _FadeChrome({required this.faded, required this.child});
 
@@ -1124,10 +1119,19 @@ class _FadeChrome extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedOpacity(
-      opacity: faded ? 0 : 1,
-      duration: Duration(milliseconds: faded ? 600 : 150),
-      child: IgnorePointer(ignoring: faded, child: child),
+    final duration = Duration(milliseconds: faded ? 600 : 150);
+    return ClipRect(
+      child: AnimatedAlign(
+        alignment: Alignment.topCenter,
+        heightFactor: faded ? 0 : 1,
+        duration: duration,
+        curve: Curves.easeInOut,
+        child: AnimatedOpacity(
+          opacity: faded ? 0 : 1,
+          duration: duration,
+          child: IgnorePointer(ignoring: faded, child: child),
+        ),
+      ),
     );
   }
 }
