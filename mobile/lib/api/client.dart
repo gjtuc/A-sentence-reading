@@ -2337,6 +2337,36 @@ throw AsrApiException(
     _decodeObject(res, 'spots-put');
   }
 
+  /// design/442 — every read-to-the-end mark of this account.
+  Future<Map<String, Map<String, dynamic>>> readDoneAll() async {
+    final res = await _http
+        .get(_uri('/api/read-done'), headers: await _headers())
+        .timeout(const Duration(seconds: 15));
+    final body = _decodeObject(res, 'read-done');
+    final out = <String, Map<String, dynamic>>{};
+    final raw = body['marks'];
+    if (raw is Map) {
+      for (final e in raw.entries) {
+        if (e.value is Map) {
+          out['${e.key}'] = Map<String, dynamic>.from(e.value as Map);
+        }
+      }
+    }
+    return out;
+  }
+
+  /// design/442 — mark or un-mark one paper as read to the end.
+  Future<void> readDonePut(String cacheId, Map<String, Object?> mark) async {
+    final res = await _http
+        .put(
+          _uri('/api/read-done/${Uri.encodeComponent(cacheId)}'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode(mark),
+        )
+        .timeout(const Duration(seconds: 15));
+    _decodeObject(res, 'read-done-put');
+  }
+
 
   /// design/186 — list transfer packs (metadata only).
   Future<List<Map<String, dynamic>>> listTransferPacks() async {

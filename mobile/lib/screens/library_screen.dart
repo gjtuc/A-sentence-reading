@@ -18,6 +18,7 @@ import '../state/shadowing_controller.dart';
 import '../state/tts_controller.dart';
 import '../widgets/library_card_hold.dart';
 import '../widgets/near_sync_sheet.dart';
+import '../widgets/read_done_badge.dart';
 import '../widgets/upload_queue_sheet.dart';
 import 'pdf_import_screen.dart';
 import 'shadowing_practice_screen.dart';
@@ -118,10 +119,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _dismissMenu();
     final overlay = Overlay.maybeOf(context);
     if (overlay == null) return;
+    final done = widget.library.readDone.isDone(id);
     _menuEntry = OverlayEntry(
       builder: (ctx) {
         final size = MediaQuery.sizeOf(ctx);
-        final top = (global.dy - 96).clamp(72.0, size.height - 160);
+        final top = (global.dy - 96).clamp(72.0, size.height - 210);
         return Stack(
           children: [
             Positioned.fill(
@@ -159,6 +161,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           _selectFromMenu(id);
                         },
                       ),
+                      if (!isSampleCacheId(id))
+                        ListTile(
+                          dense: true,
+                          leading: Icon(
+                            done ? Icons.remove_done : Icons.done_all,
+                          ),
+                          title: Text(done ? '다 읽음 표시 풀기' : '다 읽음으로 표시'),
+                          onTap: () {
+                            _dismissMenu();
+                            unawaited(
+                              widget.library.markReadDone(id, done: !done),
+                            );
+                          },
+                        ),
                     ],
                   ),
                 ),
@@ -1052,6 +1068,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           Row(
                             children: [
                               Expanded(child: Text(e.title)),
+                              if (widget.library.readDone.isDone(e.id))
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 8),
+                                  child: ReadDoneBadge(),
+                                ),
                               if (_ingestStatusLabel(e.ingestStatus) != null)
                                 Padding(
                                   padding: const EdgeInsets.only(left: 8),

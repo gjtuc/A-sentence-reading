@@ -10,6 +10,7 @@ import '../api/pdf_folder_grant_models.dart';
 import '../platform/saf_tree_channel.dart' show webFolderSupported;
 import '../state/library_controller.dart';
 import '../services/evidence_bus.dart';
+import '../widgets/read_done_badge.dart';
 
 class PdfImportScreen extends StatefulWidget {
   const PdfImportScreen({
@@ -524,6 +525,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
         final entries = lib.pdfImportActiveEntries;
         final truncated = lib.pdfImportActiveTruncated;
         final inLib = lib.libraryContentHashes;
+        final doneH = lib.readDoneHashes;
         final queued = {for (final q in lib.uploadQueue) q.contentHash};
         final filtered = entries.where((e) {
           if (!_unkeptOnly) return true;
@@ -745,6 +747,9 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                     return _SetRow(
                                       item: item,
                                       selected: sel,
+                                      readDone: doneH.contains(
+                                        item.main.contentHash.toLowerCase(),
+                                      ),
                                       inLibrary: [
                                         item.main,
                                         item.si,
@@ -783,6 +788,9 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                     entry: e,
                                     selected: sel,
                                     inLibrary: green,
+                                    readDone: doneH.contains(
+                                      e.contentHash.toLowerCase(),
+                                    ),
                                     inQueue: inQ,
                                     onToggle: () => _toggleUris([e.docUri]),
                                     onDelete: () => _deleteEntries([e]),
@@ -933,6 +941,7 @@ class _FolderRow extends StatelessWidget {
     required this.entry,
     required this.selected,
     required this.inLibrary,
+    this.readDone = false,
     required this.inQueue,
     required this.onToggle,
     this.onDelete,
@@ -944,6 +953,8 @@ class _FolderRow extends StatelessWidget {
   final ScannedPdfEntry entry;
   final bool selected;
   final bool inLibrary;
+  /// design/442 — this file's paper was read to the end.
+  final bool readDone;
   final bool inQueue;
   final VoidCallback onToggle;
   final VoidCallback? onDelete;
@@ -1040,6 +1051,7 @@ class _FolderRow extends StatelessWidget {
                       runSpacing: 4,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
+                        if (readDone) const ReadDoneBadge(),
                         if (roleChip != null)
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -1160,6 +1172,7 @@ class _SetRow extends StatelessWidget {
     required this.item,
     required this.selected,
     required this.inLibrary,
+    this.readDone = false,
     required this.inQueue,
     required this.onToggle,
     this.onDelete,
@@ -1171,6 +1184,7 @@ class _SetRow extends StatelessWidget {
   final PdfImportSetItem item;
   final bool selected;
   final bool inLibrary;
+  final bool readDone;
   final bool inQueue;
   final VoidCallback onToggle;
   final VoidCallback? onDelete;
@@ -1236,6 +1250,7 @@ class _SetRow extends StatelessWidget {
                       runSpacing: 4,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
+                        if (readDone) const ReadDoneBadge(),
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 6,

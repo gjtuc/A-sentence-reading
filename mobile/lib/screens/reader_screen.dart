@@ -138,6 +138,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       }
     }));
     widget.library.onSentenceIndexChanged = _onSentenceIndexChanged;
+    widget.library.onPastLastSentence = _onPastLastSentence;
     widget.client.fetchStatus().then((st) {
       if (!mounted) return;
       // WHY: explicit false is the kill switch; do not invent a hide on status miss.
@@ -172,9 +173,59 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (widget.library.onSentenceIndexChanged == _onSentenceIndexChanged) {
       widget.library.onSentenceIndexChanged = null;
     }
+    if (widget.library.onPastLastSentence == _onPastLastSentence) {
+      widget.library.onPastLastSentence = null;
+    }
     _idleTimer?.cancel();
     _keysFocus.dispose();
     super.dispose();
+  }
+
+  bool _askingDone = false;
+
+  /// design/442 — "next" on the last sentence asks to mark the paper read, as an
+  /// e-book does on its last page, instead of wrapping to the first sentence.
+  Future<void> _onPastLastSentence() async {
+    final lib = widget.library;
+    final cid = lib.session?.cacheId.trim() ?? '';
+    if (!mounted || cid.isEmpty || _askingDone || !TickerMode.of(context)) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (lib.readDone.isDone(cid)) {
+      messenger
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('마지막 문장이에요. 다 읽은 논문이에요.'),
+          duration: Duration(seconds: 2),
+        ));
+      return;
+    }
+    _askingDone = true;
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('다 읽은 논문으로 표시할까요?'),
+        content: const Text("보관함과 논문 가져오기 목록에 '다 읽음'이 붙어요."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('아니요'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('예'),
+          ),
+        ],
+      ),
+    );
+    _askingDone = false;
+    if (yes != true) return;
+    await lib.markReadDone(cid, done: true);
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(
+        content: Text('다 읽은 논문으로 표시했어요.'),
+        duration: Duration(seconds: 2),
+      ));
   }
 
   void _onPointerMoved() {

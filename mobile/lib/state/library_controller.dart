@@ -75,6 +75,7 @@ import 'ingest_auto_resume.dart';
 import 'ingest_stage_progress.dart';
 import 'figure_hydrate.dart';
 import 'harmonize_residual.dart';
+import 'read_done.dart';
 
 /// Stall after this long without progress while an upload is marked active.
 const Duration kUploadStallAfter = Duration(seconds: 45);
@@ -133,6 +134,11 @@ class LibraryController extends ChangeNotifier {
   final FigureDiskCache _figureDisk;
   final PaperDiskStore _paperDisk;
   final DocumentsMirrorStore _documentsMirror = DocumentsMirrorStore();
+
+  /// design/442 — papers marked as read to the end.
+  late final ReadDoneStore readDone =
+      ReadDoneStore(transport: _ClientReadDoneTransport(_client))
+        ..addListener(notifyListeners);
   bool _shadowingLocalSot = false;
   bool Function()? _translateEnabled;
 
@@ -317,6 +323,7 @@ class LibraryController extends ChangeNotifier {
   void bindFigureDiskUid(String? uid) {
     _diskUid = (uid ?? '').trim().isEmpty ? null : uid!.trim();
     _bindSpotSync(_diskUid);
+    unawaited(readDone.bindUid(_diskUid));
     _figureDisk.bindUid(uid);
     _paperDisk.bindUid(uid);
     _shadowDisk.bindUid(uid);
@@ -2918,6 +2925,7 @@ class LibraryController extends ChangeNotifier {
       _publishPapers(await _applySavedOrder(merged), trigger: trig);
       listed = true;
       await _rebuildLibraryHashSet();
+      unawaited(readDone.pull());
       await _reloadPickerRecent();
       try {
         final uid = await _authUid();
@@ -5175,11 +5183,42 @@ class LibraryController extends ChangeNotifier {
     return true;
   }
 
+  /// design/442 — "next" on the last sentence. While set (an open reader), it is
+  /// called instead of wrapping round to the first sentence.
+  Future<void> Function()? onPastLastSentence;
+
+  /// design/442 — the PDF hashes of done papers, for the import list.
+  Set<String> get readDoneHashes => {
+        ...readDone.doneHashes,
+        for (final e in papers)
+          if (readDone.isDone(e.id) && e.contentHash.length == 64)
+            e.contentHash.toLowerCase(),
+      };
+
+  Future<void> markReadDone(String cacheId, {required bool done}) {
+    var hash = '';
+    for (final e in papers) {
+      if (e.id == cacheId) {
+        hash = e.contentHash;
+        break;
+      }
+    }
+    return readDone.mark(cacheId, done: done, hash: hash);
+  }
+
   Future<void> advanceSentence(int delta) async {
     final s = session;
     if (s == null || !s.isValid) return;
     // design/182 — latched highlight paint must not change sentence mid-drag.
     if (_annotations?.blocksReaderNavigation == true) return;
+    final pastLast = onPastLastSentence;
+    if (delta > 0 &&
+        pastLast != null &&
+        s.sentenceCount > 0 &&
+        s.sentenceIndex == s.sentenceCount - 1) {
+      await pastLast();
+      return;
+    }
     final beforeFig = s.figureIndex;
     final from = s.sentenceIndex;
     s.advanceSentence(delta);
@@ -5478,6 +5517,7 @@ class LibraryController extends ChangeNotifier {
     // uploadPdf() clears it; do not re-arm mid-flight work here.
     // Server ingest cancel is out of scope this chip (local discard only).
     _uploadCancelRequested = true;
+    unawaited(readDone.bindUid(null));
     _endIngestHang();
     shadowingChunksError = null;
     shadowingChunksProgress = null;
@@ -9832,6 +9872,20 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+}
+
+/// design/442 — [ReadDoneStore] over the app's API client.
+class _ClientReadDoneTransport implements ReadDoneTransport {
+  _ClientReadDoneTransport(this._client);
+
+  final AsrClient _client;
+
+  @override
+  Future<Map<String, Map<String, dynamic>>> all() => _client.readDoneAll();
+
+  @override
+  Future<void> put(String cacheId, Map<String, Object?> mark) =>
+      _client.readDonePut(cacheId, mark);
 }
 
 /// design/411 — [SpotSync] over the app's API client.

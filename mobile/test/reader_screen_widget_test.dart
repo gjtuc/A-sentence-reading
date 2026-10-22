@@ -497,4 +497,52 @@ void main() {
     expect(prefs.citeCollapsed, isTrue);
     prefs.resetForTests();
   });
+
+  // design/442 — next on the last sentence asks, as an e-book's last page does.
+  testWidgets('next on the last sentence asks to mark the paper read',
+      (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    final client = _mockClient();
+    final library = LibraryController(client: client)
+      ..session = _session()
+      ..session!.sentenceIndex = 2;
+    await _pumpReader(tester, library, client);
+
+    library.advanceSentence(1);
+    await _settle(tester);
+    expect(find.text('다 읽은 논문으로 표시할까요?'), findsOneWidget);
+
+    await tester.tap(find.text('아니요'));
+    await _settle(tester);
+    expect(library.session!.sentenceIndex, 2);
+    expect(library.readDone.isDone('c1'), isFalse);
+
+    library.advanceSentence(1);
+    await _settle(tester);
+    await tester.tap(find.text('예'));
+    await _settle(tester);
+    expect(library.readDone.isDone('c1'), isTrue);
+    expect(library.session!.sentenceIndex, 2);
+    expect(find.text('다 읽은 논문으로 표시했어요.'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 3));
+    await _settle(tester);
+    library.advanceSentence(1);
+    await _settle(tester);
+    expect(find.text('다 읽은 논문으로 표시할까요?'), findsNothing);
+    expect(find.text('마지막 문장이에요. 다 읽은 논문이에요.'), findsOneWidget);
+    expect(library.session!.sentenceIndex, 2);
+    await tester.pump(const Duration(seconds: 3));
+    await _settle(tester);
+  });
+
+  testWidgets('without an open reader the last sentence still wraps',
+      (tester) async {
+    final client = _mockClient();
+    final library = LibraryController(client: client)
+      ..session = _session()
+      ..session!.sentenceIndex = 2;
+    await library.advanceSentence(1);
+    expect(library.session!.sentenceIndex, 0);
+  });
 }
