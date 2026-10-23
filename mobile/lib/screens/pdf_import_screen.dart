@@ -5,6 +5,7 @@ library;
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api/pdf_folder_grant_models.dart';
 import '../platform/saf_tree_channel.dart' show webFolderSupported;
@@ -30,7 +31,11 @@ class _PdfImportScreenState extends State<PdfImportScreen>
     with WidgetsBindingObserver {
   final Set<String> _selected = {};
   bool _busy = false;
+  /// design/445 — two filters, each on or off, kept across visits.
+  static const String unkeptOnlyKey = 'pdf_import_unkept_only_v1';
+  static const String unreadOnlyKey = 'pdf_import_unread_only_v1';
   bool _unkeptOnly = false;
+  bool _unreadOnly = false;
   String? _banner;
   bool _findWatchDialogOpen = false;
   Timer? _findWatchTimer;
@@ -45,7 +50,26 @@ class _PdfImportScreenState extends State<PdfImportScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     lib.notePickerSheetOpened();
+    unawaited(_loadFilters());
     unawaited(_bootstrap());
+  }
+
+  Future<void> _loadFilters() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      setState(() {
+        _unkeptOnly = p.getBool(unkeptOnlyKey) ?? _unkeptOnly;
+        _unreadOnly = p.getBool(unreadOnlyKey) ?? _unreadOnly;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _saveFilter(String key, bool value) async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(key, value);
+    } catch (_) {}
   }
 
   @override
@@ -545,7 +569,8 @@ class _PdfImportScreenState extends State<PdfImportScreen>
             nGap: built.nGap,
           );
         }
-        final listItems = built.items;
+        final listItems =
+            _unreadOnly ? withoutReadDone(built.items, doneH) : built.items;
 
         return Scaffold(
           appBar: AppBar(
@@ -685,15 +710,21 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                   child: Row(
                     children: [
                       FilterChip(
-                        label: const Text('전체'),
-                        selected: !_unkeptOnly,
-                        onSelected: (_) => setState(() => _unkeptOnly = false),
+                        label: const Text('미보관만'),
+                        selected: _unkeptOnly,
+                        onSelected: (v) {
+                          setState(() => _unkeptOnly = v);
+                          unawaited(_saveFilter(unkeptOnlyKey, v));
+                        },
                       ),
                       const SizedBox(width: 8),
                       FilterChip(
-                        label: const Text('미보관만'),
-                        selected: _unkeptOnly,
-                        onSelected: (_) => setState(() => _unkeptOnly = true),
+                        label: const Text('안 읽음만'),
+                        selected: _unreadOnly,
+                        onSelected: (v) {
+                          setState(() => _unreadOnly = v);
+                          unawaited(_saveFilter(unreadOnlyKey, v));
+                        },
                       ),
                     ],
                   ),
@@ -716,7 +747,11 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                         : listItems.isEmpty
                             ? Center(
                                 child: Text(
-                                  _busy ? '목록 불러오는 중…' : '이 폴더에 PDF가 없습니다.',
+                                  _busy
+                                      ? '목록 불러오는 중…'
+                                      : entries.isNotEmpty
+                                          ? '필터에 맞는 PDF가 없어요. 위 필터를 꺼 보세요.'
+                                          : '이 폴더에 PDF가 없습니다.',
                                   style: Theme.of(context).textTheme.bodyMedium,
                                 ),
                               )

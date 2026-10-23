@@ -235,6 +235,25 @@ class PdfImportSetItem extends PdfImportListItem {
   List<String> get docUris => [main.docUri, si.docUri];
 }
 
+/// design/445 — the rows whose paper is not marked read. A set goes by its main
+/// file, as its 다 읽음 badge does, so a done set leaves no stray SI row.
+List<PdfImportListItem> withoutReadDone(
+  List<PdfImportListItem> items,
+  Set<String> doneHashes,
+) {
+  if (doneHashes.isEmpty) return items;
+  bool done(ScannedPdfEntry e) =>
+      doneHashes.contains(e.contentHash.trim().toLowerCase());
+  return [
+    for (final item in items)
+      if (!switch (item) {
+        PdfImportSingleItem(:final entry) => done(entry),
+        PdfImportSetItem(:final main) => done(main),
+      })
+        item,
+  ];
+}
+
 bool _advisoryTitleNeedsMateBorrow(String title) {
   final t = title.trim();
   if (t.isEmpty) return true;
