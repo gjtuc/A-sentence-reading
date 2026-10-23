@@ -254,6 +254,37 @@ List<PdfImportListItem> withoutReadDone(
   ];
 }
 
+final RegExp _searchDashes = RegExp('[\u2010-\u2015\u2212]');
+final RegExp _searchSpaces = RegExp(r'\s+');
+
+String _searchFold(String s) =>
+    s.toLowerCase().replaceAll(_searchDashes, '-');
+
+/// design/446 — rows whose file names or recognized titles hold every word of
+/// [query], in any order. A set row is searched by both of its files.
+List<PdfImportListItem> matchingSearch(
+  List<PdfImportListItem> items,
+  String query,
+) {
+  final words = _searchFold(query)
+      .split(_searchSpaces)
+      .where((w) => w.isNotEmpty)
+      .toList();
+  if (words.isEmpty) return items;
+  String text(ScannedPdfEntry e) => '${e.displayName}\n${e.advisoryTitle}';
+  return [
+    for (final item in items)
+      if (() {
+        final hay = _searchFold(switch (item) {
+          PdfImportSingleItem(:final entry) => text(entry),
+          PdfImportSetItem(:final main, :final si) => '${text(main)}\n${text(si)}',
+        });
+        return words.every(hay.contains);
+      }())
+        item,
+  ];
+}
+
 bool _advisoryTitleNeedsMateBorrow(String title) {
   final t = title.trim();
   if (t.isEmpty) return true;

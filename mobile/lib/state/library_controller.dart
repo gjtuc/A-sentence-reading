@@ -6479,7 +6479,10 @@ class LibraryController extends ChangeNotifier {
       stage: 'pick',
     );
     try {
-      final picked = await _safTree.pickTree(initialUri: pdfFolderGrant?.treeUri);
+      final picked = await _safTree.pickTree(
+        initialUri: pdfFolderGrant?.treeUri,
+        openParent: true,
+      );
       final elapsed = DateTime.now().millisecondsSinceEpoch - t0;
       if (picked == null) {
         asrEvidenceBus?.record(

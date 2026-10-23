@@ -36,6 +36,8 @@ class _PdfImportScreenState extends State<PdfImportScreen>
   static const String unreadOnlyKey = 'pdf_import_unread_only_v1';
   bool _unkeptOnly = false;
   bool _unreadOnly = false;
+  /// design/446 — not kept: the box is empty on every visit.
+  final TextEditingController _search = TextEditingController();
   String? _banner;
   bool _findWatchDialogOpen = false;
   Timer? _findWatchTimer;
@@ -76,6 +78,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _findWatchTimer?.cancel();
+    _search.dispose();
     lib.cancelPdfAdvisoryPump();
     super.dispose();
   }
@@ -569,8 +572,10 @@ class _PdfImportScreenState extends State<PdfImportScreen>
             nGap: built.nGap,
           );
         }
-        final listItems =
-            _unreadOnly ? withoutReadDone(built.items, doneH) : built.items;
+        final listItems = matchingSearch(
+          _unreadOnly ? withoutReadDone(built.items, doneH) : built.items,
+          _search.text,
+        );
 
         return Scaffold(
           appBar: AppBar(
@@ -706,6 +711,30 @@ class _PdfImportScreenState extends State<PdfImportScreen>
               ),
               if (grant != null)
                 Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: TextField(
+                    key: const ValueKey('pdf_import_search'),
+                    controller: _search,
+                    onChanged: (_) => setState(() {}),
+                    textInputAction: TextInputAction.search,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: '파일 이름이나 논문 제목으로 찾기',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _search.text.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.clear),
+                              tooltip: '검색어 지우기',
+                              onPressed: () =>
+                                  setState(() => _search.clear()),
+                            ),
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+              if (grant != null)
+                Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   child: Row(
                     children: [
@@ -750,7 +779,9 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                   _busy
                                       ? '목록 불러오는 중…'
                                       : entries.isNotEmpty
-                                          ? '필터에 맞는 PDF가 없어요. 위 필터를 꺼 보세요.'
+                                          ? (_search.text.trim().isNotEmpty
+                                              ? '검색어와 필터에 맞는 PDF가 없어요.'
+                                              : '필터에 맞는 PDF가 없어요. 위 필터를 꺼 보세요.')
                                           : '이 폴더에 PDF가 없습니다.',
                                   style: Theme.of(context).textTheme.bodyMedium,
                                 ),
@@ -886,7 +917,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                           lib.reanalyzing ||
                                           lib.opening
                                       ? null
-                                      : () => _enqueueSelected(listItems),
+                                      : () => _enqueueSelected(built.items),
                                   child: Text(
                                     '대기열에 추가 (${_selected.length})',
                                   ),

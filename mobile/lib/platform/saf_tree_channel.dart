@@ -76,13 +76,18 @@ class SafTreeChannel {
 
   final MethodChannel _channel;
 
-  Future<SafTreePickResult?> pickTree({String? initialUri, bool downloads = false}) async {
+  /// design/446 — [openParent] opens the picker one folder above [initialUri].
+  Future<SafTreePickResult?> pickTree({
+    String? initialUri,
+    bool downloads = false,
+    bool openParent = false,
+  }) async {
     if (kIsWeb) return webdir.webPickFolder(previous: initialUri, downloads: downloads);
     try {
       final raw = await _channel.invokeMethod<dynamic>(
         'pickTree',
         initialUri != null && initialUri.trim().isNotEmpty
-            ? {'initialUri': initialUri.trim()}
+            ? {'initialUri': initialUri.trim(), 'openParent': openParent}
             : null,
       );
       if (raw is! Map) return null;

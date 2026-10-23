@@ -114,9 +114,11 @@ class SafTreeHandler(
                 }
                 pendingPick = result
                 val initialUriArg = call.argument<String>("initialUri")?.trim().orEmpty()
+                val openParent = call.argument<Boolean>("openParent") == true
                 val targetUri = if (initialUriArg.isNotEmpty()) {
                     try {
-                        Uri.parse(initialUriArg)
+                        val given = Uri.parse(initialUriArg)
+                        if (openParent) parentDocumentUri(given) ?: downloadsDocumentUri() else given
                     } catch (_: Exception) {
                         downloadsDocumentUri()
                     }
@@ -655,6 +657,26 @@ class SafTreeHandler(
             EXTERNAL_STORAGE_PROVIDER,
             "primary:Download",
         )
+    }
+
+    /**
+     * design/446 — the picker ignores a bare tree URI as INITIAL_URI, so hand it the
+     * folder one level up as a document URI. Only the phone storage provider spells
+     * the path inside its document id ("primary:Download/x").
+     */
+    private fun parentDocumentUri(given: Uri): Uri? {
+        if (given.authority != EXTERNAL_STORAGE_PROVIDER) return null
+        val segs = given.pathSegments
+        val at = segs.indexOfLast { it == "document" || it == "tree" }
+        if (at < 0 || at + 1 >= segs.size) return null
+        val docId = segs[at + 1]
+        val colon = docId.indexOf(':')
+        if (colon < 0) return null
+        val volume = docId.substring(0, colon + 1)
+        val path = docId.substring(colon + 1).trim('/')
+        val slash = path.lastIndexOf('/')
+        val parentId = if (slash < 0) volume else volume + path.substring(0, slash)
+        return DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE_PROVIDER, parentId)
     }
 
     /** design/247 — OPEN_DOCUMENT_TREE hint: primary Download as tree root. */
