@@ -6,6 +6,8 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'clause_breaks.dart';
+
 const _allowed = {'sub', 'sup', 'i', 'em'};
 
 final _tagRe = RegExp(r'</?([a-zA-Z0-9]+)(?:\s[^>]*)?>');
@@ -34,6 +36,55 @@ String plainFromRichHtml(String? raw) {
   if (s.isEmpty) return '';
   if (!s.contains('<')) return s;
   return s.replaceAll(_tagRe, '').replaceAll(RegExp(r'\s+'), ' ').trim();
+}
+
+/// design/444 — [raw] with the clause breaks of its plain text as line breaks.
+///
+/// The breaks are chosen on [plainFromRichHtml], which drops tags and folds each
+/// run of spaces into one, so the markup is walked the same way to find the
+/// space each break stands for. A run that becomes a break loses its other spaces.
+String richWithClauseBreaks(String? raw) {
+  final src = unescapeRichEntities((raw ?? '').trim());
+  if (src.isEmpty) return src;
+  final breaks = clauseBreakOffsets(plainFromRichHtml(src));
+  if (breaks.isEmpty) return src;
+  if (!src.contains('<')) return withClauseBreaks(src, breaks);
+  final tags = _tagRe.allMatches(src).toList();
+  final out = StringBuffer();
+  var p = 0;
+  var t = 0;
+  var i = 0;
+  var started = false;
+  var inSpace = false;
+  var dropSpace = false;
+  while (i < src.length) {
+    if (t < tags.length && tags[t].start == i) {
+      out.write(tags[t].group(0));
+      i = tags[t].end;
+      t++;
+      continue;
+    }
+    final c = src[i];
+    i++;
+    if (c.trim().isEmpty) {
+      if (!started) {
+        out.write(c);
+      } else if (!inSpace) {
+        inSpace = true;
+        dropSpace = breaks.contains(p);
+        out.write(dropSpace ? '\n' : c);
+        p++;
+      } else if (!dropSpace) {
+        out.write(c);
+      }
+      continue;
+    }
+    started = true;
+    inSpace = false;
+    out.write(c);
+    p++;
+  }
+  return out.toString();
 }
 
 /// Build a [Text.rich] for allowlisted sentence HTML.
@@ -208,10 +259,16 @@ List<InlineSpan> buildAnnotatedSpans(
   /// Needed for paint mode: switching rich→plain when the first preview range
   /// appears changes layout mid-gesture and cancels the pan (design/182).
   bool plainMetrics = false,
+  /// design/444 — show the sentence in its pieces. Offsets do not move.
+  bool clauseBreaks = false,
 }) {
   final plain = plainFromRichHtml(raw);
   if (plain.isEmpty) return buildRichSpans(raw, base);
-  if (ranges.isEmpty && !plainMetrics) return buildRichSpans(raw, base);
+  if (ranges.isEmpty && !plainMetrics) {
+    return buildRichSpans(clauseBreaks ? richWithClauseBreaks(raw) : raw, base);
+  }
+  final shown =
+      clauseBreaks ? withClauseBreaks(plain, clauseBreakOffsets(plain)) : plain;
 
   // Later ranges win on overlap (caller should pass in ascending `at` order).
   final cover = List<AnnotationRange?>.filled(plain.length, null);
@@ -231,7 +288,7 @@ List<InlineSpan> buildAnnotatedSpans(
     while (j < plain.length && _sameAnnotStyle(cover[j], active)) {
       j++;
     }
-    final slice = plain.substring(i, j);
+    final slice = shown.substring(i, j);
     if (active == null) {
       out.addAll(buildRichSpans(slice, base, trimInput: false));
     } else {

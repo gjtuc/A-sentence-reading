@@ -1598,6 +1598,8 @@ class _SentencePanel extends StatelessWidget {
                                       annotations.setPaintPreview(a, b),
                                   onPaintCancel: () =>
                                       annotations.clearSentencePaint(),
+                                  clauseBreaks:
+                                      WebReadingPrefs.instance.clauseBreaks,
                                   onPaintCommitted: (start, end) async {
                                     final key = sentKey;
                                     if (key == null) {

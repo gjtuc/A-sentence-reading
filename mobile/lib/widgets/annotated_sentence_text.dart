@@ -19,6 +19,7 @@ class AnnotatedSentenceText extends StatefulWidget {
     this.onPaintPreview,
     this.onPaintCommitted,
     this.onPaintCancel,
+    this.clauseBreaks = false,
   });
 
   final String html;
@@ -34,6 +35,9 @@ class AnnotatedSentenceText extends StatefulWidget {
   final void Function(int start, int end)? onPaintPreview;
   final void Function(int start, int end)? onPaintCommitted;
   final VoidCallback? onPaintCancel;
+
+  /// design/444 — break a long sentence where a reader would pause.
+  final bool clauseBreaks;
 
   @override
   State<AnnotatedSentenceText> createState() => _AnnotatedSentenceTextState();
@@ -129,6 +133,7 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
       widget.style,
       ranges: _persistedRanges(),
       plainMetrics: widget.paintMode,
+      clauseBreaks: widget.clauseBreaks,
     );
     final tp = TextPainter(
       text: TextSpan(style: widget.style, children: spans),
@@ -214,6 +219,7 @@ class _AnnotatedSentenceTextState extends State<AnnotatedSentenceText> {
       widget.style,
       ranges: _rangesForPaint(),
       plainMetrics: widget.paintMode,
+      clauseBreaks: widget.clauseBreaks,
     );
     final text = Text.rich(
       TextSpan(style: widget.style, children: spans),

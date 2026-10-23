@@ -545,4 +545,35 @@ void main() {
     await library.advanceSentence(1);
     expect(library.session!.sentenceIndex, 0);
   });
+  // design/444 — the switch shows a long sentence in its pieces.
+  testWidgets('a long sentence breaks into pieces when the switch is on',
+      (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    WebReadingPrefs.instance.resetForTests();
+    const long = 'Our route uses a vapour growth method, which has several '
+        'strengths, including (i) making even particles in a short process, '
+        '(ii) giving easy control over mixtures, and (iii) being simple to '
+        'scale up to large batches.';
+    final client = _mockClient();
+    final library = LibraryController(client: client)
+      ..session = ReadingSession.fromOpenJson({
+        'session_id': 'ses_long',
+        'cache_id': 'c1',
+        'title': 'Long Sentence Paper',
+        'sentences': [
+          {'id': 's0', 'text': long, 'section': 'results'},
+        ],
+        'figures': const [],
+        'sentence_index': 0,
+        'figure_index': 0,
+      });
+    await _pumpReader(tester, library, client);
+    expect(_richText('method,\nwhich has'), findsNothing);
+
+    await WebReadingPrefs.instance.setClauseBreaks(true);
+    await _settle(tester);
+    expect(_richText('method,\nwhich has'), findsOneWidget);
+    expect(_richText('mixtures, and\n(iii) being'), findsOneWidget);
+    WebReadingPrefs.instance.resetForTests();
+  });
 }

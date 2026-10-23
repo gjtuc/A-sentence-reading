@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 444 | [444-sentence-in-pieces.md](444-sentence-in-pieces.md) | 긴 문장 끊어 보기 (시험 스위치, 웹·앱 공통) · 쉼표 뒤 which·including, 세미콜론, (i)(ii) 나열 앞에서 줄 바꿈 · 표시 위치는 그대로 (0.3.469) |
 | 443 | [443-head-on-the-caption.md](443-head-on-the-caption.md) | 쪽 머리글이 붙은 캡션을 떼어 읽기 (Table S1 missing) · '(Continued)' 없이 다음 쪽으로 이어진 표를 한 표로 (0.3.468) |
 | 442 | [442-read-to-the-end.md](442-read-to-the-end.md) | 마지막 문장에서 다음을 누르면 '다 읽은 논문으로 표시할까요?' · 보관함과 논문 가져오기 목록에 '다 읽음' 표시 (계정별 서버 저장, 웹·앱 공유) (0.3.467) |
 | 441 | [441-folds-that-stay.md](441-folds-that-stay.md) | 참고문헌 접기 상태를 모든 논문·재시작에 걸쳐 기억 (웹·앱) · 웹에서 마우스 3초 멈춤으로 버튼 줄이 사라질 때 자리도 함께 접힘 (빈 띠 없음) (0.3.466) |

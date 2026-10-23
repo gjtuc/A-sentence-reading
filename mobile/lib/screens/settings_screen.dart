@@ -1322,6 +1322,28 @@ class _ReadingFontChoice extends StatelessWidget {
   }
 }
 
+/// design/444 — one switch for the phone and the web. Build it under a listener of
+/// [WebReadingPrefs].
+class _ClauseBreakSwitch extends StatelessWidget {
+  const _ClauseBreakSwitch();
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = WebReadingPrefs.instance;
+    return SwitchListTile(
+      key: const ValueKey('clause_breaks'),
+      contentPadding: EdgeInsets.zero,
+      title: const Text('긴 문장 끊어 보기 (시험)'),
+      subtitle: const Text(
+        '긴 문장을 쉼표 뒤 which·including 같은 말이나 (i)(ii) 나열 앞에서 '
+        '줄을 바꿔 보여 줘요. 문장 글자는 그대로예요.',
+      ),
+      value: prefs.clauseBreaks,
+      onChanged: (v) => unawaited(prefs.setClauseBreaks(v)),
+    );
+  }
+}
+
 /// design/435 — the phone sentence size. design/436: and the rest of the web's
 /// reading look, fitted to a phone. The web has its own, in 웹 읽기 화면.
 class _PhoneReadingSection extends StatelessWidget {
@@ -1409,6 +1431,7 @@ class _PhoneReadingSection extends StatelessWidget {
               selected: web.column,
               onSelected: (v) => unawaited(web.setColumn(v)),
             ),
+            const _ClauseBreakSwitch(),
             const SizedBox(height: 12),
             Text('글꼴', style: text.bodyMedium),
             const SizedBox(height: 4),
@@ -1514,6 +1537,7 @@ class _WebReadingSection extends StatelessWidget {
             selected: {prefs.lineGap},
             onSelectionChanged: (v) => unawaited(prefs.setLineGap(v.first)),
           ),
+          const _ClauseBreakSwitch(),
           const SizedBox(height: 12),
           Text('글꼴', style: text.bodyMedium),
           const SizedBox(height: 4),

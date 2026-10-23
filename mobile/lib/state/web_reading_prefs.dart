@@ -294,6 +294,7 @@ class WebReadingPrefs extends ChangeNotifier {
   static const String autoPaneKey = 'web_reading_auto_pane_v1';
   static const String fullScreenKey = 'web_reading_full_screen_v1';
   static const String lineGapKey = 'web_reading_line_gap_v1';
+  static const String clauseBreaksKey = 'reading_clause_breaks_v1';
 
   WebTextSize size = WebTextSize.large;
   WebColumnWidth column = WebColumnWidth.medium;
@@ -315,6 +316,9 @@ class WebReadingPrefs extends ChangeNotifier {
 
   /// design/422 — each window goes full screen on its first click.
   bool fullScreen = false;
+
+  /// design/444 — a long sentence breaks where a reader would pause. Phone and web.
+  bool clauseBreaks = false;
   Future<void>? _loading;
 
   Future<void> load() => _loading ??= _load();
@@ -332,6 +336,7 @@ class WebReadingPrefs extends ChangeNotifier {
       showContext = p.getBool(contextKey) ?? showContext;
       autoFigurePane = p.getBool(autoPaneKey) ?? autoFigurePane;
       fullScreen = p.getBool(fullScreenKey) ?? fullScreen;
+      clauseBreaks = p.getBool(clauseBreaksKey) ?? clauseBreaks;
       notifyListeners();
     } catch (_) {}
   }
@@ -420,6 +425,13 @@ class WebReadingPrefs extends ChangeNotifier {
     await _saveBool(fullScreenKey, next);
   }
 
+  Future<void> setClauseBreaks(bool next) async {
+    if (next == clauseBreaks) return;
+    clauseBreaks = next;
+    notifyListeners();
+    await _saveBool(clauseBreaksKey, next);
+  }
+
   @visibleForTesting
   void resetForTests() {
     size = WebTextSize.large;
@@ -432,6 +444,7 @@ class WebReadingPrefs extends ChangeNotifier {
     showContext = true;
     autoFigurePane = true;
     fullScreen = false;
+    clauseBreaks = false;
     _loading = null;
   }
 }
