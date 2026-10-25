@@ -12,6 +12,9 @@ import 'near_sync.dart';
 import 'near_usb_line.dart';
 import 'near_usb_io.dart' if (dart.library.js_interop) 'near_usb_web.dart';
 
+export 'near_usb_io.dart' if (dart.library.js_interop) 'near_usb_web.dart'
+    show nearReloadPage;
+
 const Duration kUsbConnectLimit = Duration(milliseconds: 1500);
 const Duration kUsbHelloLimit = Duration(milliseconds: 1500);
 
@@ -45,6 +48,13 @@ class NearUsbSession {
   /// The web page is already waiting at the helper.
   bool get webThere => _info['web'] == true;
 
+  /// The phone app is already waiting at the helper.
+  bool get phoneThere => _info['phone'] == true;
+
+  /// The helper closed this line.
+  bool get isGone => _gone;
+  var _gone = false;
+
   late final NearPipe pipe = _UsbPipe(this);
 
   void _on(Object item) {
@@ -63,6 +73,7 @@ class NearUsbSession {
   }
 
   void _end() {
+    _gone = true;
     if (!_hello.isCompleted) _hello.completeError(const NearSyncError('usb_gone'));
     if (!_paired.isCompleted) _paired.completeError(const NearSyncError('usb_gone'));
     if (!_data.isClosed) unawaited(_data.close());

@@ -7,6 +7,9 @@ import 'dart:typed_data';
 
 import 'near_usb_line.dart';
 
+/// design/454 - only the web page reloads.
+void nearReloadPage() {}
+
 Future<UsbLine> connectUsbLine({required Duration timeout}) async {
   final socket = await Socket.connect(
     InternetAddress.loopbackIPv4,

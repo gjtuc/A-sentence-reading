@@ -62,6 +62,8 @@ class _RtcPipe implements NearPipe {
   }
 }
 
+typedef _ServerLink = ({String linkId, Map<String, dynamic> offer});
+
 class NearLink extends ChangeNotifier {
   NearLink({required this.client, required this.local, UsbOpen? usbOpen})
       : _usbOpen = usbOpen ?? openNearUsb;
@@ -99,24 +101,53 @@ class NearLink extends ChangeNotifier {
     _host = true;
     await _guard(() async {
       _go(NearStep.preparing);
-      final usb = await _openUsb();
-      if (usb != null && usb.cable) {
+      var usb = await _openUsb();
+      if (usb != null && (usb.phoneThere || usb.isPaired)) {
         await _usb(usb);
         return;
       }
-      await usb?.close();
-      final pc = await _peer();
-      final channel = await pc.createDataChannel(
-        'asr-near',
-        RTCDataChannelInit()..ordered = true,
-      );
-      final opened = _whenOpen(channel);
-      final offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      final local = await _gathered(pc);
-      _linkId = await client.nearCreateLink(local);
+      if (usb != null && !usb.cable) {
+        await usb.close();
+        usb = null;
+      }
+      if (usb != null) {
+        via = 'usb';
+        _endPipe = () => unawaited(usb!.close());
+      }
+      final RTCPeerConnection pc;
+      final RTCDataChannel channel;
+      final Future<void> opened;
+      try {
+        pc = await _peer();
+        channel = await pc.createDataChannel(
+          'asr-near',
+          RTCDataChannelInit()..ordered = true,
+        );
+        opened = _whenOpen(channel);
+        final offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        final local = await _gathered(pc);
+        _linkId = await client.nearCreateLink(local);
+      } catch (_) {
+        if (usb == null || _stopped) rethrow;
+        await _dropRtc();
+        await _usb(usb);
+        return;
+      }
       _go(NearStep.waiting);
-      final answer = await _awaitAnswer();
+      final answer = await _awaitAnswer(usb: usb);
+      if (answer == null) {
+        unawaited(client.nearDropLink(_linkId));
+        _linkId = '';
+        await _dropRtc();
+        await _usb(usb!);
+        return;
+      }
+      if (usb != null) {
+        _endPipe = null;
+        via = '';
+        await usb.close();
+      }
       _go(NearStep.connecting);
       await pc.setRemoteDescription(
         RTCSessionDescription('${answer['sdp']}', '${answer['type']}'),
@@ -136,26 +167,29 @@ class NearLink extends ChangeNotifier {
     await _guard(() async {
       _go(NearStep.preparing);
       final usb = await _openUsb();
-      if (usb != null && usb.webThere) {
+      if (usb != null && (usb.webThere || usb.isPaired)) {
         await _usb(usb);
         return;
       }
-      final ({String linkId, Map<String, dynamic> offer})? link;
+      _ServerLink? link;
       try {
         link = await client.nearClaimLink();
       } catch (_) {
         if (usb == null) rethrow;
-        await _usb(usb);
-        return;
       }
       if (link == null) {
-        if (usb != null) {
+        if (usb == null) throw const NearSyncError('no_link');
+        link = await _waitUsbOrLink(usb);
+        if (link == null) {
           await _usb(usb);
           return;
         }
-        throw const NearSyncError('no_link');
       }
-      await usb?.close();
+      if (usb != null) {
+        _endPipe = null;
+        via = '';
+        await usb.close();
+      }
       _linkId = link.linkId;
       final pc = await _peer();
       final gotChannel = Completer<RTCDataChannel>();
@@ -306,13 +340,21 @@ class NearLink extends ChangeNotifier {
     return {'type': desc?.type ?? '', 'sdp': sdp};
   }
 
-  Future<Map<String, dynamic>> _awaitAnswer() async {
+  /// The phone's answer, or null when the phone met us at the USB helper first.
+  Future<Map<String, dynamic>?> _awaitAnswer({NearUsbSession? usb}) async {
     final until = DateTime.now().add(kNearLinkLife);
     while (DateTime.now().isBefore(until)) {
       if (_stopped) throw const NearSyncError('cancelled');
-      final answer = await client.nearPeekAnswer(_linkId);
+      if (usb != null && usb.isPaired) return null;
+      Map<String, dynamic>? answer;
+      try {
+        answer = await client.nearPeekAnswer(_linkId);
+      } catch (_) {
+        if (usb == null || usb.isGone) rethrow;
+      }
       if (answer != null) return answer;
-      await Future<void>.delayed(kNearPollEvery);
+      if (usb != null && usb.isPaired) return null;
+      await _nap(usb);
     }
     throw const NearSyncError('no_phone');
   }
@@ -349,6 +391,52 @@ class NearLink extends ChangeNotifier {
     } catch (_) {
       return null;
     }
+  }
+
+  Future<void> _dropRtc() async {
+    final pc = _pc;
+    final channel = _channel;
+    _pc = null;
+    _channel = null;
+    pc?.onConnectionState = null;
+    channel?.onDataChannelState = null;
+    try {
+      await channel?.close();
+    } catch (_) {}
+    try {
+      await pc?.close();
+    } catch (_) {}
+  }
+
+  /// Poll pause that ends early when the helper pairs or goes away.
+  Future<void> _nap(NearUsbSession? usb) {
+    final pause = Future<void>.delayed(kNearPollEvery);
+    if (usb == null || usb.isGone) return pause;
+    return Future.any([pause, usb.paired.then((_) {}, onError: (Object _) {})]);
+  }
+
+  /// Phone at the helper without the web: wait there, but take the web's server
+  /// link as soon as one shows up (an older web, or one that cannot reach the
+  /// helper). Null when the helper paired first.
+  Future<_ServerLink?> _waitUsbOrLink(NearUsbSession usb) async {
+    via = 'usb';
+    _endPipe = () => unawaited(usb.close());
+    _go(NearStep.waiting);
+    final until = DateTime.now().add(kNearLinkLife);
+    while (!usb.isPaired) {
+      if (_stopped) throw const NearSyncError('cancelled');
+      if (DateTime.now().isAfter(until)) throw const NearSyncError('usb_no_web');
+      await _nap(usb);
+      if (usb.isPaired) break;
+      _ServerLink? link;
+      try {
+        link = await client.nearClaimLink();
+      } catch (_) {
+        if (usb.isGone) rethrow;
+      }
+      if (link != null && !usb.isPaired) return link;
+    }
+    return null;
   }
 
   Future<void> _usb(NearUsbSession usb) async {

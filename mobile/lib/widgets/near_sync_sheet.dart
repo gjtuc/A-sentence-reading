@@ -6,8 +6,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../config.dart';
 import '../services/near_library_local.dart';
 import '../services/near_link.dart';
+import '../services/near_usb.dart';
 import '../services/shadowing_disk_store.dart';
 import '../state/library_controller.dart';
 
@@ -45,10 +47,66 @@ String nearFailText(String code) {
 
 String _mb(int bytes) => (bytes / (1024 * 1024)).toStringAsFixed(1);
 
+/// design/454 — `a` is a later release than `b` (dotted numbers).
+bool nearVersionNewer(String a, String b) {
+  List<int> parts(String v) =>
+      [for (final p in v.trim().split('.')) int.tryParse(p) ?? 0];
+  final x = parts(a);
+  final y = parts(b);
+  for (var i = 0; i < x.length || i < y.length; i++) {
+    final p = i < x.length ? x[i] : 0;
+    final q = i < y.length ? y[i] : 0;
+    if (p != q) return p > q;
+  }
+  return false;
+}
+
+/// design/454 — a web window opened before a deploy keeps the old code, and the
+/// phone then waits on a way the old page does not use. Offer a reload first.
+/// False when the user stopped or reloads.
+Future<bool> _webIsCurrent(BuildContext context, LibraryController library) async {
+  String live;
+  try {
+    live = (await library.apiClient
+            .fetchStatus(fresh: true)
+            .timeout(const Duration(seconds: 4)))
+        .version;
+  } catch (_) {
+    return true;
+  }
+  if (!nearVersionNewer(live, kAppVersionLabel) || !context.mounted) return true;
+  final reload = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('새 버전이 나왔어요'),
+      content: Text(
+        '이 창은 옛 버전($kAppVersionLabel)이고, 지금 버전은 $live 예요.\n'
+        '옛 창으로 동기화하면 폰과 길이 어긋날 수 있어요. 새로고침해 주세요.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('그냥 동기화'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('새로고침'),
+        ),
+      ],
+    ),
+  );
+  if (reload == true) {
+    nearReloadPage();
+    return false;
+  }
+  return reload == false;
+}
+
 Future<void> showNearSyncSheet({
   required BuildContext context,
   required LibraryController library,
 }) async {
+  if (kIsWeb && !await _webIsCurrent(context, library)) return;
   final uid = await library.progressUid();
   if (!context.mounted) return;
   final link = NearLink(

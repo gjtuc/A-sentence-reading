@@ -10,6 +10,9 @@ import 'package:web/web.dart' as web;
 
 import 'near_usb_line.dart';
 
+/// design/454 - load the newest web build.
+void nearReloadPage() => web.window.location.reload();
+
 Future<UsbLine> connectUsbLine({required Duration timeout}) async {
   final ws = web.WebSocket('ws://127.0.0.1:$kUsbWebPort')..binaryType = 'arraybuffer';
   final line = _WebUsbLine(ws);
