@@ -9,8 +9,15 @@ import 'near_sync.dart';
 import 'paper_disk_store.dart';
 import 'shadowing_disk_store.dart';
 
-class LibraryNearLocal implements NearLocal {
-  LibraryNearLocal({required this.disk, required this.uid, this.shadow});
+class LibraryNearLocal implements NearLocal, NearForget {
+  LibraryNearLocal({
+    required this.disk,
+    required this.uid,
+    this.shadow,
+    this.loadGone,
+    this.hiddenIds,
+    this.onForget,
+  });
 
   final PaperDiskStore disk;
   final String? uid;
@@ -18,15 +25,38 @@ class LibraryNearLocal implements NearLocal {
   /// Shadowing takes, chunk plans and voice files (design/187).
   final ShadowingDiskStore? shadow;
 
+  /// design/450 — the library's delete record, hidden set and delete step.
+  final Future<Map<String, int>> Function()? loadGone;
+  final Set<String> Function()? hiddenIds;
+  final Future<void> Function(Map<String, int> gone, List<String> drop)?
+      onForget;
+
   @override
   Future<List<NearPaper>> papers() async {
     final out = <NearPaper>[];
     for (final e in await disk.listIndex()) {
       if (e.id.isEmpty || isSampleCacheId(e.id)) continue;
       if (!await disk.hasSession(e.id)) continue;
-      out.add(NearPaper(id: e.id, title: e.title, hash: e.contentHash));
+      out.add(NearPaper(
+        id: e.id,
+        title: e.title,
+        hash: e.contentHash,
+        added: e.addedMs,
+      ));
     }
     return out;
+  }
+
+  @override
+  Future<Map<String, int>> gone() async =>
+      await loadGone?.call() ?? const <String, int>{};
+
+  @override
+  Future<Set<String>> hidden() async => hiddenIds?.call() ?? const <String>{};
+
+  @override
+  Future<void> forget(Map<String, int> gone, List<String> drop) async {
+    await onForget?.call(gone, drop);
   }
 
   @override

@@ -1077,12 +1077,14 @@ class _FolderRow extends StatelessWidget {
       color: scheme.surface,
       child: InkWell(
         onTap: onToggle,
-        child: Container(
+        child: ReadDoneStripe(
+          on: readDone,
+          child: Container(
           decoration: BoxDecoration(
             border: border,
             borderRadius: BorderRadius.circular(8),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          padding: EdgeInsets.fromLTRB(readDone ? 12 : 8, 8, 8, 8),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1228,6 +1230,7 @@ class _FolderRow extends StatelessWidget {
             ],
           ),
         ),
+        ),
       ),
     );
   }
@@ -1278,12 +1281,14 @@ class _SetRow extends StatelessWidget {
       color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
       child: InkWell(
         onTap: onToggle,
-        child: Container(
+        child: ReadDoneStripe(
+          on: readDone,
+          child: Container(
           decoration: BoxDecoration(
             border: border,
             borderRadius: BorderRadius.circular(8),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          padding: EdgeInsets.fromLTRB(readDone ? 12 : 8, 8, 8, 8),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1385,6 +1390,7 @@ class _SetRow extends StatelessWidget {
                 ),
             ],
           ),
+        ),
         ),
       ),
     );

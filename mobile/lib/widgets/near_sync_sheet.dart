@@ -20,6 +20,10 @@ String nearFailText(String code) {
       return '열린 웹 연결이 없습니다. PC 웹에서 먼저 「폰과 동기화」를 누른 뒤 다시 눌러 주세요.';
     case 'no_phone':
       return '3분 동안 폰이 연결하지 않았습니다. 다시 시도해 주세요.';
+    case 'usb_no_web':
+      return '3분 동안 PC 웹이 연결하지 않았습니다. PC 웹에서 「폰과 동기화」를 누른 뒤 다시 해 주세요.';
+    case 'usb_gone':
+      return 'USB 연결이 끊겼습니다. 선과 PC의 「USB 동기화 도우미」가 켜져 있는지 보고 다시 해 주세요.';
     case 'open_timeout':
     case 'ice_failed':
       return '두 기기가 서로 닿지 못했습니다. 다시 해 주세요.';
@@ -53,6 +57,9 @@ Future<void> showNearSyncSheet({
       disk: library.paperDiskStore,
       uid: uid,
       shadow: ShadowingDiskStore()..bindUid(library.diskUid ?? uid),
+      loadGone: library.nearGone,
+      hiddenIds: library.nearHiddenIds,
+      onForget: library.forgetFromNear,
     ),
   );
   if (kIsWeb) {
@@ -67,7 +74,8 @@ Future<void> showNearSyncSheet({
   );
   await link.cancel();
   final r = link.report;
-  if (r != null && (r.papersIn > 0 || r.progressRows > 0)) {
+  await library.nearServerDeletesSettled();
+  if (r != null && (r.papersIn > 0 || r.progressRows > 0 || r.papersGone > 0)) {
     await library.refresh(trigger: 'near_sync');
   }
   link.dispose();
@@ -117,13 +125,24 @@ class _NearSyncDialog extends StatelessWidget {
       case NearStep.preparing:
         return '연결을 준비하고 있습니다…';
       case NearStep.waiting:
+        if (link.via == 'usb') {
+          return kIsWeb
+              ? 'USB 선으로 연결된 폰을 찾았습니다.\n'
+                  '이제 폰에서 「웹과 동기화」 버튼을 눌러 주세요. (3분 안에)'
+              : 'USB 선으로 PC와 이었습니다.\n'
+                  '이제 PC 웹에서 「폰과 동기화」 버튼을 눌러 주세요. (3분 안에)';
+        }
         return '이제 폰에서 라이브러리 위쪽의 「웹과 동기화」 버튼을 눌러 주세요.\n'
             '(같은 계정으로 로그인한 폰, 3분 안에)';
       case NearStep.connecting:
         return '두 기기를 잇고 있습니다…\n'
             '(바로 연결되지 않으면 10초 뒤 서버를 거쳐 옮깁니다)';
       case NearStep.syncing:
-        final how = link.via == 'relay' ? '서버를 거쳐 옮기는 중' : '직접 연결로 옮기는 중';
+        final how = switch (link.via) {
+          'usb' => 'USB 선으로 옮기는 중',
+          'relay' => '서버를 거쳐 옮기는 중',
+          _ => '직접 연결로 옮기는 중',
+        };
         return [
           how,
           '논문 받는 중 ${p.gotIn}/${p.wantIn} (${_mb(p.bytesIn - p.extraBytesIn)}MB)',
@@ -139,6 +158,7 @@ class _NearSyncDialog extends StatelessWidget {
         final lines = <String>[
           '끝났습니다.',
           '받은 논문 ${r.papersIn}개, 보낸 논문 ${r.papersOut}개',
+          if (r.papersGone > 0) '다른 기기에서 지운 논문 ${r.papersGone}개를 여기서도 지움',
           '읽던 위치 ${r.progressRows}개 맞춤',
           if (r.extrasIn > 0)
             '연습 녹음·기록 ${r.extrasIn}개 받음 (${_mb(p.extraBytesIn)}MB)',

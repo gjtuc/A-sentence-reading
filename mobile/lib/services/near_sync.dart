@@ -7,7 +7,14 @@
 ///      paper both sides will hold the user files the other lacks (`extra`, same
 ///      framing: shadowing takes, chunk plan, voice), then `sent`,
 ///   4. after storing everything received, send `fin`.
-/// Done when both `fin` are exchanged. Nothing is ever deleted.
+/// Done when both `fin` are exchanged.
+///
+/// design/450 — `inv` also carries `gone` (paper id -> ms the user deleted it)
+/// and each paper's `added` (ms it reached that device, 0 when older than this
+/// field). A paper is dropped here when the other side deleted it at or after it
+/// arrived here, and never asked for when this side deleted it at or after it
+/// arrived there. A later import is newer than the delete, so it spreads again.
+/// Papers the user hid but may still bring back are neither offered nor taken.
 ///
 /// Every frame is binary with a one-byte kind, because a browser data channel may
 /// reorder text frames against binary ones.
@@ -32,19 +39,58 @@ abstract class NearPipe {
 }
 
 class NearPaper {
-  const NearPaper({required this.id, required this.title, this.hash = ''});
+  const NearPaper({
+    required this.id,
+    required this.title,
+    this.hash = '',
+    this.added = 0,
+  });
 
   factory NearPaper.fromJson(Map<String, dynamic> json) => NearPaper(
         id: '${json['id'] ?? ''}'.trim(),
         title: '${json['title'] ?? ''}'.trim(),
         hash: '${json['hash'] ?? ''}'.trim(),
+        added: _asMs(json['added']),
       );
 
   final String id;
   final String title;
   final String hash;
 
-  Map<String, Object?> toJson() => {'id': id, 'title': title, 'hash': hash};
+  /// Ms this device got the paper; 0 when it predates design/450.
+  final int added;
+
+  Map<String, Object?> toJson() =>
+      {'id': id, 'title': title, 'hash': hash, 'added': added};
+}
+
+int _asMs(Object? v) {
+  if (v is int) return v < 0 ? 0 : v;
+  if (v is num) return v < 0 ? 0 : v.toInt();
+  return 0;
+}
+
+Map<String, int> nearGoneFromJson(Object? raw) {
+  final out = <String, int>{};
+  if (raw is! Map) return out;
+  for (final e in raw.entries) {
+    final id = '${e.key}'.trim();
+    final at = _asMs(e.value);
+    if (id.isNotEmpty && at > 0) out[id] = at;
+  }
+  return out;
+}
+
+/// design/450 — a device that remembers which papers the user deleted.
+abstract class NearForget {
+  /// Paper id -> ms the user deleted it here, or learned it was deleted.
+  Future<Map<String, int>> gone();
+
+  /// Ids hidden here that the user can still bring back.
+  Future<Set<String>> hidden();
+
+  /// Remember [gone] (newest per id) and delete the [drop] ids held here.
+  Future<void> forget(Map<String, int> gone, List<String> drop);
 }
 
 /// What one device holds and how it stores what arrives.
@@ -107,6 +153,7 @@ class NearSyncReport {
     required this.failed,
     this.extrasIn = 0,
     this.extrasOut = 0,
+    this.papersGone = 0,
     this.times = const {},
   });
 
@@ -114,6 +161,9 @@ class NearSyncReport {
   final int papersOut;
   final int progressRows;
   final List<String> failed;
+
+  /// Papers deleted here because the other side deleted them (design/450).
+  final int papersGone;
 
   /// User files changed here / papers whose user files were sent.
   final int extrasIn;
@@ -180,7 +230,16 @@ class NearSync {
   Future<void> _storeTurn = Future.value();
   Completer<void>? _room;
 
+  NearForget? get _forget {
+    final l = local;
+    return l is NearForget ? l as NearForget : null;
+  }
+
   Set<String> _mine = {};
+  final _myAdded = <String, int>{};
+  Map<String, int> _myGone = {};
+  Set<String> _hidden = {};
+  var _papersGone = 0;
   final _peerIds = <String>{};
   final _peerExtras = <String, Set<String>>{};
   var _extrasIn = 0;
@@ -220,13 +279,25 @@ class NearSync {
     try {
       final papers = await local.papers();
       _mine = {for (final p in papers) p.id};
+      for (final p in papers) {
+        _myAdded[p.id] = p.added;
+      }
+      final forget = _forget;
+      if (forget != null) {
+        _myGone = await forget.gone();
+        _hidden = await forget.hidden();
+      }
       final rows = await local.progress();
       final extras = await local.extraNames();
       await _send({
         't': 'inv',
-        'papers': [for (final p in papers) p.toJson()],
+        'papers': [
+          for (final p in papers)
+            if (!_hidden.contains(p.id)) p.toJson(),
+        ],
         'progress': rows,
         'extras': extras,
+        'gone': _myGone,
       });
     } catch (e) {
       _fail('inv_failed');
@@ -330,11 +401,39 @@ class NearSync {
         for (final raw in m['papers'] as List)
           if (raw is Map) NearPaper.fromJson(Map<String, dynamic>.from(raw)),
     ];
+    final theirGone = nearGoneFromJson(m['gone']);
+    bool goneSince(Map<String, int> gone, String id, int added) {
+      final at = gone[id];
+      return at != null && at >= added;
+    }
+
+    final drop = [
+      for (final id in _mine)
+        if (goneSince(theirGone, id, _myAdded[id] ?? 0)) id,
+    ]..sort();
+    _mine.removeAll(drop);
     final want = [
       for (final p in theirs)
-        if (p.id.isNotEmpty && !_mine.contains(p.id)) p.id,
+        if (p.id.isNotEmpty &&
+            !_mine.contains(p.id) &&
+            !_hidden.contains(p.id) &&
+            !goneSince(_myGone, p.id, p.added) &&
+            !goneSince(theirGone, p.id, p.added))
+          p.id,
     ];
-    _peerIds.addAll([for (final p in theirs) p.id]);
+    _peerIds.addAll([
+      for (final p in theirs)
+        if (!goneSince(_myGone, p.id, p.added)) p.id,
+    ]);
+    final forget = _forget;
+    if (forget != null && (drop.isNotEmpty || theirGone.isNotEmpty)) {
+      _storeTurn = _storeTurn.then((_) async {
+        try {
+          await forget.forget(theirGone, drop);
+          _papersGone = drop.length;
+        } catch (_) {}
+      });
+    }
     if (m['extras'] is Map) {
       for (final e in (m['extras'] as Map).entries) {
         if (e.value is List) {
@@ -567,6 +666,7 @@ class NearSync {
       failed: List.unmodifiable(_failed),
       extrasIn: _extrasIn,
       extrasOut: _extrasOut,
+      papersGone: _papersGone,
       times: {
         'pack_ms': _packWatch.elapsedMilliseconds,
         'send_ms': _sendWatch.elapsedMilliseconds,

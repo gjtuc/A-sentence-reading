@@ -46,6 +46,7 @@ import '../practice_sample/sample_corpus.dart';
 import '../practice_sample/sample_seed.dart';
 import '../practice_sample/sample_hidden.dart';
 import '../api/library_soft_delete_store.dart';
+import '../api/near_gone_store.dart';
 import '../platform/saf_tree_channel.dart';
 import '../api/upload_notify.dart';
 import '../api/shadowing_models.dart';
@@ -3290,6 +3291,10 @@ class LibraryController extends ChangeNotifier {
     }
     // design/177 J6 — only drop rows that actually deleted on the server.
     if (okIds.isNotEmpty) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      try {
+        await addNearGone(_diskUid, {for (final id in okIds) id: now});
+      } catch (_) {}
       _publishPapers(
         papers.where((p) => !okIds.contains(p.id)).toList(growable: false),
       );
@@ -3305,6 +3310,52 @@ class LibraryController extends ChangeNotifier {
       await sweepLocalResidues(trigger: 'delete');
     }
     return okCount;
+  }
+
+  /// design/450 — papers deleted on this device (or learned of by near sync).
+  Future<Map<String, int>> nearGone() => loadNearGone(_diskUid);
+
+  Future<void>? _nearServerDeletes;
+
+  /// design/450 — let the server deletes of [forgetFromNear] land before a
+  /// refresh, or the server list would bring the papers back.
+  Future<void> nearServerDeletesSettled() async {
+    final f = _nearServerDeletes;
+    _nearServerDeletes = null;
+    if (f == null) return;
+    try {
+      await f.timeout(const Duration(seconds: 20));
+    } catch (_) {}
+  }
+
+  /// design/450 — soft-hidden ids; the user can still bring them back.
+  Set<String> nearHiddenIds() => {..._softDelete.hiddenIds};
+
+  /// design/450 — the other device deleted [drop]: delete them here too. The
+  /// server copy is asked to go in the background; it is usually gone already.
+  Future<void> forgetFromNear(Map<String, int> gone, List<String> drop) async {
+    await addNearGone(_diskUid, gone);
+    final ids = drop.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+    if (ids.isEmpty) return;
+    final serverDeletes = <Future<void>>[];
+    for (final id in ids) {
+      try {
+        await _purgeLocalPaperArtifacts(id);
+        await _documentsMirror.deletePaper(id);
+        await dropPracticeProgress(uid: _diskUid, cacheId: id);
+        await purgePracticeBookmarks(uid: _diskUid, cacheId: id);
+      } catch (_) {}
+      serverDeletes
+          .add(_client.deletePaper(id).then((_) {}, onError: (Object _) {}));
+    }
+    _nearServerDeletes = Future.wait(serverDeletes);
+    await _softDelete.remove(ids);
+    _publishPapers(
+      papers.where((p) => !ids.contains(p.id)).toList(growable: false),
+    );
+    await _persistOrder(papers.map((e) => e.id).toList(growable: false));
+    await _rebuildLibraryHashSet();
+    notifyListeners();
   }
 
   /// design/307 — delete folders not in the library or soft-hide set, then re-list.

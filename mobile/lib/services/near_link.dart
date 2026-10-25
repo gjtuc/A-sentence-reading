@@ -4,6 +4,10 @@
 /// are gathered before the description is sent, so there is no trickle round trip.
 /// When the channel does not open within [kNearDirectLimit], both sides run the same
 /// frames through the server relay instead (`near_relay.dart`).
+///
+/// design/451 — before any of that, both sides try the PC's USB helper. The web
+/// waits there when the helper sees a phone on the cable. The phone waits there
+/// when the web is already there, or when no server link is open.
 library;
 
 import 'dart:async';
@@ -15,6 +19,7 @@ import '../api/client.dart';
 import 'evidence_bus.dart';
 import 'near_relay.dart';
 import 'near_sync.dart';
+import 'near_usb.dart';
 
 enum NearStep { idle, preparing, waiting, connecting, syncing, done, failed }
 
@@ -58,17 +63,19 @@ class _RtcPipe implements NearPipe {
 }
 
 class NearLink extends ChangeNotifier {
-  NearLink({required this.client, required this.local});
+  NearLink({required this.client, required this.local, UsbOpen? usbOpen})
+      : _usbOpen = usbOpen ?? openNearUsb;
 
   final AsrClient client;
   final NearLocal local;
+  final UsbOpen _usbOpen;
 
   NearStep step = NearStep.idle;
   String code = '';
   NearSyncProgress progress = const NearSyncProgress();
   NearSyncReport? report;
 
-  /// `direct` (WebRTC) or `relay` (through the server).
+  /// `usb` (cable, PC helper), `direct` (WebRTC) or `relay` (through the server).
   String via = '';
 
   RTCPeerConnection? _pc;
@@ -92,6 +99,12 @@ class NearLink extends ChangeNotifier {
     _host = true;
     await _guard(() async {
       _go(NearStep.preparing);
+      final usb = await _openUsb();
+      if (usb != null && usb.cable) {
+        await _usb(usb);
+        return;
+      }
+      await usb?.close();
       final pc = await _peer();
       final channel = await pc.createDataChannel(
         'asr-near',
@@ -122,8 +135,27 @@ class NearLink extends ChangeNotifier {
     _host = false;
     await _guard(() async {
       _go(NearStep.preparing);
-      final link = await client.nearClaimLink();
-      if (link == null) throw const NearSyncError('no_link');
+      final usb = await _openUsb();
+      if (usb != null && usb.webThere) {
+        await _usb(usb);
+        return;
+      }
+      final ({String linkId, Map<String, dynamic> offer})? link;
+      try {
+        link = await client.nearClaimLink();
+      } catch (_) {
+        if (usb == null) rethrow;
+        await _usb(usb);
+        return;
+      }
+      if (link == null) {
+        if (usb != null) {
+          await _usb(usb);
+          return;
+        }
+        throw const NearSyncError('no_link');
+      }
+      await usb?.close();
       _linkId = link.linkId;
       final pc = await _peer();
       final gotChannel = Completer<RTCDataChannel>();
@@ -187,6 +219,8 @@ class NearLink extends ChangeNotifier {
       details: {
         'web': kIsWeb ? 1 : 0,
         'relay': via == 'relay' ? 1 : 0,
+        'usb': via == 'usb' ? 1 : 0,
+        'papers_gone': r?.papersGone ?? 0,
         'papers_in': r?.papersIn ?? 0,
         'papers_out': r?.papersOut ?? 0,
         'papers_failed': r?.failed.length ?? 0,
@@ -306,6 +340,30 @@ class NearLink extends ChangeNotifier {
     } on TimeoutException {
       return false;
     }
+  }
+
+  Future<NearUsbSession?> _openUsb() async {
+    if (_stopped) return null;
+    try {
+      return await _usbOpen();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _usb(NearUsbSession usb) async {
+    via = 'usb';
+    _endPipe = () => unawaited(usb.close());
+    if (!usb.isPaired) {
+      _go(NearStep.waiting);
+      try {
+        await usb.paired.timeout(kNearLinkLife);
+      } on TimeoutException {
+        throw NearSyncError(_host ? 'no_phone' : 'usb_no_web');
+      }
+    }
+    _openMs = _watch.elapsedMilliseconds;
+    await _sync(usb.pipe);
   }
 
   Future<void> _direct(RTCDataChannel channel) async {

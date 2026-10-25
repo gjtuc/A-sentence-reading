@@ -12,6 +12,9 @@ TITLE_PART := "문장 읽기"
 BROWSERS := ["chrome.exe", "msedge.exe"]
 APP_EXE := "C:\Program Files\Google\Chrome\Application\chrome_proxy.exe"
 APP_ARGS := '--profile-directory="Profile 1" --app-id=gmcbhkpkpmofemkjpnnfknmkeojidgcp'
+; design/451: the USB sync helper runs while the app is open.
+BRIDGE := A_ScriptDir "\usb_sync_bridge.py"
+bridgePid := 0
 
 hidden := false
 lastX := -1
@@ -23,8 +26,9 @@ goneSince := 0
 
 SetTitleMatchMode(2)
 CoordMode("Mouse", "Screen")
-OnExit((*) => ShowCursor())
+OnExit(Quit)
 A_IconTip := "문장 읽기: 마우스 숨기기"
+StartBridge()
 if !AppOpen()
     Run('"' APP_EXE '" ' APP_ARGS)
 SetTimer(Check, 100)
@@ -89,6 +93,25 @@ OverApp(win) {
             return true
     }
     return false
+}
+
+Quit(*) {
+    ShowCursor()
+    StopBridge()
+}
+
+StartBridge() {
+    global bridgePid
+    if !FileExist(BRIDGE)
+        return
+    ; A second helper finds the ports taken and exits on its own.
+    try Run('pythonw.exe "' BRIDGE '"', A_ScriptDir, "Hide", &bridgePid)
+}
+
+StopBridge() {
+    global bridgePid
+    if bridgePid
+        try ProcessClose(bridgePid)
 }
 
 HideCursor() {

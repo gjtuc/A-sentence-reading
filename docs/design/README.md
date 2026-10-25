@@ -462,6 +462,9 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 452 | [452-read-done-stripe.md](452-read-done-stripe.md) | 논문 가져오기: 다 읽은 줄 왼쪽에 굵은 파란 띠, '다 읽음' 배지를 진한 파랑으로 크게. 초록 테두리(보관함)는 그대로 (0.3.473) |
+| 451 | [451-usb-near-sync.md](451-usb-near-sync.md) | 동기화: USB 선으로. PC 도우미(`scripts/usb_sync_bridge.py`)가 웹(WebSocket 47815)과 폰(adb reverse TCP 47816)을 잇는다. 둘 다 도우미를 먼저 보고, 없으면 지금까지처럼 서버 길. 앱 아이콘이 도우미를 같이 켬 (0.3.473) |
+| 450 | [450-near-sync-deletes.md](450-near-sync-deletes.md) | 동기화: 한쪽에서 지운 논문은 다른 쪽에서도 지운다. 지운 기록(id→시각)과 들어온 시각(`added_at`)을 비교해, 지운 뒤 다시 가져온 논문만 다시 퍼진다. 휴지통 논문은 주고받지 않음 (0.3.473) |
 | 449 | [449-hidden-figure-window.md](449-hidden-figure-window.md) | 웹: 최소화·가려진 그림 창은 열린 것으로 세지 않음 (몇 분마다 그림 칸이 사라졌다 나타나던 것) · 다시 보이면 바로 넘겨받음 (0.3.472) |
 | 448 | [448-zoom-left-behind.md](448-zoom-left-behind.md) | 확대한 채 전체 화면을 풀면 그림이 칸 밖으로 사라지던 것 · 두 번 누르기와 큰 크기 변화에서 확대 풀기 (0.3.472) |
 | 447 | [447-printed-signs-in-rich-text.md](447-printed-signs-in-rich-text.md) | 아래첨자 문장의 `&gt;` `&lt;` `&amp;` 를 글자로 되돌리기 · 형광펜·끊어 보기 위치도 한 글자로 (0.3.472) |

@@ -45,6 +45,7 @@ class PaperDiskIndexEntry {
     this.docRole = 'main',
     this.pairedCacheId = '',
     this.canMergeSupplementary = false,
+    this.addedAt = '',
   });
 
   factory PaperDiskIndexEntry.fromJson(Map<String, dynamic>? json) {
@@ -73,6 +74,7 @@ class PaperDiskIndexEntry {
       docRole: _normalizeDocRole('${json['doc_role'] ?? 'main'}'),
       pairedCacheId: '${json['paired_cache_id'] ?? ''}'.trim(),
       canMergeSupplementary: json['can_merge_supplementary'] == true,
+      addedAt: '${json['added_at'] ?? ''}'.trim(),
     );
   }
 
@@ -113,7 +115,31 @@ class PaperDiskIndexEntry {
   /// design/240 — merge nudge chip when true.
   final bool canMergeSupplementary;
 
+  /// design/450 — when this device first indexed the paper (UTC ISO); empty for
+  /// rows written before the field, which count as older than any delete.
+  final String addedAt;
+
+  int get addedMs =>
+      DateTime.tryParse(addedAt)?.millisecondsSinceEpoch ?? 0;
+
   bool get isValid => id.isNotEmpty && title.isNotEmpty;
+
+  PaperDiskIndexEntry withAddedAt(String value) => PaperDiskIndexEntry(
+        id: id,
+        title: title,
+        source: source,
+        updatedAt: updatedAt,
+        sentenceCount: sentenceCount,
+        figureCount: figureCount,
+        contentHash: contentHash,
+        pipelineVersion: pipelineVersion,
+        hasSource: hasSource,
+        debone: debone,
+        docRole: docRole,
+        pairedCacheId: pairedCacheId,
+        canMergeSupplementary: canMergeSupplementary,
+        addedAt: value,
+      );
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -129,6 +155,7 @@ class PaperDiskIndexEntry {
         'doc_role': docRole,
         'paired_cache_id': pairedCacheId,
         'can_merge_supplementary': canMergeSupplementary,
+        if (addedAt.isNotEmpty) 'added_at': addedAt,
       };
 
   /// design/222 — use persisted doc_role (never force 메인).
@@ -736,6 +763,16 @@ class PaperDiskStore {
         }
         break;
       }
+      PaperDiskIndexEntry? prior;
+      for (final e in cur) {
+        if (e.id == toWrite.id) prior = e;
+      }
+      final addedAt = prior != null
+          ? prior.addedAt
+          : (entry.addedAt.isNotEmpty
+              ? entry.addedAt
+              : DateTime.now().toUtc().toIso8601String());
+      if (toWrite.addedAt != addedAt) toWrite = toWrite.withAddedAt(addedAt);
       final next = <PaperDiskIndexEntry>[
         for (final e in cur)
           if (e.id != toWrite.id) e,
