@@ -108,6 +108,15 @@ class _New extends _Old implements NearForget {
   }
 }
 
+/// A device whose own list takes long (the web checks every stored file).
+class _Slow extends _New {
+  @override
+  Future<List<NearPaper>> papers() async {
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    return super.papers();
+  }
+}
+
 Future<List<NearSyncReport>> _sync(NearLocal a, NearLocal b) {
   final (pa, pb) = _pair();
   return Future.wait([NearSync(pa, a).run(), NearSync(pb, b).run()]);
@@ -229,5 +238,20 @@ void main() {
     final legacy = PaperDiskIndexEntry.fromJson({'id': 'old', 'title': 'Old'});
     expect(legacy.addedMs, 0);
     expect(legacy.toJson().containsKey('added_at'), isFalse);
+  });
+
+  test('design/455 the other list arriving before ours is held until ours is ready', () async {
+    final phone = _New()
+      ..add('kept', added: 100)
+      ..goneMap['gone1'] = 5000;
+    final web = _Slow()
+      ..add('gone1')
+      ..add('kept');
+    final r = await _sync(phone, web);
+    expect(web.dropped, ['gone1']);
+    expect(r[1].papersGone, 1);
+    expect(r[1].papersIn, 0, reason: 'the web already holds kept');
+    expect(r[0].papersIn, 0);
+    expect(web.held.keys, ['kept']);
   });
 }

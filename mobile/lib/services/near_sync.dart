@@ -154,6 +154,9 @@ class NearSyncReport {
     this.extrasIn = 0,
     this.extrasOut = 0,
     this.papersGone = 0,
+    this.goneOut = 0,
+    this.goneIn = 0,
+    this.forgetFailed = false,
     this.times = const {},
   });
 
@@ -165,12 +168,19 @@ class NearSyncReport {
   /// Papers deleted here because the other side deleted them (design/450).
   final int papersGone;
 
+  /// Delete records this side sent / received, and whether applying the
+  /// received ones here threw.
+  final int goneOut;
+  final int goneIn;
+  final bool forgetFailed;
+
   /// User files changed here / papers whose user files were sent.
   final int extrasIn;
   final int extrasOut;
 
   /// Milliseconds spent: `pack_ms`, `send_ms` (awaiting the pipe), `room_ms`
-  /// (waiting for acks), `store_ms`, `sync_ms` (whole run).
+  /// (waiting for acks), `store_ms`, `sync_ms` (whole run), `inv_wait_ms`
+  /// (the other list held until ours was ready).
   final Map<String, int> times;
 }
 
@@ -240,6 +250,13 @@ class NearSync {
   Map<String, int> _myGone = {};
   Set<String> _hidden = {};
   var _papersGone = 0;
+  var _goneIn = 0;
+  var _forgetFailed = false;
+
+  /// Completes once [_mine], [_myGone] and [_hidden] are filled. Over USB the
+  /// other list can arrive before this side has read its own.
+  final _ready = Completer<void>();
+  final _invWait = Stopwatch();
   final _peerIds = <String>{};
   final _peerExtras = <String, Set<String>>{};
   var _extrasIn = 0;
@@ -289,6 +306,7 @@ class NearSync {
       }
       final rows = await local.progress();
       final extras = await local.extraNames();
+      _ready.complete();
       await _send({
         't': 'inv',
         'papers': [
@@ -370,7 +388,22 @@ class NearSync {
   void _onMessage(Map<String, dynamic> m) {
     switch (m['t']) {
       case 'inv':
-        _onInventory(m);
+        if (_ready.isCompleted) {
+          _onInventory(m);
+        } else {
+          _invWait.start();
+          unawaited(_ready.future.then((_) {
+            _invWait.stop();
+            if (_done.isCompleted) return;
+            try {
+              _onInventory(m);
+            } on NearSyncError catch (e) {
+              _fail(e.code);
+            } catch (_) {
+              _fail('bad_message');
+            }
+          }));
+        }
       case 'want':
         final ids = (m['ids'] is List)
             ? [for (final v in m['ids'] as List) '$v'.trim()]
@@ -412,6 +445,7 @@ class NearSync {
         if (goneSince(theirGone, id, _myAdded[id] ?? 0)) id,
     ]..sort();
     _mine.removeAll(drop);
+    _goneIn = theirGone.length;
     final want = [
       for (final p in theirs)
         if (p.id.isNotEmpty &&
@@ -431,7 +465,9 @@ class NearSync {
         try {
           await forget.forget(theirGone, drop);
           _papersGone = drop.length;
-        } catch (_) {}
+        } catch (_) {
+          _forgetFailed = true;
+        }
       });
     }
     if (m['extras'] is Map) {
@@ -667,12 +703,16 @@ class NearSync {
       extrasIn: _extrasIn,
       extrasOut: _extrasOut,
       papersGone: _papersGone,
+      goneOut: _myGone.length,
+      goneIn: _goneIn,
+      forgetFailed: _forgetFailed,
       times: {
         'pack_ms': _packWatch.elapsedMilliseconds,
         'send_ms': _sendWatch.elapsedMilliseconds,
         'room_ms': _roomWatch.elapsedMilliseconds,
         'store_ms': _storeWatch.elapsedMilliseconds,
         'sync_ms': _clock.elapsedMilliseconds,
+        'inv_wait_ms': _invWait.elapsedMilliseconds,
       },
     ));
   }
