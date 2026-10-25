@@ -288,6 +288,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
     return false;
   }
 
+  /// design/459 — same test as the Fig/Table chip row under the sentence.
+  bool _sentenceNamesFigure(ReadingSession s, int index) {
+    if (!_figRefHints) return false;
+    if (index < 0 || index >= s.sentences.length) return false;
+    final text = s.sentences[index].text;
+    if (text.trim().isEmpty) return false;
+    return fig.hintsForSentence(
+      text: text,
+      captions: s.figures.map((f) => f.caption).toList(),
+      slotKeys: s.figures.map((f) => f.slotKey).toList(),
+      supplementaryMerged: s.supplementaryMerged,
+    ).isNotEmpty;
+  }
+
   int? _thresholdFor(ReadingSession s) {
     final computed = firstFigTableChipSentenceIndex(
       sentences: s.sentences,
@@ -322,6 +336,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
       sentenceIndex: sentenceIndex,
       sectionIsTitle: _sectionIsTitle(s),
       hasCover: _hasCover(s),
+      namesFigure:
+          _layoutPolicy.folded && _sentenceNamesFigure(s, sentenceIndex),
     );
     _applyDesire(desire);
   }
@@ -383,9 +399,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
     setState(() {
       _pinLayout();
       if (_layout == _ReaderLayoutMode.sentenceOnly) {
+        _layoutPolicy.folded = false;
         _layout = _ReaderLayoutMode.split;
         _sentenceFraction = _restFraction;
       } else {
+        _layoutPolicy.folded = true;
         _layout = _ReaderLayoutMode.sentenceOnly;
       }
       _edgePreviewSentence = false;
@@ -396,6 +414,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void _toggleFigureExpand() {
     setState(() {
       _pinLayout();
+      _layoutPolicy.folded = false;
       if (_layout == _ReaderLayoutMode.figureOnly) {
         _layout = _ReaderLayoutMode.split;
         _sentenceFraction = _restFraction;
@@ -429,6 +448,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void _swipeToFigureFromSentence() {
     setState(() {
       if (_layout != _ReaderLayoutMode.sentenceOnly) return;
+      _layoutPolicy.folded = false;
       final s = widget.library.session;
       // design/183 — auto reveal at/after T is split (text+figure), never figureOnly.
       if (s != null && s.isValid && _layoutPolicy.followsAuto) {
@@ -521,6 +541,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     setState(() {
       _dragging = false;
       _magnetEscaped = false;
+      _layoutPolicy.folded = _sentenceFraction >= 1 - _kEdgeSnap;
       if (_sentenceFraction >= 1 - _kEdgeSnap) {
         _layout = _ReaderLayoutMode.sentenceOnly;
         _sentenceFraction = _restFraction;
@@ -1504,6 +1525,7 @@ class _SentencePanel extends StatelessWidget {
             ),
           Expanded(
             child: _SwipePager(
+                pageKey: session.sentenceIndex,
                 enabled: session.sentenceCount > 0 &&
                     !annotations.blocksReaderNavigation,
                 // design/95+143 — swipe left → next, swipe right → prev
@@ -2616,6 +2638,7 @@ class _SwipePager extends StatefulWidget {
     this.onDoubleTap,
     this.onSwipeUp,
     this.enabled = true,
+    this.pageKey,
   });
 
   final Widget child;
@@ -2626,6 +2649,8 @@ class _SwipePager extends StatefulWidget {
   /// design/156 — sentence full-screen only: swipe up → figure panel.
   final VoidCallback? onSwipeUp;
   final bool enabled;
+  /// design/459 — changes when the next page is in [child].
+  final Object? pageKey;
 
   @override
   State<_SwipePager> createState() => _SwipePagerState();
@@ -2642,9 +2667,23 @@ class _SwipePagerState extends State<_SwipePager>
   double _width = 1;
   AnimationController? _motion;
   int _motionGen = 0;
+  /// design/459 — the page flew off and waits for [_SwipePager.pageKey] to move.
+  bool _parked = false;
+  Timer? _parkTimer;
+
+  @override
+  void didUpdateWidget(covariant _SwipePager oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_parked && widget.pageKey != oldWidget.pageKey) {
+      _parkTimer?.cancel();
+      _parked = false;
+      _visual = 0;
+    }
+  }
 
   @override
   void dispose() {
+    _parkTimer?.cancel();
     _motion?.dispose();
     super.dispose();
   }
@@ -2653,6 +2692,8 @@ class _SwipePagerState extends State<_SwipePager>
     _motionGen++;
     _motion?.dispose();
     _motion = null;
+    _parkTimer?.cancel();
+    _parked = false;
   }
 
   void _springBack(double velocity) {
@@ -2698,7 +2739,10 @@ class _SwipePagerState extends State<_SwipePager>
     });
     ctrl.forward().whenComplete(() {
       if (!mounted || gen != _motionGen) return;
-      setState(() => _visual = 0);
+      _parked = true;
+      _parkTimer = Timer(kSwipeParkLimit, () {
+        if (mounted && _parked) _springBack(0);
+      });
       then();
     });
   }
@@ -2873,9 +2917,23 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame>
   double _fingerDy = 0;
   AnimationController? _slide;
   int _slideGen = 0;
+  /// design/459 — the figure flew off and waits for the next [figureKey].
+  bool _parked = false;
+  Timer? _parkTimer;
+
+  @override
+  void didUpdateWidget(covariant _ZoomableFigureFrame oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_parked && widget.figureKey != oldWidget.figureKey) {
+      _parkTimer?.cancel();
+      _parked = false;
+      _transform.value = Matrix4.identity();
+    }
+  }
 
   @override
   void dispose() {
+    _parkTimer?.cancel();
     _slide?.dispose();
     _transform.dispose();
     super.dispose();
@@ -2885,6 +2943,8 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame>
     _slideGen++;
     _slide?.dispose();
     _slide = null;
+    _parkTimer?.cancel();
+    _parked = false;
   }
 
   /// design/448 — a zoom kept across full screen and back points outside the
@@ -3067,7 +3127,10 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame>
     });
     ctrl.forward().whenComplete(() {
       if (!mounted || gen != _slideGen) return;
-      _transform.value = Matrix4.identity();
+      _parked = true;
+      _parkTimer = Timer(kSwipeParkLimit, () {
+        if (mounted && _parked) _springFigureBack(0);
+      });
       then();
     });
   }

@@ -36,6 +36,10 @@ class ReaderLayoutPolicy {
   int? threshold;
   bool autoEnabled = true;
 
+  /// design/459 — the reader folded the figure pane. A sentence that names a
+  /// figure opens it; the next one that does not folds it again.
+  bool folded = false;
+
   void resetForPaper({
     required int? threshold,
     required bool autoEnabled,
@@ -43,6 +47,7 @@ class ReaderLayoutPolicy {
     mode = ReaderLayoutAutoMode.auto;
     this.threshold = threshold;
     this.autoEnabled = autoEnabled;
+    folded = false;
     // design/183 — cite expand/collapse is user-owned on ReaderScreen.
   }
 
@@ -57,7 +62,13 @@ class ReaderLayoutPolicy {
     required int sentenceIndex,
     required bool sectionIsTitle,
     required bool hasCover,
+    bool namesFigure = false,
   }) {
+    if (folded) {
+      return namesFigure
+          ? ReaderLayoutDesire.splitDefault
+          : ReaderLayoutDesire.sentenceOnly;
+    }
     if (sectionIsTitle && hasCover) {
       return ReaderLayoutDesire.splitDefault;
     }

@@ -11,6 +11,10 @@ double rubberBandOffset(double dx, double width) {
   return sign * (x / (1 + t * 0.65));
 }
 
+/// design/459 — how long a flown-off page waits for the next one before it
+/// springs back (last sentence, blocked move).
+const Duration kSwipeParkLimit = Duration(milliseconds: 400);
+
 /// Off-screen x for a committed swipe. Negative flies left (next).
 double flingTarget(double dx, double width) {
   if (dx == 0 || !dx.isFinite) return 0;
