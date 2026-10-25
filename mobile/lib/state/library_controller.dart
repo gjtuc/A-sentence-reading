@@ -32,6 +32,7 @@ import '../api/upload_picker_recent_models.dart';
 import '../api/upload_picker_recent_store.dart';
 import '../api/pdf_folder_grant_models.dart';
 import '../pdf/normalize_pairing_key.dart';
+import '../pdf/paper_title_key.dart';
 import '../api/pdf_folder_grant_store.dart';
 import '../api/pdf_hash_cache_store.dart';
 import '../api/pdf_advisory_cache_store.dart';
@@ -77,6 +78,7 @@ import 'ingest_stage_progress.dart';
 import 'figure_hydrate.dart';
 import 'harmonize_residual.dart';
 import 'read_done.dart';
+import 'library_keys.dart';
 
 /// Stall after this long without progress while an upload is marked active.
 const Duration kUploadStallAfter = Duration(seconds: 45);
@@ -140,6 +142,15 @@ class LibraryController extends ChangeNotifier {
   late final ReadDoneStore readDone =
       ReadDoneStore(transport: _ClientReadDoneTransport(_client))
         ..addListener(notifyListeners);
+
+  /// design/457 — the libraries of the account's other devices.
+  late final AccountLibraryKeys libraryKeys =
+      AccountLibraryKeys(transport: _ClientLibraryKeysTransport(_client))
+        ..addListener(notifyListeners);
+  Set<String> _libraryTitleKeys = const {};
+
+  /// The library list came from a refresh, so an empty list is real.
+  bool _libraryListed = false;
   bool _shadowingLocalSot = false;
   bool Function()? _translateEnabled;
 
@@ -325,6 +336,8 @@ class LibraryController extends ChangeNotifier {
     _diskUid = (uid ?? '').trim().isEmpty ? null : uid!.trim();
     _bindSpotSync(_diskUid);
     unawaited(readDone.bindUid(_diskUid));
+    _libraryListed = false;
+    unawaited(libraryKeys.bindUid(_diskUid));
     _figureDisk.bindUid(uid);
     _paperDisk.bindUid(uid);
     _shadowDisk.bindUid(uid);
@@ -2925,8 +2938,11 @@ class LibraryController extends ChangeNotifier {
       final merged = await _paperDisk.mergeRemoteWithLocal(fetched);
       _publishPapers(await _applySavedOrder(merged), trigger: trig);
       listed = true;
+      _libraryListed = true;
       await _rebuildLibraryHashSet();
       unawaited(readDone.pull());
+      unawaited(libraryKeys.pull());
+      unawaited(readDone.fillTitles({for (final e in papers) e.id: paperTitleKey(e.title)}));
       await _reloadPickerRecent();
       try {
         final uid = await _authUid();
@@ -5246,15 +5262,39 @@ class LibraryController extends ChangeNotifier {
             e.contentHash.toLowerCase(),
       };
 
+  /// design/457 — what the import list marks 「이미 보관」: this device's library and
+  /// the account's other devices', by PDF hash or by title key.
+  PaperMarks get libraryMarks => PaperMarks(
+        hashes: {...libraryContentHashes, ...libraryKeys.hashes},
+        titles: {..._libraryTitleKeys, ...libraryKeys.titles},
+      );
+
+  /// design/457 — what the import list marks 「다 읽음」, by PDF hash or title key.
+  PaperMarks get readDoneMarks => PaperMarks(
+        hashes: readDoneHashes,
+        titles: {
+          ...readDone.doneTitles,
+          for (final e in papers)
+            if (readDone.isDone(e.id)) paperTitleKey(e.title),
+        }..remove(''),
+      );
+
+  /// design/457 — the import screen asks the account again when it opens.
+  Future<void> pullAccountMarks() async {
+    await Future.wait([readDone.pull(), libraryKeys.pull()]);
+  }
+
   Future<void> markReadDone(String cacheId, {required bool done}) {
     var hash = '';
+    var title = '';
     for (final e in papers) {
       if (e.id == cacheId) {
         hash = e.contentHash;
+        title = paperTitleKey(e.title);
         break;
       }
     }
-    return readDone.mark(cacheId, done: done, hash: hash);
+    return readDone.mark(cacheId, done: done, hash: hash, title: title);
   }
 
   Future<void> advanceSentence(int delta) async {
@@ -5569,6 +5609,8 @@ class LibraryController extends ChangeNotifier {
     // Server ingest cancel is out of scope this chip (local discard only).
     _uploadCancelRequested = true;
     unawaited(readDone.bindUid(null));
+    _libraryListed = false;
+    unawaited(libraryKeys.bindUid(null));
     _endIngestHang();
     shadowingChunksError = null;
     shadowingChunksProgress = null;
@@ -6522,7 +6564,7 @@ class LibraryController extends ChangeNotifier {
     _pollFindWatchAfterScan();
   }
 
-  Future<bool> connectPdfFolder() async {
+  Future<bool> connectPdfFolder({bool change = false}) async {
     final t0 = DateTime.now().millisecondsSinceEpoch;
     asrEvidenceBus?.record(
       'pdf_folder_grant_start',
@@ -6533,6 +6575,7 @@ class LibraryController extends ChangeNotifier {
       final picked = await _safTree.pickTree(
         initialUri: pdfFolderGrant?.treeUri,
         openParent: true,
+        change: change,
       );
       final elapsed = DateTime.now().millisecondsSinceEpoch - t0;
       if (picked == null) {
@@ -6621,7 +6664,7 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// design/248 — connect Downloads via OPEN_DOCUMENT_TREE (hinted).
-  Future<bool> connectPdfDownloadsFolder() async {
+  Future<bool> connectPdfDownloadsFolder({bool change = false}) async {
     final t0 = DateTime.now().millisecondsSinceEpoch;
     asrEvidenceBus?.record(
       'pdf_folder_grant_start',
@@ -6633,6 +6676,7 @@ class LibraryController extends ChangeNotifier {
       final picked = await _safTree.pickTree(
         initialUri: pdfDownloadsGrant?.treeUri,
         downloads: true,
+        change: change,
       );
       final elapsed = DateTime.now().millisecondsSinceEpoch - t0;
       if (picked == null) {
@@ -8642,10 +8686,15 @@ class LibraryController extends ChangeNotifier {
       }
     }
 
+    final keys = <LibraryKey>[];
+    final titles = <String>{};
     for (final e in papers) {
       if (hidden.contains(e.id)) continue;
       if (e.ingestStatus.trim().toLowerCase() == 'error') continue;
       addHash(e.contentHash);
+      final t = paperTitleKey(e.title);
+      if (t.isNotEmpty) titles.add(t);
+      keys.add(LibraryKey(cacheId: e.id, hash: e.contentHash.trim().toLowerCase(), title: t));
     }
     // Collapsed SI mate still "in library" via set row — include mate hash only.
     try {
@@ -8656,10 +8705,16 @@ class LibraryController extends ChangeNotifier {
         final mateId = e.pairedCacheId.trim();
         if (mateId.isEmpty || hidden.contains(mateId)) continue;
         final mate = byId[mateId];
-        if (mate != null) addHash(mate.contentHash);
+        if (mate != null) {
+          addHash(mate.contentHash);
+          keys.add(LibraryKey(cacheId: mateId, hash: mate.contentHash.trim().toLowerCase()));
+        }
       }
     } catch (_) {}
     libraryContentHashes = Set<String>.unmodifiable(out);
+    _libraryTitleKeys = Set<String>.unmodifiable(titles);
+    // design/457 — a list from before the first refresh may be empty for no reason.
+    if (_libraryListed) libraryKeys.publish(keys);
   }
 
   /// design/275 — join Main+SI pump outcomes; never mark set ingest ok on partial.
@@ -9940,6 +9995,19 @@ class _ClientReadDoneTransport implements ReadDoneTransport {
   @override
   Future<void> put(String cacheId, Map<String, Object?> mark) =>
       _client.readDonePut(cacheId, mark);
+}
+
+/// design/457 — [AccountLibraryKeys] over the app's API client.
+class _ClientLibraryKeysTransport implements LibraryKeysTransport {
+  _ClientLibraryKeysTransport(this._client);
+
+  final AsrClient _client;
+
+  @override
+  Future<Map<String, Map<String, dynamic>>> all() => _client.libraryKeysAll();
+
+  @override
+  Future<void> put(Map<String, Object?> body) => _client.libraryKeysPut(body);
 }
 
 /// design/411 — [SpotSync] over the app's API client.

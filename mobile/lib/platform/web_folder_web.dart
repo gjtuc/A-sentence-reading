@@ -7,6 +7,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 
@@ -21,6 +22,13 @@ const _storeName = 'handles';
 
 /// Folders below this depth are not walked.
 const int _maxDepth = 6;
+
+@JS('asrPdfHead')
+external JSPromise<JSString> _asrPdfHead(JSArrayBuffer buffer, int maxPages, int maxChars);
+
+extension on JSString {
+  external JSString normalize(JSString form);
+}
 
 @JS('showDirectoryPicker')
 external JSPromise<JSObject> _showDirectoryPicker(JSObject options);
@@ -118,24 +126,31 @@ Future<bool> _granted(_Dir dir, {required bool ask}) async {
 PlatformException _stale() => PlatformException(code: 'stale');
 
 /// On 「다시 연결」 the folder connected before is asked for again first; the
-/// picker opens only when that is refused or there was none.
-Future<SafTreePickResult?> webPickFolder({String? previous, bool downloads = false}) async {
+/// picker opens only when that is refused or there was none. [change]
+/// (「폴더 변경」, design/456) always opens the picker, starting at [previous].
+Future<SafTreePickResult?> webPickFolder({
+  String? previous,
+  bool downloads = false,
+  bool change = false,
+}) async {
   final prevKey = webFolderKey(previous ?? '');
-  if (prevKey != null) {
-    final dir = await _root(prevKey);
-    if (dir != null && await _granted(dir, ask: true)) {
-      return SafTreePickResult(treeUri: previous!.trim(), displayLabel: dir.name);
-    }
+  final prevDir = prevKey == null ? null : await _root(prevKey);
+  if (!change && prevDir != null && await _granted(prevDir, ask: true)) {
+    return SafTreePickResult(treeUri: previous!.trim(), displayLabel: prevDir.name);
   }
   if (!webFolderSupported) return null;
+  final options = {
+    'id': downloads ? 'asr_downloads' : 'asr_papers',
+    'mode': 'read',
+  }.jsify()! as JSObject;
+  if (change && prevDir != null) {
+    options['startIn'] = prevDir;
+  } else if (downloads) {
+    options['startIn'] = 'downloads'.toJS;
+  }
   final JSObject picked;
   try {
-    picked = await _showDirectoryPicker({
-      'id': downloads ? 'asr_downloads' : 'asr_papers',
-      'mode': 'read',
-      if (downloads) 'startIn': 'downloads',
-    }.jsify()! as JSObject)
-        .toDart;
+    picked = await _showDirectoryPicker(options).toDart;
   } catch (_) {
     return null;
   }
@@ -250,4 +265,71 @@ Future<bool> webForgetFolder(String treeUri) async {
     await _delete(key);
   } catch (_) {}
   return true;
+}
+
+/// design/456 — NFKC as on the phone (Android Normalizer), for pairing keys.
+String? webNfkc(String text) {
+  try {
+    return text.toJS.normalize('NFKC'.toJS).toDart;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void>? _pdfjs;
+
+Future<void> _script(String src) {
+  final done = Completer<void>();
+  final el = web.HTMLScriptElement()
+    ..src = src
+    ..async = false;
+  el.onload = ((web.Event _) => done.complete()).toJS;
+  el.onerror = ((web.Event _) => done.completeError(StateError('script'))).toJS;
+  web.document.head!.append(el);
+  return done.future;
+}
+
+/// pdf.js (web/pdfjs/) is fetched the first time a PDF head is read.
+Future<void> _loadPdfjs() => _pdfjs ??= () async {
+      try {
+        await _script('pdfjs/pdf.min.js');
+        await _script('pdfjs/asr_pdf_head.js');
+      } catch (_) {
+        _pdfjs = null;
+        rethrow;
+      }
+    }();
+
+/// design/456 — the fields of the phone's PdfHeadExtract.kt, read with pdf.js.
+Future<Map<String, dynamic>> webExtractPdfHead(
+  String docUri, {
+  int maxChars = 8000,
+  int maxPages = 2,
+  int maxReadBytes = 50 * 1024 * 1024,
+}) async {
+  Map<String, dynamic> fail(String code) => {'ok': false, 'code': code};
+  final _FileHandle? fh;
+  try {
+    fh = await _file(docUri);
+  } on PlatformException catch (e) {
+    return fail(e.code);
+  } catch (_) {
+    return fail('missing');
+  }
+  if (fh == null) return fail('missing');
+  try {
+    final file = await fh.getFile().toDart;
+    if (file.size > maxReadBytes) return fail('too_large');
+    final buf = await file.arrayBuffer().toDart;
+    try {
+      await _loadPdfjs();
+    } catch (_) {
+      return fail('no_pdfjs');
+    }
+    final raw = (await _asrPdfHead(buf, maxPages, maxChars).toDart).toDart;
+    final m = jsonDecode(raw);
+    return m is Map ? Map<String, dynamic>.from(m) : fail('bad_map');
+  } catch (_) {
+    return fail('stale');
+  }
 }

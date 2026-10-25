@@ -320,8 +320,27 @@ bool looksLikeAuthorLine(String raw) {
       ).hasMatch(t)) {
     return true;
   }
+  // design/456 — a name list broken over lines, in the title's font on some SI
+  // covers: "Alex W. Robertson, Jamie H. Warner, Sang" / "Ouk Kim,* and Hee Kim*".
+  if (!_titleFunctionWord.hasMatch(t)) {
+    final words = t
+        .replaceAll(RegExp(r'[*,†‡§0-9]'), ' ')
+        .split(' ')
+        .where((w) => w.isNotEmpty && w != 'and' && w != '&')
+        .toList();
+    if (words.length >= 3 && words.every(_nameWord.hasMatch)) {
+      final initials = RegExp(r'\b[A-Z]\.(?=\s|-|$)').allMatches(t).length;
+      if (commas >= 2 && initials >= 1) return true;
+      if (starCommas >= 1 && RegExp(r'\sand\s').hasMatch(t)) return true;
+    }
+  }
   return false;
 }
+
+final _titleFunctionWord = RegExp(
+  r'\b(of|for|with|from|over|via|using|toward|towards|in|on|the|a|an|by|to|as|at|into)\b',
+);
+final _nameWord = RegExp(r"^[A-Z][-'’.\p{L}]*$", unicode: true);
 
 /// design/265 — filename stem must not become the tile title.
 bool isLowQualityStemTitle(String raw) {

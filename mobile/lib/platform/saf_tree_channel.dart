@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../pdf/advisory_title.dart' show PdfHeadStyledLine;
+import '../pdf/docx_head.dart';
 import 'web_folder_stub.dart' if (dart.library.js_interop) 'web_folder_web.dart' as webdir;
 
 const MethodChannel kSafTreeChannel = MethodChannel('asr/saf_tree');
@@ -77,12 +78,17 @@ class SafTreeChannel {
   final MethodChannel _channel;
 
   /// design/446 — [openParent] opens the picker one folder above [initialUri].
+  /// design/456 — on the web, [change] opens the picker even when [initialUri]
+  /// is still allowed (otherwise that folder is reused for 「다시 연결」).
   Future<SafTreePickResult?> pickTree({
     String? initialUri,
     bool downloads = false,
     bool openParent = false,
+    bool change = false,
   }) async {
-    if (kIsWeb) return webdir.webPickFolder(previous: initialUri, downloads: downloads);
+    if (kIsWeb) {
+      return webdir.webPickFolder(previous: initialUri, downloads: downloads, change: change);
+    }
     try {
       final raw = await _channel.invokeMethod<dynamic>(
         'pickTree',
@@ -152,7 +158,7 @@ class SafTreeChannel {
 
   /// design/239 — Android Normalizer.NFKC when available; else null.
   Future<String?> normalizeNfkc(String text) async {
-    if (kIsWeb) return null;
+    if (kIsWeb) return webdir.webNfkc(text);
     try {
       final raw = await _channel.invokeMethod<dynamic>('normalizeNfkc', {
         'text': text,
@@ -319,7 +325,7 @@ class SafTreeChannel {
     int maxReadBytes = 50 * 1024 * 1024, // design/231 — match upload/read cap
   }) async {
     final u = docUri.trim();
-    if (u.isEmpty || kIsWeb) {
+    if (u.isEmpty) {
       return const SafPdfHeadResult(
         ok: false,
         headText: '',
@@ -328,6 +334,25 @@ class SafTreeChannel {
         truncated: false,
         elapsedMs: 0,
         code: 'unsupported',
+      );
+    }
+    if (kIsWeb) {
+      final t0 = DateTime.now().millisecondsSinceEpoch;
+      final raw = await webdir.webExtractPdfHead(
+        u,
+        maxChars: maxChars,
+        maxPages: maxPages,
+        maxReadBytes: maxReadBytes,
+      );
+      return SafPdfHeadResult(
+        ok: raw['ok'] == true,
+        headText: '${raw['headText'] ?? ''}',
+        infoTitle: '${raw['infoTitle'] ?? ''}'.trim(),
+        pageCount: raw['pageCount'] is num ? (raw['pageCount'] as num).toInt() : 0,
+        truncated: raw['truncated'] == true,
+        elapsedMs: DateTime.now().millisecondsSinceEpoch - t0,
+        code: '${raw['code'] ?? ''}'.trim(),
+        styledLines: _parseStyledHeadLines(raw['headLines']),
       );
     }
     try {
@@ -414,7 +439,7 @@ class SafTreeChannel {
     int maxReadBytes = 50 * 1024 * 1024,
   }) async {
     final u = docUri.trim();
-    if (u.isEmpty || kIsWeb) {
+    if (u.isEmpty) {
       return const SafPdfHeadResult(
         ok: false,
         headText: '',
@@ -423,6 +448,29 @@ class SafTreeChannel {
         truncated: false,
         elapsedMs: 0,
         code: 'unsupported',
+      );
+    }
+    if (kIsWeb) {
+      final t0 = DateTime.now().millisecondsSinceEpoch;
+      DocxHead head;
+      try {
+        final bytes = await webdir.webReadFile(u, maxBytes: maxReadBytes);
+        head = bytes == null
+            ? (ok: false, headText: '', infoTitle: '', truncated: false, code: 'missing')
+            : docxHeadFromBytes(bytes, maxChars: maxChars);
+      } on PlatformException catch (e) {
+        head = (ok: false, headText: '', infoTitle: '', truncated: false, code: e.code);
+      } catch (_) {
+        head = (ok: false, headText: '', infoTitle: '', truncated: false, code: 'exc');
+      }
+      return SafPdfHeadResult(
+        ok: head.ok,
+        headText: head.headText,
+        infoTitle: head.infoTitle,
+        pageCount: head.ok ? 1 : 0,
+        truncated: head.truncated,
+        elapsedMs: DateTime.now().millisecondsSinceEpoch - t0,
+        code: head.code,
       );
     }
     try {

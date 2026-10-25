@@ -191,12 +191,13 @@ class _PdfImportScreenState extends State<PdfImportScreen>
       }
       unawaited(lib.ensureVisiblePdfHashes());
       unawaited(lib.ensureVisiblePdfAdvisories());
+      unawaited(lib.pullAccountMarks());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _connectFolder() async {
+  Future<void> _connectFolder({bool change = false}) async {
     if (kIsWeb && !webFolderSupported) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -211,8 +212,8 @@ class _PdfImportScreenState extends State<PdfImportScreen>
     });
     try {
       final ok = lib.pdfImportBrowseMode == PdfImportBrowseMode.downloads
-          ? await lib.connectPdfDownloadsFolder()
-          : await lib.connectPdfFolder();
+          ? await lib.connectPdfDownloadsFolder(change: change)
+          : await lib.connectPdfFolder(change: change);
       if (!ok && mounted) {
         // cancel → silent
       }
@@ -551,14 +552,12 @@ class _PdfImportScreenState extends State<PdfImportScreen>
         final grant = lib.pdfImportActiveGrant;
         final entries = lib.pdfImportActiveEntries;
         final truncated = lib.pdfImportActiveTruncated;
-        final inLib = lib.libraryContentHashes;
-        final doneH = lib.readDoneHashes;
+        final kept = lib.libraryMarks;
+        final done = lib.readDoneMarks;
         final queued = {for (final q in lib.uploadQueue) q.contentHash};
         final filtered = entries.where((e) {
           if (!_unkeptOnly) return true;
-          final h = e.contentHash;
-          if (h.length != 64) return true;
-          return !inLib.contains(h);
+          return !kept.has(e);
         }).toList();
 
         final built = buildPdfImportListItems(filtered);
@@ -573,7 +572,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
           );
         }
         final listItems = matchingSearch(
-          _unreadOnly ? withoutReadDone(built.items, doneH) : built.items,
+          _unreadOnly ? withoutMarked(built.items, done) : built.items,
           _search.text,
         );
 
@@ -597,7 +596,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                 ),
               if (grant != null)
                 TextButton(
-                  onPressed: _busy ? null : _connectFolder,
+                  onPressed: _busy ? null : () => _connectFolder(change: true),
                   child: Text(browseDownloads ? '다운로드 변경' : '폴더 변경'),
                 ),
             ],
@@ -813,15 +812,8 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                     return _SetRow(
                                       item: item,
                                       selected: sel,
-                                      readDone: doneH.contains(
-                                        item.main.contentHash.toLowerCase(),
-                                      ),
-                                      inLibrary: [
-                                        item.main,
-                                        item.si,
-                                      ].every((e) =>
-                                          e.contentHash.length == 64 &&
-                                          inLib.contains(e.contentHash)),
+                                      readDone: done.has(item.main),
+                                      inLibrary: kept.hasSet(item),
                                       inQueue: [
                                         item.main,
                                         item.si,
@@ -841,8 +833,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                   }
                                   final e =
                                       (item as PdfImportSingleItem).entry;
-                                  final green = e.contentHash.length == 64 &&
-                                      inLib.contains(e.contentHash);
+                                  final green = kept.has(e);
                                   final inQ = e.contentHash.length == 64 &&
                                       queued.contains(e.contentHash);
                                   final sel = _selected.contains(e.docUri);
@@ -854,9 +845,7 @@ class _PdfImportScreenState extends State<PdfImportScreen>
                                     entry: e,
                                     selected: sel,
                                     inLibrary: green,
-                                    readDone: doneH.contains(
-                                      e.contentHash.toLowerCase(),
-                                    ),
+                                    readDone: done.has(e),
                                     inQueue: inQ,
                                     onToggle: () => _toggleUris([e.docUri]),
                                     onDelete: () => _deleteEntries([e]),

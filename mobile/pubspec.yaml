@@ -31,6 +31,8 @@ dependencies:
   web: ^1.1.1
   # WHY (design/410): phone <-> web paper sync over a direct data channel.
   flutter_webrtc: 1.6.2+hotfix.3
+  # WHY (design/456): .docx head text on the web, where the phone's Kotlin reader is absent.
+  archive: ^4.0.0
 
 dev_dependencies:
   flutter_test:

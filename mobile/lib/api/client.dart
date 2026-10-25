@@ -2368,6 +2368,36 @@ throw AsrApiException(
   }
 
 
+  /// design/457 — every device's library list of this account.
+  Future<Map<String, Map<String, dynamic>>> libraryKeysAll() async {
+    final res = await _http
+        .get(_uri('/api/library-keys'), headers: await _headers())
+        .timeout(const Duration(seconds: 15));
+    final body = _decodeObject(res, 'library-keys');
+    final out = <String, Map<String, dynamic>>{};
+    final raw = body['devices'];
+    if (raw is Map) {
+      for (final e in raw.entries) {
+        if (e.value is Map) {
+          out['${e.key}'] = Map<String, dynamic>.from(e.value as Map);
+        }
+      }
+    }
+    return out;
+  }
+
+  /// design/457 — replace this device's library list.
+  Future<void> libraryKeysPut(Map<String, Object?> body) async {
+    final res = await _http
+        .put(
+          _uri('/api/library-keys'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 15));
+    _decodeObject(res, 'library-keys-put');
+  }
+
   /// design/186 — list transfer packs (metadata only).
   Future<List<Map<String, dynamic>>> listTransferPacks() async {
     final res = await _http

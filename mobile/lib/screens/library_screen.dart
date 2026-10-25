@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../api/ingest_models.dart';
 import '../api/library_soft_delete_models.dart';
 import '../api/paper_models.dart';
+import '../platform/web_file_drop.dart';
 import '../state/annotation_controller.dart';
 import '../state/auth_controller.dart';
 import '../state/bookmark_controller.dart';
@@ -340,6 +342,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void initState() {
     super.initState();
     widget.auth.addListener(_onAuth);
+    if (kIsWeb) {
+      _removeFileDrop = installFileDrop(onOver: _showFileDropHint, onFiles: _onFilesDropped);
+    }
     // Load when already logged in at first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.auth.isLoggedIn) {
@@ -351,6 +356,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   void dispose() {
+    _removeFileDrop?.call();
+    _fileDropHint?.remove();
+    _fileDropHint = null;
     _dismissMenu();
     _dismissDragOverlay();
     _scroll.dispose();
@@ -697,6 +705,57 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  /// design/458 — PDFs dropped from the file explorer on the web.
+  void Function()? _removeFileDrop;
+  OverlayEntry? _fileDropHint;
+
+  void _showFileDropHint(bool over) {
+    if (!over) {
+      _fileDropHint?.remove();
+      _fileDropHint = null;
+      return;
+    }
+    if (_fileDropHint != null || !mounted) return;
+    final entry = OverlayEntry(
+      builder: (ctx) => IgnorePointer(
+        child: Container(
+          key: const ValueKey('file_drop_hint'),
+          color: Colors.black54,
+          alignment: Alignment.center,
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+              child: Text(
+                '여기에 놓으면 대기열에 넣습니다 (PDF)',
+                style: Theme.of(ctx).textTheme.titleMedium,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    _fileDropHint = entry;
+    Overlay.of(context, rootOverlay: true).insert(entry);
+  }
+
+  Future<void> _onFilesDropped(List<DroppedFile> files, int skipped) async {
+    if (!mounted) return;
+    final lib = widget.library;
+    if (files.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('PDF 파일만 끌어다 놓을 수 있어요 (최대 50MB).')),
+      );
+      return;
+    }
+    if (lib.reanalyzing || lib.opening) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('논문을 여는 중이에요. 잠시 뒤 다시 놓아 주세요.')),
+      );
+      return;
+    }
+    await _enqueueFiles(files, skippedBefore: skipped);
+  }
+
   Future<void> _pickAndUpload() async {
     final lib = widget.library;
     // design/221 — allow enqueue while an analysis is already running.
@@ -728,9 +787,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
       return;
     }
+    await _enqueueFiles(batch);
+  }
 
+  Future<void> _enqueueFiles(
+    List<({String name, Uint8List bytes})> batch, {
+    int skippedBefore = 0,
+  }) async {
+    final lib = widget.library;
     final outcome = await lib.enqueuePickedPdfs(batch);
     if (!mounted) return;
+    final skippedAll = outcome.skipped + skippedBefore;
     final hint = lib.uploadBackgroundHint;
     if (hint != null && hint.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(hint)));
@@ -740,7 +807,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         SnackBar(content: Text(outcome.message!)),
       );
     } else if (outcome.added > 0) {
-      final extra = outcome.skipped > 0 ? ' · 건너뜀 ${outcome.skipped}' : '';
+      final extra = skippedAll > 0 ? ' · 건너뜀 $skippedAll' : '';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('대기열에 ${outcome.added}건 추가$extra')),
       );

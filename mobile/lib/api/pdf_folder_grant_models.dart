@@ -6,6 +6,7 @@ import 'dart:convert';
 
 import '../pdf/advisory_title.dart';
 import '../pdf/normalize_pairing_key.dart';
+import '../pdf/paper_title_key.dart';
 
 const String kPdfFolderGrantPrefsPrefix = 'asr.pdf_folder_grant.v1.u.';
 /// design/248 — separate Downloads tree grant (user-picked; not auto).
@@ -235,15 +236,56 @@ class PdfImportSetItem extends PdfImportListItem {
   List<String> get docUris => [main.docUri, si.docUri];
 }
 
+/// design/457 — the title key a file is known by: a recognized main-paper title.
+/// An SI file goes by its hash only; its title is the main paper's.
+String importEntryTitleKey(ScannedPdfEntry e) {
+  if (e.advisoryState != PdfAdvisoryState.ready) return '';
+  if (e.advisoryRole.trim().toLowerCase() == 'supplementary') return '';
+  if (!_displayedTitleCanPair(e)) return '';
+  return paperTitleKey(e.advisoryTitle);
+}
+
+/// design/457 — papers known by PDF hash or title key (kept / read on any device).
+class PaperMarks {
+  const PaperMarks({this.hashes = const {}, this.titles = const {}});
+
+  final Set<String> hashes;
+  final Set<String> titles;
+
+  bool get isEmpty => hashes.isEmpty && titles.isEmpty;
+
+  bool hasHash(ScannedPdfEntry e) {
+    final h = e.contentHash.trim().toLowerCase();
+    return h.length == 64 && hashes.contains(h);
+  }
+
+  bool hasTitle(ScannedPdfEntry e) {
+    if (titles.isEmpty) return false;
+    final t = importEntryTitleKey(e);
+    return t.isNotEmpty && titles.contains(t);
+  }
+
+  bool has(ScannedPdfEntry e) => hasHash(e) || hasTitle(e);
+
+  /// A set row: both files by hash, or the paper by its main file's title.
+  bool hasSet(PdfImportSetItem s) => (hasHash(s.main) && hasHash(s.si)) || hasTitle(s.main);
+}
+
 /// design/445 — the rows whose paper is not marked read. A set goes by its main
 /// file, as its 다 읽음 badge does, so a done set leaves no stray SI row.
 List<PdfImportListItem> withoutReadDone(
   List<PdfImportListItem> items,
   Set<String> doneHashes,
+) =>
+    withoutMarked(items, PaperMarks(hashes: doneHashes));
+
+/// design/457 — [withoutReadDone] by hash or title key.
+List<PdfImportListItem> withoutMarked(
+  List<PdfImportListItem> items,
+  PaperMarks marks,
 ) {
-  if (doneHashes.isEmpty) return items;
-  bool done(ScannedPdfEntry e) =>
-      doneHashes.contains(e.contentHash.trim().toLowerCase());
+  if (marks.isEmpty) return items;
+  bool done(ScannedPdfEntry e) => marks.has(e);
   return [
     for (final item in items)
       if (!switch (item) {
@@ -446,6 +488,33 @@ int applyAdvisoryMateTitleBorrow(List<ScannedPdfEntry> entries) {
     nSets += 1;
   }
 
+  // design/456 — the titles differ (an SI cover read badly) but both files print
+  // the same DOI: one main + one SI with that DOI are a set.
+  final byDoi = <String, List<ScannedPdfEntry>>{};
+  for (final e in ready) {
+    if (used.contains(e.docUri)) continue;
+    final k = doiPairingKey(e.advisoryDoi);
+    if (k != null) byDoi.putIfAbsent(k, () => []).add(e);
+  }
+  for (final entry in byDoi.entries) {
+    final mains = [
+      for (final e in entry.value)
+        if (e.advisoryRole.trim().toLowerCase() == 'main') e,
+    ];
+    final sis = [
+      for (final e in entry.value)
+        if (e.advisoryRole.trim().toLowerCase() == 'supplementary') e,
+    ];
+    if (mains.length != 1 || sis.length != 1) continue;
+    final main = mains.single;
+    final si = sis.single;
+    if (main.advisoryTitle.trim().isNotEmpty) si.advisoryTitle = main.advisoryTitle;
+    items.add(PdfImportSetItem(main: main, si: si, pairingKey: entry.key));
+    used.add(main.docUri);
+    used.add(si.docUri);
+    nSets += 1;
+  }
+
   for (final e in ready) {
     if (used.contains(e.docUri)) continue;
     items.add(PdfImportSingleItem(e));
@@ -477,7 +546,8 @@ int applyAdvisoryMateTitleBorrow(List<ScannedPdfEntry> entries) {
 /// design/237 — opposite-role ready mate already in folder (same pairing key).
 bool matePresentForEntry(ScannedPdfEntry e, List<ScannedPdfEntry> all) {
   final key = e.effectivePairingKey;
-  if (key.isEmpty) return false;
+  final doi = doiPairingKey(e.advisoryDoi);
+  if (key.isEmpty && doi == null) return false;
   final role = e.advisoryRole.trim().toLowerCase();
   final want = role == 'supplementary' ? 'main' : 'supplementary';
   if (role != 'main' && role != 'supplementary') return false;
@@ -485,7 +555,8 @@ bool matePresentForEntry(ScannedPdfEntry e, List<ScannedPdfEntry> all) {
     if (o.docUri == e.docUri) continue;
     if (o.advisoryState != PdfAdvisoryState.ready) continue;
     if (o.advisoryRole.trim().toLowerCase() != want) continue;
-    if (o.effectivePairingKey == key) return true;
+    if (key.isNotEmpty && o.effectivePairingKey == key) return true;
+    if (doi != null && doiPairingKey(o.advisoryDoi) == doi) return true;
   }
   return false;
 }
