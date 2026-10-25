@@ -576,4 +576,50 @@ void main() {
     expect(_richText('mixtures, and\n(iii) being'), findsOneWidget);
     WebReadingPrefs.instance.resetForTests();
   });
+  // design/448 — a zoom kept from full screen pointed outside the small frame.
+  testWidgets('the double tap that leaves full screen drops the zoom',
+      (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf'
+        'FcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    final client = _mockClient();
+    final library = LibraryController(client: client)
+      ..session = ReadingSession.fromOpenJson({
+        'session_id': 'ses_zoom',
+        'cache_id': 'c1',
+        'title': 'Zoom Paper',
+        'sentences': [
+          {'id': 's0', 'text': 'Sentence body number 0.', 'section': 'results'},
+        ],
+        'figures': [
+          {'id': 'fig-0', 'image_src': png, 'caption': 'Figure 1.', 'slot_key': 'fig:0'},
+        ],
+        'sentence_index': 0,
+        'figure_index': 0,
+      });
+    await _pumpReader(tester, library, client);
+    await animate(tester);
+    final viewer = find.byType(InteractiveViewer);
+    expect(viewer, findsOneWidget);
+    void doubleTap() => tester
+        .widget<GestureDetector>(
+          find.ancestor(of: viewer, matching: find.byType(GestureDetector)).first,
+        )
+        .onDoubleTap!();
+
+    doubleTap();
+    await animate(tester);
+    final zoom = tester.widget<InteractiveViewer>(viewer).transformationController!;
+    zoom.value = Matrix4.identity()
+      ..translate(-900.0, -700.0)
+      ..scale(4.0);
+    await tester.pump();
+
+    doubleTap();
+    await animate(tester);
+    expect(
+      tester.widget<InteractiveViewer>(viewer).transformationController!.value,
+      Matrix4.identity(),
+    );
+  });
 }

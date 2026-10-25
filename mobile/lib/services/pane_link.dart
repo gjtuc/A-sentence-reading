@@ -48,6 +48,11 @@ bool openFigurePane() => win.openWindow(figurePaneUrl(Uri.base).toString(), 'asr
 
 void onPaneWindowClose(void Function() handler) => win.onPageHide(handler);
 
+/// design/449 — whether this window is minimized or covered, and when that changes.
+bool paneWindowHidden() => win.pageHidden();
+
+void onPaneVisibilityChange(void Function() handler) => win.onVisibilityChange(handler);
+
 /// design/423 — closes this window. Works for the figure window because the
 /// main window opened it; a window typed in by hand stays.
 void closeThisPaneWindow() => win.closeWindow();
@@ -143,6 +148,11 @@ class PaneLink extends ChangeNotifier {
   /// Figure window: true while it has no paper to show.
   bool Function()? needsSpot;
 
+  /// design/449 — figure window: true while minimized or behind other windows.
+  /// The browser slows a hidden window's timer to about once a minute, so its
+  /// rare hellos took the figures out of the main window for a few seconds.
+  bool Function()? isHidden;
+
   /// design/423 — figure window: the last main window said bye.
   void Function()? onMainGone;
 
@@ -190,10 +200,14 @@ class PaneLink extends ChangeNotifier {
     }
   }
 
+  /// design/449 — say hello now, as when the window is shown again.
+  void sayHello() => _hello();
+
   void _hello() => _post({
         't': 'hello',
         'role': role.name,
         if (role == PaneRole.figure && (needsSpot?.call() ?? false)) 'need': true,
+        if (role == PaneRole.figure && (isHidden?.call() ?? false)) 'hidden': true,
       });
 
   void sendSpot(String cacheId, int si, int fi) {
@@ -235,6 +249,14 @@ class PaneLink extends ChangeNotifier {
     switch (m['t']) {
       case 'hello':
         if (role != PaneRole.main || m['role'] != PaneRole.figure.name) return;
+        if (m['hidden'] == true) {
+          // A hidden figure window shows nothing, so the figures stay here.
+          final changed = _figureSeen != null || _figureExpected;
+          _figureSeen = null;
+          _figureExpected = false;
+          if (changed) notifyListeners();
+          return;
+        }
         final was = figureOpen;
         _figureSeen = _now();
         if (!was) {

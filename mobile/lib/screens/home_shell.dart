@@ -292,6 +292,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       ..onSpot = _onPaneSpot
       ..onSpotWanted = _sendPaneSpot
       ..needsSpot = (() => _accessUnlocked == true && widget.library.session == null)
+      ..isHidden = role == PaneRole.figure ? paneWindowHidden : null
       ..onMainGone = role == PaneRole.figure ? closeThisPaneWindow : null
       ..onPlace = role == PaneRole.figure
           ? (s) {
@@ -302,6 +303,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     _pane = link;
     widget.library.onSpotSaved = link.sendSpot;
     onPaneWindowClose(link.leave);
+    if (role == PaneRole.figure) onPaneVisibilityChange(link.sayHello);
     startPanePair(role);
     link.start();
     if (role == PaneRole.main) unawaited(_prepareMainPane(link));

@@ -30,12 +30,34 @@ String unescapeRichEntities(String raw) {
   });
 }
 
+/// design/447 — the server escapes `<` `>` `&` in the text between tags
+/// (`richtext.sanitize_sentence_html`). Decoded only after the tags are found, so
+/// a printed `<` never opens a tag. Each entity is one character of plain text.
+final _textEntity = RegExp(
+  r'&(?:(amp|lt|gt|quot|apos)|#([0-9]{1,7})|#[xX]([0-9a-fA-F]{1,6}));',
+);
+
+const _namedEntity = {'amp': '&', 'lt': '<', 'gt': '>', 'quot': '"', 'apos': "'"};
+
+String decodeTextEntities(String s) {
+  if (!s.contains('&')) return s;
+  return s.replaceAllMapped(_textEntity, (m) {
+    final named = m.group(1);
+    if (named != null) return _namedEntity[named]!;
+    final code = int.tryParse(m.group(2) ?? m.group(3)!, radix: m.group(2) != null ? 10 : 16);
+    if (code == null || code <= 0 || code > 0x10FFFF) return m.group(0)!;
+    return String.fromCharCode(code);
+  });
+}
+
 /// Strip all tags (for tests / plain fallback).
 String plainFromRichHtml(String? raw) {
   final s = unescapeRichEntities((raw ?? '').trim());
   if (s.isEmpty) return '';
-  if (!s.contains('<')) return s;
-  return s.replaceAll(_tagRe, '').replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (!s.contains('<')) return decodeTextEntities(s);
+  return decodeTextEntities(
+    s.replaceAll(_tagRe, '').replaceAll(RegExp(r'\s+'), ' ').trim(),
+  );
 }
 
 /// design/444 — [raw] with the clause breaks of its plain text as line breaks.
@@ -48,7 +70,11 @@ String richWithClauseBreaks(String? raw) {
   if (src.isEmpty) return src;
   final breaks = clauseBreakOffsets(plainFromRichHtml(src));
   if (breaks.isEmpty) return src;
-  if (!src.contains('<')) return withClauseBreaks(src, breaks);
+  if (!src.contains('&') && !src.contains('<')) {
+    return withClauseBreaks(src, breaks);
+  }
+  // Without tags the plain text keeps every space; with tags it folds each run.
+  final fold = src.contains('<');
   final tags = _tagRe.allMatches(src).toList();
   final out = StringBuffer();
   var p = 0;
@@ -64,11 +90,23 @@ String richWithClauseBreaks(String? raw) {
       t++;
       continue;
     }
+    final entity = src[i] == '&' ? _textEntity.matchAsPrefix(src, i) : null;
+    if (entity != null) {
+      out.write(entity.group(0));
+      i = entity.end;
+      started = true;
+      inSpace = false;
+      p++;
+      continue;
+    }
     final c = src[i];
     i++;
     if (c.trim().isEmpty) {
       if (!started) {
         out.write(c);
+      } else if (!fold) {
+        out.write(c == ' ' && breaks.contains(p) ? '\n' : c);
+        p++;
       } else if (!inSpace) {
         inSpace = true;
         dropSpace = breaks.contains(p);
@@ -114,7 +152,7 @@ List<InlineSpan> buildRichSpans(
   final src = trimInput ? unescaped.trim() : unescaped;
   if (src.isEmpty) return const [];
   if (!src.contains('<')) {
-    return [TextSpan(text: src, style: base)];
+    return [TextSpan(text: decodeTextEntities(src), style: base)];
   }
   try {
     final out = <InlineSpan>[];
@@ -207,8 +245,9 @@ void _parse(
   }
 }
 
-InlineSpan _styledSpan(String text, TextStyle base, List<String> stack) {
-  if (text.isEmpty) return const TextSpan(text: '');
+InlineSpan _styledSpan(String raw, TextStyle base, List<String> stack) {
+  if (raw.isEmpty) return const TextSpan(text: '');
+  final text = decodeTextEntities(raw);
   var style = base;
   var isSub = false;
   var isSup = false;
@@ -288,15 +327,16 @@ List<InlineSpan> buildAnnotatedSpans(
     while (j < plain.length && _sameAnnotStyle(cover[j], active)) {
       j++;
     }
+    // Already plain and decoded: a printed `<` or `&gt;` must stay as it reads.
     final slice = shown.substring(i, j);
     if (active == null) {
-      out.addAll(buildRichSpans(slice, base, trimInput: false));
+      out.add(TextSpan(text: slice, style: base));
     } else {
       final style = base.copyWith(
         backgroundColor: active.background.withValues(alpha: 0.4),
         decoration: active.underline ? TextDecoration.underline : null,
       );
-      out.addAll(buildRichSpans(slice, style, trimInput: false));
+      out.add(TextSpan(text: slice, style: style));
     }
     i = j;
   }

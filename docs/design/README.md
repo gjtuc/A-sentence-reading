@@ -462,6 +462,9 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 449 | [449-hidden-figure-window.md](449-hidden-figure-window.md) | 웹: 최소화·가려진 그림 창은 열린 것으로 세지 않음 (몇 분마다 그림 칸이 사라졌다 나타나던 것) · 다시 보이면 바로 넘겨받음 (0.3.472) |
+| 448 | [448-zoom-left-behind.md](448-zoom-left-behind.md) | 확대한 채 전체 화면을 풀면 그림이 칸 밖으로 사라지던 것 · 두 번 누르기와 큰 크기 변화에서 확대 풀기 (0.3.472) |
+| 447 | [447-printed-signs-in-rich-text.md](447-printed-signs-in-rich-text.md) | 아래첨자 문장의 `&gt;` `&lt;` `&amp;` 를 글자로 되돌리기 · 형광펜·끊어 보기 위치도 한 글자로 (0.3.472) |
 | 446 | [446-import-search-and-parent-folder.md](446-import-search-and-parent-folder.md) | 논문 가져오기 검색 (파일 이름 + 인식한 제목, 단어 모두, 검색어는 기억 안 함, 가려진 선택도 유지) · '폴더 변경'이 현재 폴더 한 단계 위에서 열림 (0.3.471) |
 | 445 | [445-import-filters.md](445-import-filters.md) | 논문 가져오기 필터: '전체' 없애고 '미보관만'·'안 읽음만'을 켜고 끄는 필터로 · 둘 다 켜면 두 조건 모두 · 고른 상태를 기억 · 묶음은 본문 파일 기준 (0.3.470) |
 | 444 | [444-sentence-in-pieces.md](444-sentence-in-pieces.md) | 긴 문장 끊어 보기 (시험 스위치, 웹·앱 공통) · 쉼표 뒤 which·including, 세미콜론, (i)(ii) 나열 앞에서 줄 바꿈 · 표시 위치는 그대로 (0.3.469) |

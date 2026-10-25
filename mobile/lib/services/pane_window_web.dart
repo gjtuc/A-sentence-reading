@@ -130,6 +130,18 @@ void onPageHide(void Function() handler) {
   web.window.addEventListener('pagehide', ((web.Event _) => handler()).toJS);
 }
 
+bool pageHidden() {
+  try {
+    return web.document.hidden;
+  } catch (_) {
+    return false;
+  }
+}
+
+void onVisibilityChange(void Function() handler) {
+  web.document.addEventListener('visibilitychange', ((web.Event _) => handler()).toJS);
+}
+
 void closeWindow() {
   try {
     web.window.close();

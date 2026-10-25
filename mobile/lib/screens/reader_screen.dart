@@ -2864,6 +2864,11 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame>
   double _scaleAtGestureStart = 1.0;
   Offset _lastFocalPoint = Offset.zero;
   double _viewWidth = 1;
+  /// design/448 — the frame size when the zoom began. Full screen and back moves
+  /// far from it; a folding button row does not.
+  Size? _zoomFrameSize;
+  static const double _zoomFrameDrift = 1 / 3;
+  Size _frameSize = Size.zero;
   double _fingerDx = 0;
   double _fingerDy = 0;
   AnimationController? _slide;
@@ -2882,6 +2887,32 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame>
     _slide = null;
   }
 
+  /// design/448 — a zoom kept across full screen and back points outside the
+  /// smaller frame, and the figure is gone from it.
+  void _resetZoom() {
+    _stopSlide();
+    _zoomFrameSize = null;
+    if (_transform.value != Matrix4.identity()) {
+      _transform.value = Matrix4.identity();
+    }
+  }
+
+  void _onDoubleTap() {
+    _resetZoom();
+    widget.onDoubleTapExpand?.call();
+  }
+
+  void _noteFrameSize(Size size) {
+    _frameSize = size;
+    final from = _zoomFrameSize;
+    if (from == null) return;
+    bool far(double a, double b) => (a - b).abs() > _zoomFrameDrift * a;
+    if (!far(from.width, size.width) && !far(from.height, size.height)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _zoomFrameSize == from) _resetZoom();
+    });
+  }
+
   void _onInteractionStart(ScaleStartDetails details) {
     _stopSlide();
     // WHY: capture translation at gesture start for 1× horizontal swipe.
@@ -2892,6 +2923,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame>
     _lastFocalPoint = details.localFocalPoint;
     _fingerDx = 0;
     _fingerDy = 0;
+    _zoomFrameSize ??= _frameSize;
   }
 
   void _onInteractionUpdate(ScaleUpdateDetails details) {
@@ -2964,6 +2996,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame>
     if (scale > _zoomEps) {
       return;
     }
+    _zoomFrameSize = null;
 
     // design/156 — vertical panel swap (before 1× snap-back).
     if (widget.onSwipeToSentence != null && maxPointers < 2) {
@@ -3077,6 +3110,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame>
           return widget.child;
         }
         _viewWidth = w;
+        _noteFrameSize(Size(w, h));
         final zoomChild = annotations != null
             ? _FigureInkOverlay(
                 figureKey: widget.figureKey,
@@ -3092,7 +3126,9 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame>
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: inkMode ? null : widget.onTap,
-          onDoubleTap: inkMode ? null : widget.onDoubleTapExpand,
+          onDoubleTap: inkMode || widget.onDoubleTapExpand == null
+              ? null
+              : _onDoubleTap,
           child: InteractiveViewer(
             transformationController: _transform,
             minScale: 1.0,

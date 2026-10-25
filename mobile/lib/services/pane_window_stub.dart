@@ -7,6 +7,10 @@ bool openWindow(String url, String name) => false;
 
 void onPageHide(void Function() handler) {}
 
+bool pageHidden() => false;
+
+void onVisibilityChange(void Function() handler) {}
+
 void closeWindow() {}
 
 void startPair({required bool figure}) {}
