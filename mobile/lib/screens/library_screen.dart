@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../api/ingest_models.dart';
+import '../api/library_soft_delete_models.dart';
 import '../api/paper_models.dart';
 import '../state/annotation_controller.dart';
 import '../state/auth_controller.dart';
@@ -424,8 +425,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return;
     }
     final purgeAt = result.purgeAtMs ??
-        DateTime.now().millisecondsSinceEpoch +
-            const Duration(seconds: 60).inMilliseconds;
+        DateTime.now().millisecondsSinceEpoch + kSoftDeleteGrace.inMilliseconds;
     final remainMs =
         (purgeAt - DateTime.now().millisecondsSinceEpoch).clamp(0, 120000);
     ScaffoldMessenger.of(context).clearSnackBars();
@@ -1288,7 +1288,7 @@ class _SoftHideCountdownContent extends StatefulWidget {
 
 class _SoftHideCountdownContentState extends State<_SoftHideCountdownContent> {
   Timer? _timer;
-  int _secsLeft = 60;
+  int _secsLeft = kSoftDeleteGrace.inSeconds;
   bool _expired = false;
 
   @override

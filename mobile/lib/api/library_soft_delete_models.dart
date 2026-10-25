@@ -4,7 +4,8 @@ library;
 import 'dart:convert';
 
 const String kSoftDeletePrefsPrefix = 'asr.lib_soft_del.v1.u.';
-const Duration kSoftDeleteGrace = Duration(seconds: 60);
+/// design/453 — 20 s (was 60 s; the user found a minute too long).
+const Duration kSoftDeleteGrace = Duration(seconds: 20);
 
 String softDeletePrefsKey(String uid) {
   final safe = uid.trim().replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
