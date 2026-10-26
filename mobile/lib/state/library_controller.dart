@@ -48,6 +48,7 @@ import '../practice_sample/sample_seed.dart';
 import '../practice_sample/sample_hidden.dart';
 import '../api/library_soft_delete_store.dart';
 import '../api/near_gone_store.dart';
+import '../platform/file_drop_rules.dart';
 import '../platform/saf_tree_channel.dart';
 import '../api/upload_notify.dart';
 import '../api/shadowing_models.dart';
@@ -6761,12 +6762,9 @@ class LibraryController extends ChangeNotifier {
       notifyListeners();
       return (ok: false, mode: 'no_grant', message: null);
     }
-    // design/416 — the browser has no single-file Downloads picker here; connect
-    // the Downloads folder itself instead.
-    if (kIsWeb) {
-      final ok = await connectPdfDownloadsFolder();
-      return (ok: ok, mode: ok ? 'browse' : 'cancel', message: null);
-    }
+    // design/462 — Chrome refuses the Downloads folder itself as a folder, so
+    // the web picks the files in it and queues them.
+    if (kIsWeb) return _enqueueWebDownloads();
     // No tree grant — pick files from Downloads via OPEN_DOCUMENT.
     final t0 = DateTime.now().millisecondsSinceEpoch;
     final findId = (pdfFindWatchFindId ?? '').trim();
@@ -8653,6 +8651,49 @@ class LibraryController extends ChangeNotifier {
       default:
         return code;
     }
+  }
+
+  /// design/462 — web Downloads: a file dialog that opens in Downloads.
+  Future<({bool ok, String mode, String? message})> _enqueueWebDownloads() async {
+    final t0 = DateTime.now().millisecondsSinceEpoch;
+    final picked = await _safTree.pickWebDocs(downloads: true);
+    if (picked == null ||
+        (picked.files.isEmpty && picked.skipped == 0 && picked.oldWord == 0)) {
+      return (ok: false, mode: 'cancel', message: null);
+    }
+    final notes = <String>[];
+    var added = 0;
+    if (picked.files.isNotEmpty) {
+      final outcome = await enqueuePickedPdfs(picked.files);
+      added = outcome.added;
+      if (added > 0) notes.add('대기열에 $added건 넣었습니다.');
+      final m = (outcome.message ?? '').trim();
+      if (m.isNotEmpty) {
+        notes.add(m);
+      } else if (added == 0) {
+        notes.add('이미 대기열에 있거나 넣지 못했습니다.');
+      }
+    }
+    if (picked.skipped > 0) {
+      notes.add('PDF·Word 가 아니거나 100MB 를 넘는 ${picked.skipped}건은 건너뛰었습니다.');
+    }
+    if (picked.oldWord > 0) notes.add(kOldWordNote);
+    asrEvidenceBus?.record(
+      'pdf_import_pick_done',
+      severity: 'lifecycle',
+      stage: 'pick',
+      details: {
+        'ok': added > 0,
+        'n': added,
+        'elapsed_ms': DateTime.now().millisecondsSinceEpoch - t0,
+        'mode': 'enqueue',
+        'browse': 'web_downloads_docs',
+        'skipped': picked.skipped,
+        'old_word': picked.oldWord,
+      },
+    );
+    notifyListeners();
+    return (ok: added > 0, mode: 'enqueue', message: notes.join(' '));
   }
 
   /// design/223 — sheet open breadcrumb.

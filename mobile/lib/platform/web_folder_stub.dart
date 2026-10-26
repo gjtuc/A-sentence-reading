@@ -31,3 +31,6 @@ Future<Map<String, dynamic>> webExtractPdfHead(
   int maxReadBytes = kMaxUploadBytes,
 }) async =>
     const {'ok': false, 'code': 'unsupported'};
+
+Future<WebPickedDocs?> webPickDocs({bool downloads = false, int maxBytes = kMaxUploadBytes}) async =>
+    null;

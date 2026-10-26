@@ -72,6 +72,13 @@ class SafTreeListResult {
   final bool truncated;
 }
 
+/// design/462 — files from a browser file dialog, and what was left out.
+typedef WebPickedDocs = ({
+  List<({String name, Uint8List bytes})> files,
+  int skipped,
+  int oldWord,
+});
+
 class SafTreeChannel {
   SafTreeChannel({MethodChannel? channel})
       : _channel = channel ?? kSafTreeChannel;
@@ -108,6 +115,13 @@ class SafTreeChannel {
     } on PlatformException {
       return null;
     }
+  }
+
+  /// design/462 — web only: PDF/Word files from a browser file dialog. Null off
+  /// the web, when the dialog is missing, or on cancel.
+  Future<WebPickedDocs?> pickWebDocs({bool downloads = false}) async {
+    if (!kIsWeb) return null;
+    return webdir.webPickDocs(downloads: downloads);
   }
 
   /// design/238 — ACTION_OPEN_DOCUMENT (temp READ; optional multi PDF).

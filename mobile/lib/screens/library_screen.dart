@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import '../api/ingest_models.dart';
 import '../api/library_soft_delete_models.dart';
 import '../api/paper_models.dart';
+import '../platform/file_drop_rules.dart';
 import '../platform/web_file_drop.dart';
 import '../state/annotation_controller.dart';
 import '../state/auth_controller.dart';
@@ -747,13 +748,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final lib = widget.library;
     if (oldWord > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          duration: Duration(seconds: 8),
-          content: Text(
-            '옛 Word 형식(.doc)은 읽을 수 없어 받지 않았어요. '
-            'Word 에서 열어 「다른 이름으로 저장」→ Word 문서(.docx)로 저장한 뒤 다시 넣어 주세요.',
-          ),
-        ),
+        const SnackBar(duration: Duration(seconds: 8), content: Text(kOldWordNote)),
       );
       if (files.isEmpty) return;
     }

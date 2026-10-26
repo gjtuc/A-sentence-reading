@@ -15,6 +15,7 @@ import 'package:flutter/services.dart';
 import 'package:web/web.dart' as web;
 
 import '../api/upload_limits.dart';
+import 'file_drop_rules.dart';
 import 'saf_tree_channel.dart';
 import 'web_folder_paths.dart';
 
@@ -33,6 +34,9 @@ extension on JSString {
 
 @JS('showDirectoryPicker')
 external JSPromise<JSObject> _showDirectoryPicker(JSObject options);
+
+@JS('showOpenFilePicker')
+external JSPromise<JSArray<JSObject>> _showOpenFilePicker(JSObject options);
 
 extension type _Handle(JSObject _) implements JSObject {
   external String get kind;
@@ -333,4 +337,51 @@ Future<Map<String, dynamic>> webExtractPdfHead(
   } catch (_) {
     return fail('stale');
   }
+}
+
+/// design/462 — Chrome refuses the Downloads, Desktop and Documents folders
+/// themselves as a picked folder (system-file blocklist, reported as a plain
+/// AbortError), but not the files in them.
+Future<WebPickedDocs?> webPickDocs({bool downloads = false, int maxBytes = kMaxUploadBytes}) async {
+  if (!globalContext.has('showOpenFilePicker')) return null;
+  final options = {
+    'multiple': true,
+    'types': [
+      {
+        'description': 'PDF · Word',
+        'accept': {
+          'application/pdf': ['.pdf'],
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+        },
+      },
+    ],
+  }.jsify()! as JSObject;
+  if (downloads) options['startIn'] = 'downloads'.toJS;
+  final List<JSObject> handles;
+  try {
+    handles = (await _showOpenFilePicker(options).toDart).toDart;
+  } catch (_) {
+    return null;
+  }
+  final files = <({String name, Uint8List bytes})>[];
+  var skipped = 0;
+  var oldWord = 0;
+  for (final h in handles) {
+    try {
+      final file = await _FileHandle(h).getFile().toDart;
+      if (isOldWordDoc(file.name)) {
+        oldWord += 1;
+        continue;
+      }
+      if (!droppableDoc(file.name, file.size, maxBytes: maxBytes)) {
+        skipped += 1;
+        continue;
+      }
+      final buf = await file.arrayBuffer().toDart;
+      files.add((name: file.name, bytes: buf.toDart.asUint8List()));
+    } catch (_) {
+      skipped += 1;
+    }
+  }
+  return (files: files, skipped: skipped, oldWord: oldWord);
 }

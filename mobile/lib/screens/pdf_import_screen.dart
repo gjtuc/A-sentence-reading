@@ -214,8 +214,14 @@ class _PdfImportScreenState extends State<PdfImportScreen>
       final ok = lib.pdfImportBrowseMode == PdfImportBrowseMode.downloads
           ? await lib.connectPdfDownloadsFolder(change: change)
           : await lib.connectPdfFolder(change: change);
-      if (!ok && mounted) {
-        // cancel → silent
+      if (!ok && mounted && kIsWeb) {
+        // design/462 — a blocked folder reaches us as a plain cancel.
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            duration: Duration(seconds: 8),
+            content: Text(kWebBlockedFolderNote),
+          ),
+        );
       }
       unawaited(lib.ensureVisiblePdfHashes());
       unawaited(lib.ensureVisiblePdfAdvisories());
@@ -924,6 +930,11 @@ class _PdfImportScreenState extends State<PdfImportScreen>
   }
 }
 
+/// design/462 — Chrome's system-file blocklist, said where a folder is picked.
+const String kWebBlockedFolderNote =
+    '폴더를 열지 못했어요. 크롬은 다운로드·바탕화면·문서 폴더 자체는 열 수 없어요. '
+    '그 안의 폴더(예: 다운로드 안의 「논문」 폴더)를 골라 주세요.';
+
 class _EmptyConnect extends StatelessWidget {
   const _EmptyConnect({
     required this.onConnect,
@@ -957,6 +968,16 @@ class _EmptyConnect extends StatelessWidget {
                 icon: const Icon(Icons.download_done_outlined),
                 label: const Text('다운로드에서 가져오기'),
               ),
+              if (kIsWeb) ...[
+                const SizedBox(height: 12),
+                Text(
+                  '크롬은 다운로드 폴더를 목록으로 열 수 없어서, 고른 파일을 바로 대기열에 넣어요. '
+                  '제목과 메인/SI 목록으로 보려면 크롬의 다운로드 위치를 그 안의 폴더로 바꾸고 '
+                  '「논문 폴더」에서 그 폴더를 연결해 주세요.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
             ],
           ),
         ),
@@ -984,6 +1005,15 @@ class _EmptyConnect extends StatelessWidget {
               onPressed: onSaf,
               child: const Text('또는 파일에서 추가'),
             ),
+            if (kIsWeb) ...[
+              const SizedBox(height: 12),
+              Text(
+                '크롬은 다운로드·바탕화면·문서 폴더 자체는 열 수 없어요. '
+                '그 안의 폴더를 골라 주세요.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ],
         ),
       ),

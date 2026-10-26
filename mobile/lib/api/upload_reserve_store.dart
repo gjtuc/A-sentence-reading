@@ -3,10 +3,12 @@ library;
 
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'upload_reserve_models.dart';
+import 'web_blob_store.dart';
 
 abstract class UploadReserveStore {
   Future<UploadReserveQueue> read();
@@ -67,6 +69,12 @@ class PrefsUploadReserveStore implements UploadReserveStore {
     if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(hash) || bytes.isEmpty) {
       return null;
     }
+    // design/462 — the web has no documents folder; keep the copy in the browser.
+    if (kIsWeb) {
+      final name = (filename ?? '').trim().toLowerCase();
+      final key = 'web/ingest_reserve/$hash${name.endsWith('.docx') ? '.docx' : '.pdf'}';
+      return await webBlobPut(key, bytes) ? key : null;
+    }
     try {
       final root = await getApplicationDocumentsDirectory();
       final dir = Directory('${root.path}/ingest_reserve');
@@ -90,6 +98,7 @@ class PrefsUploadReserveStore implements UploadReserveStore {
     if (p.isEmpty) return null;
     // EDGE: only our app documents ingest_reserve tree (never ingest_drafts).
     if (!p.contains('ingest_reserve')) return null;
+    if (kIsWeb) return webBlobGet(p);
     try {
       final f = File(p);
       if (!await f.exists()) return null;
@@ -103,6 +112,7 @@ class PrefsUploadReserveStore implements UploadReserveStore {
   Future<void> deleteLocalPdf(String path) async {
     final p = path.trim();
     if (p.isEmpty || !p.contains('ingest_reserve')) return;
+    if (kIsWeb) return webBlobDelete(p);
     try {
       final f = File(p);
       if (await f.exists()) await f.delete();
