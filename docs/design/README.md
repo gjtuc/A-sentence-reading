@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 464 | [464-web-app-scope-folder-permission.md](464-web-app-scope-folder-permission.md) | 설치한 웹 앱 범위가 /app/ 뿐이라 크롬이 설치 앱으로 보지 않아 폴더 허용을 매번 묻던 문제. 범위를 사이트 전체(/)로. |
 | 463 | [463-web-upload-cookie-session.md](463-web-upload-cookie-session.md) | 웹은 로그인을 쿠키로 들고 있어 앱이 열쇠를 볼 수 없는데, 업로드가 열쇠부터 확인해 「로그인이 필요합니다」로 멈추던 문제. |
 | 462 | [462-web-queue-store-and-downloads.md](462-web-queue-store-and-downloads.md) | 웹에서 파일을 대기열에 넣지 못하던 문제(브라우저 저장소로 해결)와, 크롬이 다운로드 폴더 자체를 막아 가져오기가 비던 문제(다운로드에서 파일 고르기). |
 | 460 | [460-word-drop-and-100mb.md](460-word-drop-and-100mb.md) | 웹 끌어다 놓기와 「파일에서 추가」가 Word(.docx)도 받는다. 파일 한도 50MB → 100MB (앱·웹·안드로이드·서버·원본 보관 모두, `kMaxUploadBytes`). 조각 업로드 횟수 한도 600 → 1200 / 10분. 옛 Word(.doc)를 놓으면 「다른 이름으로 저장 → .docx」 안내 (design/461) (0.3.476) |
