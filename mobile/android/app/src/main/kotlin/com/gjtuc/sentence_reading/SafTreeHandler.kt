@@ -567,7 +567,7 @@ class SafTreeHandler(
                 val docUri = call.argument<String>("docUri")?.trim().orEmpty()
                 val maxChars = call.argument<Int>("maxChars") ?: 8000
                 val maxPages = call.argument<Int>("maxPages") ?: 2
-                val maxReadBytes = call.argument<Int>("maxReadBytes") ?: (50 * 1024 * 1024)
+                val maxReadBytes = call.argument<Int>("maxReadBytes") ?: (100 * 1024 * 1024)
                 if (docUri.isEmpty()) {
                     result.error("bad_args", "docUri_required", null)
                     return
@@ -597,7 +597,7 @@ class SafTreeHandler(
             "extractDocxHead" -> {
                 val docUri = call.argument<String>("docUri")?.trim().orEmpty()
                 val maxChars = call.argument<Int>("maxChars") ?: 8000
-                val maxReadBytes = call.argument<Int>("maxReadBytes") ?: (50 * 1024 * 1024)
+                val maxReadBytes = call.argument<Int>("maxReadBytes") ?: (100 * 1024 * 1024)
                 if (docUri.isEmpty()) {
                     result.error("bad_args", "docUri_required", null)
                     return
@@ -792,7 +792,7 @@ class SafTreeHandler(
         private const val REQ_TREE = 9261
         private const val REQ_DOCS = 9262
         private const val MAX_LIST = 500
-        private const val MAX_BYTES = 50 * 1024 * 1024
+        private const val MAX_BYTES = 100 * 1024 * 1024
         private const val EXTERNAL_STORAGE_PROVIDER =
             "com.android.externalstorage.documents"
     }

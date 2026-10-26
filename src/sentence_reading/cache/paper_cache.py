@@ -24,7 +24,7 @@ _HEAD_CHARS = 14_000
 # WHY: 제목 대조는 키 문자열 포함 여부만 — 1000개도 수십 ms 이하. 디스크·목록 상한.
 _MAX_CACHED_PAPERS = 1000
 # 원본 PDF/DOCX 백업 상한 (초과 시 session만 보관)
-SOURCE_MAX_BYTES = 80_000_000
+SOURCE_MAX_BYTES = 100 * 1024 * 1024  # design/460 — every uploadable file
 _SOURCE_NAMES = {"pdf": "source.pdf", "docx": "source.docx"}
 
 

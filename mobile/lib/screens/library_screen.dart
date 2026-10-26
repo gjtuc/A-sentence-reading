@@ -726,7 +726,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
               child: Text(
-                '여기에 놓으면 대기열에 넣습니다 (PDF)',
+                '여기에 놓으면 대기열에 넣습니다 (PDF · Word)',
                 style: Theme.of(ctx).textTheme.titleMedium,
               ),
             ),
@@ -743,7 +743,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final lib = widget.library;
     if (files.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PDF 파일만 끌어다 놓을 수 있어요 (최대 50MB).')),
+        const SnackBar(content: Text('PDF 나 Word(.docx) 파일만 끌어다 놓을 수 있어요 (최대 100MB).')),
       );
       return;
     }
@@ -763,7 +763,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: const ['pdf'],
+      allowedExtensions: const ['pdf', 'docx'],
       allowMultiple: true,
       withData: true,
     );

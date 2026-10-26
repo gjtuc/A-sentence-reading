@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../api/upload_limits.dart';
 import 'saf_tree_channel.dart';
 
 /// No browser folder access off the web.
@@ -15,7 +16,7 @@ Future<SafTreePickResult?> webPickFolder({
 Future<SafTreeListResult> webListPdfs(String treeUri, {int maxItems = 500}) async =>
     const SafTreeListResult(items: [], truncated: false);
 
-Future<Uint8List?> webReadFile(String docUri, {int maxBytes = 50 * 1024 * 1024}) async => null;
+Future<Uint8List?> webReadFile(String docUri, {int maxBytes = kMaxUploadBytes}) async => null;
 
 Future<String?> webSha256(String docUri) async => null;
 
@@ -27,6 +28,6 @@ Future<Map<String, dynamic>> webExtractPdfHead(
   String docUri, {
   int maxChars = 8000,
   int maxPages = 2,
-  int maxReadBytes = 50 * 1024 * 1024,
+  int maxReadBytes = kMaxUploadBytes,
 }) async =>
     const {'ok': false, 'code': 'unsupported'};

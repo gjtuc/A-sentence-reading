@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../pdf/advisory_title.dart' show PdfHeadStyledLine;
+import '../api/upload_limits.dart';
 import '../pdf/docx_head.dart';
 import 'web_folder_stub.dart' if (dart.library.js_interop) 'web_folder_web.dart' as webdir;
 
@@ -298,7 +299,7 @@ class SafTreeChannel {
 
   Future<Uint8List?> readPdfBytes(
     String docUri, {
-    int maxBytes = 50 * 1024 * 1024,
+    int maxBytes = kMaxUploadBytes,
   }) async {
     final u = docUri.trim();
     if (u.isEmpty) return null;
@@ -322,7 +323,7 @@ class SafTreeChannel {
     String docUri, {
     int maxChars = 8000,
     int maxPages = 2,
-    int maxReadBytes = 50 * 1024 * 1024, // design/231 — match upload/read cap
+    int maxReadBytes = kMaxUploadBytes, // design/231 — match upload/read cap
   }) async {
     final u = docUri.trim();
     if (u.isEmpty) {
@@ -436,7 +437,7 @@ class SafTreeChannel {
   Future<SafPdfHeadResult> extractDocxHead(
     String docUri, {
     int maxChars = 8000,
-    int maxReadBytes = 50 * 1024 * 1024,
+    int maxReadBytes = kMaxUploadBytes,
   }) async {
     final u = docUri.trim();
     if (u.isEmpty) {

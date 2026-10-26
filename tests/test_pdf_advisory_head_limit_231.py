@@ -26,10 +26,12 @@ def test_defaults_are_50mb() -> None:
         encoding="utf-8"
     )
     assert "extractPdfHead" in dart
-    assert "50 * 1024 * 1024" in dart
+    # design/460 — the head read follows the upload cap (100MB).
+    limits = (MOBILE / "lib" / "api" / "upload_limits.dart").read_text(encoding="utf-8")
+    assert "kMaxUploadBytes = 100 * 1024 * 1024" in limits
     # default arg line must not still be 2MB
     chunk = dart.split("extractPdfHead", 1)[1][:500]
-    assert "50 * 1024 * 1024" in chunk
+    assert "kMaxUploadBytes" in chunk
     assert "2 * 1024 * 1024" not in chunk
     kt = (
         MOBILE
@@ -43,5 +45,5 @@ def test_defaults_are_50mb() -> None:
         / "sentence_reading"
         / "SafTreeHandler.kt"
     ).read_text(encoding="utf-8")
-    assert "50 * 1024 * 1024" in kt
+    assert "100 * 1024 * 1024" in kt
     assert 'maxReadBytes") ?: (2 * 1024 * 1024)' not in kt

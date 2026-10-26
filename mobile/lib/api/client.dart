@@ -7,6 +7,7 @@
 library;
 
 import 'dart:async';
+import 'upload_limits.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -1382,7 +1383,6 @@ class AsrClient {
 
   static final _pdfNameRe = RegExp(r'\.pdf$', caseSensitive: false);
   static final _docxNameRe = RegExp(r'\.docx$', caseSensitive: false);
-  static const _maxUploadBytes = 50 * 1024 * 1024;
 
   /// POST /api/ingest (multipart `file`) then poll `/api/ingest/jobs/{id}`.
   ///
@@ -1404,8 +1404,8 @@ class AsrClient {
     if (bytes.isEmpty) {
       throw AsrApiException('빈 파일입니다.', 400);
     }
-    if (bytes.length > _maxUploadBytes) {
-      throw AsrApiException('파일이 너무 큽니다 (최대 50MB).', 413);
+    if (bytes.length > kMaxUploadBytes) {
+      throw AsrApiException('파일이 너무 큽니다 (최대 100MB).', 413);
     }
     if (isPdf) {
       if (bytes.length < 5 ||

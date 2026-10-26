@@ -30,10 +30,10 @@ log = logging.getLogger(__name__)
 _LOCK = threading.RLock()
 
 # action → (env_max, default_max, env_window, default_window_sec)
-# WHY put ceiling is high: 50MB / 256KiB ≈ 200 PUTs; allow headroom in-window.
+# WHY put ceiling is high: 100MB / 256KiB ≈ 400 PUTs (design/460); three big files in-window.
 _ACTIONS: dict[str, tuple[str, int, str, int]] = {
     "upload_create": ("ASR_UPLOAD_CREATE_MAX", 12, "ASR_UPLOAD_CREATE_WINDOW_SEC", 600),
-    "upload_put": ("ASR_UPLOAD_PUT_MAX", 600, "ASR_UPLOAD_PUT_WINDOW_SEC", 600),
+    "upload_put": ("ASR_UPLOAD_PUT_MAX", 1200, "ASR_UPLOAD_PUT_WINDOW_SEC", 600),
     "ingest_start": ("ASR_INGEST_START_MAX", 10, "ASR_INGEST_START_WINDOW_SEC", 600),
 }
 

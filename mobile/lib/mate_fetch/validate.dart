@@ -1,7 +1,9 @@
 /// design/251 — mate-fetch validation (magic / size / host allowlist).
 library;
 
-const int kMateFetchMaxBytes = 50 * 1024 * 1024;
+import '../api/upload_limits.dart';
+
+const int kMateFetchMaxBytes = kMaxUploadBytes;
 const int kMateFetchMaxRedirects = 5;
 
 /// Hosts we will GET PDF/ZIP bytes from (OA + known SI templates). Empty host → reject.

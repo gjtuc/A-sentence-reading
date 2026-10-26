@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 _UPLOAD_ID_RE = re.compile(r"^upl_[a-f0-9]{12}$")
 _HASH_RE = re.compile(r"^[a-f0-9]{64}$")
 CHUNK_SIZE = 256 * 1024  # 256 KiB — all PDFs (product: every file is chunked)
-_MAX_BYTES = 50 * 1024 * 1024
+_MAX_BYTES = 100 * 1024 * 1024  # design/460
 
 # Process-local fallback when GCS is off (unit tests / local without bucket).
 _LOCK = threading.Lock()

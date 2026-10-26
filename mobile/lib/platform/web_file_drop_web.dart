@@ -10,6 +10,7 @@ import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
 
+import '../api/upload_limits.dart';
 import 'file_drop_rules.dart';
 
 typedef DroppedFile = ({String name, Uint8List bytes});
@@ -20,11 +21,11 @@ bool _carriesFiles(web.DragEvent e) {
 }
 
 /// [onOver] says whether files are held over the window; [onFiles] gets the
-/// dropped PDFs and how many other files were left out. Returns the remover.
+/// dropped PDF and Word files and how many other files were left out. Returns the remover.
 void Function() installFileDrop({
   required void Function(bool over) onOver,
   required void Function(List<DroppedFile> files, int skipped) onFiles,
-  int maxBytes = 50 * 1024 * 1024,
+  int maxBytes = kMaxUploadBytes,
 }) {
   var depth = 0;
   void enter(web.Event raw) {
@@ -63,7 +64,7 @@ void Function() installFileDrop({
       final out = <DroppedFile>[];
       var skipped = 0;
       for (final f in files) {
-        if (!droppablePdf(f.name, f.size, maxBytes: maxBytes)) {
+        if (!droppableDoc(f.name, f.size, maxBytes: maxBytes)) {
           skipped += 1;
           continue;
         }

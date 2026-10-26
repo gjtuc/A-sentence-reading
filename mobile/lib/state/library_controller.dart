@@ -8258,7 +8258,7 @@ class LibraryController extends ChangeNotifier {
       } on PlatformException catch (ex) {
         skipped += 1;
         if (ex.code == 'too_large') {
-          message = '파일이 너무 큽니다 (최대 50MB).';
+          message = '파일이 너무 큽니다 (최대 100MB).';
         } else if (ex.code == 'stale') {
           pdfFolderGrantStale = true;
           message = '폴더 접근이 만료되었습니다. 다시 연결해 주세요.';
@@ -8340,7 +8340,7 @@ class LibraryController extends ChangeNotifier {
         batch.add((name: e.displayName, bytes: bytes));
       } on PlatformException catch (ex) {
         final msg = ex.code == 'too_large'
-            ? '파일이 너무 큽니다 (최대 50MB).'
+            ? '파일이 너무 큽니다 (최대 100MB).'
             : (ex.code == 'stale'
                 ? '폴더 접근이 만료되었습니다. 다시 연결해 주세요.'
                 : '파일을 읽지 못했습니다.');
@@ -8635,7 +8635,7 @@ class LibraryController extends ChangeNotifier {
       case 'selected_missing':
         return '선택한 파일을 찾지 못했습니다.';
       case 'too_large':
-        return '파일이 너무 큽니다 (최대 50MB).';
+        return '파일이 너무 큽니다 (최대 100MB).';
       case 'copy_fail':
         return '폴더로 복사하지 못했습니다.';
       case 'enqueue_no_folder':

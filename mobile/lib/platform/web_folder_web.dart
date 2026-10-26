@@ -14,6 +14,7 @@ import 'dart:js_interop_unsafe';
 import 'package:flutter/services.dart';
 import 'package:web/web.dart' as web;
 
+import '../api/upload_limits.dart';
 import 'saf_tree_channel.dart';
 import 'web_folder_paths.dart';
 
@@ -228,7 +229,7 @@ Future<_FileHandle?> _file(String docUri) async {
   return fh;
 }
 
-Future<Uint8List?> webReadFile(String docUri, {int maxBytes = 50 * 1024 * 1024}) async {
+Future<Uint8List?> webReadFile(String docUri, {int maxBytes = kMaxUploadBytes}) async {
   final fh = await _file(docUri);
   if (fh == null) return null;
   final file = await fh.getFile().toDart;
@@ -305,7 +306,7 @@ Future<Map<String, dynamic>> webExtractPdfHead(
   String docUri, {
   int maxChars = 8000,
   int maxPages = 2,
-  int maxReadBytes = 50 * 1024 * 1024,
+  int maxReadBytes = kMaxUploadBytes,
 }) async {
   Map<String, dynamic> fail(String code) => {'ok': false, 'code': code};
   final _FileHandle? fh;

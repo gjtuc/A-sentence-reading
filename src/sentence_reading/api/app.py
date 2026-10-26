@@ -177,7 +177,7 @@ from sentence_reading.pdf.sentences import (
 # WHY: static은 패키지 옆 — setuptools package-data와 개발 모드 모두에서 찾기 쉽게.
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
-_MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+_MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # design/460
 _SESSIONS: dict[str, PaperSession] = {}
 # design/129 — bind open session → cache_id so figure window can read PNGs from disk
 # without trusting client-supplied paths. Same LRU eviction as _SESSIONS.
@@ -5479,7 +5479,7 @@ async def import_title_verify(request: Request, file: UploadFile = File(...)) ->
             status_code=400,
             content={"ok": False, "error": "empty", "title": "", "doi": ""},
         )
-    if len(raw) > 50 * 1024 * 1024:
+    if len(raw) > _MAX_UPLOAD_BYTES:
         return JSONResponse(
             status_code=413,
             content={"ok": False, "error": "too_large", "title": "", "doi": ""},
@@ -10788,7 +10788,7 @@ async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse
             content={
                 "ok": False,
                 "error": "file_too_large",
-                "message": "파일이 너무 큽니다 (최대 50MB).",
+                "message": "파일이 너무 큽니다 (최대 100MB).",
             },
         )
 

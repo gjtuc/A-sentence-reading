@@ -19,7 +19,7 @@ object DocxHeadExtract {
         uri: Uri,
         maxChars: Int = 8000,
         maxParagraphs: Int = 40,
-        maxReadBytes: Int = 50 * 1024 * 1024,
+        maxReadBytes: Int = 100 * 1024 * 1024,
     ): Map<String, Any?> {
         val t0 = System.currentTimeMillis()
         var infoTitle = ""
