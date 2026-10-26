@@ -738,9 +738,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
     Overlay.of(context, rootOverlay: true).insert(entry);
   }
 
-  Future<void> _onFilesDropped(List<DroppedFile> files, int skipped) async {
+  Future<void> _onFilesDropped(
+    List<DroppedFile> files,
+    int skipped,
+    int oldWord,
+  ) async {
     if (!mounted) return;
     final lib = widget.library;
+    if (oldWord > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          duration: Duration(seconds: 8),
+          content: Text(
+            '옛 Word 형식(.doc)은 읽을 수 없어 받지 않았어요. '
+            'Word 에서 열어 「다른 이름으로 저장」→ Word 문서(.docx)로 저장한 뒤 다시 넣어 주세요.',
+          ),
+        ),
+      );
+      if (files.isEmpty) return;
+    }
     if (files.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('PDF 나 Word(.docx) 파일만 끌어다 놓을 수 있어요 (최대 100MB).')),

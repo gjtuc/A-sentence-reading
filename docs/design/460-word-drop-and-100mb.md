@@ -21,3 +21,9 @@
 분석 worker 는 2Gi 그대로다. 100MB 파일은 /tmp (메모리) + 바이트 사본으로 수백 MB 를 쓴다. OOM 이 보이면 `ASR_WORKER_MEMORY` 를 올린다.
 
 시험: `mobile/test/file_drop_458_test.dart` (design/460 test), `tests/test_pdf_advisory_head_limit_231.py`.
+
+## 옛 Word (.doc) — design/461
+
+.doc (Word 97-2003) 은 ZIP+XML 인 .docx 와 속이 다른 이진 형식이라 python-docx 가 못 읽는다. 이름만 .docx 로 바꿔도 앞 바이트 검사(`PK`)에서 걸린다.
+서버 변환(LibreOffice)은 이미지가 수백 MB 커져서 하지 않는다.
+끌어다 놓은 .doc 은 「건너뜀」에 섞지 않고 따로 센다 (`isOldWordDoc`, `onFiles` 셋째 값). 8초 안내: Word 에서 「다른 이름으로 저장」→ .docx.

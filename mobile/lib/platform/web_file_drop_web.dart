@@ -21,10 +21,11 @@ bool _carriesFiles(web.DragEvent e) {
 }
 
 /// [onOver] says whether files are held over the window; [onFiles] gets the
-/// dropped PDF and Word files and how many other files were left out. Returns the remover.
+/// dropped PDF and Word files, how many other files were left out, and how many
+/// of those were old Word (.doc). Returns the remover.
 void Function() installFileDrop({
   required void Function(bool over) onOver,
-  required void Function(List<DroppedFile> files, int skipped) onFiles,
+  required void Function(List<DroppedFile> files, int skipped, int oldWord) onFiles,
   int maxBytes = kMaxUploadBytes,
 }) {
   var depth = 0;
@@ -63,7 +64,12 @@ void Function() installFileDrop({
     unawaited(() async {
       final out = <DroppedFile>[];
       var skipped = 0;
+      var oldWord = 0;
       for (final f in files) {
+        if (isOldWordDoc(f.name)) {
+          oldWord += 1;
+          continue;
+        }
         if (!droppableDoc(f.name, f.size, maxBytes: maxBytes)) {
           skipped += 1;
           continue;
@@ -75,7 +81,7 @@ void Function() installFileDrop({
           skipped += 1;
         }
       }
-      onFiles(out, skipped);
+      onFiles(out, skipped, oldWord);
     }());
   }
 

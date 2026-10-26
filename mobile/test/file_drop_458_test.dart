@@ -16,7 +16,7 @@ void main() {
     var calls = 0;
     final remove = installFileDrop(
       onOver: (_) => calls += 1,
-      onFiles: (_, __) => calls += 1,
+      onFiles: (_, __, ___) => calls += 1,
     );
     remove();
     expect(calls, 0);
@@ -30,5 +30,13 @@ void main() {
     expect(droppableDoc('big.pdf', 99 * 1024 * 1024), isTrue);
     expect(droppableDoc('big.pdf', 100 * 1024 * 1024), isTrue);
     expect(droppableDoc('big.pdf', 100 * 1024 * 1024 + 1), isFalse);
+  });
+
+  test('design/461 old Word files are told apart, not queued', () {
+    expect(isOldWordDoc('paper.doc'), isTrue);
+    expect(isOldWordDoc(' Paper.DOC '), isTrue);
+    expect(isOldWordDoc('paper.docx'), isFalse);
+    expect(isOldWordDoc('paper.pdf'), isFalse);
+    expect(droppableDoc('paper.doc', 1000), isFalse);
   });
 }
