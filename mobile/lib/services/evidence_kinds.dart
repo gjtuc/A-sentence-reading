@@ -226,6 +226,8 @@ const Set<String> kEvidenceAllowedKinds = {
   'pdf_folder_grant_done',
   'pdf_folder_scan_done',
   'pdf_folder_grant_stale',
+  // design/465 — title cache hit refused when the body does not match
+  'cache_title_hit_rejected',
   'pdf_hash_cache_hit',
   'pdf_hash_cache_miss',
   'pdf_hash_cache_fail',

@@ -287,7 +287,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.479",
+    version="0.3.480",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -7357,7 +7357,7 @@ def _file_sha256(path: Path) -> str | None:
 
 
 def _try_cache_hit(
-    text: str, kind: str, *, doc_role: str = "main"
+    text: str, kind: str, *, doc_role: str = "main", content_hash: str | None = None
 ) -> tuple[PaperSession, dict, dict] | None:
     """보관본 히트 시 (session, info, hit_entry)."""
     hit = find_cached_by_text(text, source=kind, doc_role=doc_role)
@@ -7375,6 +7375,30 @@ def _try_cache_hit(
     session, info = loaded
     if kind == "docx" and len(session.figures) == 0:
         return None
+    # design/465 — another file: its text must carry this paper's opening sentences.
+    same_file = bool(content_hash) and (
+        str(hit.get("content_hash") or "").strip().lower()
+        == str(content_hash).strip().lower()
+    )
+    if not same_file:
+        from sentence_reading.cache.paper_cache import opening_sentences_present
+
+        if not opening_sentences_present([s.text for s in session.sentences], text):
+            try:
+                from sentence_reading.llm import evidence_bus as eb
+
+                eb.emit(
+                    "cache_title_hit_rejected",
+                    severity="consistency",
+                    cache_id=str(hit["id"]),
+                    stage="cache",
+                    ok=True,
+                    code="body_mismatch",
+                    details={"title_key_n": len(str(hit.get("title_key") or ""))},
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return None
     return session, info, hit
 
 
@@ -8192,7 +8216,9 @@ async def _run_ingest_job_body(
         # 재분석(skip_cache) 또는 원본 백필은 히트 경로에서도 진행
         if not skip_cache and not jump_ready:
             _job_set(job_id, percent=10, stage="cache", message="제목으로 보관본 찾는 중")
-            cached = await asyncio.to_thread(_try_cache_hit, text, kind, doc_role=doc_role)
+            cached = await asyncio.to_thread(
+                _try_cache_hit, text, kind, doc_role=doc_role, content_hash=content_hash
+            )
             if cached is not None:
                 # design/132 — cancel before binding an existing library id to this job.
                 _ensure_ingest_not_cancelled(job_id)
@@ -8354,7 +8380,9 @@ async def _run_ingest_job_body(
             if recovered.vision_pages and not skip_cache:
                 # 복구 후 제목이 보이면 보관본 재사용
                 _job_set(job_id, percent=40, stage="cache", message="복구 후 보관본 확인")
-                cached = await asyncio.to_thread(_try_cache_hit, text, kind, doc_role=doc_role)
+                cached = await asyncio.to_thread(
+                    _try_cache_hit, text, kind, doc_role=doc_role, content_hash=content_hash
+                )
                 if cached is not None:
                     session, info, hit = cached
                     await asyncio.to_thread(

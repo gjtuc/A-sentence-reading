@@ -615,6 +615,41 @@ def figure_data_url(cache_id: str, figure_id: str) -> str | None:
     return None
 
 
+def _compact_text(text: str) -> str:
+    t = unicodedata.normalize("NFKC", text or "").casefold()
+    return re.sub(r"[\W_]+", "", t, flags=re.UNICODE)
+
+
+def opening_sentences_present(
+    sentences: list[str],
+    text: str,
+    *,
+    probe: int = 8,
+    width: int = 48,
+    need: int = 2,
+) -> bool:
+    """design/465 — the cached paper's opening sentences appear in [text].
+
+    A title key found in the head of a different file is not proof: a short or
+    mis-picked title (a chemical name fragment) can sit inside another paper.
+    Spacing, hyphenation and punctuation are ignored.
+    """
+    body = _compact_text(text)
+    if not body:
+        return False
+    probes: list[str] = []
+    for s in sentences:
+        c = _compact_text(s)
+        if len(c) >= width:
+            probes.append(c[:width])
+        if len(probes) >= probe:
+            break
+    if not probes:
+        return False
+    hits = sum(1 for p in probes if p in body)
+    return hits >= min(need, len(probes))
+
+
 def find_cached_by_text(
     text: str, *, source: str = "pdf", doc_role: str = "main"
 ) -> dict | None:

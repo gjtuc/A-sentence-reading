@@ -42,10 +42,17 @@ def test_unstamped_save_stays_unstamped(tmp_path, monkeypatch) -> None:
 
 
 def _hit(monkeypatch, build: str) -> object:
-    hit = {"id": "abcd1234ef", "pipeline_version": PIPELINE_VERSION, "analyzed_build": build}
+    hit = {
+        "id": "abcd1234ef",
+        "pipeline_version": PIPELINE_VERSION,
+        "analyzed_build": build,
+        "content_hash": "same-file",
+    }
     monkeypatch.setattr(app_mod, "find_cached_by_text", lambda *_a, **_k: dict(hit))
     monkeypatch.setattr(app_mod, "load_cached_session", lambda _cid: (_session(), {}))
-    return app_mod._try_cache_hit("Archive Build Stamp Paper Title Long Enough", "pdf")
+    return app_mod._try_cache_hit(
+        "Archive Build Stamp Paper Title Long Enough", "pdf", content_hash="same-file"
+    )
 
 
 def test_archive_from_another_build_is_not_reused(monkeypatch) -> None:

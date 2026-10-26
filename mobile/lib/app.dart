@@ -116,6 +116,10 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
       // screen-local clearAll never runs. Wipe at app root so the next account
       // cannot see papers / resume another user's upload draft.
       _boundLibraryUid = null;
+      // design/465 — before auth/status answers (or while it is slow) the user is
+      // unknown, not signed out. Wiping then deleted the upload queue at every
+      // start, and on the web a second window deleted the first one's files.
+      if (_auth.bootstrapping || _auth.sessionRestorePending) return;
       await _library.clearAll();
       return;
     }

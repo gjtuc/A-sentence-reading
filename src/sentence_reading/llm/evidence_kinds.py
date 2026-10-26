@@ -330,5 +330,7 @@ ALLOWED_KINDS = frozenset(
         # design/256 — ingest poll oversized + translate/practice mismatch
         "ingest_job_view_size",
         "translate_optout_mismatch",
+        # design/465 — title cache hit refused when the body does not match
+        "cache_title_hit_rejected",
     }
 )

@@ -133,7 +133,10 @@ class AuthController extends ChangeNotifier {
   Future<void> _enterSessionRestorePending(Object? err) async {
     final token = await _client.sessionStore.readToken();
     final hasToken = token != null && token.isNotEmpty;
-    final kept = hasToken || (_cachedUser != null && !_cachedUser!.isEmpty);
+    // design/465 — the web session is an HttpOnly cookie the app cannot see; a
+    // missing cookie answers 401 at once, so a timeout there keeps the session.
+    final kept =
+        hasToken || kIsWeb || (_cachedUser != null && !_cachedUser!.isEmpty);
     asrEvidenceBus?.record(
       'client_api_timeout',
       severity: 'error',
