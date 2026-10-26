@@ -608,6 +608,11 @@ class AsrClient {
     return h;
   }
 
+  Future<bool> _hasSessionToken() async {
+    final token = await _sessions.readToken();
+    return token != null && token.isNotEmpty;
+  }
+
   Future<void> _captureSession(http.Response res) async {
     // package:http exposes a single set-cookie string (may join multiples).
     final setCookie = res.headers['set-cookie'];
@@ -1430,8 +1435,9 @@ class AsrClient {
     required String contentHash,
     required int size,
   }) async {
-    final token = await _sessions.readToken();
-    if (token == null || token.isEmpty) {
+    // design/463 — the web session is an HttpOnly cookie the app cannot read;
+    // the server decides (401) there.
+    if (!kIsWeb && !await _hasSessionToken()) {
       throw AsrApiException('로그인이 필요합니다.', 401);
     }
     final res = await _http
@@ -1606,8 +1612,9 @@ class AsrClient {
     bool Function()? isCancelled,
   }) async {
     _validatePdfBytes(filename, bytes);
-    final token = await _sessions.readToken();
-    if (token == null || token.isEmpty) {
+    // design/463 — the web session is an HttpOnly cookie the app cannot read;
+    // the server decides (401) there.
+    if (!kIsWeb && !await _hasSessionToken()) {
       throw AsrApiException('로그인이 필요합니다.', 401);
     }
 
@@ -1692,15 +1699,16 @@ class AsrClient {
   }) async {
     _validatePdfBytes(filename, bytes);
 
-    final token = await _sessions.readToken();
-    if (token == null || token.isEmpty) {
+    // design/463 — the web session is an HttpOnly cookie the app cannot read;
+    // the server decides (401) there.
+    if (!kIsWeb && !await _hasSessionToken()) {
       throw AsrApiException('로그인이 필요합니다.', 401);
     }
 
     final ingestPath =
         '/api/ingest${_ingestOptQuery(shadowingPractice: shadowingPractice, translate: translate)}';
     final req = http.MultipartRequest('POST', _uri(ingestPath));
-    req.headers['Cookie'] = '$kAsrSessionCookieName=$token';
+    req.headers.addAll(await _headers());
     req.headers['Accept'] = 'application/json';
     req.files.add(
       http.MultipartFile.fromBytes('file', bytes, filename: filename.trim()),
