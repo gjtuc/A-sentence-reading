@@ -167,7 +167,10 @@ class EvidenceBus {
             // design/390 - the review's own answer key.
             key == 'ref_phones' ||
             key == 'heard_phones' ||
-            key == 'phone_pairs') {
+            key == 'phone_pairs' ||
+            // design/466 - the user's own upload file name, never paper text.
+            key == 'file_name' ||
+            RegExp(r'^file_name_\d$').hasMatch(key)) {
           final heard = s.replaceAll(RegExp(r'\s+'), ' ');
           // design/390 - the per-sound rows of a long sentence ran past 400 and
           // lost their last words.

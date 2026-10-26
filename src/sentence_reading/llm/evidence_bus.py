@@ -183,7 +183,12 @@ def _safe_details(raw: Any) -> dict[str, Any]:
             out[k] = round(max(-1e12, min(val, 1e12)), 3)
         elif isinstance(val, str):
             s = val.strip()[:64]
-            if k in (
+            if re.match(r"^file_name(?:_\d)?$", k):
+                # design/466 - the user's own upload file name, never paper text.
+                name = " ".join(val.split())[:200]
+                if name:
+                    out[k] = name
+            elif k in (
                 "stt_heard",
                 "spoken_line",
                 "slot_hits",

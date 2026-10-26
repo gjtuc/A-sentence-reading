@@ -218,6 +218,7 @@ ALLOWED_KINDS = frozenset(
         # design/221 — upload reservation queue
         "upload_queue_enqueue",
         "upload_queue_remove",
+        "upload_queue_wiped",
         "upload_queue_pump_start",
         "upload_queue_pump_done",
         "upload_queue_blocked",

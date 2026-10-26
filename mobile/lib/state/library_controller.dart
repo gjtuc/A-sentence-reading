@@ -5648,6 +5648,20 @@ class LibraryController extends ChangeNotifier {
     // design/403 — web has no app documents folder (path_provider throws).
     if (!kIsWeb) await _editStash.purgeAll();
     await _drafts.clear();
+    final wiped = (await _reserve.read()).items;
+    if (wiped.isNotEmpty) {
+      asrEvidenceBus?.record(
+        'upload_queue_wiped',
+        severity: 'lifecycle',
+        stage: 'clear_all',
+        details: {
+          'n': wiped.length,
+          'web': kIsWeb,
+          for (var i = 0; i < wiped.length && i < 5; i++)
+            'file_name_$i': wiped[i].filename,
+        },
+      );
+    }
     await _reserve.clear();
     await _pickerRecent.clearBound();
     final oldGrant = pdfFolderGrant;
@@ -8876,7 +8890,10 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// design/221 — remove a reserved (or orphan) item; never clears active singleton draft.
-  Future<void> removeUploadQueueItem(String contentHash) async {
+  Future<void> removeUploadQueueItem(
+    String contentHash, {
+    String reason = 'other',
+  }) async {
     final hash = contentHash.trim().toLowerCase();
     if (hash.length != 64) return;
     final q = await _reserve.read();
@@ -8900,7 +8917,14 @@ class LibraryController extends ChangeNotifier {
       'upload_queue_remove',
       severity: 'lifecycle',
       stage: removed.isActive ? 'active_or_done' : 'reserved',
-      details: {'hash8': hash.substring(0, 8)},
+      details: {
+        'hash8': hash.substring(0, 8),
+        // design/466 — the user's own file name, so a lost file can be found.
+        'reason': reason,
+        'file_name': removed.filename,
+        'bytes_len': removed.bytesLen,
+        'web': kIsWeb,
+      },
     );
     notifyListeners();
   }
@@ -8973,7 +8997,7 @@ class LibraryController extends ChangeNotifier {
             // EDGE: migrated active without reserve bytes — resume UI owns it.
             break;
           }
-          await removeUploadQueueItem(head.contentHash);
+          await removeUploadQueueItem(head.contentHash, reason: 'bytes_missing');
           continue;
         }
 
@@ -8996,7 +9020,7 @@ class LibraryController extends ChangeNotifier {
 
         final still = await _drafts.read();
         if (result != null) {
-          await removeUploadQueueItem(head.contentHash);
+          await removeUploadQueueItem(head.contentHash, reason: 'uploaded');
           asrEvidenceBus?.record(
             'upload_queue_pump_done',
             severity: 'lifecycle',
@@ -9039,7 +9063,7 @@ class LibraryController extends ChangeNotifier {
           break;
         }
 
-        await removeUploadQueueItem(head.contentHash);
+        await removeUploadQueueItem(head.contentHash, reason: 'fail_or_cancel');
         asrEvidenceBus?.record(
           'upload_queue_pump_done',
           severity: 'lifecycle',

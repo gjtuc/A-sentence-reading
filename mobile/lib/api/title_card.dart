@@ -71,7 +71,8 @@ bool _titleUsable(String text) {
   ).hasMatch(text)) {
     return false;
   }
-  final commas = ','.allMatches(text).length;
+  // design/466 — locant commas ("2,2,6,6-tetramethyl") are not a name list.
+  final commas = RegExp(r'(?<!\d),|,(?!\d)').allMatches(text).length;
   final stars = '*'.allMatches(text).length;
   if (stars >= 1 && commas >= 2) return false;
   if (commas >= 3 &&

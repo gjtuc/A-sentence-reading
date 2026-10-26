@@ -79,6 +79,11 @@ def polish_title(raw: str) -> str:
     """Drop a journal-issue citation and a short kicker that repeats in the title."""
     text = strip_si_banner(raw)
     text = _JOURNAL_CITE.sub("", text).strip(" .")
+    # design/466 — a title wrapped after a hyphen ("3,5-" / "heptanedionato")
+    # arrives as "3,5- heptanedionato".
+    text = re.sub(
+        r"(?<=[^\s-])- (?!(?:and|or|nor|to|vs)\b)(?=[a-z0-9(\[])", "-", text
+    )
     if ":" not in text:
         return text
     head, tail = text.split(":", 1)
@@ -229,7 +234,8 @@ def looks_like_author_dump(raw: str) -> bool:
     text = re.sub(r"\s+", " ", (raw or "").strip())
     if len(text) < 16 or len(text) > 420:
         return False
-    commas = text.count(",")
+    # design/466 — locant commas ("2,2,6,6-tetramethyl") are not a name list.
+    commas = len(re.findall(r"(?<!\d),|,(?!\d)", text))
     stars = text.count("*")
     if stars >= 1 and commas >= 2:
         return True
@@ -566,6 +572,8 @@ def align_title_sentences(sentences: list, picked_title: str) -> tuple[list, str
         return list(sentences or []), (
             "skipped_unusable" if has_title else "absent"
         )
+    if not has_title:
+        return _split_leading_title(list(sentences or []), picked)
     out: list = []
     card = "absent"
     kept_one = False
@@ -597,6 +605,71 @@ def align_title_sentences(sentences: list, picked_title: str) -> tuple[list, str
             )
         )
     return out, card
+
+
+def _alnum_cut(text: str, want: int) -> int:
+    """Index in text just past its first `want` letters/digits outside tags, or -1."""
+    seen = 0
+    in_tag = False
+    for i, ch in enumerate(text):
+        if ch == "<":
+            in_tag = True
+        elif ch == ">" and in_tag:
+            in_tag = False
+        elif not in_tag and ch.isalnum():
+            seen += 1
+            if seen == want:
+                return i + 1
+    return -1
+
+
+def _split_leading_title(sentences: list, picked: str) -> tuple[list, str]:
+    """design/466 — no title card, but sentence 0 opens with the picked title.
+
+    Layouts without an Azure title role (encyclopedia entries) glue the title to
+    the first body line, so the reader had no Title card. Card token is split
+    or absent.
+    """
+    from sentence_reading.models import Sentence
+
+    if not sentences:
+        return sentences, "absent"
+    first = sentences[0]
+    text = re.sub(r"\s+", " ", str(getattr(first, "text", "") or "").strip())
+    want = "".join(ch for ch in picked.casefold() if ch.isalnum())
+    have = "".join(
+        ch for ch in re.sub(r"<[^>]+>", "", text).casefold() if ch.isalnum()
+    )
+    if not want or not have.startswith(want):
+        return sentences, "absent"
+    cut = _alnum_cut(text, len(want))
+    rest = re.sub(r"^(?:\s*</[^>]+>)+", "", text[cut:]) if cut > 0 else ""
+    tail = re.sub(r"^.*[^\W_]", "", picked, flags=re.DOTALL).strip()
+    if tail and rest.lstrip().startswith(tail):
+        rest = rest.lstrip()[len(tail):]
+    rest = rest.strip(" .:;,\u2014\u2013-")
+    card = Sentence(
+        id="sent_title",
+        text=picked,
+        section="title",
+        start_char=getattr(first, "start_char", None),
+        end_char=None,
+        text_ko="",
+        text_ko_stage="",
+    )
+    if len(re.sub(r"[^A-Za-z]", "", rest)) < 3:
+        return [card, *sentences[1:]], "split"
+    body = Sentence(
+        id=str(getattr(first, "id", "") or "sent_000000"),
+        text=rest,
+        section=getattr(first, "section", None),
+        start_char=None,
+        end_char=getattr(first, "end_char", None),
+        text_ko="",
+        text_ko_stage="",
+        quality_flags=tuple(getattr(first, "quality_flags", ()) or ()),
+    )
+    return [card, body, *sentences[1:]], "split"
 
 
 def head_title_after_banner(text: str) -> int:
