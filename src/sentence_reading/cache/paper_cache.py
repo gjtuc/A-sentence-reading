@@ -16,6 +16,7 @@ from pathlib import Path
 
 from sentence_reading.llm.typography import PIPELINE_VERSION
 from sentence_reading.models import Figure, PaperSession, Sentence
+from sentence_reading.paper_headings import clean_headings
 
 _INDEX_NAME = "index.json"
 _SESSION_NAME = "session.json"
@@ -1084,6 +1085,7 @@ def load_cached_session(
         references=_load_references(meta.get("references")),
         document_citation=_load_document_citation(meta.get("document_citation")),
         speak_terms=_load_speak_terms(meta.get("speak_terms")),
+        headings=clean_headings(meta.get("headings")),
     )
     session.clamp_indices()
     info = {
@@ -1621,6 +1623,9 @@ def save_paper_session(
         "document_citation": _load_document_citation(session.document_citation),
         "speak_terms": _load_speak_terms(session.speak_terms),
     }
+    _heads = clean_headings(session.headings)
+    if _heads:
+        payload["headings"] = _heads
     if has_tr:
         payload["translate_doc_version"] = "doc-v1"
     # design/169i — session generation for artifact ledger (metadata only).

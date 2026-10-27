@@ -4698,6 +4698,7 @@ class LibraryController extends ChangeNotifier {
               section: s.section,
               textKo: filled[mi],
               qualityFlags: s.qualityFlags,
+              heading: s.heading,
             ),
           );
           applied += 1;

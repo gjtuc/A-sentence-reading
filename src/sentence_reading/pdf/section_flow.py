@@ -138,6 +138,92 @@ def header_key(text: str) -> str | None:
     return None
 
 
+# design/469 — `3.4. Strong Alloying Effect…` can come back without the heading role.
+_NUMBERED_HEAD = re.compile(r"^\d{1,2}(?:\.\d{1,2}){0,3}\.?\s+[A-Z]")
+# `CONSPECTUS: In recent years…` — a one-word heading run into its own paragraph.
+_RUN_IN_HEAD = re.compile(r"^([A-Z]{4,24})\s*:\s+\S")
+
+
+def heading_text(box: FlowBox) -> str:
+    """The box's text when the box is a heading of the paper, else ''."""
+    text = " ".join((box.text or "").split())
+    if not text or len(text) > 160 or len(re.findall(r"[A-Za-z]{2,}", text)) < 1:
+        return ""
+    if norm_role(box.role) == "sectionheading":
+        return text
+    if (
+        len(text) < 120
+        and _NUMBERED_HEAD.match(text)
+        and _looks_like_heading(re.sub(r"^[\d.]+\s*", "1. ", text))
+    ):
+        return text
+    return ""
+
+
+def _heading_per_box(
+    assigned: list[tuple[str, FlowBox]],
+) -> dict[int, tuple[str, str]]:
+    """For each box in reading order: the heading in effect, and the heading text the
+    box itself prints ('' for a body box).
+
+    Only reads `assigned`; the order and the section keys are not touched. Two headings
+    with nothing between them (`3. …` then `3.1. …`) are kept together.
+    """
+    out: dict[int, tuple[str, str]] = {}
+    current = ""
+    last_was_heading = False
+    for key, box in assigned:
+        if key == "references":
+            out[id(box)] = ("", "")
+            last_was_heading = False
+            continue
+        head = heading_text(box)
+        printed = ""
+        if head:
+            current = f"{current} › {head}" if last_was_heading and current else head
+            printed = head
+            last_was_heading = True
+        else:
+            run_in = _RUN_IN_HEAD.match(" ".join((box.text or "").split()))
+            if run_in:
+                current = run_in.group(1)
+                printed = run_in.group(0)[:-1].rstrip()
+            last_was_heading = False
+        out[id(box)] = (current, printed)
+    return out
+
+
+def _heading_starts(
+    card: str,
+    card_boxes: list[FlowBox],
+    heading_of: dict[int, tuple[str, str]],
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Each heading that begins inside `card`, with the openings of the text after it."""
+    flat = " ".join(card.split())
+    starts: list[tuple[str, tuple[str, ...]]] = []
+    running = ""
+    at = 0
+    for n, box in enumerate(card_boxes):
+        head, printed = heading_of.get(id(box), ("", ""))
+        if n == 0:
+            running = head
+            if not printed:
+                continue
+        elif head == running:
+            continue
+        running = head
+        own = " ".join((box.text or "").split())
+        pos = flat.find(own[:40], at) if own else -1
+        if pos < 0:
+            continue
+        at = pos
+        rest = flat[pos + len(printed):] if printed else flat[pos:]
+        openings = tuple(box_openings(rest.lstrip(" :.—–-")))
+        if head and openings:
+            starts.append((head, openings))
+    return tuple(starts)
+
+
 def _looks_like_heading(line: str) -> bool:
     """A numbered section title, not a bibliography entry '1. Smith, 2020.'."""
     if re.search(r"\[|doi|https?://|www\.", line, re.IGNORECASE):
@@ -603,6 +689,7 @@ def order_boxes(boxes: list[FlowBox], pages: list[dict]) -> OrderedPaper:
     census["dropped_not_sentence_n"] = sum(
         1 for _k, b in assigned if not _keep_as_sentence(b)
     )
+    heading_of = _heading_per_box(assigned)
 
     sections: list[tuple[str, list[str], list[FlowBox]]] = []
     page_parts: list[list[str]] = [[] for _ in range(n_pages)]
@@ -635,7 +722,7 @@ def order_boxes(boxes: list[FlowBox], pages: list[dict]) -> OrderedPaper:
             body_spans.append((text, spans, boxes))
 
     marked_parts = [f"{section_mark(key)}\n{text}" for key, text in body]
-    box_marks = _box_marks_for(body, body_spans)
+    box_marks = _box_marks_for(body, body_spans, heading_of)
     references_text = "\n\n".join(refs).strip()
     if references_text:
         if not re.match(r"(?i)references\b", references_text):
@@ -654,6 +741,7 @@ def order_boxes(boxes: list[FlowBox], pages: list[dict]) -> OrderedPaper:
 def _box_marks_for(
     body: list[tuple[str, str]],
     body_spans: list[tuple[str, list[tuple[int, int]], list[FlowBox]]],
+    heading_of: dict[int, tuple[str, str]] | None = None,
 ) -> list[BoxMark]:
     """Where each paragraph box lands in `marked_text`, with its page and rectangle.
 
@@ -665,10 +753,12 @@ def _box_marks_for(
     previous_card = ""
     for (key, text), (_same, spans, boxes) in zip(body, body_spans):
         head = len(section_mark(key)) + 1  # the mark and its newline
-        for card_at, origin in spans:
+        for span_i, (card_at, origin) in enumerate(spans):
             if not (0 <= origin < len(boxes)):
                 continue
             box = boxes[origin]
+            next_origin = spans[span_i + 1][1] if span_i + 1 < len(spans) else len(boxes)
+            card_boxes = boxes[origin:max(origin + 1, next_origin)]
             card = text[card_at:].split("\n\n")[0]
             # design/353 — one marker is one chance, and a watermark welded to the opening
             # or an opening longer than the sentence the model returned costs the box that
@@ -687,6 +777,8 @@ def _box_marks_for(
                     openings=tuple(box_openings(card, continues_previous=spans_break)),
                     closing=box_closing(card),
                     continues_previous=spans_break,
+                    heading=(heading_of or {}).get(id(box), ("", ""))[0],
+                    heading_starts=_heading_starts(card, card_boxes, heading_of or {}),
                 )
             )
             previous_card = card

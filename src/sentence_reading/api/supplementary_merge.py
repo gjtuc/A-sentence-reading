@@ -155,6 +155,7 @@ def merge_supplementary(main_id: str) -> dict:
         },
         references=merge_refs,
         document_citation=dict(main_session.document_citation or {}),
+        headings=list(main_session.headings or []),
     )
     merged_session.clamp_indices()
 

@@ -68,6 +68,8 @@ class PaperSession:
     # WHY: design/343 — this paper's own compound names, `printed -> spoken`, already
     # checked against the formula's elements. Per paper, never process-global.
     speak_terms: dict = field(default_factory=dict)
+    # WHY: design/469 — the paper's own headings, `[{"text", "from": sentence id}]`.
+    headings: list = field(default_factory=list)
 
     def clamp_indices(self) -> None:
         """빈 목록이면 인덱스를 0으로 두고, UI가 empty 상태를 처리한다."""
@@ -181,6 +183,7 @@ class PaperSession:
                 and _ref_n_ok(r.get("n"))
             ],
             "document_citation": public_document_citation(self.document_citation),
+            **({"headings": list(self.headings)} if self.headings else {}),
             # design/183 — open hint; client recomputes T from chips (SoT).
             "first_fig_table_chip_sentence_index": first_fig_table_chip_sentence_index(
                 self.sentences,

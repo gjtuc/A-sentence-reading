@@ -287,7 +287,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.482",
+    version="0.3.483",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -8582,6 +8582,7 @@ async def _run_ingest_job_body(
         digests: dict = {}
         resumed_debone = False
         text_for_sentences = text
+        _heading_marks: list = []
         if skip_debone and isinstance(resume_pl, dict) and resume_pl.get("sentences"):
             try:
                 restored = []
@@ -8687,11 +8688,12 @@ async def _run_ingest_job_body(
                     )
 
                 _job_set(job_id, percent=48, stage="debone", message="논문 훑는 중")
+                _heading_marks = _box_marks if text_for_sentences == text else []
                 result: DeboneResult = await asyncio.to_thread(
                     debone_sentences,
                     text_for_sentences,
                     on_progress,
-                    _box_marks if text_for_sentences == text else [],
+                    _heading_marks,
                 )
                 if result.ok and result.sentences:
                     sentences = result.sentences
@@ -9043,6 +9045,16 @@ async def _run_ingest_job_body(
                 for s in sentences
             ]
 
+        _headings: list = []
+        if doc_role != "supplementary" and _heading_marks:
+            try:
+                from sentence_reading.paper_headings import heading_anchors
+
+                _headings = heading_anchors(sentences, _heading_marks, title=title)
+                warnings.append(f"headings:{sum(1 for h in _headings if h['text'])}")
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(f"headings_failed:{type(exc).__name__}")
+
         # WHY: design/45 — 번역 전에 영어 세션을 먼저 열어 읽기 시작
         session = PaperSession(
             title=title,
@@ -9052,6 +9064,7 @@ async def _run_ingest_job_body(
             references=references,
             document_citation=document_citation if doc_role != "supplementary" else {},
             speak_terms=_speak_terms,
+            headings=_headings,
         )
         session_id = _remember_session(session)
 

@@ -83,6 +83,7 @@ class SentenceView {
     this.section = '',
     this.textKo = '',
     this.qualityFlags = const [],
+    this.heading = '',
   });
 
   factory SentenceView.fromJson(Map<String, dynamic>? json) {
@@ -109,6 +110,18 @@ class SentenceView {
   final String section;
   final String textKo;
   final List<String> qualityFlags;
+
+  /// design/469 — the paper's own heading in effect here ('' when none).
+  final String heading;
+
+  SentenceView withHeading(String value) => SentenceView(
+        id: id,
+        text: text,
+        section: section,
+        textKo: textKo,
+        qualityFlags: qualityFlags,
+        heading: value,
+      );
 
   bool get hasText => text.trim().isNotEmpty;
   bool get isUngrounded => qualityFlags.contains('ungrounded');
@@ -256,7 +269,10 @@ class ReadingSession {
       }
     }
     final pickedTitle = '${json['title'] ?? fallbackTitle}'.trim();
-    final alignedSentences = alignTitleSentences(sentences, pickedTitle);
+    final alignedSentences = applyPaperHeadings(
+      alignTitleSentences(sentences, pickedTitle),
+      json['headings'],
+    );
     final warnings = <String>[];
     final rawW = json['warnings'];
     if (rawW is List) {
@@ -437,6 +453,7 @@ class ReadingSession {
           section: s.section,
           textKo: p.textKo,
           qualityFlags: s.qualityFlags,
+          heading: s.heading,
         );
       }
     }

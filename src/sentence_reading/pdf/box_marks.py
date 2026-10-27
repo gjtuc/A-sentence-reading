@@ -100,6 +100,14 @@ class BoxMark:
     # what a column break does. The sentence then belongs to both boxes, and saying so is
     # better than assigning it to one.
     continues_previous: bool = False
+    # design/469 — the paper's own heading this box sits under ("2.1. Metal-Metal
+    # Interactions"). Section keys are a fixed vocabulary, so a review paper's headings
+    # all became `body` and the text was lost.
+    heading: str = ""
+    # A heading printed inside this card (`2.1. Metal-Metal Interactions Subject to…`
+    # is one card) and the openings of the text right after it. The card's own opening
+    # starts with the heading, which no returned sentence does.
+    heading_starts: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     def to_dict(self) -> dict:
         return {

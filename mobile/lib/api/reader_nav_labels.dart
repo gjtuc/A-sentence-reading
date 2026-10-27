@@ -46,74 +46,75 @@ class SectionHeaderParts {
   String get rightLabel => total > 0 ? '$position / $total' : '— / —';
 }
 
-/// Maps each sentence global index → position within its section.
+/// design/469 — the picker's groups are consecutive runs of (section, heading), in
+/// reading order. Bookmark keys stay `{sectionKey}:{posInSection}` over the whole
+/// section, so bookmarks saved before headings existed still point at their sentence.
 class SectionNavIndex {
   SectionNavIndex._({
-    required List<(String, int, int)> byGlobal,
-    required List<String> sectionKeysInOrder,
+    required List<_NavGroup> groups,
+    required List<(int, int, int)> byGlobal,
+    required List<(String, int)> keyByGlobal,
     required Map<String, List<int>> indicesBySection,
-  })  : _byGlobal = byGlobal,
-        _sectionKeysInOrder = sectionKeysInOrder,
+  })  : _groups = groups,
+        _byGlobal = byGlobal,
+        _keyByGlobal = keyByGlobal,
         _indicesBySection = indicesBySection;
 
   factory SectionNavIndex.fromSentences(List<SentenceView> sentences) {
+    final groups = <_NavGroup>[];
     final buckets = <String, List<int>>{};
-    final order = <String>[];
+    final keyByGlobal = List<(String, int)>.filled(sentences.length, ('', 0));
     for (var i = 0; i < sentences.length; i++) {
       final key = _sectionKey(sentences[i].section);
-      if (!buckets.containsKey(key)) {
-        order.add(key);
-        buckets[key] = [];
+      final heading = sentences[i].heading.trim();
+      if (groups.isEmpty ||
+          groups.last.sectionKey != key ||
+          groups.last.heading != heading) {
+        groups.add(_NavGroup(key, heading));
       }
-      buckets[key]!.add(i);
+      groups.last.indices.add(i);
+      final bucket = buckets.putIfAbsent(key, () => []);
+      bucket.add(i);
+      keyByGlobal[i] = (key, bucket.length);
     }
-    final byGlobal = List<(String, int, int)>.filled(
-      sentences.length,
-      ('', 0, 0),
-    );
-    for (final key in order) {
-      final indices = buckets[key]!;
-      final total = indices.length;
+    final byGlobal = List<(int, int, int)>.filled(sentences.length, (0, 0, 0));
+    for (var g = 0; g < groups.length; g++) {
+      final indices = groups[g].indices;
       for (var pos = 0; pos < indices.length; pos++) {
-        byGlobal[indices[pos]] = (key, pos + 1, total);
+        byGlobal[indices[pos]] = (g, pos + 1, indices.length);
       }
     }
     return SectionNavIndex._(
+      groups: groups,
       byGlobal: byGlobal,
-      sectionKeysInOrder: order,
+      keyByGlobal: keyByGlobal,
       indicesBySection: buckets,
     );
   }
 
-  final List<(String sectionKey, int posInSection, int totalInSection)>
-      _byGlobal;
-  final List<String> _sectionKeysInOrder;
+  final List<_NavGroup> _groups;
+  final List<(int group, int posInGroup, int totalInGroup)> _byGlobal;
+  final List<(String sectionKey, int posInSection)> _keyByGlobal;
   final Map<String, List<int>> _indicesBySection;
 
   bool get isEmpty => _byGlobal.isEmpty;
 
-  int get sectionCount => _sectionKeysInOrder.length;
+  int get sectionCount => _groups.length;
 
   String sectionLabelAt(int sectionIndex) {
-    if (sectionIndex < 0 || sectionIndex >= _sectionKeysInOrder.length) {
-      return '';
-    }
-    return sectionDisplayName(_sectionKeysInOrder[sectionIndex]);
+    if (sectionIndex < 0 || sectionIndex >= _groups.length) return '';
+    return _groups[sectionIndex].label;
   }
 
   int positionCountForSection(int sectionIndex) {
-    if (sectionIndex < 0 || sectionIndex >= _sectionKeysInOrder.length) {
-      return 0;
-    }
-    return _indicesBySection[_sectionKeysInOrder[sectionIndex]]?.length ?? 0;
+    if (sectionIndex < 0 || sectionIndex >= _groups.length) return 0;
+    return _groups[sectionIndex].indices.length;
   }
 
   /// 0-based position within section → global sentence index.
   int? globalIndexFor(int sectionIndex, int positionIndex) {
-    if (sectionIndex < 0 || sectionIndex >= _sectionKeysInOrder.length) {
-      return null;
-    }
-    final indices = _indicesBySection[_sectionKeysInOrder[sectionIndex]]!;
+    if (sectionIndex < 0 || sectionIndex >= _groups.length) return null;
+    final indices = _groups[sectionIndex].indices;
     if (positionIndex < 0 || positionIndex >= indices.length) return null;
     return indices[positionIndex];
   }
@@ -122,9 +123,8 @@ class SectionNavIndex {
     if (globalIndex < 0 || globalIndex >= _byGlobal.length) {
       return (0, 0);
     }
-    final (key, pos, _) = _byGlobal[globalIndex];
-    final sectionIndex = _sectionKeysInOrder.indexOf(key);
-    return (sectionIndex < 0 ? 0 : sectionIndex, pos > 0 ? pos - 1 : 0);
+    final (group, pos, _) = _byGlobal[globalIndex];
+    return (group, pos > 0 ? pos - 1 : 0);
   }
 
   SectionHeaderParts headerPartsFor(int globalIndex) {
@@ -135,9 +135,9 @@ class SectionNavIndex {
         total: 0,
       );
     }
-    final (key, pos, total) = _byGlobal[globalIndex];
+    final (group, pos, total) = _byGlobal[globalIndex];
     return SectionHeaderParts(
-      sectionName: sectionDisplayName(key),
+      sectionName: _groups[group].label,
       position: pos,
       total: total,
     );
@@ -158,39 +158,25 @@ class SectionNavIndex {
 
   /// Internal section key (e.g. introduction) for bookmark stable keys.
   String sectionKeyAt(int sectionIndex) {
-    if (sectionIndex < 0 || sectionIndex >= _sectionKeysInOrder.length) {
-      return '';
-    }
-    return _sectionKeysInOrder[sectionIndex];
+    if (sectionIndex < 0 || sectionIndex >= _groups.length) return '';
+    return _groups[sectionIndex].sectionKey;
   }
 
   /// Bookmark key `{sectionKey}:{position}` — position is 1-based within section.
   String? sentenceBookmarkKeyForGlobal(int globalIndex) {
-    if (globalIndex < 0 || globalIndex >= _byGlobal.length) return null;
-    final (key, pos, _) = _byGlobal[globalIndex];
+    if (globalIndex < 0 || globalIndex >= _keyByGlobal.length) return null;
+    final (key, pos) = _keyByGlobal[globalIndex];
     if (key.isEmpty || pos < 1) return null;
     return '$key:$pos';
   }
 
   String? sentenceBookmarkKeyForSelection(int sectionIndex, int positionIndex) {
-    final key = sectionKeyAt(sectionIndex);
-    if (key.isEmpty) return null;
-    final pos = positionIndex + 1;
-    final total = positionCountForSection(sectionIndex);
-    if (pos < 1 || pos > total) return null;
-    return '$key:$pos';
+    final g = globalIndexFor(sectionIndex, positionIndex);
+    return g == null ? null : sentenceBookmarkKeyForGlobal(g);
   }
 
-  bool isValidSentenceBookmarkKey(String bookmarkKey) {
-    final sep = bookmarkKey.lastIndexOf(':');
-    if (sep <= 0) return false;
-    final key = bookmarkKey.substring(0, sep);
-    final pos = int.tryParse(bookmarkKey.substring(sep + 1));
-    if (pos == null || pos < 1) return false;
-    final sectionIndex = _sectionKeysInOrder.indexOf(key);
-    if (sectionIndex < 0) return false;
-    return pos <= positionCountForSection(sectionIndex);
-  }
+  bool isValidSentenceBookmarkKey(String bookmarkKey) =>
+      globalIndexForBookmarkKey(bookmarkKey) != null;
 
   /// Reverse lookup for annotation list jump (design/166 P1).
   int? globalIndexForBookmarkKey(String bookmarkKey) {
@@ -199,16 +185,38 @@ class SectionNavIndex {
     final key = bookmarkKey.substring(0, sep);
     final pos = int.tryParse(bookmarkKey.substring(sep + 1));
     if (pos == null || pos < 1) return null;
-    final sectionIndex = _sectionKeysInOrder.indexOf(key);
-    if (sectionIndex < 0) return null;
-    return globalIndexFor(sectionIndex, pos - 1);
+    final indices = _indicesBySection[key];
+    if (indices == null || pos > indices.length) return null;
+    return indices[pos - 1];
   }
 
   int sectionBookmarkCount(Set<String> keys, int sectionIndex) {
-    final sectionKey = sectionKeyAt(sectionIndex);
-    if (sectionKey.isEmpty) return 0;
-    final prefix = '$sectionKey:';
-    return keys.where((k) => k.startsWith(prefix)).length;
+    if (sectionIndex < 0 || sectionIndex >= _groups.length) return 0;
+    final group = _groups[sectionIndex];
+    final first = group.indices.first;
+    final last = group.indices.last;
+    var n = 0;
+    for (final k in keys) {
+      final g = globalIndexForBookmarkKey(k);
+      if (g != null && g >= first && g <= last) n++;
+    }
+    return n;
+  }
+}
+
+class _NavGroup {
+  _NavGroup(this.sectionKey, this.heading);
+
+  final String sectionKey;
+  final String heading;
+  final List<int> indices = [];
+
+  /// The innermost heading of a ` › ` chain; the picker row is one line.
+  String get label {
+    if (heading.isEmpty) return sectionDisplayName(sectionKey);
+    final parts = heading.split('\u203a');
+    final last = parts.last.trim();
+    return last.isEmpty ? heading : last;
   }
 }
 
@@ -218,11 +226,57 @@ String _sectionKey(String? section) {
 }
 
 /// design/430 — the section name when sentence [index] starts a section, else ''.
+/// design/469 — the paper's own heading when it has one, and a new heading starts one.
 String sectionStartLabel(List<SentenceView> sentences, int index) {
   if (index < 0 || index >= sentences.length) return '';
   final key = _sectionKey(sentences[index].section);
-  if (index > 0 && _sectionKey(sentences[index - 1].section) == key) return '';
-  return sectionDisplayName(key);
+  final heading = sentences[index].heading.trim();
+  if (index > 0 &&
+      _sectionKey(sentences[index - 1].section) == key &&
+      sentences[index - 1].heading.trim() == heading) {
+    return '';
+  }
+  return heading.isNotEmpty ? heading : sectionDisplayName(key);
+}
+
+/// design/469 — `[{text, from}]`: each heading holds from sentence `from` until the
+/// next entry. Title and supplementary sentences carry none.
+List<SentenceView> applyPaperHeadings(List<SentenceView> sentences, Object? raw) {
+  if (raw is! List || raw.isEmpty) return sentences;
+  final starts = <String, String>{};
+  for (final row in raw) {
+    if (row is! Map) continue;
+    final from = '${row['from'] ?? ''}'.trim();
+    if (from.isEmpty || starts.containsKey(from)) continue;
+    starts[from] = '${row['text'] ?? ''}'.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+  if (starts.isEmpty) return sentences;
+  var current = '';
+  final out = <SentenceView>[];
+  for (final s in sentences) {
+    final section = _sectionKey(s.section);
+    final noHeading = section == 'title' || section == 'supplementary';
+    final start = noHeading ? null : starts[s.id];
+    if (start != null) current = start;
+    final heading = noHeading ? '' : current;
+    out.add(heading == s.heading ? s : s.withHeading(heading));
+  }
+  return out;
+}
+
+/// The inverse of [applyPaperHeadings], for the on-device copy of a session.
+List<Map<String, String>> paperHeadingsOf(List<SentenceView> sentences) {
+  final out = <Map<String, String>>[];
+  var current = '';
+  for (final s in sentences) {
+    final section = _sectionKey(s.section);
+    if (section == 'title' || section == 'supplementary' || s.id.isEmpty) continue;
+    final heading = s.heading.trim();
+    if (heading == current) continue;
+    out.add({'text': heading, 'from': s.id});
+    current = heading;
+  }
+  return out;
 }
 
 /// Header split for figure/table carousel.

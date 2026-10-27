@@ -1838,7 +1838,8 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   String _sectionKeyFor(ReadingSession session) {
     final nav = session.sectionNav;
     final (si, _) = nav.selectionForGlobal(_sentenceIndex);
-    return nav.sectionKeyAt(si);
+    final key = nav.sectionKeyAt(si);
+    return key.isEmpty ? '' : '$si:$key';
   }
 
   /// Immersive focus — center one-shot section name (design/207+268).

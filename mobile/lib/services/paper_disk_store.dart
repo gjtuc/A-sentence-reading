@@ -13,6 +13,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../api/paper_models.dart';
+import '../api/reader_nav_labels.dart';
 import '../api/reading_models.dart';
 import '../pdf/normalize_pairing_key.dart';
 import 'evidence_bus.dart';
@@ -480,6 +481,7 @@ class PaperDiskFileMeta {
 
 /// Persistable session map from an opened [ReadingSession] (no large data-URLs).
 Map<String, dynamic> readingSessionToPaperDiskJson(ReadingSession s) {
+  final heads = paperHeadingsOf(s.sentences);
   return {
     'version': 1,
     'session_id': s.sessionId,
@@ -494,6 +496,7 @@ Map<String, dynamic> readingSessionToPaperDiskJson(ReadingSession s) {
     'supplementary_merged': s.supplementaryMerged,
     if (s.firstFigTableChipSentenceIndex != null)
       'first_fig_table_chip_sentence_index': s.firstFigTableChipSentenceIndex,
+    if (heads.isNotEmpty) 'headings': heads,
     'sentences': [
       for (final row in s.sentences)
         {
