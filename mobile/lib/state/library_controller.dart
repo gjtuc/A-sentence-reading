@@ -55,6 +55,7 @@ import '../api/upload_notify.dart';
 import '../api/shadowing_models.dart';
 import '../api/translate_models.dart';
 import '../api/library_order_models.dart';
+import '../services/near_sync.dart' show NearOrder;
 import '../api/bookmark_models.dart';
 import '../state/bookmark_controller.dart';
 import '../state/annotation_controller.dart';
@@ -3126,7 +3127,10 @@ class LibraryController extends ChangeNotifier {
     next.insert(dest, item);
     _publishPapers(next);
     notifyListeners();
-    await _persistOrder(papers.map((e) => e.id).toList(growable: false));
+    await _persistOrder(
+      papers.map((e) => e.id).toList(growable: false),
+      dragged: true,
+    );
   }
 
   /// design/308 — drop checked rows in as one block at [insertAt].
@@ -3150,7 +3154,7 @@ class LibraryController extends ChangeNotifier {
     if (next.length != papers.length) return;
     _publishPapers(next);
     notifyListeners();
-    await _persistOrder(nextIds);
+    await _persistOrder(nextIds, dragged: true);
   }
 
   /// design/102 + design/177 — delete selected papers (GCS + user records via API).
@@ -4236,19 +4240,56 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  Future<void> _persistOrder(List<String> ids) async {
+  /// design/473 — only a drag moves the "last dragged" time near sync compares;
+  /// a delete keeps the order and its time. [at] sets the time outright.
+  Future<void> _persistOrder(
+    List<String> ids, {
+    bool dragged = false,
+    int? at,
+  }) async {
     try {
       final auth = await _client.fetchAuthStatus();
       final uid = auth.user?.uid;
       if (uid == null || uid.isEmpty) return;
       final p = await SharedPreferences.getInstance();
-      await p.setString(
-        libraryOrderPrefsKey(uid),
-        serializeLibraryOrderPref(ids),
-      );
+      final key = libraryOrderPrefsKey(uid);
+      final when = at ??
+          (dragged
+              ? DateTime.now().millisecondsSinceEpoch
+              : parseLibraryOrderAt(p.getString(key)));
+      await p.setString(key, serializeLibraryOrderPref(ids, at: when));
     } catch (_) {
       // EDGE: prefs fail → in-memory order still shown until next refresh.
     }
+  }
+
+  /// design/473 — near sync: the order shown here and when it was last dragged.
+  Future<NearOrder> nearOrder() async {
+    var at = -1;
+    try {
+      final auth = await _client.fetchAuthStatus();
+      final uid = auth.user?.uid;
+      if (uid != null && uid.isNotEmpty) {
+        final p = await SharedPreferences.getInstance();
+        at = parseLibraryOrderAt(p.getString(libraryOrderPrefsKey(uid)));
+      }
+    } catch (_) {}
+    return NearOrder(
+      ids: papers.map((e) => e.id).toList(growable: false),
+      at: at,
+    );
+  }
+
+  /// design/473 — near sync settled the order of both devices: show it. The
+  /// saved list keeps ids of papers still on their way, so the refresh after
+  /// the sync puts them where the other side has them.
+  Future<void> takeNearOrder(NearOrder order) async {
+    _publishPapers(
+      applyLibraryOrder(papers: papers, orderIds: order.ids, idOf: (e) => e.id),
+      trigger: 'near_order',
+    );
+    notifyListeners();
+    await _persistOrder(order.ids, at: order.at);
   }
 
   /// design/123 — kill switch from /api/status (missing key → fail-closed).

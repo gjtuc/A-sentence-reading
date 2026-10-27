@@ -9,7 +9,7 @@ import 'near_sync.dart';
 import 'paper_disk_store.dart';
 import 'shadowing_disk_store.dart';
 
-class LibraryNearLocal implements NearLocal, NearForget {
+class LibraryNearLocal implements NearLocal, NearForget, NearOrdering {
   LibraryNearLocal({
     required this.disk,
     required this.uid,
@@ -17,6 +17,8 @@ class LibraryNearLocal implements NearLocal, NearForget {
     this.loadGone,
     this.hiddenIds,
     this.onForget,
+    this.loadOrder,
+    this.onTakeOrder,
   });
 
   final PaperDiskStore disk;
@@ -30,6 +32,19 @@ class LibraryNearLocal implements NearLocal, NearForget {
   final Set<String> Function()? hiddenIds;
   final Future<void> Function(Map<String, int> gone, List<String> drop)?
       onForget;
+
+  /// design/473 — the library order shown and taking the other side's.
+  final Future<NearOrder> Function()? loadOrder;
+  final Future<void> Function(NearOrder order)? onTakeOrder;
+
+  @override
+  Future<NearOrder> order() async =>
+      await loadOrder?.call() ?? const NearOrder(ids: [], at: -1);
+
+  @override
+  Future<void> takeOrder(NearOrder order) async {
+    await onTakeOrder?.call(order);
+  }
 
   @override
   Future<List<NearPaper>> papers() async {

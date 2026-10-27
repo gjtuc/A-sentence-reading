@@ -118,6 +118,8 @@ Future<void> showNearSyncSheet({
       loadGone: library.nearGone,
       hiddenIds: library.nearHiddenIds,
       onForget: library.forgetFromNear,
+      loadOrder: library.nearOrder,
+      onTakeOrder: library.takeNearOrder,
     ),
   );
   if (kIsWeb) {

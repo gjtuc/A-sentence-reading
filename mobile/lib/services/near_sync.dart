@@ -16,6 +16,9 @@
 /// arrived there. A later import is newer than the delete, so it spreads again.
 /// Papers the user hid but may still bring back are neither offered nor taken.
 ///
+/// design/473 — `inv` also carries `order`: the library order shown and when
+/// the user last dragged it. The side that dragged later wins.
+///
 /// Every frame is binary with a one-byte kind, because a browser data channel may
 /// reorder text frames against binary ones.
 library;
@@ -23,6 +26,8 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+
+import '../api/library_order_models.dart' show mergeLibraryOrder;
 
 const int kNearChunk = 16 * 1024;
 const int kNearWindow = 2 * 1024 * 1024;
@@ -93,6 +98,62 @@ abstract class NearForget {
   Future<void> forget(Map<String, int> gone, List<String> drop);
 }
 
+/// design/473 — the library order shown, and the ms the user last dragged it
+/// (-1: never, 0: before the time was kept).
+class NearOrder {
+  const NearOrder({required this.ids, required this.at});
+
+  factory NearOrder.fromJson(Object? raw) {
+    if (raw is! Map) return const NearOrder(ids: [], at: -1);
+    final ids = raw['ids'];
+    final at = raw['at'];
+    return NearOrder(
+      ids: [
+        if (ids is List)
+          for (final v in ids)
+            if ('$v'.trim().isNotEmpty) '$v'.trim(),
+      ],
+      at: at is num ? at.toInt() : -1,
+    );
+  }
+
+  final List<String> ids;
+  final int at;
+
+  Map<String, Object?> toJson() => {'ids': ids, 'at': at};
+}
+
+/// design/473 — a device that keeps a library order.
+abstract class NearOrdering {
+  Future<NearOrder> order();
+
+  /// Show and keep [order], the one [nearMergedOrder] made from both sides.
+  Future<void> takeOrder(NearOrder order);
+}
+
+/// design/473 — the order both sides end with, or null to keep [mine]. The
+/// later drag wins and the other side's own papers keep their neighbours, so
+/// both devices compute the same list. A tie (neither dragged) changes nothing.
+NearOrder? nearMergedOrder(NearOrder mine, NearOrder theirs) {
+  if (mine.at == theirs.at) return null;
+  final theirsWin = theirs.at > mine.at;
+  if (theirsWin && theirs.ids.isEmpty) return null;
+  final ids = theirsWin
+      ? mergeLibraryOrder(winner: theirs.ids, loser: mine.ids)
+      : mergeLibraryOrder(winner: mine.ids, loser: theirs.ids);
+  final at = theirsWin ? theirs.at : mine.at;
+  if (at == mine.at && _sameIds(ids, mine.ids)) return null;
+  return NearOrder(ids: ids, at: at);
+}
+
+bool _sameIds(List<String> a, List<String> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
 /// What one device holds and how it stores what arrives.
 abstract class NearLocal {
   Future<List<NearPaper>> papers();
@@ -157,6 +218,7 @@ class NearSyncReport {
     this.goneOut = 0,
     this.goneIn = 0,
     this.forgetFailed = false,
+    this.orderTaken = false,
     this.times = const {},
   });
 
@@ -173,6 +235,9 @@ class NearSyncReport {
   final int goneOut;
   final int goneIn;
   final bool forgetFailed;
+
+  /// design/473 — this side took the other side's library order.
+  final bool orderTaken;
 
   /// User files changed here / papers whose user files were sent.
   final int extrasIn;
@@ -245,6 +310,14 @@ class NearSync {
     return l is NearForget ? l as NearForget : null;
   }
 
+  NearOrdering? get _ordering {
+    final l = local;
+    return l is NearOrdering ? l as NearOrdering : null;
+  }
+
+  NearOrder _myOrder = const NearOrder(ids: [], at: -1);
+  var _orderTaken = false;
+
   Set<String> _mine = {};
   final _myAdded = <String, int>{};
   Map<String, int> _myGone = {};
@@ -304,6 +377,12 @@ class NearSync {
         _myGone = await forget.gone();
         _hidden = await forget.hidden();
       }
+      final ordering = _ordering;
+      if (ordering != null) {
+        try {
+          _myOrder = await ordering.order();
+        } catch (_) {}
+      }
       final rows = await local.progress();
       final extras = await local.extraNames();
       _ready.complete();
@@ -316,6 +395,14 @@ class NearSync {
         'progress': rows,
         'extras': extras,
         'gone': _myGone,
+        if (ordering != null)
+          'order': NearOrder(
+            ids: [
+              for (final id in _myOrder.ids)
+                if (!_hidden.contains(id)) id,
+            ],
+            at: _myOrder.at,
+          ).toJson(),
       });
     } catch (e) {
       _fail('inv_failed');
@@ -469,6 +556,18 @@ class NearSync {
           _forgetFailed = true;
         }
       });
+    }
+    final ordering = _ordering;
+    if (ordering != null && m['order'] is Map) {
+      final next = nearMergedOrder(_myOrder, NearOrder.fromJson(m['order']));
+      if (next != null) {
+        _storeTurn = _storeTurn.then((_) async {
+          try {
+            await ordering.takeOrder(next);
+            _orderTaken = true;
+          } catch (_) {}
+        });
+      }
     }
     if (m['extras'] is Map) {
       for (final e in (m['extras'] as Map).entries) {
@@ -706,6 +805,7 @@ class NearSync {
       goneOut: _myGone.length,
       goneIn: _goneIn,
       forgetFailed: _forgetFailed,
+      orderTaken: _orderTaken,
       times: {
         'pack_ms': _packWatch.elapsedMilliseconds,
         'send_ms': _sendWatch.elapsedMilliseconds,
