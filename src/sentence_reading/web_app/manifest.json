@@ -2,6 +2,7 @@
     "name": "문장 읽기",
     "short_name": "문장 읽기",
     "start_url": ".",
+    "scope": "/",
     "display": "standalone",
     "background_color": "#F7F9FC",
     "theme_color": "#1B4F72",
