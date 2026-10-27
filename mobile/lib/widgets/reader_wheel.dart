@@ -100,6 +100,9 @@ class _WheelPagerState extends State<WheelPager> {
 /// their own and a picker jump is no step. The transition keeps one shape for
 /// every [dir], so a later rebuild does not remount the sentence and lose its
 /// scroll position.
+///
+/// design/472 — it ignores "reduce motion": Windows with animation effects off
+/// reports it to the browser, and the slide was asked for on such a PC.
 class SentenceSlideSwitcher extends StatelessWidget {
   const SentenceSlideSwitcher({super.key, required this.dir, required this.child});
 
@@ -110,7 +113,7 @@ class SentenceSlideSwitcher extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final still = dir == 0 || (MediaQuery.maybeDisableAnimationsOf(context) ?? false);
+    final still = dir == 0;
     return AnimatedSwitcher(
       duration: still ? Duration.zero : duration,
       switchInCurve: Curves.easeOutCubic,

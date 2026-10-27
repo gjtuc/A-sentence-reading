@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -320,11 +321,14 @@ class AiAskQuestionField extends StatefulWidget {
     required this.onAsk,
     this.initial = '',
     this.autofocus = false,
+    this.compact = kIsWeb,
   });
 
   final ValueChanged<String> onAsk;
   final String initial;
   final bool autofocus;
+  /// design/472 — the web keeps the thin box; a long question wraps to two lines.
+  final bool compact;
 
   @override
   State<AiAskQuestionField> createState() => _AiAskQuestionFieldState();
@@ -355,13 +359,14 @@ class _AiAskQuestionFieldState extends State<AiAskQuestionField> {
       autofocus: widget.autofocus,
       keyboardType: TextInputType.text,
       textInputAction: TextInputAction.send,
-      minLines: 3,
-      maxLines: 5,
-      style: const TextStyle(fontSize: 16),
+      minLines: widget.compact ? 1 : 3,
+      maxLines: widget.compact ? 2 : 5,
+      style: widget.compact ? null : const TextStyle(fontSize: 16),
       onSubmitted: (_) => _send(),
       decoration: InputDecoration(
         hintText: '질문을 입력하고 Enter',
         border: const OutlineInputBorder(),
+        isDense: widget.compact,
         suffixIcon: IconButton(
           tooltip: 'Google AI에 묻기',
           icon: const Icon(Icons.send),

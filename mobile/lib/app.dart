@@ -20,6 +20,11 @@ import 'state/tts_controller.dart';
 import 'state/web_reading_prefs.dart';
 import 'state/reader_prefs.dart';
 
+/// design/472 — the web has no Hangul of its own. Without this it fetches
+/// Noto Sans KR in slices while text is shown, and a syllable from a slice not
+/// yet loaded is drawn as a box. The phone keeps its system Hangul.
+const List<String>? kWebHangulFallback = kIsWeb ? ['NotoSansKR'] : null;
+
 /// Root Material app — brand title 「문장 읽기」.
 class SentenceReadingApp extends StatefulWidget {
   const SentenceReadingApp({
@@ -208,6 +213,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
             seedColor: _seed,
             brightness: Brightness.light,
           ),
+          fontFamilyFallback: kWebHangulFallback,
           useMaterial3: true,
         );
         final dark = ThemeData(
@@ -215,6 +221,7 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
             seedColor: _seed,
             brightness: Brightness.dark,
           ),
+          fontFamilyFallback: kWebHangulFallback,
           useMaterial3: true,
         );
         // design/420 — on the web the page colour is the theme: one setting.

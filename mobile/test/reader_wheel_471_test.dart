@@ -198,4 +198,38 @@ void main() {
     final paint = tester.getTopLeft(find.text('하이라이트')).dy;
     expect(ai < sentence && sentence < box && box < paint, isTrue);
   });
+  testWidgets('design/472 the slide plays even when the system asks for less motion', (tester) async {
+    Widget at(int key, int dir) => MediaQuery(
+          data: const MediaQueryData(disableAnimations: true),
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: 200,
+                height: 200,
+                child: SentenceSlideSwitcher(
+                  dir: dir,
+                  child: SizedBox(key: ValueKey(key), width: 200, height: 200),
+                ),
+              ),
+            ),
+          ),
+        );
+    await tester.pumpWidget(at(0, 0));
+    await tester.pumpWidget(at(1, 1));
+    await tester.pump(ms(60));
+    expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, greaterThan(0));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('design/472 the web question box stays thin and wraps to two lines', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: AiAskQuestionField(onAsk: (_) {}, compact: true)),
+    ));
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.minLines, 1);
+    expect(field.maxLines, 2);
+    expect(field.decoration?.isDense, isTrue);
+  });
 }

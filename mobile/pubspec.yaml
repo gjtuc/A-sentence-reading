@@ -1,7 +1,7 @@
 name: sentence_reading
 description: Android Flutter client for A-sentence-reading Cloud Run API
 publish_to: "none"
-version: 0.3.485+1
+version: 0.3.486+1
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -72,4 +72,11 @@ flutter:
         - asset: assets/fonts/AtkinsonHyperlegible-Italic.ttf
           style: italic
         - asset: assets/fonts/AtkinsonHyperlegible-Bold.ttf
+          weight: 700
+    # design/472 — Hangul for the web (SIL Open Font License, Noto Sans KR cut to
+    # the 2,350 KS X 1001 syllables; licence in assets/fonts/OFL-NotoSansKR.txt).
+    - family: NotoSansKR
+      fonts:
+        - asset: assets/fonts/NotoSansKR-Regular.ttf
+        - asset: assets/fonts/NotoSansKR-Bold.ttf
           weight: 700
