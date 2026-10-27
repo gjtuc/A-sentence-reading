@@ -4418,8 +4418,11 @@ class LibraryController extends ChangeNotifier {
       ..clear()
       ..addAll(next);
     o.headingsKnown = true;
-    await _paperDisk.shadowPersistReadingSession(o);
     if (identical(session, o)) notifyListeners();
+    var saved = false;
+    try {
+      saved = await _paperDisk.shadowPersistReadingSession(o);
+    } catch (_) {}
     asrEvidenceBus?.record(
       'paper_headings_backfill',
       severity: 'lifecycle',
@@ -4428,6 +4431,7 @@ class LibraryController extends ChangeNotifier {
       ok: true,
       details: {
         'heading_n': heads.where((h) => (h['text'] ?? '').isNotEmpty).length,
+        'saved': saved ? 1 : 0,
       },
     );
   }
