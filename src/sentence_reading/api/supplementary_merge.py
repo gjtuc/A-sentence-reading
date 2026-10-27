@@ -18,13 +18,49 @@ from sentence_reading.cache.supplementary_library import (
 from sentence_reading.models import Figure, PaperSession, Sentence
 
 
+def _index_entries_with_remote() -> list[dict]:
+    """Local index rows plus the signed-in user's GCS index rows.
+
+    design/468 — the library list is local ∪ GCS, but a fresh Cloud Run
+    instance holds only the papers it analyzed itself. Reading the local index
+    alone answered ``cache_not_found`` for papers the user could see.
+    """
+    local = [dict(e) for e in _read_index().get("entries") or [] if isinstance(e, dict)]
+    try:
+        from sentence_reading.llm import papers_gcs as pg
+
+        if not (pg.gcs_papers_ready() and pg.papers_index_object()):
+            return local
+        remote = pg.download_remote_index().get("entries") or []
+    except Exception:  # noqa: BLE001
+        return local
+    remote_ids = {e.get("id") for e in remote if isinstance(e, dict)}
+    mine = [e for e in local if e.get("id") in remote_ids]
+    return [dict(e) for e in pg.merge_index_entries(mine, remote)]
+
+
+def _pull_from_gcs(entries: list[dict], ids: tuple[str, ...]) -> None:
+    """Overwrite the instance copy from the user's GCS prefix (design/121 rule)."""
+    try:
+        from sentence_reading.llm import papers_gcs as pg
+
+        if not pg.gcs_papers_ready():
+            return
+        by_id = {str(e.get("id") or ""): e for e in entries}
+        for i in ids:
+            if i:
+                pg.download_paper_cache(i, entry=by_id.get(i))
+    except Exception:  # noqa: BLE001
+        return
+
+
 def merge_supplementary(main_id: str) -> dict:
     """Merge paired SI into main; returns API result dict."""
     cid = (main_id or "").strip()
     if not cid:
         return {"ok": False, "error": "bad_cache_id", "message": "잘못된 보관 id입니다."}
 
-    entries = [dict(e) for e in _read_index().get("entries") or [] if isinstance(e, dict)]
+    entries = _index_entries_with_remote()
     apply_pairing_pass(entries)
     main_entry = next((e for e in entries if e.get("id") == cid), None)
     if main_entry is None:
@@ -41,6 +77,7 @@ def merge_supplementary(main_id: str) -> dict:
         }
 
     si_id = str(main_entry.get("paired_cache_id") or "").strip()
+    _pull_from_gcs(entries, (cid, si_id))
     main_loaded = load_cached_session(cid, load_images=True)
     si_loaded = load_cached_session(si_id, load_images=True)
     if main_loaded is None or si_loaded is None:

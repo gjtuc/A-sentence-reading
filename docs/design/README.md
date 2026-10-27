@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 468 | [468-merge-finds-gcs-papers.md](468-merge-finds-gcs-papers.md) | 서버 합치기가 인스턴스 로컬 index만 읽어 새 인스턴스에서 404: GCS index도 보고 두 논문을 내려받은 뒤 합침 (0.3.482) |
 | 467 | [467-merge-reaches-server.md](467-merge-reaches-server.md) | 짝과 합치기가 기기에만 남아 새로고침 때 서버 목록이 되돌림: 기기 합치기 뒤 서버 합치기도 호출, 이미 합친 메인은 옛 SI를 빼고 다시 붙임 (0.3.481) |
 | 466 | [466-chemical-title-card-and-queue-file-names.md](466-chemical-title-card-and-queue-file-names.md) | 화학물질 이름 제목이 반만 나오고 제목 카드가 없음: 숫자 쉼표를 저자 목록으로 오인. 첫 문장에 붙은 제목을 카드로 떼고, 대기열에서 빠진 파일 이름을 기록 (0.3.480) |
 | 465 | [465-lost-uploads-title-cache-and-boot-wipe.md](465-lost-uploads-title-cache-and-boot-wipe.md) | 파일 3개 중 2개가 사라짐: 잘못 잡힌 제목 때문에 다른 논문을 보관본으로 착각, 새 창이 시작하며 대기열 삭제. 본문 앞 문장 확인 + 로그인 확인 전엔 지우지 않음 (0.3.480) |
