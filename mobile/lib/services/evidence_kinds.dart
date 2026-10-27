@@ -267,6 +267,8 @@ const Set<String> kEvidenceAllowedKinds = {
   'paper_merge_start',
   'paper_merge_local_done',
   'paper_merge_done',
+  // design/470
+  'paper_headings_backfill',
   // design/282 — merge/reader honesty densify
   'reader_open_honesty',
   'paper_merge_postcheck',

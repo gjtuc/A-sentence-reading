@@ -287,7 +287,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.483",
+    version="0.3.484",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -5140,6 +5140,22 @@ async def cache_sound_warm(
         return JSONResponse(content={"ok": True, "warm": "no_paper"})
     _warm_sound_refs(cid)
     return JSONResponse(content={"ok": True, "warm": "started"})
+
+
+@app.get("/api/cache/papers/{cache_id}/headings")
+async def cache_headings(request: Request, cache_id: str) -> JSONResponse:
+    """design/470 — the paper's heading list alone, for a device copy saved without it."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    from sentence_reading.paper_headings import stored_headings
+
+    heads, code = await asyncio.to_thread(stored_headings, cache_id)
+    status = {"ok": 200, "bad_cache_id": 400, "not_found": 404}.get(code, 502)
+    return JSONResponse(
+        status_code=status,
+        content={"ok": code == "ok", "code": code, "headings": heads},
+    )
 
 
 @app.post("/api/cache/papers/{cache_id}/open")

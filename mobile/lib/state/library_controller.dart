@@ -19,6 +19,7 @@ import '../api/ingest_models.dart';
 import '../api/paper_models.dart';
 import '../api/progress_gate.dart';
 import '../api/progress_store.dart';
+import '../api/reader_nav_labels.dart' show applyPaperHeadings;
 import '../api/reading_models.dart';
 import '../api/practice_bookmark_store.dart';
 import '../api/practice_progress_store.dart';
@@ -4393,6 +4394,44 @@ class LibraryController extends ChangeNotifier {
     return out;
   }
 
+  final Set<String> _headingsAsked = {};
+
+  /// design/470 — a device copy saved before design/469 has no heading list. Ask the
+  /// server once; the answer, an empty list too, stays on the copy.
+  Future<void> _backfillPaperHeadings(ReadingSession o) async {
+    final cid = o.cacheId.trim();
+    if (o.headingsKnown || cid.isEmpty || !_headingsAsked.add(cid)) return;
+    final heads = await _client.fetchPaperHeadings(cid);
+    if (heads == null) {
+      _headingsAsked.remove(cid);
+      asrEvidenceBus?.record(
+        'paper_headings_backfill',
+        severity: 'error',
+        cacheId: cid,
+        stage: 'fetch',
+        ok: false,
+      );
+      return;
+    }
+    final next = List<SentenceView>.from(applyPaperHeadings(o.sentences, heads));
+    o.sentences
+      ..clear()
+      ..addAll(next);
+    o.headingsKnown = true;
+    await _paperDisk.shadowPersistReadingSession(o);
+    if (identical(session, o)) notifyListeners();
+    asrEvidenceBus?.record(
+      'paper_headings_backfill',
+      severity: 'lifecycle',
+      cacheId: cid,
+      stage: 'done',
+      ok: true,
+      details: {
+        'heading_n': heads.where((h) => (h['text'] ?? '').isNotEmpty).length,
+      },
+    );
+  }
+
   Future<void> _syncBookmarksForSession(ReadingSession o) async {
     final bm = _bookmarks;
     if (bm == null) return;
@@ -4999,6 +5038,7 @@ class LibraryController extends ChangeNotifier {
       _maybeStartTranslatePoll(o);
       unawaited(_syncBookmarksForSession(o));
       unawaited(_syncAnnotationsForSession(o));
+      unawaited(_backfillPaperHeadings(o));
       // design/129 — fill current±1 images after sentences are on screen.
       unawaited(_prefetchFigureWindow());
       // Keep hydrating remaining figures in background if not done.

@@ -496,7 +496,7 @@ Map<String, dynamic> readingSessionToPaperDiskJson(ReadingSession s) {
     'supplementary_merged': s.supplementaryMerged,
     if (s.firstFigTableChipSentenceIndex != null)
       'first_fig_table_chip_sentence_index': s.firstFigTableChipSentenceIndex,
-    if (heads.isNotEmpty) 'headings': heads,
+    if (s.headingsKnown || heads.isNotEmpty) 'headings': heads,
     'sentences': [
       for (final row in s.sentences)
         {

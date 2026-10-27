@@ -183,7 +183,7 @@ class PaperSession:
                 and _ref_n_ok(r.get("n"))
             ],
             "document_citation": public_document_citation(self.document_citation),
-            **({"headings": list(self.headings)} if self.headings else {}),
+            "headings": list(self.headings),
             # design/183 — open hint; client recomputes T from chips (SoT).
             "first_fig_table_chip_sentence_index": first_fig_table_chip_sentence_index(
                 self.sentences,

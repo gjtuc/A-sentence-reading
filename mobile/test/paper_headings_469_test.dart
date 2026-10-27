@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/api/reader_nav_labels.dart';
 import 'package:sentence_reading/api/reading_models.dart';
@@ -137,5 +139,40 @@ void main() {
         {'id': 'a', 'text': 'Only sentence here.', 'section': 'body'},
       ],
     })).containsKey('headings'), isFalse);
+  });
+
+  test('design/470: an empty list from the server is kept, so it is asked once', () {
+    final none = ReadingSession.fromOpenJson({
+      'title': 'A paper title',
+      'sentences': [
+        {'id': 'a', 'text': 'Only sentence here.', 'section': 'body'},
+      ],
+      'headings': <Object>[],
+    });
+    expect(none.headingsKnown, isTrue);
+    final disk = readingSessionToPaperDiskJson(none);
+    expect(disk['headings'], isEmpty);
+    expect(ReadingSession.fromOpenJson(disk).headingsKnown, isTrue);
+    final old = ReadingSession.fromOpenJson({
+      'title': 'A paper title',
+      'sentences': [
+        {'id': 'a', 'text': 'Only sentence here.', 'section': 'body'},
+      ],
+    });
+    expect(old.headingsKnown, isFalse);
+  });
+
+  test('design/470: opening a copy without headings asks the server', () {
+    final src = File('lib/state/library_controller.dart').readAsStringSync();
+    final open = src.indexOf('unawaited(_backfillPaperHeadings(o));');
+    final session = src.lastIndexOf('session = o;', open);
+    expect(open, greaterThan(0));
+    expect(session, greaterThan(0));
+    final at = src.indexOf('Future<void> _backfillPaperHeadings(');
+    final body = src.substring(at, src.indexOf('\n  Future<', at + 10));
+    expect(body.contains('o.headingsKnown ||'), isTrue);
+    expect(body.contains('_client.fetchPaperHeadings(cid)'), isTrue);
+    expect(body.contains('_headingsAsked.remove(cid)'), isTrue);
+    expect(body.contains('shadowPersistReadingSession(o)'), isTrue);
   });
 }

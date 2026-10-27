@@ -90,3 +90,36 @@ def clean_headings(raw: object) -> list[dict[str, str]]:
     while out and not out[0]["text"]:
         out.pop(0)
     return out
+
+
+def stored_headings(cache_id: str) -> tuple[list[dict[str, str]], str]:
+    """design/470 — the saved list of one paper, for a device copy that lacks it.
+
+    Read from the signed-in user's GCS session only; the shared instance disk can hold
+    another user's leftover (design/121). Local disk only when GCS is off.
+    """
+    import json
+
+    from sentence_reading.cache.paper_cache import _SESSION_NAME, cache_root
+    from sentence_reading.llm import papers_gcs as pg
+    from sentence_reading.llm.gcs_sync import download_bytes
+
+    obj = pg.paper_session_object(cache_id)
+    if not obj:
+        return [], "bad_cache_id"
+    if pg.gcs_papers_ready():
+        raw = download_bytes(obj)
+    else:
+        path = cache_root() / cache_id.strip() / _SESSION_NAME
+        raw = path.read_bytes() if path.is_file() else None
+    if not raw:
+        return [], "not_found"
+    if len(raw) > pg.PAPER_SESSION_MAX_BYTES:
+        return [], "too_large"
+    try:
+        meta = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return [], "bad_session"
+    if not isinstance(meta, dict):
+        return [], "bad_session"
+    return clean_headings(meta.get("headings")), "ok"

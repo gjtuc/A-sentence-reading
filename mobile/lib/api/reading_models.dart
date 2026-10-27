@@ -230,6 +230,7 @@ class ReadingSession {
     this.contentHash = '',
     this.docRole = 'main',
     this.firstFigTableChipSentenceIndex,
+    this.headingsKnown = false,
   }) {
     clampIndices();
   }
@@ -318,6 +319,7 @@ class ReadingSession {
         if (raw is num) return raw.toInt();
         return int.tryParse('$raw');
       }(),
+      headingsKnown: json['headings'] is List,
     );
   }
 
@@ -344,6 +346,9 @@ class ReadingSession {
   final String docRole;
   /// design/183 — first matched Fig/Table chip sentence index (open hint).
   final int? firstFigTableChipSentenceIndex;
+  /// design/470 — the payload carried a heading list, empty or not. A device copy
+  /// saved before design/469 did not, and is asked for one once.
+  bool headingsKnown;
 
   bool get hasAnyTranslation {
     for (final s in sentences) {

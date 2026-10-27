@@ -103,4 +103,4 @@ def test_headings_survive_save_and_load(tmp_path, monkeypatch) -> None:
     loaded, _ = pc.load_cached_session(str(entry["id"]))
     assert loaded.headings == heads
     assert loaded.to_public_dict(include_images=False)["headings"] == heads
-    assert "headings" not in PaperSession(title="t").to_public_dict()
+    assert PaperSession(title="t").to_public_dict()["headings"] == []

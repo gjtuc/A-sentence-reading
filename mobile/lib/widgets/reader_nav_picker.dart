@@ -2,6 +2,7 @@
 library;
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 
 import '../api/reader_nav_labels.dart';
@@ -238,7 +239,12 @@ class _DualWheelSheetState extends State<_DualWheelSheet> {
             ),
             SizedBox(
               height: 216,
-              child: Row(
+              // design/470 — the web and desktop build spin the wheels with a mouse drag too.
+              child: ScrollConfiguration(
+                behavior: ScrollConfiguration.of(context).copyWith(
+                  dragDevices: PointerDeviceKind.values.toSet(),
+                ),
+                child: Row(
                 children: [
                   Expanded(
                     flex: 3,
@@ -277,6 +283,7 @@ class _DualWheelSheetState extends State<_DualWheelSheet> {
                     ),
                   ),
                 ],
+                ),
               ),
             ),
           ],

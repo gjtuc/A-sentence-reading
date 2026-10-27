@@ -1144,6 +1144,33 @@ class AsrClient {
     return map;
   }
 
+  /// GET /api/cache/papers/{id}/headings — design/470. `[]` when the server keeps
+  /// none for this paper; null when it could not be asked.
+  Future<List<Map<String, String>>?> fetchPaperHeadings(String cacheId) async {
+    final id = cacheId.trim();
+    if (id.isEmpty) return null;
+    try {
+      final res = await _http
+          .get(
+            _uri('/api/cache/papers/${Uri.encodeComponent(id)}/headings'),
+            headers: await _headers(),
+          )
+          .timeout(const Duration(seconds: 30));
+      if (res.statusCode == 400 || res.statusCode == 404) return const [];
+      if (res.statusCode < 200 || res.statusCode >= 300) return null;
+      final raw = jsonDecode(utf8.decode(res.bodyBytes));
+      final list = raw is Map ? raw['headings'] : null;
+      if (list is! List) return const [];
+      return [
+        for (final row in list)
+          if (row is Map)
+            {'text': '${row['text'] ?? ''}', 'from': '${row['from'] ?? ''}'},
+      ];
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// GET /api/cache/papers/{id}/layout_map — design/151 overlay boxes.
   Future<Map<String, dynamic>> fetchLayoutMap(String cacheId) async {
     final id = cacheId.trim();
