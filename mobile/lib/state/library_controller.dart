@@ -3878,6 +3878,7 @@ class LibraryController extends ChangeNotifier {
     var mergedSentN = 0;
     var mergedFigN = 0;
     var mergeOk = false;
+    var serverSync = 'none';
     try {
       final localOk = siId.isNotEmpty &&
           await _mergeSupplementaryLocal(mainId: entry.id, siId: siId);
@@ -3892,6 +3893,18 @@ class LibraryController extends ChangeNotifier {
         }
         mergeOk = true;
         unawaited(_mirrorPaperWithEvidence(entry.id, trigger: 'merge'));
+        // design/467 — the library list comes from the server. A merge kept
+        // only on this device came back as an unmerged pair at the next
+        // refresh, so the button did nothing visible and a second press
+        // appended the SI again.
+        try {
+          await _client.mergeSupplementary(entry.id);
+          serverSync = 'ok';
+        } on AsrApiException catch (e) {
+          serverSync = 'http_${e.statusCode}';
+        } catch (_) {
+          serverSync = 'error';
+        }
       } else {
         await _client.mergeSupplementary(entry.id);
         path = 'server';
@@ -3909,6 +3922,7 @@ class LibraryController extends ChangeNotifier {
           'merged_fig_n': mergedFigN,
           'supplementary_merged': path == 'local' ? 1 : 0,
           'si_id_empty': siId.isEmpty ? 1 : 0,
+          'server_sync': serverSync,
         },
       );
       await refresh(fresh: false, clearError: false, trigger: 'merge');
@@ -4003,11 +4017,21 @@ class LibraryController extends ChangeNotifier {
     );
     final citeRefs = parseReferenceList(mergeRefs);
 
+    // design/467 — merging an already merged main rebuilds from its own part
+    // instead of appending the SI a second time.
+    final priorMerge = mainSession['supplementary_merged'] == true;
+    var strippedSentN = 0;
+    var strippedFigN = 0;
     final mainSents = <Map<String, dynamic>>[];
     final rawMain = mainSession['sentences'];
     if (rawMain is List) {
       for (final s in rawMain) {
-        if (s is Map) mainSents.add(Map<String, dynamic>.from(s));
+        if (s is! Map) continue;
+        if (priorMerge && '${s['section'] ?? ''}' == 'supplementary') {
+          strippedSentN += 1;
+          continue;
+        }
+        mainSents.add(Map<String, dynamic>.from(s));
       }
     }
     final usedIds = <String>{
@@ -4046,7 +4070,12 @@ class LibraryController extends ChangeNotifier {
     final rawMainFigs = mainSession['figures'];
     if (rawMainFigs is List) {
       for (final f in rawMainFigs) {
-        if (f is Map) mainFigs.add(Map<String, dynamic>.from(f));
+        if (f is! Map) continue;
+        if (priorMerge && '${f['id'] ?? ''}'.trim().startsWith('si-')) {
+          strippedFigN += 1;
+          continue;
+        }
+        mainFigs.add(Map<String, dynamic>.from(f));
       }
     }
     final mainFigN = mainFigs.length;
@@ -4134,6 +4163,9 @@ class LibraryController extends ChangeNotifier {
         'fig_bytes_miss_n': figBytesMiss,
         'merged_sent_n': mainSents.length,
         'merged_fig_n': mainFigs.length,
+        'prior_merge': priorMerge ? 1 : 0,
+        'stripped_sent_n': strippedSentN,
+        'stripped_fig_n': strippedFigN,
       },
     );
     if (!ok) return false;
