@@ -2468,9 +2468,25 @@ class LibraryController extends ChangeNotifier {
     unawaited(_pumpPendingEnrichQueue(defaultTrigger: trig));
   }
   /// design/195 — scan local papers for unfinished KO / shadowing.
+  /// Callers do not await it, so a disk that goes away mid-scan is caught here.
   Future<void> scanAndEnqueuePendingEnrich({
     String trigger = 'boot',
   }) async {
+    try {
+      await _scanAndEnqueuePendingEnrich(trigger: trigger);
+    } catch (e) {
+      final msg = e.toString();
+      asrEvidenceBus?.record(
+        'pending_enrich_scan',
+        severity: 'error',
+        stage: 'scan_failed',
+        message: msg.length > 200 ? msg.substring(0, 200) : msg,
+        ok: false,
+      );
+    }
+  }
+
+  Future<void> _scanAndEnqueuePendingEnrich({required String trigger}) async {
     if (!_paperDisk.isBound) return;
     if (papers.isEmpty) return;
     final trig = trigger.trim().isEmpty ? 'boot' : trigger.trim();
