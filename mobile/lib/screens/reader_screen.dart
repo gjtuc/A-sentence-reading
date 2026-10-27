@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
@@ -33,6 +34,7 @@ import '../widgets/annotation_toolbar_sheet.dart';
 import '../api/figure_ink_models.dart';
 import '../widgets/figure_ink_toolbar.dart';
 import '../widgets/swipe_motion.dart';
+import '../widgets/reader_wheel.dart';
 import '../widgets/annotated_sentence_text.dart';
 import '../widgets/upload_status_bar.dart';
 import '../state/web_reading_prefs.dart';
@@ -954,6 +956,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                               _ReaderLayoutMode.sentenceOnly
                                           ? _swipeToFigureFromSentence
                                           : null,
+                                      slideDir: _slideDirFor(s),
+                                      onWheelStep: (d) => _keyMove(d),
                                     ),
                             ),
                           ),
@@ -1006,6 +1010,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                               _ReaderLayoutMode.figureOnly
                                           ? _swipeToSentenceFromFigure
                                           : null,
+                                      onWheelStep: (d) => _keyMove(d, figure: true),
                                       onLongPressEdit: () {
                                         final cid = s.cacheId.trim();
                                         if (cid.isEmpty) return;
@@ -1136,6 +1141,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
     widget.onBack?.call();
   }
 
+  /// design/471 — the last one-step sentence move, for the slide-in.
+  ({int from, int dir, DateTime at})? _slide;
+
+  int _slideDirFor(ReadingSession s) {
+    final slide = _slide;
+    if (slide == null || s.sentenceIndex == slide.from) return 0;
+    if (DateTime.now().difference(slide.at) > const Duration(milliseconds: 600)) {
+      return 0;
+    }
+    return slide.dir;
+  }
+
   void _keyMove(int delta, {bool figure = false}) {
     // The reader stays mounted under the library; keys must not move it unseen.
     if (!TickerMode.of(context)) return;
@@ -1148,6 +1165,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return;
     }
     if (s.sentenceCount < 1) return;
+    _slide = (from: s.sentenceIndex, dir: delta.sign, at: DateTime.now());
     unawaited(() async {
       await widget.tts.stop();
       await widget.library.advanceSentence(delta);
@@ -1281,6 +1299,8 @@ class _SentencePanel extends StatelessWidget {
     this.onToggleChrome,
     this.onDoubleTapExpand,
     this.onSwipeToFigure,
+    this.slideDir = 0,
+    this.onWheelStep,
   });
 
   final LibraryController library;
@@ -1304,6 +1324,9 @@ class _SentencePanel extends StatelessWidget {
   final VoidCallback? onDoubleTapExpand;
   /// design/156 — sentence full-screen: swipe up → figure full-screen.
   final VoidCallback? onSwipeToFigure;
+  /// design/471 — 1 or -1 right after a wheel or arrow step, else 0.
+  final int slideDir;
+  final ValueChanged<int>? onWheelStep;
 
   /// design/430 — a small section name where a section starts: above the
   /// sentence that starts it, or below the one that ends the section before.
@@ -1524,7 +1547,9 @@ class _SentencePanel extends StatelessWidget {
               ),
             ),
           Expanded(
-            child: _SwipePager(
+            child: WheelPager(
+              onStep: annotations.blocksReaderNavigation ? null : onWheelStep,
+              child: _SwipePager(
                 pageKey: session.sentenceIndex,
                 enabled: session.sentenceCount > 0 &&
                     !annotations.blocksReaderNavigation,
@@ -1558,7 +1583,9 @@ class _SentencePanel extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(4, 16, 4, 16),
                   child: WebReadingFrame(
                   builder: (context, web) => LayoutBuilder(
-                  builder: (context, box) => SingleChildScrollView(
+                  builder: (context, box) => SentenceSlideSwitcher(
+                    dir: slideDir,
+                    child: SingleChildScrollView(
                     // A long sentence scrolled down must not open the next one halfway.
                     key: ValueKey(session.sentenceIndex),
                     padding: EdgeInsets.symmetric(
@@ -1697,9 +1724,10 @@ class _SentencePanel extends StatelessWidget {
                               ],
                             )),
                           ),
-                  ))),
+                  )))),
                 ),
               ),
+            ),
             ),
           ),
           if (shouldShowThisPaperPanel(
@@ -2151,10 +2179,13 @@ class _FigurePanel extends StatelessWidget {
     this.onDoubleTapExpand,
     this.onLongPressEdit,
     this.onSwipeToSentence,
+    this.onWheelStep,
   });
 
   final LibraryController library;
   final AsrClient client;
+  /// design/471 — wheel turns figures; Ctrl+wheel zooms.
+  final ValueChanged<int>? onWheelStep;
   final ReadingSession session;
   final BookmarkController bookmarks;
   final AnnotationController annotations;
@@ -2290,7 +2321,11 @@ class _FigurePanel extends StatelessWidget {
                         Column(
                       children: [
                         Expanded(
-                          child: _FigureImage(
+                          child: WheelPager(
+                            onStep: annotations.blocksReaderNavigation
+                                ? null
+                                : onWheelStep,
+                            child: _FigureImage(
                             src: cur.imageSrc,
                             expectImage: session.figureCount > 0,
                             figureKey: figKey,
@@ -2302,6 +2337,7 @@ class _FigurePanel extends StatelessWidget {
                             onTap: onToggleChrome,
                             onDoubleTapExpand: onDoubleTapExpand,
                             onSwipeToSentence: onSwipeToSentence,
+                          ),
                           ),
                         ),
                         if (!figureCaptionInImage &&
@@ -2920,6 +2956,12 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame>
   /// design/459 — the figure flew off and waits for the next [figureKey].
   bool _parked = false;
   Timer? _parkTimer;
+  /// design/471 — a plain wheel turns figures, so it must not zoom. Ctrl+wheel
+  /// still zooms (it arrives as a scale event). The factor also brakes the
+  /// pinch fling, so a touch screen keeps the stock one.
+  bool _sawTouch = false;
+  static const double _touchScaleFactor = 200;
+  static const double _wheelNoZoom = 1e9;
 
   @override
   void didUpdateWidget(covariant _ZoomableFigureFrame oldWidget) {
@@ -3186,7 +3228,13 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame>
           inkMode: inkMode,
           tool: annotations?.figureInkTool,
         );
-        return GestureDetector(
+        return Listener(
+          onPointerDown: (e) {
+            if (e.kind == PointerDeviceKind.touch && !_sawTouch) {
+              setState(() => _sawTouch = true);
+            }
+          },
+          child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: inkMode ? null : widget.onTap,
           onDoubleTap: inkMode || widget.onDoubleTapExpand == null
@@ -3198,6 +3246,9 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame>
             maxScale: _maxScale,
             panEnabled: !inkDraws,
             scaleEnabled: !inkDraws,
+            scaleFactor: _sawTouch ? _touchScaleFactor : _wheelNoZoom,
+            // A touchpad swipe turns figures too; as a pan it would wobble.
+            trackpadScrollCausesScale: !_sawTouch,
             boundaryMargin: const EdgeInsets.all(48),
             onInteractionStart: inkDraws ? null : _onInteractionStart,
             onInteractionUpdate: inkDraws ? null : _onInteractionUpdate,
@@ -3210,6 +3261,7 @@ class _ZoomableFigureFrameState extends State<_ZoomableFigureFrame>
                 child: Center(child: zoomChild),
               ),
             ),
+          ),
           ),
         );
       },
@@ -3277,6 +3329,7 @@ Future<void> _handleSentenceAnnotateLongPress(
     context: context,
     existing: existing,
     canAnnotate: annotations.canAnnotate,
+    sentencePlain: annotationPlainForSentence(cur.text),
   );
   if (result == null || !context.mounted) return;
 

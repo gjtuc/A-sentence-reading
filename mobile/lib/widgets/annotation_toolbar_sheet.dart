@@ -7,12 +7,14 @@ import '../api/ai_ask_prompt_models.dart';
 import '../api/ai_ask_prompt_store.dart';
 import '../api/annotation_models.dart';
 
-/// Bottom sheet: paint colors + memo + AI ask (design/166 · 182).
+/// Bottom sheet: AI ask on top (design/471), then paint colors + memo
+/// (design/166 · 182).
 Future<AnnotationToolbarResult?> showAnnotationToolbarSheet({
   required BuildContext context,
   List<AnnotationEvent> existing = const [],
   bool canAnnotate = true,
   AiAskPromptStore? promptStore,
+  String sentencePlain = '',
 }) {
   return showModalBottomSheet<AnnotationToolbarResult>(
     context: context,
@@ -23,6 +25,7 @@ Future<AnnotationToolbarResult?> showAnnotationToolbarSheet({
         existing: existing,
         canAnnotate: canAnnotate,
         promptStore: promptStore ?? PrefsAiAskPromptStore(),
+        sentencePlain: sentencePlain,
       );
     },
   );
@@ -59,11 +62,13 @@ class _AnnotationToolbarBody extends StatefulWidget {
     this.existing = const [],
     required this.canAnnotate,
     required this.promptStore,
+    this.sentencePlain = '',
   });
 
   final List<AnnotationEvent> existing;
   final bool canAnnotate;
   final AiAskPromptStore promptStore;
+  final String sentencePlain;
 
   @override
   State<_AnnotationToolbarBody> createState() => _AnnotationToolbarBodyState();
@@ -138,6 +143,72 @@ class _AnnotationToolbarBodyState extends State<_AnnotationToolbarBody> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Row(
+              children: [
+                Text('AI로 묻기', style: theme.textTheme.titleSmall),
+                const Spacer(),
+                TextButton(
+                  onPressed: _managePrompts,
+                  child: const Text('관리'),
+                ),
+              ],
+            ),
+            if (widget.sentencePlain.trim().isNotEmpty) ...[
+              Text(
+                widget.sentencePlain.trim(),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+            AiAskQuestionField(
+              onAsk: (q) => Navigator.pop(
+                context,
+                AnnotationToolbarResult(
+                  action: AnnotationSheetAction.askAi,
+                  promptBody: q,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            if (_loadingPrompts)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              )
+            else if (_prompts.isEmpty)
+              Text(
+                '저장된 프롬프트가 없습니다. 관리에서 추가하세요.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              )
+            else
+              for (final p in _prompts)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    p.body,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.open_in_new, size: 18),
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    Navigator.pop(
+                      context,
+                      AnnotationToolbarResult(
+                        action: AnnotationSheetAction.askAi,
+                        promptBody: p.body,
+                      ),
+                    );
+                  },
+                ),
+            const SizedBox(height: 8),
+            const Divider(),
             Text('하이라이트', style: theme.textTheme.titleSmall),
             const SizedBox(height: 4),
             Text(
@@ -235,61 +306,6 @@ class _AnnotationToolbarBodyState extends State<_AnnotationToolbarBody> {
                 ],
               ),
             ],
-            const SizedBox(height: 16),
-            const Divider(),
-            Row(
-              children: [
-                Text('AI로 묻기', style: theme.textTheme.titleSmall),
-                const Spacer(),
-                TextButton(
-                  onPressed: _managePrompts,
-                  child: const Text('관리'),
-                ),
-              ],
-            ),
-            AiAskQuestionField(
-              onAsk: (q) => Navigator.pop(
-                context,
-                AnnotationToolbarResult(
-                  action: AnnotationSheetAction.askAi,
-                  promptBody: q,
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
-            if (_loadingPrompts)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-              )
-            else if (_prompts.isEmpty)
-              Text(
-                '저장된 프롬프트가 없습니다. 관리에서 추가하세요.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              )
-            else
-              for (final p in _prompts)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                    p.body,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: const Icon(Icons.open_in_new, size: 18),
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    Navigator.pop(
-                      context,
-                      AnnotationToolbarResult(
-                        action: AnnotationSheetAction.askAi,
-                        promptBody: p.body,
-                      ),
-                    );
-                  },
-                ),
           ],
         ),
       ),
@@ -332,15 +348,20 @@ class _AiAskQuestionFieldState extends State<AiAskQuestionField> {
 
   @override
   Widget build(BuildContext context) {
+    // design/471 — several lines tall and wrapping, but still one line of text:
+    // Enter and the keyboard's send key send it, so there is no line break.
     return TextField(
       controller: _ctrl,
       autofocus: widget.autofocus,
+      keyboardType: TextInputType.text,
       textInputAction: TextInputAction.send,
+      minLines: 3,
+      maxLines: 5,
+      style: const TextStyle(fontSize: 16),
       onSubmitted: (_) => _send(),
       decoration: InputDecoration(
         hintText: '질문을 입력하고 Enter',
         border: const OutlineInputBorder(),
-        isDense: true,
         suffixIcon: IconButton(
           tooltip: 'Google AI에 묻기',
           icon: const Icon(Icons.send),

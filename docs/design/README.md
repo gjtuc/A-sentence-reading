@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 471 | [471-wheel-turn-slide-ai-ask-box.md](471-wheel-turn-slide-ai-ask-box.md) | 마우스 휠로 이전·다음 문장과 그림 넘기기(그림 확대는 Ctrl+휠), 휠·화살표로 넘길 때 세로로 부드럽게, AI로 묻기 칸을 창 맨 위로 크게 (0.3.485) |
 | 470 | [470-headings-backfill-mouse-wheel.md](470-headings-backfill-mouse-wheel.md) | 옛 앱이 저장한 기기 사본엔 소제목 목록이 없어 안 보임: 서버에서 소제목만 한 번 받아 채움 · 이동 창을 마우스 끌기로도 돌림 (0.3.484) |
 | 469 | [469-paper-headings.md](469-paper-headings.md) | 논문 소제목을 논문마다 목록 하나(`headings` [{text, from}])로 저장: 문장으로 이동·구분선에 실제 소제목, 이동 창은 읽는 순서대로 묶음, 책갈피 키 그대로 (0.3.483) |
 | 468 | [468-merge-finds-gcs-papers.md](468-merge-finds-gcs-papers.md) | 서버 합치기가 인스턴스 로컬 index만 읽어 새 인스턴스에서 404: GCS index도 보고 두 논문을 내려받은 뒤 합침 (0.3.482) |
