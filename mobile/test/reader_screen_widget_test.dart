@@ -629,4 +629,15 @@ void main() {
       Matrix4.identity(),
     );
   });
+
+  testWidgets('design/483: the phone shows no start mark', (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    WebReadingPrefs.instance.resetForTests();
+    final client = _mockClient();
+    final library = LibraryController(client: client)..session = _session();
+    await _pumpReader(tester, library, client);
+    await animate(tester);
+    expect(_richText('Sentence body number 0.'), findsWidgets);
+    expect(find.byType(StartMark), findsNothing);
+  });
 }

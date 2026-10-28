@@ -165,7 +165,7 @@ class StartMark extends StatefulWidget {
 
   /// Opacity as the sentence arrives, and at the top of its brightening.
   static const double rest = 0.16;
-  static const double peak = 0.55;
+  static const double peak = 0.3;
 
   /// The bar's opacity [s] seconds after the turn: it waits while the old sentence
   /// dims, brightens as the new one comes, then fades without a pause until it is
@@ -220,7 +220,8 @@ class _StartMarkState extends State<StartMark> with SingleTickerProviderStateMix
 }
 
 /// [sentence] with a [StartMark] in the [gutter] to its left, as tall as its
-/// letters and level with its first line. A gutter too thin for it gets none.
+/// letters and level with its first line. A gutter too thin for it gets none;
+/// the phone passes 0, since a hand-swiped sentence needs no finding (design/483).
 Widget withStartMark(Widget sentence, {required TextStyle style, required double gutter}) {
   if (gutter < 6) return sentence;
   final px = style.fontSize ?? 18;

@@ -1645,7 +1645,7 @@ class _SentencePanel extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 withStartMark(
-                                gutter: web != null ? 12 : phoneColumnInset(),
+                                gutter: web != null ? 12 : 0,
                                 style: _sentenceStyle(
                                     web,
                                     Theme.of(context).textTheme.titleMedium ??

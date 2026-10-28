@@ -72,7 +72,7 @@ void main() {
     expect(StartMark.alphaAt(0.1), StartMark.rest, reason: 'the old sentence is still dimming');
     expect(StartMark.alphaAt(0.21), closeTo(StartMark.peak, 1e-9));
     expect(StartMark.alphaAt(0.7), closeTo(StartMark.rest, 1e-9));
-    expect(StartMark.peak, lessThan(0.6));
+    expect(StartMark.peak, lessThanOrEqualTo(0.3));
   });
 
   testWidgets('the mark sits still left of the first line', (tester) async {
