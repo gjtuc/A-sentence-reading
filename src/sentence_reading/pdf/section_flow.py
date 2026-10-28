@@ -15,6 +15,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
+from sentence_reading.pdf.equations import EquationBox, collect_equations
 from sentence_reading.pdf.box_marks import (
     BoxMark,
     box_closing,
@@ -76,6 +77,9 @@ class OrderedPaper:
     # design/352 — where each paragraph box lands in `marked_text`, with the page and
     # rectangle it came from, so a sentence's position never has to be guessed.
     box_marks: list[BoxMark] = field(default_factory=list)
+    # design/481 — the display equations dropped from the text, with page and rectangle,
+    # so they can be shown as pictures under the sentence they follow.
+    equations: list[EquationBox] = field(default_factory=list)
 
 
 def section_mark(key: str) -> str:
@@ -690,6 +694,8 @@ def order_boxes(boxes: list[FlowBox], pages: list[dict]) -> OrderedPaper:
         1 for _k, b in assigned if not _keep_as_sentence(b)
     )
     heading_of = _heading_per_box(assigned)
+    equations = collect_equations(assigned, is_math=_is_display_math, keep=_keep_as_sentence)
+    census["display_equations_n"] = len(equations)
 
     sections: list[tuple[str, list[str], list[FlowBox]]] = []
     page_parts: list[list[str]] = [[] for _ in range(n_pages)]
@@ -735,6 +741,7 @@ def order_boxes(boxes: list[FlowBox], pages: list[dict]) -> OrderedPaper:
         references_text=references_text,
         drop_census={k: v for k, v in sorted(census.items()) if v},
         box_marks=box_marks,
+        equations=equations,
     )
 
 

@@ -75,6 +75,36 @@ class IngestQuality {
   }
 }
 
+/// design/481 — a display equation cut from the page, shown under its sentence.
+class EquationView {
+  const EquationView({
+    required this.id,
+    required this.src,
+    required this.w,
+    required this.h,
+  });
+
+  /// Null for a row that is not a PNG data URL with a size.
+  static EquationView? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final src = '${json['src'] ?? ''}'.trim();
+    if (!src.startsWith('data:image/png;base64,')) return null;
+    final w = json['w'] is num ? (json['w'] as num).toDouble() : 0.0;
+    final h = json['h'] is num ? (json['h'] as num).toDouble() : 0.0;
+    if (w <= 0 || h <= 0) return null;
+    return EquationView(id: '${json['id'] ?? ''}', src: src, w: w, h: h);
+  }
+
+  final String id;
+  final String src;
+
+  /// Size on the page, in PDF points.
+  final double w;
+  final double h;
+
+  Map<String, dynamic> toJson() => {'id': id, 'src': src, 'w': w, 'h': h};
+}
+
 /// One sentence row from the session payload.
 class SentenceView {
   SentenceView({
@@ -84,6 +114,7 @@ class SentenceView {
     this.textKo = '',
     this.qualityFlags = const [],
     this.heading = '',
+    this.equations = const [],
   });
 
   factory SentenceView.fromJson(Map<String, dynamic>? json) {
@@ -102,6 +133,11 @@ class SentenceView {
       section: '${json['section'] ?? ''}'.trim(),
       textKo: '${json['text_ko'] ?? ''}',
       qualityFlags: flags,
+      equations: [
+        if (json['equations'] is List)
+          for (final e in json['equations'] as List)
+            if (EquationView.fromJson(e) case final EquationView eq) eq,
+      ],
     );
   }
 
@@ -114,6 +150,9 @@ class SentenceView {
   /// design/469 — the paper's own heading in effect here ('' when none).
   final String heading;
 
+  /// design/481 — display equations that follow this sentence on the page.
+  final List<EquationView> equations;
+
   SentenceView withHeading(String value) => SentenceView(
         id: id,
         text: text,
@@ -121,6 +160,7 @@ class SentenceView {
         textKo: textKo,
         qualityFlags: qualityFlags,
         heading: value,
+        equations: equations,
       );
 
   bool get hasText => text.trim().isNotEmpty;
@@ -459,6 +499,7 @@ class ReadingSession {
           textKo: p.textKo,
           qualityFlags: s.qualityFlags,
           heading: s.heading,
+          equations: s.equations,
         );
       }
     }

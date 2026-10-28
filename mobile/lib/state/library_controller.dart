@@ -4799,6 +4799,7 @@ class LibraryController extends ChangeNotifier {
               textKo: filled[mi],
               qualityFlags: s.qualityFlags,
               heading: s.heading,
+              equations: s.equations,
             ),
           );
           applied += 1;

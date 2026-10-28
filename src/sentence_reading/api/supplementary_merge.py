@@ -120,6 +120,7 @@ def merge_supplementary(main_id: str) -> dict:
                 # design/321 — rebuilding without this erased the ungrounded mark,
                 # so merged papers were the one place the badge could not appear.
                 quality_flags=getattr(s, "quality_flags", ()) or (),
+                equations=getattr(s, "equations", ()) or (),
             )
         )
 

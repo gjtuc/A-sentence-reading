@@ -167,6 +167,7 @@ from sentence_reading.llm.practice_skill_evidence import (
 from sentence_reading.llm.typography import PIPELINE_VERSION, normalize_scientific_glyphs
 from sentence_reading.cite_refs import repair_dollar_cite_artifacts
 from sentence_reading.llm.vision_ocr import recover_pdf_text
+from sentence_reading.pdf.equations import attach_equations
 from sentence_reading.models import Figure, PaperSession, Sentence, build_mock_session
 from sentence_reading.pdf import extract as pdf_extract
 from sentence_reading.pdf.sentences import (
@@ -8125,6 +8126,8 @@ async def _run_ingest_job_body(
         _layout_artifacts_early: dict | None = None
         # design/331 — set when the Azure reading-order path runs.
         _azure_refs_text = ""
+        # design/481 — the display equations that path dropped from the text.
+        _equation_boxes: list = []
         if resume_pl and (
             skip_vision or vision_resume is not None
         ) and isinstance(resume_pl.get("pages"), list):
@@ -8351,6 +8354,7 @@ async def _run_ingest_job_body(
             # design/352 — the boxes' own offsets, so a sentence's position never has to
             # be guessed by searching the paper for six of its words.
             _box_marks = list(getattr(recovered, "box_marks", None) or [])
+            _equation_boxes = list(getattr(recovered, "equations", None) or [])
             # design/222 — vision may surface SI cover text that pre-vision head missed.
             if not job_doc_override:
                 prior = doc_role
@@ -9073,6 +9077,17 @@ async def _run_ingest_job_body(
                 warnings.append(f"headings:{sum(1 for h in _headings if h['text'])}")
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"headings_failed:{type(exc).__name__}")
+
+        if _equation_boxes and sentences:
+            try:
+                sentences, _eq_census = await asyncio.to_thread(
+                    attach_equations, tmp_path, sentences, _equation_boxes
+                )
+                warnings.append(
+                    f"equations:{_eq_census['placed']}/{_eq_census['found']}"
+                )
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(f"equations_failed:{type(exc).__name__}")
 
         # WHY: design/45 — 번역 전에 영어 세션을 먼저 열어 읽기 시작
         session = PaperSession(

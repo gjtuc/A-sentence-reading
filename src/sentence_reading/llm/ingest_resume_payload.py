@@ -13,6 +13,7 @@ from typing import Any
 
 from sentence_reading.llm.typography import PIPELINE_VERSION
 from sentence_reading.models import Sentence
+from sentence_reading.pdf.equations import clean_equations
 
 
 _PAYLOAD_V = 1
@@ -34,6 +35,8 @@ def sentence_to_dict(s: Sentence) -> dict[str, Any]:
     }
     if s.quality_flags:
         out["quality_flags"] = list(s.quality_flags)
+    if getattr(s, "equations", ()):
+        out["equations"] = [dict(e) for e in s.equations]
     return out
 
 
@@ -57,6 +60,7 @@ def sentence_from_dict(d: dict[str, Any]) -> Sentence | None:
             for f in (d.get("quality_flags") or [])
             if str(f).strip()
         ),
+        equations=clean_equations(d.get("equations")),
     )
 
 

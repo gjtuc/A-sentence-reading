@@ -36,6 +36,7 @@ import '../widgets/figure_ink_toolbar.dart';
 import '../widgets/swipe_motion.dart';
 import '../widgets/reader_wheel.dart';
 import '../widgets/sentence_anchor.dart';
+import '../widgets/sentence_equations.dart';
 import '../widgets/voice_ask_overlay.dart';
 import '../widgets/annotated_sentence_text.dart';
 import '../widgets/upload_status_bar.dart';
@@ -1700,6 +1701,14 @@ class _SentencePanel extends StatelessWidget {
                                     }
                                   },
                                 )),
+                                if (cur.equations.isNotEmpty)
+                                  SentenceEquations(
+                                    equations: cur.equations,
+                                    style: _sentenceStyle(
+                                        web,
+                                        Theme.of(context).textTheme.titleMedium ??
+                                            const TextStyle(fontSize: 18)),
+                                  ),
                                 if (showKo &&
                                     cur.textKo.trim().isNotEmpty) ...[
                                   const SizedBox(height: 12),

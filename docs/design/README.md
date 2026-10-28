@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 481 | [481-display-equations-as-pictures.md](481-display-equations-as-pictures.md) | 따로 선 수식을 PDF 그림으로 잘라 앞 문장 아래에 보여 줌, 테마 색으로 물들임, 읽어 주기·번역은 그대로 (0.3.494) |
 | 480 | [480-still-sentence-fixed-start.md](480-still-sentence-fixed-start.md) | 문장 넘김에 움직임 없음(흐렸다 바꾸기), 첫 줄은 늘 같은 높이·같은 왼쪽 끝, 첫 줄 왼쪽 옅은 시작 표시 (0.3.494) |
 | 479 | [479-settings-switch-shows-at-once.md](479-settings-switch-shows-at-once.md) | 끊어 보기 스위치와 글꼴 고르기가 누르자마자 바뀌어 보이게 (0.3.493) |
 | 478 | [478-faint-crossfade-no-blink.md](478-faint-crossfade-no-blink.md) | 문장 넘김 깜빡임 없애기: 두 문장이 옅게 겹치며 바뀌고 글자 밝기가 60% 아래로 안 떨어짐, 0.3초 (0.3.492) |

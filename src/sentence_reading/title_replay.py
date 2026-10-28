@@ -668,6 +668,7 @@ def _split_leading_title(sentences: list, picked: str) -> tuple[list, str]:
         text_ko="",
         text_ko_stage="",
         quality_flags=tuple(getattr(first, "quality_flags", ()) or ()),
+        equations=tuple(getattr(first, "equations", ()) or ()),
     )
     return [card, body, *sentences[1:]], "split"
 

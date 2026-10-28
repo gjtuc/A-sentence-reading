@@ -45,6 +45,8 @@ class RecoverResult:
     # design/352 — where each paragraph box lands in `text`, with its page and rectangle.
     # Only the reading-order path can fill this; the raw path has no boxes.
     box_marks: list = field(default_factory=list)
+    # design/481 — display equations dropped from `text`, with page and rectangle.
+    equations: list = field(default_factory=list)
 
 
 # design/106 — per-page vision must not hang the whole ingest job.
@@ -220,6 +222,7 @@ def recover_pdf_text(
                         text=ordered.marked_text,
                         pages=ordered.pages or working,
                         box_marks=list(ordered.box_marks or []),
+                        equations=list(getattr(ordered, "equations", None) or []),
                         warnings=[
                             *warnings,
                             "azure_reading_order",

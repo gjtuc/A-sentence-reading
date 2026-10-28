@@ -43,6 +43,9 @@ class Sentence:
     text_ko_stage: str = ""
     # WHY: design/167 — debone grounding / quality signals
     quality_flags: tuple[str, ...] = ()
+    # WHY: design/481 — display equations after this sentence, as page pictures
+    # `{"id", "src": PNG data URL, "w", "h": size on the page in points}`.
+    equations: tuple[dict, ...] = ()
 
 
 @dataclass
@@ -138,6 +141,8 @@ class PaperSession:
             }
             if s.quality_flags:
                 row["quality_flags"] = list(s.quality_flags)
+            if s.equations:
+                row["equations"] = [dict(e) for e in s.equations]
             return row
 
         return {
@@ -158,6 +163,11 @@ class PaperSession:
                 **(
                     {"quality_flags": list(sent.quality_flags)}
                     if sent.quality_flags
+                    else {}
+                ),
+                **(
+                    {"equations": [dict(e) for e in sent.equations]}
+                    if sent.equations
                     else {}
                 ),
             },

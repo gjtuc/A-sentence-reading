@@ -17,6 +17,7 @@ from pathlib import Path
 from sentence_reading.llm.typography import PIPELINE_VERSION
 from sentence_reading.models import Figure, PaperSession, Sentence
 from sentence_reading.paper_headings import clean_headings
+from sentence_reading.pdf.equations import clean_equations
 
 _INDEX_NAME = "index.json"
 _SESSION_NAME = "session.json"
@@ -1024,6 +1025,7 @@ def load_cached_session(
                 for f in (s.get("quality_flags") or [])
                 if str(f).strip()
             ),
+            equations=clean_equations(s.get("equations")),
         )
         for i, s in enumerate(meta.get("sentences") or [])
         if isinstance(s, dict) and str(s.get("text") or "").strip()
@@ -1607,6 +1609,7 @@ def save_paper_session(
                     if s.quality_flags
                     else {}
                 ),
+                **({"equations": [dict(e) for e in s.equations]} if s.equations else {}),
             }
             for s in session.sentences
         ],

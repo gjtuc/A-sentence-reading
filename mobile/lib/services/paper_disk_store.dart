@@ -505,6 +505,8 @@ Map<String, dynamic> readingSessionToPaperDiskJson(ReadingSession s) {
           'section': row.section,
           'text_ko': row.textKo,
           if (row.qualityFlags.isNotEmpty) 'quality_flags': row.qualityFlags,
+          if (row.equations.isNotEmpty)
+            'equations': [for (final e in row.equations) e.toJson()],
         },
     ],
     'figures': [
