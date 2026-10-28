@@ -109,16 +109,29 @@ class _WheelPagerState extends State<WheelPager> {
 /// design/475 — the controller keeps its full length: an [AnimationController]
 /// runs at 5% of its duration while the platform asks to disable animations,
 /// which is the same Windows setting.
+/// design/476 — a short step, one sentence at a time. A third of the pane
+/// (about 200 px on a PC) with both sentences moving and crossing read as
+/// dizzying, so the old one fades out first over a few pixels and the new one
+/// then rises a little way into place.
 class SentenceSlideSwitcher extends StatefulWidget {
   const SentenceSlideSwitcher({super.key, required this.dir, required this.child});
 
   final int dir;
   final Widget child;
 
-  static const Duration duration = Duration(milliseconds: 280);
+  static const Duration duration = Duration(milliseconds: 260);
 
-  /// How far the sentences travel, in their own heights.
-  static const double travel = 0.3;
+  /// Pixels the new sentence rises from, whatever the pane's height.
+  static const double enterRise = 40;
+
+  /// Pixels the old sentence drifts while it fades.
+  static const double leaveRise = 16;
+
+  /// The old sentence is gone by this point of [duration] ...
+  static const double leaveEnd = 0.4;
+
+  /// ... and the new one starts here, so the two barely overlap.
+  static const double enterStart = 0.35;
 
   @override
   State<SentenceSlideSwitcher> createState() => _SentenceSlideSwitcherState();
@@ -136,8 +149,14 @@ class _SentenceSlideSwitcherState extends State<SentenceSlideSwitcher>
         setState(() => _leaving = null);
       }
     });
-  late final Animation<double> _eased =
-      CurvedAnimation(parent: _move, curve: Curves.easeOutCubic);
+  late final Animation<double> _leave = CurvedAnimation(
+    parent: _move,
+    curve: const Interval(0, SentenceSlideSwitcher.leaveEnd, curve: Curves.easeIn),
+  );
+  late final Animation<double> _enter = CurvedAnimation(
+    parent: _move,
+    curve: const Interval(SentenceSlideSwitcher.enterStart, 1, curve: Curves.easeOutCubic),
+  );
   Widget? _leaving;
   int _dir = 0;
   int _gen = 0;
@@ -173,12 +192,14 @@ class _SentenceSlideSwitcherState extends State<SentenceSlideSwitcher>
       child: IgnorePointer(
         ignoring: leaving,
         child: AnimatedBuilder(
-          animation: _eased,
+          animation: _move,
           builder: (context, inner) {
-            final v = _eased.value;
-            final shift = SentenceSlideSwitcher.travel * _dir;
-            return FractionalTranslation(
-              translation: Offset(0, leaving ? -shift * v : shift * (1 - v)),
+            final v = (leaving ? _leave : _enter).value;
+            final dy = leaving
+                ? -SentenceSlideSwitcher.leaveRise * _dir * v
+                : SentenceSlideSwitcher.enterRise * _dir * (1 - v);
+            return Transform.translate(
+              offset: Offset(0, dy),
               child: Opacity(
                 opacity: (leaving ? 1 - v : v).clamp(0.0, 1.0),
                 child: inner,

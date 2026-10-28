@@ -251,13 +251,13 @@ void main() {
         );
     await tester.pumpWidget(at(0, 0));
     await tester.pumpWidget(at(1, 1));
-    expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, 200 * SentenceSlideSwitcher.travel);
+    expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, SentenceSlideSwitcher.enterRise);
     expect(tester.getTopLeft(find.byKey(const ValueKey(0))).dy, 0);
     await tester.pump(ms(16));
     await tester.pump(ms(100));
     final mid = tester.getTopLeft(find.byKey(const ValueKey(1))).dy;
     expect(mid, greaterThan(0));
-    expect(mid, lessThan(200 * SentenceSlideSwitcher.travel));
+    expect(mid, lessThan(SentenceSlideSwitcher.enterRise));
     await tester.pumpWidget(at(0, -1));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey(1)), findsNothing);
@@ -290,5 +290,44 @@ void main() {
     expect(find.byKey(const ValueKey(0)), findsOneWidget);
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, 0);
+  });
+  testWidgets('design/476 a short step: the old sentence is gone before the new one shows', (tester) async {
+    Widget at(int key, int dir) => Directionality(
+          textDirection: TextDirection.ltr,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 600,
+              height: 700,
+              child: SentenceSlideSwitcher(
+                dir: dir,
+                child: SizedBox(key: ValueKey(key), width: 600, height: 700),
+              ),
+            ),
+          ),
+        );
+    double opacityOf(int key) => tester
+        .widget<Opacity>(find
+            .ancestor(of: find.byKey(ValueKey(key)), matching: find.byType(Opacity))
+            .first)
+        .opacity;
+    final total = SentenceSlideSwitcher.duration.inMilliseconds;
+    await tester.pumpWidget(at(0, 0));
+    await tester.pumpWidget(at(1, 1));
+    expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, SentenceSlideSwitcher.enterRise,
+        reason: 'the rise is in pixels, not a share of a tall pane');
+    await tester.pump(ms(16));
+    await tester.pump(ms((total * 0.2).round()));
+    expect(opacityOf(0), greaterThan(0));
+    expect(opacityOf(1), 0, reason: 'the new sentence waits for the old one to go');
+    final drift = tester.getTopLeft(find.byKey(const ValueKey(0))).dy;
+    expect(drift, lessThan(0));
+    expect(drift, greaterThanOrEqualTo(-SentenceSlideSwitcher.leaveRise));
+    await tester.pump(ms((total * 0.3).round()));
+    expect(opacityOf(0), 0);
+    expect(opacityOf(1), greaterThan(0));
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, 0);
+    expect(opacityOf(1), 1);
   });
 }

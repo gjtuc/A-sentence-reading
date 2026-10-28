@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 476 | [476-gentle-sentence-step.md](476-gentle-sentence-step.md) | 문장 넘김을 짧고 차분하게: 새 문장은 40px 아래에서, 이전 문장이 먼저 사라진 뒤 나타남 (0.3.490) |
 | 475 | [475-voice-ask-one-theme-slide-length.md](475-voice-ask-one-theme-slide-length.md) | 말로 AI에게 묻기(전체 화면 일렁임, 누르면 끝, Gemini 받아쓰기, 칸에 넣고 보냄), 테마 하나(시스템/밝음/어두움/종이), 애니메이션 꺼짐에서도 미끄러짐 (0.3.489) |
 | 474 | [474-sentence-slide-scroll-feel.md](474-sentence-slide-scroll-feel.md) | 휠·화살표로 넘길 때 이전 문장은 위로 빠지고 새 문장은 아래에서 올라오게, 첫 장면을 그린 뒤 0.28초 (0.3.488) |
 | 473 | [473-near-sync-library-order.md](473-near-sync-library-order.md) | 동기화할 때 보관함 순서도 맞춤: 더 나중에 끌어서 바꾼 쪽 순서를 따르고, 한쪽에만 있는 논문은 원래 이웃 뒤에 (0.3.487) |
