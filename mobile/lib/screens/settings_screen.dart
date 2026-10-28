@@ -1294,15 +1294,18 @@ const Map<WebLineGap, String> _kLineGapLabel = {
   WebLineGap.wider: '아주 넓게',
 };
 
-/// design/436 — the same font list on the web and the phone. Build it under a
-/// listener of [WebReadingPrefs].
-class _ReadingFontChoice extends StatelessWidget {
-  const _ReadingFontChoice();
+/// design/436 — the same font list on the web and the phone.
+/// design/479 — it listens to [WebReadingPrefs] itself: placed as a const child,
+/// the section's listener rebuilt around it but never into it.
+class ReadingFontChoice extends StatelessWidget {
+  const ReadingFontChoice({super.key});
 
   @override
   Widget build(BuildContext context) {
     final prefs = WebReadingPrefs.instance;
-    return Column(
+    return ListenableBuilder(
+      listenable: prefs,
+      builder: (context, _) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _Choices<WebFont>(
@@ -1321,28 +1324,33 @@ class _ReadingFontChoice extends StatelessWidget {
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ],
+      ),
     );
   }
 }
 
-/// design/444 — one switch for the phone and the web. Build it under a listener of
-/// [WebReadingPrefs].
-class _ClauseBreakSwitch extends StatelessWidget {
-  const _ClauseBreakSwitch();
+/// design/444 — one switch for the phone and the web.
+/// design/479 — it listens itself, like [ReadingFontChoice]; the switch used to
+/// show its new value only after the settings were opened again.
+class ClauseBreakSwitch extends StatelessWidget {
+  const ClauseBreakSwitch({super.key});
 
   @override
   Widget build(BuildContext context) {
     final prefs = WebReadingPrefs.instance;
-    return SwitchListTile(
-      key: const ValueKey('clause_breaks'),
-      contentPadding: EdgeInsets.zero,
-      title: const Text('긴 문장 끊어 보기 (시험)'),
-      subtitle: const Text(
-        '긴 문장을 쉼표 뒤 which·including 같은 말이나 (i)(ii) 나열 앞에서 '
-        '줄을 바꿔 보여 줘요. 문장 글자는 그대로예요.',
+    return ListenableBuilder(
+      listenable: prefs,
+      builder: (context, _) => SwitchListTile(
+        key: const ValueKey('clause_breaks'),
+        contentPadding: EdgeInsets.zero,
+        title: const Text('긴 문장 끊어 보기 (시험)'),
+        subtitle: const Text(
+          '긴 문장을 쉼표 뒤 which·including 같은 말이나 (i)(ii) 나열 앞에서 '
+          '줄을 바꿔 보여 줘요. 문장 글자는 그대로예요.',
+        ),
+        value: prefs.clauseBreaks,
+        onChanged: (v) => unawaited(prefs.setClauseBreaks(v)),
       ),
-      value: prefs.clauseBreaks,
-      onChanged: (v) => unawaited(prefs.setClauseBreaks(v)),
     );
   }
 }
@@ -1434,11 +1442,11 @@ class _PhoneReadingSection extends StatelessWidget {
               selected: web.column,
               onSelected: (v) => unawaited(web.setColumn(v)),
             ),
-            const _ClauseBreakSwitch(),
+            const ClauseBreakSwitch(),
             const SizedBox(height: 12),
             Text('글꼴', style: text.bodyMedium),
             const SizedBox(height: 4),
-            const _ReadingFontChoice(),
+            const ReadingFontChoice(),
             const SizedBox(height: 12),
             Text(
               '문장이 문장 창보다 길면 위아래로 밀어 보세요.',
@@ -1512,11 +1520,11 @@ class _WebReadingSection extends StatelessWidget {
             selected: {prefs.lineGap},
             onSelectionChanged: (v) => unawaited(prefs.setLineGap(v.first)),
           ),
-          const _ClauseBreakSwitch(),
+          const ClauseBreakSwitch(),
           const SizedBox(height: 12),
           Text('글꼴', style: text.bodyMedium),
           const SizedBox(height: 4),
-          const _ReadingFontChoice(),
+          const ReadingFontChoice(),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('마우스가 멈추면 버튼 숨기기'),
