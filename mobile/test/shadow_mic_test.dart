@@ -95,4 +95,15 @@ void main() {
     expect(practicePausesOn(AppLifecycleState.paused, web: false), isTrue);
     expect(practicePausesOn(AppLifecycleState.resumed, web: false), isFalse);
   });
+
+  test('design/475 the phone reads the recorder peak as a level', () async {
+    final mic = ShadowMic();
+    expect(await mic.level(), 0, reason: 'an old app without the call reads silence');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('asr/shadowing_mic'),
+      (call) async => call.method == 'level' ? 32767 : null,
+    );
+    expect(await mic.level(), 1);
+  });
 }

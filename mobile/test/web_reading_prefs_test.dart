@@ -217,4 +217,31 @@ void main() {
     expect(WebFont.values.asNameMap()['serif'], WebFont.serif,
         reason: 'saved prefs name the old book font serif');
   });
+
+  test('design/475 one 테마: 시스템 paints 밝음 by day and 어두움 by night', () {
+    expect(kThemeChoices, [WebPage.app, WebPage.white, WebPage.dim, WebPage.paper]);
+    expect(kThemeChoices.map((p) => kThemeChoiceLabel[p]), ['시스템', '밝음', '어두움', '종이']);
+    final light = ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal));
+    final dark = ThemeData(
+      colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal, brightness: Brightness.dark),
+    );
+    final sys = themeForChoice(WebPage.app, light: light, dark: dark);
+    expect(sys.mode, ThemeMode.system);
+    expect(sys.light.scaffoldBackgroundColor, kWebPages[WebPage.white]!.background);
+    expect(sys.dark.scaffoldBackgroundColor, kWebPages[WebPage.dim]!.background);
+    final paper = themeForChoice(WebPage.paper, light: light, dark: dark);
+    expect(paper.mode, ThemeMode.light);
+    expect(paper.light.scaffoldBackgroundColor, kWebPages[WebPage.paper]!.background);
+    final night = themeForChoice(WebPage.dim, light: light, dark: dark);
+    expect(night.mode, ThemeMode.dark);
+    expect(night.dark.scaffoldBackgroundColor, kWebPages[WebPage.dim]!.background);
+  });
+
+  test('design/475 the phone keeps what it showed before the merge', () {
+    expect(phoneThemeChoice(WebPage.paper, ThemeMode.dark), WebPage.paper);
+    expect(phoneThemeChoice(WebPage.dim, ThemeMode.light), WebPage.dim);
+    expect(phoneThemeChoice(WebPage.app, ThemeMode.light), WebPage.white);
+    expect(phoneThemeChoice(WebPage.app, ThemeMode.dark), WebPage.dim);
+    expect(phoneThemeChoice(WebPage.app, ThemeMode.system), WebPage.app);
+  });
 }

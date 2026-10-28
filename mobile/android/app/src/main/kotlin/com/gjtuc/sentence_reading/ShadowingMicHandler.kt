@@ -106,6 +106,20 @@ internal class ShadowingMicHandler(
                 result.success(path)
             }
             "hasHeadset" -> result.success(hasHeadset())
+            // design/475 — peak since the last call, 0..32767, for the voice glow.
+            "level" -> {
+                val mr = recorder
+                val amp = if (mr == null || primed) {
+                    0
+                } else {
+                    try {
+                        mr.maxAmplitude
+                    } catch (_: Exception) {
+                        0
+                    }
+                }
+                result.success(amp)
+            }
             else -> result.notImplemented()
         }
     }

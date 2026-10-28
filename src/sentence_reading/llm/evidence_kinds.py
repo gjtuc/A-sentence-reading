@@ -335,5 +335,9 @@ ALLOWED_KINDS = frozenset(
         "translate_optout_mismatch",
         # design/465 — title cache hit refused when the body does not match
         "cache_title_hit_rejected",
+        # design/475 — a spoken AI question: the server writes it down, the
+        # client says how the take ended (sent to the box, cancelled, mic refused)
+        "voice_ask_transcribe",
+        "voice_ask_client",
     }
 )

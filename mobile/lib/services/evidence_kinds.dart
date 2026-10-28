@@ -327,4 +327,7 @@ const Set<String> kEvidenceAllowedKinds = {
   // design/256 — ingest poll oversized + translate/practice mismatch
   'ingest_job_view_size',
   'translate_optout_mismatch',
+  // design/475 — spoken AI question
+  'voice_ask_transcribe',
+  'voice_ask_client',
 };

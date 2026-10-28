@@ -263,4 +263,32 @@ void main() {
     expect(find.byKey(const ValueKey(1)), findsNothing);
     expect(tester.getTopLeft(find.byKey(const ValueKey(0))).dy, 0);
   });
+  testWidgets('design/475 the slide keeps its length when the platform disables animations', (tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    Widget at(int key, int dir) => Directionality(
+          textDirection: TextDirection.ltr,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 200,
+              height: 200,
+              child: SentenceSlideSwitcher(
+                dir: dir,
+                child: SizedBox(key: ValueKey(key), width: 200, height: 200),
+              ),
+            ),
+          ),
+        );
+    await tester.pumpWidget(at(0, 0));
+    await tester.pumpWidget(at(1, 1));
+    await tester.pump(ms(16));
+    await tester.pump(ms(100));
+    final mid = tester.getTopLeft(find.byKey(const ValueKey(1))).dy;
+    expect(mid, greaterThan(0));
+    expect(find.byKey(const ValueKey(0)), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, 0);
+  });
 }

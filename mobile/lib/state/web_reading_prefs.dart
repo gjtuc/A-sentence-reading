@@ -248,6 +248,53 @@ ThemeData webAppTheme(ThemeData base, WebPage page) {
   return webPageTheme(base, p);
 }
 
+/// design/475 — the one 테마 setting, web and phone. 시스템 ([WebPage.app])
+/// follows the device between 밝음 and 어두움.
+const List<WebPage> kThemeChoices = [
+  WebPage.app,
+  WebPage.white,
+  WebPage.dim,
+  WebPage.paper,
+];
+
+const Map<WebPage, String> kThemeChoiceLabel = {
+  WebPage.app: '시스템',
+  WebPage.white: '밝음',
+  WebPage.dim: '어두움',
+  WebPage.paper: '종이',
+};
+
+/// The phone had a 테마 (light, dark, system) under its 화면 색. A colour
+/// picked there wins; 앱 테마 falls back to that old 테마.
+WebPage phoneThemeChoice(WebPage page, ThemeMode oldMode) {
+  if (page != WebPage.app) return page;
+  return switch (oldMode) {
+    ThemeMode.light => WebPage.white,
+    ThemeMode.dark => WebPage.dim,
+    ThemeMode.system => WebPage.app,
+  };
+}
+
+/// What [MaterialApp] gets for a 테마 choice.
+({ThemeMode mode, ThemeData light, ThemeData dark}) themeForChoice(
+  WebPage page, {
+  required ThemeData light,
+  required ThemeData dark,
+}) {
+  if (kWebPages[page] == null) {
+    return (
+      mode: ThemeMode.system,
+      light: webPageTheme(light, kWebPages[WebPage.white]!),
+      dark: webPageTheme(dark, kWebPages[WebPage.dim]!),
+    );
+  }
+  return (
+    mode: webThemeMode(page),
+    light: webAppTheme(light, page),
+    dark: webAppTheme(dark, page),
+  );
+}
+
 /// Rebuilds with the style for the size it gets and the current prefs.
 class WebReadingFrame extends StatelessWidget {
   const WebReadingFrame({super.key, required this.builder});

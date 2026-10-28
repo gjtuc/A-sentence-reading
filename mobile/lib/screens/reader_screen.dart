@@ -35,6 +35,7 @@ import '../api/figure_ink_models.dart';
 import '../widgets/figure_ink_toolbar.dart';
 import '../widgets/swipe_motion.dart';
 import '../widgets/reader_wheel.dart';
+import '../widgets/voice_ask_overlay.dart';
 import '../widgets/annotated_sentence_text.dart';
 import '../widgets/upload_status_bar.dart';
 import '../state/web_reading_prefs.dart';
@@ -1126,7 +1127,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (cur == null) return KeyEventResult.ignored;
     final plain = annotationPlainForSentence(cur.text);
     unawaited(() async {
-      final q = await showAiAskTypeDialog(context: context, sentencePlain: plain);
+      final q = await showAiAskTypeDialog(
+        context: context,
+        sentencePlain: plain,
+        voice: _voiceAsk(widget.client, plain),
+      );
       if (q == null || !mounted) return;
       await _askAiAbout(context, sentencePlain: plain, promptBody: q);
     }());
@@ -1602,6 +1607,7 @@ class _SentencePanel extends StatelessWidget {
                                       context,
                                       annotations: annotations,
                                       session: session,
+                                      client: client,
                                     ),
                             child: _readingColumn(web, box.maxHeight, Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -3314,10 +3320,21 @@ Future<void> _handleSentenceBookmarkTap(
   }
 }
 
+/// design/475 — the question box's microphone, writing down through the server.
+VoiceAskSource _voiceAsk(AsrClient client, String sentencePlain) => VoiceAskSource(
+      sentence: sentencePlain,
+      transcribe: (take, sentence) => client.transcribeVoiceQuestion(
+        bytes: take.bytes,
+        mime: take.mime,
+        sentence: sentence,
+      ),
+    );
+
 Future<void> _handleSentenceAnnotateLongPress(
   BuildContext context, {
   required AnnotationController annotations,
   required ReadingSession session,
+  required AsrClient client,
 }) async {
   final nav = session.sectionNav;
   final key = nav.sentenceBookmarkKeyForGlobal(session.sentenceIndex);
@@ -3330,6 +3347,7 @@ Future<void> _handleSentenceAnnotateLongPress(
     existing: existing,
     canAnnotate: annotations.canAnnotate,
     sentencePlain: annotationPlainForSentence(cur.text),
+    voice: _voiceAsk(client, annotationPlainForSentence(cur.text)),
   );
   if (result == null || !context.mounted) return;
 

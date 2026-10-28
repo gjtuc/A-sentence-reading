@@ -13,7 +13,6 @@ import '../api/auth_models.dart';
 import '../api/client.dart';
 import '../api/launch_dest.dart';
 import '../config.dart';
-import '../api/theme_models.dart';
 import '../services/full_screen.dart';
 import '../services/pane_link.dart' show preparePaneScreens;
 import '../api/tts_models.dart';
@@ -812,38 +811,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ..._accountLinkTiles(user),
               ],
             ],
-            // design/420 — the web has one colour setting, 화면 색, below.
-            if (!kIsWeb) ...[
             const Divider(height: 32),
             Text('테마', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
-            SegmentedButton<ThemeMode>(
-              segments: const [
-                ButtonSegment(
-                  value: ThemeMode.system,
-                  label: Text('시스템'),
-                  icon: Icon(Icons.brightness_auto),
-                ),
-                ButtonSegment(
-                  value: ThemeMode.light,
-                  label: Text('밝음'),
-                  icon: Icon(Icons.light_mode),
-                ),
-                ButtonSegment(
-                  value: ThemeMode.dark,
-                  label: Text('어둠'),
-                  icon: Icon(Icons.dark_mode),
-                ),
-              ],
-              selected: {widget.theme.mode},
-              onSelectionChanged: (set) {
-                if (set.isEmpty) return;
-                widget.theme.setMode(set.first);
-              },
-            ),
-            const SizedBox(height: 8),
-            Text('현재: ${themeModeLabelKo(widget.theme.mode)}'),
-            ],
+            _ThemeChoice(theme: widget.theme),
             const Divider(height: 32),
             Text('TTS', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
@@ -1236,6 +1207,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
+/// design/475 — 시스템 / 밝음 / 어두움 / 종이. Picking one on the phone also
+/// retires the old light/dark 테마, which [phoneThemeChoice] still reads.
+class _ThemeChoice extends StatelessWidget {
+  const _ThemeChoice({required this.theme});
+
+  final ThemeController theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final reader = ReaderPrefs.instance;
+    final web = WebReadingPrefs.instance;
+    return ListenableBuilder(
+      listenable: Listenable.merge([theme, kIsWeb ? web : reader]),
+      builder: (context, _) => _Choices<WebPage>(
+        values: kThemeChoices,
+        labels: kThemeChoiceLabel,
+        selected: kIsWeb ? web.page : phoneThemeChoice(reader.page, theme.mode),
+        onSelected: (v) {
+          if (kIsWeb) {
+            unawaited(web.setPage(v));
+            return;
+          }
+          unawaited(reader.setPage(v));
+          if (theme.mode != ThemeMode.system) {
+            unawaited(theme.setMode(ThemeMode.system));
+          }
+        },
+      ),
+    );
+  }
+}
+
 /// design/436 — one row of choices that wraps on a narrow phone.
 class _Choices<T> extends StatelessWidget {
   const _Choices({
@@ -1437,22 +1440,7 @@ class _PhoneReadingSection extends StatelessWidget {
             const SizedBox(height: 4),
             const _ReadingFontChoice(),
             const SizedBox(height: 12),
-            Text('화면 색', style: text.bodyMedium),
-            const SizedBox(height: 4),
-            _Choices<WebPage>(
-              values: WebPage.values,
-              labels: const {
-                WebPage.app: '앱 테마',
-                WebPage.dim: '어두운 회색',
-                WebPage.paper: '종이색',
-                WebPage.white: '흰색',
-              },
-              selected: reader.page,
-              onSelected: (v) => unawaited(reader.setPage(v)),
-            ),
-            const SizedBox(height: 4),
             Text(
-              '「앱 테마」는 위의 테마 설정을 따라요. 다른 색을 고르면 모든 화면이 그 색이 돼요. '
               '문장이 문장 창보다 길면 위아래로 밀어 보세요.',
               style: text.bodySmall,
             ),
@@ -1500,19 +1488,6 @@ class _WebReadingSection extends StatelessWidget {
             ],
             selected: {prefs.column},
             onSelectionChanged: (v) => unawaited(prefs.setColumn(v.first)),
-          ),
-          const SizedBox(height: 12),
-          Text('화면 색', style: text.bodyMedium),
-          const SizedBox(height: 4),
-          SegmentedButton<WebPage>(
-            segments: const [
-              ButtonSegment(value: WebPage.app, label: Text('시스템')),
-              ButtonSegment(value: WebPage.dim, label: Text('어두운 회색')),
-              ButtonSegment(value: WebPage.paper, label: Text('종이색')),
-              ButtonSegment(value: WebPage.white, label: Text('흰색')),
-            ],
-            selected: {prefs.page},
-            onSelectionChanged: (v) => unawaited(prefs.setPage(v.first)),
           ),
           const SizedBox(height: 12),
           Text('글자 간격', style: text.bodyMedium),

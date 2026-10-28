@@ -25,6 +25,7 @@ import 'reading_models.dart';
 import 'sample_take_tag.dart';
 import 'session_store.dart';
 import 'tts_models.dart';
+import 'voice_ask_models.dart';
 import '../practice_rhythm/follow_span.dart';
 import '../services/figure_png_cache.dart';
 import 'oauth_models.dart';
@@ -3107,6 +3108,50 @@ throw AsrApiException(
     return lastHeardPhones.isEmpty ? null : lastHeardPhones;
   }
 
+
+  /// design/475 — POST /api/ask/voice. The spoken question written down, with
+  /// the sentence on screen sent along so its words are spelled as written.
+  Future<VoiceAskHeard> transcribeVoiceQuestion({
+    required List<int> bytes,
+    required String mime,
+    String sentence = '',
+  }) async {
+    if (bytes.isEmpty) return const VoiceAskHeard('', error: 'empty_audio');
+    try {
+      final headers = await _headers();
+      headers.remove('Content-Type');
+      final req = http.MultipartRequest('POST', _uri('/api/ask/voice'));
+      req.headers.addAll(headers);
+      req.fields['sentence'] = sentence;
+      req.files.add(http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: mime.contains('webm') ? 'question.webm' : 'question.m4a',
+        contentType: MediaType.parse(mime.isEmpty ? 'audio/mp4' : mime),
+      ));
+      final streamed = await req.send().timeout(const Duration(seconds: 90));
+      final res = await http.Response.fromStream(streamed);
+      Object? body;
+      try {
+        body = jsonDecode(utf8.decode(res.bodyBytes));
+      } catch (_) {}
+      final map = body is Map ? body : const {};
+      if (res.statusCode == 200 && map['ok'] == true) {
+        return VoiceAskHeard('${map['text'] ?? ''}'.trim());
+      }
+      final error = switch (res.statusCode) {
+        401 => 'auth_required',
+        403 => 'access_denied',
+        _ => '${map['error'] ?? 'http_${res.statusCode}'}',
+      };
+      _breadcrumbApiFail('ask/voice', res.statusCode, error);
+      return VoiceAskHeard('', error: error);
+    } on TimeoutException {
+      return const VoiceAskHeard('', error: 'timeout');
+    } catch (_) {
+      return const VoiceAskHeard('', error: 'offline');
+    }
+  }
 
   Future<AccessStatus> fetchAccessStatus() async {
     try {

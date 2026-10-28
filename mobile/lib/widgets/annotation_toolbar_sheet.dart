@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import '../api/ai_ask_prompt_models.dart';
 import '../api/ai_ask_prompt_store.dart';
 import '../api/annotation_models.dart';
+import '../api/voice_ask_models.dart';
+import 'voice_ask_overlay.dart';
 
 /// Bottom sheet: AI ask on top (design/471), then paint colors + memo
 /// (design/166 · 182).
@@ -16,6 +18,7 @@ Future<AnnotationToolbarResult?> showAnnotationToolbarSheet({
   bool canAnnotate = true,
   AiAskPromptStore? promptStore,
   String sentencePlain = '',
+  VoiceAskSource? voice,
 }) {
   return showModalBottomSheet<AnnotationToolbarResult>(
     context: context,
@@ -27,6 +30,7 @@ Future<AnnotationToolbarResult?> showAnnotationToolbarSheet({
         canAnnotate: canAnnotate,
         promptStore: promptStore ?? PrefsAiAskPromptStore(),
         sentencePlain: sentencePlain,
+        voice: voice,
       );
     },
   );
@@ -64,12 +68,14 @@ class _AnnotationToolbarBody extends StatefulWidget {
     required this.canAnnotate,
     required this.promptStore,
     this.sentencePlain = '',
+    this.voice,
   });
 
   final List<AnnotationEvent> existing;
   final bool canAnnotate;
   final AiAskPromptStore promptStore;
   final String sentencePlain;
+  final VoiceAskSource? voice;
 
   @override
   State<_AnnotationToolbarBody> createState() => _AnnotationToolbarBodyState();
@@ -166,6 +172,7 @@ class _AnnotationToolbarBodyState extends State<_AnnotationToolbarBody> {
               const SizedBox(height: 8),
             ],
             AiAskQuestionField(
+              voice: widget.voice,
               onAsk: (q) => Navigator.pop(
                 context,
                 AnnotationToolbarResult(
@@ -322,6 +329,7 @@ class AiAskQuestionField extends StatefulWidget {
     this.initial = '',
     this.autofocus = false,
     this.compact = kIsWeb,
+    this.voice,
   });
 
   final ValueChanged<String> onAsk;
@@ -330,32 +338,66 @@ class AiAskQuestionField extends StatefulWidget {
   /// design/472 — the web keeps the thin box; a long question wraps to two lines.
   final bool compact;
 
+  /// design/475 — null hides the microphone.
+  final VoiceAskSource? voice;
+
   @override
   State<AiAskQuestionField> createState() => _AiAskQuestionFieldState();
 }
 
 class _AiAskQuestionFieldState extends State<AiAskQuestionField> {
   late final TextEditingController _ctrl =
-      TextEditingController(text: widget.initial);
+      TextEditingController(text: widget.initial)..addListener(_onText);
+  final FocusNode _focus = FocusNode();
+
+  /// design/475 — the box holds words the microphone wrote down. Edits keep
+  /// it; emptying the box to type afresh drops it.
+  bool _spoken = false;
+
+  void _onText() {
+    if (_spoken && _ctrl.text.trim().isEmpty) _spoken = false;
+  }
 
   @override
   void dispose() {
     _ctrl.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
   void _send() {
     final q = _ctrl.text.trim();
     if (q.isEmpty) return;
-    widget.onAsk(q);
+    widget.onAsk(voiceAskPrompt(q, spoken: _spoken));
+  }
+
+  Future<void> _speak() async {
+    final voice = widget.voice;
+    if (voice == null) return;
+    final text = await showVoiceAskOverlay(context, source: voice);
+    if (!mounted || text == null || text.trim().isEmpty) return;
+    final had = _ctrl.text.trim();
+    final next = had.isEmpty ? text.trim() : '$had ${text.trim()}';
+    _ctrl.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: next.length),
+    );
+    _spoken = true;
+    _focus.requestFocus();
   }
 
   @override
   Widget build(BuildContext context) {
     // design/471 — several lines tall and wrapping, but still one line of text:
     // Enter and the keyboard's send key send it, so there is no line break.
+    final send = IconButton(
+      tooltip: 'Google AI에 묻기',
+      icon: const Icon(Icons.send),
+      onPressed: _send,
+    );
     return TextField(
       controller: _ctrl,
+      focusNode: _focus,
       autofocus: widget.autofocus,
       keyboardType: TextInputType.text,
       textInputAction: TextInputAction.send,
@@ -367,11 +409,20 @@ class _AiAskQuestionFieldState extends State<AiAskQuestionField> {
         hintText: '질문을 입력하고 Enter',
         border: const OutlineInputBorder(),
         isDense: widget.compact,
-        suffixIcon: IconButton(
-          tooltip: 'Google AI에 묻기',
-          icon: const Icon(Icons.send),
-          onPressed: _send,
-        ),
+        suffixIcon: widget.voice == null
+            ? send
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    key: const ValueKey('ai_ask_mic'),
+                    tooltip: '말로 묻기',
+                    icon: const Icon(Icons.mic_none),
+                    onPressed: () => unawaited(_speak()),
+                  ),
+                  send,
+                ],
+              ),
       ),
     );
   }
@@ -403,21 +454,28 @@ Future<String?> showAiAskTypeDialog({
   required BuildContext context,
   required String sentencePlain,
   AiAskPromptStore? promptStore,
+  VoiceAskSource? voice,
 }) {
   return showDialog<String>(
     context: context,
     builder: (ctx) => _AiAskTypeDialog(
       sentencePlain: sentencePlain,
       store: promptStore ?? PrefsAiAskPromptStore(),
+      voice: voice,
     ),
   );
 }
 
 class _AiAskTypeDialog extends StatefulWidget {
-  const _AiAskTypeDialog({required this.sentencePlain, required this.store});
+  const _AiAskTypeDialog({
+    required this.sentencePlain,
+    required this.store,
+    this.voice,
+  });
 
   final String sentencePlain;
   final AiAskPromptStore store;
+  final VoiceAskSource? voice;
 
   @override
   State<_AiAskTypeDialog> createState() => _AiAskTypeDialogState();
@@ -457,6 +515,7 @@ class _AiAskTypeDialogState extends State<_AiAskTypeDialog> {
             const SizedBox(height: 12),
             AiAskQuestionField(
               autofocus: true,
+              voice: widget.voice,
               onAsk: (q) => Navigator.pop(context, q),
             ),
             if (_prompts.isNotEmpty) ...[

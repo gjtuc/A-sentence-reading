@@ -224,18 +224,17 @@ class _SentenceReadingAppState extends State<SentenceReadingApp> {
           fontFamilyFallback: kWebHangulFallback,
           useMaterial3: true,
         );
-        // design/420 — on the web the page colour is the theme: one setting.
-        // design/436 — on the phone 앱 테마 leaves the 테마 setting in charge.
-        final phonePage = ReaderPrefs.instance.page;
-        final page = kIsWeb
+        // design/475 — one 테마 setting on the web and the phone.
+        final choice = kIsWeb
             ? WebReadingPrefs.instance.page
-            : (phonePage == WebPage.app ? null : phonePage);
+            : phoneThemeChoice(ReaderPrefs.instance.page, _theme.mode);
+        final themes = themeForChoice(choice, light: light, dark: dark);
         return MaterialApp(
           title: '문장 읽기',
           debugShowCheckedModeBanner: false,
-          themeMode: page == null ? _theme.mode : webThemeMode(page),
-          theme: page == null ? light : webAppTheme(light, page),
-          darkTheme: page == null ? dark : webAppTheme(dark, page),
+          themeMode: themes.mode,
+          theme: themes.light,
+          darkTheme: themes.dark,
           home: HomeShell(
             auth: _auth,
             library: _library,

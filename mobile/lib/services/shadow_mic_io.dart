@@ -67,5 +67,14 @@ class _ChannelMic implements ShadowMic {
   }
 
   @override
+  Future<double> level() async {
+    try {
+      return micLevelFromAmplitude(await _ch.invokeMethod<int>('level') ?? 0);
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  @override
   void dispose() => unawaited(cancel());
 }

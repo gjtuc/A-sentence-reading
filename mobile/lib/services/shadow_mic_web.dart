@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:js_interop';
+import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:js_interop_unsafe';
 
 import 'package:web/web.dart' as web;
@@ -22,6 +24,9 @@ class _BrowserMic implements ShadowMic {
   Completer<void>? _done;
   final List<JSAny> _parts = [];
   final Stopwatch _clock = Stopwatch();
+  web.AudioContext? _audio;
+  web.AnalyserNode? _meter;
+  JSFloat32Array? _frame;
 
   /// The microphone stays open for the practice screen, so each take starts at
   /// once. Raw sound, like the phone's MIC source: the guide voice is silent
@@ -124,9 +129,45 @@ class _BrowserMic implements ShadowMic {
   @override
   Future<void> cancel() async => _drop();
 
+  /// The meter listens to the open stream; practice never asks, so it never
+  /// builds one.
+  @override
+  Future<double> level() async {
+    final stream = _stream;
+    if (_rec == null || stream == null || !stream.active) return 0;
+    try {
+      var meter = _meter;
+      if (meter == null) {
+        final audio = _audio ??= web.AudioContext();
+        meter = audio.createAnalyser()..fftSize = 1024;
+        audio.createMediaStreamSource(stream).connect(meter);
+        _meter = meter;
+        _frame = Float32List(meter.fftSize).toJS;
+      }
+      final audio = _audio!;
+      if (audio.state == 'suspended') unawaited(audio.resume().toDart);
+      final frame = _frame!;
+      meter.getFloatTimeDomainData(frame);
+      final samples = frame.toDart;
+      if (samples.isEmpty) return 0;
+      var sum = 0.0;
+      for (final x in samples) {
+        sum += x * x;
+      }
+      return micLevelFromRms(math.sqrt(sum / samples.length));
+    } catch (_) {
+      return 0;
+    }
+  }
+
   @override
   void dispose() {
     _drop();
+    final audio = _audio;
+    _audio = null;
+    _meter = null;
+    _frame = null;
+    if (audio != null) unawaited(audio.close().toDart.then((_) {}, onError: (_) {}));
     final stream = _stream;
     _stream = null;
     if (stream == null) return;

@@ -106,6 +106,9 @@ class _WheelPagerState extends State<WheelPager> {
 /// design/474 — the move starts after the first frame of the new sentence: on
 /// the web that frame is slow, and a move started with the build was mostly
 /// over before anything was shown.
+/// design/475 — the controller keeps its full length: an [AnimationController]
+/// runs at 5% of its duration while the platform asks to disable animations,
+/// which is the same Windows setting.
 class SentenceSlideSwitcher extends StatefulWidget {
   const SentenceSlideSwitcher({super.key, required this.dir, required this.child});
 
@@ -127,6 +130,7 @@ class _SentenceSlideSwitcherState extends State<SentenceSlideSwitcher>
     vsync: this,
     duration: SentenceSlideSwitcher.duration,
     value: 1,
+    animationBehavior: AnimationBehavior.preserve,
   )..addStatusListener((status) {
       if (status == AnimationStatus.completed && _leaving != null && mounted) {
         setState(() => _leaving = null);

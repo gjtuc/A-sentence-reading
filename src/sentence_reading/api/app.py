@@ -287,7 +287,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.488",
+    version="0.3.489",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -2288,8 +2288,10 @@ from sentence_reading.api.routes import library_keys as library_keys_routes
 from sentence_reading.api.routes import spots as spots_routes
 from sentence_reading.api.routes import status as status_routes
 from sentence_reading.api.routes import tts as tts_routes
+from sentence_reading.api.routes import voice_ask as voice_ask_routes
 
 tts_routes.bind(paid_access_denied=_paid_access_denied)
+voice_ask_routes.bind(paid_access_denied=_paid_access_denied)
 near_routes.bind(paid_access_denied=_paid_access_denied)
 spots_routes.bind(paid_access_denied=_paid_access_denied)
 read_done_routes.bind(paid_access_denied=_paid_access_denied)
@@ -2301,6 +2303,7 @@ app.include_router(spots_routes.router)
 app.include_router(read_done_routes.router)
 app.include_router(library_keys_routes.router)
 app.include_router(status_routes.router)
+app.include_router(voice_ask_routes.router)
 
 
 @app.get("/api/mobile/apk")
