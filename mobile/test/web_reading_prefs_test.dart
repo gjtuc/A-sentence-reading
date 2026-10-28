@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/state/web_reading_prefs.dart';
+import 'package:sentence_reading/widgets/sentence_anchor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -71,25 +72,26 @@ void main() {
     expect(plain.viewHeight, 0);
   });
 
-  testWidgets('design/414 the sentence sits in the middle of the frame', (tester) async {
+  testWidgets('design/414 the sentence sits in the column of the frame', (tester) async {
     const web = WebReadingStyle(fontSize: 34, maxWidth: 600, viewHeight: 800);
-    await tester.pumpWidget(Directionality(
-      textDirection: TextDirection.ltr,
-      child: Align(
-        alignment: Alignment.topLeft,
-        child: SizedBox(
-          width: 800,
-          child: SingleChildScrollView(
-            child: webReadingColumn(web, const SizedBox(key: Key('s'), width: 600, height: 100)),
+    await tester.pumpWidget(MediaQuery(
+      data: const MediaQueryData(size: Size(1000, 900)),
+      child: Directionality(
+        textDirection: TextDirection.ltr,
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 800,
+            child: SingleChildScrollView(
+              child: webReadingColumn(web, const SizedBox(key: Key('s'), width: 200, height: 100)),
+            ),
           ),
         ),
       ),
     ));
     final box = tester.getRect(find.byKey(const Key('s')));
-    expect(box.left, 100);
-    final free = 800 - 100 - 48;
-    final top = 24 + free * (1 + kWebSentenceAlign.y) / 2;
-    expect(box.top, closeTo(top, 0.5));
+    expect(box.left, 100, reason: 'a short sentence starts at the column edge');
+    expect(box.top, closeTo(24 + 900 * kSentenceStartAt, 0.5));
     expect(box.center.dy, lessThan(400));
   });
 

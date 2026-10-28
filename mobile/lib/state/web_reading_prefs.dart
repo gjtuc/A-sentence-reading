@@ -14,6 +14,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../widgets/sentence_anchor.dart';
+
 enum WebTextSize { normal, large, huge }
 
 enum WebColumnWidth { narrow, medium, wide }
@@ -72,8 +74,6 @@ const Duration kWebChromeIdle = Duration(seconds: 3);
 /// The neighbour sentences sit at this opacity.
 const double kWebContextOpacity = 0.32;
 
-/// Above the middle reads as the middle; dead centre looks low.
-const Alignment kWebSentenceAlign = Alignment(0, -0.2);
 
 class WebPagePalette {
   const WebPagePalette({
@@ -134,7 +134,7 @@ class WebReadingStyle {
   final double wordSpacing;
   final String? fontFamily;
 
-  /// Height of the reading frame; the sentence is centred inside it.
+  /// Height of the reading frame; the sentence starts [kSentenceStartAt] down it.
   final double viewHeight;
   final bool showContext;
 }
@@ -185,18 +185,22 @@ TextStyle webKoStyle(WebReadingStyle? web, TextStyle base) => web == null
 TextStyle webContextStyle(WebReadingStyle web, TextStyle base) =>
     webSentenceStyle(web, base).copyWith(fontSize: web.fontSize * 0.78);
 
-/// Centres [child] in the web column; returns [child] untouched on the phone.
-Widget webReadingColumn(WebReadingStyle? web, Widget child) {
+/// [child] in the web column, its first line at one place for every sentence
+/// (design/480): the column is always its full width, so a short sentence
+/// starts at the same left edge, and [head] sits above without pushing it.
+/// Returns [child] untouched on the phone.
+Widget webReadingColumn(WebReadingStyle? web, Widget child, {Widget? head}) {
   if (web == null) return child;
-  return ConstrainedBox(
-    constraints: BoxConstraints(minHeight: web.viewHeight),
-    child: Align(
-      alignment: kWebSentenceAlign,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: web.maxWidth),
-        child: Padding(
-          padding: const EdgeInsets.only(top: 24, bottom: 24),
-          child: child,
+  return Align(
+    alignment: Alignment.topCenter,
+    child: SizedBox(
+      width: web.maxWidth,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: SentenceAnchor(
+          viewHeight: math.max(0, web.viewHeight - 48),
+          head: head ?? const SizedBox.shrink(),
+          body: child,
         ),
       ),
     ),

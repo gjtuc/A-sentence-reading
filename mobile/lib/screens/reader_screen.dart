@@ -35,6 +35,7 @@ import '../api/figure_ink_models.dart';
 import '../widgets/figure_ink_toolbar.dart';
 import '../widgets/swipe_motion.dart';
 import '../widgets/reader_wheel.dart';
+import '../widgets/sentence_anchor.dart';
 import '../widgets/voice_ask_overlay.dart';
 import '../widgets/annotated_sentence_text.dart';
 import '../widgets/upload_status_bar.dart';
@@ -1188,18 +1189,21 @@ TextStyle _koStyle(WebReadingStyle? web, TextStyle base) => web != null
     ? webKoStyle(web, base)
     : phoneSentenceStyle(base, px: koPxFor(ReaderPrefs.instance.sentencePx));
 
-/// design/437 — the phone sentence sits a little above the middle of its pane,
-/// as on the web; one taller than the pane starts at the top.
-Widget _readingColumn(WebReadingStyle? web, double viewHeight, Widget child) {
-  if (web != null) return webReadingColumn(web, child);
-  return ConstrainedBox(
-    constraints: BoxConstraints(minHeight: viewHeight.isFinite ? viewHeight : 0),
-    child: Align(
-      alignment: Alignment(-1, kWebSentenceAlign.y),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: child,
-      ),
+/// design/480 — the sentence's first line starts at one height on the phone and
+/// the web, whatever its length; [head] sits right above it.
+Widget _readingColumn(
+  WebReadingStyle? web,
+  double viewHeight, {
+  required Widget head,
+  required Widget body,
+}) {
+  if (web != null) return webReadingColumn(web, body, head: head);
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 12),
+    child: SentenceAnchor(
+      viewHeight: viewHeight.isFinite ? math.max(0, viewHeight - 24) : 0,
+      head: head,
+      body: body,
     ),
   );
 }
@@ -1588,7 +1592,7 @@ class _SentencePanel extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(4, 16, 4, 16),
                   child: WebReadingFrame(
                   builder: (context, web) => LayoutBuilder(
-                  builder: (context, box) => SentenceSlideSwitcher(
+                  builder: (context, box) => SentenceFadeSwitcher(
                     dir: slideDir,
                     child: SingleChildScrollView(
                     // A long sentence scrolled down must not open the next one halfway.
@@ -1609,7 +1613,7 @@ class _SentencePanel extends StatelessWidget {
                                       session: session,
                                       client: client,
                                     ),
-                            child: _readingColumn(web, box.maxHeight, Column(
+                            child: _readingColumn(web, box.maxHeight, head: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 if (web != null && web.showContext)
@@ -1635,6 +1639,16 @@ class _SentencePanel extends StatelessWidget {
                                       visualDensity: VisualDensity.compact,
                                     ),
                                   ),
+                              ],
+                            ), body: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                withStartMark(
+                                gutter: web != null ? 12 : phoneColumnInset(),
+                                style: _sentenceStyle(
+                                    web,
+                                    Theme.of(context).textTheme.titleMedium ??
+                                        const TextStyle(fontSize: 18)),
                                 AnnotatedSentenceText(
                                   html: cite
                                       .stripCiteMarkersForDisplay(cur.text),
@@ -1685,7 +1699,7 @@ class _SentencePanel extends StatelessWidget {
                                       HapticFeedback.mediumImpact();
                                     }
                                   },
-                                ),
+                                )),
                                 if (showKo &&
                                     cur.textKo.trim().isNotEmpty) ...[
                                   const SizedBox(height: 12),

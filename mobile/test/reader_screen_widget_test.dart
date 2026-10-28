@@ -1,4 +1,4 @@
-﻿/// design/63 — reader cursors are independent, verified through the widget tree.
+/// design/63 — reader cursors are independent, verified through the widget tree.
 ///
 /// WHY: the invariant was only covered by model-level tests, so a regression in
 /// the panes (reading the wrong cursor, disabled chevrons) could ship unseen.
@@ -22,6 +22,7 @@ import 'package:sentence_reading/state/library_controller.dart';
 import 'package:sentence_reading/state/reader_prefs.dart';
 import 'package:sentence_reading/state/web_reading_prefs.dart';
 import 'package:sentence_reading/state/shadowing_controller.dart';
+import 'package:sentence_reading/widgets/sentence_anchor.dart';
 import 'package:sentence_reading/state/translate_controller.dart';
 import 'package:sentence_reading/state/tts_controller.dart';
 
@@ -413,8 +414,9 @@ void main() {
     prefs.resetForTests();
   });
 
-  // design/437 — the phone sentence sits a little above the middle of its pane.
-  testWidgets('a short phone sentence sits a little above the middle of its pane',
+  // design/437, design/480 — the phone sentence starts a fifth of the screen down
+  // its pane, the same height for the next one, though the pane grew.
+  testWidgets('phone sentences start at one height near the top of the pane',
       (tester) async {
     ReaderPrefs.instance.resetForTests();
     WebReadingPrefs.instance.resetForTests();
@@ -430,9 +432,13 @@ void main() {
           matching: find.byType(Card),
         )
         .first);
-    final at = (text.center.dy - card.top) / card.height;
-    expect(at, greaterThan(0.3));
-    expect(at, lessThan(0.5));
+    expect(text.top - card.top, closeTo(891 * kSentenceStartAt + 36, 8));
+
+    library.advanceSentence(1);
+    await animate(tester);
+    final next = tester.getRect(_richText('Sentence body number 1.').first);
+    expect(next.top, closeTo(text.top, 0.5));
+    expect(next.left, text.left);
   });
 
   testWidgets('the phone names a new section above its first sentence',

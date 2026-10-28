@@ -1,5 +1,5 @@
 /// design/471 — the mouse wheel turns sentences and figures like ←/→, and a
-/// one-step move slides the sentence in from where it was drawn.
+/// one-step move changes the sentence in place (design/480).
 library;
 
 import 'package:flutter/gestures.dart';
@@ -95,61 +95,58 @@ class _WheelPagerState extends State<WheelPager> {
   }
 }
 
-/// The sentence slides in by [dir] (1: from below, as the next sentence was
-/// drawn there; -1: from above) while the one before slides out the other
-/// way. 0 shows it at once — swipes fly sideways on their own and a picker
-/// jump is no step. Every slot keeps one shape and the key of its sentence, so
-/// a rebuild does not remount a sentence and lose its scroll position.
+/// The sentence after a step of [dir] (1 or -1) takes the old one's place
+/// without moving: the old one dims to [floor], the new one replaces it there
+/// and brightens. 0 shows it at once — swipes fly sideways on their own and a
+/// picker jump is no step. Every slot keeps one shape and the key of its
+/// sentence, so a rebuild does not remount a sentence and lose its scroll
+/// position.
 ///
 /// design/472 — it ignores "reduce motion": Windows with animation effects off
-/// reports it to the browser, and the slide was asked for on such a PC.
-/// design/474 — the move starts after the first frame of the new sentence: on
-/// the web that frame is slow, and a move started with the build was mostly
+/// reports it to the browser, and the step was asked for on such a PC.
+/// design/474 — the change starts after the first frame of the new sentence: on
+/// the web that frame is slow, and a change started with the build was mostly
 /// over before anything was shown.
 /// design/475 — the controller keeps its full length: an [AnimationController]
 /// runs at 5% of its duration while the platform asks to disable animations,
 /// which is the same Windows setting.
-/// design/476 — a short step: a third of the pane (about 200 px on a PC) with
-/// both sentences crossing read as dizzying, so the rise is a few pixels.
-/// design/478 — the two fades overlap faintly. Waiting for the old sentence to
-/// vanish before the new one showed left the pane nearly empty for a moment,
-/// a blink on a dark page. Now the letters on screen never drop below
-/// [minInk] of one sentence, and where the two cross each is about a third.
-class SentenceSlideSwitcher extends StatefulWidget {
-  const SentenceSlideSwitcher({super.key, required this.dir, required this.child});
+/// design/480 — no slide at all: moving text pulls the eyes along with it
+/// whether the reader wants it or not, and that tired them. The two sentences
+/// never show together (they start at one place and would pile up), and the
+/// pane never drops below [floor] of one sentence, which read as a blink.
+class SentenceFadeSwitcher extends StatefulWidget {
+  const SentenceFadeSwitcher({super.key, required this.dir, required this.child});
 
   final int dir;
   final Widget child;
 
-  static const Duration duration = Duration(milliseconds: 300);
+  static const Duration duration = Duration(milliseconds: 260);
 
-  /// Pixels the new sentence rises from, whatever the pane's height.
-  static const double enterRise = 40;
+  /// The least opacity on screen: the old sentence's at the swap, the new
+  /// one's right after it.
+  static const double floor = 0.4;
 
-  /// Pixels the old sentence drifts while it fades.
-  static const double leaveRise = 16;
+  /// The share of [duration] the old sentence dims for.
+  static const double swapAt = 0.4;
 
-  /// The old sentence fades out, evenly, by this point of [duration].
-  static const double leaveEnd = 0.5;
-
-  /// The new one starts fading in here, evenly, and is full at [enterFull];
-  /// it keeps rising until the end.
-  static const double enterStart = 0.15;
-  static const double enterFull = 0.7;
-
-  /// The least the two opacities add up to: (leaveEnd - enterStart) /
-  /// (enterFull - enterStart) at the moment the old one is gone.
-  static const double minInk = 0.6;
+  /// Opacities of the old and the new sentence [t] of the way through.
+  static ({double old, double fresh}) inkAt(double t) {
+    if (t >= 1) return (old: 0, fresh: 1);
+    if (t < swapAt) {
+      return (old: 1 - (1 - floor) * Curves.easeOut.transform(t / swapAt), fresh: 0);
+    }
+    return (old: 0, fresh: floor + (1 - floor) * Curves.easeOut.transform((t - swapAt) / (1 - swapAt)));
+  }
 
   @override
-  State<SentenceSlideSwitcher> createState() => _SentenceSlideSwitcherState();
+  State<SentenceFadeSwitcher> createState() => _SentenceFadeSwitcherState();
 }
 
-class _SentenceSlideSwitcherState extends State<SentenceSlideSwitcher>
+class _SentenceFadeSwitcherState extends State<SentenceFadeSwitcher>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _move = AnimationController(
+  late final AnimationController _fade = AnimationController(
     vsync: this,
-    duration: SentenceSlideSwitcher.duration,
+    duration: SentenceFadeSwitcher.duration,
     value: 1,
     animationBehavior: AnimationBehavior.preserve,
   )..addStatusListener((status) {
@@ -157,48 +154,30 @@ class _SentenceSlideSwitcherState extends State<SentenceSlideSwitcher>
         setState(() => _leaving = null);
       }
     });
-  late final Animation<double> _leaveFade = CurvedAnimation(
-    parent: _move,
-    curve: const Interval(0, SentenceSlideSwitcher.leaveEnd),
-  );
-  late final Animation<double> _leaveMove = CurvedAnimation(
-    parent: _move,
-    curve: const Interval(0, SentenceSlideSwitcher.leaveEnd, curve: Curves.easeOut),
-  );
-  late final Animation<double> _enterFade = CurvedAnimation(
-    parent: _move,
-    curve: const Interval(SentenceSlideSwitcher.enterStart, SentenceSlideSwitcher.enterFull),
-  );
-  late final Animation<double> _enterMove = CurvedAnimation(
-    parent: _move,
-    curve: const Interval(SentenceSlideSwitcher.enterStart, 1, curve: Curves.easeOutCubic),
-  );
   Widget? _leaving;
-  int _dir = 0;
   int _gen = 0;
 
   @override
-  void didUpdateWidget(covariant SentenceSlideSwitcher oldWidget) {
+  void didUpdateWidget(covariant SentenceFadeSwitcher oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (Widget.canUpdate(oldWidget.child, widget.child)) return;
     _gen++;
     if (widget.dir == 0) {
       _leaving = null;
-      _move.value = 1;
+      _fade.value = 1;
       return;
     }
     _leaving = oldWidget.child;
-    _dir = widget.dir.sign;
-    _move.value = 0;
+    _fade.value = 0;
     final gen = _gen;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && gen == _gen) _move.forward(from: 0);
+      if (mounted && gen == _gen) _fade.forward(from: 0);
     });
   }
 
   @override
   void dispose() {
-    _move.dispose();
+    _fade.dispose();
     super.dispose();
   }
 
@@ -208,18 +187,14 @@ class _SentenceSlideSwitcherState extends State<SentenceSlideSwitcher>
       child: IgnorePointer(
         ignoring: leaving,
         child: AnimatedBuilder(
-          animation: _move,
+          animation: _fade,
           builder: (context, inner) {
-            final dy = leaving
-                ? -SentenceSlideSwitcher.leaveRise * _dir * _leaveMove.value
-                : SentenceSlideSwitcher.enterRise * _dir * (1 - _enterMove.value);
-            final fade = leaving ? 1 - _leaveFade.value : _enterFade.value;
-            return Transform.translate(
-              offset: Offset(0, dy),
-              child: Opacity(
-                opacity: fade.clamp(0.0, 1.0),
-                child: inner,
-              ),
+            final ink = _leaving == null
+                ? (old: 0.0, fresh: 1.0)
+                : SentenceFadeSwitcher.inkAt(_fade.value);
+            return Opacity(
+              opacity: (leaving ? ink.old : ink.fresh).clamp(0.0, 1.0),
+              child: inner,
             );
           },
           child: child,

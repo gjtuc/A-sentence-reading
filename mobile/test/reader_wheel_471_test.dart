@@ -107,7 +107,7 @@ void main() {
     expect(steps, [1]);
   });
 
-  testWidgets('design/471 the next sentence slides up from below', (tester) async {
+  testWidgets('design/471 the next sentence takes the old one\'s place', (tester) async {
     Widget at(int key, int dir) => Directionality(
           textDirection: TextDirection.ltr,
           child: Align(
@@ -115,7 +115,7 @@ void main() {
             child: SizedBox(
               width: 200,
               height: 200,
-              child: SentenceSlideSwitcher(
+              child: SentenceFadeSwitcher(
                 dir: dir,
                 child: SizedBox(key: ValueKey(key), width: 200, height: 200),
               ),
@@ -126,22 +126,22 @@ void main() {
     await tester.pumpWidget(at(1, 1));
     await tester.pump(ms(16));
     await tester.pump(ms(60));
-    expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, greaterThan(0));
-    expect(tester.getTopLeft(find.byKey(const ValueKey(0))).dy, lessThan(0));
+    expect(tester.getTopLeft(find.byKey(const ValueKey(0))).dy, 0);
+    expect(_opacity(tester, 0), lessThan(1));
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, 0);
     expect(find.byKey(const ValueKey(0)), findsNothing);
 
     await tester.pumpWidget(at(2, 0));
     await tester.pump();
-    expect(tester.getTopLeft(find.byKey(const ValueKey(2))).dy, 0);
+    expect(_opacity(tester, 2), 1);
   });
 
   testWidgets('design/471 the slide hint ending does not remount the sentence', (tester) async {
     final inits = <int>[];
     Widget at(int dir) => Directionality(
           textDirection: TextDirection.ltr,
-          child: SentenceSlideSwitcher(
+          child: SentenceFadeSwitcher(
             dir: dir,
             child: _Counted(key: const ValueKey(5), inits: inits),
           ),
@@ -200,7 +200,7 @@ void main() {
     final paint = tester.getTopLeft(find.text('하이라이트')).dy;
     expect(ai < sentence && sentence < box && box < paint, isTrue);
   });
-  testWidgets('design/472 the slide plays even when the system asks for less motion', (tester) async {
+  testWidgets('design/472 the change plays even when the system asks for less motion', (tester) async {
     Widget at(int key, int dir) => MediaQuery(
           data: const MediaQueryData(disableAnimations: true),
           child: Directionality(
@@ -210,7 +210,7 @@ void main() {
               child: SizedBox(
                 width: 200,
                 height: 200,
-                child: SentenceSlideSwitcher(
+                child: SentenceFadeSwitcher(
                   dir: dir,
                   child: SizedBox(key: ValueKey(key), width: 200, height: 200),
                 ),
@@ -220,8 +220,9 @@ void main() {
         );
     await tester.pumpWidget(at(0, 0));
     await tester.pumpWidget(at(1, 1));
+    await tester.pump(ms(16));
     await tester.pump(ms(60));
-    expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, greaterThan(0));
+    expect(_opacity(tester, 0), inExclusiveRange(SentenceFadeSwitcher.floor, 1));
     await tester.pumpAndSettle();
   });
 
@@ -234,7 +235,7 @@ void main() {
     expect(field.maxLines, 2);
     expect(field.decoration?.isDense, isTrue);
   });
-  testWidgets('design/474 the slide starts after the first frame of the new sentence', (tester) async {
+  testWidgets('design/474 the change starts after the first frame of the new sentence', (tester) async {
     Widget at(int key, int dir) => Directionality(
           textDirection: TextDirection.ltr,
           child: Align(
@@ -242,7 +243,7 @@ void main() {
             child: SizedBox(
               width: 200,
               height: 200,
-              child: SentenceSlideSwitcher(
+              child: SentenceFadeSwitcher(
                 dir: dir,
                 child: SizedBox(key: ValueKey(key), width: 200, height: 200),
               ),
@@ -251,19 +252,17 @@ void main() {
         );
     await tester.pumpWidget(at(0, 0));
     await tester.pumpWidget(at(1, 1));
-    expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, SentenceSlideSwitcher.enterRise);
-    expect(tester.getTopLeft(find.byKey(const ValueKey(0))).dy, 0);
+    expect(_opacity(tester, 0), 1);
+    expect(_opacity(tester, 1), 0);
     await tester.pump(ms(16));
-    await tester.pump(SentenceSlideSwitcher.duration * 0.5);
-    final mid = tester.getTopLeft(find.byKey(const ValueKey(1))).dy;
-    expect(mid, greaterThan(0));
-    expect(mid, lessThan(SentenceSlideSwitcher.enterRise));
+    await tester.pump(SentenceFadeSwitcher.duration * 0.5);
+    expect(_opacity(tester, 1), inExclusiveRange(SentenceFadeSwitcher.floor, 1));
     await tester.pumpWidget(at(0, -1));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey(1)), findsNothing);
-    expect(tester.getTopLeft(find.byKey(const ValueKey(0))).dy, 0);
+    expect(_opacity(tester, 0), 1);
   });
-  testWidgets('design/475 the slide keeps its length when the platform disables animations', (tester) async {
+  testWidgets('design/475 the change keeps its length when the platform disables animations', (tester) async {
     tester.platformDispatcher.accessibilityFeaturesTestValue =
         const FakeAccessibilityFeatures(disableAnimations: true);
     addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
@@ -274,7 +273,7 @@ void main() {
             child: SizedBox(
               width: 200,
               height: 200,
-              child: SentenceSlideSwitcher(
+              child: SentenceFadeSwitcher(
                 dir: dir,
                 child: SizedBox(key: ValueKey(key), width: 200, height: 200),
               ),
@@ -284,14 +283,13 @@ void main() {
     await tester.pumpWidget(at(0, 0));
     await tester.pumpWidget(at(1, 1));
     await tester.pump(ms(16));
-    await tester.pump(ms(100));
-    final mid = tester.getTopLeft(find.byKey(const ValueKey(1))).dy;
-    expect(mid, greaterThan(0));
+    await tester.pump(ms(80));
     expect(find.byKey(const ValueKey(0)), findsOneWidget);
+    expect(_opacity(tester, 0), inExclusiveRange(SentenceFadeSwitcher.floor, 1));
     await tester.pumpAndSettle();
-    expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, 0);
+    expect(_opacity(tester, 1), 1);
   });
-  testWidgets('design/478 the fades overlap faintly and the pane never goes blank', (tester) async {
+  testWidgets('design/478 the pane never goes blank between two sentences', (tester) async {
     Widget at(int key, int dir) => Directionality(
           textDirection: TextDirection.ltr,
           child: Align(
@@ -299,42 +297,30 @@ void main() {
             child: SizedBox(
               width: 600,
               height: 700,
-              child: SentenceSlideSwitcher(
+              child: SentenceFadeSwitcher(
                 dir: dir,
                 child: SizedBox(key: ValueKey(key), width: 600, height: 700),
               ),
             ),
           ),
         );
-    double opacityOf(int key) {
-      final f = find.ancestor(of: find.byKey(ValueKey(key)), matching: find.byType(Opacity));
-      return f.evaluate().isEmpty ? 0 : tester.widget<Opacity>(f.first).opacity;
-    }
-
-    expect(SentenceSlideSwitcher.duration, const Duration(milliseconds: 300));
     await tester.pumpWidget(at(0, 0));
     await tester.pumpWidget(at(1, 1));
-    expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, SentenceSlideSwitcher.enterRise,
-        reason: 'the rise is in pixels, not a share of a tall pane');
     await tester.pump(ms(16));
     var least = 2.0;
-    var crossing = 0.0;
     for (var i = 0; i < 30; i++) {
       await tester.pump(ms(10));
-      final old = find.byKey(const ValueKey(0)).evaluate().isEmpty ? 0.0 : opacityOf(0);
-      final fresh = opacityOf(1);
-      least = least < old + fresh ? least : old + fresh;
-      if (old > 0 && fresh > 0 && (old - fresh).abs() < 0.08) crossing = old;
-      if (old > 0) {
-        expect(tester.getTopLeft(find.byKey(const ValueKey(0))).dy,
-            greaterThanOrEqualTo(-SentenceSlideSwitcher.leaveRise));
-      }
+      final ink = _opacity(tester, 0) + _opacity(tester, 1);
+      least = least < ink ? least : ink;
     }
-    expect(least, greaterThanOrEqualTo(SentenceSlideSwitcher.minInk - 0.03));
-    expect(crossing, inInclusiveRange(0.25, 0.42), reason: 'where they cross each is faint');
+    expect(least, greaterThanOrEqualTo(SentenceFadeSwitcher.floor - 0.01));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey(0)), findsNothing);
-    expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, 0);
-    expect(opacityOf(1), 1);
+    expect(_opacity(tester, 1), 1);
   });
+}
+
+double _opacity(WidgetTester tester, int key) {
+  final f = find.ancestor(of: find.byKey(ValueKey(key)), matching: find.byType(Opacity));
+  return f.evaluate().isEmpty ? 0 : tester.widget<Opacity>(f.first).opacity;
 }
