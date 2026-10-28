@@ -124,11 +124,13 @@ void main() {
         );
     await tester.pumpWidget(at(0, 0));
     await tester.pumpWidget(at(1, 1));
+    await tester.pump(ms(16));
     await tester.pump(ms(60));
     expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, greaterThan(0));
-    expect(find.byKey(const ValueKey(0)), findsNothing);
+    expect(tester.getTopLeft(find.byKey(const ValueKey(0))).dy, lessThan(0));
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, 0);
+    expect(find.byKey(const ValueKey(0)), findsNothing);
 
     await tester.pumpWidget(at(2, 0));
     await tester.pump();
@@ -231,5 +233,34 @@ void main() {
     expect(field.minLines, 1);
     expect(field.maxLines, 2);
     expect(field.decoration?.isDense, isTrue);
+  });
+  testWidgets('design/474 the slide starts after the first frame of the new sentence', (tester) async {
+    Widget at(int key, int dir) => Directionality(
+          textDirection: TextDirection.ltr,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 200,
+              height: 200,
+              child: SentenceSlideSwitcher(
+                dir: dir,
+                child: SizedBox(key: ValueKey(key), width: 200, height: 200),
+              ),
+            ),
+          ),
+        );
+    await tester.pumpWidget(at(0, 0));
+    await tester.pumpWidget(at(1, 1));
+    expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, 200 * SentenceSlideSwitcher.travel);
+    expect(tester.getTopLeft(find.byKey(const ValueKey(0))).dy, 0);
+    await tester.pump(ms(16));
+    await tester.pump(ms(100));
+    final mid = tester.getTopLeft(find.byKey(const ValueKey(1))).dy;
+    expect(mid, greaterThan(0));
+    expect(mid, lessThan(200 * SentenceSlideSwitcher.travel));
+    await tester.pumpWidget(at(0, -1));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey(1)), findsNothing);
+    expect(tester.getTopLeft(find.byKey(const ValueKey(0))).dy, 0);
   });
 }

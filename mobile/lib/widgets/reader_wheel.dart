@@ -96,39 +96,108 @@ class _WheelPagerState extends State<WheelPager> {
 }
 
 /// The sentence slides in by [dir] (1: from below, as the next sentence was
-/// drawn there; -1: from above). 0 shows it at once — swipes fly sideways on
-/// their own and a picker jump is no step. The transition keeps one shape for
-/// every [dir], so a later rebuild does not remount the sentence and lose its
-/// scroll position.
+/// drawn there; -1: from above) while the one before slides out the other
+/// way. 0 shows it at once — swipes fly sideways on their own and a picker
+/// jump is no step. Every slot keeps one shape and the key of its sentence, so
+/// a rebuild does not remount a sentence and lose its scroll position.
 ///
 /// design/472 — it ignores "reduce motion": Windows with animation effects off
 /// reports it to the browser, and the slide was asked for on such a PC.
-class SentenceSlideSwitcher extends StatelessWidget {
+/// design/474 — the move starts after the first frame of the new sentence: on
+/// the web that frame is slow, and a move started with the build was mostly
+/// over before anything was shown.
+class SentenceSlideSwitcher extends StatefulWidget {
   const SentenceSlideSwitcher({super.key, required this.dir, required this.child});
 
   final int dir;
   final Widget child;
 
-  static const Duration duration = Duration(milliseconds: 200);
+  static const Duration duration = Duration(milliseconds: 280);
+
+  /// How far the sentences travel, in their own heights.
+  static const double travel = 0.3;
 
   @override
-  Widget build(BuildContext context) {
-    final still = dir == 0;
-    return AnimatedSwitcher(
-      duration: still ? Duration.zero : duration,
-      switchInCurve: Curves.easeOutCubic,
-      layoutBuilder: (current, previous) => current ?? const SizedBox.shrink(),
-      transitionBuilder: (child, animation) => FadeTransition(
-        opacity: Tween<double>(begin: still ? 1 : 0.35, end: 1).animate(animation),
-        child: SlideTransition(
-          position: Tween<Offset>(
-            begin: Offset(0, still ? 0 : 0.12 * dir.sign),
-            end: Offset.zero,
-          ).animate(animation),
+  State<SentenceSlideSwitcher> createState() => _SentenceSlideSwitcherState();
+}
+
+class _SentenceSlideSwitcherState extends State<SentenceSlideSwitcher>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _move = AnimationController(
+    vsync: this,
+    duration: SentenceSlideSwitcher.duration,
+    value: 1,
+  )..addStatusListener((status) {
+      if (status == AnimationStatus.completed && _leaving != null && mounted) {
+        setState(() => _leaving = null);
+      }
+    });
+  late final Animation<double> _eased =
+      CurvedAnimation(parent: _move, curve: Curves.easeOutCubic);
+  Widget? _leaving;
+  int _dir = 0;
+  int _gen = 0;
+
+  @override
+  void didUpdateWidget(covariant SentenceSlideSwitcher oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (Widget.canUpdate(oldWidget.child, widget.child)) return;
+    _gen++;
+    if (widget.dir == 0) {
+      _leaving = null;
+      _move.value = 1;
+      return;
+    }
+    _leaving = oldWidget.child;
+    _dir = widget.dir.sign;
+    _move.value = 0;
+    final gen = _gen;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && gen == _gen) _move.forward(from: 0);
+    });
+  }
+
+  @override
+  void dispose() {
+    _move.dispose();
+    super.dispose();
+  }
+
+  Widget _slot(Widget child, {required bool leaving}) {
+    return KeyedSubtree(
+      key: ValueKey<Object?>(child.key),
+      child: IgnorePointer(
+        ignoring: leaving,
+        child: AnimatedBuilder(
+          animation: _eased,
+          builder: (context, inner) {
+            final v = _eased.value;
+            final shift = SentenceSlideSwitcher.travel * _dir;
+            return FractionalTranslation(
+              translation: Offset(0, leaving ? -shift * v : shift * (1 - v)),
+              child: Opacity(
+                opacity: (leaving ? 1 - v : v).clamp(0.0, 1.0),
+                child: inner,
+              ),
+            );
+          },
           child: child,
         ),
       ),
-      child: child,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final leaving = _leaving;
+    return ClipRect(
+      child: Stack(
+        fit: StackFit.passthrough,
+        children: [
+          if (leaving != null) _slot(leaving, leaving: true),
+          _slot(widget.child, leaving: false),
+        ],
+      ),
     );
   }
 }
