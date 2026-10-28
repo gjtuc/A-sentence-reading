@@ -1343,7 +1343,7 @@ class ClauseBreakSwitch extends StatelessWidget {
       builder: (context, _) => SwitchListTile(
         key: const ValueKey('clause_breaks'),
         contentPadding: EdgeInsets.zero,
-        title: const Text('긴 문장 끊어 보기 (시험)'),
+        title: const Text('긴 문장 끊어 보기'),
         subtitle: const Text(
           '긴 문장을 쉼표 뒤 which·including 같은 말이나 (i)(ii) 나열 앞에서 '
           '줄을 바꿔 보여 줘요. 문장 글자는 그대로예요.',

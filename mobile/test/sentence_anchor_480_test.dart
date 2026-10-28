@@ -2,6 +2,8 @@
 // still mark shows where.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sentence_reading/state/web_reading_prefs.dart';
 import 'package:sentence_reading/widgets/reader_wheel.dart';
 import 'package:sentence_reading/widgets/sentence_anchor.dart';
 
@@ -141,5 +143,17 @@ void main() {
     expect(find.byType(Transform), findsNothing);
     await tester.pumpAndSettle();
     expect(_opacity(tester, find.byKey(const ValueKey(1))), 1);
+  });
+
+  test('long sentences break into pieces unless the reader turned it off', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = WebReadingPrefs.instance..resetForTests();
+    await prefs.load();
+    expect(prefs.clauseBreaks, isTrue);
+    SharedPreferences.setMockInitialValues({WebReadingPrefs.clauseBreaksKey: false});
+    prefs.resetForTests();
+    await prefs.load();
+    expect(prefs.clauseBreaks, isFalse);
+    prefs.resetForTests();
   });
 }

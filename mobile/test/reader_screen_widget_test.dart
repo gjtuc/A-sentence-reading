@@ -573,6 +573,7 @@ void main() {
         'sentence_index': 0,
         'figure_index': 0,
       });
+    WebReadingPrefs.instance.clauseBreaks = false;
     await _pumpReader(tester, library, client);
     expect(_richText('method,\nwhich has'), findsNothing);
 

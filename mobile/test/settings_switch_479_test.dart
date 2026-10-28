@@ -16,14 +16,14 @@ void main() {
       home: Scaffold(body: ClauseBreakSwitch()),
     ));
     SwitchListTile tile() => tester.widget(find.byKey(const ValueKey('clause_breaks')));
+    expect(tile().value, isTrue, reason: 'design/480: on unless turned off');
+    await tester.tap(find.byKey(const ValueKey('clause_breaks')));
+    await tester.pump();
+    expect(WebReadingPrefs.instance.clauseBreaks, isFalse);
     expect(tile().value, isFalse);
     await tester.tap(find.byKey(const ValueKey('clause_breaks')));
     await tester.pump();
-    expect(WebReadingPrefs.instance.clauseBreaks, isTrue);
     expect(tile().value, isTrue);
-    await tester.tap(find.byKey(const ValueKey('clause_breaks')));
-    await tester.pump();
-    expect(tile().value, isFalse);
   });
 
   testWidgets('design/479 the font choice marks the font as soon as it is picked', (tester) async {

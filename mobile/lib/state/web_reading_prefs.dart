@@ -369,7 +369,8 @@ class WebReadingPrefs extends ChangeNotifier {
   bool fullScreen = false;
 
   /// design/444 — a long sentence breaks where a reader would pause. Phone and web.
-  bool clauseBreaks = false;
+  /// design/480: no longer a trial, on unless the reader turned it off.
+  bool clauseBreaks = true;
   Future<void>? _loading;
 
   Future<void> load() => _loading ??= _load();
@@ -495,7 +496,7 @@ class WebReadingPrefs extends ChangeNotifier {
     showContext = true;
     autoFigurePane = true;
     fullScreen = false;
-    clauseBreaks = false;
+    clauseBreaks = true;
     _loading = null;
   }
 }

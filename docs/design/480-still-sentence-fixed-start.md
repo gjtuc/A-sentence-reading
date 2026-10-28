@@ -31,6 +31,9 @@
    문장이 올 때만 0.55 까지 잠깐 밝아졌다 돌아온다(0.7초). 갑자기 밝아지는 것이 시선을 끄는 성질을 시작점에만
    쓴다. 폰 "넓게"(여백 2px)처럼 여백이 6px 보다 좁으면 그리지 않는다.
 
+4. **긴 문장 끊어 보기** — 시험이 아니라 기능이 되었다. 이름에서 "(시험)"을 뺐고 처음부터 켜져 있다.
+   직접 끈 사람은 저장된 대로 꺼져 있다(`reading_clause_breaks_v1`).
+
 ## 시험
 
 - `mobile/test/sentence_anchor_480_test.dart` — 시작 높이 계산, 길이가 다른 문장·짧은 칸의 같은 시작,
@@ -38,3 +41,5 @@
 - `mobile/test/reader_wheel_471_test.dart` — 471·472·474·475·478 시험을 흐려짐 기준으로 바꿈
 - `mobile/test/web_reading_prefs_test.dart` — 웹 칸: 짧은 문장도 칸 왼쪽 끝, 시작 높이
 - `mobile/test/reader_screen_widget_test.dart` — 폰: 칸이 커져도 다음 문장이 같은 높이에서 시작
+- `mobile/test/settings_switch_479_test.dart` — 끊어 보기 스위치가 켜진 채로 시작
+- `sentence_anchor_480_test.dart` 끝 — 저장값이 없으면 켜짐, 끈 값은 그대로
