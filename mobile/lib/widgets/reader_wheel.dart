@@ -113,13 +113,15 @@ class _WheelPagerState extends State<WheelPager> {
 /// (about 200 px on a PC) with both sentences moving and crossing read as
 /// dizzying, so the old one fades out first over a few pixels and the new one
 /// then rises a little way into place.
+/// design/477 — a little longer: the distance is short, so more time reads as
+/// calm rather than slow.
 class SentenceSlideSwitcher extends StatefulWidget {
   const SentenceSlideSwitcher({super.key, required this.dir, required this.child});
 
   final int dir;
   final Widget child;
 
-  static const Duration duration = Duration(milliseconds: 260);
+  static const Duration duration = Duration(milliseconds: 350);
 
   /// Pixels the new sentence rises from, whatever the pane's height.
   static const double enterRise = 40;

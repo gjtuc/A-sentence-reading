@@ -254,7 +254,7 @@ void main() {
     expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, SentenceSlideSwitcher.enterRise);
     expect(tester.getTopLeft(find.byKey(const ValueKey(0))).dy, 0);
     await tester.pump(ms(16));
-    await tester.pump(ms(100));
+    await tester.pump(SentenceSlideSwitcher.duration * 0.5);
     final mid = tester.getTopLeft(find.byKey(const ValueKey(1))).dy;
     expect(mid, greaterThan(0));
     expect(mid, lessThan(SentenceSlideSwitcher.enterRise));
@@ -329,5 +329,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, 0);
     expect(opacityOf(1), 1);
+  });
+  test('design/477 the step lasts about a third of a second', () {
+    expect(SentenceSlideSwitcher.duration, const Duration(milliseconds: 350));
+    expect(SentenceSlideSwitcher.enterRise, 40);
   });
 }
