@@ -291,7 +291,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, 0);
   });
-  testWidgets('design/476 a short step: the old sentence is gone before the new one shows', (tester) async {
+  testWidgets('design/478 the fades overlap faintly and the pane never goes blank', (tester) async {
     Widget at(int key, int dir) => Directionality(
           textDirection: TextDirection.ltr,
           child: Align(
@@ -306,32 +306,35 @@ void main() {
             ),
           ),
         );
-    double opacityOf(int key) => tester
-        .widget<Opacity>(find
-            .ancestor(of: find.byKey(ValueKey(key)), matching: find.byType(Opacity))
-            .first)
-        .opacity;
-    final total = SentenceSlideSwitcher.duration.inMilliseconds;
+    double opacityOf(int key) {
+      final f = find.ancestor(of: find.byKey(ValueKey(key)), matching: find.byType(Opacity));
+      return f.evaluate().isEmpty ? 0 : tester.widget<Opacity>(f.first).opacity;
+    }
+
+    expect(SentenceSlideSwitcher.duration, const Duration(milliseconds: 300));
     await tester.pumpWidget(at(0, 0));
     await tester.pumpWidget(at(1, 1));
     expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, SentenceSlideSwitcher.enterRise,
         reason: 'the rise is in pixels, not a share of a tall pane');
     await tester.pump(ms(16));
-    await tester.pump(ms((total * 0.2).round()));
-    expect(opacityOf(0), greaterThan(0));
-    expect(opacityOf(1), 0, reason: 'the new sentence waits for the old one to go');
-    final drift = tester.getTopLeft(find.byKey(const ValueKey(0))).dy;
-    expect(drift, lessThan(0));
-    expect(drift, greaterThanOrEqualTo(-SentenceSlideSwitcher.leaveRise));
-    await tester.pump(ms((total * 0.3).round()));
-    expect(opacityOf(0), 0);
-    expect(opacityOf(1), greaterThan(0));
+    var least = 2.0;
+    var crossing = 0.0;
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(ms(10));
+      final old = find.byKey(const ValueKey(0)).evaluate().isEmpty ? 0.0 : opacityOf(0);
+      final fresh = opacityOf(1);
+      least = least < old + fresh ? least : old + fresh;
+      if (old > 0 && fresh > 0 && (old - fresh).abs() < 0.08) crossing = old;
+      if (old > 0) {
+        expect(tester.getTopLeft(find.byKey(const ValueKey(0))).dy,
+            greaterThanOrEqualTo(-SentenceSlideSwitcher.leaveRise));
+      }
+    }
+    expect(least, greaterThanOrEqualTo(SentenceSlideSwitcher.minInk - 0.03));
+    expect(crossing, inInclusiveRange(0.25, 0.42), reason: 'where they cross each is faint');
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey(0)), findsNothing);
     expect(tester.getTopLeft(find.byKey(const ValueKey(1))).dy, 0);
     expect(opacityOf(1), 1);
-  });
-  test('design/477 the step lasts about a third of a second', () {
-    expect(SentenceSlideSwitcher.duration, const Duration(milliseconds: 350));
-    expect(SentenceSlideSwitcher.enterRise, 40);
   });
 }

@@ -109,19 +109,19 @@ class _WheelPagerState extends State<WheelPager> {
 /// design/475 — the controller keeps its full length: an [AnimationController]
 /// runs at 5% of its duration while the platform asks to disable animations,
 /// which is the same Windows setting.
-/// design/476 — a short step, one sentence at a time. A third of the pane
-/// (about 200 px on a PC) with both sentences moving and crossing read as
-/// dizzying, so the old one fades out first over a few pixels and the new one
-/// then rises a little way into place.
-/// design/477 — a little longer: the distance is short, so more time reads as
-/// calm rather than slow.
+/// design/476 — a short step: a third of the pane (about 200 px on a PC) with
+/// both sentences crossing read as dizzying, so the rise is a few pixels.
+/// design/478 — the two fades overlap faintly. Waiting for the old sentence to
+/// vanish before the new one showed left the pane nearly empty for a moment,
+/// a blink on a dark page. Now the letters on screen never drop below
+/// [minInk] of one sentence, and where the two cross each is about a third.
 class SentenceSlideSwitcher extends StatefulWidget {
   const SentenceSlideSwitcher({super.key, required this.dir, required this.child});
 
   final int dir;
   final Widget child;
 
-  static const Duration duration = Duration(milliseconds: 350);
+  static const Duration duration = Duration(milliseconds: 300);
 
   /// Pixels the new sentence rises from, whatever the pane's height.
   static const double enterRise = 40;
@@ -129,11 +129,17 @@ class SentenceSlideSwitcher extends StatefulWidget {
   /// Pixels the old sentence drifts while it fades.
   static const double leaveRise = 16;
 
-  /// The old sentence is gone by this point of [duration] ...
-  static const double leaveEnd = 0.4;
+  /// The old sentence fades out, evenly, by this point of [duration].
+  static const double leaveEnd = 0.5;
 
-  /// ... and the new one starts here, so the two barely overlap.
-  static const double enterStart = 0.35;
+  /// The new one starts fading in here, evenly, and is full at [enterFull];
+  /// it keeps rising until the end.
+  static const double enterStart = 0.15;
+  static const double enterFull = 0.7;
+
+  /// The least the two opacities add up to: (leaveEnd - enterStart) /
+  /// (enterFull - enterStart) at the moment the old one is gone.
+  static const double minInk = 0.6;
 
   @override
   State<SentenceSlideSwitcher> createState() => _SentenceSlideSwitcherState();
@@ -151,11 +157,19 @@ class _SentenceSlideSwitcherState extends State<SentenceSlideSwitcher>
         setState(() => _leaving = null);
       }
     });
-  late final Animation<double> _leave = CurvedAnimation(
+  late final Animation<double> _leaveFade = CurvedAnimation(
     parent: _move,
-    curve: const Interval(0, SentenceSlideSwitcher.leaveEnd, curve: Curves.easeIn),
+    curve: const Interval(0, SentenceSlideSwitcher.leaveEnd),
   );
-  late final Animation<double> _enter = CurvedAnimation(
+  late final Animation<double> _leaveMove = CurvedAnimation(
+    parent: _move,
+    curve: const Interval(0, SentenceSlideSwitcher.leaveEnd, curve: Curves.easeOut),
+  );
+  late final Animation<double> _enterFade = CurvedAnimation(
+    parent: _move,
+    curve: const Interval(SentenceSlideSwitcher.enterStart, SentenceSlideSwitcher.enterFull),
+  );
+  late final Animation<double> _enterMove = CurvedAnimation(
     parent: _move,
     curve: const Interval(SentenceSlideSwitcher.enterStart, 1, curve: Curves.easeOutCubic),
   );
@@ -196,14 +210,14 @@ class _SentenceSlideSwitcherState extends State<SentenceSlideSwitcher>
         child: AnimatedBuilder(
           animation: _move,
           builder: (context, inner) {
-            final v = (leaving ? _leave : _enter).value;
             final dy = leaving
-                ? -SentenceSlideSwitcher.leaveRise * _dir * v
-                : SentenceSlideSwitcher.enterRise * _dir * (1 - v);
+                ? -SentenceSlideSwitcher.leaveRise * _dir * _leaveMove.value
+                : SentenceSlideSwitcher.enterRise * _dir * (1 - _enterMove.value);
+            final fade = leaving ? 1 - _leaveFade.value : _enterFade.value;
             return Transform.translate(
               offset: Offset(0, dy),
               child: Opacity(
-                opacity: (leaving ? 1 - v : v).clamp(0.0, 1.0),
+                opacity: fade.clamp(0.0, 1.0),
                 child: inner,
               ),
             );
