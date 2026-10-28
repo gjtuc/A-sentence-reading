@@ -153,26 +153,30 @@ class RenderSentenceAnchor extends RenderBox
 }
 
 /// A faint bar left of a sentence's first line. It does not move: when the
-/// sentence arrives it brightens for a moment and settles, so the eye jumps
-/// once to where the sentence starts instead of looking for it.
+/// sentence arrives it brightens for a moment, so the eye jumps once to where the
+/// sentence starts instead of looking for it, then fades away (design/482).
 class StartMark extends StatefulWidget {
   const StartMark({super.key, required this.height});
 
   final double height;
 
   static const double width = 3;
-  static const Duration pulse = Duration(milliseconds: 700);
+  static const Duration life = Duration(milliseconds: 3000);
 
-  /// Opacity of the bar between turns, and at the top of its brightening.
+  /// Opacity as the sentence arrives, and at the top of its brightening.
   static const double rest = 0.16;
   static const double peak = 0.55;
 
-  /// The bar's opacity [t] of the way through [pulse]: it waits while the old
-  /// sentence dims, brightens as the new one comes, then fades back to [rest].
-  static double alphaAt(double t) {
-    if (t <= 0.15 || t >= 1) return rest;
-    if (t < 0.3) return rest + (peak - rest) * Curves.easeOut.transform((t - 0.15) / 0.15);
-    return peak - (peak - rest) * Curves.easeIn.transform((t - 0.3) / 0.7);
+  /// The bar's opacity [s] seconds after the turn: it waits while the old sentence
+  /// dims, brightens as the new one comes, then fades without a pause until it is
+  /// gone at [life]. A hold before fading would show the moment the fade begins.
+  static double alphaAt(double s) {
+    final end = life.inMilliseconds / 1000;
+    if (s <= 0.105) return rest;
+    if (s < 0.21) return rest + (peak - rest) * Curves.easeOut.transform((s - 0.105) / 0.105);
+    if (s < 0.7) return peak - (peak - rest) * Curves.easeOut.transform((s - 0.21) / 0.49);
+    if (s >= end) return 0;
+    return rest * (1 - Curves.easeInOut.transform((s - 0.7) / (end - 0.7)));
   }
 
   @override
@@ -182,7 +186,7 @@ class StartMark extends StatefulWidget {
 class _StartMarkState extends State<StartMark> with SingleTickerProviderStateMixin {
   late final AnimationController _pulse = AnimationController(
     vsync: this,
-    duration: StartMark.pulse,
+    duration: StartMark.life,
     animationBehavior: AnimationBehavior.preserve,
   )..forward();
 
@@ -203,7 +207,9 @@ class _StartMarkState extends State<StartMark> with SingleTickerProviderStateMix
             width: StartMark.width,
             height: widget.height,
             decoration: BoxDecoration(
-              color: ink.withValues(alpha: StartMark.alphaAt(_pulse.value)),
+              color: ink.withValues(
+                  alpha: StartMark.alphaAt(
+                      _pulse.value * StartMark.life.inMilliseconds / 1000)),
               borderRadius: BorderRadius.circular(StartMark.width / 2),
             ),
           ),

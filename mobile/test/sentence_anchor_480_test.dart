@@ -67,11 +67,11 @@ void main() {
     expect(tester.getSize(find.byType(SentenceAnchor)).height, 900);
   });
 
-  test('the mark rests faintly and brightens once as a sentence arrives', () {
+  test('the mark brightens once as a sentence arrives', () {
     expect(StartMark.alphaAt(0), StartMark.rest);
     expect(StartMark.alphaAt(0.1), StartMark.rest, reason: 'the old sentence is still dimming');
-    expect(StartMark.alphaAt(0.3), closeTo(StartMark.peak, 1e-9));
-    expect(StartMark.alphaAt(1), StartMark.rest);
+    expect(StartMark.alphaAt(0.21), closeTo(StartMark.peak, 1e-9));
+    expect(StartMark.alphaAt(0.7), closeTo(StartMark.rest, 1e-9));
     expect(StartMark.peak, lessThan(0.6));
   });
 
@@ -105,7 +105,7 @@ void main() {
     await tester.pump(ms(210));
     expect(ink().a, greaterThan(rest));
     await tester.pumpAndSettle();
-    expect(ink().a, closeTo(rest, 0.01));
+    expect(ink().a, 0);
     expect(tester.getRect(mark), at);
   });
 
@@ -155,5 +155,18 @@ void main() {
     await prefs.load();
     expect(prefs.clauseBreaks, isFalse);
     prefs.resetForTests();
+  });
+
+  test('design/482: the mark fades away over three seconds without a pause', () {
+    expect(StartMark.life, const Duration(seconds: 3));
+    var last = StartMark.alphaAt(0.7);
+    for (var s = 0.75; s <= 3.0; s += 0.05) {
+      final a = StartMark.alphaAt(s);
+      expect(a, lessThan(last), reason: 'still fading at ${s.toStringAsFixed(2)} s');
+      last = a;
+    }
+    expect(StartMark.alphaAt(1.85), closeTo(StartMark.rest / 2, 1e-3));
+    expect(StartMark.alphaAt(3), 0);
+    expect(StartMark.alphaAt(9), 0);
   });
 }
