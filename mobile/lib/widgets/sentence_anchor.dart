@@ -11,6 +11,13 @@ import 'package:flutter/rendering.dart';
 /// and shrinks as a figure opens beside the sentence, and the start stays put.
 const double kSentenceStartAt = 0.2;
 
+/// design/484 — on the phone the first line starts this far below the top of its
+/// pane, in every layout: room for a section name of [fontSize] text above it and
+/// no more. A narrow phone wraps a sentence into many lines, and a section name
+/// that did not fit would push its sentence below where the others start.
+double phoneSentenceStart(double fontSize) =>
+    math.max(12.0, fontSize * 0.55) * 1.5 + fontSize * 0.9;
+
 /// Where the sentence's first line goes in a pane [view] tall: [start] down,
 /// raised only as far as a long sentence needs to fit, and never over the
 /// [head] above it.
@@ -32,12 +39,17 @@ class SentenceAnchor extends MultiChildRenderObjectWidget {
     required Widget head,
     required Widget body,
     required this.viewHeight,
+    this.startPx,
   }) : super(children: [head, body]);
 
   final double viewHeight;
 
-  /// [kSentenceStartAt] of the window, or of [viewHeight] without one.
+  /// The start in pixels below the pane's top, in place of [kSentenceStartAt].
+  final double? startPx;
+
+  /// [startPx], else [kSentenceStartAt] of the window, or of [viewHeight] without one.
   double _start(BuildContext context) {
+    if (startPx case final double px) return px;
     final window = MediaQuery.maybeSizeOf(context)?.height;
     final h = window != null && window > 0 ? window : viewHeight;
     return h.isFinite ? h * kSentenceStartAt : 0;

@@ -416,7 +416,7 @@ void main() {
 
   // design/437, design/480 — the phone sentence starts a fifth of the screen down
   // its pane, the same height for the next one, though the pane grew.
-  testWidgets('phone sentences start at one height near the top of the pane',
+  testWidgets('phone sentences start at one height just below the top of the pane',
       (tester) async {
     ReaderPrefs.instance.resetForTests();
     WebReadingPrefs.instance.resetForTests();
@@ -432,7 +432,8 @@ void main() {
           matching: find.byType(Card),
         )
         .first);
-    expect(text.top - card.top, closeTo(891 * kSentenceStartAt + 36, 8));
+    expect(text.top - card.top,
+        closeTo(phoneSentenceStart(ReaderPrefs.instance.sentencePx) + 36, 8));
 
     library.advanceSentence(1);
     await animate(tester);

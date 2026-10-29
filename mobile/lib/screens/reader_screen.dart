@@ -1203,6 +1203,7 @@ Widget _readingColumn(
     padding: const EdgeInsets.symmetric(vertical: 12),
     child: SentenceAnchor(
       viewHeight: viewHeight.isFinite ? math.max(0, viewHeight - 24) : 0,
+      startPx: phoneSentenceStart(ReaderPrefs.instance.sentencePx),
       head: head,
       body: body,
     ),

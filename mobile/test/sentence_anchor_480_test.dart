@@ -169,4 +169,34 @@ void main() {
     expect(StartMark.alphaAt(3), 0);
     expect(StartMark.alphaAt(9), 0);
   });
+
+  testWidgets('design/484: a start in pixels holds in a short and a tall pane',
+      (tester) async {
+    Future<double> top(double pane) async {
+      await tester.pumpWidget(MediaQuery(
+        data: const MediaQueryData(size: Size(400, 900)),
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 400,
+              child: SentenceAnchor(
+                viewHeight: pane,
+                startPx: 40,
+                head: const SizedBox(height: 30),
+                body: const SizedBox(key: Key('body'), height: 100),
+              ),
+            ),
+          ),
+        ),
+      ));
+      return tester.getTopLeft(find.byKey(const Key('body'))).dy;
+    }
+
+    expect(await top(300), 40);
+    expect(await top(800), 40);
+    expect(phoneSentenceStart(22), lessThan(900 * kSentenceStartAt / 3));
+    expect(phoneSentenceStart(22), greaterThan(22 * 0.9 + 16));
+  });
 }
