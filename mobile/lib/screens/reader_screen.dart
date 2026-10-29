@@ -115,6 +115,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _edgePreviewFigure = false;
   /// design/100 — shared chrome for sentence + figure headers.
   bool _chromeVisible = true;
+  /// design/485 — the header rows above the sentence pane, measured as a tap hides them.
+  final GlobalKey _titleChromeKey = GlobalKey();
+  final GlobalKey _navChromeKey = GlobalKey();
+  double _chromeFold = 0;
   /// design/114 — reset split when a different paper is opened.
   String? _layoutSessionKey;
   /// design/124 — server kill `fig_ref_hints=false` hides chips; missing/error → show.
@@ -397,6 +401,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _toggleChrome() {
+    if (_chromeVisible) {
+      double h(GlobalKey k) => (k.currentContext?.size?.height ?? 0).toDouble();
+      _chromeFold = h(_titleChromeKey) + h(_navChromeKey);
+    }
     setState(() => _chromeVisible = !_chromeVisible);
   }
 
@@ -777,7 +785,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
               ),
             // design/435 — the tap that hides the sentence buttons hides this row.
             AnimatedSize(
-              duration: const Duration(milliseconds: 180),
+              key: _titleChromeKey,
+              duration: _kChromeFold,
               curve: Curves.easeInOut,
               alignment: Alignment.topCenter,
               child: !_chromeVisible
@@ -943,6 +952,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                                       annotations: widget.annotations,
                                       showKo: showKo,
                                       showChrome: _chromeVisible,
+                                      chromeKey: _navChromeKey,
+                                      chromeFold:
+                                          _chromeVisible ? 0 : _chromeFold,
                                       fadeChrome: _idleHidden,
                                       figRefHints: _figRefHints,
                                       citeCollapsed:
@@ -1190,22 +1202,31 @@ TextStyle _koStyle(WebReadingStyle? web, TextStyle base) => web != null
     ? webKoStyle(web, base)
     : phoneSentenceStyle(base, px: koPxFor(ReaderPrefs.instance.sentencePx));
 
+const Duration _kChromeFold = Duration(milliseconds: 180);
+
 /// design/480 — the sentence's first line starts at one height on the phone and
-/// the web, whatever its length; [head] sits right above it.
+/// the web, whatever its length; [head] sits right above it. design/485: on the
+/// phone it starts [lift] lower, moving with the header rows as they fold.
 Widget _readingColumn(
   WebReadingStyle? web,
   double viewHeight, {
   required Widget head,
   required Widget body,
+  double lift = 0,
 }) {
   if (web != null) return webReadingColumn(web, body, head: head);
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: 12),
-    child: SentenceAnchor(
-      viewHeight: viewHeight.isFinite ? math.max(0, viewHeight - 24) : 0,
-      startPx: phoneSentenceStart(ReaderPrefs.instance.sentencePx),
-      head: head,
-      body: body,
+    child: TweenAnimationBuilder<double>(
+      tween: Tween(end: lift),
+      duration: _kChromeFold,
+      curve: Curves.easeInOut,
+      builder: (context, v, _) => SentenceAnchor(
+        viewHeight: viewHeight.isFinite ? math.max(0, viewHeight - 24) : 0,
+        startPx: phoneSentenceStart(ReaderPrefs.instance.sentencePx) + v,
+        head: head,
+        body: body,
+      ),
     ),
   );
 }
@@ -1302,6 +1323,8 @@ class _SentencePanel extends StatelessWidget {
     required this.annotations,
     required this.showKo,
     required this.showChrome,
+    this.chromeKey,
+    this.chromeFold = 0,
     this.fadeChrome = false,
     this.figRefHints = true,
     this.citeCollapsed = true,
@@ -1323,6 +1346,9 @@ class _SentencePanel extends StatelessWidget {
   final AnnotationController annotations;
   final bool showKo;
   final bool showChrome;
+  final Key? chromeKey;
+  /// design/485 — height of the header rows a tap has hidden; 0 while they show.
+  final double chromeFold;
   /// design/414 — buttons keep their space but fade out (idle mouse on the web).
   final bool fadeChrome;
   /// design/124 — from /api/status; parent owns fetch.
@@ -1451,7 +1477,8 @@ class _SentencePanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           AnimatedSize(
-            duration: const Duration(milliseconds: 180),
+            key: chromeKey,
+            duration: _kChromeFold,
             curve: Curves.easeInOut,
             alignment: Alignment.topCenter,
             child: showChrome
@@ -1615,7 +1642,15 @@ class _SentencePanel extends StatelessWidget {
                                       session: session,
                                       client: client,
                                     ),
-                            child: _readingColumn(web, box.maxHeight, head: Column(
+                            child: _readingColumn(web, box.maxHeight,
+                                lift: phoneChromeLift(
+                                    chromeFold,
+                                    _sentenceStyle(
+                                        web,
+                                        Theme.of(context).textTheme.titleMedium ??
+                                            const TextStyle(fontSize: 18)),
+                                    scaler: MediaQuery.textScalerOf(context)),
+                                head: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 if (web != null && web.showContext)

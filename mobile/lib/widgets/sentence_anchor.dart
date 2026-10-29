@@ -18,6 +18,31 @@ const double kSentenceStartAt = 0.2;
 double phoneSentenceStart(double fontSize) =>
     math.max(12.0, fontSize * 0.55) * 1.5 + fontSize * 0.9;
 
+/// design/485 — how much lower the phone's first line starts while a tap has hidden
+/// [fold] pixels of header rows above its pane. The pane's top rises by all of them,
+/// the sentence by half a line of [style]: a rise of a line or more puts another
+/// line where the eye was, and the reader loses their place.
+double phoneChromeLift(
+  double fold,
+  TextStyle style, {
+  TextScaler scaler = TextScaler.noScaling,
+}) {
+  if (fold <= 0) return 0;
+  return math.max(0.0, fold - lineHeightOf(style, scaler: scaler) / 2);
+}
+
+/// One line of [style] text, the unit of [phoneChromeLift].
+double lineHeightOf(TextStyle style, {TextScaler scaler = TextScaler.noScaling}) {
+  final painter = TextPainter(
+    text: TextSpan(text: ' ', style: style),
+    textDirection: TextDirection.ltr,
+    textScaler: scaler,
+  );
+  final line = painter.preferredLineHeight;
+  painter.dispose();
+  return line;
+}
+
 /// Where the sentence's first line goes in a pane [view] tall: [start] down,
 /// raised only as far as a long sentence needs to fit, and never over the
 /// [head] above it.

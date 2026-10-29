@@ -641,4 +641,52 @@ void main() {
     expect(_richText('Sentence body number 0.'), findsWidgets);
     expect(find.byType(StartMark), findsNothing);
   });
+
+  testWidgets('design/485: hiding the header lifts the phone sentence half a line',
+      (tester) async {
+    ReaderPrefs.instance.resetForTests();
+    WebReadingPrefs.instance.resetForTests();
+    final client = _mockClient();
+    final library = LibraryController(client: client)..session = _session();
+    await _pumpReader(tester, library, client);
+    await animate(tester);
+    double top() => tester.getRect(_richText('Sentence body number 0.').first).top;
+    final shown = top();
+    final context = tester.element(_richText('Sentence body number 0.').first);
+    final half = lineHeightOf(
+          phoneSentenceStyle(
+              Theme.of(context).textTheme.titleMedium ?? const TextStyle(fontSize: 18)),
+          scaler: MediaQuery.textScalerOf(context),
+        ) /
+        2;
+
+    await tapSentence(tester);
+    await animate(tester);
+    expect(find.byTooltip('next sentence'), findsNothing);
+    expect(shown - top(), closeTo(half, 1));
+
+    library.advanceSentence(1);
+    await animate(tester);
+    expect(
+      tester.getRect(_richText('Sentence body number 1.').first).top,
+      closeTo(shown - half, 1),
+    );
+
+    await tester.tap(_richText('Sentence body number 1.').first);
+    await tester.pump(const Duration(milliseconds: 400));
+    await animate(tester);
+    expect(find.byTooltip('next sentence'), findsOneWidget);
+    expect(
+      tester.getRect(_richText('Sentence body number 1.').first).top,
+      closeTo(shown, 1),
+    );
+  });
+
+  test('design/485: the lift leaves half a line of the fold', () {
+    const style = TextStyle(fontSize: 20, height: 2);
+    expect(lineHeightOf(style), 40);
+    expect(phoneChromeLift(100, style), 80);
+    expect(phoneChromeLift(0, style), 0);
+    expect(phoneChromeLift(15, style), 0);
+  });
 }
