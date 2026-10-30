@@ -14,6 +14,10 @@ Each side gets {"t":"hello","cable":..,"web":..,"phone":..} on connect and
 {"t":"paired"} once both are there. Data passes unchanged after that. When one
 side leaves, the other is closed.
 
+design/495 adds /store on the same WebSocket port (the paper copies, see
+helper_store.py) and a probe port the phone reaches over the same cable: it
+sends one hello line and closes, so the phone's settings can show the helper.
+
 Run: python scripts/usb_sync_bridge.py   (click/05_usb_sync.bat does the same)
 """
 from __future__ import annotations
@@ -29,8 +33,11 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 WEB_PORT = 47815
 PHONE_PORT = 47816
+PROBE_PORT = 47817
 ADB_POLL_S = 2.0
 REVERSE_CHECK_S = 20.0
 MAX_FRAME = 8 * 1024 * 1024
@@ -197,18 +204,26 @@ class Bridge:
             await end.close()
 
 
-async def watch_adb(bridge: Bridge, adb: str | None, phone_port: int, stop: asyncio.Event) -> None:
-    """Keep `adb reverse` on every attached phone; report the cable in hello."""
-    if adb is None:
-        bridge.log("adb not found: the phone cannot reach this PC")
-        return
-    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-    spec = f"tcp:{phone_port}"
+async def watch_adb(
+    bridge: Bridge,
+    adb,
+    phone_port: int,
+    stop: asyncio.Event,
+    probe_port: int | None = None,
+) -> None:
+    """Keep `adb reverse` on every attached phone; report the cable in hello.
 
-    def run(*args: str) -> str:
+    [adb] is a path, or a callable that finds one (the installed helper
+    downloads adb after it starts, design/495)."""
+    find = adb if callable(adb) else (lambda: adb)
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    specs = [f"tcp:{phone_port}"] + ([f"tcp:{probe_port}"] if probe_port else [])
+    told_missing = False
+
+    def run(path: str, *args: str) -> str:
         try:
             done = subprocess.run(
-                [adb, *args], capture_output=True, text=True, timeout=10, creationflags=flags
+                [path, *args], capture_output=True, text=True, timeout=10, creationflags=flags
             )
             return done.stdout
         except Exception:
@@ -217,15 +232,26 @@ async def watch_adb(bridge: Bridge, adb: str | None, phone_port: int, stop: asyn
     reversed_at: dict[str, float] = {}
     loop = asyncio.get_running_loop()
     while not stop.is_set():
-        serials = parse_adb_devices(await asyncio.to_thread(run, "devices"))
+        path = find()
+        if path is None:
+            if not told_missing:
+                bridge.log("adb not found: the phone cannot reach this PC")
+                told_missing = True
+            try:
+                await asyncio.wait_for(stop.wait(), ADB_POLL_S * 5)
+            except asyncio.TimeoutError:
+                pass
+            continue
+        serials = parse_adb_devices(await asyncio.to_thread(run, path, "devices"))
         now = loop.time()
         for s in serials:
             due = now - reversed_at.get(s, -1e9) >= REVERSE_CHECK_S
             if s not in reversed_at or due:
-                listed = await asyncio.to_thread(run, "-s", s, "reverse", "--list")
-                if spec not in listed:
-                    await asyncio.to_thread(run, "-s", s, "reverse", spec, spec)
-                    bridge.log(f"adb reverse {spec} on {s}")
+                listed = await asyncio.to_thread(run, path, "-s", s, "reverse", "--list")
+                for spec in specs:
+                    if spec not in listed:
+                        await asyncio.to_thread(run, path, "-s", s, "reverse", spec, spec)
+                        bridge.log(f"adb reverse {spec} on {s}")
                 reversed_at[s] = now
         for s in list(reversed_at):
             if s not in serials:
@@ -240,13 +266,22 @@ async def watch_adb(bridge: Bridge, adb: str | None, phone_port: int, stop: asyn
             pass
 
 
+def helper_hello(bridge: Bridge) -> dict:
+    """design/495 — what /store and the probe port say first."""
+    from helper_store import HELPER_VERSION
+
+    return {"t": "hello", "helper": HELPER_VERSION, "store": True, "cable": bridge.cable}
+
+
 async def serve(
     *,
     web_port: int = WEB_PORT,
     phone_port: int = PHONE_PORT,
-    adb: str | None = None,
+    probe_port: int | None = None,
+    adb=None,
     use_adb: bool = True,
     bridge: Bridge | None = None,
+    store=None,
     ready: asyncio.Event | None = None,
     stop: asyncio.Event | None = None,
 ) -> None:
@@ -255,22 +290,61 @@ async def serve(
     bridge = bridge or Bridge()
     stop = stop or asyncio.Event()
 
+    def is_store(request) -> bool:
+        return store is not None and urlparse(request.path).path.rstrip("/") == "/store"
+
     def check_origin(connection, request):
-        if not origin_allowed(request.headers.get("Origin")):
+        origin = request.headers.get("Origin")
+        if is_store(request):
+            from helper_store import store_origin_allowed
+
+            # A local installer asks the running helper to stop before replacing it.
+            # A no-cors page request can drop Origin but cannot add this header.
+            if not origin and request.headers.get("X-Helper-Quit") == "1":
+                stop.set()
+                return connection.respond(200, "bye\n")
+            if not store_origin_allowed(origin):
+                return connection.respond(403, "origin not allowed\n")
+        elif not origin_allowed(origin):
             return connection.respond(403, "origin not allowed\n")
         return None
 
+    async def on_ws(ws) -> None:
+        if is_store(ws.request):
+            from helper_store import store_session
+
+            try:
+                await store_session(ws, store, helper_hello(bridge))
+            except Exception:
+                pass
+            return
+        await bridge.on_web(ws)
+
+    async def on_probe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            writer.write((json.dumps(helper_hello(bridge)) + "\n").encode("utf-8"))
+            await writer.drain()
+        except Exception:
+            pass
+        finally:
+            writer.close()
+
     phone_server = await asyncio.start_server(bridge.on_phone, "127.0.0.1", phone_port)
+    probe_server = (
+        await asyncio.start_server(on_probe, "127.0.0.1", probe_port) if probe_port else None
+    )
     async with ws_serve(
-        bridge.on_web,
+        on_ws,
         "127.0.0.1",
         web_port,
         process_request=check_origin,
-        max_size=MAX_FRAME,
+        max_size=MAX_FRAME if store is None else 80 * 1024 * 1024,
         ping_interval=None,
     ):
         watcher = (
-            asyncio.create_task(watch_adb(bridge, adb or find_adb(), phone_port, stop))
+            asyncio.create_task(
+                watch_adb(bridge, adb or find_adb, phone_port, stop, probe_port=probe_port)
+            )
             if use_adb
             else None
         )
@@ -283,6 +357,8 @@ async def serve(
             if watcher is not None:
                 watcher.cancel()
             phone_server.close()
+            if probe_server is not None:
+                probe_server.close()
 
 
 def main() -> int:
@@ -290,8 +366,17 @@ def main() -> int:
     ap.add_argument("--web-port", type=int, default=WEB_PORT)
     ap.add_argument("--phone-port", type=int, default=PHONE_PORT)
     args = ap.parse_args()
+    from helper_store import PaperStore
+
     try:
-        asyncio.run(serve(web_port=args.web_port, phone_port=args.phone_port))
+        asyncio.run(
+            serve(
+                web_port=args.web_port,
+                phone_port=args.phone_port,
+                probe_port=PROBE_PORT,
+                store=PaperStore(),
+            )
+        )
     except OSError as e:
         # Port taken: another helper is already running.
         print(f"USB sync helper not started: {e}")

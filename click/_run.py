@@ -414,6 +414,17 @@ def job_ship_install(job: Job) -> None:
     APK_STAMP.write_text(want, encoding="utf-8")
 
     install_apk(job, want)
+    upload_helper(job)
+
+
+def upload_helper(job: Job) -> None:
+    """design/495 - the PC helper for the settings download; skipped when unchanged."""
+    rc, text = job.run("도우미 파일 만들어 올리기", [sys.executable, "scripts/build_helper_exe.py"], step="none")
+    last = [ln for ln in text.splitlines() if ln.startswith(("helper ", "build:", "upload:"))]
+    if rc != 0:
+        job.fail(f"도우미 파일 올리기 실패 (exit {rc}). {last[-1] if last else ''}".rstrip())
+        return
+    job.note(f"도우미: {last[-1] if last else 'ok'}")
 
 
 def install_apk(job: Job, want: str) -> None:

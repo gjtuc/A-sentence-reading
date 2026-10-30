@@ -16,6 +16,8 @@ from sentence_reading.llm.gcs_sync import (
 )
 
 MOBILE_APK_FILENAME = "sentence-reading-latest.apk"
+# design/495 — the PC helper (scripts/build_helper_exe.py uploads it).
+HELPER_EXE_FILENAME = "sentence-reading-helper.exe"
 
 
 def mobile_apk_object() -> str | None:
@@ -39,9 +41,19 @@ def download_mobile_apk() -> bytes | None:
     return download_bytes(obj)
 
 
-def iter_mobile_apk_chunks(*, chunk_size: int = 1024 * 1024) -> Iterator[bytes] | None:
+def helper_exe_object() -> str | None:
+    return object_name("mobile", HELPER_EXE_FILENAME)
+
+
+def iter_helper_exe_chunks(*, chunk_size: int = 1024 * 1024) -> Iterator[bytes] | None:
+    return iter_mobile_apk_chunks(chunk_size=chunk_size, obj=helper_exe_object())
+
+
+def iter_mobile_apk_chunks(
+    *, chunk_size: int = 1024 * 1024, obj: str | None = None
+) -> Iterator[bytes] | None:
     """Stream APK from GCS; None when missing/unavailable."""
-    obj = mobile_apk_object()
+    obj = obj or mobile_apk_object()
     if not obj:
         return None
     ready, _msg = mobile_apk_ready()

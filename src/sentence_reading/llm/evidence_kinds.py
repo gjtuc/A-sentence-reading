@@ -346,5 +346,7 @@ ALLOWED_KINDS = frozenset(
         "ingest_queue_enqueue",
         "ingest_queue_advance",
         "upload_queue_send_ahead",
+        # design/495 — the web's second copy of its papers in the PC helper
+        "helper_mirror_done",
     }
 )

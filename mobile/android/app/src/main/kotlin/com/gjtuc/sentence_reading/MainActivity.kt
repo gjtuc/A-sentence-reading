@@ -207,6 +207,23 @@ class MainActivity : FlutterActivity() {
             ch.setMethodCallHandler(safTreeHandler)
         }
 
+        // design/495 — USB debugging state and the developer settings page.
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            USB_DEBUG_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "state" -> result.success(
+                    mapOf(
+                        "developer" to globalOn(Settings.Global.DEVELOPMENT_SETTINGS_ENABLED),
+                        "adb" to globalOn(Settings.Global.ADB_ENABLED),
+                    ),
+                )
+                "openDeveloperSettings" -> result.success(openDeveloperSettings())
+                else -> result.notImplemented()
+            }
+        }
+
         // design/264 — Documents/문장읽기 MES mirror (not used by import).
         documentsMirrorHandler = DocumentsMirrorHandler(this)
         documentsMirrorChannel = MethodChannel(
@@ -296,6 +313,35 @@ class MainActivity : FlutterActivity() {
         return true
     }
 
+    private fun globalOn(name: String): Boolean =
+        try {
+            Settings.Global.getInt(contentResolver, name, 0) == 1
+        } catch (_: Exception) {
+            false
+        }
+
+    /**
+     * design/495 — developer options when they are on; otherwise the phone-info page
+     * where tapping the build number turns them on. Returns which page opened.
+     */
+    private fun openDeveloperSettings(): String {
+        val tries = mutableListOf<Pair<String, String>>()
+        if (globalOn(Settings.Global.DEVELOPMENT_SETTINGS_ENABLED)) {
+            tries.add("developer" to Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+        }
+        tries.add("about" to Settings.ACTION_DEVICE_INFO_SETTINGS)
+        tries.add("settings" to Settings.ACTION_SETTINGS)
+        for ((label, action) in tries) {
+            try {
+                // No resolveActivity: package visibility can hide Settings from it.
+                startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return label
+            } catch (_: Exception) {
+            }
+        }
+        return ""
+    }
+
     private fun isDebuggableApp(): Boolean {
         return (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
     }
@@ -368,6 +414,7 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL = "asr/upload_notify"
         private const val AUTH_CHANNEL = "asr/auth_deeplink"
         private const val PDF_PREVIEW_CHANNEL = "asr/pdf_page_preview"
+        private const val USB_DEBUG_CHANNEL = "asr/usb_debug"
         private const val REQ_NOTIFY = 741
         /** Debuggable-only adb E2E: schedule immediate UploadResumeWorker. */
         const val ACTION_DEBUG_SCHEDULE_UPLOAD_RESUME =

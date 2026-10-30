@@ -288,7 +288,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.507",
+    version="0.3.508",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -609,6 +609,14 @@ def _mobile_apk_url(*, request: Request | None = None) -> str | None:
     if base:
         return f"{base}/api/mobile/apk"
     return None
+
+
+def _helper_download_url(*, request: Request | None = None) -> str | None:
+    """design/495 — PC helper download for the settings guide."""
+    base = (os.environ.get("ASR_CLOUD_RUN_URL") or "").strip().rstrip("/")
+    if not base and request is not None:
+        base = str(request.base_url).rstrip("/")
+    return f"{base}/api/helper/download" if base else None
 
 
 def _fig_ref_hints_enabled() -> bool:
@@ -2302,6 +2310,7 @@ def status(request: Request) -> dict:
         "mobile_mate_direct_fetch": _mate_direct_fetch_enabled(),
         # design/161 — settings APK download; Cloud Run proxy when bucket is private.
         "mobile_apk_url": _mobile_apk_url(request=request),
+        "helper_download_url": _helper_download_url(request=request),
     }
     # design/178 — throttled mismatch probe (joinable without upload).
     try:
@@ -2372,6 +2381,36 @@ def mobile_apk_download() -> Response:
         media_type="application/vnd.android.package-archive",
         headers={
             "Content-Disposition": 'attachment; filename="sentence-reading.apk"',
+            "Cache-Control": "public, max-age=300",
+        },
+    )
+
+
+@app.get("/api/helper/download")
+def helper_download() -> Response:
+    """design/495 — stream the PC helper (논문 전송 도우미) from private GCS."""
+    from urllib.parse import quote
+
+    from sentence_reading.llm.mobile_apk_gcs import iter_helper_exe_chunks
+
+    ready, _message = mobile_apk_ready()
+    stream = iter_helper_exe_chunks() if ready else None
+    if stream is None:
+        return HTMLResponse(
+            status_code=404,
+            content=(
+                "<!doctype html><meta charset='utf-8'><title>논문 전송 도우미</title>"
+                "<p>도우미 파일이 아직 준비되지 않았어요. 잠시 뒤 다시 받아 주세요.</p>"
+            ),
+        )
+    name = quote("문장읽기-논문전송도우미.exe")
+    return StreamingResponse(
+        stream,
+        media_type="application/vnd.microsoft.portable-executable",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=\"SentenceReadingHelper.exe\"; filename*=UTF-8''{name}"
+            ),
             "Cache-Control": "public, max-age=300",
         },
     )

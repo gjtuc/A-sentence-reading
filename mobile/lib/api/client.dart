@@ -125,6 +125,7 @@ class AsrStatus {
     this.shadowingLocalSot = false,
     this.notesLocalSot = false,
     this.mobileApkUrl = '',
+    this.helperDownloadUrl = '',
     // design/169 — missing → off (fail-closed; no client evidence spam).
     this.evidenceBus = false,
   });
@@ -323,6 +324,7 @@ class AsrStatus {
       mobileSampleRow: json['mobile_sample_row'] == true,
       notesLocalSot: json['notes_local_sot'] == true,
       mobileApkUrl: '${json['mobile_apk_url'] ?? ''}'.trim(),
+      helperDownloadUrl: '${json['helper_download_url'] ?? ''}'.trim(),
       // design/169 — missing → off; explicit true enables EvidenceBus flush.
       evidenceBus: json['evidence_bus'] == true,
     );
@@ -400,6 +402,8 @@ class AsrStatus {
   final bool notesLocalSot;
   /// design/161 — public GCS APK URL when configured on server.
   final String mobileApkUrl;
+  /// design/495 — the PC helper download (논문 전송 도우미).
+  final String helperDownloadUrl;
   /// design/169 — agent evidence bus (no UI).
   final bool evidenceBus;
 }

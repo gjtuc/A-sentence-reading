@@ -28,6 +28,7 @@ import '../state/reader_prefs.dart';
 import '../practice_rhythm/blank_rest.dart';
 import '../practice_rhythm/miss_review.dart';
 import '../practice_rhythm/judgment_prefs.dart';
+import '../widgets/helper_settings_tile.dart';
 import 'error_logs_screen.dart';
 
 /// Settings: account, theme, TTS, translate, shadowing, access (design/66-68, 79, 96, 99, 103, 104).
@@ -75,6 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _versionError;
   String _remoteVersion = '';
   String _mobileApkUrl = '';
+  String _helperUrl = '';
   String _localVersion = kAppVersionLabel;
   /// design/214 — English judgment cheers in practice (default on).
   bool _judgmentCheers = true;
@@ -228,6 +230,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             : info.version.trim();
         _remoteVersion = st.version.trim();
         _mobileApkUrl = st.mobileApkUrl.trim();
+        _helperUrl = st.helperDownloadUrl.trim();
         _versionError = null;
       });
     } on AsrApiException catch (e) {
@@ -1076,6 +1079,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             _buildAppVersionSection(context),
+            // design/495 — under the APK row, always there.
+            HelperSettingsTile(downloadUrl: _helperUrl),
             // design/104 — invite redeem only for none/pending/denied non-admin.
             // Admin keeps mint/Allow/Deny but does not self-redeem.
             if (logged) ...[

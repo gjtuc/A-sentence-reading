@@ -78,6 +78,8 @@ import '../api/voice_ask_models.dart';
 import '../services/hang_watchdog.dart';
 import '../services/paper_edit_stash.dart';
 import '../services/shadowing_disk_store.dart';
+import '../services/helper_store.dart';
+import '../services/near_library_local.dart';
 import 'ingest_auto_resume.dart';
 import 'ingest_stage_progress.dart';
 import 'figure_hydrate.dart';
@@ -3076,6 +3078,7 @@ class LibraryController extends ChangeNotifier {
       );
       listed = true;
       _libraryListed = true;
+      _kickHelperMirror('refresh');
       await _rebuildLibraryHashSet();
       unawaited(readDone.pull());
       unawaited(paperLabels.pull());
@@ -3465,12 +3468,73 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
     if (okIds.isNotEmpty) {
       await sweepLocalResidues(trigger: 'delete');
+      _kickHelperMirror('delete');
     }
     return okCount;
   }
 
   /// design/450 — papers deleted on this device (or learned of by near sync).
   Future<Map<String, int>> nearGone() => loadNearGone(_diskUid);
+
+  HelperMirrorRunner? _helperMirror;
+  bool _askedToKeepStorage = false;
+
+  /// design/495 — keep a second copy of this browser's papers in the PC helper.
+  void _kickHelperMirror(String why) {
+    if (!kIsWeb) return;
+    (_helperMirror ??= HelperMirrorRunner(pass: _helperMirrorPass)).kick(why);
+  }
+
+  Future<void> _helperMirrorPass(String why) async {
+    if (!_askedToKeepStorage) {
+      _askedToKeepStorage = true;
+      unawaited(askBrowserToKeepStorage());
+    }
+    final authUid = await _authUid();
+    final uid = _diskUid ?? authUid;
+    if (uid == null || uid.isEmpty) return;
+    final opened = await connectHelperStore();
+    if (opened == null) return;
+    final (line, _) = opened;
+    final sw = Stopwatch()..start();
+    try {
+      final local = LibraryNearLocal(
+        disk: _paperDisk,
+        uid: authUid,
+        shadow: ShadowingDiskStore()..bindUid(uid),
+        loadGone: nearGone,
+        hiddenIds: nearHiddenIds,
+        onForget: forgetFromNear,
+      );
+      final r = await HelperMirror(
+        line: line,
+        account: helperAccountKey(uid),
+        local: local,
+        forget: local,
+      ).run();
+      asrEvidenceBus?.record(
+        'helper_mirror_done',
+        severity: 'lifecycle',
+        stage: why,
+        ok: r.failed == 0,
+        details: {...r.toJson(), 'elapsed_ms': sw.elapsedMilliseconds},
+      );
+      if (r.changedHere) await refresh(trigger: 'helper_mirror');
+    } catch (e) {
+      asrEvidenceBus?.record(
+        'helper_mirror_done',
+        severity: 'lifecycle',
+        stage: why,
+        ok: false,
+        details: {
+          'error': e is HelperStoreError ? e.code : e.runtimeType.toString(),
+          'elapsed_ms': sw.elapsedMilliseconds,
+        },
+      );
+    } finally {
+      await line.close();
+    }
+  }
 
   Future<void>? _nearServerDeletes;
 
@@ -5080,6 +5144,7 @@ class LibraryController extends ChangeNotifier {
   @override
   void dispose() {
     _stopTranslatePoll();
+    _helperMirror?.dispose();
     _spotTimer?.cancel();
     _spotSync?.close();
     super.dispose();
