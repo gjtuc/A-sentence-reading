@@ -917,6 +917,24 @@ class LibraryController extends ChangeNotifier {
     pendingAutoOpenCacheId = null;
   }
 
+  /// design/491 — cards an analysis is writing into: the one being reanalysed,
+  /// and a card for the same file as the upload in flight.
+  Set<String> get busyCacheIds {
+    final out = <String>{};
+    final r = (reanalyzingCacheId ?? '').trim();
+    if (reanalyzing && r.isNotEmpty) out.add(r);
+    if (uploading) {
+      final hashes = {
+        for (final q in uploadQueue)
+          if (q.isActive && q.contentHash.isNotEmpty) q.contentHash,
+      };
+      for (final e in papers) {
+        if (e.contentHash.isNotEmpty && hashes.contains(e.contentHash)) out.add(e.id);
+      }
+    }
+    return out;
+  }
+
   /// design/132 — user asked to cancel the in-flight upload/ingest.
   bool _uploadCancelRequested = false;
   String? _activeUploadId;
@@ -5145,6 +5163,11 @@ class LibraryController extends ChangeNotifier {
       ));
 
       session = o;
+      // design/491 — a paper the reader opened mid-queue: no auto-open later.
+      if (uploading || uploadQueue.isNotEmpty) {
+        _uploadQueueAutoOpened = true;
+        if (pendingAutoOpenCacheId != o.cacheId) pendingAutoOpenCacheId = null;
+      }
       // design/185 Phase 1 — shadow-copy session + figure PNGs to PaperDiskStore.
       unawaited(_paperDisk.shadowPersistReadingSession(o));
       // design/171 — disk inject before RAM hydrate merge.

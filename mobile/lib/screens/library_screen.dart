@@ -30,6 +30,8 @@ import 'pdf_import_screen.dart';
 import 'shadowing_practice_screen.dart';
 import '../widgets/upload_status_bar.dart';
 
+const String kBusyCardNote = '지금 분석 중인 문서예요. 끝나면 열 수 있어요.';
+
 /// Authenticated paper list → open · PDF upload queue (design/62 · 70 · 221 · 224).
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
@@ -83,6 +85,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
       widget.library.opening ||
       widget.library.uploading ||
       widget.library.reanalyzing;
+
+  /// design/491 — an analysis does not lock the other cards; dragging still waits.
+  bool get _cardBlocked => _deleting || widget.library.opening;
+
+  bool _busyCard(String id) {
+    if (!widget.library.busyCacheIds.contains(id)) return false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text(kBusyCardNote)),
+    );
+    return true;
+  }
 
   GlobalKey _itemKey(String id) => _itemKeys.putIfAbsent(id, GlobalKey.new);
 
@@ -286,7 +299,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   void _onCardHold(String id, Offset global) {
-    if (!mounted || _gestureBlocked) return;
+    if (!mounted || _cardBlocked) return;
+    if (_busyCard(id)) return;
     HapticFeedback.mediumImpact();
     if (_selecting && _selected.contains(id)) return;
     _showMenu(id, global);
@@ -741,6 +755,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final cid = (lib.pendingAutoOpenCacheId ?? '').trim();
     if (cid.isEmpty) return;
     lib.consumePendingAutoOpen();
+    // design/491 — the reader is up: the reader chose what to read.
+    if (!TickerMode.valuesOf(context).enabled) return;
     PaperEntry? entry;
     for (final p in lib.papers) {
       if (p.id == cid) {
@@ -1166,7 +1182,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       leading: _selecting
                           ? Checkbox(
                               value: selected,
-                              onChanged: _deleting || isSampleCacheId(e.id)
+                              onChanged: _deleting ||
+                                      isSampleCacheId(e.id) ||
+                                      lib.busyCacheIds.contains(e.id)
                                   ? null
                                   : (_) => _toggleSelected(e.id),
                             )
@@ -1349,15 +1367,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   ),
                               ],
                             ),
-                      onTap: lib.opening ||
-                              lib.uploading ||
-                              lib.reanalyzing ||
-                              _deleting
+                      onTap: _cardBlocked
                           ? null
                           : () {
                               if (_selecting) {
                                 _toggleSelected(e.id);
-                              } else {
+                              } else if (!_busyCard(e.id)) {
                                 _open(e);
                               }
                             },
@@ -1376,7 +1391,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                               ),
                             LibraryCardHold(
                               key: _itemKey(e.id),
-                              enabled: !_gestureBlocked,
+                              enabled: !_cardBlocked,
                               onHold: (pos) => _onCardHold(e.id, pos),
                               onDragStart: (pos) => _onCardDragStart(e.id, pos),
                               onDragUpdate: _onCardDragUpdate,
