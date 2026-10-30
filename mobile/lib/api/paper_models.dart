@@ -1,6 +1,24 @@
 /// Paper library JSON shapes from `/api/cache/papers*` (design/18 · design/62 · 152).
 library;
 
+/// design/489 - paper | review | general; anything else reads as a paper.
+String normalizeDocKind(Object? raw) {
+  final v = '${raw ?? ''}'.trim().toLowerCase();
+  return (v == 'review' || v == 'general') ? v : 'paper';
+}
+
+/// design/489 - card tag for a main-role upload that is not a paper.
+String docKindLibraryTag(Object? kind) {
+  switch (normalizeDocKind(kind)) {
+    case 'review':
+      return '심사 기록';
+    case 'general':
+      return '일반 글';
+    default:
+      return '';
+  }
+}
+
 /// One row from `GET /api/cache/papers`.
 class PaperEntry {
   PaperEntry({
@@ -30,6 +48,7 @@ class PaperEntry {
     this.harmonizeFailed = 0,
     this.harmonizeAttemptN = 0,
     this.contentHash = '',
+    this.docKind = 'paper',
   });
 
   /// Tolerant parse — never throws on partial/garbage maps.
@@ -46,9 +65,10 @@ class PaperEntry {
     final docRole = '${json['doc_role'] ?? 'main'}'.trim().isEmpty
         ? 'main'
         : '${json['doc_role'] ?? 'main'}'.trim();
+    final docKind = normalizeDocKind(json['doc_kind']);
     var libraryTag = '${json['library_tag'] ?? ''}'.trim();
     if (libraryTag.isEmpty) {
-      libraryTag = _defaultTag(docRole);
+      libraryTag = _defaultTag(docRole, docKind);
     }
 
     return PaperEntry(
@@ -82,10 +102,13 @@ class PaperEntry {
       harmonizeFailed: asInt(json['harmonize_failed']),
       harmonizeAttemptN: asInt(json['harmonize_attempt_n']),
       contentHash: '${json['content_hash'] ?? ''}'.trim().toLowerCase(),
+      docKind: docKind,
     );
   }
 
-  static String _defaultTag(String docRole) {
+  static String _defaultTag(String docRole, [String docKind = 'paper']) {
+    final kindTag = docKindLibraryTag(docKind);
+    if (docRole == 'main' && kindTag.isNotEmpty) return kindTag;
     switch (docRole) {
       case 'supplementary':
         return '보충';
@@ -142,6 +165,9 @@ class PaperEntry {
   /// design/222 — SHA-256 of source PDF when known (picker/library join).
   final String contentHash;
 
+  /// design/489 - paper | review | general; only a paper pairs with SI.
+  final String docKind;
+
   bool get isValid => id.isNotEmpty && title.isNotEmpty;
 
   /// design/261 — mutate pairing / set-row fields without losing the rest.
@@ -182,6 +208,7 @@ class PaperEntry {
       harmonizeFailed: harmonizeFailed,
       harmonizeAttemptN: harmonizeAttemptN,
       contentHash: contentHash,
+      docKind: docKind,
     );
   }
 

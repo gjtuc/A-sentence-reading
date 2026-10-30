@@ -257,6 +257,7 @@ class DocumentsMirrorStore {
         sentenceCount: (map['sentences'] is List) ? (map['sentences'] as List).length : 0,
         figureCount: (map['figures'] is List) ? (map['figures'] as List).length : 0,
         contentHash: '${map['content_hash'] ?? ''}'.trim().toLowerCase(),
+        docKind: '${map['doc_kind'] ?? ''}'.trim().toLowerCase(),
       ),
       caller: 'mirror',
     );

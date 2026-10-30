@@ -288,7 +288,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.501",
+    version="0.3.502",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -9144,6 +9144,29 @@ async def _run_ingest_job_body(
             "partial" if (want_translate and not defer_enrich) else "ok"
         )
         forced_cid = _ingest_force_cache_id(job_id)
+        from sentence_reading.pdf.doc_kind import detect_doc_kind, paper_sign_count
+
+        doc_kind = detect_doc_kind(text)
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            if eb.evidence_bus_enabled():
+                eb.record(
+                    "doc_kind_detect",
+                    severity="lifecycle",
+                    stage="save",
+                    job_id=job_id,
+                    content_hash=str(content_hash or ""),
+                    ok=True,
+                    details={
+                        "kind": doc_kind,
+                        "doc_role": str(doc_role or ""),
+                        "paper_signs": paper_sign_count(text),
+                        "text_len": len(text or ""),
+                    },
+                )
+        except Exception:
+            pass
         cache_entry = await asyncio.to_thread(
             save_paper_session,
             session,
@@ -9158,6 +9181,7 @@ async def _run_ingest_job_body(
             ingest_status=early_status,
             force_cache_id=forced_cid or None,
             analyzed_build=app.version,
+            doc_kind=doc_kind,
         )
         # design/174 — auth+GCS Live: index miss must not look like library success.
         if (
@@ -9561,6 +9585,7 @@ async def _run_ingest_job_body(
                 ingest_status="ok",
                 force_cache_id=forced_cid or None,
                 analyzed_build=app.version,
+                doc_kind=doc_kind,
             )
             # design/174 — durable library = personal GCS index listed.
             if (

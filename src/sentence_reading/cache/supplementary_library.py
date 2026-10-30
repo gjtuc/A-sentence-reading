@@ -33,8 +33,21 @@ def entry_doc_role(entry: dict[str, Any] | None) -> DocRole:
     return "main"
 
 
+# design/489 - a main-role upload that is not a paper says what it is.
+_KIND_TAGS = {"review": "심사 기록", "general": "일반 글"}
+
+
+def entry_doc_kind(entry: dict[str, Any] | None) -> str:
+    from sentence_reading.pdf.doc_kind import normalize_doc_kind
+
+    return normalize_doc_kind((entry or {}).get("doc_kind") if isinstance(entry, dict) else None)
+
+
 def library_tag_for(entry: dict[str, Any]) -> str:
-    return _LIBRARY_TAGS.get(entry_doc_role(entry), "메인")
+    role = entry_doc_role(entry)
+    if role == "main" and entry_doc_kind(entry) in _KIND_TAGS:
+        return _KIND_TAGS[entry_doc_kind(entry)]
+    return _LIBRARY_TAGS.get(role, "메인")
 
 
 def _ingest_ok(entry: dict[str, Any]) -> bool:
@@ -58,9 +71,14 @@ def _by_title_role(entries: list[dict[str, Any]]) -> dict[tuple[str, str, str], 
 
 
 def _pairable(entry: dict[str, Any]) -> bool:
-    """design/486 - a weak title would pair unrelated files that share it."""
+    """design/486 - a weak title would pair unrelated files that share it.
+    design/489 - a review file or a general document is nobody's SI or main."""
     key = str(entry.get("title_key") or "") or normalize_title_key(str(entry.get("title") or ""))
-    return not entry.get("hidden_in_library") and not weak_title_key(key)
+    return (
+        not entry.get("hidden_in_library")
+        and not weak_title_key(key)
+        and entry_doc_kind(entry) == "paper"
+    )
 
 
 def apply_pairing_pass(entries: list[dict[str, Any]]) -> None:
@@ -221,6 +239,7 @@ def list_entries_for_api(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "pipeline_version": str(enriched.get("pipeline_version") or ""),
             "has_source": bool(enriched.get("has_source")),
             "doc_role": enriched["doc_role"],
+            "doc_kind": entry_doc_kind(enriched),
             "library_tag": enriched["library_tag"],
             "ingest_status": enriched["ingest_status"],
             "can_merge_supplementary": enriched["can_merge_supplementary"],

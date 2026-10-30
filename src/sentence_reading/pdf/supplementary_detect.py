@@ -14,6 +14,8 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Literal
 
+from sentence_reading.pdf.doc_kind import looks_like_peer_review
+
 DocRole = Literal["main", "supplementary"]
 
 _HEAD_CHARS = 8000
@@ -195,6 +197,18 @@ def detect_doc_role_detailed(
             marker_hit=False,
             filename_si_hint=fn_hint,
             page_label_hit=False,
+            stripped_format=stripped,
+        )
+
+    # design/489 - a peer review file ships as ESM and reprints the title.
+    if looks_like_peer_review(cleaned):
+        return DocRoleDetectResult(
+            role="main",
+            reason="peer_review",
+            head_len=head_len,
+            marker_hit=cover_hit,
+            filename_si_hint=fn_hint,
+            page_label_hit=page_label,
             stripped_format=stripped,
         )
 

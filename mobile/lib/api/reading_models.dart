@@ -269,6 +269,7 @@ class ReadingSession {
     this.translatePending = false,
     this.contentHash = '',
     this.docRole = 'main',
+    this.docKind = '',
     this.firstFigTableChipSentenceIndex,
     this.headingsKnown = false,
   }) {
@@ -353,6 +354,7 @@ class ReadingSession {
         if (r == 'merged') return 'merged';
         return 'main';
       }(),
+      docKind: '${json['doc_kind'] ?? ''}'.trim().toLowerCase(),
       firstFigTableChipSentenceIndex: () {
         final raw = json['first_fig_table_chip_sentence_index'];
         if (raw is int) return raw;
@@ -384,6 +386,8 @@ class ReadingSession {
   final String contentHash;
   /// design/222 — main | supplementary | merged (from open/ingest).
   final String docRole;
+  /// design/489 - paper | review | general; empty when the payload predates it.
+  final String docKind;
   /// design/183 — first matched Fig/Table chip sentence index (open hint).
   final int? firstFigTableChipSentenceIndex;
   /// design/470 — the payload carried a heading list, empty or not. A device copy

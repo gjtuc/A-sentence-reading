@@ -1133,6 +1133,7 @@ def load_cached_session(
         or get_source_path(cache_id) is not None,
         "content_hash": str(meta.get("content_hash") or "") or None,
         "doc_role": str(meta.get("doc_role") or "main"),
+        "doc_kind": str(meta.get("doc_kind") or "paper"),
         "supplementary_merged": bool(meta.get("supplementary_merged")),
         "supplementary_cache_id": str(meta.get("supplementary_cache_id") or "") or None,
         "warnings": list(meta.get("warnings") or []),
@@ -1329,6 +1330,7 @@ def save_paper_session(
     ingest_status: str = "ok",
     force_cache_id: str | None = None,
     analyzed_build: str | None = None,
+    doc_kind: str | None = None,
 ) -> dict | None:
     """
     제목 키 + source(pdf/docx) + doc_role 로 저장.
@@ -1339,6 +1341,8 @@ def save_paper_session(
     analyzed_build: design/400 — the app version that produced these sentences. Only
     an analysis passes it; a translation or merge save keeps the prior value, so a
     re-save cannot make an old analysis look current.
+    doc_kind: design/489 - paper|review|general. Same rule: only an analysis passes
+    it, every other save keeps the prior kind.
     """
     import shutil
 
@@ -1612,6 +1616,9 @@ def save_paper_session(
     build = (analyzed_build or "").strip() or str(
         prior_meta_for_gen.get("analyzed_build") or ""
     )
+    from sentence_reading.pdf.doc_kind import normalize_doc_kind
+
+    kind = normalize_doc_kind(doc_kind or prior_meta_for_gen.get("doc_kind"))
     payload = {
         "version": 1,
         "pipeline_version": PIPELINE_VERSION,
@@ -1620,6 +1627,7 @@ def save_paper_session(
         "title_key": key,
         "source": src,
         "doc_role": role,
+        "doc_kind": kind,
         "debone": bool(debone),
         "created_at": created_at,
         "saved_at": now,
@@ -1747,6 +1755,7 @@ def save_paper_session(
         "title_key": key,
         "source": src,
         "doc_role": role,
+        "doc_kind": kind,
         "created_at": created_at,
         "updated_at": now,
         "sentence_count": len(session.sentences),

@@ -2386,6 +2386,7 @@ class LibraryController extends ChangeNotifier {
             contentHash: contentHash,
             hasSource: true,
             docRole: roleFinal,
+            docKind: '${session['doc_kind'] ?? ''}'.trim().toLowerCase(),
           ),
           caller: 'handoff',
         );
@@ -2993,6 +2994,7 @@ class LibraryController extends ChangeNotifier {
               hasSource: e.hasSource,
               debone: e.debone,
               docRole: e.docRole,
+              docKind: e.docKind,
               pairedCacheId: e.pairedCacheId,
               canMergeSupplementary: e.canMergeSupplementary,
             ),

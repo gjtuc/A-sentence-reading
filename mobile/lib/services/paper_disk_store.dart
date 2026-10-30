@@ -47,6 +47,7 @@ class PaperDiskIndexEntry {
     this.pairedCacheId = '',
     this.canMergeSupplementary = false,
     this.addedAt = '',
+    this.docKind = '',
   });
 
   factory PaperDiskIndexEntry.fromJson(Map<String, dynamic>? json) {
@@ -76,6 +77,7 @@ class PaperDiskIndexEntry {
       pairedCacheId: '${json['paired_cache_id'] ?? ''}'.trim(),
       canMergeSupplementary: json['can_merge_supplementary'] == true,
       addedAt: '${json['added_at'] ?? ''}'.trim(),
+      docKind: '${json['doc_kind'] ?? ''}'.trim().toLowerCase(),
     );
   }
 
@@ -120,6 +122,10 @@ class PaperDiskIndexEntry {
   /// rows written before the field, which count as older than any delete.
   final String addedAt;
 
+  /// design/489 - paper | review | general; empty when the writer did not know,
+  /// and [PaperDiskStore.upsertIndex] then keeps the prior row's kind.
+  final String docKind;
+
   int get addedMs =>
       DateTime.tryParse(addedAt)?.millisecondsSinceEpoch ?? 0;
 
@@ -140,6 +146,25 @@ class PaperDiskIndexEntry {
         pairedCacheId: pairedCacheId,
         canMergeSupplementary: canMergeSupplementary,
         addedAt: value,
+        docKind: docKind,
+      );
+
+  PaperDiskIndexEntry withDocKind(String value) => PaperDiskIndexEntry(
+        id: id,
+        title: title,
+        source: source,
+        updatedAt: updatedAt,
+        sentenceCount: sentenceCount,
+        figureCount: figureCount,
+        contentHash: contentHash,
+        pipelineVersion: pipelineVersion,
+        hasSource: hasSource,
+        debone: debone,
+        docRole: docRole,
+        pairedCacheId: pairedCacheId,
+        canMergeSupplementary: canMergeSupplementary,
+        addedAt: addedAt,
+        docKind: value,
       );
 
   Map<String, dynamic> toJson() => {
@@ -157,6 +182,7 @@ class PaperDiskIndexEntry {
         'paired_cache_id': pairedCacheId,
         'can_merge_supplementary': canMergeSupplementary,
         if (addedAt.isNotEmpty) 'added_at': addedAt,
+        if (docKind.isNotEmpty) 'doc_kind': docKind,
       };
 
   /// design/222 — use persisted doc_role (never force 메인).
@@ -173,7 +199,10 @@ class PaperDiskIndexEntry {
         hasSource: hasSource,
         ingestStatus: 'local',
         docRole: docRole,
-        libraryTag: _tagForRole(docRole),
+        docKind: normalizeDocKind(docKind),
+        libraryTag: docRole == 'main' && docKindLibraryTag(docKind).isNotEmpty
+            ? docKindLibraryTag(docKind)
+            : _tagForRole(docRole),
         contentHash: contentHash,
         pairedCacheId: pairedCacheId,
         canMergeSupplementary: canMergeSupplementary,
@@ -274,6 +303,7 @@ List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) =>
     final mainIs = <int>[];
     final siIs = <int>[];
     for (final i in idxs) {
+      if (out[i].docKind != 'paper') continue;
       final role = out[i].docRole.trim().toLowerCase();
       if (role == 'supplementary' || role == 'si' || role == 'supp') {
         siIs.add(i);
@@ -308,6 +338,7 @@ List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) =>
   final openSi = <int>[];
   for (var i = 0; i < out.length; i++) {
     if (out[i].pairedCacheId.trim().isNotEmpty) continue;
+    if (out[i].docKind != 'paper') continue;
     final role = out[i].docRole.trim().toLowerCase();
     if (role == 'merged') continue;
     if (role == 'supplementary' || role == 'si' || role == 'supp') {
@@ -489,6 +520,7 @@ Map<String, dynamic> readingSessionToPaperDiskJson(ReadingSession s) {
     'title': s.title,
     'content_hash': s.contentHash,
     'doc_role': s.docRole,
+    if (s.docKind.isNotEmpty) 'doc_kind': s.docKind,
     'sentence_index': s.sentenceIndex,
     'figure_index': s.figureIndex,
     'warnings': s.warnings,
@@ -760,6 +792,7 @@ class PaperDiskStore {
             hasSource: entry.hasSource,
             debone: entry.debone,
             docRole: entry.docRole,
+            docKind: entry.docKind,
             pairedCacheId: keepPair ? e.pairedCacheId : entry.pairedCacheId,
             canMergeSupplementary: keepMerge
                 ? e.canMergeSupplementary
@@ -778,6 +811,9 @@ class PaperDiskStore {
               ? entry.addedAt
               : DateTime.now().toUtc().toIso8601String());
       if (toWrite.addedAt != addedAt) toWrite = toWrite.withAddedAt(addedAt);
+      if (toWrite.docKind.isEmpty && (prior?.docKind ?? '').isNotEmpty) {
+        toWrite = toWrite.withDocKind(prior!.docKind);
+      }
       final next = <PaperDiskIndexEntry>[
         for (final e in cur)
           if (e.id != toWrite.id) e,
@@ -1268,6 +1304,7 @@ class PaperDiskStore {
         hasSource: false,
         debone: false,
         docRole: session.docRole,
+        docKind: session.docKind,
       ),
       caller: 'session_write',
     );
@@ -1422,6 +1459,7 @@ class PaperDiskStore {
         hasSource:
             files.containsKey('source.pdf') || files.containsKey('source.docx'),
         debone: false,
+        docKind: '${session?['doc_kind'] ?? ''}'.trim().toLowerCase(),
       ),
       caller: 'session_write',
     );

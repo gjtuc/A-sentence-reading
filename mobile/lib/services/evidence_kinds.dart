@@ -217,6 +217,7 @@ const Set<String> kEvidenceAllowedKinds = {
   // design/222 — doc_role detect densify
   'doc_role_detect_start',
   'doc_role_detect_done',
+  'doc_kind_detect',
   'doc_role_redetect_after_vision',
   'doc_role_pairing_gap',
   // design/223 — upload picker recent
