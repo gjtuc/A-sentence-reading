@@ -62,6 +62,32 @@ _CHROME_LINE = re.compile(
     re.IGNORECASE,
 )
 
+# design/488 - what a writing program puts in Info.Title, not the document's title.
+_APP_PREFIX = re.compile(
+    r"^microsoft\s+(?:office\s+)?(?:word|powerpoint|excel)\s*-\s*", re.IGNORECASE
+)
+_APP_SUFFIX = re.compile(
+    r"\s+-\s+(?:google\s*(?:docs|slides|sheets)|google\s*(?:문서|프레젠테이션|스프레드시트))$",
+    re.IGNORECASE,
+)
+_FILE_NAME = re.compile(
+    r"\.(?:docx?|pdf|pptx?|xlsx?|hwpx?|rtf|odt|txt|tex|indd)$", re.IGNORECASE
+)
+_APP_DEFAULT = re.compile(
+    r"^(?:powerpoint\s*(?:presentation|프레젠테이션)|untitled(?:\s+document)?|"
+    r"document\s*\d*|제목\s*없음|slide\s*\d+)$",
+    re.IGNORECASE,
+)
+# design/488 - a title font this much above the body size. A sparse cover page is
+# mostly title, so the body size comes from the first BODY_FONT_PAGES pages.
+TITLE_FONT_RATIO = 1.15
+BODY_FONT_PAGES = 3
+# design/488 - a date line or a form field ("등록번호: 314-82-02242").
+_DATE_LINE = re.compile(
+    r"^\d{4}\s*[.년/-]\s*\d{1,2}\s*[.월/-]\s*\d{1,2}\s*[.일]?\s*(?:\(\S{1,3}\))?\.?$"
+)
+_FORM_FIELD = re.compile(r"[:：]\s*[A-Za-z]?\d[\d\s./-]*$")
+
 
 def normalize_title_text(raw: str) -> str:
     text = html.unescape(raw or "")
@@ -98,14 +124,26 @@ def polish_title(raw: str) -> str:
     return text
 
 
+def clean_info_title(raw: str) -> str:
+    """Info.Title without a program's prefix or suffix; empty when it is a file name."""
+    text = normalize_title_text(raw)
+    text = _APP_SUFFIX.sub("", _APP_PREFIX.sub("", text)).strip()
+    if _FILE_NAME.search(text) or _APP_DEFAULT.match(text):
+        return ""
+    return text
+
+
 def is_title_chrome(raw: str) -> bool:
     text = normalize_title_text(raw)
-    text = re.sub(r"^[^A-Za-z]+", "", text).strip()
+    text = re.sub(r"^[\W\d_]+", "", text).strip()
     if not text:
         return True
     if _SI_BANNER.match(text) or _CHROME_LINE.match(text) or _CHROME_TITLE.search(text):
         return True
     if _URL_CHROME.match(text):
+        return True
+    lead = normalize_title_text(raw)
+    if _DATE_LINE.match(lead) or _FORM_FIELD.search(text) or lead[:1] in ("*", "※"):
         return True
     if _AFFIL_TITLE.search(text):
         return True
@@ -270,7 +308,18 @@ def head_title_text(text: str) -> str:
     return ""
 
 
-def join_largest_title_lines(lines: list[tuple[float, str]]) -> str:
+def body_font_size(lines: list[tuple[float, str]]) -> float:
+    """The size most characters on the page are set in."""
+    count: dict[float, int] = {}
+    for size, raw in lines:
+        key = round(float(size) * 2) / 2
+        count[key] = count.get(key, 0) + len(raw.strip())
+    return max(count, key=lambda k: (count[k], -k)) if count else 0.0
+
+
+def join_largest_title_lines(
+    lines: list[tuple[float, str]], *, min_size: float = 0.0
+) -> str:
     """Join wrapped title lines at the largest font that is not journal chrome."""
     sizes: list[float] = []
     for size, raw in lines:
@@ -278,6 +327,8 @@ def join_largest_title_lines(lines: list[tuple[float, str]]) -> str:
         if not piece or is_title_chrome(piece) or looks_like_author_dump(piece):
             continue
         if title_class(piece) != "text" or len(piece) < 8:
+            continue
+        if float(size) < min_size:
             continue
         sizes.append(float(size))
     if not sizes:
@@ -319,6 +370,21 @@ def join_largest_title_lines(lines: list[tuple[float, str]]) -> str:
     return ""
 
 
+def _page_lines(page) -> list[tuple[float, str]]:
+    lines: list[tuple[float, str]] = []
+    for block in page.get_text("dict").get("blocks") or []:
+        if block.get("type") != 0:
+            continue
+        for line in block.get("lines") or []:
+            spans = line.get("spans") or []
+            piece = "".join(str(s.get("text") or "") for s in spans).strip()
+            if not piece:
+                continue
+            size = max((float(s.get("size") or 0) for s in spans), default=0.0)
+            lines.append((size, piece))
+    return lines
+
+
 def pdf_styled_title(path: Path) -> str:
     """First-page largest font run. Empty on failure. Caller must not print it."""
     import warnings
@@ -333,19 +399,11 @@ def pdf_styled_title(path: Path) -> str:
         try:
             if doc.page_count < 1:
                 return ""
-            page = doc[0]
-            lines: list[tuple[float, str]] = []
-            for block in page.get_text("dict").get("blocks") or []:
-                if block.get("type") != 0:
-                    continue
-                for line in block.get("lines") or []:
-                    spans = line.get("spans") or []
-                    piece = "".join(str(s.get("text") or "") for s in spans).strip()
-                    if not piece:
-                        continue
-                    size = max((float(s.get("size") or 0) for s in spans), default=0.0)
-                    lines.append((size, piece))
-            return join_largest_title_lines(lines)
+            pages = [
+                _page_lines(doc[i]) for i in range(min(doc.page_count, BODY_FONT_PAGES))
+            ]
+            body = body_font_size([row for rows in pages for row in rows])
+            return join_largest_title_lines(pages[0], min_size=body * TITLE_FONT_RATIO)
         finally:
             doc.close()
 
@@ -521,6 +579,7 @@ def pick_session_title(
     azure_title: str = "",
 ) -> tuple[str, str]:
     """Paper title for session.title. Azure title role beats metadata chrome."""
+    info_title = clean_info_title(info_title)
     azure_piece = polish_title(azure_title)
     head = head_title_text(text)
     if title_usable(azure_piece):
