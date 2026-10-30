@@ -6,6 +6,8 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
+import 'evidence_bus.dart';
+
 /// Off screen, a job poll asks this often. One request a minute is enough to
 /// keep the instance that runs the analysis alive.
 const Duration kAwayPollEvery = Duration(minutes: 1);
@@ -51,17 +53,32 @@ class AppForeground with WidgetsBindingObserver {
   void onState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
+        final left = _leftAt;
         _leftAt = null;
         _back?.complete();
         _back = null;
+        if (left != null) _note('back', _clock().difference(left));
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
       case AppLifecycleState.detached:
-        _leftAt ??= _clock();
+        if (_leftAt == null) {
+          _leftAt = _clock();
+          _note('away', Duration.zero);
+        }
       case AppLifecycleState.inactive:
         break;
     }
   }
+}
+
+/// design/487 - when the app left and came back, beside the slow polls it causes.
+void _note(String stage, Duration awayFor) {
+  asrEvidenceBus?.record(
+    'app_visibility',
+    severity: 'lifecycle',
+    stage: stage,
+    details: {'away_s': awayFor.inSeconds},
+  );
 }
 
 /// The wait between two job polls. On screen it is [onScreenEvery]. Off screen

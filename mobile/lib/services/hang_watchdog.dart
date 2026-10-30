@@ -155,3 +155,12 @@ class _Track {
   int repeatSame = 0;
   Timer? timer;
 }
+
+/// design/487 - whether a stalled ingest watch gives up. Off screen the app asks
+/// the server once a minute, so its own silence proves nothing; on screen the
+/// server's answer ([server], null when it could not be asked) decides.
+bool ingestHangShouldAbort({required bool away, Map<String, dynamic>? server}) {
+  if (away) return false;
+  if (server == null || server['ok'] == false) return true;
+  return !(server['done'] == true || server['worker_alive'] == true);
+}

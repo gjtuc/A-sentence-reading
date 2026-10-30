@@ -937,6 +937,8 @@ class LibraryController extends ChangeNotifier {
   String _hangLastStageKey = '';
   String _hangLastMessage = '';
   bool _hangTranslateStallArmed = false;
+  Duration _hangStall = HangWatchdog.ingestStall;
+  String? _hangTitle;
 
   DateTime? _lastProgressAt;
   Timer? _stallWatch;
@@ -1767,39 +1769,82 @@ class LibraryController extends ChangeNotifier {
       percent: _hangLastPercent,
       stage: uploadStage.isNotEmpty ? uploadStage : _hangLastStageKey,
     );
+    if (!translateZone) {
+      unawaited(_confirmIngestHang(opId));
+      return;
+    }
     asrEvidenceBus?.record(
       'client_hang',
       severity: 'error',
-      stage: translateZone ? 'translate' : _hangLastStageKey,
+      stage: 'translate',
       percent: _hangLastPercent < 0 ? null : _hangLastPercent,
-      message: translateZone
-          ? 'translate hang soft'
-          : 'ingest hang abort',
+      message: 'translate hang soft',
       ok: false,
-      details: {
-        'translate_zone': translateZone,
-        'cancel': !translateZone,
-      },
+      details: {'translate_zone': true, 'cancel': false},
     );
-    if (translateZone) {
-      final debone = _hangStageKey(uploadStage).contains('debone') ||
-          uploadStage.contains('다듬');
-      error = debone
-          ? '다듬기가 오래 걸리고 있습니다. 잠시만 기다려 주세요.'
-          : '번역이 오래 걸리고 있습니다. 잠시 후 보관함을 새로고침해 주세요.';
-      uploadStage = error!;
-      notifyListeners();
-      unawaited(_notify.showFailed(message: error!));
-      // Re-arm so a later true stall can warn again; poll keeps running.
+    final debone = _hangStageKey(uploadStage).contains('debone') ||
+        uploadStage.contains('다듬');
+    error = debone
+        ? '다듬기가 오래 걸리고 있습니다. 잠시만 기다려 주세요.'
+        : '번역이 오래 걸리고 있습니다. 잠시 후 보관함을 새로고침해 주세요.';
+    uploadStage = error!;
+    notifyListeners();
+    unawaited(_notify.showFailed(message: error!));
+    // Re-arm so a later true stall can warn again; poll keeps running.
+    asrErrorReporter?.hang.begin(
+      opId,
+      stage: debone ? 'debone' : 'translate',
+      stallAfter: HangWatchdog.translateStall,
+      paperTitle: uploadStage,
+    );
+    _hangTranslateStallArmed = true;
+    return;
+  }
+
+  /// design/487 - a hidden tab or app asks once a minute, so the watch alone
+  /// cannot tell a slow poll from a dead job.
+  Future<void> _confirmIngestHang(String opId) async {
+    final away = AppForeground.instance.away;
+    final jid = (_activeJobId ?? '').trim();
+    final server = away || jid.isEmpty ? null : await _client.peekIngestJob(jid);
+    if (_hangOpId != opId) return;
+    if (!ingestHangShouldAbort(away: away, server: server)) {
+      asrEvidenceBus?.record(
+        'client_hang',
+        severity: 'lifecycle',
+        stage: _hangLastStageKey,
+        percent: _hangLastPercent < 0 ? null : _hangLastPercent,
+        message: 'ingest hang held',
+        ok: true,
+        details: {
+          'translate_zone': false,
+          'cancel': false,
+          'away': away,
+          if (server != null) 'server_percent': server['percent'],
+          if (server != null) 'server_stage': '${server['stage'] ?? ''}',
+        },
+      );
       asrErrorReporter?.hang.begin(
         opId,
-        stage: debone ? 'debone' : 'translate',
-        stallAfter: HangWatchdog.translateStall,
-        paperTitle: uploadStage,
+        stage: _hangLastStageKey.isEmpty ? 'ingest_upload' : _hangLastStageKey,
+        stallAfter: _hangStall,
+        paperTitle: _hangTitle,
       );
-      _hangTranslateStallArmed = true;
       return;
     }
+    asrEvidenceBus?.record(
+      'client_hang',
+      severity: 'error',
+      stage: _hangLastStageKey,
+      percent: _hangLastPercent < 0 ? null : _hangLastPercent,
+      message: 'ingest hang abort',
+      ok: false,
+      details: {
+        'translate_zone': false,
+        'cancel': true,
+        'server_seen': server != null,
+      },
+    );
     // WHY: stop poll/chunk loops; do not call server cancel API this chip.
     _uploadCancelRequested = true;
     _ingestHangTripped = true;
@@ -1847,6 +1892,8 @@ class LibraryController extends ChangeNotifier {
     final opId =
         'ingest_${DateTime.now().millisecondsSinceEpoch}_${filename.hashCode}';
     _hangOpId = opId;
+    _hangStall = stall;
+    _hangTitle = filename.trim().isEmpty ? null : filename.trim();
     asrErrorReporter?.hang.begin(
       opId,
       stage: 'ingest_upload',
@@ -8956,16 +9003,32 @@ class LibraryController extends ChangeNotifier {
     var q = await _reserve.read();
     var added = 0;
     var skipped = 0;
+    var dup = 0;
     String? message;
     final now = DateTime.now().millisecondsSinceEpoch;
+    void noteSkip(String reason, int bytesLen, [String hash = '']) {
+      asrEvidenceBus?.record(
+        'upload_queue_skip',
+        severity: 'lifecycle',
+        stage: reason,
+        details: {
+          'reason': reason,
+          'bytes': bytesLen,
+          'queue_len': q.length,
+          if (hash.length >= 8) 'hash8': hash.substring(0, 8),
+        },
+      );
+    }
     for (final f in files) {
       final name = f.name.trim();
       final bytes = f.bytes;
       if (name.isEmpty || bytes.isEmpty) {
         skipped += 1;
+        noteSkip('empty', bytes.length);
         continue;
       }
       if (q.length >= kUploadReserveMaxItems) {
+        noteSkip('full', bytes.length);
         skipped += 1;
         message = '대기 목록이 가득 찼습니다 (최대 $kUploadReserveMaxItems건).';
         break;
@@ -8973,10 +9036,13 @@ class LibraryController extends ChangeNotifier {
       final hash = sha256Hex(bytes);
       if (q.items.any((e) => e.contentHash == hash)) {
         skipped += 1;
+        dup += 1;
+        noteSkip('dup', bytes.length, hash);
         continue;
       }
       final path = await _reserve.saveLocalPdf(hash, bytes, filename: name);
       if (path == null || path.isEmpty) {
+        noteSkip('save_fail', bytes.length, hash);
         skipped += 1;
         message = '파일을 저장하지 못했습니다.';
         continue;
@@ -9007,6 +9073,9 @@ class LibraryController extends ChangeNotifier {
           'queue_len': q.length,
         },
       );
+    }
+    if (dup > 0) {
+      message ??= '같은 파일 $dup개는 이미 대기열에 있어 건너뛰었습니다.';
     }
     await _reserve.write(q);
     uploadQueue = q.items;

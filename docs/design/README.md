@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 487 | [487-ingest-hang-asks-server.md](487-ingest-hang-asks-server.md) | 숨은 탭에서 앱이 서버는 멀쩡한 분석을 포기하던 문제. 화면 밖에서는 포기하지 않고, 화면에서는 포기 전에 서버에 묻는다. 화면 숨김과 대기열 건너뜀 이유를 기록 (0.3.500) |
 | 486 | [486-short-title-saved-by-file.md](486-short-title-saved-by-file.md) | 24글자보다 짧은 제목도 보관함에 넣는다. 짧은 제목은 같은 문서인지 파일 내용(SHA-256)으로 가리고, 짝 찾기·제목 삭제에 쓰지 않는다 (0.3.499) |
 | 485 | [485-header-fold-half-line.md](485-header-fold-half-line.md) | 폰에서 헤더를 숨기면 문장은 1.5줄 대신 반 줄만 올라감, 헤더 높이는 누를 때 잼 (0.3.498) |
 | 484 | [484-phone-start-near-top.md](484-phone-start-near-top.md) | 폰 첫 줄은 어느 화면에서나 칸 맨 위 바로 아래(섹션 이름 한 줄만큼)에서 시작 (0.3.497) |

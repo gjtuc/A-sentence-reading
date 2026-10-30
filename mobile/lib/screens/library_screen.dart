@@ -814,8 +814,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(hint)));
     }
     if (outcome.message != null && outcome.message!.isNotEmpty) {
+      final lead = outcome.added > 0 ? '대기열에 ${outcome.added}개 추가 · ' : '';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(outcome.message!)),
+        SnackBar(content: Text('$lead${outcome.message!}')),
       );
     } else if (outcome.added > 0) {
       final extra = skippedAll > 0 ? ' · 건너뜀 $skippedAll' : '';

@@ -507,6 +507,8 @@ def public_job_view(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
         out["ingest_phase"] = phase
         if tid:
             out["trace_id"] = tid
+    if not out["done"]:
+        out["worker_alive"] = bool(job.get("_local_running")) or not lease_expired(job)
     return out
 
 

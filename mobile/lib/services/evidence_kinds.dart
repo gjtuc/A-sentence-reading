@@ -330,4 +330,6 @@ const Set<String> kEvidenceAllowedKinds = {
   // design/475 — spoken AI question
   'voice_ask_transcribe',
   'voice_ask_client',
+  'app_visibility',
+  'upload_queue_skip',
 };

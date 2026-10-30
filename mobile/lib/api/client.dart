@@ -1762,6 +1762,25 @@ class AsrClient {
     return (jobId: jobId, contentHash: hash);
   }
 
+  /// design/487 - one look at an ingest job; null when the server cannot say.
+  Future<Map<String, dynamic>?> peekIngestJob(String jobId) async {
+    final jid = jobId.trim();
+    if (jid.isEmpty) return null;
+    try {
+      final res = await _http
+          .get(
+            _uri('/api/ingest/jobs/${Uri.encodeComponent(jid)}'),
+            headers: await _headers(),
+          )
+          .timeout(const Duration(seconds: 20));
+      if (res.statusCode < 200 || res.statusCode >= 300) return null;
+      final decoded = jsonDecode(res.body);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Poll `/api/ingest/jobs/{id}` until done (design/71 reattach).
   ///
   /// design/158 — [idleTimeout] resets on each server percent/message change;

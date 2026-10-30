@@ -339,5 +339,7 @@ ALLOWED_KINDS = frozenset(
         # client says how the take ended (sent to the box, cancelled, mic refused)
         "voice_ask_transcribe",
         "voice_ask_client",
+        "app_visibility",
+        "upload_queue_skip",
     }
 )
