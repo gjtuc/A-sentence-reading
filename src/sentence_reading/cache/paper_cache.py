@@ -51,6 +51,39 @@ def normalize_title_key(title: str) -> str:
     t = re.sub(r"\s+", " ", t).strip()
     return t
 
+
+def weak_title_key(key: object) -> bool:
+    """design/486 - a title this short ("Reviewer comments") is shared by unrelated files."""
+    return len(str(key or "")) < _MIN_TITLE_KEY_LEN
+
+
+def paper_identity(
+    title_key: object, content_hash: object, source: object, doc_role: object
+) -> tuple[str, str, str] | None:
+    """design/486 - what makes two index rows the same paper.
+
+    A weak title leaves the file bytes to decide. None means no other row is the
+    same paper.
+    """
+    key = str(title_key or "")
+    src = str(source or "pdf").lower()
+    role = str(doc_role or "main").strip().lower()
+    if not weak_title_key(key):
+        return key, src, role
+    ch = str(content_hash or "").strip().lower()
+    if not key or not re.fullmatch(r"[a-f0-9]{64}", ch):
+        return None
+    return "#" + ch, src, role
+
+
+def entry_identity(entry: dict) -> tuple[str, str, str] | None:
+    return paper_identity(
+        entry.get("title_key"),
+        entry.get("content_hash"),
+        entry.get("source"),
+        entry.get("doc_role"),
+    )
+
 def normalize_pairing_key(title: str) -> str:
     """design/218 — pairing-only key: title_key + strip SI prefix + drop a/an/the."""
     t = normalize_title_key(title)
@@ -822,7 +855,7 @@ def delete_cached_paper(
             if isinstance(e, dict) and e.get("id") == cid:
                 target = e
                 break
-    if target is None and title:
+    if target is None and title and not weak_title_key(normalize_title_key(title)):
         key = normalize_title_key(title)
         src = (source or "pdf").lower()
         if src not in ("pdf", "docx"):
@@ -1313,7 +1346,7 @@ def save_paper_session(
 
     title = (session.title or "").strip()
     key = normalize_title_key(title)
-    if len(key) < _MIN_TITLE_KEY_LEN:
+    if not key:
         return None
     if not session.sentences:
         return None
@@ -1329,6 +1362,11 @@ def save_paper_session(
     ch = (content_hash or "").strip().lower()
     if ch and not re.fullmatch(r"[a-f0-9]{64}", ch):
         ch = ""
+    ident = paper_identity(key, ch, src, role)
+    if ident is None and not re.fullmatch(
+        r"[a-zA-Z0-9]{8,32}", (force_cache_id or "").strip()
+    ):
+        return None
 
     root = cache_root()
     root.mkdir(parents=True, exist_ok=True)
@@ -1343,9 +1381,7 @@ def save_paper_session(
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
-            entry_src = str(entry.get("source") or "pdf").lower()
-            entry_role = str(entry.get("doc_role") or "main").strip().lower()
-            if entry.get("title_key") == key and entry_src == src and entry_role == role:
+            if ident is not None and entry_identity(entry) == ident:
                 existing_id = entry.get("id")
                 break
 
@@ -1774,12 +1810,7 @@ def save_paper_session(
     entries = [
         e
         for e in entries
-        if not (
-            isinstance(e, dict)
-            and e.get("title_key") == key
-            and str(e.get("source") or "pdf").lower() == src
-            and str(e.get("doc_role") or "main").strip().lower() == role
-        )
+        if not (isinstance(e, dict) and ident is not None and entry_identity(e) == ident)
     ]
     entries.insert(0, new_entry)
     index["entries"] = _evict_oldest(entries, keep=_MAX_CACHED_PAPERS)

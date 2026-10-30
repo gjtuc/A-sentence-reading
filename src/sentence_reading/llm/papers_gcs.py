@@ -27,6 +27,7 @@ from sentence_reading.cache.paper_cache import (
     _write_index,
     cache_root,
     get_source_path,
+    entry_identity,
     normalize_title_key,
     source_filename_for,
 )
@@ -281,21 +282,17 @@ def merge_index_entries(a: list[Any], b: list[Any]) -> list[dict[str, Any]]:
                 by_id[eid]["id"] = eid
 
     by_ts: dict[tuple[str, str, str], dict[str, Any]] = {}
+    kept_ids: set[str] = set()
     for e in by_id.values():
-        key = str(e.get("title_key") or "")
-        src = str(e.get("source") or "pdf").lower()
-        role = str(e.get("doc_role") or "main").strip().lower()
-        if not key:
+        ts_key = entry_identity(e)
+        if ts_key is None:
+            kept_ids.add(e["id"])
             continue
-        ts_key = (key, src, role)
         prev = by_ts.get(ts_key)
         if not prev or str(e.get("updated_at") or "") >= str(prev.get("updated_at") or ""):
             by_ts[ts_key] = e
 
-    kept_ids = {e["id"] for e in by_ts.values()}
-    for eid, e in by_id.items():
-        if not str(e.get("title_key") or ""):
-            kept_ids.add(eid)
+    kept_ids |= {e["id"] for e in by_ts.values()}
     out = [by_id[i] for i in kept_ids if i in by_id]
     out.sort(key=lambda e: str(e.get("updated_at") or ""), reverse=True)
     return out

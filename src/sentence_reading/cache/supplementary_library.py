@@ -8,7 +8,9 @@ from typing import Any
 
 from sentence_reading.cache.paper_cache import (
     normalize_pairing_key,
+    normalize_title_key,
     pairing_keys_within_typos,
+    weak_title_key,
 )
 
 DocRole = str  # main | supplementary | merged
@@ -55,6 +57,12 @@ def _by_title_role(entries: list[dict[str, Any]]) -> dict[tuple[str, str, str], 
     return out
 
 
+def _pairable(entry: dict[str, Any]) -> bool:
+    """design/486 - a weak title would pair unrelated files that share it."""
+    key = str(entry.get("title_key") or "") or normalize_title_key(str(entry.get("title") or ""))
+    return not entry.get("hidden_in_library") and not weak_title_key(key)
+
+
 def apply_pairing_pass(entries: list[dict[str, Any]]) -> None:
     """Mutual paired_cache_id for same pairing_key main↔supplementary (1:1).
 
@@ -70,7 +78,7 @@ def apply_pairing_pass(entries: list[dict[str, Any]]) -> None:
     for e in entries:
         if not isinstance(e, dict):
             continue
-        if e.get("hidden_in_library"):
+        if not _pairable(e):
             continue
         role = entry_doc_role(e)
         if role == "merged":
@@ -117,7 +125,7 @@ def apply_pairing_pass(entries: list[dict[str, Any]]) -> None:
         e
         for e in entries
         if isinstance(e, dict)
-        and not e.get("hidden_in_library")
+        and _pairable(e)
         and not e.get("paired_cache_id")
         and entry_doc_role(e) == "main"
     ]
@@ -125,7 +133,7 @@ def apply_pairing_pass(entries: list[dict[str, Any]]) -> None:
         e
         for e in entries
         if isinstance(e, dict)
-        and not e.get("hidden_in_library")
+        and _pairable(e)
         and not e.get("paired_cache_id")
         and entry_doc_role(e) == "supplementary"
     ]
