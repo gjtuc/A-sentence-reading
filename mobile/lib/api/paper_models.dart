@@ -1,6 +1,8 @@
 /// Paper library JSON shapes from `/api/cache/papers*` (design/18 · design/62 · 152).
 library;
 
+import 'doc_parts.dart';
+
 /// design/489 - paper | review | general; anything else reads as a paper.
 String normalizeDocKind(Object? raw) {
   final v = '${raw ?? ''}'.trim().toLowerCase();
@@ -51,6 +53,9 @@ class PaperEntry {
     this.docKind = 'paper',
     this.displayTitle = '',
     this.labelKind = '',
+    this.sourceName = '',
+    this.mergedSections = const [],
+    this.mergePartIds = const [],
   });
 
   /// Tolerant parse — never throws on partial/garbage maps.
@@ -68,9 +73,14 @@ class PaperEntry {
         ? 'main'
         : '${json['doc_role'] ?? 'main'}'.trim();
     final docKind = normalizeDocKind(json['doc_kind']);
+    final sectionsRaw = json['merged_sections'];
+    final mergedSections = <String>[
+      if (sectionsRaw is List)
+        for (final s in sectionsRaw) normalizePartSection(s),
+    ];
     var libraryTag = '${json['library_tag'] ?? ''}'.trim();
     if (libraryTag.isEmpty) {
-      libraryTag = _defaultTag(docRole, docKind);
+      libraryTag = _defaultTag(docRole, docKind, mergedSections);
     }
 
     return PaperEntry(
@@ -105,17 +115,23 @@ class PaperEntry {
       harmonizeAttemptN: asInt(json['harmonize_attempt_n']),
       contentHash: '${json['content_hash'] ?? ''}'.trim().toLowerCase(),
       docKind: docKind,
+      sourceName: cleanSourceName(json['source_name']),
+      mergedSections: mergedSections,
     );
   }
 
-  static String _defaultTag(String docRole, [String docKind = 'paper']) {
+  static String _defaultTag(
+    String docRole, [
+    String docKind = 'paper',
+    List<String> mergedSections = const [],
+  ]) {
     final kindTag = docKindLibraryTag(docKind);
     if (docRole == 'main' && kindTag.isNotEmpty) return kindTag;
     switch (docRole) {
       case 'supplementary':
         return '보충';
       case 'merged':
-        return '메인+서플먼터리';
+        return mergedTagFor(mergedSections);
       default:
         return '메인';
     }
@@ -175,6 +191,16 @@ class PaperEntry {
   final String displayTitle;
   final String labelKind;
 
+  /// design/492 — the upload's file name ('' for papers analysed before it was kept).
+  final String sourceName;
+
+  /// design/492 — what is attached behind a merged paper, in reading order.
+  final List<String> mergedSections;
+
+  /// design/492 — ids this paper's merge button takes in (set by the library
+  /// pass, never by the server).
+  final List<String> mergePartIds;
+
   String get shownTitle => displayTitle.isNotEmpty ? displayTitle : title;
 
   String get effectiveKind => labelKind.isNotEmpty ? labelKind : docKind;
@@ -200,6 +226,7 @@ class PaperEntry {
     int? figureCount,
     String? displayTitle,
     String? labelKind,
+    List<String>? mergePartIds,
   }) {
     return PaperEntry(
       id: id,
@@ -232,6 +259,9 @@ class PaperEntry {
       docKind: docKind,
       displayTitle: displayTitle ?? this.displayTitle,
       labelKind: labelKind ?? this.labelKind,
+      sourceName: sourceName,
+      mergedSections: mergedSections,
+      mergePartIds: mergePartIds ?? this.mergePartIds,
     );
   }
 

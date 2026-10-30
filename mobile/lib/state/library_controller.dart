@@ -16,6 +16,7 @@ import '../api/client.dart';
 import '../api/fig_refs.dart' as fig;
 import '../api/hydrate_reuse.dart';
 import '../api/ingest_models.dart';
+import '../api/doc_parts.dart';
 import '../api/paper_models.dart';
 import '../api/progress_gate.dart';
 import '../api/progress_store.dart';
@@ -476,6 +477,10 @@ class LibraryController extends ChangeNotifier {
   }
 
   String? _diskUid;
+
+  /// design/492 — every row of the last publish, folded ones included.
+  Map<String, PaperEntry> _rowsById = const {};
+  Map<String, PaperEntry> _foldedRows = const {};
   final ShadowingDiskStore _shadowDisk = ShadowingDiskStore();
   BookmarkController? _bookmarks;
   AnnotationController? _annotations;
@@ -487,7 +492,19 @@ class LibraryController extends ChangeNotifier {
   void _publishPapers(
     List<PaperEntry> next, {
     String trigger = 'publish',
+    bool fromServer = false,
   }) {
+    // design/492 — a list rebuilt from [papers] lacks the rows folded into
+    // their paper's card, so the card lost its merge button until a refresh.
+    if (!fromServer && _foldedRows.isNotEmpty) {
+      final nextIds = {for (final e in next) e.id};
+      final refold = [
+        for (final e in _foldedRows.values)
+          if (!nextIds.contains(e.id) && nextIds.contains(e.pairedCacheId.trim()))
+            e,
+      ];
+      if (refold.isNotEmpty) next = [...next, ...refold];
+    }
     final hidden = _softDelete.hiddenIds;
     var filtered = hidden.isEmpty
         ? next
@@ -505,7 +522,15 @@ class LibraryController extends ChangeNotifier {
     filtered = [for (final e in filtered) _withLabel(e)];
     // design/240 — adjacent mates; design/261 — local pairing + one set row.
     final paired = applyLocalPairingPassDetailed(filtered);
-    final collapsed = collapsePairedSetRowsDetailed(paired.papers);
+    // design/492 — SI and review files that share the paper's file number.
+    final withParts = applyFileKeyParts(paired.papers);
+    _rowsById = {for (final e in withParts) e.id: e};
+    final collapsed = collapsePairedSetRowsDetailed(withParts);
+    final shownIds = {for (final e in collapsed.papers) e.id};
+    _foldedRows = {
+      for (final e in withParts)
+        if (!shownIds.contains(e.id)) e.id: e,
+    };
     papers = collapsed.papers;
     final st = paired.stats;
     var mainNHint = 0;
@@ -1585,7 +1610,11 @@ class LibraryController extends ChangeNotifier {
           'missing_local_with_session_n': missingLocalWithSessionN,
         },
       );
-      _publishPapers(await _applySavedOrder(fetched), trigger: 'harmonize_poll');
+      _publishPapers(
+        await _applySavedOrder(fetched),
+        trigger: 'harmonize_poll',
+        fromServer: true,
+      );
     } catch (_) {
       // fail-soft; keep prior snapshot
     }
@@ -3023,6 +3052,8 @@ class LibraryController extends ChangeNotifier {
               debone: e.debone,
               docRole: e.docRole,
               docKind: e.docKind,
+              sourceName: e.sourceName,
+              mergedSections: e.mergedSections,
               pairedCacheId: e.pairedCacheId,
               canMergeSupplementary: e.canMergeSupplementary,
             ),
@@ -3032,7 +3063,11 @@ class LibraryController extends ChangeNotifier {
       }
       // design/185 Phase 1 — surface local-only disk papers (no cloud wipe yet).
       final merged = await _paperDisk.mergeRemoteWithLocal(fetched);
-      _publishPapers(await _applySavedOrder(merged), trigger: trig);
+      _publishPapers(
+        await _applySavedOrder(merged),
+        trigger: trig,
+        fromServer: true,
+      );
       listed = true;
       _libraryListed = true;
       await _rebuildLibraryHashSet();
@@ -3944,8 +3979,35 @@ class LibraryController extends ChangeNotifier {
   /// design/152 · 261 — merge paired SI into main (device-local first, else POST).
   /// design/279 — causal merge evidence (start / local_done / done).
   /// design/282 — honesty postcheck + mirror after local merge.
-  Future<bool> mergeSupplementary(PaperEntry entry) async {
-    if (!entry.canMergeSupplementary) return false;
+  /// design/492 — the card's button takes in every part the library pass found.
+  Future<bool> mergeSupplementary(PaperEntry entry) {
+    final paired = entry.pairedCacheId.trim();
+    final ids = entry.mergePartIds.isNotEmpty
+        ? entry.mergePartIds
+        : [if (entry.canMergeSupplementary && paired.isNotEmpty) paired];
+    return attachParts(entry.id, ids, via: 'card');
+  }
+
+  /// design/492 — any row the last publish showed or folded into a card.
+  PaperEntry? rowById(String id) => _rowsById[id.trim()];
+
+  /// design/492 — [partIds] behind [mainId]: supplementary, then review, then
+  /// the rest, each kept in the order given.
+  Future<bool> attachParts(
+    String mainId,
+    List<String> partIds, {
+    String via = 'manual',
+  }) async {
+    final entry = rowById(mainId);
+    if (entry == null) return false;
+    final rows = <PaperEntry>[
+      for (final id in partIds)
+        if (rowById(id) != null && id.trim() != entry.id) rowById(id)!,
+    ];
+    final parts = [
+      for (final p in orderParts(rows)) (id: p.id, section: partSectionFor(p)),
+    ];
+    if (parts.isEmpty) return false;
     if (uploading || reanalyzing || opening) {
       error = '다른 작업 중입니다. 잠시 후 다시 시도해 주세요.';
       notifyListeners();
@@ -3954,7 +4016,12 @@ class LibraryController extends ChangeNotifier {
     opening = true;
     error = null;
     notifyListeners();
-    final siId = entry.pairedCacheId.trim();
+    final siId = parts
+        .firstWhere(
+          (p) => p.section == 'supplementary',
+          orElse: () => (id: '', section: ''),
+        )
+        .id;
     final tagKind = _entryTagKind(entry);
     asrEvidenceBus?.record(
       'paper_merge_start',
@@ -3971,6 +4038,10 @@ class LibraryController extends ChangeNotifier {
         'entry_fig_n': entry.figureCount,
         'entry_role': _normRoleToken(entry.docRole),
         'tag_kind': tagKind,
+        'parts_n': parts.length,
+        'review_n': parts.where((p) => p.section == 'review').length,
+        'attached_n': parts.where((p) => p.section == 'attached').length,
+        'via': via,
       },
     );
     var path = 'none';
@@ -3979,8 +4050,7 @@ class LibraryController extends ChangeNotifier {
     var mergeOk = false;
     var serverSync = 'none';
     try {
-      final localOk = siId.isNotEmpty &&
-          await _mergeSupplementaryLocal(mainId: entry.id, siId: siId);
+      final localOk = await _mergePartsLocal(mainId: entry.id, parts: parts);
       if (localOk) {
         path = 'local';
         final raw = await _paperDisk.loadSessionJson(entry.id);
@@ -3997,7 +4067,7 @@ class LibraryController extends ChangeNotifier {
         // refresh, so the button did nothing visible and a second press
         // appended the SI again.
         try {
-          await _client.mergeSupplementary(entry.id);
+          await _client.attachParts(entry.id, parts);
           serverSync = 'ok';
         } on AsrApiException catch (e) {
           serverSync = 'http_${e.statusCode}';
@@ -4005,10 +4075,14 @@ class LibraryController extends ChangeNotifier {
           serverSync = 'error';
         }
       } else {
-        await _client.mergeSupplementary(entry.id);
+        await _client.attachParts(entry.id, parts);
         path = 'server';
         mergeOk = true;
       }
+      _foldedRows = {
+        for (final e in _foldedRows.entries)
+          if (!parts.any((p) => p.id == e.key)) e.key: e.value,
+      };
       asrEvidenceBus?.record(
         'paper_merge_done',
         severity: 'lifecycle',
@@ -4022,6 +4096,7 @@ class LibraryController extends ChangeNotifier {
           'supplementary_merged': path == 'local' ? 1 : 0,
           'si_id_empty': siId.isEmpty ? 1 : 0,
           'server_sync': serverSync,
+          'parts_n': parts.length,
         },
       );
       await refresh(fresh: false, clearError: false, trigger: 'merge');
@@ -4040,6 +4115,7 @@ class LibraryController extends ChangeNotifier {
           'path': path == 'none' ? 'server' : path,
           'ok': 0,
           'si_id_empty': siId.isEmpty ? 1 : 0,
+          'parts_n': parts.length,
         },
       );
       asrEvidenceBus?.record(
@@ -4062,7 +4138,11 @@ class LibraryController extends ChangeNotifier {
         stage: 'merge',
         cacheId: entry.id,
         ok: false,
-        details: {'ok': 0, 'si_id_empty': siId.isEmpty ? 1 : 0},
+        details: {
+          'ok': 0,
+          'si_id_empty': siId.isEmpty ? 1 : 0,
+          'parts_n': parts.length,
+        },
       );
       asrEvidenceBus?.record(
         'client_api_fail',
@@ -4088,37 +4168,90 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  /// design/261 · 263 — append SI session into main on device (185 post-wipe safe).
-  Future<bool> _mergeSupplementaryLocal({
+  /// Parts already inside a merged session; a design/152 merge reads as one SI.
+  static List<({String id, String section})> _priorPartsOf(
+    Map<String, dynamic> session,
+  ) {
+    final out = <({String id, String section})>[];
+    final raw = session['merged_parts'];
+    if (raw is List) {
+      for (final r in raw) {
+        if (r is! Map) continue;
+        final id = '${r['id'] ?? ''}'.trim();
+        if (id.isEmpty || out.any((p) => p.id == id)) continue;
+        out.add((id: id, section: normalizePartSection(r['section'])));
+      }
+    }
+    if (out.isNotEmpty) return out;
+    final si = '${session['supplementary_cache_id'] ?? ''}'.trim();
+    if (session['supplementary_merged'] == true && si.isNotEmpty) {
+      out.add((id: si, section: 'supplementary'));
+    }
+    return out;
+  }
+
+  Future<bool> _mergePartsLocal({
     required String mainId,
-    required String siId,
+    required List<({String id, String section})> parts,
   }) async {
     final mainSession = await _paperDisk.loadSessionJson(mainId);
-    final siSession = await _paperDisk.loadSessionJson(siId);
-    if (mainSession == null || siSession == null) {
+    if (mainSession == null) {
       asrEvidenceBus?.record(
         'paper_merge_local_done',
         severity: 'lifecycle',
         stage: 'merge',
         cacheId: mainId,
         ok: false,
-        details: {
-          'ok': 0,
-          'code': mainSession == null ? 'main_session_miss' : 'si_session_miss',
-        },
+        details: {'ok': 0, 'code': 'main_session_miss'},
       );
       return false;
     }
+    final prior = _priorPartsOf(mainSession);
+    final todo = [
+      for (final p in parts)
+        if (!prior.any((q) => q.id == p.id)) p,
+    ];
+    if (todo.isEmpty) {
+      asrEvidenceBus?.record(
+        'paper_merge_local_done',
+        severity: 'lifecycle',
+        stage: 'merge',
+        cacheId: mainId,
+        ok: true,
+        details: {'ok': 1, 'already': 1, 'parts_n': parts.length},
+      );
+      return true;
+    }
+    final partSessions = <Map<String, dynamic>>[];
+    for (final p in todo) {
+      final s = await _paperDisk.loadSessionJson(p.id);
+      if (s == null) {
+        asrEvidenceBus?.record(
+          'paper_merge_local_done',
+          severity: 'lifecycle',
+          stage: 'merge',
+          cacheId: mainId,
+          ok: false,
+          details: {'ok': 0, 'code': 'si_session_miss', 'section': p.section},
+        );
+        return false;
+      }
+      partSessions.add(s);
+    }
 
-    final mergeRefs = orMergeReferences(
-      mainSession['references'],
-      siSession['references'],
-    );
+    var mergeRefs = orMergeReferences(mainSession['references'], null);
+    for (final s in partSessions) {
+      if (mergeRefs.isNotEmpty) break;
+      mergeRefs = orMergeReferences(null, s['references']);
+    }
     final citeRefs = parseReferenceList(mergeRefs);
 
-    // design/467 — merging an already merged main rebuilds from its own part
-    // instead of appending the SI a second time.
+    // design/467 — a merge from before parts were recorded rebuilds from the
+    // paper's own part instead of appending the SI a second time.
     final priorMerge = mainSession['supplementary_merged'] == true;
+    final rebuildSi = priorMerge &&
+        prior.isEmpty &&
+        todo.any((p) => p.section == 'supplementary');
     var strippedSentN = 0;
     var strippedFigN = 0;
     final mainSents = <Map<String, dynamic>>[];
@@ -4126,7 +4259,7 @@ class LibraryController extends ChangeNotifier {
     if (rawMain is List) {
       for (final s in rawMain) {
         if (s is! Map) continue;
-        if (priorMerge && '${s['section'] ?? ''}' == 'supplementary') {
+        if (rebuildSi && '${s['section'] ?? ''}' == 'supplementary') {
           strippedSentN += 1;
           continue;
         }
@@ -4137,40 +4270,12 @@ class LibraryController extends ChangeNotifier {
       for (final s in mainSents) '${s['id'] ?? ''}'.trim(),
     }..removeWhere((e) => e.isEmpty);
 
-    final siSentsRaw = <Map<String, dynamic>>[];
-    final rawSi = siSession['sentences'];
-    if (rawSi is List) {
-      for (final s in rawSi) {
-        if (s is Map) siSentsRaw.add(Map<String, dynamic>.from(s));
-      }
-    }
-    final siSents = filterSiSentencesAgainstRefs(siSentsRaw, citeRefs);
-
-    var i = 0;
-    for (final m0 in siSents) {
-      i += 1;
-      final m = Map<String, dynamic>.from(m0);
-      var sid = '${m['id'] ?? ''}'.trim();
-      if (sid.isEmpty || usedIds.contains(sid)) {
-        sid = 'si_${i.toString().padLeft(4, '0')}';
-        var n = 0;
-        while (usedIds.contains(sid)) {
-          n += 1;
-          sid = 'si_${i.toString().padLeft(4, '0')}_$n';
-        }
-      }
-      usedIds.add(sid);
-      m['id'] = sid;
-      m['section'] = 'supplementary';
-      mainSents.add(m);
-    }
-
     final mainFigs = <Map<String, dynamic>>[];
     final rawMainFigs = mainSession['figures'];
     if (rawMainFigs is List) {
       for (final f in rawMainFigs) {
         if (f is! Map) continue;
-        if (priorMerge && '${f['id'] ?? ''}'.trim().startsWith('si-')) {
+        if (rebuildSi && '${f['id'] ?? ''}'.trim().startsWith('si-')) {
           strippedFigN += 1;
           continue;
         }
@@ -4178,68 +4283,124 @@ class LibraryController extends ChangeNotifier {
       }
     }
     final mainFigN = mainFigs.length;
+    final usedFigIds = <String>{
+      for (final f in mainFigs) '${f['id'] ?? ''}'.trim(),
+    };
+    final digests = <String, dynamic>{};
+    final md = mainSession['translate_digests'];
+    if (md is Map) digests.addAll(Map<String, dynamic>.from(md));
+
+    var siSentN = 0;
+    var siSentKeptN = 0;
     var siFigN = 0;
     var figBytesOk = 0;
     var figBytesMiss = 0;
-    final rawSiFigs = siSession['figures'];
-    if (rawSiFigs is List) {
-      var fi = 0;
-      for (final f in rawSiFigs) {
-        fi += 1;
-        if (f is! Map) continue;
-        siFigN += 1;
-        final m = rewriteSiFigureMeta(
-          Map<String, dynamic>.from(f),
-          fallbackIndex: mainFigs.length + fi,
-        );
-        final newId = '${m['id'] ?? ''}'.trim();
-        final priorId = '${m.remove('_prior_figure_id') ?? ''}'.trim();
-        Uint8List? bytes;
-        if (priorId.isNotEmpty) {
-          bytes = await _paperDisk.readFigureBytes(siId, priorId);
+    final ch = '${mainSession['content_hash'] ?? ''}'.trim();
+    for (var k = 0; k < todo.length; k++) {
+      final part = todo[k];
+      final ps = partSessions[k];
+      final sentPrefix = partSentencePrefix(part.section);
+      final raw = <Map<String, dynamic>>[];
+      final rs = ps['sentences'];
+      if (rs is List) {
+        for (final s in rs) {
+          if (s is Map) raw.add(Map<String, dynamic>.from(s));
         }
-        if ((bytes == null || bytes.isEmpty) && newId.startsWith('si-')) {
-          bytes = await _paperDisk.readFigureBytes(siId, newId.substring(3));
-        }
-        if (bytes == null || bytes.isEmpty) {
-          final src = '${f['image_src'] ?? ''}'.trim();
-          if (src.startsWith('data:')) {
-            bytes = figureBytesFromDataUrl(src);
+      }
+      siSentN += raw.length;
+      final kept = filterSiSentencesAgainstRefs(raw, citeRefs);
+      siSentKeptN += kept.length;
+      var i = 0;
+      for (final m0 in kept) {
+        i += 1;
+        final m = Map<String, dynamic>.from(m0);
+        var sid = '${m['id'] ?? ''}'.trim();
+        if (sid.isEmpty || usedIds.contains(sid)) {
+          final base = '$sentPrefix${i.toString().padLeft(4, '0')}';
+          sid = base;
+          var n = 0;
+          while (usedIds.contains(sid)) {
+            n += 1;
+            sid = '${base}_$n';
           }
         }
-        if (bytes != null && bytes.isNotEmpty && newId.isNotEmpty) {
-          await _paperDisk.writeFigureBytes(
-            mainId,
-            figureId: newId,
-            bytes: bytes,
-            contentHash: '${mainSession['content_hash'] ?? ''}'.trim(),
-          );
-          figBytesOk += 1;
-        } else {
-          figBytesMiss += 1;
-        }
-        mainFigs.add(m);
+        usedIds.add(sid);
+        m['id'] = sid;
+        m['section'] = part.section;
+        mainSents.add(m);
       }
+
+      final figPrefix = partFigurePrefix(part.section);
+      final rf = ps['figures'];
+      if (rf is List) {
+        var fi = 0;
+        for (final f in rf) {
+          fi += 1;
+          if (f is! Map) continue;
+          siFigN += 1;
+          final m = Map<String, dynamic>.from(f);
+          final priorId = '${m['id'] ?? ''}'.trim();
+          final base = priorId.isEmpty ? 'fig-${mainFigs.length + fi}' : priorId;
+          var newId = base.startsWith(figPrefix) ? base : '$figPrefix$base';
+          var n = 1;
+          while (usedFigIds.contains(newId)) {
+            n += 1;
+            newId = '$figPrefix$n-$base';
+          }
+          usedFigIds.add(newId);
+          m['id'] = newId;
+          m['file'] = figureFileRelForId(newId);
+          m['image_src'] = '';
+          Uint8List? bytes;
+          if (priorId.isNotEmpty) {
+            bytes = await _paperDisk.readFigureBytes(part.id, priorId);
+          }
+          if (bytes == null || bytes.isEmpty) {
+            final src = '${f['image_src'] ?? ''}'.trim();
+            if (src.startsWith('data:')) bytes = figureBytesFromDataUrl(src);
+          }
+          if (bytes != null && bytes.isNotEmpty) {
+            await _paperDisk.writeFigureBytes(
+              mainId,
+              figureId: newId,
+              bytes: bytes,
+              contentHash: ch,
+            );
+            figBytesOk += 1;
+          } else {
+            figBytesMiss += 1;
+          }
+          mainFigs.add(m);
+        }
+      }
+      final sd = ps['translate_digests'];
+      if (sd is Map) digests.addAll(Map<String, dynamic>.from(sd));
     }
 
-    final digests = <String, dynamic>{};
-    final md = mainSession['translate_digests'];
-    final sd = siSession['translate_digests'];
-    if (md is Map) digests.addAll(Map<String, dynamic>.from(md));
-    if (sd is Map) digests.addAll(Map<String, dynamic>.from(sd));
-
+    final allParts = [
+      if (!rebuildSi) ...prior,
+      ...todo,
+    ];
+    final firstSi = allParts
+        .firstWhere(
+          (p) => p.section == 'supplementary',
+          orElse: () => (id: '', section: ''),
+        )
+        .id;
     final merged = Map<String, dynamic>.from(mainSession);
     merged['sentences'] = mainSents;
     merged['figures'] = mainFigs;
     merged['translate_digests'] = digests;
     merged['doc_role'] = 'merged';
     merged['supplementary_merged'] = true;
-    merged['supplementary_cache_id'] = siId;
+    if (firstSi.isNotEmpty) merged['supplementary_cache_id'] = firstSi;
+    merged['merged_parts'] = [
+      for (final p in allParts) {'id': p.id, 'section': p.section},
+    ];
     if (mergeRefs.isNotEmpty) {
       merged['references'] = mergeRefs;
     }
 
-    final ch = '${merged['content_hash'] ?? ''}'.trim();
     final ok = await _paperDisk.writeSessionJson(
       mainId,
       merged,
@@ -4254,8 +4415,8 @@ class LibraryController extends ChangeNotifier {
       details: {
         'ok': ok ? 1 : 0,
         'main_sent_n': (rawMain is List) ? rawMain.length : 0,
-        'si_sent_n': siSentsRaw.length,
-        'si_sent_kept_n': siSents.length,
+        'si_sent_n': siSentN,
+        'si_sent_kept_n': siSentKeptN,
         'main_fig_n': mainFigN,
         'si_fig_n': siFigN,
         'fig_bytes_ok_n': figBytesOk,
@@ -4265,18 +4426,13 @@ class LibraryController extends ChangeNotifier {
         'prior_merge': priorMerge ? 1 : 0,
         'stripped_sent_n': strippedSentN,
         'stripped_fig_n': strippedFigN,
+        'parts_n': todo.length,
       },
     );
     if (!ok) return false;
     _dropHydrateSnapshot(mainId);
 
-    PaperEntry? mainMeta;
-    for (final e in papers) {
-      if (e.id == mainId) {
-        mainMeta = e;
-        break;
-      }
-    }
+    final mainMeta = rowById(mainId);
     await _paperDisk.upsertIndex(
       PaperDiskIndexEntry(
         id: mainId,
@@ -4294,10 +4450,13 @@ class LibraryController extends ChangeNotifier {
         docRole: 'merged',
         pairedCacheId: '',
         canMergeSupplementary: false,
+        mergedSections: [for (final p in allParts) p.section],
       ),
       caller: 'merge',
     );
-    await _paperDisk.removeFromIndex(siId, caller: 'merge');
+    for (final p in todo) {
+      await _paperDisk.removeFromIndex(p.id, caller: 'merge');
+    }
     return true;
   }
 

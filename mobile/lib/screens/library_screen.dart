@@ -20,6 +20,7 @@ import '../practice_sample/sample_seed.dart';
 import '../state/library_controller.dart';
 import '../state/shadowing_controller.dart';
 import '../state/tts_controller.dart';
+import '../widgets/attach_dialogs.dart';
 import '../widgets/library_card_hold.dart';
 import '../widgets/near_sync_sheet.dart';
 import '../widgets/paper_label_dialogs.dart';
@@ -75,6 +76,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
   OverlayEntry? _menuEntry;
   OverlayEntry? _dragEntry;
   Timer? _edgeScrollTimer;
+
+  /// design/492 — cards a merge button would take in, lit while it is hovered
+  /// or held.
+  Set<String> _mergeLit = const {};
+  Timer? _mergeLitTimer;
   bool _dragging = false;
   Offset _dragGlobal = Offset.zero;
   List<String> _movingIds = const <String>[];
@@ -178,7 +184,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _menuEntry = OverlayEntry(
       builder: (ctx) {
         final size = MediaQuery.sizeOf(ctx);
-        final top = (global.dy - 96).clamp(72.0, size.height - 300);
+        final top = (global.dy - 96).clamp(72.0, size.height - 350);
         return Stack(
           children: [
             Positioned.fill(
@@ -250,6 +256,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           onTap: () {
                             _dismissMenu();
                             unawaited(_changeKind(id));
+                          },
+                        ),
+                      if (!isSampleCacheId(id))
+                        ListTile(
+                          key: const ValueKey('library_menu_attach'),
+                          dense: true,
+                          leading: const Icon(Icons.playlist_add),
+                          title: const Text('다른 문서 뒤에 붙이기'),
+                          onTap: () {
+                            _dismissMenu();
+                            unawaited(_attachBehind(id));
                           },
                         ),
                     ],
@@ -436,6 +453,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _fileDropHint = null;
     _dismissMenu();
     _dismissDragOverlay();
+    _mergeLitTimer?.cancel();
     _scroll.dispose();
     widget.auth.removeListener(_onAuth);
     super.dispose();
@@ -594,39 +612,107 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  void _snack(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// design/492 — the rows a card's merge button takes in, folded ones too.
+  List<PaperEntry> _partsOf(PaperEntry e) => [
+        for (final id in e.mergePartIds)
+          if (widget.library.rowById(id) != null) widget.library.rowById(id)!,
+      ];
+
+  void _lightMerge(PaperEntry e, bool on, {bool brief = false}) {
+    _mergeLitTimer?.cancel();
+    setState(() => _mergeLit = on ? {e.id, ...e.mergePartIds} : const {});
+    if (on && brief) {
+      _mergeLitTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _mergeLit = const {});
+      });
+    }
+  }
+
+  String _mergeButtonLabel(PaperEntry e) {
+    final n = e.mergePartIds.length;
+    if (e.docRole.trim().toLowerCase() == 'merged') return '$n개 더 붙이기';
+    return n <= 1 ? '짝과 합치기' : '${n + 1}개 합치기';
+  }
+
   Future<void> _mergeSupplementary(PaperEntry entry) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('보충자료 합치기'),
-        content: Text(
-          '「${entry.shownTitle}」의 보충자료를 본문 뒤에 합칩니다.\n'
-          '합친 뒤에는 보충 항목이 목록에서 숨겨집니다.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('합치기'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
+    final parts = _partsOf(entry);
+    if (parts.isEmpty) return;
+    if (!await confirmAttach(context, main: entry, parts: parts) || !mounted) {
+      return;
+    }
     final ok = await widget.library.mergeSupplementary(entry);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          ok
-              ? '보충자료를 합쳤습니다.'
-              : (widget.library.error ?? '합치기에 실패했습니다.'),
-        ),
-      ),
+    _snack(ok ? '문서를 합쳤어요.' : (widget.library.error ?? '합치기에 실패했습니다.'));
+  }
+
+  Future<bool> _runAttach(
+    PaperEntry main,
+    List<PaperEntry> parts, {
+    required String via,
+  }) async {
+    if (parts.any((p) => p.docRole.trim().toLowerCase() == 'merged')) {
+      _snack(kAttachMergedPartNote);
+      return false;
+    }
+    if (!await confirmAttach(context, main: main, parts: parts) || !mounted) {
+      return false;
+    }
+    final lib = widget.library;
+    final ok = await lib.attachParts(
+      main.id,
+      [for (final p in parts) p.id],
+      via: via,
     );
+    if (!mounted) return ok;
+    _snack(ok ? '문서를 합쳤어요.' : (lib.error ?? '합치기에 실패했습니다.'));
+    return ok;
+  }
+
+  /// design/492 — hold menu: put this document behind another one.
+  Future<void> _attachBehind(String id) async {
+    final lib = widget.library;
+    final part = lib.rowById(id);
+    if (part == null) return;
+    if (part.docRole.trim().toLowerCase() == 'merged') {
+      _snack(kAttachMergedPartNote);
+      return;
+    }
+    final targets = attachTargetsFor(part, [
+      for (final e in lib.papers)
+        if (!isSampleCacheId(e.id) && !lib.busyCacheIds.contains(e.id)) e,
+    ]);
+    final mainId = await pickAttachTarget(context, part: part, targets: targets);
+    if (mainId == null || !mounted) return;
+    final main = lib.rowById(mainId);
+    if (main == null) return;
+    await _runAttach(main, [part], via: 'menu');
+  }
+
+  /// design/492 — edit mode: the selected documents become one, in order.
+  Future<void> _mergeSelected() async {
+    final lib = widget.library;
+    final sel = [
+      for (final e in lib.papers)
+        if (_selected.contains(e.id)) e,
+    ];
+    if (sel.length < 2) return;
+    final headId = await pickMergeHead(context, selected: sel);
+    if (headId == null || !mounted) return;
+    final main = lib.rowById(headId);
+    if (main == null) return;
+    final ok = await _runAttach(
+      main,
+      [
+        for (final e in sel)
+          if (e.id != headId) e,
+      ],
+      via: 'select',
+    );
+    if (ok && mounted) _exitEdit();
   }
 
   Future<void> _loadAndResume() async {
@@ -981,6 +1067,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           tooltip: '편집 종료',
                         ),
                         IconButton(
+                          key: const ValueKey('library_select_merge'),
+                          onPressed: _deleting ||
+                                  _selected.length < 2 ||
+                                  lib.opening ||
+                                  lib.uploading ||
+                                  lib.reanalyzing
+                              ? null
+                              : _mergeSelected,
+                          icon: const Icon(Icons.merge_type),
+                          tooltip: '합치기',
+                        ),
+                        IconButton(
                           onPressed: _deleting || _selected.isEmpty
                               ? null
                               : _confirmDelete,
@@ -1331,22 +1429,35 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                     onPressed: () =>
                                         lib.dismissHarmonizeResidual(e.id),
                                   ),
-                                if (e.canMergeSupplementary)
-                                  TextButton.icon(
-                                    icon: const Icon(Icons.merge_type, size: 18),
-                                    label: const Text('짝과 합치기'),
-                                    style: TextButton.styleFrom(
-                                      visualDensity: VisualDensity.compact,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
+                                if (e.mergePartIds.isNotEmpty)
+                                  Tooltip(
+                                    message: attachTooltip(_partsOf(e)),
+                                    onTriggered: () =>
+                                        _lightMerge(e, true, brief: true),
+                                    child: MouseRegion(
+                                      onEnter: (_) => _lightMerge(e, true),
+                                      onExit: (_) => _lightMerge(e, false),
+                                      child: TextButton.icon(
+                                        key: ValueKey('library_merge_${e.id}'),
+                                        icon: const Icon(
+                                          Icons.merge_type,
+                                          size: 18,
+                                        ),
+                                        label: Text(_mergeButtonLabel(e)),
+                                        style: TextButton.styleFrom(
+                                          visualDensity: VisualDensity.compact,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                          ),
+                                        ),
+                                        onPressed: lib.opening ||
+                                                lib.uploading ||
+                                                lib.reanalyzing ||
+                                                _deleting
+                                            ? null
+                                            : () => _mergeSupplementary(e),
                                       ),
                                     ),
-                                    onPressed: lib.opening ||
-                                            lib.uploading ||
-                                            lib.reanalyzing ||
-                                            _deleting
-                                        ? null
-                                        : () => _mergeSupplementary(e),
                                   ),
                                 if (e.retentionWarn)
                                   IconButton(
@@ -1397,7 +1508,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
                               onDragUpdate: _onCardDragUpdate,
                               onDragEnd: _onCardDragEnd,
                               onCancel: _endDrag,
-                              child: tile,
+                              child: _mergeLit.contains(e.id)
+                                  ? Material(
+                                      key: ValueKey('merge_lit_${e.id}'),
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primaryContainer
+                                          .withValues(alpha: 0.45),
+                                      shape: RoundedRectangleBorder(
+                                        side: BorderSide(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .primary,
+                                          width: 2,
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: tile,
+                                    )
+                                  : tile,
                             ),
                             if (_dragging &&
                                 _dropIndex == lib.papers.length &&

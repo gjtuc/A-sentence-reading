@@ -13,9 +13,10 @@ void main() {
   final src = File('lib/state/library_controller.dart').readAsStringSync();
 
   test('local merge is also sent to the server before refresh', () {
-    final body = _body(src, 'Future<bool> mergeSupplementary(PaperEntry entry)');
+    // design/492 — the pair merge runs through attachParts.
+    final body = _body(src, 'Future<bool> attachParts(');
     final local = body.indexOf("path = 'local'");
-    final sync = body.indexOf('await _client.mergeSupplementary(entry.id)', local);
+    final sync = body.indexOf('await _client.attachParts(entry.id, parts)', local);
     final refresh = body.indexOf("refresh(fresh: false, clearError: false, trigger: 'merge')", local);
     expect(local, greaterThanOrEqualTo(0));
     expect(sync, greaterThan(local));
@@ -24,14 +25,14 @@ void main() {
   });
 
   test('second local merge drops the old SI part first', () {
-    final body = _body(src, 'Future<bool> _mergeSupplementaryLocal(');
+    final body = _body(src, 'Future<bool> _mergePartsLocal(');
     expect(body.contains("mainSession['supplementary_merged'] == true"), isTrue);
     expect(
-      body.contains("priorMerge && '\${s['section'] ?? ''}' == 'supplementary'"),
+      body.contains("rebuildSi && '\${s['section'] ?? ''}' == 'supplementary'"),
       isTrue,
     );
     expect(
-      body.contains("priorMerge && '\${f['id'] ?? ''}'.trim().startsWith('si-')"),
+      body.contains("rebuildSi && '\${f['id'] ?? ''}'.trim().startsWith('si-')"),
       isTrue,
     );
     expect(body.contains("'stripped_sent_n': strippedSentN"), isTrue);

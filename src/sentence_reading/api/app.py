@@ -288,7 +288,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.504",
+    version="0.3.505",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -5490,6 +5490,28 @@ async def cache_merge_supplementary(request: Request, cache_id: str) -> JSONResp
     return JSONResponse(status_code=code, content=result)
 
 
+@app.post("/api/cache/papers/{cache_id}/attach")
+async def cache_attach_parts(request: Request, cache_id: str) -> JSONResponse:
+    """design/492 — attach other documents behind this one, in order."""
+    denied = _paid_access_denied(request)
+    if denied is not None:
+        return denied
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    parts = body.get("parts") if isinstance(body, dict) else None
+    from sentence_reading.api.supplementary_merge import attach_parts
+
+    result = await asyncio.to_thread(attach_parts, cache_id, parts or [])
+    code = 200 if result.get("ok") else 400
+    if result.get("error") == "cache_not_found":
+        code = 404
+    elif result.get("error") in ("session_missing", "merge_save_failed"):
+        code = 502
+    return JSONResponse(status_code=code, content=result)
+
+
 @app.post("/api/import/title-verify")
 async def import_title_verify(request: Request, file: UploadFile = File(...)) -> JSONResponse:
     """Import-card switch. Runs only when the user flips an empty side."""
@@ -9185,6 +9207,7 @@ async def _run_ingest_job_body(
             force_cache_id=forced_cid or None,
             analyzed_build=app.version,
             doc_kind=doc_kind,
+            source_name=filename,
         )
         # design/174 — auth+GCS Live: index miss must not look like library success.
         if (
@@ -9589,6 +9612,7 @@ async def _run_ingest_job_body(
                 force_cache_id=forced_cid or None,
                 analyzed_build=app.version,
                 doc_kind=doc_kind,
+                source_name=filename,
             )
             # design/174 — durable library = personal GCS index listed.
             if (

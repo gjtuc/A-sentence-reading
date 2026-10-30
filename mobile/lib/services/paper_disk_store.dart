@@ -12,6 +12,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../api/doc_parts.dart';
 import '../api/paper_models.dart';
 import '../api/reader_nav_labels.dart';
 import '../api/reading_models.dart';
@@ -48,6 +49,8 @@ class PaperDiskIndexEntry {
     this.canMergeSupplementary = false,
     this.addedAt = '',
     this.docKind = '',
+    this.sourceName = '',
+    this.mergedSections = const [],
   });
 
   factory PaperDiskIndexEntry.fromJson(Map<String, dynamic>? json) {
@@ -78,6 +81,11 @@ class PaperDiskIndexEntry {
       canMergeSupplementary: json['can_merge_supplementary'] == true,
       addedAt: '${json['added_at'] ?? ''}'.trim(),
       docKind: '${json['doc_kind'] ?? ''}'.trim().toLowerCase(),
+      sourceName: cleanSourceName(json['source_name']),
+      mergedSections: [
+        if (json['merged_sections'] is List)
+          for (final s in json['merged_sections'] as List) normalizePartSection(s),
+      ],
     );
   }
 
@@ -88,12 +96,12 @@ class PaperDiskIndexEntry {
     return 'main';
   }
 
-  static String _tagForRole(String role) {
+  static String _tagForRole(String role, [List<String> sections = const []]) {
     switch (role) {
       case 'supplementary':
         return '보충';
       case 'merged':
-        return '메인+서플먼터리';
+        return mergedTagFor(sections);
       default:
         return '메인';
     }
@@ -126,12 +134,28 @@ class PaperDiskIndexEntry {
   /// and [PaperDiskStore.upsertIndex] then keeps the prior row's kind.
   final String docKind;
 
+  /// design/492 — the upload's file name; empty keeps the prior row's.
+  final String sourceName;
+
+  /// design/492 — sections attached behind a merged paper; empty keeps the prior.
+  final List<String> mergedSections;
+
   int get addedMs =>
       DateTime.tryParse(addedAt)?.millisecondsSinceEpoch ?? 0;
 
   bool get isValid => id.isNotEmpty && title.isNotEmpty;
 
-  PaperDiskIndexEntry withAddedAt(String value) => PaperDiskIndexEntry(
+  PaperDiskIndexEntry withAddedAt(String value) => _copy(addedAt: value);
+
+  PaperDiskIndexEntry withDocKind(String value) => _copy(docKind: value);
+
+  PaperDiskIndexEntry _copy({
+    String? addedAt,
+    String? docKind,
+    String? sourceName,
+    List<String>? mergedSections,
+  }) =>
+      PaperDiskIndexEntry(
         id: id,
         title: title,
         source: source,
@@ -145,26 +169,20 @@ class PaperDiskIndexEntry {
         docRole: docRole,
         pairedCacheId: pairedCacheId,
         canMergeSupplementary: canMergeSupplementary,
-        addedAt: value,
-        docKind: docKind,
+        addedAt: addedAt ?? this.addedAt,
+        docKind: docKind ?? this.docKind,
+        sourceName: sourceName ?? this.sourceName,
+        mergedSections: mergedSections ?? this.mergedSections,
       );
 
-  PaperDiskIndexEntry withDocKind(String value) => PaperDiskIndexEntry(
-        id: id,
-        title: title,
-        source: source,
-        updatedAt: updatedAt,
-        sentenceCount: sentenceCount,
-        figureCount: figureCount,
-        contentHash: contentHash,
-        pipelineVersion: pipelineVersion,
-        hasSource: hasSource,
-        debone: debone,
-        docRole: docRole,
-        pairedCacheId: pairedCacheId,
-        canMergeSupplementary: canMergeSupplementary,
-        addedAt: addedAt,
-        docKind: value,
+  /// design/492 — fields a writer that did not know them leaves as they were.
+  PaperDiskIndexEntry keepingFrom(PaperDiskIndexEntry prior) => _copy(
+        docKind: docKind.isEmpty ? prior.docKind : docKind,
+        sourceName: sourceName.isEmpty ? prior.sourceName : sourceName,
+        mergedSections: mergedSections.isEmpty &&
+                docRole.trim().toLowerCase() == 'merged'
+            ? prior.mergedSections
+            : mergedSections,
       );
 
   Map<String, dynamic> toJson() => {
@@ -183,6 +201,8 @@ class PaperDiskIndexEntry {
         'can_merge_supplementary': canMergeSupplementary,
         if (addedAt.isNotEmpty) 'added_at': addedAt,
         if (docKind.isNotEmpty) 'doc_kind': docKind,
+        if (sourceName.isNotEmpty) 'source_name': sourceName,
+        if (mergedSections.isNotEmpty) 'merged_sections': mergedSections,
       };
 
   /// design/222 — use persisted doc_role (never force 메인).
@@ -202,10 +222,12 @@ class PaperDiskIndexEntry {
         docKind: normalizeDocKind(docKind),
         libraryTag: docRole == 'main' && docKindLibraryTag(docKind).isNotEmpty
             ? docKindLibraryTag(docKind)
-            : _tagForRole(docRole),
+            : _tagForRole(docRole, mergedSections),
         contentHash: contentHash,
         pairedCacheId: pairedCacheId,
         canMergeSupplementary: canMergeSupplementary,
+        sourceName: sourceName,
+        mergedSections: mergedSections,
       );
 }
 
@@ -793,6 +815,8 @@ class PaperDiskStore {
             debone: entry.debone,
             docRole: entry.docRole,
             docKind: entry.docKind,
+            sourceName: entry.sourceName,
+            mergedSections: entry.mergedSections,
             pairedCacheId: keepPair ? e.pairedCacheId : entry.pairedCacheId,
             canMergeSupplementary: keepMerge
                 ? e.canMergeSupplementary
@@ -811,9 +835,7 @@ class PaperDiskStore {
               ? entry.addedAt
               : DateTime.now().toUtc().toIso8601String());
       if (toWrite.addedAt != addedAt) toWrite = toWrite.withAddedAt(addedAt);
-      if (toWrite.docKind.isEmpty && (prior?.docKind ?? '').isNotEmpty) {
-        toWrite = toWrite.withDocKind(prior!.docKind);
-      }
+      if (prior != null) toWrite = toWrite.keepingFrom(prior);
       final next = <PaperDiskIndexEntry>[
         for (final e in cur)
           if (e.id != toWrite.id) e,

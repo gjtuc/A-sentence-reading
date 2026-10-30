@@ -15,7 +15,13 @@ const _sectionLabels = <String, String>{
   'conclusion': 'Conclusion',
   'body': 'Body',
   'supplementary': 'Supplementary',
+  // design/492 — parts attached behind a paper.
+  'review': 'Peer review',
+  'attached': 'Attached',
 };
+
+/// design/492 — sections that are attached documents, not the paper's own.
+const Set<String> kAttachedPartSections = {'supplementary', 'review', 'attached'};
 
 String sectionDisplayName(String? section) {
   final key = (section ?? '').trim().toLowerCase();
@@ -255,7 +261,8 @@ List<SentenceView> applyPaperHeadings(List<SentenceView> sentences, Object? raw)
   final out = <SentenceView>[];
   for (final s in sentences) {
     final section = _sectionKey(s.section);
-    final noHeading = section == 'title' || section == 'supplementary';
+    final noHeading =
+        section == 'title' || kAttachedPartSections.contains(section);
     final start = noHeading ? null : starts[s.id];
     if (start != null) current = start;
     final heading = noHeading ? '' : current;
@@ -270,7 +277,11 @@ List<Map<String, String>> paperHeadingsOf(List<SentenceView> sentences) {
   var current = '';
   for (final s in sentences) {
     final section = _sectionKey(s.section);
-    if (section == 'title' || section == 'supplementary' || s.id.isEmpty) continue;
+    if (section == 'title' ||
+        kAttachedPartSections.contains(section) ||
+        s.id.isEmpty) {
+      continue;
+    }
     final heading = s.heading.trim();
     if (heading == current) continue;
     out.add({'text': heading, 'from': s.id});

@@ -1331,6 +1331,7 @@ def save_paper_session(
     force_cache_id: str | None = None,
     analyzed_build: str | None = None,
     doc_kind: str | None = None,
+    source_name: str | None = None,
 ) -> dict | None:
     """
     제목 키 + source(pdf/docx) + doc_role 로 저장.
@@ -1343,6 +1344,7 @@ def save_paper_session(
     re-save cannot make an old analysis look current.
     doc_kind: design/489 - paper|review|general. Same rule: only an analysis passes
     it, every other save keeps the prior kind.
+    source_name: design/492 - the upload's file name; other saves keep the prior one.
     """
     import shutil
 
@@ -1781,10 +1783,17 @@ def save_paper_session(
             "harmonize_done",
             "harmonize_failed",
             "harmonize_attempt_n",
+            "source_name",
         ):
             if hk in entry:
                 new_entry[hk] = entry[hk]
+        if role == "merged" and "merged_parts" in entry:
+            new_entry["merged_parts"] = entry["merged_parts"]
         break
+    from sentence_reading.cache.doc_parts import clean_source_name
+
+    if clean_source_name(source_name):
+        new_entry["source_name"] = clean_source_name(source_name)
     # design/168b — T4/T5 vs in-memory session counts (payload figures may already be truncated).
     try:
         from sentence_reading.llm.ingest_integrity import (

@@ -47,6 +47,10 @@ def library_tag_for(entry: dict[str, Any]) -> str:
     role = entry_doc_role(entry)
     if role == "main" and entry_doc_kind(entry) in _KIND_TAGS:
         return _KIND_TAGS[entry_doc_kind(entry)]
+    if role == "merged":
+        from sentence_reading.cache.doc_parts import merged_sections, merged_tag
+
+        return merged_tag(merged_sections(entry))
     return _LIBRARY_TAGS.get(role, "메인")
 
 
@@ -247,6 +251,15 @@ def list_entries_for_api(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             # design/222/223 — hash for library join / picker green (empty if unknown).
             "content_hash": str(enriched.get("content_hash") or "").strip().lower(),
         }
+        # design/492 — the upload's file name links a paper with its extra files.
+        from sentence_reading.cache.doc_parts import clean_source_name, merged_sections
+
+        name = clean_source_name(enriched.get("source_name"))
+        if name:
+            row["source_name"] = name
+        sections = merged_sections(enriched) if row["doc_role"] == "merged" else []
+        if sections:
+            row["merged_sections"] = sections
         # design/169o — library banner polls these after ingest done.
         if enriched.get("harmonize_pending") is not None:
             row["harmonize_pending"] = bool(enriched.get("harmonize_pending"))

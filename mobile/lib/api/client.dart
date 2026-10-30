@@ -1145,6 +1145,37 @@ class AsrClient {
     return map;
   }
 
+  /// POST /api/cache/papers/{id}/attach — design/492. Parts already inside the
+  /// paper are skipped by the server.
+  Future<Map<String, dynamic>> attachParts(
+    String mainCacheId,
+    List<({String id, String section})> parts,
+  ) async {
+    final id = mainCacheId.trim();
+    if (id.isEmpty) {
+      throw AsrApiException('cache id is empty', 400);
+    }
+    final res = await _http
+        .post(
+          _uri('/api/cache/papers/${Uri.encodeComponent(id)}/attach'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode({
+            'parts': [
+              for (final p in parts) {'id': p.id, 'section': p.section},
+            ],
+          }),
+        )
+        .timeout(const Duration(seconds: 180));
+    final map = _decodeObject(res, 'cache/attach');
+    if (map['ok'] == false) {
+      throw AsrApiException(
+        '${map['message'] ?? '문서 합치기에 실패했습니다.'}',
+        res.statusCode,
+      );
+    }
+    return map;
+  }
+
   /// GET /api/cache/papers/{id}/headings — design/470. `[]` when the server keeps
   /// none for this paper; null when it could not be asked.
   Future<List<Map<String, String>>?> fetchPaperHeadings(String cacheId) async {
