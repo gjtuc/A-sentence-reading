@@ -343,5 +343,8 @@ ALLOWED_KINDS = frozenset(
         "voice_ask_client",
         "app_visibility",
         "upload_queue_skip",
+        "ingest_queue_enqueue",
+        "ingest_queue_advance",
+        "upload_queue_send_ahead",
     }
 )

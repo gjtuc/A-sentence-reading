@@ -195,6 +195,8 @@ def sweep_candidate(
         return "none"
     if job.get("cancel_requested"):
         return "none"
+    if job.get("queue_waiting"):
+        return "none"
     if job.get("_local_running"):
         return "none"
     from sentence_reading.llm.ingest_jobs_gcs import lease_expired

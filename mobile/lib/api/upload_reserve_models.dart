@@ -15,6 +15,7 @@ class UploadReserveItem {
     this.bytesLen = 0,
     this.status = 'reserved',
     this.enqueuedAtMs = 0,
+    this.jobId = '',
   });
 
   final String contentHash;
@@ -26,8 +27,12 @@ class UploadReserveItem {
   final String status;
   final int enqueuedAtMs;
 
+  /// design/493 — server job holding this file in the owner's queue.
+  final String jobId;
+
   bool get isActive => status == 'active';
   bool get isReserved => status == 'reserved';
+  bool get isSent => jobId.isNotEmpty;
 
   Map<String, dynamic> toJson() => {
         'content_hash': contentHash,
@@ -36,6 +41,7 @@ class UploadReserveItem {
         'bytes_len': bytesLen,
         'status': status,
         'enqueued_at_ms': enqueuedAtMs,
+        if (jobId.isNotEmpty) 'job_id': jobId,
       };
 
   static UploadReserveItem? fromJson(Map<String, dynamic> m) {
@@ -51,6 +57,7 @@ class UploadReserveItem {
     final at = m['enqueued_at_ms'] is num
         ? (m['enqueued_at_ms'] as num).toInt()
         : 0;
+    final jid = '${m['job_id'] ?? ''}'.trim();
     return UploadReserveItem(
       contentHash: hash,
       filename: name,
@@ -58,6 +65,7 @@ class UploadReserveItem {
       bytesLen: len < 0 ? 0 : len,
       status: status,
       enqueuedAtMs: at < 0 ? 0 : at,
+      jobId: RegExp(r'^job_[a-f0-9]{12}$').hasMatch(jid) ? jid : '',
     );
   }
 
@@ -65,6 +73,7 @@ class UploadReserveItem {
     String? localPath,
     String? status,
     int? bytesLen,
+    String? jobId,
   }) {
     return UploadReserveItem(
       contentHash: contentHash,
@@ -73,6 +82,7 @@ class UploadReserveItem {
       bytesLen: bytesLen ?? this.bytesLen,
       status: status ?? this.status,
       enqueuedAtMs: enqueuedAtMs,
+      jobId: jobId ?? this.jobId,
     );
   }
 }

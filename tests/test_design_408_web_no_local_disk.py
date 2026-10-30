@@ -59,6 +59,8 @@ def test_no_store_calls_path_provider_unguarded():
         "api/upload_draft_store.dart",
         "practice_evidence/practice_evidence_store.dart",
         "screens/shadowing_practice_screen.dart",
+        # io half of a conditional import; the web build loads shadow_mic_web.dart
+        "services/shadow_mic_io.dart",
     }
     found = {
         p.relative_to(LIB).as_posix()

@@ -246,6 +246,8 @@ def job_is_stuck(
         return False, ""
     if job.get("cancel_requested"):
         return False, ""
+    if job.get("queue_waiting"):
+        return False, ""
     try:
         from sentence_reading.llm.ingest_stall import check_translate_stall
 
@@ -509,6 +511,9 @@ def public_job_view(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
             out["trace_id"] = tid
     if not out["done"]:
         out["worker_alive"] = bool(job.get("_local_running")) or not lease_expired(job)
+        if job.get("queue_waiting"):
+            out["queue_waiting"] = True
+            out["worker_alive"] = True
     return out
 
 
@@ -793,7 +798,14 @@ def serialize_job_record(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
         "want_shadowing_chunks": bool(job.get("want_shadowing_chunks", False)),
         # design/132 — other instances must not reclaim a user-cancelled job.
         "cancel_requested": bool(job.get("cancel_requested")),
+        # design/493 — server queue: waiting jobs must not start out of order.
+        "queue_waiting": bool(job.get("queue_waiting")),
     }
+    if job.get("queue_member"):
+        out["queue_member"] = True
+    qsa = str(job.get("queue_started_at") or "").strip()
+    if qsa:
+        out["queue_started_at"] = qsa[:40]
     # WHY: reanalyze pin must survive instance reclaim / GCS round-trip.
     tcid = str(job.get("target_cache_id") or "").strip()
     if tcid and re.fullmatch(r"[a-zA-Z0-9]{8,32}", tcid):
@@ -980,6 +992,8 @@ def try_claim_lease_with_reason(
         return None, "job_missing"
     if current.get("done") or current.get("error"):
         return None, "job_already_done"
+    if current.get("queue_waiting"):
+        return None, "queue_waiting"
     if not lease_expired(current):
         return None, "gcs_lease_alive"
     # design/184 — reclaim restarts the clock; do not keep terminal retain_until.

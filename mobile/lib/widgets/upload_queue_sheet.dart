@@ -32,7 +32,7 @@ Future<void> showUploadQueueSheet({
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '분석은 한 건씩 순서대로 진행됩니다.\n대기 중 항목은 제거해도 됩니다.',
+                    '분석은 한 건씩 순서대로 진행됩니다.\n서버에 보낸 파일은 앱을 닫아도 이어서 분석됩니다.\n대기 중 항목은 제거해도 됩니다.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 12),
@@ -58,6 +58,7 @@ Future<void> showUploadQueueSheet({
                                 ? null
                                 : () => library.removeUploadQueueItem(
                                       item.contentHash,
+                                      reason: 'user',
                                     ),
                           );
                         },
@@ -82,7 +83,9 @@ class _QueueTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final label = item.isActive ? '분석 중' : '대기';
+    final label = item.isActive
+        ? '분석 중'
+        : (item.isSent ? '서버에서 차례 대기' : '대기');
     return ListTile(
       contentPadding: EdgeInsets.zero,
       title: Text(

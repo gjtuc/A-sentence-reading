@@ -288,7 +288,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.505",
+    version="0.3.506",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -414,6 +414,18 @@ def _want_shadowing_chunks(request: Request) -> bool:
     if q in ("1", "true", "yes", "on"):
         return True
     return False
+
+
+def _want_queue(request: Request) -> bool:
+    """design/493 — client asks the server to hold the upload in the owner's queue."""
+    q = (request.query_params.get("queue") or "").strip().lower()
+    return q in ("1", "true", "yes", "on")
+
+
+def _ingest_server_queue_on() -> bool:
+    from sentence_reading.llm import ingest_queue as iq
+
+    return iq.server_queue_enabled()
 
 
 def _want_translate(request: Request) -> bool:
@@ -1518,6 +1530,11 @@ async def _ingest_sweeper_loop() -> None:
             await asyncio.sleep(sec)
         except asyncio.CancelledError:
             raise
+        for quid in list(_QUEUE_UIDS):
+            try:
+                await _advance_ingest_queue(quid, why="sweep")
+            except Exception:  # noqa: BLE001
+                pass
         try:
             # Snapshot keys — reclaim may mutate _JOBS.
             for jid in list(_JOBS.keys()):
@@ -2124,6 +2141,7 @@ def status(request: Request) -> dict:
         "mobile_upload_resume": True,
         # design/107 — cross-instance reclaim when worker lease expires.
         "ingest_job_reclaim": ingest_job_reclaim_enabled(),
+        "ingest_server_queue": _ingest_server_queue_on(),
         "ingest_inline": ingest_inline_enabled(),
         "ingest_worker": ingest_worker_configured(),
         "ingest_worker_url_set": ingest_worker_url_set(),
@@ -6872,6 +6890,9 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
         if meta_pre.get("done") or meta_pre.get("error"):
             _emit("job_already_done")
             return False
+        if meta_pre.get("queue_waiting"):
+            _emit("queue_waiting")
+            return False
         if not ij.lease_expired(meta_pre):
             _emit("gcs_lease_alive")
             return False
@@ -6963,6 +6984,12 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
         else:
             reclaim_msg = "처리 다시 시작"
             kept_cp = None
+        if (
+            kept_cp is None
+            and meta.get("queue_member")
+            and int(meta.get("percent") or 0) <= 1
+        ):
+            reclaim_msg = "시작해요"
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(raw)
             tmp_path = Path(tmp.name)
@@ -7001,6 +7028,8 @@ async def _reclaim_ingest_job_from_gcs(job_id: str, owner_uid: str) -> bool:
             "_resume_payload": resume_payload,
             "_local_running": True,
             "trace_id": str(meta.get("trace_id") or ""),
+            "queue_member": bool(meta.get("queue_member")),
+            "queue_started_at": str(meta.get("queue_started_at") or ""),
         }
         tcid = str(meta.get("target_cache_id") or "").strip()
         if tcid and re.fullmatch(r"[a-zA-Z0-9]{8,32}", tcid):
@@ -7110,6 +7139,9 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
                         "lease_until",
                         "lease_token",
                         "trace_id",
+                        "queue_waiting",
+                        "queue_member",
+                        "queue_started_at",
                     ):
                         if key in loaded:
                             job[key] = loaded[key]
@@ -7152,11 +7184,14 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
             and not job.get("error")
             and not job.get("cancel_requested")
             and not job.get("_local_running")
+            and not job.get("queue_waiting")
             and ij.ingest_job_reclaim_enabled()
             and ij.lease_expired(job)
         ):
             await _reclaim_ingest_job_from_gcs(jid, owner)
             job = _JOBS.get(jid) or job
+        if job.get("queue_waiting") and not job.get("done"):
+            _kick_ingest_queue(owner, why="poll")
 
     # design/168e — translate stall before client idle 504.
     if job is not None and not job.get("done") and not job.get("error"):
@@ -7166,6 +7201,13 @@ async def ingest_job_status(request: Request, job_id: str) -> JSONResponse:
     # design/256 — emit view size before serving (proves oversized poll root cause).
     # design/257 — measure the *served* slim view (not raw GCS base64).
     view = ij.public_job_view(jid, job)
+    if isinstance(view, dict) and view.get("queue_waiting"):
+        from sentence_reading.llm import ingest_queue as iq
+
+        ahead = _QUEUE_AHEAD.get(owner, {}).get(jid)
+        if ahead is not None:
+            view["queue_ahead"] = int(ahead)
+        view["message"] = iq.waiting_message(ahead)
     try:
         from sentence_reading.llm import evidence_bus as eb
 
@@ -7313,6 +7355,8 @@ async def ingest_job_cancel(request: Request, job_id: str) -> JSONResponse:
         owner_uid=owner,
         filename=str(job.get("filename") or ""),
     )
+    if job.get("queue_member"):
+        _kick_ingest_queue(owner, why="cancel")
     return JSONResponse(
         {
             "ok": True,
@@ -7967,6 +8011,112 @@ async def _run_ingest_job(
         fin = _JOBS.get(job_id)
         if fin is not None:
             fin["_local_running"] = False
+        if (fin or job or {}).get("queue_member") and owner:
+            _kick_ingest_queue(owner, why="job_end")
+
+
+# design/493 — owners with a server queue seen by this instance (sweeper walks them).
+_QUEUE_UIDS: set[str] = set()
+# owner → {job_id: live jobs ahead}, refreshed on every advance.
+_QUEUE_AHEAD: dict[str, dict[str, int]] = {}
+_QUEUE_KICK_AT: dict[str, float] = {}
+_QUEUE_LOCKS: dict[str, asyncio.Lock] = {}
+_QUEUE_POLL_KICK_S = 15.0
+
+
+def _kick_ingest_queue(uid: str, *, why: str) -> None:
+    import time as _time
+
+    u = (uid or "").strip()
+    if not u:
+        return
+    if why == "poll":
+        now = _time.monotonic()
+        if now - _QUEUE_KICK_AT.get(u, 0.0) < _QUEUE_POLL_KICK_S:
+            return
+        _QUEUE_KICK_AT[u] = now
+    try:
+        asyncio.get_running_loop().create_task(_advance_ingest_queue(u, why=why))
+    except RuntimeError:
+        pass
+
+
+async def _advance_ingest_queue(uid: str, *, why: str = "") -> dict:
+    """design/493 — start the owner's next waiting job when nothing ahead is alive."""
+    from datetime import datetime as _dt, timezone as _tz
+
+    from sentence_reading.llm import ingest_jobs_gcs as ij
+    from sentence_reading.llm import ingest_queue as iq
+
+    u = (uid or "").strip()
+    if not u or not iq.server_queue_enabled() or not ij.ingest_jobs_gcs_enabled():
+        return {"action": "off"}
+    lock = _QUEUE_LOCKS.setdefault(u, asyncio.Lock())
+    async with lock:
+        items = iq.load_queue(u)
+        if not items:
+            _QUEUE_UIDS.discard(u)
+            _QUEUE_AHEAD.pop(u, None)
+            return {"action": "empty"}
+        _QUEUE_UIDS.add(u)
+        seen: dict[str, dict] = {}
+
+        def _load(jid: str) -> dict | None:
+            loaded = ij.load_ingest_job(jid, owner_uid=u)
+            if loaded is None:
+                return None
+            job = dict(loaded)
+            mem = _JOBS.get(jid)
+            if isinstance(mem, dict) and mem.get("_local_running"):
+                job["_local_running"] = True
+            seen[jid] = job
+            return job
+
+        plan = iq.plan_advance(items, _load)
+        if plan["drop"]:
+            iq.drop_jobs(u, set(plan["drop"]))
+        _QUEUE_AHEAD[u] = iq.ahead_counts(items, plan["drop"])
+        action = str(plan["action"])
+        jid = str(plan["job_id"])
+        started = False
+        if action == "start":
+            job = seen.get(jid) or {}
+            job.pop("_local_running", None)
+            flip = {
+                "queue_waiting": False,
+                "queue_started_at": _dt.now(_tz.utc).isoformat(),
+                "stage": "queued",
+                "message": "시작해요",
+            }
+            job.update(flip)
+            if ij.save_ingest_job(jid, job):
+                mem = _JOBS.get(jid)
+                if isinstance(mem, dict):
+                    mem.update(flip)
+                started = await _reclaim_ingest_job_from_gcs(jid, u)
+        elif action == "reclaim":
+            started = await _reclaim_ingest_job_from_gcs(jid, u)
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            eb.emit(
+                "ingest_queue_advance",
+                job_id=jid,
+                owner_uid=u,
+                stage=action,
+                ok=action != "start" or bool(started),
+                details={
+                    "why": str(why or "")[:24],
+                    "action": action,
+                    "started": 1 if started else 0,
+                    "queue_n": len(items),
+                    "drop_n": len(plan["drop"]),
+                    "live_n": int(plan["live_n"]),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return {**plan, "started": started}
 
 
 def _spawn_ingest_worker(
@@ -9969,9 +10119,11 @@ def _begin_ingest_from_bytes(
     owner_uid: str,
     want_shadowing_chunks: bool = False,
     want_translate: bool = True,
+    queue: bool = False,
 ) -> dict:
     """Shared start path for multipart + chunked-complete (design/72)."""
     from sentence_reading.llm import ingest_jobs_gcs as ij
+    from sentence_reading.llm import ingest_queue as iq
     from sentence_reading.llm import ops_events as oev
 
     suffix = ".pdf" if kind == "pdf" else ".docx"
@@ -9999,15 +10151,50 @@ def _begin_ingest_from_bytes(
         # design/99 — default True (web); mobile sends translate=0 to skip.
         "want_translate": bool(want_translate),
     }
+    use_queue = bool(
+        queue
+        and owner_uid
+        and iq.server_queue_enabled()
+        and ij.ingest_jobs_gcs_enabled()
+    )
+    if use_queue:
+        _JOBS[job_id].update(
+            {
+                "stage": "waiting",
+                "message": iq.WAITING_MESSAGE,
+                "queue_waiting": True,
+                "queue_member": True,
+            }
+        )
     # WHY (design/71): durable job + source blob so poll/reattach survives instance hop.
+    blob_ok = False
     if owner_uid:
         try:
-            ij.save_ingest_upload(
-                job_id, raw, owner_uid=owner_uid, suffix=suffix
+            blob_ok = bool(
+                ij.save_ingest_upload(
+                    job_id, raw, owner_uid=owner_uid, suffix=suffix
+                )
             )
         except Exception:  # noqa: BLE001
             pass
         _persist_job(job_id, _JOBS[job_id], force=True)
+    queue_pos = -1
+    if use_queue and blob_ok:
+        queue_pos = iq.append_job(
+            owner_uid, job_id, filename=safe_name, content_hash=content_hash
+        )
+    if use_queue and queue_pos < 0:
+        # EDGE: no blob or queue file → start now, as before the queue existed.
+        _JOBS[job_id].update(
+            {
+                "stage": "queued",
+                "message": "시작해요",
+                "queue_waiting": False,
+                "queue_member": False,
+            }
+        )
+        _persist_job(job_id, _JOBS[job_id], force=True)
+        use_queue = False
     oev.emit(
         "ingest_started",
         trace_id=trace_id,
@@ -10035,6 +10222,37 @@ def _begin_ingest_from_bytes(
     except Exception:  # noqa: BLE001
         pass
     owner_uid = str(_JOBS[job_id].get("owner_uid") or "")
+    if use_queue:
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+        try:
+            from sentence_reading.llm import evidence_bus as eb
+
+            eb.emit(
+                "ingest_queue_enqueue",
+                trace_id=trace_id,
+                job_id=job_id,
+                owner_uid=owner_uid,
+                content_hash=content_hash,
+                stage="waiting",
+                ok=True,
+                details={"queue_position": queue_pos, "bytes": len(raw)},
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        _kick_ingest_queue(owner_uid, why="enqueue")
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "percent": 1,
+            "message": iq.WAITING_MESSAGE,
+            "content_hash": content_hash,
+            "trace_id": trace_id,
+            "queued": True,
+            "queue_position": queue_pos,
+        }
     # design/307 — check leftover server objects, then start analysis anyway.
     try:
         from sentence_reading.llm.papers_gcs import sweep_index_absent_paper_prefixes
@@ -10882,6 +11100,7 @@ async def ingest_upload_complete(
         owner_uid=user.uid,
         want_shadowing_chunks=_want_shadowing_chunks(request),
         want_translate=_want_translate(request),
+        **({"queue": True} if _want_queue(request) else {}),
     )
     try:
         ic.delete_upload_session(upload_id, owner_uid=user.uid)
@@ -10954,6 +11173,7 @@ async def ingest(request: Request, file: UploadFile = File(...)) -> JSONResponse
             owner_uid=owner_uid,
             want_shadowing_chunks=_want_shadowing_chunks(request),
             want_translate=_want_translate(request),
+            **({"queue": True} if _want_queue(request) else {}),
         )
     )
 

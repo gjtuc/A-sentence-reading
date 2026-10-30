@@ -887,6 +887,12 @@ class LibraryController extends ChangeNotifier {
   /// design/221 — durable FIFO reservation queue (serial pump → uploadPdf).
   List<UploadReserveItem> uploadQueue = const [];
   bool _uploadPumpBusy = false;
+
+  /// design/493 — the server holds the line; files behind the head are sent ahead.
+  bool _serverQueueOn = false;
+  Future<void>? _sendAheadRun;
+  String? _sendAheadHash;
+  Future<void> _reserveTail = Future<void>.value();
   bool _uploadQueueAutoOpened = false;
 
   /// design/221 — first_only auto-open; library screen consumes then clears.
@@ -9265,6 +9271,7 @@ class LibraryController extends ChangeNotifier {
     var skipped = 0;
     var dup = 0;
     String? message;
+    final fresh = <UploadReserveItem>[];
     final now = DateTime.now().millisecondsSinceEpoch;
     void noteSkip(String reason, int bytesLen, [String hash = '']) {
       asrEvidenceBus?.record(
@@ -9316,6 +9323,7 @@ class LibraryController extends ChangeNotifier {
         enqueuedAtMs: now + added,
       );
       q = UploadReserveQueue(items: [...q.items, item]);
+      fresh.add(item);
       added += 1;
       await _pickerRecent.remember(
         contentHash: hash,
@@ -9337,7 +9345,19 @@ class LibraryController extends ChangeNotifier {
     if (dup > 0) {
       message ??= '같은 파일 $dup개는 이미 대기열에 있어 건너뛰었습니다.';
     }
-    await _reserve.write(q);
+    q = await _withReserve(() async {
+      final cur = await _reserve.read();
+      final merged = UploadReserveQueue(
+        items: [
+          ...cur.items,
+          ...fresh.where(
+            (e) => !cur.items.any((c) => c.contentHash == e.contentHash),
+          ),
+        ].take(kUploadReserveMaxItems).toList(),
+      );
+      await _reserve.write(merged);
+      return merged;
+    });
     uploadQueue = q.items;
     if (added > 0) {
       await _reloadPickerRecent();
@@ -9350,13 +9370,46 @@ class LibraryController extends ChangeNotifier {
     }
     notifyListeners();
     unawaited(_pumpUploadQueue());
+    unawaited(_sendAheadQueue());
     return (added: added, skipped: skipped, message: message);
   }
 
+  Future<T> _withReserve<T>(Future<T> Function() fn) {
+    final run = _reserveTail.then((_) => fn());
+    _reserveTail = run.then((_) {}, onError: (_) {});
+    return run;
+  }
+
   /// design/221 — remove a reserved (or orphan) item; never clears active singleton draft.
+  /// design/493 — [reason] `user` also cancels the server job of a sent file.
   Future<void> removeUploadQueueItem(
     String contentHash, {
     String reason = 'other',
+  }) async {
+    var sentJob = '';
+    await _withReserve(() async {
+      if (reason == 'user') {
+        final h = contentHash.trim().toLowerCase();
+        for (final it in (await _reserve.read()).items) {
+          if (it.contentHash == h) sentJob = it.jobId;
+        }
+      }
+      await _removeUploadQueueItemLocked(contentHash, reason: reason);
+    });
+    if (sentJob.isNotEmpty) unawaited(_cancelSentJob(sentJob));
+  }
+
+  Future<void> _cancelSentJob(String jobId) async {
+    try {
+      await _client.cancelIngestJob(jobId);
+    } catch (_) {
+      // EDGE: already running or gone — the server finishes or drops it.
+    }
+  }
+
+  Future<void> _removeUploadQueueItemLocked(
+    String contentHash, {
+    required String reason,
   }) async {
     final hash = contentHash.trim().toLowerCase();
     if (hash.length != 64) return;
@@ -9393,7 +9446,111 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _markQueueItemActive(String contentHash) async {
+  Future<void> _markQueueItemActive(String contentHash) =>
+      _withReserve(() => _markQueueItemActiveLocked(contentHash));
+
+  Future<bool> _setQueueItemJob(String contentHash, String jobId) {
+    return _withReserve(() async {
+      final q = await _reserve.read();
+      var kept = false;
+      final next = q.items.map((e) {
+        if (e.contentHash != contentHash) return e;
+        kept = true;
+        return e.copyWith(jobId: jobId);
+      }).toList();
+      if (!kept) return false;
+      await _reserve.write(UploadReserveQueue(items: next));
+      uploadQueue = next;
+      notifyListeners();
+      return true;
+    });
+  }
+
+  /// design/493 — a job waiting its turn on the server is alive, not stalled.
+  void _noteQueueWaiting(int? ahead) {
+    _serverQueueOn = true;
+    _touchProgress();
+    final op = _hangOpId;
+    if (op != null) asrErrorReporter?.hang.progress(op, stage: 'waiting');
+  }
+
+  /// design/493 — upload the files behind the head with `queue=1`, so the server
+  /// keeps analysing them in order with the app closed. The first file stays with
+  /// the pump; a file is sent only when every file before it is already on the server.
+  Future<void> _sendAheadQueue() async {
+    if (_sendAheadRun != null) return;
+    final done = Completer<void>();
+    _sendAheadRun = done.future;
+    try {
+      while (true) {
+        final q = await _reserve.read();
+        if (!_serverQueueOn && q.items.any((e) => e.isSent)) {
+          _serverQueueOn = true;
+        }
+        if (!_serverQueueOn) return;
+        UploadReserveItem? next;
+        for (var i = 0; i < q.items.length; i++) {
+          final it = q.items[i];
+          if (it.isSent) continue;
+          final headOnServer = it.isActive &&
+              it.contentHash == _activeContentHash &&
+              (_activeJobId ?? '').isNotEmpty;
+          if (headOnServer) continue;
+          if (i > 0 && !it.isActive) next = it;
+          break;
+        }
+        if (next == null) return;
+        final bytes = await _reserve.readLocalPdf(next.localPath);
+        if (bytes == null || bytes.isEmpty) return;
+        final hash8 = next.contentHash.substring(0, 8);
+        _sendAheadHash = next.contentHash;
+        try {
+          final started = await _client.startIngestPdfBytesChunked(
+            filename: next.filename,
+            bytes: Uint8List.fromList(bytes),
+            contentHash: next.contentHash,
+            shadowingPractice: await _wantShadowingPractice(),
+            translate: await _wantTranslate(),
+            queue: true,
+            adoptTrace: false,
+          );
+          if (!started.queued) _serverQueueOn = false;
+          final kept = await _setQueueItemJob(next.contentHash, started.jobId);
+          asrEvidenceBus?.record(
+            'upload_queue_send_ahead',
+            severity: 'lifecycle',
+            jobId: started.jobId,
+            stage: started.queued ? 'queued' : 'started',
+            ok: true,
+            details: {
+              'hash8': hash8,
+              'kept': kept,
+              'queued': started.queued,
+              'queue_len': q.length,
+            },
+          );
+          if (!kept) unawaited(_cancelSentJob(started.jobId));
+        } catch (e) {
+          asrEvidenceBus?.record(
+            'upload_queue_send_ahead',
+            severity: 'lifecycle',
+            stage: 'fail',
+            ok: false,
+            httpStatus: e is AsrApiException ? e.statusCode : null,
+            details: {'hash8': hash8, 'queue_len': q.length},
+          );
+          return;
+        } finally {
+          _sendAheadHash = null;
+        }
+      }
+    } finally {
+      _sendAheadRun = null;
+      done.complete();
+    }
+  }
+
+  Future<void> _markQueueItemActiveLocked(String contentHash) async {
     final hash = contentHash.trim().toLowerCase();
     final q = await _reserve.read();
     final next = q.items
@@ -9451,9 +9608,16 @@ class LibraryController extends ChangeNotifier {
                 orElse: () => q.items.first,
               );
         if (head == null || q.isEmpty) break;
+        if (_sendAheadHash == head.contentHash) {
+          await _sendAheadRun;
+          continue;
+        }
 
-        final bytes = await _reserve.readLocalPdf(head.localPath);
-        if (bytes == null || bytes.isEmpty) {
+        final sentJob = head.jobId.trim();
+        final bytes = sentJob.isNotEmpty
+            ? Uint8List(0)
+            : await _reserve.readLocalPdf(head.localPath);
+        if (sentJob.isEmpty && (bytes == null || bytes.isEmpty)) {
           final d = await _drafts.read();
           if (d != null &&
               d.contentHash == head.contentHash &&
@@ -9473,14 +9637,28 @@ class LibraryController extends ChangeNotifier {
           details: {
             'hash8': head.contentHash.substring(0, 8),
             'queue_len': q.length,
+            'sent': sentJob.isNotEmpty,
           },
         );
 
-        final result = await uploadPdf(
-          filename: head.filename,
-          bytes: Uint8List.fromList(bytes),
-          knownHash: head.contentHash,
-        );
+        final IngestJobResult? result;
+        if (sentJob.isNotEmpty) {
+          final sentDraft = UploadDraft(
+            contentHash: head.contentHash,
+            filename: head.filename,
+            jobId: sentJob,
+            phase: 'processing',
+            bytesLen: head.bytesLen,
+          );
+          await _drafts.write(sentDraft);
+          result = await _finishWithPoll(sentDraft);
+        } else {
+          result = await uploadPdf(
+            filename: head.filename,
+            bytes: Uint8List.fromList(bytes!),
+            knownHash: head.contentHash,
+          );
+        }
 
         final still = await _drafts.read();
         if (result != null) {
@@ -9667,6 +9845,7 @@ class LibraryController extends ChangeNotifier {
           shadowingPractice: wantShadow,
           translate: wantTr,
           isCancelled: () => _uploadCancelRequested,
+          queue: true,
           onProgress: (pct, msg) {
             _touchProgress();
             uploadPercent = pct;
@@ -9690,6 +9869,7 @@ class LibraryController extends ChangeNotifier {
         );
         jobId = started.jobId;
         _activeJobId = started.jobId;
+        if (started.queued) _serverQueueOn = true;
         draft = draft.copyWith(
           uploadId: started.uploadId,
           jobId: started.jobId,
@@ -9720,6 +9900,7 @@ class LibraryController extends ChangeNotifier {
         uploadStage = '업로드 완료, 처리 중';
       }
       await _drafts.write(draft);
+      unawaited(_sendAheadQueue());
       _touchProgress();
       uploadPercent = 50;
       uploadStage = '처리 중';
@@ -9730,6 +9911,7 @@ class LibraryController extends ChangeNotifier {
       final result = await _client.pollIngestJob(
         jobId: jobId,
         isCancelled: () => _uploadCancelRequested,
+        onWaiting: _noteQueueWaiting,
         onProgress: (pct, msg) {
           _touchProgress();
           uploadPercent = 50 + (pct.clamp(0, 100) ~/ 2);
@@ -9937,10 +10119,12 @@ class LibraryController extends ChangeNotifier {
       notifyListeners();
     }
     await _scheduleWorkmanager(immediate: false);
+    if (!draft.isReanalyze) unawaited(_sendAheadQueue());
     try {
       final result = await _client.pollIngestJob(
         jobId: draft.jobId,
         isCancelled: () => _uploadCancelRequested,
+        onWaiting: _noteQueueWaiting,
         onProgress: (pct, msg) {
           _touchProgress();
           uploadPercent = pct;

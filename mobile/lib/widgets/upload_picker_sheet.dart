@@ -84,6 +84,7 @@ Future<void> showUploadPickerSheet({
                                   ? null
                                   : () => library.removeUploadQueueItem(
                                         item.contentHash,
+                                        reason: 'user',
                                       ),
                             );
                           },
@@ -157,7 +158,9 @@ class _QueueRow extends StatelessWidget {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       title: Text(item.filename, maxLines: 2, overflow: TextOverflow.ellipsis),
-      subtitle: Text(item.isActive ? '분석 중' : '대기'),
+      subtitle: Text(
+        item.isActive ? '분석 중' : (item.isSent ? '서버에서 차례 대기' : '대기'),
+      ),
       trailing: onRemove == null
           ? null
           : IconButton(

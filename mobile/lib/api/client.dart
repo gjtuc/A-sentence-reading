@@ -1620,15 +1620,19 @@ class AsrClient {
   }
 
   /// Assemble + start ingest job from a completed chunk session.
-  Future<({String jobId, String contentHash})> completeChunkedUpload(
+  Future<({String jobId, String contentHash, bool queued})>
+      completeChunkedUpload(
     String uploadId, {
     bool shadowingPractice = false,
     bool translate = true,
+    bool queue = false,
+    bool adoptTrace = true,
   }) async {
     final id = uploadId.trim();
     final q = _ingestOptQuery(
       shadowingPractice: shadowingPractice,
       translate: translate,
+      queue: queue,
     );
     final res = await _http
         .post(
@@ -1648,17 +1652,20 @@ class AsrClient {
     if (jobId.isEmpty) {
       throw AsrApiException('작업 ID를 받지 못했습니다.', 500);
     }
-    asrEvidenceBus?.adoptJobTrace('${map['trace_id'] ?? ''}');
+    if (adoptTrace) {
+      asrEvidenceBus?.adoptJobTrace('${map['trace_id'] ?? ''}');
+    }
     return (
       jobId: jobId,
       contentHash: '${map['content_hash'] ?? ''}'.trim().toLowerCase(),
+      queued: map['queued'] == true,
     );
   }
 
   /// design/72 — all PDFs: chunked put → complete → returns job_id.
   ///
   /// [existingUploadId]: resume after integrity check (caller verified prefix).
-  Future<({String jobId, String contentHash, String uploadId})>
+  Future<({String jobId, String contentHash, String uploadId, bool queued})>
       startIngestPdfBytesChunked({
     required String filename,
     required Uint8List bytes,
@@ -1669,6 +1676,8 @@ class AsrClient {
     bool shadowingPractice = false,
     bool translate = true,
     bool Function()? isCancelled,
+    bool queue = false,
+    bool adoptTrace = true,
   }) async {
     _validatePdfBytes(filename, bytes);
     // design/463 — the web session is an HttpOnly cookie the app cannot read;
@@ -1738,11 +1747,14 @@ class AsrClient {
       uploadId,
       shadowingPractice: shadowingPractice,
       translate: translate,
+      queue: queue,
+      adoptTrace: adoptTrace,
     );
     return (
       jobId: done.jobId,
       contentHash: done.contentHash.isEmpty ? contentHash : done.contentHash,
       uploadId: uploadId,
+      queued: done.queued,
     );
   }
 
@@ -1855,6 +1867,7 @@ class AsrClient {
     Duration idleTimeout = const Duration(minutes: 5),
     Duration maxDuration = const Duration(hours: 2),
     bool Function()? isCancelled,
+    void Function(int? ahead)? onWaiting,
   }) async {
     final jid = jobId.trim();
     if (jid.isEmpty || !RegExp(r'^job_[a-f0-9]{12}$').hasMatch(jid)) {
@@ -1952,6 +1965,13 @@ class AsrClient {
         throw AsrApiException('진행 상태 형식이 올바르지 않습니다.', 500);
       }
       final st = Map<String, dynamic>.from(decoded);
+      // design/493 — waiting its turn on the server is alive, not idle.
+      if (st['queue_waiting'] == true) {
+        idleDeadline = DateTime.now().add(idleTimeout);
+        onWaiting?.call(
+          st['queue_ahead'] is num ? (st['queue_ahead'] as num).toInt() : null,
+        );
+      }
       final pct = st['percent'] is num ? (st['percent'] as num).toInt() : 0;
       final msg = '${st['message'] ?? ''}'.trim();
       final cacheId = '${st['cache_id'] ?? st['result_cache_id'] ?? ''}'.trim();
@@ -2951,10 +2971,12 @@ throw AsrApiException(
   static String _ingestOptQuery({
     bool shadowingPractice = false,
     bool translate = true,
+    bool queue = false,
   }) {
     final parts = <String>[
       if (shadowingPractice) 'shadowing_practice=1',
       translate ? 'translate=1' : 'translate=0',
+      if (queue) 'queue=1',
     ];
     return '?${parts.join('&')}';
   }
