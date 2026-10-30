@@ -288,7 +288,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.506",
+    version="0.3.507",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -746,6 +746,17 @@ def _paper_retention_status_fields() -> dict:
         "paper_retention_warn_days": WARN_DAYS if on else 0,
         "paper_retention_extend_days": EXTEND_DAYS if on else 0,
         "paper_retention_reading_grace_days": READING_GRACE_DAYS if on else 0,
+        **_paper_unclaimed_status_fields(),
+    }
+
+
+def _paper_unclaimed_status_fields() -> dict:
+    from sentence_reading.llm.paper_handoff import unclaimed_days, unclaimed_purge_enabled
+
+    on = unclaimed_purge_enabled()
+    return {
+        "paper_unclaimed_purge": on,
+        "paper_unclaimed_days": unclaimed_days() if on else 0,
     }
 
 
@@ -1908,7 +1919,8 @@ async def _paper_handoff_abandon_loop() -> None:
     from sentence_reading.llm.paper_handoff import (
         abandon_purge_interval_sec,
         abandon_ttl_enabled,
-        purge_abandoned_once,
+        purge_all_owners_once,
+        unclaimed_purge_enabled,
     )
 
     while True:
@@ -1916,20 +1928,24 @@ async def _paper_handoff_abandon_loop() -> None:
             await asyncio.sleep(abandon_purge_interval_sec())
         except asyncio.CancelledError:
             raise
-        if not abandon_ttl_enabled():
+        if not abandon_ttl_enabled() and not unclaimed_purge_enabled():
             continue
         try:
             from sentence_reading.llm import evidence_bus as eb
 
-            summary = await asyncio.to_thread(purge_abandoned_once)
+            # design/494 — purge_abandoned_once runs per owner inside.
+            summary = await asyncio.to_thread(purge_all_owners_once)
             eb.emit(
                 "paper_handoff_abandon_purge_tick",
                 ok=True,
                 details={
+                    "owners": summary.get("owners"),
                     "examined": summary.get("examined"),
                     "purged": summary.get("purged"),
                     "skipped": summary.get("skipped"),
                     "errors": summary.get("errors"),
+                    "unclaimed_examined": summary.get("unclaimed_examined"),
+                    "unclaimed_purged": summary.get("unclaimed_purged"),
                     "dry_run": summary.get("dry_run"),
                 },
             )

@@ -15,8 +15,10 @@ READING_GRACE_DAYS = int(
 
 
 def retention_enabled() -> bool:
-    """Kill: ASR_PAPER_RETENTION=0 disables TTL purge/warn/extend."""
-    v = (os.environ.get("ASR_PAPER_RETENTION") or "1").strip().lower()
+    """Off by default since design/494: papers live on the device, and the server
+    keeps an unpulled copy for ASR_PAPER_UNCLAIMED_DAYS instead. ASR_PAPER_RETENTION=1
+    brings the old 90-day warn/extend/purge back."""
+    v = (os.environ.get("ASR_PAPER_RETENTION") or "0").strip().lower()
     return v not in ("0", "false", "off", "no")
 
 

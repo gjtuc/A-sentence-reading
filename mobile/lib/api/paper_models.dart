@@ -34,11 +34,6 @@ class PaperEntry {
     this.pipelineVersion = '',
     this.stale = false,
     this.hasSource = false,
-    this.expiresAt = '',
-    this.retentionWarn = false,
-    this.retentionCanExtend = false,
-    this.retentionDaysUntilExpiry,
-    this.retentionExtendDays = 90,
     this.docRole = 'main',
     this.libraryTag = '',
     this.ingestStatus = 'ok',
@@ -96,11 +91,6 @@ class PaperEntry {
       pipelineVersion: '${json['pipeline_version'] ?? ''}'.trim(),
       stale: json['stale'] == true,
       hasSource: json['has_source'] == true,
-      expiresAt: '${json['expires_at'] ?? ''}'.trim(),
-      retentionWarn: _retentionBool(json['retention'], 'warn'),
-      retentionCanExtend: _retentionBool(json['retention'], 'can_extend'),
-      retentionDaysUntilExpiry: _retentionInt(json['retention'], 'days_until_expiry'),
-      retentionExtendDays: _retentionInt(json['retention'], 'extend_days') ?? 90,
       docRole: docRole,
       libraryTag: libraryTag,
       ingestStatus: '${json['ingest_status'] ?? 'ok'}'.trim().isEmpty
@@ -137,19 +127,6 @@ class PaperEntry {
     }
   }
 
-  static bool _retentionBool(Object? block, String key) {
-    if (block is! Map) return false;
-    return block[key] == true;
-  }
-
-  static int? _retentionInt(Object? block, String key) {
-    if (block is! Map) return null;
-    final v = block[key];
-    if (v is int) return v;
-    if (v is num) return v.toInt();
-    return int.tryParse('$v');
-  }
-
   final String id;
   final String title;
   final String source;
@@ -160,11 +137,6 @@ class PaperEntry {
   final String pipelineVersion;
   final bool stale;
   final bool hasSource;
-  final String expiresAt;
-  final bool retentionWarn;
-  final bool retentionCanExtend;
-  final int? retentionDaysUntilExpiry;
-  final int retentionExtendDays;
   final String docRole;
   final String libraryTag;
   final String ingestStatus;
@@ -239,11 +211,6 @@ class PaperEntry {
       pipelineVersion: pipelineVersion,
       stale: stale,
       hasSource: hasSource,
-      expiresAt: expiresAt,
-      retentionWarn: retentionWarn,
-      retentionCanExtend: retentionCanExtend,
-      retentionDaysUntilExpiry: retentionDaysUntilExpiry,
-      retentionExtendDays: retentionExtendDays,
       docRole: docRole ?? this.docRole,
       libraryTag: libraryTag ?? this.libraryTag,
       ingestStatus: ingestStatus ?? this.ingestStatus,
@@ -313,18 +280,14 @@ class PaperEntry {
     return bits.join(' · ');
   }
 
-  /// design/160 — 보관 / 만료 / 읽기 timestamps (local `M/d HH:mm`).
+  /// design/160 — 보관 / 읽기 timestamps (local `M/d HH:mm`). design/494 — no expiry:
+  /// a paper on the device is never deleted by a timer.
   String timingLine({String lastReadLeftAt = ''}) {
     final bits = <String>[];
     if (updatedAt.isNotEmpty) {
       final stored = formatPaperMetaDateTime(updatedAt);
       if (stored.isNotEmpty) {
-        var line = '보관: $stored';
-        if (expiresAt.isNotEmpty) {
-          final exp = formatPaperMetaDate(expiresAt);
-          if (exp.isNotEmpty) line += ' ($exp 만료)';
-        }
-        bits.add(line);
+        bits.add('보관: $stored');
       }
     }
     if (lastReadLeftAt.isNotEmpty) {
@@ -341,8 +304,6 @@ class PaperEntry {
       if (sentenceCount > 0) '문장 $sentenceCount',
       if (figureCount > 0) '그림 $figureCount',
       if (stale) '구버전',
-      if (retentionWarn && retentionDaysUntilExpiry != null)
-        '삭제 ${retentionDaysUntilExpiry!}일 전',
     ];
     return bits.join(' · ');
   }

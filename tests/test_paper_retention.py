@@ -7,6 +7,12 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from sentence_reading.llm import paper_retention as pr
+
+
+@pytest.fixture(autouse=True)
+def _old_retention_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """design/494 turned the 90-day rule off by default; these tests pin its logic."""
+    monkeypatch.setenv("ASR_PAPER_RETENTION", "1")
 from asr_versions import assert_at_least
 
 
@@ -55,17 +61,20 @@ def test_kill_switch() -> None:
     monkeypatch.delenv("ASR_PAPER_RETENTION", raising=False)
 
 
-def test_api_wiring_status() -> None:
+def test_api_wiring_status(monkeypatch: pytest.MonkeyPatch) -> None:
     from fastapi.testclient import TestClient
+
+    monkeypatch.delenv("ASR_PAPER_RETENTION", raising=False)
 
     from sentence_reading.api.app import app
 
     st = TestClient(app).get("/api/status").json()
     assert_at_least(st["version"], "0.3.156")
-    assert st["paper_retention"] is True
-    assert st["paper_retention_days"] == 90
-    assert st["paper_retention_extend_days"] == 90
-    assert st["paper_retention_reading_grace_days"] == 3
+    # design/494 — the 90-day expiry is off by default; unpulled papers use 30 days.
+    assert st["paper_retention"] is False
+    assert st["paper_retention_days"] == 0
+    assert st["paper_unclaimed_purge"] is True
+    assert st["paper_unclaimed_days"] == 30
 
 
 def test_extend_retention_api(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,6 +89,7 @@ def test_extend_retention_api(monkeypatch: pytest.MonkeyPatch) -> None:
     store: dict[str, dict] = {cid: dict(entry)}
 
     monkeypatch.setenv("ASR_ACCESS_GATE", "0")
+    monkeypatch.setenv("ASR_PAPER_RETENTION", "1")
     monkeypatch.setattr(
         app_mod,
         "get_index_entry",
@@ -117,7 +127,7 @@ def test_extend_retention_api(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_mobile_retention_wiring() -> None:
-    """design/144 — library ⚠️ + extend client wiring."""
+    """design/494 — the library expiry icon, sheet and extend call are gone."""
     import os
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -141,11 +151,12 @@ def test_mobile_retention_wiring() -> None:
         os.path.join(root, "docs", "design", "144-paper-retention-ttl.md"),
         encoding="utf-8",
     ).read()
-    assert "warning_amber_rounded" in screen
-    assert "_showRetentionSheet" in screen
-    assert "extendPaperRetention" in client
-    assert "extendRetention" in ctrl
-    assert "retentionWarn" in models
+    assert "_showRetentionSheet" not in screen
+    assert "retentionWarn" not in screen
+    assert "extendPaperRetention" not in client
+    assert "extendRetention" not in ctrl
+    assert "retentionWarn" not in models
+    assert "만료" not in models
     assert "0.3.60" in design
     app_src = open(
         os.path.join(root, "src", "sentence_reading", "api", "app.py"),

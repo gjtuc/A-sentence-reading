@@ -630,3 +630,125 @@ def purge_abandoned_once(
             summary["errors"] += 1
             log.exception("abandon purge failed %s", cid[:8])
     return summary
+
+
+# design/494 — a paper the phone never pulled leaves the server after this many days.
+def unclaimed_days() -> int:
+    raw = (os.environ.get("ASR_PAPER_UNCLAIMED_DAYS") or "30").strip()
+    try:
+        d = int(raw)
+    except ValueError:
+        return 30
+    return max(1, min(d, 3650))
+
+
+def unclaimed_purge_enabled() -> bool:
+    """Kill: ASR_PAPER_UNCLAIMED_PURGE=0 keeps unpulled papers on the server."""
+    v = (os.environ.get("ASR_PAPER_UNCLAIMED_PURGE") or "1").strip().lower()
+    return v not in ("0", "false", "off", "no")
+
+
+def should_purge_unclaimed(
+    entry: dict[str, Any] | None, *, now: datetime | None = None
+) -> tuple[bool, str]:
+    if not isinstance(entry, dict):
+        return False, "bad_entry"
+    base = _parse_iso(str(entry.get("updated_at") or entry.get("created_at") or ""))
+    if base is None:
+        return False, "no_timestamp"
+    n = now or _utc_now()
+    if n >= base + timedelta(days=unclaimed_days()):
+        return True, "unclaimed_ttl"
+    return False, "not_yet"
+
+
+def purge_unclaimed_once(
+    *, limit: int | None = None, now: datetime | None = None
+) -> dict[str, Any]:
+    """Wipe this owner's server papers older than unclaimed_days() (papers/ only, J20)."""
+    from sentence_reading.llm import papers_gcs as pg
+
+    lim = abandon_purge_batch_limit() if limit is None else max(1, min(int(limit), 100))
+    n = now or _utc_now()
+    summary: dict[str, Any] = {
+        "examined": 0,
+        "purged": 0,
+        "skipped": 0,
+        "errors": 0,
+        "dry_run": abandon_ttl_dry_run(),
+        "actions": [],
+    }
+    if not unclaimed_purge_enabled() or not handoff_enabled():
+        return summary
+    obj = pg.papers_index_object()
+    if not obj:
+        return summary
+    index = pg._decode_index(pg.download_bytes(obj))
+    for entry in index.get("entries") or []:
+        if summary["purged"] >= lim:
+            break
+        if not isinstance(entry, dict):
+            continue
+        cid = str(entry.get("id") or "").strip()
+        if not _CACHE_ID_RE.match(cid):
+            continue
+        summary["examined"] += 1
+        ok, reason = should_purge_unclaimed(entry, now=n)
+        if ok:
+            st = load_handoff_state(cid)
+            if isinstance(st, dict) and st.get("pending") and not st.get("acked"):
+                if not should_abandon_handoff(st, now=n)[0]:
+                    ok, reason = False, "handoff_in_progress"
+        if not ok:
+            summary["skipped"] += 1
+            continue
+        if summary["dry_run"]:
+            summary["purged"] += 1
+            summary["actions"].append({"cache_id": cid[:8], "reason": reason, "dry_run": True})
+            continue
+        try:
+            out = abandon_one(cid, reason=reason)
+            if out.get("ok"):
+                summary["purged"] += 1
+                summary["actions"].append({"cache_id": cid[:8], "reason": reason})
+            else:
+                summary["errors"] += 1
+        except Exception:  # noqa: BLE001
+            summary["errors"] += 1
+    return summary
+
+
+def purge_all_owners_once(*, now: datetime | None = None) -> dict[str, Any]:
+    """
+    design/494 — the hourly loop runs without a signed-in user, so bind each owner
+    in turn; otherwise personal paths resolve to nothing and no paper is ever examined.
+    """
+    from sentence_reading.llm.ingest_artifact_ttl import discover_owner_uids
+    from sentence_reading.llm.ingest_jobs_gcs import _with_uid
+
+    n = now or _utc_now()
+    total: dict[str, Any] = {
+        "owners": 0,
+        "examined": 0,
+        "purged": 0,
+        "skipped": 0,
+        "errors": 0,
+        "unclaimed_examined": 0,
+        "unclaimed_purged": 0,
+        "dry_run": abandon_ttl_dry_run(),
+    }
+    for uid in discover_owner_uids():
+        total["owners"] += 1
+        try:
+            with _with_uid(uid):
+                a = purge_abandoned_once(now=n)
+                u = purge_unclaimed_once(now=n)
+        except Exception:  # noqa: BLE001
+            total["errors"] += 1
+            continue
+        for k in ("examined", "purged", "skipped", "errors"):
+            total[k] += int(a.get(k) or 0)
+        total["unclaimed_examined"] += int(u.get("examined") or 0)
+        total["unclaimed_purged"] += int(u.get("purged") or 0)
+        total["errors"] += int(u.get("errors") or 0)
+    return total

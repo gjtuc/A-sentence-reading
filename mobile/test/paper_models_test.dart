@@ -55,8 +55,8 @@ void main() {
         lastReadLeftAt: '2026-08-30T15:40:00.000Z',
       );
       expect(timing, contains('보관:'));
-      expect(timing, contains('($expDate 만료)'));
-      expect(timing, isNot(matches(RegExp(r'\d+/\d+ \d+:\d+ 만료'))));
+      // design/494 — no expiry on the device.
+      expect(timing, isNot(contains('만료')));
       expect(timing, contains('읽기:'));
     });
 

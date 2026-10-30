@@ -3579,26 +3579,6 @@ class LibraryController extends ChangeNotifier {
     );
   }
 
-  /// design/144 — extend retention +90d when server allows.
-  Future<bool> extendRetention(PaperEntry entry) async {
-    if (!entry.retentionCanExtend) return false;
-    try {
-      await _client.extendPaperRetention(entry.id);
-      await refresh();
-      error = null;
-      notifyListeners();
-      return true;
-    } on AsrApiException catch (e) {
-      error = e.message;
-      notifyListeners();
-      return false;
-    } catch (e) {
-      error = e.toString();
-      notifyListeners();
-      return false;
-    }
-  }
-
   /// design/145 — reanalyze from stored source (web parity); no confirm dialog.
   /// design/168f H1.5 — persist job draft so 504 can resume poll (upload parity).
   Future<bool> reanalyzePaper(PaperEntry entry) async {
