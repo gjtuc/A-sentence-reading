@@ -30,6 +30,22 @@ Rules:
 - Output the question only, as plain text on one line. No quotes, no labels.
 - If nothing intelligible was said, output nothing."""
 
+# design/490 - the same recording path, for a title the reader dictates.
+_SYSTEM_TITLE = """You write down a document title a Korean reader dictates for a
+card in their library. The speaker mixes Korean and English freely.
+
+Rules:
+- Write Korean in Hangul and English words in English. A word that appears in the
+  current title is spelled exactly as there.
+- Drop fillers and false starts (음, 어, 그, 저기, uh, um, a word said twice by
+  mistake). Keep the speaker's own wording and order otherwise.
+- Do not answer, explain, translate, summarise or add anything.
+- Output the title only, as plain text on one line. No quotes, no labels, no
+  closing period.
+- If nothing intelligible was said, output nothing."""
+
+PURPOSES = ("question", "title")
+
 
 @dataclass
 class VoiceQuestion:
@@ -45,16 +61,25 @@ def _clean(text: str) -> str:
     return one
 
 
-def _call(audio: bytes, mime: str, sentence: str) -> str:
+def _call(audio: bytes, mime: str, sentence: str, purpose: str = "question") -> str:
     from google import genai
     from google.genai import types
 
     client = genai.Client(api_key=gemini_api_key())
-    user = (
-        "The sentence on the reader's screen:\n"
-        f"{sentence.strip() or '(none)'}\n\n"
-        "Write down the question in the recording."
-    )
+    if purpose == "title":
+        system = _SYSTEM_TITLE
+        user = (
+            "The current title:\n"
+            f"{sentence.strip() or '(none)'}\n\n"
+            "Write down the title in the recording."
+        )
+    else:
+        system = _SYSTEM
+        user = (
+            "The sentence on the reader's screen:\n"
+            f"{sentence.strip() or '(none)'}\n\n"
+            "Write down the question in the recording."
+        )
     extra: dict = {}
     thinking = getattr(types, "ThinkingConfig", None)
     if thinking is not None:
@@ -72,7 +97,7 @@ def _call(audio: bytes, mime: str, sentence: str) -> str:
             )
         ],
         config=types.GenerateContentConfig(
-            system_instruction=_SYSTEM,
+            system_instruction=system,
             temperature=0.0,
             max_output_tokens=1024,
             **extra,
@@ -81,7 +106,7 @@ def _call(audio: bytes, mime: str, sentence: str) -> str:
     try:
         from sentence_reading.llm.usage_meter import record_gemini_response
 
-        record_gemini_response(f"{_SYSTEM}\n{user}", response)
+        record_gemini_response(f"{system}\n{user}", response)
     except Exception:  # noqa: BLE001
         pass
     text = getattr(response, "text", None) or ""
@@ -108,7 +133,9 @@ def audio_mime(raw: str) -> str:
     return "audio/mp4"
 
 
-def transcribe_question(audio: bytes, *, mime: str, sentence: str) -> VoiceQuestion:
+def transcribe_question(
+    audio: bytes, *, mime: str, sentence: str, purpose: str = "question"
+) -> VoiceQuestion:
     """Never raises. An empty text with code ``ok`` means nothing was said."""
     start = time.monotonic()
 
@@ -122,13 +149,17 @@ def transcribe_question(audio: bytes, *, mime: str, sentence: str) -> VoiceQuest
     if not gemini_api_key():
         return done("", "gemini_key_missing")
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        fut = pool.submit(
-            _call, audio, audio_mime(mime), (sentence or "")[:MAX_SENTENCE_CHARS]
-        )
+        args = [audio, audio_mime(mime), (sentence or "")[:MAX_SENTENCE_CHARS]]
+        if purpose == "title":
+            args.append("title")
+        fut = pool.submit(_call, *args)
         try:
             raw = fut.result(timeout=_TIMEOUT_S)
         except concurrent.futures.TimeoutError:
             return done("", "timeout")
         except Exception as exc:  # noqa: BLE001
             return done("", f"call_failed_{type(exc).__name__.lower()}"[:60])
-    return done(_clean(raw), "ok")
+    text = _clean(raw)
+    if purpose == "title":
+        text = text.rstrip(".。")
+    return done(text, "ok")

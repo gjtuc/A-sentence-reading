@@ -43,6 +43,7 @@ async def ask_voice(
     request: Request,
     file: UploadFile = File(...),
     sentence: str = Form(""),
+    purpose: str = Form("question"),
 ):
     if _paid_access_denied is not None:
         denied = _paid_access_denied(request)
@@ -55,8 +56,9 @@ async def ask_voice(
             status_code=400, content={"ok": False, "error": "read_failed"}
         )
     mime = file.content_type or ""
+    extra = {"purpose": "title"} if purpose == "title" else {}
     out = await asyncio.to_thread(
-        voice_question.transcribe_question, data, mime=mime, sentence=sentence
+        voice_question.transcribe_question, data, mime=mime, sentence=sentence, **extra
     )
     ok = out.code == "ok"
     _emit(
@@ -66,6 +68,7 @@ async def ask_voice(
             "audio_bytes": len(data),
             "mime": voice_question.audio_mime(mime),
             "sentence_chars": len(sentence or ""),
+            "purpose": purpose if purpose in voice_question.PURPOSES else "question",
             "text_chars": len(out.text),
             "ms": out.ms,
         },

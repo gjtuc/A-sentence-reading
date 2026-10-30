@@ -73,6 +73,7 @@ import '../services/paper_disk_store.dart';
 import '../services/supplementary_local_merge.dart';
 import '../services/shadowing_cloud_migrate.dart';
 import '../api/cite_refs.dart';
+import '../api/voice_ask_models.dart';
 import '../services/hang_watchdog.dart';
 import '../services/paper_edit_stash.dart';
 import '../services/shadowing_disk_store.dart';
@@ -80,6 +81,7 @@ import 'ingest_auto_resume.dart';
 import 'ingest_stage_progress.dart';
 import 'figure_hydrate.dart';
 import 'harmonize_residual.dart';
+import 'paper_labels.dart';
 import 'read_done.dart';
 import 'library_keys.dart';
 
@@ -145,6 +147,11 @@ class LibraryController extends ChangeNotifier {
   late final ReadDoneStore readDone =
       ReadDoneStore(transport: _ClientReadDoneTransport(_client))
         ..addListener(notifyListeners);
+
+  /// design/490 — the reader's own titles and kinds.
+  late final PaperLabelStore paperLabels =
+      PaperLabelStore(transport: _ClientPaperLabelTransport(_client))
+        ..addListener(_onPaperLabels);
 
   /// design/457 — the libraries of the account's other devices.
   late final AccountLibraryKeys libraryKeys =
@@ -339,6 +346,7 @@ class LibraryController extends ChangeNotifier {
     _diskUid = (uid ?? '').trim().isEmpty ? null : uid!.trim();
     _bindSpotSync(_diskUid);
     unawaited(readDone.bindUid(_diskUid));
+    unawaited(paperLabels.bindUid(_diskUid));
     _libraryListed = false;
     unawaited(libraryKeys.bindUid(_diskUid));
     _figureDisk.bindUid(uid);
@@ -493,6 +501,8 @@ class LibraryController extends ChangeNotifier {
       hidden: !sampleRowShown,
       idOf: (e) => e.id,
     );
+    // design/490 — before pairing, so a kind the reader set takes part.
+    filtered = [for (final e in filtered) _withLabel(e)];
     // design/240 — adjacent mates; design/261 — local pairing + one set row.
     final paired = applyLocalPairingPassDetailed(filtered);
     final collapsed = collapsePairedSetRowsDetailed(paired.papers);
@@ -3009,6 +3019,7 @@ class LibraryController extends ChangeNotifier {
       _libraryListed = true;
       await _rebuildLibraryHashSet();
       unawaited(readDone.pull());
+      unawaited(paperLabels.pull());
       unawaited(libraryKeys.pull());
       unawaited(readDone.fillTitles({for (final e in papers) e.id: paperTitleKey(e.title)}));
       await _reloadPickerRecent();
@@ -5469,6 +5480,70 @@ class LibraryController extends ChangeNotifier {
     await Future.wait([readDone.pull(), libraryKeys.pull()]);
   }
 
+  PaperEntry _withLabel(PaperEntry e) {
+    final l = paperLabels.labelFor(e.id);
+    final title = l?.title ?? '';
+    final kind = l?.kind ?? '';
+    if (e.displayTitle == title && e.labelKind == kind) return e;
+    return e.copyWith(displayTitle: title, labelKind: kind);
+  }
+
+  void _onPaperLabels() {
+    _publishPapers(papers, trigger: 'paper_labels');
+    notifyListeners();
+  }
+
+  /// design/490 — a spoken title written down, the current title as spelling.
+  Future<VoiceAskHeard> transcribeTitle(
+    List<int> bytes,
+    String mime,
+    String current,
+  ) =>
+      _client.transcribeVoiceQuestion(
+        bytes: bytes,
+        mime: mime,
+        sentence: current,
+        purpose: 'title',
+      );
+
+  /// design/490 — the title to show for an open paper.
+  String shownTitleFor(String cacheId, String analysed) {
+    final t = paperLabels.labelFor(cacheId)?.title ?? '';
+    return t.isNotEmpty ? t : analysed;
+  }
+
+  /// design/490 — the reader's title and kind. A title equal to the analysed one
+  /// and the kind the analysis found are stored as "as analysed".
+  Future<void> setPaperLabel(
+    String cacheId, {
+    required String title,
+    required String kind,
+  }) {
+    PaperEntry? entry;
+    for (final e in papers) {
+      if (e.id == cacheId) {
+        entry = e;
+        break;
+      }
+    }
+    var t = cleanPaperLabelTitle(title);
+    if (entry != null && t == cleanPaperLabelTitle(entry.title)) t = '';
+    final k = (entry != null && kind == entry.docKind) ? '' : kind;
+    asrEvidenceBus?.record(
+      'paper_label_set',
+      severity: 'lifecycle',
+      ok: true,
+      details: {
+        'has_title': t.isNotEmpty,
+        'title_chars': t.length,
+        'kind': k,
+        'auto_kind': entry?.docKind ?? '',
+        'doc_role': entry?.docRole ?? '',
+      },
+    );
+    return paperLabels.set(cacheId, title: t, kind: k);
+  }
+
   Future<void> markReadDone(String cacheId, {required bool done}) {
     var hash = '';
     var title = '';
@@ -5794,6 +5869,7 @@ class LibraryController extends ChangeNotifier {
     // Server ingest cancel is out of scope this chip (local discard only).
     _uploadCancelRequested = true;
     unawaited(readDone.bindUid(null));
+    unawaited(paperLabels.bindUid(null));
     _libraryListed = false;
     unawaited(libraryKeys.bindUid(null));
     _endIngestHang();
@@ -10266,6 +10342,20 @@ class _ClientReadDoneTransport implements ReadDoneTransport {
   @override
   Future<void> put(String cacheId, Map<String, Object?> mark) =>
       _client.readDonePut(cacheId, mark);
+}
+
+/// design/490 — [PaperLabelStore] over the app's API client.
+class _ClientPaperLabelTransport implements PaperLabelTransport {
+  _ClientPaperLabelTransport(this._client);
+
+  final AsrClient _client;
+
+  @override
+  Future<Map<String, Map<String, dynamic>>> all() => _client.paperLabelsAll();
+
+  @override
+  Future<void> put(String cacheId, Map<String, Object?> label) =>
+      _client.paperLabelsPut(cacheId, label);
 }
 
 /// design/457 — [AccountLibraryKeys] over the app's API client.

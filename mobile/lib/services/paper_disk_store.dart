@@ -303,7 +303,7 @@ List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) =>
     final mainIs = <int>[];
     final siIs = <int>[];
     for (final i in idxs) {
-      if (out[i].docKind != 'paper') continue;
+      if (out[i].effectiveKind != 'paper') continue;
       final role = out[i].docRole.trim().toLowerCase();
       if (role == 'supplementary' || role == 'si' || role == 'supp') {
         siIs.add(i);
@@ -338,7 +338,7 @@ List<PaperEntry> applyLocalPairingPass(List<PaperEntry> papers) =>
   final openSi = <int>[];
   for (var i = 0; i < out.length; i++) {
     if (out[i].pairedCacheId.trim().isNotEmpty) continue;
-    if (out[i].docKind != 'paper') continue;
+    if (out[i].effectiveKind != 'paper') continue;
     final role = out[i].docRole.trim().toLowerCase();
     if (role == 'merged') continue;
     if (role == 'supplementary' || role == 'si' || role == 'supp') {

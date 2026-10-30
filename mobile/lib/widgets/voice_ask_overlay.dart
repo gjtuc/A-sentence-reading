@@ -26,16 +26,25 @@ class VoiceAskSource {
     required this.sentence,
     required this.transcribe,
     this.newMic = ShadowMic.new,
+    this.listeningText = kVoiceAskListening,
+    this.tapToEndText = kVoiceAskTapToEnd,
+    this.hintText = kVoiceAskMixHint,
   });
 
   /// The English sentence on screen; the server spells its words from it.
   final String sentence;
   final VoiceAskTranscribe transcribe;
   final ShadowMic Function() newMic;
+
+  /// design/490 — the same screen dictates a library title.
+  final String listeningText;
+  final String tapToEndText;
+  final String hintText;
 }
 
 const String kVoiceAskListening = '음성으로 질문하는 중이에요.';
 const String kVoiceAskTapToEnd = '아무 곳이나 누르면 질문이 끝나요.';
+const String kVoiceAskMixHint = '한국어와 영어를 섞어 말해도 돼요.';
 const String kVoiceAskWriting = '글자로 바꾸는 중이에요…';
 
 /// The written question, or null when cancelled or nothing came of it.
@@ -326,7 +335,7 @@ class _VoiceAskOverlayState extends State<VoiceAskOverlay>
             ),
             const SizedBox(height: 20),
             Text(
-              '$kVoiceAskListening\n$kVoiceAskTapToEnd',
+              '${widget.source.listeningText}\n${widget.source.tapToEndText}',
               textAlign: TextAlign.center,
               style: body,
             ),
@@ -336,7 +345,7 @@ class _VoiceAskOverlayState extends State<VoiceAskOverlay>
               builder: (context, d, _) => Text(voiceAskClock(d), style: small),
             ),
             const SizedBox(height: 8),
-            Text('한국어와 영어를 섞어 말해도 돼요.', style: small, textAlign: TextAlign.center),
+            Text(widget.source.hintText, style: small, textAlign: TextAlign.center),
           ],
         );
       case _Phase.writing:

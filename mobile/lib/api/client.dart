@@ -2410,6 +2410,36 @@ throw AsrApiException(
     return out;
   }
 
+  /// design/490 — every title/kind label of this account.
+  Future<Map<String, Map<String, dynamic>>> paperLabelsAll() async {
+    final res = await _http
+        .get(_uri('/api/paper-labels'), headers: await _headers())
+        .timeout(const Duration(seconds: 15));
+    final body = _decodeObject(res, 'paper-labels');
+    final out = <String, Map<String, dynamic>>{};
+    final raw = body['labels'];
+    if (raw is Map) {
+      for (final e in raw.entries) {
+        if (e.value is Map) {
+          out['${e.key}'] = Map<String, dynamic>.from(e.value as Map);
+        }
+      }
+    }
+    return out;
+  }
+
+  /// design/490 — set or clear one paper's title/kind label.
+  Future<void> paperLabelsPut(String cacheId, Map<String, Object?> label) async {
+    final res = await _http
+        .put(
+          _uri('/api/paper-labels/${Uri.encodeComponent(cacheId)}'),
+          headers: await _headers(jsonBody: true),
+          body: jsonEncode(label),
+        )
+        .timeout(const Duration(seconds: 15));
+    _decodeObject(res, 'paper-labels-put');
+  }
+
   /// design/442 — mark or un-mark one paper as read to the end.
   Future<void> readDonePut(String cacheId, Map<String, Object?> mark) async {
     final res = await _http
@@ -3134,6 +3164,7 @@ throw AsrApiException(
     required List<int> bytes,
     required String mime,
     String sentence = '',
+    String purpose = 'question',
   }) async {
     if (bytes.isEmpty) return const VoiceAskHeard('', error: 'empty_audio');
     try {
@@ -3142,6 +3173,7 @@ throw AsrApiException(
       final req = http.MultipartRequest('POST', _uri('/api/ask/voice'));
       req.headers.addAll(headers);
       req.fields['sentence'] = sentence;
+      if (purpose != 'question') req.fields['purpose'] = purpose;
       req.files.add(http.MultipartFile.fromBytes(
         'file',
         bytes,

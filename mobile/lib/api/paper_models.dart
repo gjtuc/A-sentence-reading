@@ -49,6 +49,8 @@ class PaperEntry {
     this.harmonizeAttemptN = 0,
     this.contentHash = '',
     this.docKind = 'paper',
+    this.displayTitle = '',
+    this.labelKind = '',
   });
 
   /// Tolerant parse — never throws on partial/garbage maps.
@@ -168,6 +170,23 @@ class PaperEntry {
   /// design/489 - paper | review | general; only a paper pairs with SI.
   final String docKind;
 
+  /// design/490 - the reader's own title and kind (empty = as analysed). [title]
+  /// stays the analysed one, which pairing and duplicate checks use.
+  final String displayTitle;
+  final String labelKind;
+
+  String get shownTitle => displayTitle.isNotEmpty ? displayTitle : title;
+
+  String get effectiveKind => labelKind.isNotEmpty ? labelKind : docKind;
+
+  /// The card tag, with the reader's kind over the analysed one.
+  String get shownTag {
+    if (labelKind.isEmpty || pairedCacheId.trim().isNotEmpty) return libraryTag;
+    final kindTag = docKindLibraryTag(labelKind);
+    if (kindTag.isNotEmpty) return kindTag;
+    return docRole == 'main' ? '메인' : libraryTag;
+  }
+
   bool get isValid => id.isNotEmpty && title.isNotEmpty;
 
   /// design/261 — mutate pairing / set-row fields without losing the rest.
@@ -179,6 +198,8 @@ class PaperEntry {
     String? ingestStatus,
     int? sentenceCount,
     int? figureCount,
+    String? displayTitle,
+    String? labelKind,
   }) {
     return PaperEntry(
       id: id,
@@ -209,6 +230,8 @@ class PaperEntry {
       harmonizeAttemptN: harmonizeAttemptN,
       contentHash: contentHash,
       docKind: docKind,
+      displayTitle: displayTitle ?? this.displayTitle,
+      labelKind: labelKind ?? this.labelKind,
     );
   }
 

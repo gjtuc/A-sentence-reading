@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 490 | [490-title-and-kind-by-the-reader.md](490-title-and-kind-by-the-reader.md) | 카드를 길게 눌러 제목 고치기(글자 또는 말로)와 종류 바꾸기. 원래 제목은 그대로 두고 계정별 표시 이름표로 저장해 기기끼리 맞춘다 (0.3.503) |
 | 489 | [489-document-kind.md](489-document-kind.md) | 올린 문서를 논문·심사 기록·일반 글로 나눈다. 심사 기록은 ESM 파일 이름이어도 보충 자료가 아니고, 논문 표시가 하나도 없으면 일반 글. 카드에 표시하고 보충 짝짓기에서 뺀다 (0.3.502) |
 | 488 | [488-title-pick-for-any-document.md](488-title-pick-for-any-document.md) | 워드·파워포인트가 넣은 제목과 파일 이름을 버리고, 한글 제목을 잡동사니로 보지 않고, 가장 큰 글씨는 본문보다 1.15배 클 때만 제목으로 쓴다 (0.3.501) |
 | 487 | [487-ingest-hang-asks-server.md](487-ingest-hang-asks-server.md) | 숨은 탭에서 앱이 서버는 멀쩡한 분석을 포기하던 문제. 화면 밖에서는 포기하지 않고, 화면에서는 포기 전에 서버에 묻는다. 화면 숨김과 대기열 건너뜀 이유를 기록 (0.3.500) |

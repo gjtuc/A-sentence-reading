@@ -22,8 +22,10 @@ import '../state/shadowing_controller.dart';
 import '../state/tts_controller.dart';
 import '../widgets/library_card_hold.dart';
 import '../widgets/near_sync_sheet.dart';
+import '../widgets/paper_label_dialogs.dart';
 import '../widgets/read_done_badge.dart';
 import '../widgets/upload_queue_sheet.dart';
+import '../widgets/voice_ask_overlay.dart';
 import 'pdf_import_screen.dart';
 import 'shadowing_practice_screen.dart';
 import '../widgets/upload_status_bar.dart';
@@ -119,6 +121,42 @@ class _LibraryScreenState extends State<LibraryScreen> {
     });
   }
 
+  PaperEntry? _entryById(String id) {
+    for (final e in widget.library.papers) {
+      if (e.id == id) return e;
+    }
+    return null;
+  }
+
+  /// design/490 — the card's own title, typed or spoken.
+  Future<void> _editTitle(String id) async {
+    final e = _entryById(id);
+    if (e == null) return;
+    final lib = widget.library;
+    final next = await showPaperTitleDialog(
+      context,
+      entry: e,
+      voice: (current) => VoiceAskSource(
+        sentence: current,
+        transcribe: (take, sentence) =>
+            lib.transcribeTitle(take.bytes, take.mime, sentence),
+        listeningText: kTitleVoiceListening,
+        tapToEndText: kTitleVoiceTapToEnd,
+      ),
+    );
+    if (next == null || !mounted) return;
+    await lib.setPaperLabel(id, title: next, kind: e.labelKind);
+  }
+
+  /// design/490 — paper, review file or general document, over the analysis.
+  Future<void> _changeKind(String id) async {
+    final e = _entryById(id);
+    if (e == null) return;
+    final kind = await showPaperKindDialog(context, entry: e);
+    if (kind == null || !mounted) return;
+    await widget.library.setPaperLabel(id, title: e.displayTitle, kind: kind);
+  }
+
   void _showMenu(String id, Offset global) {
     _dismissMenu();
     final overlay = Overlay.maybeOf(context);
@@ -127,7 +165,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _menuEntry = OverlayEntry(
       builder: (ctx) {
         final size = MediaQuery.sizeOf(ctx);
-        final top = (global.dy - 96).clamp(72.0, size.height - 210);
+        final top = (global.dy - 96).clamp(72.0, size.height - 300);
         return Stack(
           children: [
             Positioned.fill(
@@ -177,6 +215,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             unawaited(
                               widget.library.markReadDone(id, done: !done),
                             );
+                          },
+                        ),
+                      if (!isSampleCacheId(id))
+                        ListTile(
+                          key: const ValueKey('library_menu_title'),
+                          dense: true,
+                          leading: const Icon(Icons.edit_outlined),
+                          title: const Text('제목 고치기'),
+                          onTap: () {
+                            _dismissMenu();
+                            unawaited(_editTitle(id));
+                          },
+                        ),
+                      if (!isSampleCacheId(id))
+                        ListTile(
+                          key: const ValueKey('library_menu_kind'),
+                          dense: true,
+                          leading: const Icon(Icons.category_outlined),
+                          title: const Text('종류 바꾸기'),
+                          onTap: () {
+                            _dismissMenu();
+                            unawaited(_changeKind(id));
                           },
                         ),
                     ],
@@ -526,7 +586,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('보충자료 합치기'),
         content: Text(
-          '「${entry.title}」의 보충자료를 본문 뒤에 합칩니다.\n'
+          '「${entry.shownTitle}」의 보충자료를 본문 뒤에 합칩니다.\n'
           '합친 뒤에는 보충 항목이 목록에서 숨겨집니다.',
         ),
         actions: [
@@ -1130,12 +1190,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       title: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (e.libraryTag.isNotEmpty && e.libraryTag != '로컬')
+                          if (e.shownTag.isNotEmpty && e.shownTag != '로컬')
                             Padding(
                               padding: const EdgeInsets.only(bottom: 4),
                               child: Chip(
                                 label: Text(
-                                  e.libraryTag,
+                                  e.shownTag,
                                   style: const TextStyle(fontSize: 11),
                                 ),
                                 visualDensity: VisualDensity.compact,
@@ -1146,7 +1206,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             ),
                           Row(
                             children: [
-                              Expanded(child: Text(e.title)),
+                              Expanded(child: Text(e.shownTitle)),
                               if (widget.library.readDone.isDone(e.id))
                                 const Padding(
                                   padding: EdgeInsets.only(left: 8),

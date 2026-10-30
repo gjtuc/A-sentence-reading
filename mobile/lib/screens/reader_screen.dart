@@ -805,7 +805,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     ),
                   Expanded(
                     child: Text(
-                      s.title.isEmpty ? '(no title)' : s.title,
+                      () {
+                        final t = widget.library.shownTitleFor(s.cacheId, s.title);
+                        return t.isEmpty ? '(no title)' : t;
+                      }(),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleSmall,
