@@ -38,7 +38,13 @@ void _sync() {
   }
   fullScreenOn.value = on;
   if (on) fullScreenAwaitsClick.value = false;
+  if (on != _escapeHeld) {
+    _escapeHeld = on;
+    impl.holdEscape(on);
+  }
 }
+
+bool _escapeHeld = false;
 
 bool _watching = false;
 bool _armed = false;
@@ -81,6 +87,7 @@ void _watch() {
   impl.onChange(_sync);
   impl.onPeer(_onPeer);
   impl.onFullScreenKey(() => unawaited(toggleFullScreen()));
+  impl.onLooseEscape(() => fullScreenTakesEscape());
   _sync();
 }
 
@@ -120,6 +127,14 @@ bool fullScreenSteppedAway(DateTime? awayAt, DateTime now) {
   if (awayAt == null) return false;
   final d = now.difference(awayAt);
   return !d.isNegative && d < const Duration(seconds: 3);
+}
+
+/// design/502 — an Esc that no open window used leaves full screen. True when
+/// it did, so the screen under it does not also go back.
+bool fullScreenTakesEscape() {
+  if (!fullScreenOn.value) return false;
+  unawaited(exitFullScreen());
+  return true;
 }
 
 /// The Esc that left full screen is not also a "back".

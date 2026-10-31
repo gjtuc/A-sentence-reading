@@ -18,3 +18,7 @@ void onFullScreenKey(void Function() handler) {}
 void tellPeer(bool on) {}
 
 void onPeer(void Function(bool on) handler) {}
+
+void holdEscape(bool on) {}
+
+void onLooseEscape(void Function() handler) {}

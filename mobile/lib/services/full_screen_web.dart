@@ -115,6 +115,35 @@ void onFullScreenKey(void Function() handler) {
   );
 }
 
+/// design/502 — without the keyboard lock the browser spends a short Esc on
+/// leaving full screen and the app never hears it, so an open window could not
+/// close first. Locked, a short Esc reaches the app and holding Esc still
+/// leaves (Chrome and Edge say so on entering).
+void holdEscape(bool on) {
+  try {
+    final keyboard = (web.window.navigator as JSObject)['keyboard'] as JSObject?;
+    if (keyboard == null) return;
+    if (!on) {
+      keyboard.callMethod<JSAny?>('unlock'.toJS);
+      return;
+    }
+    final done = keyboard.callMethod<JSPromise<JSAny?>?>('lock'.toJS, ['Escape'.toJS].toJS);
+    done?.toDart.then((_) {}, onError: (_) {});
+  } catch (_) {}
+}
+
+/// An Esc no window of the app used. The app's own key handling runs first, in
+/// the capture phase, and marks a used key with preventDefault.
+void onLooseEscape(void Function() handler) {
+  web.window.addEventListener(
+    'keydown',
+    ((web.KeyboardEvent e) {
+      if (e.key != 'Escape' || e.defaultPrevented) return;
+      handler();
+    }).toJS,
+  );
+}
+
 void tellPeer(bool on) {
   final peer = peerWindow();
   if (peer == null) return;

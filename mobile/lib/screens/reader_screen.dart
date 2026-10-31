@@ -1101,7 +1101,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
             _keyMove(-1, figure: true),
         const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true): () =>
             _keyMove(1, figure: true),
-        const SingleActivator(LogicalKeyboardKey.escape): _keyBack,
+        const SingleActivator(LogicalKeyboardKey.escape, includeRepeats: false): _keyBack,
       },
       child: Focus(
         focusNode: _keysFocus,
@@ -1165,10 +1165,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _keyBack() {
-    if (!kIsWeb || !TickerMode.of(context)) return;
-    if (widget.annotations.blocksReaderNavigation) return;
-    // The browser spends this Esc on leaving full screen.
-    if (fullScreenOn.value || fullScreenJustLeft()) return;
+    if (!kIsWeb) return;
+    // design/502 — an open window took its Esc already; this one leaves full screen.
+    if (fullScreenTakesEscape() || fullScreenJustLeft()) return;
+    if (!TickerMode.of(context) || widget.annotations.blocksReaderNavigation) return;
     widget.onBack?.call();
   }
 

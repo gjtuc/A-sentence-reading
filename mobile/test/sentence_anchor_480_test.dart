@@ -199,4 +199,9 @@ void main() {
     expect(phoneSentenceStart(22), lessThan(900 * kSentenceStartAt / 3));
     expect(phoneSentenceStart(22), greaterThan(22 * 0.9 + 16));
   });
+
+  test('design/502 the start mark is half as bright as before', () {
+    expect(StartMark.rest, 0.08);
+    expect(StartMark.peak, 0.15);
+  });
 }

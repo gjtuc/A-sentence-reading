@@ -201,8 +201,8 @@ class StartMark extends StatefulWidget {
   static const Duration life = Duration(milliseconds: 3000);
 
   /// Opacity as the sentence arrives, and at the top of its brightening.
-  static const double rest = 0.16;
-  static const double peak = 0.3;
+  static const double rest = 0.08;
+  static const double peak = 0.15;
 
   /// The bar's opacity [s] seconds after the turn: it waits while the old sentence
   /// dims, brightens as the new one comes, then fades without a pause until it is

@@ -50,4 +50,13 @@ void main() {
         reason: 'a later Esc is the user leaving, and the other window follows');
     expect(fullScreenSteppedAway(t, t.subtract(const Duration(seconds: 1))), isFalse);
   });
+
+  test('design/502: an unused Esc leaves full screen and is not also a back', () async {
+    expect(fullScreenTakesEscape(), isFalse, reason: 'out of full screen Esc goes back');
+    fullScreenOn.value = true;
+    expect(fullScreenTakesEscape(), isTrue);
+    await Future<void>.delayed(Duration.zero);
+    expect(fullScreenOn.value, isFalse);
+    expect(fullScreenJustLeft(), isTrue);
+  });
 }
