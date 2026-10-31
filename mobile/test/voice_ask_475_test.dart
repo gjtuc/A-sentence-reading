@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -48,10 +49,7 @@ class _FakeMic implements ShadowMic {
 Duration ms(int v) => Duration(milliseconds: v);
 
 void main() {
-  test('design/475 a spoken question carries the hint on its own line', () {
-    expect(voiceAskPrompt('뭐야?', spoken: false), '뭐야?');
-    expect(voiceAskPrompt('catalyst 가 뭐야?', spoken: true), '$kVoiceAskHint\ncatalyst 가 뭐야?');
-    expect(kVoiceAskHint, contains('음성 인식'));
+  test('design/475 the take clock', () {
     expect(voiceAskClock(const Duration(seconds: 7)), '0:07');
     expect(voiceAskClock(const Duration(seconds: 161)), '2:41');
   });
@@ -126,7 +124,8 @@ void main() {
     await tester.enterText(find.byType(TextField), '이 catalyst 가 뭐야? 쉽게');
     await tester.testTextInput.receiveAction(TextInputAction.send);
     await tester.pump();
-    expect(asked, ['$kVoiceAskHint\n이 catalyst 가 뭐야? 쉽게']);
+    // design/498 — no "misheard" line in front of a spoken question.
+    expect(asked, ['이 catalyst 가 뭐야? 쉽게']);
 
     await tester.enterText(find.byType(TextField), '');
     await tester.enterText(find.byType(TextField), '새로 쓴 질문');
@@ -218,5 +217,20 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('voice_ask_cancel')));
     await tester.pump();
     await tester.pump(ms(300));
+  });
+
+  testWidgets('design/498 the microphone and send buttons are big', (tester) async {
+    await tester.pumpWidget(field(asked: [], mic: _FakeMic()));
+    final buttons = tester.widgetList<IconButton>(find.byType(IconButton)).toList();
+    expect(buttons, hasLength(2));
+    for (final b in buttons) {
+      expect(b.iconSize, 34);
+    }
+  });
+
+  test('design/498 a long press anywhere on the sentence card opens the sheet', () {
+    final src = File('lib/screens/reader_screen.dart').readAsStringSync();
+    expect(src, contains('onLongPress: widget.onLongPress,'));
+    expect(src, isNot(contains(': GestureDetector(\n                            onLongPress: annotations.sentencePaintMode')));
   });
 }

@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import '../api/ai_ask_prompt_models.dart';
 import '../api/ai_ask_prompt_store.dart';
 import '../api/annotation_models.dart';
-import '../api/voice_ask_models.dart';
 import 'voice_ask_overlay.dart';
 
 /// Bottom sheet: AI ask on top (design/471), then paint colors + memo
@@ -347,16 +346,8 @@ class AiAskQuestionField extends StatefulWidget {
 
 class _AiAskQuestionFieldState extends State<AiAskQuestionField> {
   late final TextEditingController _ctrl =
-      TextEditingController(text: widget.initial)..addListener(_onText);
+      TextEditingController(text: widget.initial);
   final FocusNode _focus = FocusNode();
-
-  /// design/475 — the box holds words the microphone wrote down. Edits keep
-  /// it; emptying the box to type afresh drops it.
-  bool _spoken = false;
-
-  void _onText() {
-    if (_spoken && _ctrl.text.trim().isEmpty) _spoken = false;
-  }
 
   @override
   void dispose() {
@@ -368,7 +359,9 @@ class _AiAskQuestionFieldState extends State<AiAskQuestionField> {
   void _send() {
     final q = _ctrl.text.trim();
     if (q.isEmpty) return;
-    widget.onAsk(voiceAskPrompt(q, spoken: _spoken));
+    // design/498 — a spoken question goes as it is: the AI kept answering a
+    // "this may be misheard" line, and the words come out right anyway.
+    widget.onAsk(q);
   }
 
   Future<void> _speak() async {
@@ -382,7 +375,6 @@ class _AiAskQuestionFieldState extends State<AiAskQuestionField> {
       text: next,
       selection: TextSelection.collapsed(offset: next.length),
     );
-    _spoken = true;
     _focus.requestFocus();
   }
 
@@ -390,8 +382,12 @@ class _AiAskQuestionFieldState extends State<AiAskQuestionField> {
   Widget build(BuildContext context) {
     // design/471 — several lines tall and wrapping, but still one line of text:
     // Enter and the keyboard's send key send it, so there is no line break.
+    // design/498 — big enough to hit without looking.
+    final iconSize = widget.compact ? 30.0 : 34.0;
     final send = IconButton(
       tooltip: 'Google AI에 묻기',
+      iconSize: iconSize,
+      color: Theme.of(context).colorScheme.primary,
       icon: const Icon(Icons.send),
       onPressed: _send,
     );
@@ -417,6 +413,7 @@ class _AiAskQuestionFieldState extends State<AiAskQuestionField> {
                   IconButton(
                     key: const ValueKey('ai_ask_mic'),
                     tooltip: '말로 묻기',
+                    iconSize: iconSize,
                     icon: const Icon(Icons.mic_none),
                     onPressed: () => unawaited(_speak()),
                   ),

@@ -1613,6 +1613,15 @@ class _SentencePanel extends StatelessWidget {
                     : onToggleChrome,
                 onDoubleTap:
                     annotations.sentencePaintMode ? null : onDoubleTapExpand,
+                // design/498 — anywhere on the sentence card, not only on the words.
+                onLongPress: annotations.sentencePaintMode
+                    ? null
+                    : () => _handleSentenceAnnotateLongPress(
+                          context,
+                          annotations: annotations,
+                          session: session,
+                          client: client,
+                        ),
                 onSwipeUp:
                     annotations.sentencePaintMode ? null : onSwipeToFigure,
                 // design/182 — do NOT wrap with a drag-absorbing GestureDetector
@@ -1636,16 +1645,7 @@ class _SentencePanel extends StatelessWidget {
                         : null,
                     child: cur == null || !cur.hasText
                         ? const Text('No sentence at this index.')
-                        : GestureDetector(
-                            onLongPress: annotations.sentencePaintMode
-                                ? null
-                                : () => _handleSentenceAnnotateLongPress(
-                                      context,
-                                      annotations: annotations,
-                                      session: session,
-                                      client: client,
-                                    ),
-                            child: _readingColumn(web, box.maxHeight,
+                        : _readingColumn(web, box.maxHeight,
                                 lift: phoneChromeLift(
                                     chromeFold,
                                     _sentenceStyle(
@@ -1791,7 +1791,6 @@ class _SentencePanel extends StatelessWidget {
                                   ),
                               ],
                             )),
-                          ),
                   )))),
                 ),
               ),
@@ -2740,6 +2739,7 @@ class _SwipePager extends StatefulWidget {
     required this.onNext,
     this.onTap,
     this.onDoubleTap,
+    this.onLongPress,
     this.onSwipeUp,
     this.enabled = true,
     this.pageKey,
@@ -2750,6 +2750,7 @@ class _SwipePager extends StatefulWidget {
   final Future<void> Function()? onNext;
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
+  final VoidCallback? onLongPress;
   /// design/156 — sentence full-screen only: swipe up → figure panel.
   final VoidCallback? onSwipeUp;
   final bool enabled;
@@ -2911,6 +2912,7 @@ class _SwipePagerState extends State<_SwipePager>
           behavior: HitTestBehavior.opaque,
           onTap: widget.onTap,
           onDoubleTap: widget.onDoubleTap,
+          onLongPress: widget.onLongPress,
           onHorizontalDragStart: !swipesOn
               ? null
               : widget.onSwipeUp == null

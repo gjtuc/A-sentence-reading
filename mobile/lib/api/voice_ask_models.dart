@@ -1,10 +1,6 @@
 /// design/475 — a spoken AI question: what is sent, and how the screen reads.
 library;
 
-/// Sent between the sentence and a question that came from the microphone.
-const String kVoiceAskHint =
-    '이 질문은 음성 인식으로 받아 적어서 틀린 글자가 있을 수 있어요. 소리가 비슷한 말로 이해해 주세요.';
-
 /// A take stops on its own after this; nothing else ends it but a tap.
 const Duration kVoiceAskMax = Duration(minutes: 3);
 
@@ -18,10 +14,6 @@ class VoiceAskHeard {
 
   bool get ok => error.isEmpty;
 }
-
-/// The question as sent: a spoken one carries [kVoiceAskHint] on its own line.
-String voiceAskPrompt(String question, {required bool spoken}) =>
-    spoken ? '$kVoiceAskHint\n$question' : question;
 
 /// `0:07`, `2:41`.
 String voiceAskClock(Duration d) {
