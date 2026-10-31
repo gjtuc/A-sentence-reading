@@ -126,6 +126,7 @@ class AsrStatus {
     this.notesLocalSot = false,
     this.mobileApkUrl = '',
     this.helperDownloadUrl = '',
+    this.helperStoreUrl = '',
     // design/169 — missing → off (fail-closed; no client evidence spam).
     this.evidenceBus = false,
   });
@@ -325,6 +326,7 @@ class AsrStatus {
       notesLocalSot: json['notes_local_sot'] == true,
       mobileApkUrl: '${json['mobile_apk_url'] ?? ''}'.trim(),
       helperDownloadUrl: '${json['helper_download_url'] ?? ''}'.trim(),
+      helperStoreUrl: '${json['helper_store_url'] ?? ''}'.trim(),
       // design/169 — missing → off; explicit true enables EvidenceBus flush.
       evidenceBus: json['evidence_bus'] == true,
     );
@@ -404,6 +406,9 @@ class AsrStatus {
   final String mobileApkUrl;
   /// design/495 — the PC helper download (논문 전송 도우미).
   final String helperDownloadUrl;
+
+  /// design/497 — Microsoft Store page of the helper, empty until it is listed.
+  final String helperStoreUrl;
   /// design/169 — agent evidence bus (no UI).
   final bool evidenceBus;
 }

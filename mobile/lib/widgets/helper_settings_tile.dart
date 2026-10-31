@@ -37,6 +37,16 @@ const String kHelperAutoSync = '설치하고 나면, 웹과 휴대폰 앱을 열
 const String kHelperOldWeb = '새 도우미가 나왔어요. 「도우미 받기」로 다시 받아 설치해 주세요.';
 const String kHelperOldPhone = '새 도우미가 나왔어요. 컴퓨터 웹의 설정에서 다시 받아 설치해 주세요.';
 
+/// design/497 — the Microsoft Store helper (no browser or SmartScreen warnings).
+const List<String> kHelperStoreSteps = [
+  '① 아래 「스토어에서 받기」를 누르고, Microsoft Store에서 「받기」를 눌러요.',
+  '② 설치가 끝나면 「열기」를 눌러 도우미 창을 한 번 열어요. 그 뒤로는 컴퓨터를 켜면 저절로 켜져요.',
+  '③ 휴대폰을 USB 선으로 연결하려면 도우미 창에서 「휴대폰 연결 도구 받기」를 눌러요. '
+      '휴대폰에서는 USB 디버깅을 켜 두어야 해요. 켜는 법은 휴대폰 앱의 설정에 있어요.',
+  '④ 브라우저가 「로컬 네트워크의 기기」를 찾아도 되는지 물으면 「허용」을 눌러요.',
+];
+const String kHelperNeedAdb = '휴대폰을 선으로 연결하려면 도우미 창에서 「휴대폰 연결 도구 받기」를 눌러 주세요.';
+
 const List<String> kUsbDebugSteps = [
   '① 아래 「개발자 설정 열기」를 눌러요. 개발자 설정이 아직 없으면 「휴대폰 정보」가 열려요. '
       '「빌드 번호」를 일곱 번 눌러 개발자 설정을 켠 뒤 다시 눌러요. '
@@ -51,9 +61,12 @@ const MethodChannel _usbDebug = MethodChannel('asr/usb_debug');
 bool get _android => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
 class HelperSettingsTile extends StatefulWidget {
-  const HelperSettingsTile({super.key, required this.downloadUrl});
+  const HelperSettingsTile({super.key, required this.downloadUrl, this.storeUrl = ''});
 
   final String downloadUrl;
+
+  /// design/497 — when set, the guide sends people to the Microsoft Store instead.
+  final String storeUrl;
 
   @override
   State<HelperSettingsTile> createState() => _HelperSettingsTileState();
@@ -62,7 +75,11 @@ class HelperSettingsTile extends StatefulWidget {
 class _HelperSettingsTileState extends State<HelperSettingsTile> {
   bool _connected = false;
   bool _old = false;
+  bool _needAdb = false;
   bool? _usbDebugOn;
+
+  bool get _fromStore => widget.storeUrl.trim().isNotEmpty;
+  String get _getUrl => (_fromStore ? widget.storeUrl : widget.downloadUrl).trim();
 
   @override
   void initState() {
@@ -73,12 +90,14 @@ class _HelperSettingsTileState extends State<HelperSettingsTile> {
   Future<void> _check({bool ask = false}) async {
     var connected = false;
     var old = false;
+    var needAdb = false;
     bool? usb;
     if (kIsWeb) {
       final opened = await connectHelperStore(ask: ask);
       if (opened != null) {
         connected = true;
         old = helperIsOld(opened.$2);
+        needAdb = opened.$2['adb'] == false;
         await opened.$1.close();
       }
     } else if (_android) {
@@ -94,13 +113,14 @@ class _HelperSettingsTileState extends State<HelperSettingsTile> {
     setState(() {
       _connected = connected;
       _old = old;
+      _needAdb = needAdb;
       _usbDebugOn = usb;
     });
   }
 
   Future<void> _download() async {
-    final uri = Uri.tryParse(widget.downloadUrl.trim());
-    if (uri == null || widget.downloadUrl.trim().isEmpty) return;
+    final uri = Uri.tryParse(_getUrl);
+    if (uri == null || _getUrl.isEmpty) return;
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -124,7 +144,7 @@ class _HelperSettingsTileState extends State<HelperSettingsTile> {
       showDragHandle: true,
       builder: (ctx) {
         final theme = Theme.of(ctx);
-        const steps = web ? kHelperInstallSteps : kUsbDebugSteps;
+        final steps = web ? (_fromStore ? kHelperStoreSteps : kHelperInstallSteps) : kUsbDebugSteps;
         return SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
@@ -166,9 +186,9 @@ class _HelperSettingsTileState extends State<HelperSettingsTile> {
                     const SizedBox(width: 8),
                     FilledButton(
                       onPressed: web
-                          ? (widget.downloadUrl.trim().isEmpty ? null : _download)
+                          ? (_getUrl.isEmpty ? null : _download)
                           : _openDeveloperSettings,
-                      child: const Text(web ? '파일 받기' : '개발자 설정 열기'),
+                      child: Text(web ? (_fromStore ? '스토어에서 받기' : '파일 받기') : '개발자 설정 열기'),
                     ),
                   ],
                 ),
@@ -209,6 +229,10 @@ class _HelperSettingsTileState extends State<HelperSettingsTile> {
               kIsWeb ? kHelperOldWeb : kHelperOldPhone,
               style: small?.copyWith(color: theme.colorScheme.primary),
             ),
+          ],
+          if (kIsWeb && _connected && _needAdb) ...[
+            const SizedBox(height: 4),
+            Text(kHelperNeedAdb, style: small?.copyWith(color: theme.colorScheme.primary)),
           ],
           const SizedBox(height: 6),
           Text(kHelperPointUsb, style: small),

@@ -288,7 +288,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.509",
+    version="0.3.510",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -609,6 +609,16 @@ def _mobile_apk_url(*, request: Request | None = None) -> str | None:
     if base:
         return f"{base}/api/mobile/apk"
     return None
+
+
+def _helper_store_url() -> str | None:
+    """design/497 — the helper's Microsoft Store page once it is listed."""
+    try:
+        from sentence_reading.llm.mobile_apk_gcs import helper_store_url
+
+        return helper_store_url()
+    except Exception:
+        return None
 
 
 def _helper_download_url(*, request: Request | None = None) -> str | None:
@@ -2311,6 +2321,7 @@ def status(request: Request) -> dict:
         # design/161 — settings APK download; Cloud Run proxy when bucket is private.
         "mobile_apk_url": _mobile_apk_url(request=request),
         "helper_download_url": _helper_download_url(request=request),
+        "helper_store_url": _helper_store_url(),
     }
     # design/178 — throttled mismatch probe (joinable without upload).
     try:
@@ -11282,6 +11293,13 @@ def index() -> HTMLResponse:
     html = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
     html = html.replace("__ASR_ASSET_V__", app.version)
     return HTMLResponse(html, headers=_NO_INDEX)
+
+
+@app.get("/privacy")
+def privacy_page() -> HTMLResponse:
+    """design/497 — privacy policy for the Microsoft Store listing and the app."""
+    html = (_STATIC_DIR / "privacy.html").read_text(encoding="utf-8")
+    return HTMLResponse(html, headers={"Cache-Control": "public, max-age=3600"})
 
 
 @app.get("/veil.html")

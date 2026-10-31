@@ -113,4 +113,15 @@ void main() {
     expect(tile, contains('⑥'));
     expect(tile, contains('kHelperAutoSync'));
   });
+
+  test('design/497: the guide sends people to the Microsoft Store once listed', () {
+    final tile = File('lib/widgets/helper_settings_tile.dart').readAsStringSync();
+    expect(tile, contains('_fromStore ? kHelperStoreSteps : kHelperInstallSteps'));
+    expect(tile, contains("'스토어에서 받기'"));
+    expect(tile, contains("needAdb = opened.\$2['adb'] == false;"));
+    final settings = File('lib/screens/settings_screen.dart').readAsStringSync();
+    expect(settings, contains('HelperSettingsTile(downloadUrl: _helperUrl, storeUrl: _helperStoreUrl)'));
+    final client = File('lib/api/client.dart').readAsStringSync();
+    expect(client, contains("json['helper_store_url']"));
+  });
 }

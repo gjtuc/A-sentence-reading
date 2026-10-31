@@ -6,6 +6,7 @@ object: {prefix}/mobile/sentence-reading-latest.apk
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 
 from sentence_reading.llm.gcs_sync import (
@@ -18,6 +19,16 @@ from sentence_reading.llm.gcs_sync import (
 MOBILE_APK_FILENAME = "sentence-reading-latest.apk"
 # design/495 — the PC helper (scripts/build_helper_exe.py uploads it).
 HELPER_EXE_FILENAME = "sentence-reading-helper.exe"
+# design/497 — Partner Center > Product identity > Store ID, once the helper is listed.
+HELPER_STORE_ID = ""
+
+
+def helper_store_url() -> str | None:
+    """Microsoft Store page of the helper; ASR_HELPER_STORE_URL overrides for a trial."""
+    override = (os.environ.get("ASR_HELPER_STORE_URL") or "").strip()
+    if override:
+        return override
+    return f"https://apps.microsoft.com/detail/{HELPER_STORE_ID}" if HELPER_STORE_ID else None
 
 
 def mobile_apk_object() -> str | None:

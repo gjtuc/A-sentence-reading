@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 497 | [497-store-helper.md](497-store-helper.md) | 도우미를 Microsoft Store 포장(MSIX)으로: 자기 설치·자동 실행 등록 없음, 작은 창, adb는 누를 때만, 개인정보 처리방침 페이지 (0.3.510) |
 | 496 | [496-cable-auto-sync.md](496-cable-auto-sync.md) | 도우미가 있으면 선을 꽂을 때 웹과 휴대폰이 알아서 동기화, 설치 안내 ②를 크롬 차단 화면에 맞춤 (0.3.509) |
 | 495 | [495-helper-kit.md](495-helper-kit.md) | 논문 전송 도우미: 파이썬 없이 두 번 눌러 설치, 웹 논문을 PC 폴더에 한 벌 더 보관하고 되살리기, 설정에만 조용히 두는 안내 (0.3.508) |
 | 494 | [494-unclaimed-server-papers.md](494-unclaimed-server-papers.md) | 휴대폰이 받아 가지 않은 서버 논문은 30일 뒤 사용자마다 지운다. 앱의 만기 표시와 연장을 없앤다 (0.3.507) |

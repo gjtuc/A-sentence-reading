@@ -146,6 +146,8 @@ class Bridge:
         self.log = log
         # design/496 — open web pages waiting to sync by themselves (/watch).
         self.watchers: set = set()
+        # design/497 — None until watch_adb looked; the Store helper fetches adb only on a click.
+        self.adb: bool | None = None
 
     async def tell_watchers(self, msg: dict) -> None:
         text = json.dumps(msg)
@@ -249,6 +251,7 @@ async def watch_adb(
     loop = asyncio.get_running_loop()
     while not stop.is_set():
         path = find()
+        bridge.adb = path is not None
         if path is None:
             if not told_missing:
                 bridge.log("adb not found: the phone cannot reach this PC")
@@ -293,6 +296,7 @@ def helper_hello(bridge: Bridge) -> dict:
         "cable": bridge.cable,
         "watch": bool(bridge.watchers),
         "phone": bridge.phone is not None,
+        "adb": bridge.adb,
     }
 
 

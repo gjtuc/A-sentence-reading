@@ -77,6 +77,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _remoteVersion = '';
   String _mobileApkUrl = '';
   String _helperUrl = '';
+  String _helperStoreUrl = '';
   String _localVersion = kAppVersionLabel;
   /// design/214 — English judgment cheers in practice (default on).
   bool _judgmentCheers = true;
@@ -231,6 +232,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _remoteVersion = st.version.trim();
         _mobileApkUrl = st.mobileApkUrl.trim();
         _helperUrl = st.helperDownloadUrl.trim();
+        _helperStoreUrl = st.helperStoreUrl.trim();
         _versionError = null;
       });
     } on AsrApiException catch (e) {
@@ -1080,7 +1082,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             _buildAppVersionSection(context),
             // design/495 — under the APK row, always there.
-            HelperSettingsTile(downloadUrl: _helperUrl),
+            HelperSettingsTile(downloadUrl: _helperUrl, storeUrl: _helperStoreUrl),
             // design/104 — invite redeem only for none/pending/denied non-admin.
             // Admin keeps mint/Allow/Deny but does not self-redeem.
             if (logged) ...[

@@ -10,6 +10,11 @@ Built into SentenceReadingHelper.exe (scripts/build_helper_exe.py).
   store). When this PC has no adb it fetches Google's platform-tools once.
 - `--uninstall` (Settings > Apps) stops it and removes the program. The paper
   copies stay where they are.
+
+design/497 — inside the Microsoft Store package none of the above install steps
+run: Windows installs it and starts `SentenceReadingHelperStartup.exe` at sign-in
+(manifest startup task). Opening it from the Start menu starts the helper when
+needed and shows a small status window. adb is fetched only from that window.
 """
 from __future__ import annotations
 
@@ -38,6 +43,50 @@ ADB_RETRY_S = 600.0
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 UNINSTALL_KEY = RUN_KEY.rsplit("\\", 1)[0] + "\\Uninstall\\" + APP_NAME
 LOG_MAX = 1024 * 1024
+STARTUP_SUFFIX = "Startup"
+APPMODEL_ERROR_NO_PACKAGE = 15700
+
+
+def is_packaged() -> bool:
+    """True inside an MSIX package (the Microsoft Store helper)."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        n = ctypes.c_uint32(0)
+        rc = ctypes.windll.kernel32.GetCurrentPackageFullName(ctypes.byref(n), None)
+        return rc != APPMODEL_ERROR_NO_PACKAGE
+    except Exception:
+        return False
+
+
+def package_family() -> str | None:
+    try:
+        import ctypes
+
+        n = ctypes.c_uint32(0)
+        ctypes.windll.kernel32.GetCurrentPackageFamilyName(ctypes.byref(n), None)
+        buf = ctypes.create_unicode_buffer(n.value)
+        if ctypes.windll.kernel32.GetCurrentPackageFamilyName(ctypes.byref(n), buf) != 0:
+            return None
+        return buf.value or None
+    except Exception:
+        return None
+
+
+def real_path(path: Path, family: str | None = None) -> Path:
+    """Where Explorer sees a packaged app's LocalAppData write (it lands in the package's LocalCache)."""
+    family = family if family is not None else (package_family() if is_packaged() else None)
+    base = os.environ.get("LOCALAPPDATA")
+    if not family or not base:
+        return path
+    try:
+        rel = path.resolve().relative_to(Path(base).resolve())
+    except ValueError:
+        return path
+    redirected = Path(base) / "Packages" / family / "LocalCache" / "Local" / rel
+    return redirected if redirected.exists() else path
 
 
 def install_dir() -> Path:
@@ -200,8 +249,10 @@ def download_adb(dest: Path, log, url: str = ADB_ZIP_URL) -> Path | None:
             pass
 
 
-def adb_finder(log, *, home: Path | None = None, fetch=download_adb):
-    """A callable for watch_adb: the SDK's adb, ours, or None while ours downloads."""
+def adb_finder(log, *, home: Path | None = None, fetch=download_adb, auto: bool = True):
+    """A callable for watch_adb: the SDK's adb, ours, or None while ours downloads.
+
+    With auto=False (the Store helper) it never downloads; the window does on a click."""
     home = home or install_dir()
     state = {"at": -1e9, "busy": False}
     lock = threading.Lock()
@@ -220,6 +271,8 @@ def adb_finder(log, *, home: Path | None = None, fetch=download_adb):
         ours = home / "platform-tools" / "adb.exe"
         if ours.is_file():
             return str(ours)
+        if not auto:
+            return None
         with lock:
             if not state["busy"] and time.monotonic() - state["at"] >= ADB_RETRY_S:
                 state["busy"] = True
@@ -230,14 +283,14 @@ def adb_finder(log, *, home: Path | None = None, fetch=download_adb):
     return find
 
 
-def run_helper() -> int:
+def run_helper(*, auto_adb: bool = True) -> int:
     log = make_log()
     bridge = bridge_mod.Bridge(log=log)
     try:
         asyncio.run(
             bridge_mod.serve(
                 probe_port=bridge_mod.PROBE_PORT,
-                adb=adb_finder(log),
+                adb=adb_finder(log, auto=auto_adb),
                 bridge=bridge,
                 store=helper_store.PaperStore(),
             )
@@ -247,10 +300,32 @@ def run_helper() -> int:
     return 0
 
 
+def background_command(me: Path) -> list[str]:
+    startup = me.with_name(me.stem + STARTUP_SUFFIX + me.suffix)
+    return [str(startup)] if startup.is_file() else [str(me), "--background"]
+
+
+def run_packaged(me: Path, argv: list[str], *, show=None) -> int:
+    """design/497 — the Store helper. The startup copy serves; the Start menu one shows the window."""
+    if me.stem.endswith(STARTUP_SUFFIX) or "--background" in argv:
+        if port_busy(bridge_mod.WEB_PORT):
+            return 0
+        return run_helper(auto_adb=False)
+    if not port_busy(bridge_mod.WEB_PORT):
+        cmd = background_command(me)
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        subprocess.Popen(cmd, creationflags=flags, close_fds=True)
+    if show is None:
+        from helper_window import show_window as show
+    return show()
+
+
 def main(argv: list[str]) -> int:
+    frozen = getattr(sys, "frozen", False)
+    if frozen and is_packaged():
+        return run_packaged(Path(sys.executable).resolve(), argv)
     if "--uninstall" in argv:
         return uninstall()
-    frozen = getattr(sys, "frozen", False)
     if frozen and "--run" not in argv:
         me = Path(sys.executable).resolve()
         if me != installed_exe().resolve():
