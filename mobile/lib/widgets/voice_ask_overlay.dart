@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 
 import '../api/voice_ask_models.dart';
 import '../services/evidence_bus.dart';
+import '../services/live_caption.dart';
 import '../services/shadow_mic.dart';
 
 typedef VoiceAskTranscribe = Future<VoiceAskHeard> Function(
@@ -29,6 +30,7 @@ class VoiceAskSource {
     this.listeningText = kVoiceAskListening,
     this.tapToEndText = kVoiceAskTapToEnd,
     this.hintText = kVoiceAskMixHint,
+    this.caption = startLiveCaption,
   });
 
   /// The English sentence on screen; the server spells its words from it.
@@ -40,12 +42,27 @@ class VoiceAskSource {
   final String listeningText;
   final String tapToEndText;
   final String hintText;
+
+  /// design/500 — the rough words shown while listening.
+  final LiveCaptionStart caption;
 }
 
 const String kVoiceAskListening = '음성으로 질문하는 중이에요.';
 const String kVoiceAskTapToEnd = '아무 곳이나 누르면 질문이 끝나요.';
 const String kVoiceAskMixHint = '한국어와 영어를 섞어 말해도 돼요.';
 const String kVoiceAskWriting = '글자로 바꾸는 중이에요…';
+
+/// design/501 — what to do about the microphone, in the words of each cause.
+String micTroubleKo(MicTrouble trouble) => switch (trouble) {
+      MicTrouble.none => '마이크를 쓸 수 있게 허용한 뒤 다시 눌러 주세요.',
+      MicTrouble.denied => '마이크가 막혀 있어요.\n'
+          '주소창 왼쪽 아이콘의 마이크 권한과 Windows 설정의 마이크 허용을 확인한 뒤 다시 눌러 주세요.',
+      MicTrouble.noDevice => '이 컴퓨터에서 마이크를 찾지 못했어요.\n'
+          '마이크나 마이크 달린 이어폰을 연결한 뒤 다시 눌러 주세요.',
+      MicTrouble.busy => '마이크를 켜지 못했어요.\n'
+          '다른 프로그램이 마이크를 쓰고 있다면 끄고, Windows 설정에서 마이크 허용을 확인한 뒤 다시 눌러 주세요.',
+      MicTrouble.other => '마이크를 열지 못했어요. 다시 눌러 주세요.',
+    };
 
 /// The written question, or null when cancelled or nothing came of it.
 Future<String?> showVoiceAskOverlay(
@@ -84,6 +101,8 @@ class _VoiceAskOverlayState extends State<VoiceAskOverlay>
       ValueNotifier((level: 0, turn: 0));
   final ValueNotifier<Duration> _clock = ValueNotifier(Duration.zero);
   final FocusNode _focus = FocusNode(debugLabel: 'voice_ask');
+  final ValueNotifier<String> _caption = ValueNotifier('');
+  LiveCaptionStop? _captionStop;
   Timer? _meter;
   bool _metering = false;
   double _heard = 0;
@@ -116,13 +135,17 @@ class _VoiceAskOverlayState extends State<VoiceAskOverlay>
     });
     _clock.value = Duration.zero;
     if (!await _mic.ensurePermission()) {
-      _record('mic_denied', ok: false);
-      return _fail('마이크를 쓸 수 있게 허용한 뒤 다시 눌러 주세요.');
+      final trouble = _mic.trouble;
+      final denied = trouble == MicTrouble.none || trouble == MicTrouble.denied;
+      _record(denied ? 'mic_denied' : 'mic_unavailable',
+          ok: false, details: {'trouble': trouble.name});
+      return _fail(micTroubleKo(trouble));
     }
     if (!mounted || _closed) return;
     if (!await _mic.start('voice_ask', usePrimed: false)) {
-      _record('mic_failed', ok: false);
-      return _fail('마이크를 열지 못했어요.');
+      final trouble = _mic.trouble;
+      _record('mic_failed', ok: false, details: {'trouble': trouble.name});
+      return _fail(trouble == MicTrouble.none ? '마이크를 열지 못했어요.' : micTroubleKo(trouble));
     }
     if (!mounted || _closed) {
       unawaited(_mic.cancel());
@@ -133,6 +156,10 @@ class _VoiceAskOverlayState extends State<VoiceAskOverlay>
     _startedAt = _now;
     if (!_ticker.isActive) unawaited(_ticker.start());
     _meter = Timer.periodic(const Duration(milliseconds: 70), (_) => _readLevel());
+    _caption.value = '';
+    _captionStop = widget.source.caption((text) {
+      if (_recording) _caption.value = text;
+    });
     setState(() => _phase = _Phase.listening);
   }
 
@@ -162,6 +189,8 @@ class _VoiceAskOverlayState extends State<VoiceAskOverlay>
     _recording = false;
     _meter?.cancel();
     _meter = null;
+    _captionStop?.call();
+    _captionStop = null;
   }
 
   void _fail(String message) {
@@ -194,7 +223,11 @@ class _VoiceAskOverlayState extends State<VoiceAskOverlay>
       _record('nothing_heard', ok: false, details: {'bytes': take.bytes.length});
       return _fail('알아들은 말이 없어요. 다시 해 볼까요?');
     }
-    _record('heard', ok: true, details: {'chars': text.length, 'bytes': take.bytes.length});
+    _record('heard', ok: true, details: {
+      'chars': text.length,
+      'bytes': take.bytes.length,
+      'caption_chars': _caption.value.length,
+    });
     _close(text);
   }
 
@@ -247,6 +280,7 @@ class _VoiceAskOverlayState extends State<VoiceAskOverlay>
     _mic.dispose();
     _frame.dispose();
     _clock.dispose();
+    _caption.dispose();
     _focus.dispose();
     super.dispose();
   }
@@ -339,6 +373,7 @@ class _VoiceAskOverlayState extends State<VoiceAskOverlay>
               textAlign: TextAlign.center,
               style: body,
             ),
+            _heardSoFar(body),
             const SizedBox(height: 12),
             ValueListenableBuilder<Duration>(
               valueListenable: _clock,
@@ -359,6 +394,7 @@ class _VoiceAskOverlayState extends State<VoiceAskOverlay>
             ),
             const SizedBox(height: 16),
             Text(kVoiceAskWriting, style: body),
+            _heardSoFar(body),
           ],
         );
       case _Phase.failed:
@@ -376,6 +412,27 @@ class _VoiceAskOverlayState extends State<VoiceAskOverlay>
         );
     }
   }
+
+  /// design/500 — dim, since the written question can still differ from it.
+  Widget _heardSoFar(TextStyle? style) => ValueListenableBuilder<String>(
+        valueListenable: _caption,
+        builder: (context, text, _) => text.isEmpty
+            ? const SizedBox.shrink()
+            : Padding(
+                padding: const EdgeInsets.only(top: 16),
+                child: Text(
+                  liveCaptionTail(text),
+                  key: const ValueKey('voice_ask_caption'),
+                  textAlign: TextAlign.center,
+                  maxLines: 4,
+                  overflow: TextOverflow.clip,
+                  style: style?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.55),
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+      );
 }
 
 /// A soft band of colour along the screen edges. It widens and brightens with

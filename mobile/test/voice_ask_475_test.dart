@@ -4,14 +4,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/api/ai_ask_prompt_store.dart';
 import 'package:sentence_reading/api/voice_ask_models.dart';
+import 'package:sentence_reading/services/live_caption.dart';
 import 'package:sentence_reading/services/shadow_mic.dart';
 import 'package:sentence_reading/widgets/annotation_toolbar_sheet.dart';
 import 'package:sentence_reading/widgets/voice_ask_overlay.dart';
 
 class _FakeMic implements ShadowMic {
-  _FakeMic({this.allowed = true, this.bytes = const [1, 2, 3]});
+  _FakeMic({this.allowed = true, this.bytes = const [1, 2, 3], this.trouble = MicTrouble.none});
 
   final bool allowed;
+  @override
+  final MicTrouble trouble;
   final List<int> bytes;
   final List<String> calls = [];
   double loud = 0.6;
@@ -285,5 +288,72 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byType(VoiceAskOverlay), findsNothing);
     expect(find.text('세포가 뭐야?'), findsOneWidget);
+  });
+
+  testWidgets('design/500 a rough caption shows while listening, the written text wins',
+      (tester) async {
+    final mic = _FakeMic();
+    void Function(String)? said;
+    var stops = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: AiAskQuestionField(
+          onAsk: (_) {},
+          compact: false,
+          voice: VoiceAskSource(
+            sentence: 'The catalyst works.',
+            newMic: () => mic,
+            caption: (onText) {
+              said = onText;
+              return () => stops++;
+            },
+            transcribe: (take, sentence) async => const VoiceAskHeard('이 catalyst 가 뭐야?'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.byKey(const ValueKey('ai_ask_mic')));
+    await tester.pump();
+    await tester.pump(ms(300));
+    expect(said, isNotNull);
+    said!('이 카탈리스트');
+    await tester.pump();
+    expect(find.text('이 카탈리스트'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+    await tester.pump(ms(300));
+    expect(stops, 1);
+    said!('늦게 온 말');
+    await tester.pump();
+    expect(find.byKey(const ValueKey('voice_ask_caption')), findsNothing);
+    expect(find.text('이 catalyst 가 뭐야?'), findsOneWidget);
+  });
+
+  test('design/500 caption rounds join and a long caption keeps its end', () {
+    expect(liveCaptionJoin('', ' 세포가 '), '세포가');
+    expect(liveCaptionJoin('세포가', '뭐야'), '세포가 뭐야');
+    final long = List.filled(60, '가나').join(' ');
+    final tail = liveCaptionTail(long);
+    expect(tail.startsWith('…'), isTrue);
+    expect(tail.endsWith('가나'), isTrue);
+    expect(tail.length, lessThanOrEqualTo(121));
+    expect(liveCaptionTail('짧은 말'), '짧은 말');
+  });
+
+  test('design/501 the browser error names the cause', () {
+    expect(micTroubleFrom('NotAllowedError: Permission denied'), MicTrouble.denied);
+    expect(micTroubleFrom('NotFoundError: Requested device not found'), MicTrouble.noDevice);
+    expect(micTroubleFrom('NotReadableError: Could not start audio source'), MicTrouble.busy);
+    expect(micTroubleFrom('TypeError: x'), MicTrouble.other);
+  });
+
+  testWidgets('design/501 no microphone is not told to allow one', (tester) async {
+    final mic = _FakeMic(allowed: false, trouble: MicTrouble.noDevice);
+    await tester.pumpWidget(field(asked: [], mic: mic));
+    await tester.tap(find.byKey(const ValueKey('ai_ask_mic')));
+    await tester.pump();
+    await tester.pump(ms(300));
+    expect(find.textContaining('마이크를 찾지 못했어요'), findsOneWidget);
+    expect(find.textContaining('허용한 뒤'), findsNothing);
   });
 }

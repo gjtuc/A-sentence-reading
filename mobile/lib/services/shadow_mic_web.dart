@@ -27,6 +27,10 @@ class _BrowserMic implements ShadowMic {
   web.AudioContext? _audio;
   web.AnalyserNode? _meter;
   JSFloat32Array? _frame;
+  MicTrouble _trouble = MicTrouble.none;
+
+  @override
+  MicTrouble get trouble => _trouble;
 
   /// The microphone stays open for the practice screen, so each take starts at
   /// once. Raw sound, like the phone's MIC source: the guide voice is silent
@@ -42,8 +46,10 @@ class _BrowserMic implements ShadowMic {
       _stream = await web.window.navigator.mediaDevices
           .getUserMedia(web.MediaStreamConstraints(audio: audio))
           .toDart;
-    } catch (_) {
+      _trouble = MicTrouble.none;
+    } catch (e) {
       _stream = null;
+      _trouble = micTroubleFrom('$e');
     }
     return _stream;
   }

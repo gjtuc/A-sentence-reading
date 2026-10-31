@@ -38,6 +38,9 @@ class _FakeMic implements ShadowMic {
   Future<double> level() async => 0.5;
 
   @override
+  MicTrouble get trouble => MicTrouble.none;
+
+  @override
   void dispose() {}
 }
 

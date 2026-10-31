@@ -13,6 +13,10 @@ class _ChannelMic implements ShadowMic {
   static const _ch = MethodChannel('asr/shadowing_mic');
 
   String? _primed;
+
+  /// A refusal is the only trouble the phone reports, through [ensurePermission].
+  @override
+  MicTrouble get trouble => MicTrouble.none;
   String? _path;
 
   Future<String> _newPath(String tag) async {

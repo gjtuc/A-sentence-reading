@@ -49,11 +49,35 @@ abstract class ShadowMic {
   /// Stops without keeping anything.
   Future<void> cancel();
 
+  /// design/501 — why the microphone last failed to open, as far as the
+  /// platform can tell.
+  MicTrouble get trouble;
+
   /// design/475 — how loud the take is right now, 0 (silence) to 1. Zero when
   /// nothing is recording or the recorder cannot tell.
   Future<double> level();
 
   void dispose();
+}
+
+/// design/501 — the browser tells a blocked microphone from a missing or busy
+/// one; all three used to read as "not allowed".
+enum MicTrouble { none, denied, noDevice, busy, other }
+
+/// [error] is the browser's error as text (`NotFoundError: Requested device
+/// not found`).
+MicTrouble micTroubleFrom(String error) {
+  bool has(List<String> names) => names.any(error.contains);
+  if (has(const ['NotAllowedError', 'PermissionDeniedError', 'SecurityError'])) {
+    return MicTrouble.denied;
+  }
+  if (has(const ['NotFoundError', 'DevicesNotFoundError', 'OverconstrainedError'])) {
+    return MicTrouble.noDevice;
+  }
+  if (has(const ['NotReadableError', 'TrackStartError', 'AbortError'])) {
+    return MicTrouble.busy;
+  }
+  return MicTrouble.other;
 }
 
 /// design/475 — decibels below full scale where the level reads 0.

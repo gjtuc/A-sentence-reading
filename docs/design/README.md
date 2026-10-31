@@ -462,6 +462,8 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 501 | [501-mic-trouble.md](501-mic-trouble.md) | 마이크가 안 열린 까닭(막힘·없음·사용 중)을 나눠 안내 (0.3.513) |
+| 500 | [500-live-caption.md](500-live-caption.md) | 말로 묻는 동안 브라우저 무료 음성 인식으로 흐린 자막, 끝나면 정확한 글자로 (0.3.513) |
 | 499 | [499-space-voice-ask.md](499-space-voice-ask.md) | 웹: 스페이스 바를 누르면 곧바로 말로 AI에게 묻기, 듣기 화면도 스페이스로 끝 (0.3.512) |
 | 498 | [498-ai-ask-voice-and-card.md](498-ai-ask-voice-and-card.md) | AI 묻기: 말로 한 질문 앞 "틀릴 수 있어요" 줄 빼기, 문장 카드 어디서나 길게 누르기, 마이크·보내기 단추 키우기 (0.3.510) |
 | 497 | [497-store-helper.md](497-store-helper.md) | 도우미를 Microsoft Store 포장(MSIX)으로: 자기 설치·자동 실행 등록 없음, 작은 창, adb는 누를 때만, 개인정보 처리방침 페이지 (0.3.510) |
