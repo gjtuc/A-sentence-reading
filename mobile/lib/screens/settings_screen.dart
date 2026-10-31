@@ -1580,7 +1580,8 @@ class _WebReadingSection extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             '넓은 모니터에서 문장을 화면 가운데에 크게 보여 줍니다. '
-            '키보드 ←/→ 는 문장, Shift+←/→ 는 그림을 넘깁니다.',
+            '키보드 ←/→ 는 문장, Shift+←/→ 는 그림을 넘깁니다. '
+            '글자를 치면 글로, 스페이스 바를 누르면 말로 AI에게 묻습니다.',
             style: text.bodySmall,
           ),
         ],

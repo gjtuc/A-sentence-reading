@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sentence_reading/api/ai_ask_prompt_store.dart';
 import 'package:sentence_reading/api/voice_ask_models.dart';
 import 'package:sentence_reading/services/shadow_mic.dart';
 import 'package:sentence_reading/widgets/annotation_toolbar_sheet.dart';
@@ -232,5 +233,57 @@ void main() {
     final src = File('lib/screens/reader_screen.dart').readAsStringSync();
     expect(src, contains('onLongPress: widget.onLongPress,'));
     expect(src, isNot(contains(': GestureDetector(\n                            onLongPress: annotations.sentencePaintMode')));
+  });
+
+  // design/499 — Space asks by voice; the other keys keep their jobs.
+  test('a bare Space speaks, a letter or a shortcut does not', () {
+    KeyDownEvent down(LogicalKeyboardKey key, PhysicalKeyboardKey phys, String? ch) =>
+        KeyDownEvent(physicalKey: phys, logicalKey: key, character: ch, timeStamp: Duration.zero);
+    final space = down(LogicalKeyboardKey.space, PhysicalKeyboardKey.space, ' ');
+    expect(aiAskSpeaksOnKey(space, ctrl: false, alt: false, meta: false), isTrue);
+    expect(aiAskSpeaksOnKey(space, ctrl: true, alt: false, meta: false), isFalse);
+    expect(aiAskOpensOnKey(space, ctrl: false, alt: false, meta: false), isFalse);
+    final a = down(LogicalKeyboardKey.keyA, PhysicalKeyboardKey.keyA, 'a');
+    expect(aiAskSpeaksOnKey(a, ctrl: false, alt: false, meta: false), isFalse);
+    final up = KeyUpEvent(
+      physicalKey: PhysicalKeyboardKey.space,
+      logicalKey: LogicalKeyboardKey.space,
+      timeStamp: Duration.zero,
+    );
+    expect(aiAskSpeaksOnKey(up, ctrl: false, alt: false, meta: false), isFalse);
+  });
+
+  testWidgets('the Space dialog opens already listening', (tester) async {
+    final mic = _FakeMic();
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => TextButton(
+          onPressed: () => showAiAskTypeDialog(
+            context: context,
+            sentencePlain: 'The cell divides.',
+            promptStore: MemoryAiAskPromptStore(),
+            listenFirst: true,
+            voice: VoiceAskSource(
+              sentence: 'The cell divides.',
+              transcribe: (take, sentence) async =>
+                  const VoiceAskHeard('세포가 뭐야?'),
+              newMic: () => mic,
+            ),
+          ),
+          child: const Text('open'),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(VoiceAskOverlay), findsOneWidget);
+    expect(mic.calls, contains('start:voice_ask'));
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(VoiceAskOverlay), findsNothing);
+    expect(find.text('세포가 뭐야?'), findsOneWidget);
   });
 }

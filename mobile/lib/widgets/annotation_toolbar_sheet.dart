@@ -329,11 +329,15 @@ class AiAskQuestionField extends StatefulWidget {
     this.autofocus = false,
     this.compact = kIsWeb,
     this.voice,
+    this.listenFirst = false,
   });
 
   final ValueChanged<String> onAsk;
   final String initial;
   final bool autofocus;
+
+  /// design/499 — Space on the web reader opens the box already listening.
+  final bool listenFirst;
   /// design/472 — the web keeps the thin box; a long question wraps to two lines.
   final bool compact;
 
@@ -348,6 +352,16 @@ class _AiAskQuestionFieldState extends State<AiAskQuestionField> {
   late final TextEditingController _ctrl =
       TextEditingController(text: widget.initial);
   final FocusNode _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.listenFirst && widget.voice != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_speak());
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -445,6 +459,18 @@ bool aiAskOpensOnKey(
   return ch.runes.every((r) => r >= 0x21 && r != 0x7f);
 }
 
+/// design/499 — a bare Space asks by voice. The listening screen already ends
+/// the question on Space, so the whole ask stays on the keyboard.
+bool aiAskSpeaksOnKey(
+  KeyEvent event, {
+  required bool ctrl,
+  required bool alt,
+  required bool meta,
+}) {
+  if (event is! KeyDownEvent || ctrl || alt || meta) return false;
+  return event.logicalKey == LogicalKeyboardKey.space;
+}
+
 /// design/419 — the web reader's keyboard: a key opens this, the question is
 /// typed, Enter sends it with the sentence. Saved prompts sit below as chips.
 Future<String?> showAiAskTypeDialog({
@@ -452,6 +478,7 @@ Future<String?> showAiAskTypeDialog({
   required String sentencePlain,
   AiAskPromptStore? promptStore,
   VoiceAskSource? voice,
+  bool listenFirst = false,
 }) {
   return showDialog<String>(
     context: context,
@@ -459,6 +486,7 @@ Future<String?> showAiAskTypeDialog({
       sentencePlain: sentencePlain,
       store: promptStore ?? PrefsAiAskPromptStore(),
       voice: voice,
+      listenFirst: listenFirst,
     ),
   );
 }
@@ -468,11 +496,13 @@ class _AiAskTypeDialog extends StatefulWidget {
     required this.sentencePlain,
     required this.store,
     this.voice,
+    this.listenFirst = false,
   });
 
   final String sentencePlain;
   final AiAskPromptStore store;
   final VoiceAskSource? voice;
+  final bool listenFirst;
 
   @override
   State<_AiAskTypeDialog> createState() => _AiAskTypeDialogState();
@@ -513,6 +543,7 @@ class _AiAskTypeDialogState extends State<_AiAskTypeDialog> {
             AiAskQuestionField(
               autofocus: true,
               voice: widget.voice,
+              listenFirst: widget.listenFirst,
               onAsk: (q) => Navigator.pop(context, q),
             ),
             if (_prompts.isNotEmpty) ...[

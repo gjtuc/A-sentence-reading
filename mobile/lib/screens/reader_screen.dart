@@ -1116,12 +1116,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
   KeyEventResult _onReaderKey(FocusNode node, KeyEvent event) {
     if (!kIsWeb || !node.hasPrimaryFocus) return KeyEventResult.ignored;
     final hw = HardwareKeyboard.instance;
-    if (!aiAskOpensOnKey(
+    final speak = aiAskSpeaksOnKey(
       event,
       ctrl: hw.isControlPressed,
       alt: hw.isAltPressed,
       meta: hw.isMetaPressed,
-    )) {
+    );
+    if (!speak &&
+        !aiAskOpensOnKey(
+          event,
+          ctrl: hw.isControlPressed,
+          alt: hw.isAltPressed,
+          meta: hw.isMetaPressed,
+        )) {
       return KeyEventResult.ignored;
     }
     if (!TickerMode.of(context) || widget.annotations.blocksReaderNavigation) {
@@ -1129,6 +1136,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
     // design/434 — the figure window asks about the figure it shows.
     if (_shownLayout == _ReaderLayoutMode.figureOnly) {
+      if (speak) return KeyEventResult.ignored;
       final image = decodeRasterDataUrlCached(
         widget.library.session?.currentFigure?.imageSrc,
       );
@@ -1148,6 +1156,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         context: context,
         sentencePlain: plain,
         voice: _voiceAsk(widget.client, plain),
+        listenFirst: speak,
       );
       if (q == null || !mounted) return;
       await _askAiAbout(context, sentencePlain: plain, promptBody: q);
