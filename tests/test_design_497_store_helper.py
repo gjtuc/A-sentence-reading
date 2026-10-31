@@ -140,3 +140,11 @@ def test_privacy_page_and_store_link(monkeypatch) -> None:
     assert mag.helper_store_url() == "https://apps.microsoft.com/detail/9NTEST123"
     monkeypatch.setenv("ASR_HELPER_STORE_URL", "https://example.test/x")
     assert mag.helper_store_url() == "https://example.test/x"
+
+
+def test_privacy_page_is_open_without_login(monkeypatch) -> None:
+    from sentence_reading.llm import login_required as lr
+
+    assert lr.is_login_public_path("/privacy")
+    assert lr.is_login_public_path("/privacy/")
+    assert not lr.is_login_public_path("/privacy-other")

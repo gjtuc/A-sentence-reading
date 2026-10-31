@@ -28,7 +28,8 @@ _PUBLIC_API_EXACT = frozenset(
     }
 )
 
-_PUBLIC_PAGE_EXACT = frozenset({"/", "/favicon.ico", "/robots.txt"})
+# design/497 — /privacy is read by Microsoft Store reviewers without an account.
+_PUBLIC_PAGE_EXACT = frozenset({"/", "/favicon.ico", "/robots.txt", "/privacy"})
 
 
 def login_required_enabled() -> bool:

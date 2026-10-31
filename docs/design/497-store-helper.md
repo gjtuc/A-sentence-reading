@@ -32,7 +32,7 @@
 
 ### 서버·설정
 
-- `GET /privacy`: 개인정보 처리방침 (Store 등록에 필요).
+- `GET /privacy`: 개인정보 처리방침 (Store 등록에 필요). 로그인 없이 열린다 (`login_required._PUBLIC_PAGE_EXACT`, 0.3.511).
 - `/api/status` `helper_store_url`: `mobile_apk_gcs.HELPER_STORE_ID` 가 차면 `https://apps.microsoft.com/detail/{id}` (`ASR_HELPER_STORE_URL` 로 덮어쓰기).
 - 웹 설정 칸: Store 주소가 있으면 「스토어에서 받기」 와 Store 안내 ①–④, 없으면 지금의 파일 받기 안내.
 
