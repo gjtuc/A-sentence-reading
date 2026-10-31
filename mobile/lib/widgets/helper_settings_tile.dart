@@ -25,12 +25,17 @@ const String kHelperConnected = '도우미 연결됨';
 
 const List<String> kHelperInstallSteps = [
   '① 아래 「파일 받기」를 눌러 도우미 파일을 받아요.',
-  '② 받은 파일을 두 번 눌러 실행해요. 「Windows의 PC 보호」 창이 뜨면 「추가 정보」를 누르고 「실행」을 눌러요. '
-      '브라우저가 흔하지 않은 파일이라고 하면 「유지」를 눌러요.',
-  '③ 「설치했어요」 창이 뜨면 끝이에요. 컴퓨터를 켜면 도우미가 저절로 켜져요.',
-  '④ 휴대폰을 USB 선으로 컴퓨터에 연결해요. 휴대폰에서 USB 디버깅을 켜 두어야 해요. 켜는 법은 휴대폰 앱의 설정에 있어요.',
-  '⑤ 브라우저가 「로컬 네트워크의 기기」를 찾아도 되는지 물으면 「허용」을 눌러요.',
+  '② 크롬이 「의심스러운 파일 차단됨」이라고 하면, 다운로드 목록에서 그 파일을 눌러 「다운로드」를 눌러요. '
+      '엣지는 「…」를 눌러 「유지」를 눌러요. 처음 보는 프로그램이라 막는 것이고, 바이러스가 있다는 뜻은 아니에요.',
+  '③ 받은 파일을 두 번 눌러 실행해요. 「Windows의 PC 보호」 창이 뜨면 「추가 정보」를 누르고 「실행」을 눌러요.',
+  '④ 「설치했어요」 창이 뜨면 끝이에요. 컴퓨터를 켜면 도우미가 저절로 켜져요.',
+  '⑤ 휴대폰을 USB 선으로 컴퓨터에 연결해요. 휴대폰에서 USB 디버깅을 켜 두어야 해요. 켜는 법은 휴대폰 앱의 설정에 있어요.',
+  '⑥ 브라우저가 「로컬 네트워크의 기기」를 찾아도 되는지 물으면 「허용」을 눌러요.',
 ];
+
+const String kHelperAutoSync = '설치하고 나면, 웹과 휴대폰 앱을 열어 둔 채 선을 꽂을 때 알아서 맞춰요.';
+const String kHelperOldWeb = '새 도우미가 나왔어요. 「도우미 받기」로 다시 받아 설치해 주세요.';
+const String kHelperOldPhone = '새 도우미가 나왔어요. 컴퓨터 웹의 설정에서 다시 받아 설치해 주세요.';
 
 const List<String> kUsbDebugSteps = [
   '① 아래 「개발자 설정 열기」를 눌러요. 개발자 설정이 아직 없으면 「휴대폰 정보」가 열려요. '
@@ -56,6 +61,7 @@ class HelperSettingsTile extends StatefulWidget {
 
 class _HelperSettingsTileState extends State<HelperSettingsTile> {
   bool _connected = false;
+  bool _old = false;
   bool? _usbDebugOn;
 
   @override
@@ -66,15 +72,19 @@ class _HelperSettingsTileState extends State<HelperSettingsTile> {
 
   Future<void> _check({bool ask = false}) async {
     var connected = false;
+    var old = false;
     bool? usb;
     if (kIsWeb) {
       final opened = await connectHelperStore(ask: ask);
       if (opened != null) {
         connected = true;
+        old = helperIsOld(opened.$2);
         await opened.$1.close();
       }
     } else if (_android) {
-      connected = await probeHelperFromPhone() != null;
+      final hello = await probeHelperFromPhone();
+      connected = hello != null;
+      old = helperIsOld(hello);
       try {
         final st = await _usbDebug.invokeMapMethod<String, Object?>('state');
         usb = st?['adb'] == true;
@@ -83,6 +93,7 @@ class _HelperSettingsTileState extends State<HelperSettingsTile> {
     if (!mounted) return;
     setState(() {
       _connected = connected;
+      _old = old;
       _usbDebugOn = usb;
     });
   }
@@ -113,7 +124,7 @@ class _HelperSettingsTileState extends State<HelperSettingsTile> {
       showDragHandle: true,
       builder: (ctx) {
         final theme = Theme.of(ctx);
-        final steps = web ? kHelperInstallSteps : kUsbDebugSteps;
+        const steps = web ? kHelperInstallSteps : kUsbDebugSteps;
         return SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
@@ -134,6 +145,10 @@ class _HelperSettingsTileState extends State<HelperSettingsTile> {
                     padding: const EdgeInsets.only(bottom: 10),
                     child: Text(s, style: theme.textTheme.bodyMedium),
                   ),
+                if (web) ...[
+                  Text(kHelperAutoSync, style: theme.textTheme.bodyMedium),
+                  const SizedBox(height: 10),
+                ],
                 Text(
                   web
                       ? '지우려면 Windows 설정 > 앱에서 「논문 전송 도우미 (문장 읽기)」를 지우면 돼요. 보관한 논문 사본은 남아요.'
@@ -153,7 +168,7 @@ class _HelperSettingsTileState extends State<HelperSettingsTile> {
                       onPressed: web
                           ? (widget.downloadUrl.trim().isEmpty ? null : _download)
                           : _openDeveloperSettings,
-                      child: Text(web ? '파일 받기' : '개발자 설정 열기'),
+                      child: const Text(web ? '파일 받기' : '개발자 설정 열기'),
                     ),
                   ],
                 ),
@@ -188,6 +203,13 @@ class _HelperSettingsTileState extends State<HelperSettingsTile> {
               ],
             ],
           ),
+          if (_connected && _old) ...[
+            const SizedBox(height: 4),
+            Text(
+              kIsWeb ? kHelperOldWeb : kHelperOldPhone,
+              style: small?.copyWith(color: theme.colorScheme.primary),
+            ),
+          ],
           const SizedBox(height: 6),
           Text(kHelperPointUsb, style: small),
           if (kIsWeb) ...[

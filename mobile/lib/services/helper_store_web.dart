@@ -59,13 +59,14 @@ Future<bool> _mayTryQuietly() async {
   return _seen();
 }
 
-/// The open /store line and the helper's hello, or null (not running, not
-/// allowed to try quietly, or an old helper without the store).
-Future<(HelperLine, Map<String, Object?>)?> connectHelperStore({
-  bool ask = false,
-}) async {
-  if (!ask && !await _mayTryQuietly()) return null;
-  final ws = web.WebSocket('ws://127.0.0.1:$kHelperStorePort/store')
+typedef _Socket = ({
+  web.WebSocket ws,
+  Future<void> opened,
+  Stream<Object> incoming,
+});
+
+_Socket _openSocket(String path) {
+  final ws = web.WebSocket('ws://127.0.0.1:$kHelperStorePort$path')
     ..binaryType = 'arraybuffer';
   final opened = Completer<void>();
   final incoming = StreamController<Object>();
@@ -91,18 +92,30 @@ Future<(HelperLine, Map<String, Object?>)?> connectHelperStore({
       incoming.add((data as JSArrayBuffer).toDart.asUint8List());
     }
   }).toJS;
+  return (ws: ws, opened: opened.future, incoming: incoming.stream);
+}
+
+void _closeSocket(web.WebSocket ws) {
+  try {
+    ws.close();
+  } catch (_) {}
+}
+
+/// The open /store line and the helper's hello, or null (not running, not
+/// allowed to try quietly, or an old helper without the store).
+Future<(HelperLine, Map<String, Object?>)?> connectHelperStore({
+  bool ask = false,
+}) async {
+  if (!ask && !await _mayTryQuietly()) return null;
+  final (:ws, :opened, :incoming) = _openSocket('/store');
   final line = HelperLine(
-    incoming: incoming.stream,
+    incoming: incoming,
     sendText: (t) => ws.send(t.toJS),
     sendBinary: (Uint8List b) => ws.send(b.toJS),
-    close: () async {
-      try {
-        ws.close();
-      } catch (_) {}
-    },
+    close: () async => _closeSocket(ws),
   );
   try {
-    await opened.future.timeout(kHelperOpenLimit);
+    await opened.timeout(kHelperOpenLimit);
     final hello = await line.hello();
     if (hello['store'] != true) {
       await line.close();
@@ -112,6 +125,28 @@ Future<(HelperLine, Map<String, Object?>)?> connectHelperStore({
     return (line, hello);
   } catch (_) {
     await line.close();
+    return null;
+  }
+}
+
+/// design/496 — held open while the page is open, so the helper can tell the
+/// phone a web page is there and tell the page when the phone arrives. Null
+/// when not allowed to try quietly, not running, or a helper before version 2.
+Future<HelperWatch?> connectHelperWatch() async {
+  if (!await _mayTryQuietly()) return null;
+  final (:ws, :opened, :incoming) = _openSocket('/watch');
+  final maps = incoming
+      .where((m) => m is Map<String, Object?>)
+      .cast<Map<String, Object?>>()
+      .asBroadcastStream();
+  try {
+    await opened.timeout(kHelperOpenLimit);
+    final hello = await maps.first.timeout(kHelperOpenLimit);
+    if (hello['t'] != 'hello') throw const HelperStoreError('no_hello');
+    markHelperWanted();
+    return HelperWatch(hello: hello, messages: maps, close: () async => _closeSocket(ws));
+  } catch (_) {
+    _closeSocket(ws);
     return null;
   }
 }

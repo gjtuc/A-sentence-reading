@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-HELPER_VERSION = "1"
+HELPER_VERSION = "2"
 MAX_FILE = 64 * 1024 * 1024
 _ACCT_RE = re.compile(r"^[A-Za-z0-9_\-]{6,64}$")
 _ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,80}$")

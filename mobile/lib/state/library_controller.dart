@@ -8,7 +8,8 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding;
+import 'package:flutter/widgets.dart'
+    show AppLifecycleListener, AppLifecycleState, WidgetsBinding;
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -80,6 +81,8 @@ import '../services/paper_edit_stash.dart';
 import '../services/shadowing_disk_store.dart';
 import '../services/helper_store.dart';
 import '../services/near_library_local.dart';
+import '../services/cable_auto_sync.dart';
+import '../services/near_link.dart';
 import 'ingest_auto_resume.dart';
 import 'ingest_stage_progress.dart';
 import 'figure_hydrate.dart';
@@ -3079,6 +3082,7 @@ class LibraryController extends ChangeNotifier {
       listed = true;
       _libraryListed = true;
       _kickHelperMirror('refresh');
+      _startCableAutoSync();
       await _rebuildLibraryHashSet();
       unawaited(readDone.pull());
       unawaited(paperLabels.pull());
@@ -3475,6 +3479,85 @@ class LibraryController extends ChangeNotifier {
 
   /// design/450 — papers deleted on this device (or learned of by near sync).
   Future<Map<String, int>> nearGone() => loadNearGone(_diskUid);
+
+  /// design/410 — the near-sync link, for the button and for design/496.
+  Future<NearLink> makeNearLink({bool auto = false}) async {
+    final uid = await progressUid();
+    return NearLink(
+      client: apiClient,
+      auto: auto,
+      local: LibraryNearLocal(
+        disk: paperDiskStore,
+        uid: uid,
+        shadow: ShadowingDiskStore()..bindUid(diskUid ?? uid),
+        loadGone: nearGone,
+        hiddenIds: nearHiddenIds,
+        onForget: forgetFromNear,
+        loadOrder: nearOrder,
+        onTakeOrder: takeNearOrder,
+      ),
+    );
+  }
+
+  /// The sync dialog is open (the automatic one waits for it).
+  bool nearSheetOpen = false;
+
+  /// design/496 — a sync started by the cable is running.
+  bool nearAutoBusy = false;
+
+  /// design/496 — one line for a snackbar, new object each time.
+  final ValueNotifier<({String text})?> nearAutoNote = ValueNotifier(null);
+
+  WebCableWatcher? _webCable;
+  PhoneCableWatcher? _phoneCable;
+  AppLifecycleListener? _cableLife;
+
+  void _startCableAutoSync() {
+    if (kIsWeb) {
+      (_webCable ??= WebCableWatcher(open: connectHelperWatch, start: _autoNearSync)).begin();
+      return;
+    }
+    if (defaultTargetPlatform != TargetPlatform.android || _phoneCable != null) return;
+    final w = PhoneCableWatcher(probe: probeHelperFromPhone, start: _autoNearSync);
+    _phoneCable = w;
+    _cableLife = AppLifecycleListener(onResume: w.resume, onPause: w.pause);
+    w.resume();
+  }
+
+  Future<void> _autoNearSync() async {
+    if (nearSheetOpen || nearAutoBusy) return;
+    final uid = await _authUid();
+    if (uid == null || uid.isEmpty) return;
+    nearAutoBusy = true;
+    final who = kIsWeb ? '휴대폰' : '컴퓨터';
+    nearAutoNote.value = (text: '$who와 맞추는 중…');
+    final link = await makeNearLink(auto: true);
+    // The other side is told at once; without it the phone would wait 3 minutes.
+    final giveUp = Timer(const Duration(seconds: 40), () {
+      if (link.step.index < NearStep.syncing.index) unawaited(link.cancel());
+    });
+    try {
+      await (kIsWeb ? link.host() : link.join());
+      final r = link.report;
+      await nearServerDeletesSettled();
+      if (link.step == NearStep.done && r != null) {
+        if (r.papersIn > 0 || r.progressRows > 0 || r.papersGone > 0) {
+          await refresh(trigger: 'near_auto');
+        }
+        nearAutoNote.value = (
+          text: r.papersIn + r.papersOut + r.papersGone == 0
+              ? '$who와 같아요'
+              : '$who와 맞췄어요 · 받은 논문 ${r.papersIn}개, 보낸 논문 ${r.papersOut}개',
+        );
+      } else {
+        nearAutoNote.value = (text: '자동으로 맞추지 못했어요. 동기화 단추로 다시 해 주세요.');
+      }
+    } finally {
+      giveUp.cancel();
+      link.dispose();
+      nearAutoBusy = false;
+    }
+  }
 
   HelperMirrorRunner? _helperMirror;
   bool _askedToKeepStorage = false;
@@ -5145,6 +5228,9 @@ class LibraryController extends ChangeNotifier {
   void dispose() {
     _stopTranslatePoll();
     _helperMirror?.dispose();
+    _phoneCable?.pause();
+    _cableLife?.dispose();
+    unawaited(_webCable?.stop());
     _spotTimer?.cancel();
     _spotSync?.close();
     super.dispose();

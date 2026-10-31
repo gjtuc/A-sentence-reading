@@ -18,11 +18,27 @@ import 'near_sync.dart';
 export 'helper_store_io.dart' if (dart.library.js_interop) 'helper_store_web.dart'
     show
         connectHelperStore,
+        connectHelperWatch,
         probeHelperFromPhone,
         askBrowserToKeepStorage,
         markHelperWanted;
 
 const int kHelperStorePort = 47815;
+
+/// design/496 — helpers before this cannot start a sync by themselves.
+const int kHelperLatestVersion = 2;
+
+bool helperIsOld(Map<String, Object?>? hello) =>
+    hello != null && (int.tryParse('${hello['helper'] ?? ''}') ?? 0) < kHelperLatestVersion;
+
+class HelperWatch {
+  HelperWatch({required this.hello, required this.messages, required this.close});
+  final Map<String, Object?> hello;
+
+  /// Later messages ({"t":"phone"} when the phone joins); done when the helper goes.
+  final Stream<Map<String, Object?>> messages;
+  final Future<void> Function() close;
+}
 const int kHelperProbePort = 47817;
 const Duration kHelperOpenLimit = Duration(milliseconds: 1500);
 

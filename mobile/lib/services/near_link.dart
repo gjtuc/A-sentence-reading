@@ -65,12 +65,19 @@ class _RtcPipe implements NearPipe {
 typedef _ServerLink = ({String linkId, Map<String, dynamic> offer});
 
 class NearLink extends ChangeNotifier {
-  NearLink({required this.client, required this.local, UsbOpen? usbOpen})
-      : _usbOpen = usbOpen ?? openNearUsb;
+  NearLink({
+    required this.client,
+    required this.local,
+    UsbOpen? usbOpen,
+    this.auto = false,
+  }) : _usbOpen = usbOpen ?? openNearUsb;
 
   final AsrClient client;
   final NearLocal local;
   final UsbOpen _usbOpen;
+
+  /// design/496 — started by plugging the cable in, not by the button.
+  final bool auto;
 
   NearStep step = NearStep.idle;
   String code = '';
@@ -252,6 +259,7 @@ class NearLink extends ChangeNotifier {
       message: ok ? '' : code,
       details: {
         'web': kIsWeb ? 1 : 0,
+        if (auto) 'auto': 1,
         'relay': via == 'relay' ? 1 : 0,
         'usb': via == 'usb' ? 1 : 0,
         'papers_gone': r?.papersGone ?? 0,

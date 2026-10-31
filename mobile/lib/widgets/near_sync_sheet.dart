@@ -7,10 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../config.dart';
-import '../services/near_library_local.dart';
 import '../services/near_link.dart';
 import '../services/near_usb.dart';
-import '../services/shadowing_disk_store.dart';
 import '../state/library_controller.dart';
 
 String nearSyncTitle() => kIsWeb ? '폰과 동기화' : '웹과 동기화';
@@ -106,32 +104,30 @@ Future<void> showNearSyncSheet({
   required BuildContext context,
   required LibraryController library,
 }) async {
+  if (library.nearAutoBusy) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text(kIsWeb ? '지금 휴대폰과 맞추는 중이에요.' : '지금 컴퓨터와 맞추는 중이에요.')),
+    );
+    return;
+  }
   if (kIsWeb && !await _webIsCurrent(context, library)) return;
-  final uid = await library.progressUid();
+  final link = await library.makeNearLink();
   if (!context.mounted) return;
-  final link = NearLink(
-    client: library.apiClient,
-    local: LibraryNearLocal(
-      disk: library.paperDiskStore,
-      uid: uid,
-      shadow: ShadowingDiskStore()..bindUid(library.diskUid ?? uid),
-      loadGone: library.nearGone,
-      hiddenIds: library.nearHiddenIds,
-      onForget: library.forgetFromNear,
-      loadOrder: library.nearOrder,
-      onTakeOrder: library.takeNearOrder,
-    ),
-  );
+  library.nearSheetOpen = true;
   if (kIsWeb) {
     unawaited(link.host());
   } else {
     unawaited(link.join());
   }
-  await showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (ctx) => _NearSyncDialog(link: link),
-  );
+  try {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _NearSyncDialog(link: link),
+    );
+  } finally {
+    library.nearSheetOpen = false;
+  }
   await link.cancel();
   final r = link.report;
   await library.nearServerDeletesSettled();

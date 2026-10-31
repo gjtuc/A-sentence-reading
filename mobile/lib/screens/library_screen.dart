@@ -434,6 +434,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void initState() {
     super.initState();
     widget.auth.addListener(_onAuth);
+    widget.library.nearAutoNote.addListener(_onNearAutoNote);
     if (kIsWeb) {
       _removeFileDrop = installFileDrop(onOver: _showFileDropHint, onFiles: _onFilesDropped);
     }
@@ -456,7 +457,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _mergeLitTimer?.cancel();
     _scroll.dispose();
     widget.auth.removeListener(_onAuth);
+    widget.library.nearAutoNote.removeListener(_onNearAutoNote);
     super.dispose();
+  }
+
+  /// design/496 — the cable sync says what it is doing, without a dialog.
+  void _onNearAutoNote() {
+    final note = widget.library.nearAutoNote.value;
+    if (note == null || !mounted) return;
+    final m = ScaffoldMessenger.maybeOf(context);
+    m?.hideCurrentSnackBar();
+    m?.showSnackBar(
+      SnackBar(content: Text(note.text), duration: const Duration(seconds: 3)),
+    );
   }
 
   void _onAuth() {

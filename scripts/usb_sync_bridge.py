@@ -18,6 +18,10 @@ design/495 adds /store on the same WebSocket port (the paper copies, see
 helper_store.py) and a probe port the phone reaches over the same cable: it
 sends one hello line and closes, so the phone's settings can show the helper.
 
+design/496: an open web page also holds /watch. The probe hello says so
+("watch"), the phone then starts a sync by itself, and the page is told
+{"t":"phone"} the moment the phone joins, so it starts its side too.
+
 Run: python scripts/usb_sync_bridge.py   (click/05_usb_sync.bat does the same)
 """
 from __future__ import annotations
@@ -140,6 +144,16 @@ class Bridge:
         self.phone: PhoneEnd | None = None
         self.cable = False
         self.log = log
+        # design/496 — open web pages waiting to sync by themselves (/watch).
+        self.watchers: set = set()
+
+    async def tell_watchers(self, msg: dict) -> None:
+        text = json.dumps(msg)
+        for ws in list(self.watchers):
+            try:
+                await ws.send(text)
+            except Exception:
+                self.watchers.discard(ws)
 
     def hello(self) -> dict:
         return {
@@ -155,6 +169,8 @@ class Bridge:
             await old.close()
         setattr(self, side, end)
         await end.control(self.hello())
+        if side == "phone" and self.web is None:
+            await self.tell_watchers({"t": "phone"})
         if self.web is not None and self.phone is not None:
             self.log("paired: web and phone")
             await self.web.control({"t": "paired"})
@@ -270,7 +286,14 @@ def helper_hello(bridge: Bridge) -> dict:
     """design/495 — what /store and the probe port say first."""
     from helper_store import HELPER_VERSION
 
-    return {"t": "hello", "helper": HELPER_VERSION, "store": True, "cable": bridge.cable}
+    return {
+        "t": "hello",
+        "helper": HELPER_VERSION,
+        "store": True,
+        "cable": bridge.cable,
+        "watch": bool(bridge.watchers),
+        "phone": bridge.phone is not None,
+    }
 
 
 async def serve(
@@ -291,7 +314,7 @@ async def serve(
     stop = stop or asyncio.Event()
 
     def is_store(request) -> bool:
-        return store is not None and urlparse(request.path).path.rstrip("/") == "/store"
+        return store is not None and urlparse(request.path).path.rstrip("/") in ("/store", "/watch")
 
     def check_origin(connection, request):
         origin = request.headers.get("Origin")
@@ -309,7 +332,21 @@ async def serve(
             return connection.respond(403, "origin not allowed\n")
         return None
 
+    async def on_watch(ws) -> None:
+        bridge.watchers.add(ws)
+        try:
+            await ws.send(json.dumps(helper_hello(bridge)))
+            async for _ in ws:
+                pass
+        except Exception:
+            pass
+        finally:
+            bridge.watchers.discard(ws)
+
     async def on_ws(ws) -> None:
+        if is_store(ws.request) and urlparse(ws.request.path).path.rstrip("/") == "/watch":
+            await on_watch(ws)
+            return
         if is_store(ws.request):
             from helper_store import store_session
 

@@ -15,6 +15,8 @@ Future<(HelperLine, Map<String, Object?>)?> connectHelperStore({
 
 void markHelperWanted() {}
 
+Future<HelperWatch?> connectHelperWatch() async => null;
+
 Future<void> askBrowserToKeepStorage() async {}
 
 /// The helper's hello through `adb reverse` of [kHelperProbePort], or null.
