@@ -165,3 +165,36 @@ Future<void> askBrowserToKeepStorage() async {
     await storage.persist().toDart;
   } catch (_) {}
 }
+
+bool get cableAutoSyncHere => true;
+
+/// design/504 — run [body] in one window of this browser at a time (Web Locks);
+/// a window that finds it taken gets false at once.
+Future<bool> runInOneWindow(String name, Future<void> Function() body) async {
+  final got = Completer<bool>();
+  final done = Completer<void>();
+  try {
+    JSPromise<JSAny?>? granted(web.Lock? lock) {
+      if (lock == null) {
+        got.complete(false);
+        return null;
+      }
+      got.complete(true);
+      return done.future.toJS;
+    }
+
+    web.window.navigator.locks
+        .request(name, web.LockOptions(ifAvailable: true), granted.toJS)
+        .toDart
+        .ignore();
+  } catch (_) {
+    if (!got.isCompleted) got.complete(true);
+  }
+  if (!await got.future) return false;
+  try {
+    await body();
+  } finally {
+    done.complete();
+  }
+  return true;
+}

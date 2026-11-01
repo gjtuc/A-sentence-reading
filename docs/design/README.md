@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 504 | [504-cable-sync-no-phone-note.md](504-cable-sync-no-phone-note.md) | 휴대폰 없이 뜨던 자동 맞추기 실패 알림: PC에서 돈 앱 시험이 휴대폰 행세, 케이블(adb) 없으면 조용히 멈춤, 웹 창 여러 개면 하나만 맞추기 (0.3.516) |
 | 503 | [503-auto-read-settings-tidy.md](503-auto-read-settings-tidy.md) | 문장 넘기면 0.7초 뒤 자동으로 읽기, TTS 버튼·버튼 숨기기 스위치 삭제, 설정 묶음 정리 (0.3.515) |
 | 502 | [502-esc-closes-ask-first.md](502-esc-closes-ask-first.md) | 웹 전체 화면에서 Esc 는 AI에게 묻기 창부터 닫고, 문장 시작 표시 절반 밝기 (0.3.514) |
 | 501 | [501-mic-trouble.md](501-mic-trouble.md) | 마이크가 안 열린 까닭(막힘·없음·사용 중)을 나눠 안내 (0.3.513) |

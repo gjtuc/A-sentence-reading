@@ -40,3 +40,12 @@ Future<Map<String, Object?>?> probeHelperFromPhone({
   }
   return null;
 }
+
+/// design/504 — `flutter test` on the PC would reach the real helper through
+/// 127.0.0.1 and pass for a phone on the cable.
+bool get cableAutoSyncHere => !Platform.environment.containsKey('FLUTTER_TEST');
+
+Future<bool> runInOneWindow(String name, Future<void> Function() body) async {
+  await body();
+  return true;
+}

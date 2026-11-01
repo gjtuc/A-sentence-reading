@@ -21,7 +21,9 @@ export 'helper_store_io.dart' if (dart.library.js_interop) 'helper_store_web.dar
         connectHelperWatch,
         probeHelperFromPhone,
         askBrowserToKeepStorage,
-        markHelperWanted;
+        markHelperWanted,
+        cableAutoSyncHere,
+        runInOneWindow;
 
 const int kHelperStorePort = 47815;
 

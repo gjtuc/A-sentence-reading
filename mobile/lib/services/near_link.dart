@@ -109,6 +109,12 @@ class NearLink extends ChangeNotifier {
     await _guard(() async {
       _go(NearStep.preparing);
       var usb = await _openUsb();
+      // design/504 — a cable sync needs a phone the helper sees on adb; anything
+      // else on the phone port (a test run on this PC) is not one.
+      if (auto && (usb == null || !usb.cable)) {
+        await usb?.close();
+        throw const NearSyncError('no_cable');
+      }
       if (usb != null && (usb.phoneThere || usb.isPaired)) {
         await _usb(usb);
         return;

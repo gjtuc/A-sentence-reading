@@ -211,4 +211,49 @@ void main() {
     expect(nearVersionNewer('0.3.471', '0.3.472'), isFalse);
     expect(nearVersionNewer('', '0.3.472'), isFalse);
   });
+
+  test('design/504: a cable sync with no cable at the helper stops before it starts', () async {
+    final (usb, mine, _) = await _helper({'cable': false, 'web': true, 'phone': true});
+    final client = _Client();
+    final link = NearLink(
+      client: client,
+      local: _Mem(['w1']),
+      usbOpen: () async => usb,
+      auto: true,
+    );
+    final steps = <NearStep>[];
+    link.addListener(() => steps.add(link.step));
+    await link.host();
+    expect(link.step, NearStep.failed);
+    expect(link.code, 'no_cable');
+    expect(steps, [NearStep.preparing, NearStep.failed]);
+    expect(mine.closed, isTrue);
+    expect(client.creates, 0);
+
+    final none = NearLink(
+      client: client,
+      local: _Mem(['w1']),
+      usbOpen: () async => null,
+      auto: true,
+    );
+    await none.host();
+    expect(none.code, 'no_cable');
+    expect(client.creates, 0);
+  }, timeout: const Timeout(Duration(seconds: 30)));
+
+  test('design/504: a cable sync with the phone on adb still runs', () async {
+    final (usb, mine, theirs) = await _helper({'cable': true, 'web': true, 'phone': true});
+    final client = _Client();
+    final link = NearLink(
+      client: client,
+      local: _Mem(['w1']),
+      usbOpen: () async => usb,
+      auto: true,
+    );
+    final run = link.host();
+    await _otherSide(mine, theirs, _Mem(['p1']));
+    await run;
+    expect(link.step, NearStep.done);
+    expect(link.via, 'usb');
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }

@@ -124,4 +124,17 @@ void main() {
     final client = File('lib/api/client.dart').readAsStringSync();
     expect(client, contains("json['helper_store_url']"));
   });
+
+  test('design/504: a test run never syncs by the cable, and one window speaks', () async {
+    expect(cableAutoSyncHere, isFalse);
+    var ran = 0;
+    expect(await runInOneWindow('x', () async => ran++), isTrue);
+    expect(ran, 1);
+    final c = File('lib/state/library_controller.dart').readAsStringSync();
+    expect(c, contains('if (!cableAutoSyncHere) return;'));
+    expect(c, contains("runInOneWindow('asr_cable_auto_sync', _autoNearSyncHere)"));
+    expect(c, contains("kIsWeb ? '휴대폰과' : '컴퓨터와'"));
+    expect(c, contains('} else if (told) {'));
+    expect(c, isNot(contains('와 맞추는 중')));
+  });
 }

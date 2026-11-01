@@ -3517,6 +3517,7 @@ class LibraryController extends ChangeNotifier {
   AppLifecycleListener? _cableLife;
 
   void _startCableAutoSync() {
+    if (!cableAutoSyncHere) return;
     if (kIsWeb) {
       (_webCable ??= WebCableWatcher(open: connectHelperWatch, start: _autoNearSync)).begin();
       return;
@@ -3532,10 +3533,26 @@ class LibraryController extends ChangeNotifier {
     if (nearSheetOpen || nearAutoBusy) return;
     final uid = await _authUid();
     if (uid == null || uid.isEmpty) return;
+    // design/504 — two windows of one browser both hear the helper; one syncs.
+    await runInOneWindow('asr_cable_auto_sync', _autoNearSyncHere);
+  }
+
+  Future<void> _autoNearSyncHere() async {
+    if (nearSheetOpen || nearAutoBusy) return;
     nearAutoBusy = true;
-    final who = kIsWeb ? '휴대폰' : '컴퓨터';
-    nearAutoNote.value = (text: '$who와 맞추는 중…');
+    final who = kIsWeb ? '휴대폰과' : '컴퓨터와';
     final link = await makeNearLink(auto: true);
+    // Nothing is said until the cable check passed (design/504).
+    var told = false;
+    void tell() {
+      if (told || link.step.index <= NearStep.preparing.index || link.step == NearStep.failed) {
+        return;
+      }
+      told = true;
+      nearAutoNote.value = (text: '$who 맞추는 중…');
+    }
+
+    link.addListener(tell);
     // The other side is told at once; without it the phone would wait 3 minutes.
     final giveUp = Timer(const Duration(seconds: 40), () {
       if (link.step.index < NearStep.syncing.index) unawaited(link.cancel());
@@ -3550,13 +3567,14 @@ class LibraryController extends ChangeNotifier {
         }
         nearAutoNote.value = (
           text: r.papersIn + r.papersOut + r.papersGone == 0
-              ? '$who와 같아요'
-              : '$who와 맞췄어요 · 받은 논문 ${r.papersIn}개, 보낸 논문 ${r.papersOut}개',
+              ? '$who 같아요'
+              : '$who 맞췄어요 · 받은 논문 ${r.papersIn}개, 보낸 논문 ${r.papersOut}개',
         );
-      } else {
+      } else if (told) {
         nearAutoNote.value = (text: '자동으로 맞추지 못했어요. 동기화 단추로 다시 해 주세요.');
       }
     } finally {
+      link.removeListener(tell);
       giveUp.cancel();
       link.dispose();
       nearAutoBusy = false;
