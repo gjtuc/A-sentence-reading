@@ -17,6 +17,12 @@ import '../api/tts_models.dart';
 import '../services/evidence_bus.dart';
 import 'library_controller.dart';
 
+/// design/503 — read each sentence the reader moves to, once it has stayed.
+const String kTtsAutoReadPrefsKey = 'asr_tts_auto_read_v1';
+
+/// Flipping through faster than this asks the server for nothing.
+const Duration kTtsAutoReadDelay = Duration(milliseconds: 700);
+
 class TtsController extends ChangeNotifier {
   TtsController({
     required AsrClient client,
@@ -63,6 +69,12 @@ class TtsController extends ChangeNotifier {
 
   bool get isRandomMode => isTtsRandomMode(mode);
 
+  /// design/503 — off until turned on in settings.
+  bool autoRead = false;
+
+  /// Bumped by every play and stop; audio that arrives for an older one is dropped.
+  int _playGen = 0;
+
   int? _lastSentenceIndex;
   String? _lastSessionId;
 
@@ -98,6 +110,7 @@ class TtsController extends ChangeNotifier {
       final p = await _readyPrefs();
       final rawRate = p.getDouble(kTtsRatePrefsKey);
       rate = clampSpeakingRate(rawRate ?? kTtsRateDefault);
+      autoRead = p.getBool(kTtsAutoReadPrefsKey) ?? autoRead;
       final migrated = migrateTtsModeAndTier(
         p.getString(kTtsModePrefsKey),
         tier: p.getInt('asr_tts_skill_tier_v1'),
@@ -251,6 +264,16 @@ class TtsController extends ChangeNotifier {
     }
   }
 
+  Future<void> setAutoRead(bool on) async {
+    if (autoRead == on) return;
+    autoRead = on;
+    notifyListeners();
+    try {
+      final p = await _readyPrefs();
+      await p.setBool(kTtsAutoReadPrefsKey, on);
+    } catch (_) {}
+  }
+
   Future<void> setRate(double value) async {
     // design/367 — the rate goes to the synthesizer on the next play. Nothing is
     // stretched here, so there is no player knob to set.
@@ -342,6 +365,7 @@ class TtsController extends ChangeNotifier {
     loading = true;
     error = null;
     notifyListeners();
+    final gen = ++_playGen;
     try {
       await _player.stop();
       final params = pickPlaybackParams();
@@ -356,6 +380,7 @@ class TtsController extends ChangeNotifier {
       if (bytes.isEmpty) {
         throw AsrApiException('empty audio body', 502);
       }
+      if (gen != _playGen) return;
       await _player.play(BytesSource(bytes, mimeType: 'audio/mpeg'));
       playing = true;
     } on AsrApiException catch (e) {
@@ -380,12 +405,13 @@ class TtsController extends ChangeNotifier {
       error = e.toString();
       playing = false;
     } finally {
-      loading = false;
+      if (gen == _playGen) loading = false;
       notifyListeners();
     }
   }
 
   Future<void> stop() async {
+    _playGen++;
     try {
       await _player.stop();
     } catch (_) {

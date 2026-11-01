@@ -268,7 +268,7 @@ void main() {
     final settings = File('lib/screens/settings_screen.dart').readAsStringSync();
     final apk = settings.indexOf('_buildAppVersionSection(context),');
     expect(apk, greaterThan(0));
-    expect(settings.indexOf('HelperSettingsTile(downloadUrl: _helperUrl)'), greaterThan(apk));
+    expect(settings.indexOf('HelperSettingsTile(downloadUrl: _helperUrl'), greaterThan(apk));
     final web = File('lib/services/helper_store_web.dart').readAsStringSync();
     expect(web, contains("contains('Firefox')"));
     expect(web, contains('if (!ask && !await _mayTryQuietly()) return null;'));

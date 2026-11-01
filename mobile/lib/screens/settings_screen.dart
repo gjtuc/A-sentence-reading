@@ -821,6 +821,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 12),
             _ThemeChoice(theme: widget.theme),
             const Divider(height: 32),
+            if (kIsWeb) const _WebReadingSection() else const _PhoneReadingSection(),
+            const Divider(height: 32),
             Text('TTS', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
@@ -939,18 +941,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         child: const Text('목소리 목록 다시 불러오기'),
                       ),
+                    SwitchListTile(
+                      key: const ValueKey('tts_auto_read'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('문장 넘기면 자동으로 읽기'),
+                      subtitle: const Text(
+                        '넘긴 문장에 잠깐(0.7초) 머물면 읽어 줘요. '
+                        '휘리릭 넘기는 동안에는 읽지 않아요.',
+                      ),
+                      value: tts.autoRead,
+                      onChanged: (v) => unawaited(tts.setAutoRead(v)),
+                    ),
                   ],
                 );
               },
             ),
-            if (kIsWeb) ...[
-              const Divider(height: 32),
-              const _WebReadingSection(),
-            ] else ...[
-              const Divider(height: 32),
-              const _PhoneReadingSection(),
-            ],
             const Divider(height: 32),
+            Text('기능', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('번역'),
@@ -1044,7 +1052,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 widget.shadowing.error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
-            const SizedBox(height: 8),
+            const Divider(height: 32),
             Text(
               '앱을 열면',
               style: Theme.of(context).textTheme.titleMedium,
@@ -1080,6 +1088,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
+            const Divider(height: 32),
+            Text('앱 정보', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
             _buildAppVersionSection(context),
             // design/495 — under the APK row, always there.
             HelperSettingsTile(downloadUrl: _helperUrl, storeUrl: _helperStoreUrl),
@@ -1363,7 +1374,7 @@ class ClauseBreakSwitch extends StatelessWidget {
 }
 
 /// design/435 — the phone sentence size. design/436: and the rest of the web's
-/// reading look, fitted to a phone. The web has its own, in 웹 읽기 화면.
+/// reading look, fitted to a phone. The web has its own [_WebReadingSection].
 class _PhoneReadingSection extends StatelessWidget {
   const _PhoneReadingSection();
 
@@ -1479,7 +1490,7 @@ class _WebReadingSection extends StatelessWidget {
       builder: (context, _) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('웹 읽기 화면', style: text.titleMedium),
+          Text('읽기 화면', style: text.titleMedium),
           const SizedBox(height: 8),
           Text('글자 크기', style: text.bodyMedium),
           const SizedBox(height: 4),
@@ -1532,13 +1543,9 @@ class _WebReadingSection extends StatelessWidget {
           Text('글꼴', style: text.bodyMedium),
           const SizedBox(height: 4),
           const ReadingFontChoice(),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('마우스가 멈추면 버튼 숨기기'),
-            subtitle: const Text('3초 동안 마우스를 움직이지 않으면 문장만 남습니다.'),
-            value: prefs.autoHide,
-            onChanged: (v) => unawaited(prefs.setAutoHide(v)),
-          ),
+          const Divider(height: 32),
+          Text('읽기 동작', style: text.titleMedium),
+          const SizedBox(height: 4),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('앞뒤 문장 흐리게 보이기'),

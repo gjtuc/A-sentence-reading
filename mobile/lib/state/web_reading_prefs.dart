@@ -340,7 +340,6 @@ class WebReadingPrefs extends ChangeNotifier {
   static const String pageKey = 'web_reading_page_v1';
   static const String spacingKey = 'web_reading_spacing_v1';
   static const String fontKey = 'web_reading_font_v1';
-  static const String autoHideKey = 'web_reading_autohide_v1';
   static const String contextKey = 'web_reading_context_v1';
   static const String autoPaneKey = 'web_reading_auto_pane_v1';
   static const String fullScreenKey = 'web_reading_full_screen_v1';
@@ -358,7 +357,6 @@ class WebReadingPrefs extends ChangeNotifier {
   WebLineGap? _lineGap;
   WebLineGap get lineGap =>
       _lineGap ?? (spacing == WebSpacing.wide ? WebLineGap.wide : WebLineGap.normal);
-  bool autoHide = true;
   bool showContext = true;
 
   /// design/420 — open the figure window when a paper opens. design/421: on
@@ -384,7 +382,6 @@ class WebReadingPrefs extends ChangeNotifier {
       spacing = WebSpacing.values.asNameMap()[p.getString(spacingKey) ?? ''] ?? spacing;
       font = WebFont.values.asNameMap()[p.getString(fontKey) ?? ''] ?? font;
       _lineGap = WebLineGap.values.asNameMap()[p.getString(lineGapKey) ?? ''] ?? _lineGap;
-      autoHide = p.getBool(autoHideKey) ?? autoHide;
       showContext = p.getBool(contextKey) ?? showContext;
       autoFigurePane = p.getBool(autoPaneKey) ?? autoFigurePane;
       fullScreen = p.getBool(fullScreenKey) ?? fullScreen;
@@ -449,13 +446,6 @@ class WebReadingPrefs extends ChangeNotifier {
     await _saveString(lineGapKey, next.name);
   }
 
-  Future<void> setAutoHide(bool next) async {
-    if (next == autoHide) return;
-    autoHide = next;
-    notifyListeners();
-    await _saveBool(autoHideKey, next);
-  }
-
   Future<void> setShowContext(bool next) async {
     if (next == showContext) return;
     showContext = next;
@@ -492,7 +482,6 @@ class WebReadingPrefs extends ChangeNotifier {
     spacing = WebSpacing.normal;
     font = WebFont.sans;
     _lineGap = null;
-    autoHide = true;
     showContext = true;
     autoFigurePane = true;
     fullScreen = false;

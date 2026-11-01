@@ -100,24 +100,19 @@ void main() {
       WebReadingPrefs.pageKey: 'paper',
       WebReadingPrefs.spacingKey: 'wide',
       WebReadingPrefs.fontKey: 'serif',
-      WebReadingPrefs.autoHideKey: false,
       WebReadingPrefs.contextKey: false,
     });
     final prefs = WebReadingPrefs.instance..resetForTests();
     expect(prefs.page, WebPage.dim);
-    expect(prefs.autoHide, isTrue);
     expect(prefs.showContext, isTrue);
     await prefs.load();
     expect(prefs.page, WebPage.paper);
     expect(prefs.spacing, WebSpacing.wide);
     expect(prefs.font, WebFont.serif);
-    expect(prefs.autoHide, isFalse);
     expect(prefs.showContext, isFalse);
     await prefs.setPage(WebPage.white);
-    await prefs.setAutoHide(true);
     final p = await SharedPreferences.getInstance();
     expect(p.getString(WebReadingPrefs.pageKey), 'white');
-    expect(p.getBool(WebReadingPrefs.autoHideKey), isTrue);
     prefs.resetForTests();
   });
 

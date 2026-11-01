@@ -810,6 +810,10 @@ class LibraryController extends ChangeNotifier {
   /// design/183 — fired after a real sentence_index change (advance / jump).
   void Function(int from, int to)? onSentenceIndexChanged;
 
+  /// design/503 — a move made in this window (keys, buttons, swipe, list), not
+  /// one followed from another device or from the figure window.
+  void Function(int to)? onOwnSentenceMove;
+
   /// design/225 — soft-hide cleared the open session; shell should leave reader.
   VoidCallback? onSoftHideOpened;
 
@@ -5896,6 +5900,7 @@ class LibraryController extends ChangeNotifier {
     final to = s.sentenceIndex;
     if (from != to) {
       onSentenceIndexChanged?.call(from, to);
+      onOwnSentenceMove?.call(to);
     }
     final followed = await _maybeAutoFollowVisibleFigChip();
     if (s.sentenceIndex % 20 == 0) {
@@ -5949,6 +5954,7 @@ class LibraryController extends ChangeNotifier {
     s.sentenceIndex = index;
     assert(s.figureIndex == beforeFig, 'sentence jump must not move figure');
     onSentenceIndexChanged?.call(from, index);
+    onOwnSentenceMove?.call(index);
     final followed = await _maybeAutoFollowVisibleFigChip();
     notifyListeners();
     await persistOpenedProgress(publish: true);

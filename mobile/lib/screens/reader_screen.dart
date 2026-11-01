@@ -135,6 +135,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// design/414 — a still mouse on a wide web window fades the buttons.
   bool _idleHidden = false;
   Timer? _idleTimer;
+  Timer? _autoReadTimer;
 
   @override
   void initState() {
@@ -148,6 +149,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }));
     widget.library.onSentenceIndexChanged = _onSentenceIndexChanged;
     widget.library.onPastLastSentence = _onPastLastSentence;
+    widget.library.onOwnSentenceMove = _onOwnSentenceMove;
     widget.client.fetchStatus().then((st) {
       if (!mounted) return;
       // WHY: explicit false is the kill switch; do not invent a hide on status miss.
@@ -185,7 +187,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (widget.library.onPastLastSentence == _onPastLastSentence) {
       widget.library.onPastLastSentence = null;
     }
+    if (widget.library.onOwnSentenceMove == _onOwnSentenceMove) {
+      widget.library.onOwnSentenceMove = null;
+    }
     _idleTimer?.cancel();
+    _autoReadTimer?.cancel();
     _keysFocus.dispose();
     super.dispose();
   }
@@ -237,6 +243,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
       ));
   }
 
+  /// design/503 — the sentence moved to is read once it has stayed for
+  /// [kTtsAutoReadDelay]. Not in the figure window, nor under the practice screen.
+  void _onOwnSentenceMove(int to) {
+    _autoReadTimer?.cancel();
+    if (!widget.tts.autoRead) return;
+    _autoReadTimer = Timer(kTtsAutoReadDelay, () {
+      if (!mounted || !TickerMode.of(context)) return;
+      if (_shownLayout == _ReaderLayoutMode.figureOnly) return;
+      final s = widget.library.session;
+      final cur = s?.currentSentence;
+      if (s == null || s.sentenceIndex != to || cur == null || !cur.hasText) return;
+      unawaited(widget.tts.playCurrentSentence());
+    });
+  }
+
   void _onPointerMoved() {
     _idleTimer?.cancel();
     if (_idleHidden) setState(() => _idleHidden = false);
@@ -245,7 +266,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   void _hideWhenIdle() {
     if (!mounted || !TickerMode.of(context)) return;
-    if (!WebReadingPrefs.instance.autoHide) return;
     if (!webReadingActive(web: kIsWeb, width: MediaQuery.sizeOf(context).width)) return;
     if (widget.annotations.sentencePaintMode) return;
     setState(() => _idleHidden = true);
@@ -1560,24 +1580,6 @@ class _SentencePanel extends StatelessWidget {
                           child: Padding(
                             padding: EdgeInsets.all(4),
                             child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        )
-                      else
-                        IconButton(
-                          tooltip: tts.playing ? 'stop TTS' : 'play TTS',
-                          onPressed: (cur == null || !cur.hasText)
-                              ? null
-                              : () async {
-                                  if (tts.playing) {
-                                    await tts.stop();
-                                  } else {
-                                    await tts.playCurrentSentence();
-                                  }
-                                },
-                          icon: Icon(
-                            tts.playing
-                                ? Icons.stop_circle_outlined
-                                : Icons.volume_up,
                           ),
                         ),
                     ],

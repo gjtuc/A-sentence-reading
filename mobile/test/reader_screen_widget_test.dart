@@ -689,4 +689,59 @@ void main() {
     expect(phoneChromeLift(0, style), 0);
     expect(phoneChromeLift(15, style), 0);
   });
+
+  testWidgets('design/503 a sentence moved to is read once it stays, not while flipping',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final client = _mockClient();
+    final library = LibraryController(client: client)..session = _session(sentences: 5);
+    final tts = _CountingTts(client: client, library: library);
+    await tts.setAutoRead(true);
+    tester.view.physicalSize = const Size(411, 891);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ReaderScreen(
+          library: library,
+          tts: tts,
+          client: client,
+          shadowing: ShadowingController(),
+          translate: TranslateController(),
+          citePanel: CitePanelController(),
+          bookmarks: BookmarkController(client: client),
+          annotations: AnnotationController(client: client),
+        ),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byTooltip('play TTS'), findsNothing);
+
+    await tester.tap(_chevron('next sentence'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(_chevron('next sentence'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(library.session!.sentenceIndex, 2);
+    expect(tts.plays, 0, reason: 'flipping through asks the server for nothing');
+
+    await tester.pump(kTtsAutoReadDelay);
+    expect(tts.plays, 1);
+
+    await tts.setAutoRead(false);
+    await tester.tap(_chevron('next sentence'));
+    await tester.pump(const Duration(seconds: 2));
+    expect(tts.plays, 1, reason: 'off reads nothing');
+  });
+}
+
+class _CountingTts extends TtsController {
+  _CountingTts({required super.client, required super.library});
+
+  int plays = 0;
+
+  @override
+  Future<void> playCurrentSentence() async => plays++;
+
+  @override
+  Future<void> stop() async {}
 }
