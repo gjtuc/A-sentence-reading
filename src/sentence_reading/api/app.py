@@ -1158,43 +1158,45 @@ def _remember_session(session: PaperSession, *, cache_id: str | None = None) -> 
 
 
 _WARMING: set[str] = set()
+# design/508 - the newest window asked for while a warm was running.
+_WARM_NEXT: dict[str, list[str]] = {}
 _WARM_LOCK = threading.Lock()
+# design/508 - only the sentences about to be practised. Warming a whole paper
+# was 91% of the synthesis calls (10,274 of 11,327 in 30 days), mostly for
+# sentences nobody practised, and kept an instance billing for hours.
+_SOUND_WARM_AHEAD = 5
 
 
 def _warm_sound_refs(cache_id: str, *, texts: list[str] | None = None) -> None:
-    """design/378 - build this paper's reference sounds now, not at reading time.
+    """design/378 - build reference sounds before the reader reaches them.
 
     The reference for a sentence was only ever built when a reader reached that
     sentence, and a build is fifteen to thirty seconds through a single worker. So
-    the first pass through a new paper skipped scoring on whatever had not finished
-    yet, and the reader saw sentences come back unjudged for no reason they could
-    see. Nothing about that was one-off: every new paper did it again.
+    the first pass skipped scoring on whatever had not finished yet.
 
-    Analysis is the right moment because the reader is already waiting, and the
-    original design said so. This runs on a thread and never raises: a paper with
-    no references is the behaviour we already had, so a failure here costs nothing
-    that was not already being paid.
+    design/508 - only the first `_SOUND_WARM_AHEAD` lines are built. The phone
+    sends the window from its practice cursor and sends the next one as the
+    cursor moves. A window that arrives while one is building replaces any
+    window still waiting and runs after it, so the cursor is never left behind.
 
     design/383 - `texts` is the phone's own copy of the sentences. A paper that
-    lives only on the phone is not in this server's cache at all, and those are
-    the papers that most need warming. A reference is filed under the sentence,
-    not under the paper, so the sentences are the whole of what is needed. Both
-    paths run the same normalisation, or the warm would file its work under keys
-    the reader's own request never asks for.
+    lives only on the phone is not in this server's cache at all. A reference is
+    filed under the sentence, not under the paper, so the sentences are the whole
+    of what is needed. Both paths run the same normalisation, or the warm would
+    file its work under keys the reader's own request never asks for.
     """
     cid = (cache_id or "").strip()
     if not cid:
         return
 
-    # Re-analysing a paper lands here again. The build queue already refuses a
-    # duplicate key, so a second thread would build nothing -- it would just sit
-    # in the polling loop for as long as the paper is long.
     with _WARM_LOCK:
         if cid in _WARMING:
+            if texts:
+                _WARM_NEXT[cid] = list(texts)
             return
         _WARMING.add(cid)
 
-    def run() -> None:
+    def walk(batch: list[str] | None) -> None:
         # design/383 - `ops_events` keeps its own allow list and this kind was
         # never on it, so every row below was dropped in silence. The evidence
         # bus is where the other sound rows already live.
@@ -1207,8 +1209,8 @@ def _warm_sound_refs(cache_id: str, *, texts: list[str] | None = None) -> None:
             from sentence_reading.llm.tts_speak import spoken_text_for_tts
 
             came_from = "phone"
-            raw_lines = list(texts or [])
-            if texts is None:
+            raw_lines = list(batch or [])
+            if batch is None:
                 came_from = "paper"
                 loaded = load_cached_session(cid, load_images=False)
                 if not loaded:
@@ -1235,15 +1237,18 @@ def _warm_sound_refs(cache_id: str, *, texts: list[str] | None = None) -> None:
                 one = str(raw or "").strip()
                 if one:
                     lines.append(spoken_text_for_tts(one, terms=terms))
-            # A long paper is forty minutes of building, and the instance may
-            # not live that long. Say the count up front, or a warm that was cut
-            # off looks the same in the log as one that never started.
+                if len(lines) >= _SOUND_WARM_AHEAD:
+                    break
             eb.emit(
                 "sound_ref_warm",
                 severity="lifecycle",
                 cache_id=cid,
                 stage="start",
-                details={"warm_n": len(lines), "warm_from": came_from},
+                details={
+                    "warm_n": len(lines),
+                    "warm_from": came_from,
+                    "warm_asked_n": len(raw_lines),
+                },
             )
             report = warm_paper(lines)
         except Exception as exc:  # noqa: BLE001
@@ -1257,9 +1262,6 @@ def _warm_sound_refs(cache_id: str, *, texts: list[str] | None = None) -> None:
                 details={"warm_fail": slug or "failed"},
             )
             return
-        finally:
-            with _WARM_LOCK:
-                _WARMING.discard(cid)
         eb.emit(
             "sound_ref_warm",
             severity="lifecycle",
@@ -1267,6 +1269,20 @@ def _warm_sound_refs(cache_id: str, *, texts: list[str] | None = None) -> None:
             stage="done",
             details=report,
         )
+
+    def run() -> None:
+        batch = texts
+        try:
+            while True:
+                walk(batch)
+                with _WARM_LOCK:
+                    batch = _WARM_NEXT.pop(cid, None)
+                    if batch is None:
+                        _WARMING.discard(cid)
+                        return
+        finally:
+            with _WARM_LOCK:
+                _WARMING.discard(cid)
 
     threading.Thread(
         target=run, name=f"soundwarm-{cid[:8]}", daemon=True

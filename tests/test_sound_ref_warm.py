@@ -392,3 +392,70 @@ def test_sound_warm_route_caps_what_it_will_take(monkeypatch):
     assert len(long_one[0]) == mod._WARM_TEXT_CHARS
     assert mod._warm_texts_from(None) == []
     assert mod._warm_texts_from({"texts": "not a list"}) == []
+
+
+def test_warm_builds_only_the_window_ahead_508(monkeypatch):
+    """design/508 - a whole paper of synthesis was most of the TTS bill."""
+    from sentence_reading.api import app as mod
+
+    seen: list[list[str]] = []
+    done = threading.Event()
+
+    def fake_warm(lines, **k):
+        seen.append(list(lines))
+        done.set()
+        return {"warm_n": len(lines)}
+
+    monkeypatch.setattr(sr, "warm_paper", fake_warm)
+    monkeypatch.setattr(
+        "sentence_reading.api.routes.tts._paper_speak_terms", lambda cid: {}
+    )
+    monkeypatch.setattr("sentence_reading.llm.evidence_bus.emit", lambda *a, **k: None)
+    mod._WARMING.clear()
+    mod._WARM_NEXT.clear()
+
+    mod._warm_sound_refs("cache-508", texts=[f"Sentence {i}." for i in range(40)])
+
+    assert done.wait(5.0), "the warm thread never ran"
+    assert len(seen[0]) == mod._SOUND_WARM_AHEAD == 5
+    assert "Sentence 0" in seen[0][0] and "Sentence 4" in seen[0][-1]
+
+
+def test_a_window_asked_mid_warm_runs_after_it_508(monkeypatch):
+    """design/508 - the newest window waits; older waiting windows are dropped."""
+    from sentence_reading.api import app as mod
+
+    seen: list[list[str]] = []
+    release = threading.Event()
+    started = threading.Event()
+    finished = threading.Event()
+
+    def fake_warm(lines, **k):
+        seen.append(list(lines))
+        if len(seen) == 1:
+            started.set()
+            release.wait(5.0)
+        else:
+            finished.set()
+        return {"warm_n": len(lines)}
+
+    monkeypatch.setattr(sr, "warm_paper", fake_warm)
+    monkeypatch.setattr(
+        "sentence_reading.api.routes.tts._paper_speak_terms", lambda cid: {}
+    )
+    monkeypatch.setattr("sentence_reading.llm.evidence_bus.emit", lambda *a, **k: None)
+    mod._WARMING.clear()
+    mod._WARM_NEXT.clear()
+
+    mod._warm_sound_refs("cache-mid", texts=["Alpha one."])
+    assert started.wait(5.0)
+    mod._warm_sound_refs("cache-mid", texts=["Beta two."])
+    mod._warm_sound_refs("cache-mid", texts=["Gamma three."])
+    release.set()
+
+    assert finished.wait(5.0), "the waiting window never ran"
+    time.sleep(0.1)
+    assert len(seen) == 2
+    assert "Gamma" in seen[1][0]
+    assert "cache-mid" not in mod._WARMING
+    assert "cache-mid" not in mod._WARM_NEXT

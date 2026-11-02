@@ -854,6 +854,11 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
     if (n <= 0) return;
     final i = globalIndex.clamp(0, n - 1);
     _sentenceIndex = i;
+    widget.library.warmSoundAhead(
+      cacheId: _cacheId,
+      texts: [for (final s in session.sentences) s.text],
+      from: i,
+    );
     final cur = session.sentences[i];
     _sentenceId =
         (cur.id.trim().isNotEmpty) ? cur.id : '$_sentenceIndex';

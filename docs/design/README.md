@@ -462,6 +462,7 @@
 | 425 | [425-full-screen-both-windows.md](425-full-screen-both-windows.md) | 한 창을 전체 화면으로 하면 다른 창도 같이 (클릭 권한 넘기기). 안 되는 브라우저는 그 창을 한 번 누를 때. 풀 때도 같이 풀린다 (0.3.456) |
 | 426 | [426-figure-blink-and-pair-hello.md](426-figure-blink-and-pair-hello.md) | 다른 것이 로딩될 때 그림이 깜빡이던 것: 같은 그림은 같은 바이트를 다시 쓴다. 그림 창이 문장 창에 인사해서 문장 창 → 그림 창 전체 화면도 따라간다 (0.3.457) |
 | 427 | [427-one-click-one-window.md](427-one-click-one-window.md) | 크롬에서 재 보니 클릭 한 번은 창 하나만 전체 화면으로 만든다. 다른 창은 안내를 띄우고 아무 데나 한 번 누르면 전체 화면 (그 클릭은 앱에 안 감). 풀기는 바로 같이 (0.3.458) |
+| 508 | [508-sound-warm-window.md](508-sound-warm-window.md) | 발음 기준 소리는 논문 전체 대신 연습 중인 문장 앞 5개만 미리 만든다. TTS 호출의 91%였다 (0.3.518) |
 | 507 | [507-cloud-cost-trim.md](507-cloud-cost-trim.md) | 클라우드 비용: API·워커 최대 2대, 읽어주기 음성 60일 보관 (0.3.518) |
 | 506 | [506-practice-calendar-minutes.md](506-practice-calendar-minutes.md) | 연습 캘린더: 읽은 문장 수 대신 고른 날의 연습 시간(분), 날짜를 누르면 그날로 바뀐다 (0.3.518) |
 | 505 | [505-practice-block-one-minute.md](505-practice-block-one-minute.md) | 연습 모드 한 블록 3분 → 1분 (0.3.517) |

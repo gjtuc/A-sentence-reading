@@ -30,3 +30,24 @@ List<String> soundWarmTexts(List<String> texts, {int from = 0}) {
   }
   return out;
 }
+
+/// design/508 — how many sentences from the cursor the server builds ahead.
+const int kSoundWarmAhead = 5;
+
+/// design/508 — the next [n] printed sentences from [from], no wrap. The
+/// server builds only these; the next window goes as the cursor moves.
+List<String> soundWarmAhead(
+  List<String> texts, {
+  int from = 0,
+  int n = kSoundWarmAhead,
+}) {
+  if (texts.isEmpty || n <= 0) return const [];
+  var start = from;
+  if (start < 0 || start >= texts.length) start = 0;
+  final out = <String>[];
+  for (var i = start; i < texts.length && out.length < n; i++) {
+    final one = texts[i].trim();
+    if (one.isNotEmpty) out.add(one);
+  }
+  return out;
+}

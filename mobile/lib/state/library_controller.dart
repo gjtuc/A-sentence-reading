@@ -4035,6 +4035,24 @@ class LibraryController extends ChangeNotifier {
     );
   }
 
+  String _lastWarmAhead = '';
+
+  /// design/508 — practice moved to [from]; ask for the next window once.
+  void warmSoundAhead({
+    required String cacheId,
+    required List<String> texts,
+    required int from,
+  }) {
+    final cid = cacheId.trim();
+    if (cid.isEmpty) return;
+    final key = '$cid#$from';
+    if (key == _lastWarmAhead) return;
+    _lastWarmAhead = key;
+    final window = soundWarmAhead(texts, from: from);
+    if (window.isEmpty) return;
+    unawaited(_askSoundWarm(cid, window, fromI: from));
+  }
+
   Map<String, Object?> _readerOpenExtraDetails({
     required PaperEntry entry,
     required ReadingSession o,
@@ -5476,7 +5494,7 @@ class LibraryController extends ChangeNotifier {
       } catch (_) {}
       unawaited(_askSoundWarm(
         o.cacheId,
-        soundWarmTexts([for (final s in o.sentences) s.text], from: from),
+        soundWarmAhead([for (final s in o.sentences) s.text], from: from),
         fromI: from,
       ));
 
