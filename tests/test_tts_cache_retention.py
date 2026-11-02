@@ -1,4 +1,4 @@
-"""Shared spoken MP3s expire after 7 days."""
+"""Shared spoken MP3s expire after 60 days (design/507)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def test_expired_tts_names_drop_only_old_mp3() -> None:
     assert names == ["asr/tts_cache/old.mp3"]
 
 
-def test_local_tts_cache_deletes_week_old_files(tmp_path, monkeypatch) -> None:
+def test_local_tts_cache_deletes_files_past_retention(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("ASR_TTS_CACHE_RETENTION_DAYS", raising=False)
     monkeypatch.setattr(
         "sentence_reading.llm.tts.tts_cache_dir", lambda: tmp_path
@@ -37,14 +37,14 @@ def test_local_tts_cache_deletes_week_old_files(tmp_path, monkeypatch) -> None:
     fresh = tmp_path / "fresh.mp3"
     old.write_bytes(b"old")
     fresh.write_bytes(b"new")
-    old_stamp = (datetime.now(timezone.utc) - timedelta(days=8)).timestamp()
-    fresh_stamp = (datetime.now(timezone.utc) - timedelta(days=1)).timestamp()
+    old_stamp = (datetime.now(timezone.utc) - timedelta(days=61)).timestamp()
+    fresh_stamp = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
     import os
 
     os.utime(old, (old_stamp, old_stamp))
     os.utime(fresh, (fresh_stamp, fresh_stamp))
     out = purge_expired_tts_cache()
-    assert out["keep_days"] == 7
+    assert out["keep_days"] == 60
     assert out["local_deleted"] == 1
     assert not old.exists()
     assert fresh.exists()

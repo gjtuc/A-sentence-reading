@@ -313,3 +313,15 @@ List<String?> focusMonthCellKeys(int year, int month) {
 
 /// Clamp helper for UI.
 int clampFocusBlocks(int n) => math.max(0, n);
+
+/// design/506 — the calendar shows practice minutes; history stores blocks.
+int focusPracticeMinutes(int blocks) =>
+    clampFocusBlocks(blocks) * kFocusPracticeBlockDuration.inMinutes;
+
+/// Calendar header for the picked day: '오늘' or 'M월 D일'.
+String focusPracticeDayLabel(String dayKey, {required String todayKey}) {
+  if (dayKey == todayKey) return '오늘';
+  final d = parseFocusPracticeDayKey(dayKey);
+  if (d == null) return dayKey;
+  return '${d.month}월 ${d.day}일';
+}

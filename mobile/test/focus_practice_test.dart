@@ -1,7 +1,9 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/api/focus_practice_models.dart';
 import 'package:sentence_reading/api/focus_practice_store.dart';
 import 'package:sentence_reading/state/focus_practice_controller.dart';
+import 'package:sentence_reading/widgets/focus_practice_calendar_sheet.dart';
 
 class _MemFocusStore implements FocusPracticeStore {
   final Map<String, String> _data = {};
@@ -180,5 +182,84 @@ void main() {
 
   test('design/505: production speaking block is 1 minute', () {
     expect(kFocusPracticeBlockDuration, const Duration(minutes: 1));
+  });
+
+  test('design/506: calendar minutes come from blocks', () {
+    expect(focusPracticeMinutes(0), 0);
+    expect(focusPracticeMinutes(4), 4 * kFocusPracticeBlockDuration.inMinutes);
+    expect(focusPracticeMinutes(-2), 0);
+    expect(
+      focusPracticeDayLabel('2026-11-02', todayKey: '2026-11-02'),
+      '오늘',
+    );
+    expect(
+      focusPracticeDayLabel('2026-11-01', todayKey: '2026-11-02'),
+      '11월 1일',
+    );
+  });
+
+  testWidgets('design/506: tapping a day shows that day practice minutes',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final now = DateTime.now();
+    final todayKey = focusPracticeDayKey(now);
+    final otherKey = focusPracticeDayKey(
+      DateTime(now.year, now.month, now.day == 1 ? 2 : 1),
+    );
+    final store = _MemFocusStore();
+    await store.writeRaw(
+      'u1',
+      serializeFocusPracticeHistory(
+        FocusPracticeHistory(
+          days: {todayKey: 4, otherKey: 7},
+          sentencesRead: 99,
+        ),
+      ),
+    );
+    final c = FocusPracticeController(store: store);
+    await c.bindUid('u1');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () =>
+                  showFocusPracticeCalendarSheet(context: context, focus: c),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    String minutes() => tester
+        .widget<Text>(find.byKey(const ValueKey('focus_calendar_minutes')))
+        .data!;
+    String label() => tester
+        .widget<Text>(find.byKey(const ValueKey('focus_calendar_day_label')))
+        .data!;
+
+    expect(minutes(), '${focusPracticeMinutes(4)}분');
+    expect(label(), '오늘 연습 시간');
+    expect(find.text('99'), findsNothing);
+
+    await tester.tap(find.byKey(ValueKey('focus_day_$otherKey')));
+    await tester.pump();
+    expect(minutes(), '${focusPracticeMinutes(7)}분');
+    expect(
+      label(),
+      '${focusPracticeDayLabel(otherKey, todayKey: todayKey)} 연습 시간',
+    );
+
+    await tester.tap(find.byKey(ValueKey('focus_day_$todayKey')));
+    await tester.pump();
+    expect(minutes(), '${focusPracticeMinutes(4)}분');
   });
 }

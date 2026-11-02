@@ -243,7 +243,8 @@ def synthesize_mp3(
     return audio
 
 
-_TTS_CACHE_KEEP_DAYS = 7
+# design/507 — a paper read again after a week must not pay for TTS twice.
+_TTS_CACHE_KEEP_DAYS = 60
 
 
 def tts_cache_retention_days() -> int:

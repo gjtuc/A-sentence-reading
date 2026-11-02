@@ -64,12 +64,18 @@ class _FocusCalendarBody extends StatefulWidget {
 
 class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
   late DateTime _month;
+  late String _picked;
 
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _month = DateTime(now.year, now.month);
+    _picked = focusPracticeDayKey(now);
+  }
+
+  void _pick(String dayKey) {
+    setState(() => _picked = dayKey);
   }
 
   void _shiftMonth(int delta) {
@@ -98,6 +104,7 @@ class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
     final todayKey = focusPracticeDayKey();
     final cells = focusMonthCellKeys(_month.year, _month.month);
     final title = '${_month.year}.${_month.month.toString().padLeft(2, '0')}';
+    final pickedBlocks = focus.history.blocksFor(_picked);
 
     return SafeArea(
       child: Padding(
@@ -115,7 +122,8 @@ class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
             ),
             const SizedBox(height: 12),
             Text(
-              '${focus.sentencesRead}',
+              '${focusPracticeMinutes(pickedBlocks)}분',
+              key: const ValueKey('focus_calendar_minutes'),
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Colors.white,
@@ -123,10 +131,11 @@ class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const Text(
-              '읽은 문장 수',
+            Text(
+              '${focusPracticeDayLabel(_picked, todayKey: todayKey)} 연습 시간',
+              key: const ValueKey('focus_calendar_day_label'),
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white54, fontSize: 12),
+              style: const TextStyle(color: Colors.white54, fontSize: 12),
             ),
             const SizedBox(height: 16),
             Row(
@@ -181,6 +190,8 @@ class _FocusCalendarBodyState extends State<_FocusCalendarBody> {
                               ? 0
                               : focus.history.blocksFor(cells[row * 7 + col]!),
                           isToday: cells[row * 7 + col] == todayKey,
+                          isPicked: cells[row * 7 + col] == _picked,
+                          onTap: _pick,
                         ),
                       ),
                   ],
@@ -258,11 +269,15 @@ class _DayCell extends StatelessWidget {
     required this.dayKey,
     required this.blocks,
     required this.isToday,
+    this.isPicked = false,
+    this.onTap,
   });
 
   final String? dayKey;
   final int blocks;
   final bool isToday;
+  final bool isPicked;
+  final ValueChanged<String>? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -271,31 +286,38 @@ class _DayCell extends StatelessWidget {
     }
     final dayNum = int.tryParse(dayKey!.substring(8, 10)) ?? 0;
     final level = focusHeatLevel(blocks);
+    final border = isPicked
+        ? Border.all(color: const Color(0xFF7FD1FF), width: 2)
+        : isToday
+            ? Border.all(color: Colors.white70, width: 1.2)
+            : null;
     return Padding(
       padding: const EdgeInsets.all(2),
-      child: Container(
-        height: 56,
-        decoration: BoxDecoration(
-          color: focusHeatColor(level, dark: true),
-          borderRadius: BorderRadius.circular(6),
-          border: isToday
-              ? Border.all(color: Colors.white70, width: 1.2)
-              : null,
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              '$dayNum',
-              style: TextStyle(
-                color: level == 0 ? Colors.white38 : Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+      child: GestureDetector(
+        key: ValueKey('focus_day_$dayKey'),
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap == null ? null : () => onTap!(dayKey!),
+        child: Container(
+          height: 56,
+          decoration: BoxDecoration(
+            color: focusHeatColor(level, dark: true),
+            borderRadius: BorderRadius.circular(6),
+            border: border,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '$dayNum',
+                style: TextStyle(
+                  color: level == 0 ? Colors.white38 : Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-            ),
-            if (blocks > 0)
-              _PageLines(lines: blocks),
-          ],
+              if (blocks > 0) _PageLines(lines: blocks),
+            ],
+          ),
         ),
       ),
     );
