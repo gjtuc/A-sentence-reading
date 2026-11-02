@@ -1,4 +1,6 @@
 // design/411 - live reading spots between the devices of one account.
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/api/progress_store.dart';
 import 'package:sentence_reading/services/spot_sync.dart';
@@ -140,5 +142,31 @@ void main() {
     expect(all.keys.toSet(), {'c1', 'c2'});
     expect(all['c2'], (si: 9, fi: 0, at: '2026-10-17T10:00:07Z'));
     expect(await loadRemoteSpots(uid: 'u9'), isEmpty);
+  });
+
+  test('design/509 practice cursor keys ride the spot store', () {
+    expect(practiceSpotKey(' 7d506b60fb6b '), 'p.7d506b60fb6b');
+    expect(practiceSpotKey('abc#r3'), isNull);
+    expect(practiceSpotKey(''), isNull);
+    expect(practiceSpotKey('x' * 95), isNull);
+    expect(practiceSpotCacheId('p.7d506b60fb6b'), '7d506b60fb6b');
+    expect(practiceSpotCacheId('7d506b60fb6b'), isNull);
+    expect(practiceSpotCacheId('p.'), isNull);
+  });
+
+  test('design/509 library publishes and follows practice cursors', () {
+    final lib = File('lib/state/library_controller.dart').readAsStringSync();
+    final record = lib.split('Future<void> recordPracticeProgress(')[1].split('Future<void> _onRemotePracticeSpot(')[0];
+    expect(record.contains('_spotSync?.noteLocal(key, sentenceIndex, chunkIndex)'), isTrue);
+    final remote = lib.split('Future<void> _onRemoteSpot(')[1].split('final uid = _spotUid;')[0];
+    expect(remote.contains('practiceSpotCacheId(cacheId)'), isTrue);
+    expect(remote.contains('_onRemotePracticeSpot('), isTrue);
+  });
+
+  test('design/509 opening the calendar pulls the other devices first', () {
+    final screen =
+        File('lib/screens/shadowing_practice_screen.dart').readAsStringSync();
+    final open = screen.split('void _openFocusCalendar()')[1].split('showFocusPracticeCalendarSheet(')[0];
+    expect(open.contains('_focus.refreshFromCloud()'), isTrue);
   });
 }

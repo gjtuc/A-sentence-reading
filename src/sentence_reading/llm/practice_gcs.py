@@ -87,26 +87,67 @@ def _day_key_ok(k: str) -> bool:
     return bool(k) and len(k) == 10 and k[4] == "-" and k[7] == "-"
 
 
-def normalize_focus_store(raw: Any) -> dict[str, Any]:
-    if not isinstance(raw, dict):
-        return empty_focus_store()
-    days_in = raw.get("days")
+# design/509 - blocks per device, so a phone and a web window add up.
+FOCUS_MAX_DEVICES = 20
+_DEVICE_ID = re.compile(r"^[A-Za-z0-9_-]{8,40}$")
+
+
+def _focus_days(raw: Any) -> dict[str, int]:
     days: dict[str, int] = {}
-    if isinstance(days_in, dict):
-        for k, v in days_in.items():
+    if isinstance(raw, dict):
+        for k, v in raw.items():
             ks = str(k).strip()
             if not _day_key_ok(ks):
                 continue
             n = _as_int(v, 0)
             if n > 0:
                 days[ks] = n
+    return days
+
+
+def _focus_by_dev(raw: Any) -> dict[str, dict[str, int]]:
+    out: dict[str, dict[str, int]] = {}
+    if not isinstance(raw, dict):
+        return out
+    for dev, row in raw.items():
+        ds = str(dev).strip()
+        if not _DEVICE_ID.match(ds):
+            continue
+        days = _focus_days(row)
+        if days:
+            out[ds] = days
+        if len(out) >= FOCUS_MAX_DEVICES:
+            break
+    return out
+
+
+def _days_with_devices(days: dict[str, int], by_dev: dict[str, dict[str, int]]) -> dict[str, int]:
+    """Each day is at least the sum over devices; older rows carry no device."""
+    out = dict(days)
+    sums: dict[str, int] = {}
+    for row in by_dev.values():
+        for k, n in row.items():
+            sums[k] = sums.get(k, 0) + n
+    for k, n in sums.items():
+        if n > out.get(k, 0):
+            out[k] = n
+    return out
+
+
+def normalize_focus_store(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return empty_focus_store()
+    by_dev = _focus_by_dev(raw.get("by_dev"))
     best = max(0, _as_int(raw.get("best_streak"), 0))
-    return {
+    out: dict[str, Any] = {
         "version": 2,
-        "days": days,
+        "days": _days_with_devices(_focus_days(raw.get("days")), by_dev),
         "best_streak": best,
         "updated_at_ms": max(0, _as_int(raw.get("updated_at_ms"), 0)),
     }
+    if by_dev:
+        out["by_dev"] = by_dev
+    return out
 
 
 def _clamp_int(v: Any, lo: int, hi: int, default: int) -> int:
@@ -215,14 +256,30 @@ def merge_focus_stores(a: Any, b: Any) -> dict[str, Any]:
     days: dict[str, int] = {}
     for k in set(sa["days"]) | set(sb["days"]):
         days[k] = max(int(sa["days"].get(k, 0)), int(sb["days"].get(k, 0)))
+    # design/509 - one device's own count only grows: the larger wins per
+    # device, and different devices add up.
+    da, db = sa.get("by_dev") or {}, sb.get("by_dev") or {}
+    by_dev: dict[str, dict[str, int]] = {}
+    for dev in set(da) | set(db):
+        ra, rb = da.get(dev) or {}, db.get(dev) or {}
+        row = {k: max(int(ra.get(k, 0)), int(rb.get(k, 0))) for k in set(ra) | set(rb)}
+        row = {k: n for k, n in row.items() if n > 0}
+        if row:
+            by_dev[dev] = row
+    if len(by_dev) > FOCUS_MAX_DEVICES:
+        keep = sorted(by_dev, key=lambda d: max(by_dev[d]), reverse=True)[:FOCUS_MAX_DEVICES]
+        by_dev = {d: by_dev[d] for d in keep}
     best = max(int(sa["best_streak"]), int(sb["best_streak"]))
     updated = max(int(sa["updated_at_ms"]), int(sb["updated_at_ms"]))
-    return {
+    out: dict[str, Any] = {
         "version": 2,
-        "days": days,
+        "days": _days_with_devices(days, by_dev),
         "best_streak": best,
         "updated_at_ms": updated,
     }
+    if by_dev:
+        out["by_dev"] = by_dev
+    return out
 
 
 def merge_skill_stores(a: Any, b: Any) -> dict[str, Any]:

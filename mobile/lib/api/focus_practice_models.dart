@@ -77,6 +77,7 @@ class FocusPracticeHistory {
     this.bestStreak = 0,
     this.sentencesRead = 0,
     this.updatedAtMs = 0,
+    this.byDev = const {},
   });
 
   final int version;
@@ -87,12 +88,17 @@ class FocusPracticeHistory {
   final int sentencesRead;
   /// design/250 — sync stamp (ms epoch).
   final int updatedAtMs;
+  /// design/509 — device id → day key → blocks that device finished.
+  /// [days] is never below the sum over devices, so a phone and a web window
+  /// practising the same day add up instead of the larger one winning.
+  final Map<String, Map<String, int>> byDev;
 
   FocusPracticeHistory copyWith({
     Map<String, int>? days,
     int? bestStreak,
     int? sentencesRead,
     int? updatedAtMs,
+    Map<String, Map<String, int>>? byDev,
   }) {
     return FocusPracticeHistory(
       version: version,
@@ -100,6 +106,7 @@ class FocusPracticeHistory {
       bestStreak: bestStreak ?? this.bestStreak,
       sentencesRead: sentencesRead ?? this.sentencesRead,
       updatedAtMs: updatedAtMs ?? this.updatedAtMs,
+      byDev: byDev ?? this.byDev,
     );
   }
 
@@ -153,11 +160,13 @@ FocusPracticeHistory parseFocusPracticeHistory(String? raw) {
       final readRaw = decoded['sentences_read'];
       var read = readRaw is int ? readRaw : int.tryParse('$readRaw') ?? 0;
       if (read < 0) read = 0;
+      final byDev = parseFocusByDev(decoded['by_dev']);
       return FocusPracticeHistory(
-        days: days,
+        days: focusDaysWithDevices(days, byDev),
         bestStreak: best,
         sentencesRead: read,
         updatedAtMs: updated < 0 ? 0 : updated,
+        byDev: byDev,
       );
     }
 
@@ -189,7 +198,101 @@ String serializeFocusPracticeHistory(FocusPracticeHistory h) {
     'best_streak': h.bestStreak < 0 ? 0 : h.bestStreak,
     'sentences_read': h.sentencesRead < 0 ? 0 : h.sentencesRead,
     'updated_at_ms': h.updatedAtMs < 0 ? 0 : h.updatedAtMs,
+    if (h.byDev.isNotEmpty) 'by_dev': focusByDevJson(h.byDev),
   });
+}
+
+/// design/509 — a device id the server also accepts (spot device ids).
+bool focusDeviceIdOk(String dev) =>
+    dev.length >= 8 &&
+    dev.length <= 40 &&
+    RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(dev);
+
+/// Most devices kept per account; the server keeps the same number.
+const int kFocusMaxDevices = 20;
+
+Map<String, Map<String, int>> parseFocusByDev(Object? raw) {
+  final out = <String, Map<String, int>>{};
+  if (raw is! Map) return out;
+  for (final e in raw.entries) {
+    final dev = '${e.key}'.trim();
+    if (!focusDeviceIdOk(dev) || e.value is! Map) continue;
+    final days = <String, int>{};
+    for (final d in (e.value as Map).entries) {
+      final k = '${d.key}'.trim();
+      if (parseFocusPracticeDayKey(k) == null) continue;
+      final v = d.value;
+      final n = v is int ? v : int.tryParse('$v') ?? 0;
+      if (n > 0) days[k] = n;
+    }
+    if (days.isNotEmpty) out[dev] = days;
+    if (out.length >= kFocusMaxDevices) break;
+  }
+  return out;
+}
+
+Map<String, Map<String, int>> focusByDevJson(
+  Map<String, Map<String, int>> byDev,
+) =>
+    {
+      for (final e in byDev.entries)
+        if (e.value.isNotEmpty)
+          e.key: {
+            for (final d in e.value.entries)
+              if (d.value > 0) d.key: d.value,
+          },
+    };
+
+/// Each day is at least the sum over devices (older rows carry no device).
+Map<String, int> focusDaysWithDevices(
+  Map<String, int> days,
+  Map<String, Map<String, int>> byDev,
+) {
+  final out = <String, int>{
+    for (final e in days.entries)
+      if (e.value > 0) e.key: e.value,
+  };
+  final sums = <String, int>{};
+  for (final dev in byDev.values) {
+    for (final d in dev.entries) {
+      if (d.value > 0) sums[d.key] = (sums[d.key] ?? 0) + d.value;
+    }
+  }
+  for (final e in sums.entries) {
+    if (e.value > (out[e.key] ?? 0)) out[e.key] = e.value;
+  }
+  return out;
+}
+
+/// One more finished block on [day] by [dev]. A device that has no row yet
+/// for that day takes over whatever the day held beyond the other devices,
+/// which were its own blocks from before rows carried a device.
+FocusPracticeHistory focusAddBlock(
+  FocusPracticeHistory h, {
+  required String day,
+  required String dev,
+}) {
+  if (!focusDeviceIdOk(dev)) {
+    final days = Map<String, int>.from(h.days);
+    days[day] = (days[day] ?? 0) + 1;
+    return h.copyWith(days: days);
+  }
+  var others = 0;
+  for (final e in h.byDev.entries) {
+    if (e.key != dev) others += e.value[day] ?? 0;
+  }
+  final mine = Map<String, int>.from(h.byDev[dev] ?? const {});
+  final held = (h.days[day] ?? 0) - others;
+  final base = math.max(mine[day] ?? 0, held);
+  mine[day] = base + 1;
+  final byDev = <String, Map<String, int>>{
+    for (final e in h.byDev.entries) e.key: e.value,
+    dev: mine,
+  };
+  return h.copyWith(
+    byDev: byDev,
+    days: focusDaysWithDevices(h.days, byDev),
+  );
 }
 
 /// Backward-compatible aliases used by older tests / call sites.

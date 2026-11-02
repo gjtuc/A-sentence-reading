@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from pathlib import Path
 
 import pytest
@@ -113,7 +115,7 @@ def test_cas_retries_a_conflict_and_never_writes_without_the_generation(monkeypa
 def test_client_publishes_only_real_moves_and_follows_newer_spots():
     lib = (ROOT / "mobile/lib/state/library_controller.dart").read_text(encoding="utf-8")
     assert lib.count("await persistOpenedProgress(publish: true);") == 4
-    assert "Future<void> persistOpenedProgress({bool publish = false, String? at})" in lib
+    assert re.search(r"Future<void> persistOpenedProgress\(\{\s*bool publish = false,\s*String\? at\b", lib)
     assert "await persistOpenedProgress(at: at);" in lib
     shell = (ROOT / "mobile/lib/screens/home_shell.dart").read_text(encoding="utf-8")
     assert "widget.library.startSpotSync();" in shell and "widget.library.stopSpotSync();" in shell

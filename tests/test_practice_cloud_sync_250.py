@@ -75,3 +75,35 @@ def test_practice_sync_routes_exist():
         assert body.get("ok") is True
         # available may be false without GCS/auth
         assert "available" in body
+
+
+def test_focus_blocks_from_two_devices_add_up_509() -> None:
+    day = "2026-11-03"
+    phone = {"days": {day: 3}, "by_dev": {"PHONEdevice01": {day: 3}}, "best_streak": 1}
+    web = {"days": {day: 2}, "by_dev": {"WEBwindow0001": {day: 2}}, "best_streak": 1}
+    merged = merge_focus_stores(phone, web)
+    assert merged["days"][day] == 5
+    assert merged["by_dev"] == {"PHONEdevice01": {day: 3}, "WEBwindow0001": {day: 2}}
+    again = merge_focus_stores(merged, {"days": {day: 3}, "by_dev": {"PHONEdevice01": {day: 4}}})
+    assert again["days"][day] == 6
+
+
+def test_focus_store_without_devices_is_unchanged_509() -> None:
+    old = {"days": {"2026-10-10": 2}, "best_streak": 7, "updated_at_ms": 5}
+    out = normalize_focus_store(old)
+    assert out == {"version": 2, "days": {"2026-10-10": 2}, "best_streak": 7, "updated_at_ms": 5}
+    assert merge_focus_stores(old, {"by_dev": {"PHONEdevice01": {"2026-10-10": 1}}})["days"]["2026-10-10"] == 2
+
+
+def test_focus_store_drops_bad_device_ids_509() -> None:
+    out = normalize_focus_store(
+        {"by_dev": {"short": {"2026-11-03": 1}, "bad id!!": {"2026-11-03": 1}, "PHONEdevice01": {"nope": 3}}}
+    )
+    assert "by_dev" not in out
+    assert out["days"] == {}
+
+
+def test_practice_cursor_key_is_a_valid_spot_id_509() -> None:
+    from sentence_reading.llm import reading_spots
+
+    assert reading_spots.valid_cache_id("p.7d506b60fb6b")

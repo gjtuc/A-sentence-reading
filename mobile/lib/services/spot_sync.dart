@@ -144,3 +144,23 @@ Future<String> spotDeviceId() async {
   await p.setString(kSpotDeviceKey, id);
   return id;
 }
+
+/// design/509 — a practice cursor rides the same store under `p.<cache id>`;
+/// `si` is the sentence and `fi` the chunk. Null for ids the server refuses
+/// (sample rounds carry `#`).
+const String kPracticeSpotPrefix = 'p.';
+
+String? practiceSpotKey(String cacheId) {
+  final cid = cacheId.trim();
+  final key = '$kPracticeSpotPrefix$cid';
+  if (cid.isEmpty || key.length > 96) return null;
+  if (!RegExp(r'^[A-Za-z0-9_.-]+$').hasMatch(cid)) return null;
+  return key;
+}
+
+/// The paper id behind a practice spot key, or null for a reading spot.
+String? practiceSpotCacheId(String key) {
+  if (!key.startsWith(kPracticeSpotPrefix)) return null;
+  final cid = key.substring(kPracticeSpotPrefix.length);
+  return cid.isEmpty ? null : cid;
+}

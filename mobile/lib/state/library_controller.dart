@@ -260,6 +260,11 @@ class LibraryController extends ChangeNotifier {
   /// Another device read [cacheId] up to here. Kept apart from this device's row;
   /// the open paper follows when the spot is newer and fits it.
   Future<void> _onRemoteSpot(String cacheId, int si, int fi, String at) async {
+    final practiced = practiceSpotCacheId(cacheId);
+    if (practiced != null) {
+      await _onRemotePracticeSpot(practiced, si, fi, at);
+      return;
+    }
     final uid = _spotUid;
     final kept = await saveRemoteSpot(
       uid: uid,
@@ -4781,6 +4786,9 @@ class LibraryController extends ChangeNotifier {
         chunkIndex: chunkIndex,
         sectionLabel: sectionLabel,
       );
+      // design/509 — the other devices of this account follow this cursor.
+      final key = practiceSpotKey(cid);
+      if (key != null) _spotSync?.noteLocal(key, sentenceIndex, chunkIndex);
       if (sectionLabel.isNotEmpty) {
         final next = Map<String, String>.from(practiceResumeByCacheId);
         next[cid] = sectionLabel;
@@ -4788,6 +4796,49 @@ class LibraryController extends ChangeNotifier {
         notifyListeners();
       }
     } catch (_) {}
+  }
+
+  /// design/509 — another device practised [cacheId] up to here. Stored as
+  /// this device's practice cursor when newer; the next practice open starts
+  /// there. An open practice screen is not moved under the speaker.
+  Future<void> _onRemotePracticeSpot(
+    String cacheId,
+    int si,
+    int ci,
+    String at,
+  ) async {
+    final uid = await _authUid();
+    final mine = await loadPracticeProgress(uid: uid, cacheId: cacheId);
+    if (mine != null && mine.at.compareTo(at) >= 0) return;
+    var label = '';
+    try {
+      final raw = await _paperDisk.loadSessionJson(cacheId);
+      if (raw != null) {
+        final o = ReadingSession.fromOpenJson(raw, fallbackCacheId: cacheId);
+        if (si >= 0 && si < o.sentenceCount) {
+          final h = o.sectionNav.headerPartsFor(si);
+          label = '${h.sectionName} ${h.rightLabel}'.trim();
+        }
+      }
+    } catch (_) {}
+    await savePracticeProgress(
+      uid: uid,
+      cacheId: cacheId,
+      sentenceIndex: si,
+      chunkIndex: ci,
+      sectionLabel: label,
+      at: at,
+    );
+    final next = Map<String, String>.from(practiceResumeByCacheId);
+    if (label.isEmpty) {
+      next.remove(cacheId);
+    } else {
+      next[cacheId] = label;
+    }
+    if (next[cacheId] != practiceResumeByCacheId[cacheId]) {
+      practiceResumeByCacheId = next;
+      notifyListeners();
+    }
   }
 
   Future<PracticeProgressRow?> loadPracticeProgressRow(String cacheId) async {

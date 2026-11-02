@@ -2699,6 +2699,7 @@ class _ShadowingPracticeScreenState extends State<ShadowingPracticeScreen>
   }
 
   void _openFocusCalendar() {
+    unawaited(_focus.refreshFromCloud());
     unawaited(
       showFocusPracticeCalendarSheet(
         context: context,

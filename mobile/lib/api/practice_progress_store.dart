@@ -21,11 +21,14 @@ class PracticeProgressRow {
     required this.sentenceIndex,
     this.chunkIndex = 0,
     this.sectionLabel = '',
+    this.at = '',
   });
 
   final int sentenceIndex;
   final int chunkIndex;
   final String sectionLabel;
+  /// design/509 — UTC ISO time of the move; the newer device wins.
+  final String at;
 }
 
 Future<PracticeProgressRow?> loadPracticeProgress({
@@ -52,6 +55,7 @@ Future<PracticeProgressRow?> loadPracticeProgress({
       sentenceIndex: si.toInt(),
       chunkIndex: chunk < 0 ? 0 : chunk,
       sectionLabel: '${row['section_label'] ?? ''}'.trim(),
+      at: '${row['at'] ?? ''}'.trim(),
     );
   } catch (_) {
     return null;
@@ -64,6 +68,7 @@ Future<void> savePracticeProgress({
   required int sentenceIndex,
   int chunkIndex = 0,
   String sectionLabel = '',
+  String? at,
 }) async {
   final cid = cacheId.trim();
   if (cid.isEmpty) return;
@@ -91,7 +96,7 @@ Future<void> savePracticeProgress({
     'sentence_index': sentenceIndex,
     'chunk_index': chunkIndex < 0 ? 0 : chunkIndex,
     if (sectionLabel.trim().isNotEmpty) 'section_label': sectionLabel.trim(),
-    'at': DateTime.now().toUtc().toIso8601String(),
+    'at': at ?? DateTime.now().toUtc().toIso8601String(),
   };
   if (papers.length > 500) {
     final entries = papers.entries.toList()

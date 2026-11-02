@@ -10,6 +10,8 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../api/focus_practice_models.dart';
 import '../api/focus_practice_store.dart';
 import '../api/practice_cloud_hooks.dart';
+import '../api/practice_cloud_merge.dart';
+import '../services/spot_sync.dart';
 import '../services/evidence_bus.dart';
 
 class FocusPracticeController extends ChangeNotifier {
@@ -17,12 +19,18 @@ class FocusPracticeController extends ChangeNotifier {
     FocusPracticeStore? store,
     this.blockDuration = kFocusPracticeBlockDuration,
     DateTime Function()? clock,
+    Future<String> Function()? deviceId,
   })  : _store = store ?? PrefsFocusPracticeStore(),
-        _clock = clock ?? DateTime.now;
+        _clock = clock ?? DateTime.now,
+        _deviceIdLoader = deviceId ?? spotDeviceId;
 
   final FocusPracticeStore _store;
   final Duration blockDuration;
   final DateTime Function() _clock;
+  final Future<String> Function() _deviceIdLoader;
+
+  /// design/509 — this install's id; blocks are counted per device.
+  String _deviceId = '';
 
   String? _uid;
   FocusPracticeHistory _history = const FocusPracticeHistory();
@@ -79,12 +87,37 @@ class FocusPracticeController extends ChangeNotifier {
 
   Future<void> bindUid(String? uid) async {
     _uid = (uid ?? '').trim().isEmpty ? null : uid!.trim();
+    // Not awaited: a block takes a minute of speaking, and a prefs call that
+    // never answers (widget tests) must not hold the screen.
+    if (_deviceId.isEmpty) unawaited(_loadDeviceId());
     await asrPracticeEnsurePulled?.call();
     try {
       final raw = await _store.readRaw(_uid);
       _history = parseFocusPracticeHistory(raw);
     } catch (_) {
       _history = const FocusPracticeHistory();
+    }
+    _syncTodayFromHistory();
+    notifyListeners();
+  }
+
+  Future<void> _loadDeviceId() async {
+    try {
+      _deviceId = await _deviceIdLoader();
+    } catch (_) {
+      // EDGE: no prefs — blocks count without a device row.
+    }
+  }
+
+  /// design/509 — another device may have finished blocks since this bound.
+  /// Pulls, then folds the disk copy into what this screen holds.
+  Future<void> refreshFromCloud() async {
+    try {
+      await asrPracticeEnsurePulled?.call(force: true);
+      final raw = await _store.readRaw(_uid);
+      _history = mergeFocusHistories(_history, parseFocusPracticeHistory(raw));
+    } catch (_) {
+      return;
     }
     _syncTodayFromHistory();
     notifyListeners();
@@ -115,6 +148,8 @@ class FocusPracticeController extends ChangeNotifier {
         },
         'best_streak': _history.bestStreak < 0 ? 0 : _history.bestStreak,
         'updated_at_ms': _history.updatedAtMs < 0 ? 0 : _history.updatedAtMs,
+        if (_history.byDev.isNotEmpty)
+          'by_dev': focusByDevJson(_history.byDev),
       });
     } catch (_) {
       // EDGE: prefs fail — keep memory state; next bind may miss.
@@ -253,11 +288,9 @@ class FocusPracticeController extends ChangeNotifier {
         elapsedInBlock = Duration.zero;
         final today = focusPracticeDayKey(_clock());
         final prevBlocks = _history.blocksFor(today);
-        final nextBlocks = prevBlocks + 1;
-        final days = Map<String, int>.from(_history.days);
-        days[today] = nextBlocks;
+        _history = focusAddBlock(_history, day: today, dev: _deviceId);
+        final nextBlocks = _history.blocksFor(today);
         final first = prevBlocks <= 0;
-        _history = _history.copyWith(days: days);
         _day = FocusPracticeDayState(
           day: today,
           success: true,

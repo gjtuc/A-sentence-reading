@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentence_reading/api/focus_practice_models.dart';
 import 'package:sentence_reading/api/focus_practice_store.dart';
+import 'package:sentence_reading/api/practice_cloud_merge.dart';
 import 'package:sentence_reading/state/focus_practice_controller.dart';
 import 'package:sentence_reading/widgets/focus_practice_calendar_sheet.dart';
 
@@ -261,5 +262,55 @@ void main() {
     await tester.tap(find.byKey(ValueKey('focus_day_$todayKey')));
     await tester.pump();
     expect(minutes(), '${focusPracticeMinutes(4)}분');
+  });
+
+  test('design/509: phone and web blocks on one day add up', () {
+    const day = '2026-11-03';
+    var phone = const FocusPracticeHistory();
+    for (var i = 0; i < 3; i++) {
+      phone = focusAddBlock(phone, day: day, dev: 'PHONEdevice01');
+    }
+    var web = const FocusPracticeHistory();
+    for (var i = 0; i < 2; i++) {
+      web = focusAddBlock(web, day: day, dev: 'WEBwindow0001');
+    }
+    final merged = mergeFocusHistories(phone, web);
+    expect(merged.blocksFor(day), 5);
+    expect(mergeFocusHistories(merged, phone).blocksFor(day), 5);
+    final back = parseFocusPracticeHistory(serializeFocusPracticeHistory(merged));
+    expect(back.blocksFor(day), 5);
+    expect(back.byDev['PHONEdevice01']![day], 3);
+
+    final webAgain = focusAddBlock(back, day: day, dev: 'WEBwindow0001');
+    expect(webAgain.blocksFor(day), 6);
+  });
+
+  test('design/509: a device with no row takes over its older blocks', () {
+    const day = '2026-11-03';
+    const legacy = FocusPracticeHistory(days: {day: 2});
+    final next = focusAddBlock(legacy, day: day, dev: 'PHONEdevice01');
+    expect(next.blocksFor(day), 3);
+    expect(next.byDev['PHONEdevice01']![day], 3);
+    final noDev = focusAddBlock(legacy, day: day, dev: '');
+    expect(noDev.blocksFor(day), 3);
+    expect(noDev.byDev, isEmpty);
+  });
+
+  test('design/509: a finished block is filed under this device', () async {
+    var now = DateTime(2026, 11, 3, 10, 0, 0);
+    final c = FocusPracticeController(
+      store: _MemFocusStore(),
+      blockDuration: const Duration(seconds: 10),
+      clock: () => now,
+      deviceId: () async => 'PHONEdevice01',
+    );
+    await c.bindUid('u1');
+    c.startSession();
+    c.beginSpeak();
+    now = now.add(const Duration(seconds: 11));
+    c.endSpeak();
+    expect(c.history.byDev['PHONEdevice01']!['2026-11-03'], 1);
+    expect(c.history.blocksFor('2026-11-03'), 1);
+    c.giveUp();
   });
 }
