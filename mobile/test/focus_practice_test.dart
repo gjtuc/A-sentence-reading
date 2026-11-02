@@ -178,7 +178,7 @@ void main() {
     expect(focusStreakMilestonesHit(14), [3, 7, 10, 14]);
   });
 
-  test('production speaking block is 3 minutes', () {
-    expect(kFocusPracticeBlockDuration, const Duration(minutes: 3));
+  test('design/505: production speaking block is 1 minute', () {
+    expect(kFocusPracticeBlockDuration, const Duration(minutes: 1));
   });
 }

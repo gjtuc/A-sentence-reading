@@ -1,12 +1,12 @@
 /// design/176 + calendar streak — speaking blocks · daily history.
-/// Block length amended to 3 minutes of speaking (listen/replay/rest excluded).
+/// Block length: 1 minute of speaking (listen/replay/rest excluded), design/505.
 library;
 
 import 'dart:convert';
 import 'dart:math' as math;
 
 /// Production block length. Tests inject a shorter [FocusPracticeController.blockDuration].
-const Duration kFocusPracticeBlockDuration = Duration(minutes: 3);
+const Duration kFocusPracticeBlockDuration = Duration(minutes: 1);
 
 const String kFocusPracticePrefsKeyBase = 'asr.focus_practice.v1';
 
