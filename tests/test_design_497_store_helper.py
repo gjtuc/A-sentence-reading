@@ -148,3 +148,11 @@ def test_privacy_page_is_open_without_login(monkeypatch) -> None:
     assert lr.is_login_public_path("/privacy")
     assert lr.is_login_public_path("/privacy/")
     assert not lr.is_login_public_path("/privacy-other")
+
+
+def test_helper_store_id_is_the_listed_app(monkeypatch) -> None:
+    from sentence_reading.llm import mobile_apk_gcs as mag
+
+    monkeypatch.delenv("ASR_HELPER_STORE_URL", raising=False)
+    assert mag.helper_store_url() == "https://apps.microsoft.com/detail/9PL8GFCBCRP2"
+

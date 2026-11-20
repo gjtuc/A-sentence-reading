@@ -38,9 +38,9 @@
 
 ## 남은 일
 
-1. 사용자: Partner Center 계정, 이름 예약, 제품 ID 값 전달.
-2. 식별 값을 넣고 다시 포장, Partner Center 에 msix 업로드 (개인정보 처리방침 주소 `/privacy`).
-3. 등록되면 `HELPER_STORE_ID` 를 채워 배포.
+1. ~~사용자: Partner Center 계정, 이름 예약, 제품 ID 값 전달.~~
+2. ~~식별 값을 넣고 다시 포장, Partner Center 에 msix 업로드 (개인정보 처리방침 주소 `/privacy`).~~
+3. ~~등록되면 `HELPER_STORE_ID` 를 채워 배포.~~ 심사 통과, Store ID `9PL8GFCBCRP2` (0.3.519).
 
 ## 시험
 

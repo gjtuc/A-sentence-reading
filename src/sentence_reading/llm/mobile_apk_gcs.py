@@ -20,7 +20,7 @@ MOBILE_APK_FILENAME = "sentence-reading-latest.apk"
 # design/495 — the PC helper (scripts/build_helper_exe.py uploads it).
 HELPER_EXE_FILENAME = "sentence-reading-helper.exe"
 # design/497 — Partner Center > Product identity > Store ID, once the helper is listed.
-HELPER_STORE_ID = ""
+HELPER_STORE_ID = "9PL8GFCBCRP2"
 
 
 def helper_store_url() -> str | None:
