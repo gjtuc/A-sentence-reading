@@ -4,8 +4,12 @@ design/151 — Azure analyze → LayoutMap JSON (single analyze, reused downstre
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import threading
+import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -14,6 +18,15 @@ log = logging.getLogger(__name__)
 
 _INCH_TO_PT = 72.0
 _LAYOUT_MAP_NAME = "layout_map.json"
+
+# Reading order and figure extraction both analyze the same upload; Azure bills
+# each analyze by page, so one file's result is kept briefly and handed to both.
+# Figure crops are fetched later by operation id, which Azure keeps for 24 h.
+_ANALYZE_TTL_S = 1800.0
+_ANALYZE_KEEP = 2
+_ANALYZE_LOCK = threading.Lock()
+_ANALYZE_MEMO: OrderedDict[str, tuple[float, object, object, str]] = OrderedDict()
+_ANALYZE_KEY_LOCKS: dict[str, threading.Lock] = {}
 
 
 @dataclass
@@ -337,26 +350,53 @@ def build_layout_map_from_result(result, doc) -> LayoutMap:
     )
 
 
-def analyze_layout_map(pdf_path: Path) -> tuple[LayoutMap, object, object]:
-    """
-    Single Azure analyze. Returns (layout_map, azure_client, analyze_result).
-    Caller must close PyMuPDF doc separately.
-    """
+def _file_digest(pdf_path: Path) -> str:
+    h = hashlib.sha256()
+    with pdf_path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _memo_get(key: str) -> tuple[object, object, str] | None:
+    with _ANALYZE_LOCK:
+        hit = _ANALYZE_MEMO.get(key)
+        if hit is None:
+            return None
+        if time.monotonic() - hit[0] > _ANALYZE_TTL_S:
+            _ANALYZE_MEMO.pop(key, None)
+            return None
+        _ANALYZE_MEMO.move_to_end(key)
+        return hit[1], hit[2], hit[3]
+
+
+def _memo_put(key: str, client: object, result: object, operation_id: str) -> None:
+    with _ANALYZE_LOCK:
+        _ANALYZE_MEMO[key] = (time.monotonic(), client, result, operation_id)
+        _ANALYZE_MEMO.move_to_end(key)
+        while len(_ANALYZE_MEMO) > _ANALYZE_KEEP:
+            old, _ = _ANALYZE_MEMO.popitem(last=False)
+            lock = _ANALYZE_KEY_LOCKS.get(old)
+            if lock is not None and not lock.locked():
+                _ANALYZE_KEY_LOCKS.pop(old, None)
+
+
+def clear_analyze_memo() -> None:
+    with _ANALYZE_LOCK:
+        _ANALYZE_MEMO.clear()
+        _ANALYZE_KEY_LOCKS.clear()
+
+
+def _analyze_azure(pdf_path: Path) -> tuple[object, object, str]:
     from azure.ai.documentintelligence import DocumentIntelligenceClient
     from azure.ai.documentintelligence.models import AnalyzeOutputOption
     from azure.core.credentials import AzureKeyCredential
 
     from sentence_reading.llm.env import (
-        azure_document_intelligence_available,
         azure_document_intelligence_endpoint,
         azure_document_intelligence_key,
     )
     from sentence_reading.pdf.azure_layout import _timeout_s
-
-    if not azure_document_intelligence_available():
-        raise RuntimeError("azure_document_intelligence_not_configured")
-
-    import fitz
 
     endpoint = azure_document_intelligence_endpoint() or ""
     key = azure_document_intelligence_key() or ""
@@ -364,16 +404,42 @@ def analyze_layout_map(pdf_path: Path) -> tuple[LayoutMap, object, object]:
         endpoint=endpoint,
         credential=AzureKeyCredential(key),
     )
+    with pdf_path.open("rb") as pdf_file:
+        poller = client.begin_analyze_document(
+            "prebuilt-layout",
+            body=pdf_file,
+            output=[AnalyzeOutputOption.FIGURES],
+        )
+    result = poller.result(timeout=_timeout_s())
+    operation_id = str(poller.details.get("operation_id") or "")
+    return client, result, operation_id
+
+
+def analyze_layout_map(pdf_path: Path) -> tuple[LayoutMap, object, object]:
+    """
+    Single Azure analyze per file content. Returns (layout_map, azure_client, analyze_result).
+    The LayoutMap is rebuilt on every call because slot planning mutates it.
+    """
+    from sentence_reading.llm.env import azure_document_intelligence_available
+
+    if not azure_document_intelligence_available():
+        raise RuntimeError("azure_document_intelligence_not_configured")
+
+    import fitz
+
+    key = _file_digest(pdf_path)
+    with _ANALYZE_LOCK:
+        key_lock = _ANALYZE_KEY_LOCKS.setdefault(key, threading.Lock())
+    with key_lock:
+        hit = _memo_get(key)
+        if hit is None:
+            client, result, operation_id = _analyze_azure(pdf_path)
+            _memo_put(key, client, result, operation_id)
+        else:
+            client, result, operation_id = hit
+            log.info("azure analyze reused for %s", key[:12])
     doc = fitz.open(pdf_path)
     try:
-        with pdf_path.open("rb") as pdf_file:
-            poller = client.begin_analyze_document(
-                "prebuilt-layout",
-                body=pdf_file,
-                output=[AnalyzeOutputOption.FIGURES],
-            )
-        result = poller.result(timeout=_timeout_s())
-        operation_id = str(poller.details.get("operation_id") or "")
         layout = build_layout_map_from_result(result, doc)
         layout.operation_id = operation_id
         return layout, client, result
