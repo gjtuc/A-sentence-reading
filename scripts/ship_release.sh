@@ -5,12 +5,24 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-ENV_FILE="${ASR_SHIP_ENV_FILE:-/c/Users/user/Desktop/.cursor/gc-home/gc_automation.env}"
-if [[ -f "$ENV_FILE" ]]; then
+ENV_FILE="${ASR_SHIP_ENV_FILE:-}"
+if [[ -z "$ENV_FILE" ]]; then
+  for _cand in \
+    /d/.cursor/repos/GC-auto/data_pc/gc_automation.env \
+    /c/Users/user/Desktop/.cursor/gc-home/gc_automation.env; do
+    if [[ -f "$_cand" ]]; then
+      ENV_FILE="$_cand"
+      break
+    fi
+  done
+fi
+if [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1090
   source "$ENV_FILE"
   set +a
+else
+  echo "ship_release: gc_automation.env not found (set ASR_SHIP_ENV_FILE)" >&2
 fi
 
 _apk_running() {

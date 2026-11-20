@@ -8,7 +8,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ENV_FILE="${ASR_ENV_FILE:-/c/Users/user/Desktop/.cursor/gc_automation.env}"
+ENV_FILE="${ASR_ENV_FILE:-/d/.cursor/repos/GC-auto/data_pc/gc_automation.env}"
 SA_JSON="${ASR_CD_SA_JSON:-/c/Users/user/Desktop/.cursor/secrets/asr-github-deploy.json}"
 ENABLE=0
 for a in "$@"; do

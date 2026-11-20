@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 _DEFAULT_ENV_CANDIDATES = (
+    Path(r"D:\.cursor\repos\GC-auto\data_pc\gc_automation.env"),
     Path(r"D:\.cursor\gc-home\gc_automation.env"),
     Path(r"C:\Users\user\Desktop\.cursor\gc_automation.env"),
     Path.home() / "Desktop" / ".cursor" / "gc_automation.env",

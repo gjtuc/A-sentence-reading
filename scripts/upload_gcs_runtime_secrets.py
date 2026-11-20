@@ -21,7 +21,7 @@ from sentence_reading.llm.gcs_secrets import (  # noqa: E402
     upload_runtime,
 )
 
-ENV_FILE = Path(r"D:\.cursor\gc-home\gc_automation.env")
+ENV_FILE = Path(r"D:\.cursor\repos\GC-auto\data_pc\gc_automation.env")
 REGION = "asia-northeast3"
 SERVICES = ("asr-sentence-reading", "asr-sentence-reading-worker")
 
