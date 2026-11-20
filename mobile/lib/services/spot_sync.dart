@@ -28,6 +28,10 @@ typedef RemoteSpotHandler = Future<void> Function(
 const Duration kSpotDebounce = Duration(milliseconds: 600);
 const Duration kSpotPoll = Duration(seconds: 3);
 
+/// design/511 — with no touch, key, mouse or local move for this long, polling
+/// stops until the next one. Each poll kept the API instance up and billed.
+const Duration kSpotIdleStop = Duration(minutes: 5);
+
 /// After this many failed calls in a row, poll only every [kSpotSlowPoll].
 const int kSpotSlowAfter = 3;
 const Duration kSpotSlowPoll = Duration(seconds: 60);

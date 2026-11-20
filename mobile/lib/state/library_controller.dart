@@ -8,6 +8,8 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart'
+    show GestureBinding, PointerDownEvent, PointerEvent, PointerHoverEvent, PointerSignalEvent;
 import 'package:flutter/widgets.dart'
     show AppLifecycleListener, AppLifecycleState, WidgetsBinding;
 import 'package:flutter/services.dart';
@@ -201,10 +203,51 @@ class LibraryController extends ChangeNotifier {
   Timer? _spotTimer;
   String? _spotUid;
   int _spotFollows = 0;
+  DateTime _spotActiveAt = DateTime.now();
+  bool _spotIdle = false;
+  bool _spotInputHooked = false;
 
   void startSpotSync() {
     _spotWanted = true;
     _bindSpotSync(_diskUid);
+    noteSpotActivity();
+  }
+
+  /// design/511 — someone is here; a stopped poll starts again right away.
+  void noteSpotActivity() {
+    _spotActiveAt = DateTime.now();
+    if (!_spotIdle) return;
+    _spotIdle = false;
+    if (_spotSync != null) _armSpotPoll(Duration.zero);
+  }
+
+  void _onSpotPointer(PointerEvent e) {
+    if (e is PointerDownEvent || e is PointerHoverEvent || e is PointerSignalEvent) {
+      noteSpotActivity();
+    }
+  }
+
+  bool _onSpotKey(KeyEvent e) {
+    noteSpotActivity();
+    return false;
+  }
+
+  void _hookSpotInput() {
+    if (_spotInputHooked) return;
+    try {
+      GestureBinding.instance.pointerRouter.addGlobalRoute(_onSpotPointer);
+      HardwareKeyboard.instance.addHandler(_onSpotKey);
+      _spotInputHooked = true;
+    } catch (_) {
+      // EDGE: no binding (unit tests); polling then never goes idle.
+    }
+  }
+
+  void _unhookSpotInput() {
+    if (!_spotInputHooked) return;
+    _spotInputHooked = false;
+    GestureBinding.instance.pointerRouter.removeGlobalRoute(_onSpotPointer);
+    HardwareKeyboard.instance.removeHandler(_onSpotKey);
   }
 
   void stopSpotSync() {
@@ -221,7 +264,12 @@ class LibraryController extends ChangeNotifier {
     _spotTimer?.cancel();
     _spotSync?.close();
     _spotSync = null;
-    if (want == null) return;
+    _spotIdle = false;
+    if (want == null) {
+      _unhookSpotInput();
+      return;
+    }
+    _hookSpotInput();
     unawaited(() async {
       final dev = await spotDeviceId();
       if (_spotUid != want || _spotSync != null) return;
@@ -247,6 +295,11 @@ class LibraryController extends ChangeNotifier {
     _spotTimer = Timer(wait, () async {
       final sync = _spotSync;
       if (sync == null) return;
+      if (_spotInputHooked &&
+          DateTime.now().difference(_spotActiveAt) >= kSpotIdleStop) {
+        _spotIdle = true;
+        return;
+      }
       final life = WidgetsBinding.instance.lifecycleState;
       if (life == null || life == AppLifecycleState.resumed) {
         await sync.poll();
@@ -2102,6 +2155,7 @@ class LibraryController extends ChangeNotifier {
 
   /// design/75 · 195 — call from HomeShell on AppLifecycleState.resumed.
   Future<IngestJobResult?> onAppResumed() async {
+    noteSpotActivity();
     // design/195 — always try unfinished KO/shadowing when app returns.
     unawaited(scanAndEnqueuePendingEnrich(trigger: 'app_resume'));
     // design/238 · 242 — rescan connected PDF folder (find-watch + new downloads).
@@ -4740,7 +4794,10 @@ class LibraryController extends ChangeNotifier {
   }) async {
     final s = session;
     if (s == null || !s.isValid || s.cacheId.isEmpty) return;
-    if (publish) _spotSync?.noteLocal(s.cacheId, s.sentenceIndex, s.figureIndex);
+    if (publish) {
+      _spotSync?.noteLocal(s.cacheId, s.sentenceIndex, s.figureIndex);
+      noteSpotActivity();
+    }
     // A spot that came from the other window is not sent back: by the time the echo
     // lands, that window may have moved on and would be pulled back.
     if (toPane) onSpotSaved?.call(s.cacheId, s.sentenceIndex, s.figureIndex);
@@ -4788,7 +4845,10 @@ class LibraryController extends ChangeNotifier {
       );
       // design/509 — the other devices of this account follow this cursor.
       final key = practiceSpotKey(cid);
-      if (key != null) _spotSync?.noteLocal(key, sentenceIndex, chunkIndex);
+      if (key != null) {
+        _spotSync?.noteLocal(key, sentenceIndex, chunkIndex);
+        noteSpotActivity();
+      }
       if (sectionLabel.isNotEmpty) {
         final next = Map<String, String>.from(practiceResumeByCacheId);
         next[cid] = sectionLabel;
@@ -5324,6 +5384,7 @@ class LibraryController extends ChangeNotifier {
     unawaited(_webCable?.stop());
     _spotTimer?.cancel();
     _spotSync?.close();
+    _unhookSpotInput();
     super.dispose();
   }
 

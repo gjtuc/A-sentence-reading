@@ -15,5 +15,5 @@
 
 ## 시험
 
-- `tests/test_scale_to_zero_395.py::test_max_instances_default_is_two_507`
+- `tests/test_scale_to_zero_395.py::test_max_instances_defaults_507_511` (API는 design/511에서 1)
 - `tests/test_tts_cache_retention.py` — 기본 60일.

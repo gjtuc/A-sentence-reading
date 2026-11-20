@@ -54,8 +54,9 @@ export ASR_CLOUD_RUN_SERVICE="$API_SERVICE"
 # The phoneme model needs more than 2Gi. The worker script sets its own 2Gi.
 # design/395 — the 30-day peak was 5.0Gi of 8Gi.
 export ASR_CLOUD_RUN_MEMORY="${ASR_API_MEMORY:-6Gi}"
-# design/507 — one reader; extra instances only bill idle minutes.
-export ASR_MAX_INSTANCES="${ASR_API_MAX_INSTANCES:-2}"
+# design/507 · 511 — one reader; a second instance came up for each paper analysis
+# and billed 15 idle minutes after it. ASR_API_MAX_INSTANCES=2 brings it back.
+export ASR_MAX_INSTANCES="${ASR_API_MAX_INSTANCES:-1}"
 
 if [[ "${ASR_PAIR_STAGED_SOURCE:-1}" == "1" ]]; then
   STAGE="$(bash scripts/stage_git_archive_for_ship.sh)"

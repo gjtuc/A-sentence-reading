@@ -90,10 +90,10 @@ def test_cd_profile_matches_local_ship() -> None:
     assert 'ASR_INGEST_INLINE: \\"${ASR_INGEST_INLINE:-1}\\"' in local
 
 
-def test_max_instances_default_is_two_507() -> None:
+def test_max_instances_defaults_507_511() -> None:
     pair = (ROOT / "scripts" / "deploy_cloud_run_pair.sh").read_text(encoding="utf-8")
     worker = (ROOT / "scripts" / "deploy_cloud_run_worker.sh").read_text(encoding="utf-8")
     prof = (ROOT / "scripts" / "capacity_profiles" / "turn2-scale-to-zero.env").read_text(encoding="utf-8")
-    assert 'export ASR_MAX_INSTANCES="${ASR_API_MAX_INSTANCES:-2}"' in pair
+    assert 'export ASR_MAX_INSTANCES="${ASR_API_MAX_INSTANCES:-1}"' in pair
     assert 'ASR_MAX_INSTANCES="${ASR_WORKER_MAX_INSTANCES:-2}"' in worker
     assert "ASR_MAX_INSTANCES=2" in prof.splitlines()

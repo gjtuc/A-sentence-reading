@@ -169,4 +169,20 @@ void main() {
     final open = screen.split('void _openFocusCalendar()')[1].split('showFocusPracticeCalendarSheet(')[0];
     expect(open.contains('_focus.refreshFromCloud()'), isTrue);
   });
+
+  test('design/511 polling stops after a quiet spell and comes back on input', () {
+    expect(kSpotIdleStop, const Duration(minutes: 5));
+    final lib = File('lib/state/library_controller.dart').readAsStringSync();
+    final arm = lib.split('void _armSpotPoll(Duration wait)')[1].split('Future<void> _onRemoteSpot(')[0];
+    expect(arm.contains('DateTime.now().difference(_spotActiveAt) >= kSpotIdleStop'), isTrue);
+    expect(arm.contains('_spotIdle = true;'), isTrue);
+    final note = lib.split('void noteSpotActivity()')[1].split('void _onSpotPointer(')[0];
+    expect(note.contains('_armSpotPoll(Duration.zero)'), isTrue);
+    expect(lib.contains('pointerRouter.addGlobalRoute(_onSpotPointer)'), isTrue);
+    expect(lib.contains('HardwareKeyboard.instance.addHandler(_onSpotKey)'), isTrue);
+    final open = lib.split('Future<void> persistOpenedProgress(')[1].split('// A spot that came from')[0];
+    expect(open.contains('noteSpotActivity();'), isTrue);
+    final resume = lib.split('Future<IngestJobResult?> onAppResumed()')[1].split('scanAndEnqueuePendingEnrich')[0];
+    expect(resume.contains('noteSpotActivity();'), isTrue);
+  });
 }
