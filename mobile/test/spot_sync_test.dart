@@ -182,7 +182,11 @@ void main() {
     expect(lib.contains('HardwareKeyboard.instance.addHandler(_onSpotKey)'), isTrue);
     final open = lib.split('Future<void> persistOpenedProgress(')[1].split('// A spot that came from')[0];
     expect(open.contains('noteSpotActivity();'), isTrue);
-    final resume = lib.split('Future<IngestJobResult?> onAppResumed()')[1].split('scanAndEnqueuePendingEnrich')[0];
-    expect(resume.contains('noteSpotActivity();'), isTrue);
+    expect(lib.contains('AppLifecycleListener(onResume: noteSpotActivity)'), isTrue);
+    final pointer = lib.split('void _onSpotPointer(PointerEvent e)')[1].split('bool _onSpotKey(')[0];
+    expect(pointer.contains('PointerHoverEvent'), isFalse);
+    expect(pointer.contains('_spotFocused'), isTrue);
+    final key = lib.split('bool _onSpotKey(KeyEvent e)')[1].split('void _hookSpotInput()')[0];
+    expect(key.contains('if (_spotFocused) noteSpotActivity();'), isTrue);
   });
 }

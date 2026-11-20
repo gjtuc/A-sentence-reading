@@ -9,7 +9,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart'
-    show GestureBinding, PointerDownEvent, PointerEvent, PointerHoverEvent, PointerSignalEvent;
+    show GestureBinding, PointerDownEvent, PointerEvent, PointerSignalEvent;
 import 'package:flutter/widgets.dart'
     show AppLifecycleListener, AppLifecycleState, WidgetsBinding;
 import 'package:flutter/services.dart';
@@ -206,6 +206,7 @@ class LibraryController extends ChangeNotifier {
   DateTime _spotActiveAt = DateTime.now();
   bool _spotIdle = false;
   bool _spotInputHooked = false;
+  AppLifecycleListener? _spotLife;
 
   void startSpotSync() {
     _spotWanted = true;
@@ -221,14 +222,20 @@ class LibraryController extends ChangeNotifier {
     if (_spotSync != null) _armSpotPoll(Duration.zero);
   }
 
+  /// Web reports a window without focus as inactive; hover and wheel still reach it.
+  bool get _spotFocused {
+    final life = WidgetsBinding.instance.lifecycleState;
+    return life == null || life == AppLifecycleState.resumed;
+  }
+
   void _onSpotPointer(PointerEvent e) {
-    if (e is PointerDownEvent || e is PointerHoverEvent || e is PointerSignalEvent) {
+    if ((e is PointerDownEvent || e is PointerSignalEvent) && _spotFocused) {
       noteSpotActivity();
     }
   }
 
   bool _onSpotKey(KeyEvent e) {
-    noteSpotActivity();
+    if (_spotFocused) noteSpotActivity();
     return false;
   }
 
@@ -237,6 +244,7 @@ class LibraryController extends ChangeNotifier {
     try {
       GestureBinding.instance.pointerRouter.addGlobalRoute(_onSpotPointer);
       HardwareKeyboard.instance.addHandler(_onSpotKey);
+      _spotLife = AppLifecycleListener(onResume: noteSpotActivity);
       _spotInputHooked = true;
     } catch (_) {
       // EDGE: no binding (unit tests); polling then never goes idle.
@@ -248,6 +256,8 @@ class LibraryController extends ChangeNotifier {
     _spotInputHooked = false;
     GestureBinding.instance.pointerRouter.removeGlobalRoute(_onSpotPointer);
     HardwareKeyboard.instance.removeHandler(_onSpotKey);
+    _spotLife?.dispose();
+    _spotLife = null;
   }
 
   void stopSpotSync() {
@@ -2155,7 +2165,6 @@ class LibraryController extends ChangeNotifier {
 
   /// design/75 · 195 — call from HomeShell on AppLifecycleState.resumed.
   Future<IngestJobResult?> onAppResumed() async {
-    noteSpotActivity();
     // design/195 — always try unfinished KO/shadowing when app returns.
     unawaited(scanAndEnqueuePendingEnrich(trigger: 'app_resume'));
     // design/238 · 242 — rescan connected PDF folder (find-watch + new downloads).

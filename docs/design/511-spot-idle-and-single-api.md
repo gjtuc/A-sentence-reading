@@ -10,8 +10,10 @@
 
 ## 결정
 
-- 위치 묻기: 터치, 마우스 움직임·휠, 키, 이 기기의 위치 이동(`persistOpenedProgress(publish)`, 연습 커서), 앱 복귀가 없으면 5분(`kSpotIdleStop`) 뒤 멈춘다. 다음 입력에서 바로 한 번 묻고 다시 3초 간격.
+- 위치 묻기: 터치·클릭, 휠, 키, 이 기기의 위치 이동(`persistOpenedProgress(publish)`, 연습 커서), 창·앱이 다시 선택됨(`AppLifecycleListener.onResume`)이 없으면 5분(`kSpotIdleStop`) 뒤 멈춘다. 다음 활동에서 바로 한 번 묻고 다시 3초 간격.
   - 입력은 `GestureBinding.pointerRouter` 전역 경로와 `HardwareKeyboard` 처리기로 본다. 다른 처리기를 막지 않는다(false 반환).
+  - 마우스 움직임(hover)은 세지 않는다. 선택되지 않은 웹 창에도 들어오기 때문이다. 클릭·휠·키도 선택된 상태(`resumed`)일 때만 센다. 웹은 창 선택이 풀리면 `inactive`, 가려지면 `hidden` 이다 (Flutter web `app_lifecycle_state.dart`).
+  - 묻기 자체는 원래부터 `resumed` 일 때만 보낸다. 백그라운드 앱과 선택되지 않은 웹 창은 묻지 않는다.
   - 바인딩이 없으면(단위 시험) 멈추지 않는다.
 - API 최대 인스턴스 2 → 1 (`ASR_API_MAX_INSTANCES` 로 되돌린다). 워커는 2 그대로.
 
