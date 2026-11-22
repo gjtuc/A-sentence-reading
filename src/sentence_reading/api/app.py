@@ -288,7 +288,7 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="A-sentence-reading",
-    version="0.3.520",
+    version="0.3.521",
     description="One-sentence PDF/DOCX reader with Gemini debone, vision OCR, Cloud TTS.",
     lifespan=_lifespan,
 )
@@ -1837,28 +1837,45 @@ async def _ingest_sweeper_loop() -> None:
             pass
 
 
+def _housekeeping_first_delay_sec(interval: int) -> int:
+    """design/512 — first housekeeping pass after boot, capped by the loop interval."""
+    # WHY: an idle instance is gone ~15 min after its last request, so a first
+    # pass that waits a full interval (1-6 h) never runs.
+    raw = (os.environ.get("ASR_HOUSEKEEPING_FIRST_DELAY_S") or "120").strip()
+    try:
+        sec = int(raw)
+    except ValueError:
+        sec = 120
+    return max(0, min(sec, int(interval)))
+
+
+def _rotate_logs_and_tts_cache() -> None:
+    from sentence_reading.llm import evidence_bus as eb
+    from sentence_reading.llm import error_logs as errlog
+    from sentence_reading.llm import ops_events as oev
+    from sentence_reading.llm import upload_audit_log as ual
+    from sentence_reading.llm.tts import purge_expired_tts_cache
+
+    eb.rotate_events(force=False)
+    oev.rotate_events(force=False)
+    errlog.rotate_events(force=False)
+    ual.rotate_events(force=False)
+    purge_expired_tts_cache()
+
+
 async def _evidence_rotate_loop() -> None:
     """design/169g phase 6 — daily-ish evidence/ops JSONL retention rotate."""
     # WHY: append path also filters; this covers quiet periods with no new emits.
     interval = 6 * 3600
+    delay = _housekeeping_first_delay_sec(interval)
     while True:
         try:
-            await asyncio.sleep(interval)
+            await asyncio.sleep(delay)
         except asyncio.CancelledError:
             raise
+        delay = interval
         try:
-            from sentence_reading.llm import evidence_bus as eb
-            from sentence_reading.llm import error_logs as errlog
-            from sentence_reading.llm import ops_events as oev
-            from sentence_reading.llm import upload_audit_log as ual
-
-            eb.rotate_events(force=False)
-            oev.rotate_events(force=False)
-            errlog.rotate_events(force=False)
-            ual.rotate_events(force=False)
-            from sentence_reading.llm.tts import purge_expired_tts_cache
-
-            purge_expired_tts_cache()
+            await asyncio.to_thread(_rotate_logs_and_tts_cache)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
@@ -1873,11 +1890,13 @@ async def _ingest_artifact_ttl_loop() -> None:
         purge_interval_sec,
     )
 
+    delay = _housekeeping_first_delay_sec(purge_interval_sec())
     while True:
         try:
-            await asyncio.sleep(purge_interval_sec())
+            await asyncio.sleep(delay)
         except asyncio.CancelledError:
             raise
+        delay = purge_interval_sec()
         if not artifact_ttl_enabled():
             continue
         try:
@@ -1915,11 +1934,13 @@ async def _transfer_pack_ttl_loop() -> None:
         purge_once,
     )
 
+    delay = _housekeeping_first_delay_sec(purge_interval_sec())
     while True:
         try:
-            await asyncio.sleep(purge_interval_sec())
+            await asyncio.sleep(delay)
         except asyncio.CancelledError:
             raise
+        delay = purge_interval_sec()
         if not purge_enabled():
             continue
         try:
@@ -1957,11 +1978,13 @@ async def _paper_handoff_abandon_loop() -> None:
         unclaimed_purge_enabled,
     )
 
+    delay = _housekeeping_first_delay_sec(abandon_purge_interval_sec())
     while True:
         try:
-            await asyncio.sleep(abandon_purge_interval_sec())
+            await asyncio.sleep(delay)
         except asyncio.CancelledError:
             raise
+        delay = abandon_purge_interval_sec()
         if not abandon_ttl_enabled() and not unclaimed_purge_enabled():
             continue
         try:

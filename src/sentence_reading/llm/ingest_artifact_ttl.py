@@ -49,6 +49,16 @@ def abandon_hours() -> int:
     return max(24, min(h, 24 * 180))
 
 
+def stale_upload_hours() -> int:
+    """design/512 — an unfinished job keeping its upload is no longer resumable after this."""
+    raw = (os.environ.get("ASR_INGEST_ARTIFACT_STALE_UPLOAD_HOURS") or "336").strip()
+    try:
+        h = int(raw)
+    except ValueError:
+        return 336
+    return max(72, min(h, 24 * 180))
+
+
 def purge_interval_sec() -> int:
     raw = (os.environ.get("ASR_INGEST_ARTIFACT_PURGE_INTERVAL_S") or "3600").strip()
     try:
@@ -154,9 +164,11 @@ def should_purge_job(
         return False, "not_yet"
     if not lease_expired(job, now=n):
         return False, "lease_alive"
-    if has_upload:
-        return False, "reclaim_upload"
     base = _parse_iso(str(job.get("updated_at") or ""))
+    if has_upload:
+        if base is not None and n >= base + timedelta(hours=stale_upload_hours()):
+            return True, "abandoned_with_upload"
+        return False, "reclaim_upload"
     if base is not None and n >= base + timedelta(hours=abandon_hours()):
         return True, "abandoned_no_upload"
     return False, "non_terminal"

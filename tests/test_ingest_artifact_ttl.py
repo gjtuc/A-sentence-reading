@@ -61,7 +61,7 @@ def test_reclaim_upload_kept() -> None:
         "done": False,
         "error": None,
         "lease_until": _iso(now - timedelta(hours=1)),
-        "updated_at": _iso(now - timedelta(hours=500)),
+        "updated_at": _iso(now - timedelta(hours=100)),
     }
     ok, reason = ttl.should_purge_job(job, now=now, has_upload=True)
     assert ok is False
@@ -225,3 +225,34 @@ def test_lists_job_prefixed_artifact_names(monkeypatch) -> None:
     )
     assert ttl._list_uid_job_ids("u1") == ["job_026a78ea1b16"]
     assert ttl._list_uid_upload_ids("u1") == [("job_026a78ea1b16", ".pdf")]
+
+
+def test_stale_job_with_upload_purged_512() -> None:
+    now = datetime(2026, 11, 22, tzinfo=timezone.utc)
+    job = {
+        "done": False,
+        "error": None,
+        "ingest_phase": "translate_pending",
+        "lease_until": _iso(now - timedelta(days=80)),
+        "updated_at": _iso(now - timedelta(hours=ttl.stale_upload_hours() + 1)),
+    }
+    ok, reason = ttl.should_purge_job(job, now=now, has_upload=True)
+    assert ok is True
+    assert reason == "abandoned_with_upload"
+
+
+def test_stale_upload_window_needs_updated_at_512() -> None:
+    now = datetime(2026, 11, 22, tzinfo=timezone.utc)
+    job = {"done": False, "error": None, "lease_until": _iso(now - timedelta(days=80))}
+    ok, reason = ttl.should_purge_job(job, now=now, has_upload=True)
+    assert ok is False
+    assert reason == "reclaim_upload"
+
+
+def test_stale_upload_hours_bounds_512(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ASR_INGEST_ARTIFACT_STALE_UPLOAD_HOURS", raising=False)
+    assert ttl.stale_upload_hours() == 336
+    monkeypatch.setenv("ASR_INGEST_ARTIFACT_STALE_UPLOAD_HOURS", "1")
+    assert ttl.stale_upload_hours() == 72
+    monkeypatch.setenv("ASR_INGEST_ARTIFACT_STALE_UPLOAD_HOURS", "x")
+    assert ttl.stale_upload_hours() == 336
